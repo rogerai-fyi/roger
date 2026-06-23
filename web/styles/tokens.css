@@ -38,6 +38,8 @@
   --live-glow:    rgba(0, 199, 129, 0.30);
   --ember-glow:   rgba(255, 138, 61, 0.26);
   --pulse-glow:   rgba(255, 61, 139, 0.28);
+  /* extra-soft ambient wash for the reduced-motion background fallback */
+  --live-wash:    rgba(0, 199, 129, 0.12);
 
   /* frosted-glass backings (nav, hero pill, band) - theme aware */
   --glass:        rgba(255, 255, 255, 0.72);
@@ -181,6 +183,7 @@
   --live-glow:    rgba(43,224,160,0.34);
   --ember-glow:   rgba(255,168,102,0.30);
   --pulse-glow:   rgba(255,95,160,0.32);
+  --live-wash:    rgba(43,224,160,0.14);
 
   /* ---- ELEVATION: shadows go deeper; add a faint top-light inset. -- */
   --e-0: none;

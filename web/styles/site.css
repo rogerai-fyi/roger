@@ -129,7 +129,7 @@ code, pre { font-family: var(--font-mono); }
     display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none;
     background:
       radial-gradient(circle at 70% 18%, var(--volt-glow), transparent 22%),
-      radial-gradient(circle at 22% 60%, var(--live-glow), transparent 18%);
+      radial-gradient(circle at 22% 60%, var(--live-wash), transparent 18%);
     opacity: .5;
   }
 }

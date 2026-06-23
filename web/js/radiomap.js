@@ -66,7 +66,7 @@
     var volt = toRGB(cs.getPropertyValue("--volt"));
     var live = toRGB(cs.getPropertyValue("--live"));
     var ember = toRGB(cs.getPropertyValue("--ember"));
-    var idle = toRGB(cs.getPropertyValue("--ink-400"));
+    var idle = toRGB(cs.getPropertyValue("--ink-300"));
     if (grid)  COL.grid = grid;
     if (volt)  COL.volt = volt;
     if (live)  COL.live = live;
