@@ -245,14 +245,14 @@
           var channels = aggregate(offers);
           paint(channels, true);
           var nOnline = channels.filter(function (c) { return c.live; }).length;
-          setStatus(nOnline + " channel" + (nOnline === 1 ? "" : "s") + " on air · " +
-                    live + " provider" + (live === 1 ? "" : "s") + " live", "live");
+          setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · " +
+                    live + " station" + (live === 1 ? "" : "s") + " live", "live");
           setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
         } else {
           // broker reachable but nobody is broadcasting yet -> demo band
           paint(demoBand(), true);
           setStatus("the band is quiet right now - a preview of how it looks on air", "demo");
-          setFoot('broker reachable · <span class="ember">no providers on air yet</span> · showing a representative band');
+          setFoot('broker reachable · <span class="ember">no stations on air yet</span> · showing a representative band');
         }
         startShimmer();
       })

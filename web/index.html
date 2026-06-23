@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RogerAI - a two-way radio for GPUs</title>
-  <meta name="description" content="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token. One CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" />
+  <meta name="description" content="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" />
   <meta name="color-scheme" content="light dark" />
 
   <!-- No-flash theme: set data-theme BEFORE first paint. Saved choice wins,
@@ -22,7 +22,7 @@
   </script>
 
   <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
-  <meta property="og:description" content="Go on air with your home GPU. Tune in to the community's models. Pay per token. One CLI." />
+  <meta property="og:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://rogerai.fyi" />
   <meta property="og:image" content="https://rogerai.fyi/logo.svg" />
@@ -111,8 +111,8 @@
       </h1>
 
       <p class="hero__sub" data-reveal data-reveal-delay="120">
-        Local-AI enthusiasts go <b>on air</b> with their self-hosted models -
-        like ham radio, for LLMs. You <b>tune in</b> and pay per token. One CLI.
+        Operators put their self-hosted models <b>on air</b> - ham radio,
+        for LLMs. You <b>tune in</b> and pay per token on the CLI.
       </p>
 
       <!-- THE primary CTA: the install command -->
@@ -144,15 +144,16 @@
   <section class="demo" id="demo">
     <div class="wrap">
       <div class="demo__head" data-reveal>
-        <span class="eyebrow eyebrow--ascii">The whole thing</span>
-        <h2>Run <code class="inline">rogerai</code>. Tune in. Get an endpoint.</h2>
-        <p>Browse stations by signal, tune in, and RogerAI hands you a local
-          <b>OpenAI-compatible endpoint + key</b> on <code class="inline">127.0.0.1</code> -
-          a drop-in for Hermes, your bots, or any tool that speaks OpenAI.</p>
+        <span class="eyebrow eyebrow--ascii">Operating procedure</span>
+        <h2>Pick a band. Lock the signal. Get an endpoint.</h2>
+        <p>Set your band and your margins. RogerAI locks the strongest station and
+          hands you a local <b>OpenAI-compatible endpoint + key</b> on
+          <code class="inline">127.0.0.1</code> - drop-in for Hermes, your bots, or any
+          tool that speaks OpenAI.</p>
       </div>
 
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="A replay of the RogerAI terminal: browsing stations by signal, tuning in, and receiving a local OpenAI-compatible endpoint and key.">
+           aria-label="A replay of the RogerAI terminal: picking a band with margins, locking the strongest station, auto re-tuning when a station fades, and receiving a local OpenAI-compatible endpoint and key.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="term__title">rogerai - the dial</span>
@@ -191,10 +192,10 @@
             </defs>
           </svg>
         </span>
-        <h2>The signal tower.</h2>
-        <p>Every model is a channel. <b>More online providers&nbsp;=&nbsp;stronger signal</b>,
-          faster tokens, lower price. As a channel fills up, signal and quality dip and the
-          price drifts up - supply and demand, in real time.</p>
+        <h2>Read the band.</h2>
+        <p>Every model is a band; every station is a home GPU serving it.
+          <b>More stations&nbsp;=&nbsp;stronger signal</b>, faster tokens, lower price.
+          As a band fills up, signal dips and price drifts up. Supply and demand, live.</p>
       </div>
 
       <div class="market__panel" data-reveal data-reveal-delay="80">
@@ -206,7 +207,7 @@
           </span>
           <span class="market__meta">
             <span class="market__legend" aria-hidden="true">
-              <i class="market__legbar"></i> signal&nbsp;·&nbsp;providers online
+              <i class="market__legbar"></i> signal&nbsp;·&nbsp;stations on air
             </span>
             <button class="market__refresh" id="marketRefresh" type="button"
                     aria-label="Refresh the live band">refresh</button>
@@ -215,7 +216,7 @@
 
         <!-- column header -->
         <div class="mkt-row mkt-row--head" aria-hidden="true">
-          <span class="mkt-cell mkt-cell--model">station</span>
+          <span class="mkt-cell mkt-cell--model">band · stations</span>
           <span class="mkt-cell mkt-cell--signal">signal</span>
           <span class="mkt-cell mkt-cell--speed">speed</span>
           <span class="mkt-cell mkt-cell--quality">quality</span>
@@ -267,10 +268,10 @@
     <div class="wrap">
       <div class="section__head" data-reveal>
         <span class="eyebrow">The idea</span>
-        <h2>Hobbyist GPUs, on the air.</h2>
-        <p>There's a whole community running powerful open models on hardware at home.
-          RogerAI turns that idle capacity into a shared band - discoverable, fair, and
-          dead-simple to join from either side.</p>
+        <h2>Home GPUs, on the air.</h2>
+        <p>A whole community runs powerful open models on hardware at home. RogerAI puts
+          that idle silicon on a shared band - discoverable, fair, dead-simple from either
+          side. Operators broadcast. You tune in.</p>
       </div>
 
       <div class="twoway" data-reveal data-reveal-delay="80">
@@ -287,7 +288,7 @@
           </div>
           <h3>Share a model</h3>
           <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama). Set a call-sign,
-            a price, and the hours you're around. Flip the switch - you're on air.</p>
+            a rate, and your hours. Flip the switch. You are on air.</p>
           <code class="twoway__cmd">rogerai share waterfall --rate 0.30</code>
         </article>
 
@@ -307,9 +308,9 @@
             tune in
           </div>
           <h3>Use a model</h3>
-          <p>Browse stations by signal, price, and distance. Tune in and RogerAI hands you a
-            local OpenAI endpoint + key - a drop-in for anything that speaks OpenAI.</p>
-          <code class="twoway__cmd">rogerai connect @nightowl</code>
+          <p>Pick a band, set your margins (max price, min speed). RogerAI locks the strongest
+            station and hands you a local OpenAI endpoint + key. When one fades, it re-tunes.</p>
+          <code class="twoway__cmd">rogerai use qwen3-coder-30b --max-price 0.30 --min-tps 40</code>
         </article>
       </div>
     </div>
@@ -320,7 +321,7 @@
     <div class="wrap">
       <div class="section__head" data-reveal>
         <span class="eyebrow">How it works</span>
-        <h2>Flexible by design. Easy by default.</h2>
+        <h2>Built to keep the channel open.</h2>
       </div>
 
       <div class="cards">
@@ -338,9 +339,9 @@
               </g>
             </svg>
           </div>
-          <h3>On air / tune in</h3>
-          <p>Two verbs. Owners broadcast a model; users tune to a channel. Signal bars are
-            tokens per second, so good and bad are obvious at a glance.</p>
+          <h3>Lock and hold</h3>
+          <p>Tune to a band with margins. The radio locks the strongest station, then auto
+            re-tunes within those margins when one fades. The channel stays open.</p>
         </article>
 
         <article class="feat" data-reveal data-reveal-delay="70">
@@ -355,8 +356,8 @@
             </svg>
           </div>
           <h3>Lineage receipts</h3>
-          <p>A gold call-sign <span class="cs">&#9670;</span> means every token is signed with its
-            lineage - base weights, fine-tunes, and the exact station that aired it.</p>
+          <p>A gold call-sign <span class="cs">&#9670;</span> signs every token with its lineage:
+            base weights, fine-tunes, and the exact station that aired it.</p>
         </article>
 
         <article class="feat" data-reveal data-reveal-delay="140">
@@ -370,8 +371,8 @@
               <circle class="ico__coin" cx="22.4" cy="19" r="0.9" fill="currentColor" stroke="none" />
             </svg>
           </div>
-          <h3>Your price, your terms</h3>
-          <p>Set per-token rates per model - or share for free. Open only during your hours,
+          <h3>Your rate, your terms</h3>
+          <p>Set per-token rates per model, or share for free. Open during your hours,
             cap usage, throttle by time of day. The market clears the rest.</p>
         </article>
 
@@ -385,8 +386,9 @@
             </svg>
           </div>
           <h3>Only the model. Nothing else.</h3>
-          <p>RogerAI bridges the LLM endpoint and only that. No shell, no files, no context,
-            no personal data - ever reachable. The rest of your machine stays yours.</p>
+          <p>RogerAI bridges the LLM endpoint and nothing more. No shell, no files, no context,
+            no personal data, ever reachable. The rest of your machine stays yours. Or run the
+            confidential tier when the payload must stay sealed.</p>
         </article>
       </div>
     </div>
@@ -398,13 +400,13 @@
       <div class="monetize__copy" data-reveal>
         <span class="eyebrow">Monetize idle silicon</span>
         <h2>Your GPU pays rent while you sleep.</h2>
-        <p>Set a fair rate and keep the lion's share of every token you serve. Free is
-          welcome too - plenty of stations run open for the love of the band.</p>
+        <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
+          stations broadcast for the love of the band.</p>
         <ul class="checks">
           <li><span class="tick">&#10003;</span> Per-input and per-output pricing, per model</li>
-          <li><span class="tick">&#10003;</span> Time-of-use windows &amp; usage caps you control</li>
-          <li><span class="tick">&#10003;</span> Provably fair metering - no under-reporting, no over-charging</li>
-          <li><span class="tick">&#10003;</span> Revenue share that favors the operator</li>
+          <li><span class="tick">&#10003;</span> Time-of-use windows and usage caps you control</li>
+          <li><span class="tick">&#10003;</span> Provably fair metering, no under-reporting, no over-charging</li>
+          <li><span class="tick">&#10003;</span> 70/30 split in the operator's favor</li>
         </ul>
       </div>
 
@@ -430,7 +432,7 @@
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
       <h2>Pick up the mic.</h2>
-      <p>Install the CLI and you're one command from on air - or tuned in.</p>
+      <p>Install the CLI. One command to go on air, or to tune in.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"
               aria-label="Copy install command to clipboard">
         <span class="install__prompt" aria-hidden="true">$</span>
