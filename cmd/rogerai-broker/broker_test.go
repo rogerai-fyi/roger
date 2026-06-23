@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +14,44 @@ import (
 	"github.com/bownux/rogerai/internal/protocol"
 	"github.com/bownux/rogerai/internal/store"
 )
+
+// TestRegisterProofOfPossession verifies #24: a node must sign its registration
+// with the private key for the pub_key it claims, the registration must be fresh,
+// and a node id cannot be taken over by a different key.
+func TestRegisterProofOfPossession(t *testing.T) {
+	b := &broker{
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+	}
+	post := func(ts int64, signer ed25519.PrivateKey, pubHex string) int {
+		reg := protocol.NodeRegistration{NodeID: "n1", PubKey: pubHex, TS: ts, Offers: []protocol.ModelOffer{{Model: "m"}}}
+		reg.SignRegistration(signer)
+		body, _ := json.Marshal(reg)
+		w := httptest.NewRecorder()
+		b.register(w, httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body)))
+		return w.Code
+	}
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(pub)
+
+	if code := post(time.Now().Unix(), priv, pubHex); code != http.StatusOK {
+		t.Fatalf("valid register = %d, want 200", code)
+	}
+	_, other, _ := ed25519.GenerateKey(nil)
+	if code := post(time.Now().Unix(), other, pubHex); code != http.StatusUnauthorized {
+		t.Errorf("wrong-key signature = %d, want 401", code)
+	}
+	if code := post(time.Now().Add(-10*time.Minute).Unix(), priv, pubHex); code != http.StatusUnauthorized {
+		t.Errorf("stale timestamp = %d, want 401", code)
+	}
+	pub2, priv2, _ := ed25519.GenerateKey(nil)
+	if code := post(time.Now().Unix(), priv2, hex.EncodeToString(pub2)); code != http.StatusForbidden {
+		t.Errorf("node_id takeover = %d, want 403", code)
+	}
+}
 
 func TestLockedPrice(t *testing.T) {
 	b := &broker{quotes: map[string]priceQuote{}, lockWin: time.Hour}

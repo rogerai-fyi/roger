@@ -66,6 +66,8 @@ func Run(cfg Config) error {
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Attestation: cfg.Attestation,
 	}
+	reg.TS = time.Now().Unix()
+	reg.SignRegistration(priv) // prove we hold PubKey's private key
 	if err := register(cfg.Broker, reg); err != nil {
 		return fmt.Errorf("register with %s: %w", cfg.Broker, err)
 	}

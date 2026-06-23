@@ -111,6 +111,39 @@ type NodeRegistration struct {
 	// broker only surfaces `confidential ◆` after verifying the attestation.
 	Confidential bool   `json:"confidential,omitempty"`
 	Attestation  string `json:"attestation,omitempty"`
+	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
+	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
+	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.
+	TS  int64  `json:"ts,omitempty"`
+	Sig string `json:"sig,omitempty"`
+}
+
+// regSigningBytes is the canonical form a node signs to prove it owns PubKey
+// (the Sig field itself is excluded).
+func (r NodeRegistration) regSigningBytes() []byte {
+	c := r
+	c.Sig = ""
+	b, _ := json.Marshal(c)
+	return b
+}
+
+// SignRegistration signs the registration with the node's private key.
+func (r *NodeRegistration) SignRegistration(priv ed25519.PrivateKey) {
+	r.Sig = hex.EncodeToString(ed25519.Sign(priv, r.regSigningBytes()))
+}
+
+// VerifyRegistration confirms Sig was made by the private key matching PubKey -
+// i.e. the registrant actually holds the key it claims (proof of possession).
+func (r NodeRegistration) VerifyRegistration() bool {
+	pub, err := hex.DecodeString(r.PubKey)
+	if err != nil || len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+	sig, err := hex.DecodeString(r.Sig)
+	if err != nil {
+		return false
+	}
+	return ed25519.Verify(ed25519.PublicKey(pub), r.regSigningBytes(), sig)
 }
 
 // UsageReceipt is the per-request lineage record. It is hash-chained (PrevHash)

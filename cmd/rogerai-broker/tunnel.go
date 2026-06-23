@@ -41,7 +41,29 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "bad registration")
 		return
 	}
+	// Proof of possession: the registrant must sign with the private key matching
+	// the pub_key it claims, and the registration must be fresh (anti-replay). This
+	// stops anyone from registering under a key (or a node id) they do not own.
+	if reg.NodeID == "" || reg.PubKey == "" {
+		jsonErr(w, http.StatusBadRequest, "node_id and pub_key required")
+		return
+	}
+	if !reg.VerifyRegistration() {
+		jsonErr(w, http.StatusUnauthorized, "registration signature invalid (prove possession of pub_key)")
+		return
+	}
+	if skew := time.Since(time.Unix(reg.TS, 0)); skew > 5*time.Minute || skew < -5*time.Minute {
+		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
+		return
+	}
 	b.mu.Lock()
+	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
+	// later registrations for that id must use the SAME key (no takeover).
+	if prev, ok := b.nodes[reg.NodeID]; ok && prev.PubKey != reg.PubKey {
+		b.mu.Unlock()
+		jsonErr(w, http.StatusForbidden, "node_id already bound to a different key")
+		return
+	}
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = time.Now()
 	b.confidential[reg.NodeID] = reg.Confidential && verifyAttestation(reg.Attestation)
