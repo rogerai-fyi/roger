@@ -147,6 +147,10 @@ code, pre { font-family: var(--font-mono); }
   border-bottom: 1px solid transparent;
   transition: background var(--d-3) var(--ease-standard), border-color var(--d-3);
 }
+/* keep the bar a positioning context so the mobile menu drops from it */
+.nav__inner { position: relative; }
+/* when the mobile panel is open the bar gets a solid backing for legibility */
+.nav.is-menu-open { background: var(--paper); border-bottom-color: var(--hairline); }
 .nav.is-scrolled {
   background: var(--paper);
   border-bottom-color: var(--hairline);
@@ -177,7 +181,13 @@ code, pre { font-family: var(--font-mono); }
   color: var(--volt); letter-spacing: -.06em; transform: translateY(.5px);
 }
 
-.nav__right { display: flex; align-items: center; gap: var(--s-6); }
+/* the menu holds two clusters: section links, then a separated utility cluster.
+   On desktop it's a single inline row; on mobile it collapses behind the burger. */
+.nav__menu { display: flex; align-items: center; gap: var(--s-6); }
+.nav__sections { display: flex; align-items: center; gap: var(--s-6); }
+.nav__utils { display: flex; align-items: center; gap: var(--s-5); }
+/* hairline that splits navigation from utility actions */
+.nav__divider { width: 1px; height: 22px; background: var(--hairline-2); flex-shrink: 0; }
 
 /* ---------- theme toggle (sun / moon) ---------------------------- */
 .theme-toggle {
@@ -213,10 +223,62 @@ code, pre { font-family: var(--font-mono); }
   color: var(--ink-900); background: var(--white); box-shadow: var(--e-1);
 }
 .nav__link--ghost:hover { border-color: var(--volt); color: var(--volt); }
-/* mobile: collapse section links, keep the brand + GitHub (the one real CTA) */
-@media (max-width: 720px) {
-  .nav__right { gap: var(--s-4); }
-  .nav__link:not(.nav__link--ghost) { display: none; }
+
+/* ---------- mobile menu (burger + collapsed panel) -------------- */
+.nav__burger {
+  display: none; place-items: center; width: 40px; height: 40px; flex-shrink: 0;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--white); box-shadow: var(--e-1); color: var(--ink-700);
+  transition: border-color var(--d-2), color var(--d-2);
+}
+.nav__burger:hover { border-color: var(--volt); color: var(--volt); }
+.nav__burger:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.nav__burger-lines { display: grid; gap: 4px; width: 18px; }
+.nav__burger-lines i { height: 2px; width: 100%; background: currentColor; border-radius: 2px;
+  transition: transform var(--d-3) var(--ease-out-quint), opacity var(--d-2); }
+.nav.is-menu-open .nav__burger-lines i:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.nav.is-menu-open .nav__burger-lines i:nth-child(2) { opacity: 0; }
+.nav.is-menu-open .nav__burger-lines i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+@media (prefers-reduced-motion: reduce) {
+  .nav__burger-lines i { transition: none; }
+}
+
+@media (max-width: 760px) {
+  .nav__burger { display: grid; }
+  /* the menu drops as a clean hairlined panel below the bar */
+  .nav__menu {
+    position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 0;
+    background: var(--paper); border-bottom: 1px solid var(--hairline);
+    box-shadow: var(--e-3);
+    padding: var(--s-3) 0 var(--s-5);
+    transform: translateY(-8px); opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity var(--d-3) var(--ease-out-quint),
+                transform var(--d-3) var(--ease-out-quint),
+                visibility 0s linear var(--d-3);
+  }
+  .nav.is-menu-open .nav__menu {
+    transform: none; opacity: 1; pointer-events: auto; visibility: visible;
+    transition-delay: 0s;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nav__menu { transition: none; }
+  }
+  .nav__sections { flex-direction: column; align-items: stretch; gap: 0; }
+  .nav__sections .nav__link {
+    min-height: 48px; font-size: var(--t-body); color: var(--ink-900);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .nav__divider { display: none; }
+  /* utilities sit in a row at the foot of the panel */
+  .nav__utils { gap: var(--s-4); padding-top: var(--s-4); }
+  .nav__util { min-height: 44px; }
+  .nav__utils .nav__link:not(.nav__link--ghost) {
+    flex: 1; justify-content: center;
+    border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+    background: var(--white); color: var(--ink-900);
+  }
+  .nav__utils .nav__link--ghost { flex: 1; justify-content: center; }
 }
 
 /* ============================ HERO ============================= */
@@ -239,8 +301,8 @@ code, pre { font-family: var(--font-mono); }
 .hero__sep { color: var(--ink-300); }
 .hero__title {
   font-size: var(--t-display); line-height: var(--lh-tight);
-  letter-spacing: -.035em; font-weight: var(--weight-bold);
-  color: var(--ink-900); max-width: 16ch;
+  letter-spacing: var(--tracking-display); font-weight: var(--weight-bold);
+  color: var(--ink-900); max-width: 15ch;
 }
 /* the operative phrase: signal gradient text (volt -> violet) + a live-red on-air
    underline that glows, so "home GPUs." reads as the thing that's on the air */
@@ -298,8 +360,8 @@ code, pre { font-family: var(--font-mono); }
 
 /* ===================== TERMINAL DEMO =========================== */
 .demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
-.demo__head { text-align: center; max-width: 60ch; margin: 0 auto var(--head-gap); }
-.demo__head h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
+.demo__head { text-align: center; max-width: 58ch; margin: 0 auto var(--head-gap); }
+.demo__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
 .demo__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
@@ -353,11 +415,11 @@ code, pre { font-family: var(--font-mono); }
 /* ===================== generic sections ======================= */
 .section { padding-block: var(--section-y); position: relative; }
 .band { background: var(--paper-2); border-block: 1px solid var(--hairline); }
-.section__head { max-width: 56ch; margin: 0 auto var(--head-gap); text-align: center; }
+.section__head { max-width: 58ch; margin: 0 auto var(--head-gap); text-align: center; }
 /* left-set heads for the document-style sections (spec, notes) */
 .section__head--left { text-align: left; margin-left: 0; margin-right: auto; }
 .section__head h2, .demo__head h2 { margin: 0; }
-.section h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
+.section h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .section__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 
@@ -384,7 +446,7 @@ code, pre { font-family: var(--font-mono); }
 @media (prefers-reduced-motion: reduce) {
   .twoway__side:hover .twoway__ico path { animation: none; opacity: .9; }
 }
-.twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: -.01em; }
+.twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
 .twoway__side p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
 .twoway__cmd {
   display: block; margin-top: var(--s-6); padding: 11px 14px;
@@ -451,14 +513,15 @@ code, pre { font-family: var(--font-mono); }
   display: flex; flex-direction: column; gap: var(--s-2);
   padding: var(--s-5);
   border: 1px solid var(--hairline); border-top: 2px solid var(--volt);
-  border-radius: var(--r-md, 6px); background: var(--paper);
+  border-radius: var(--r-sm); background: var(--paper);
 }
 .opnote__no {
-  font-family: var(--font-mono); font-size: var(--t-sm); font-weight: var(--weight-medium);
+  font-family: var(--font-mono); font-size: var(--t-sm); font-weight: var(--weight-semi);
   color: var(--volt); font-variant-numeric: tabular-nums; letter-spacing: .04em;
+  margin-bottom: var(--s-1);
 }
 .opnote h3 { margin: 0; font-size: var(--t-body); color: var(--ink-900);
-  font-weight: var(--weight-semi); letter-spacing: -.01em; }
+  font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
 .opnote p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.45; }
 @media (max-width: 900px) { .opnotes { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .opnotes { grid-template-columns: 1fr; } }
@@ -467,7 +530,7 @@ code, pre { font-family: var(--font-mono); }
 .monetize { display: grid; grid-template-columns: 1.1fr .9fr; gap: var(--s-16); align-items: center; }
 @media (max-width: 880px) { .monetize { grid-template-columns: 1fr; gap: var(--s-10); } }
 .monetize__copy .eyebrow { margin-bottom: var(--s-3); }
-.monetize__copy h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
+.monetize__copy h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .monetize__copy > p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 .checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
@@ -502,7 +565,7 @@ code, pre { font-family: var(--font-mono); }
 /* ---------- CTA strip ------------------------------------------ */
 .cta { padding-block: var(--section-y); }
 .cta__inner { text-align: center; display: flex; flex-direction: column; align-items: center; }
-.cta h2 { font-size: var(--t-h1); letter-spacing: -.03em; color: var(--ink-900); font-weight: var(--weight-bold); }
+.cta h2 { font-size: var(--t-h1); letter-spacing: var(--tracking-h1); color: var(--ink-900); font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); }
 .install__box--lg { margin-top: var(--s-8); }
 .install__box--lg .install__code { font-size: 1.125rem; }
@@ -510,8 +573,8 @@ code, pre { font-family: var(--font-mono); }
 
 /* ===================== LIVE SIGNAL TOWER / MARKET ============== */
 .market { padding-block: var(--section-y2) var(--section-y2); position: relative; }
-.market__head { text-align: center; max-width: 60ch; margin: 0 auto var(--head-gap); }
-.market__head h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
+.market__head { text-align: center; max-width: 58ch; margin: 0 auto var(--head-gap); }
+.market__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 .market__head p b { color: var(--ink-900); font-weight: var(--weight-semi); }

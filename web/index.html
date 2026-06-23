@@ -64,36 +64,51 @@
         </svg>
         <span class="brand__name">Roger<b>AI</b></span>
       </a>
-      <nav class="nav__right">
-        <a class="nav__link" href="#market">The band</a>
-        <a class="nav__link" href="#how">Operating</a>
-        <a class="nav__link" href="#spec">Spec</a>
-        <a class="nav__link" href="#monetize">Monetize</a>
-        <button class="theme-toggle" id="themeToggle" type="button"
-                aria-label="Switch to dark theme" aria-pressed="false">
-          <!-- moon: shown in light mode (click switches to dark) -->
-          <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
-          </svg>
-          <!-- sun: shown in dark mode (click switches to light) -->
-          <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4.2" />
-            <g class="theme-toggle__rays">
-              <line x1="12" y1="2.5" x2="12" y2="5" />
-              <line x1="12" y1="19" x2="12" y2="21.5" />
-              <line x1="2.5" y1="12" x2="5" y2="12" />
-              <line x1="19" y1="12" x2="21.5" y2="12" />
-              <line x1="5.3" y1="5.3" x2="7" y2="7" />
-              <line x1="17" y1="17" x2="18.7" y2="18.7" />
-              <line x1="5.3" y1="18.7" x2="7" y2="17" />
-              <line x1="17" y1="7" x2="18.7" y2="5.3" />
-            </g>
-          </svg>
-        </button>
-        <a class="nav__link" href="/login.html">Log in</a>
-        <a class="nav__link nav__link--ghost" href="https://github.com/rogerai-fyi/roger">GitHub</a>
+      <!-- mobile: open/close the collapsed menu -->
+      <button class="nav__burger" id="navBurger" type="button"
+              aria-label="Open menu" aria-expanded="false" aria-controls="navMenu">
+        <span class="nav__burger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+      </button>
+
+      <nav class="nav__menu" id="navMenu" aria-label="Primary">
+        <!-- section group: terse single-word manual labels, in document order -->
+        <div class="nav__sections">
+          <a class="nav__link" href="#market">Band</a>
+          <a class="nav__link" href="#spec">Spec</a>
+          <a class="nav__link" href="#how">Operating</a>
+          <a class="nav__link" href="#monetize">Monetize</a>
+        </div>
+
+        <span class="nav__divider" aria-hidden="true"></span>
+
+        <!-- utility cluster: account, source, theme -->
+        <div class="nav__utils">
+          <a class="nav__link nav__util" href="/login.html">Log in</a>
+          <a class="nav__link nav__util nav__link--ghost" href="https://github.com/rogerai-fyi/roger">GitHub</a>
+          <button class="theme-toggle" id="themeToggle" type="button"
+                  aria-label="Switch to dark theme" aria-pressed="false">
+            <!-- moon: shown in light mode (click switches to dark) -->
+            <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
+            </svg>
+            <!-- sun: shown in dark mode (click switches to light) -->
+            <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <g class="theme-toggle__rays">
+                <line x1="12" y1="2.5" x2="12" y2="5" />
+                <line x1="12" y1="19" x2="12" y2="21.5" />
+                <line x1="2.5" y1="12" x2="5" y2="12" />
+                <line x1="19" y1="12" x2="21.5" y2="12" />
+                <line x1="5.3" y1="5.3" x2="7" y2="7" />
+                <line x1="17" y1="17" x2="18.7" y2="18.7" />
+                <line x1="5.3" y1="18.7" x2="7" y2="17" />
+                <line x1="17" y1="7" x2="18.7" y2="5.3" />
+              </g>
+            </svg>
+          </button>
+        </div>
       </nav>
     </div>
   </header>
@@ -472,10 +487,11 @@
         Roger<b>AI</b>
       </div>
       <nav class="footer__links">
-        <a href="#market">The band</a>
-        <a href="#how">How it works</a>
+        <a href="#market">Band</a>
+        <a href="#spec">Spec</a>
+        <a href="#how">Operating</a>
         <a href="#monetize">Monetize</a>
-        <a href="/login">Log in</a>
+        <a href="/login.html">Log in</a>
         <a href="https://github.com/rogerai-fyi/roger">GitHub</a>
         <a href="https://github.com/rogerai-fyi/roger/releases">Releases</a>
       </nav>

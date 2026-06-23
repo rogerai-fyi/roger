@@ -66,6 +66,37 @@
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
+  /* ---- mobile menu (burger) -------------------------------------- */
+  var burger = document.getElementById("navBurger");
+  var navMenu = document.getElementById("navMenu");
+  if (burger && nav && navMenu) {
+    var setMenu = function (open) {
+      nav.classList.toggle("is-menu-open", open);
+      burger.setAttribute("aria-expanded", open ? "true" : "false");
+      burger.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    };
+    burger.addEventListener("click", function () {
+      setMenu(!nav.classList.contains("is-menu-open"));
+    });
+    // close after tapping any link in the collapsed panel
+    navMenu.addEventListener("click", function (e) {
+      if (e.target.closest("a")) setMenu(false);
+    });
+    // close on Escape
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && nav.classList.contains("is-menu-open")) {
+        setMenu(false); burger.focus();
+      }
+    });
+    // if we grow past the mobile breakpoint, never leave a stale open state
+    var mqlNav = window.matchMedia ? window.matchMedia("(min-width: 761px)") : null;
+    if (mqlNav) {
+      var onWide = function (e) { if (e.matches) setMenu(false); };
+      if (mqlNav.addEventListener) mqlNav.addEventListener("change", onWide);
+      else if (mqlNav.addListener) mqlNav.addListener(onWide);
+    }
+  }
+
   /* ---- reveal on scroll ------------------------------------------ */
   var reveals = document.querySelectorAll("[data-reveal]");
   if ("IntersectionObserver" in window) {

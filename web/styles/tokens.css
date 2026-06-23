@@ -64,12 +64,18 @@
   --t-micro:   0.6875rem; /* labels / eyebrows */
 
   --lh-tight:  1.04;
-  --lh-snug:   1.18;
+  --lh-snug:   1.14;
   --lh-body:   1.55;
 
-  --tracking-tight: -0.022em;
-  --tracking-flat:  0em;
-  --tracking-label: 0.14em; /* uppercase eyebrows */
+  /* Heading tracking is on a system: bigger type, tighter set. One value
+     per level so every h2 across the document optically matches. */
+  --tracking-display: -0.038em; /* hero */
+  --tracking-h1:      -0.03em;
+  --tracking-h2:      -0.025em;
+  --tracking-h3:      -0.012em;
+  --tracking-tight:   -0.022em; /* generic snug body/labels */
+  --tracking-flat:    0em;
+  --tracking-label:   0.14em;   /* uppercase eyebrows */
 
   --weight-regular: 400;
   --weight-medium:  500;
