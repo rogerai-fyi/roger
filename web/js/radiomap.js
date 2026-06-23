@@ -23,7 +23,7 @@
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
   var W = 0, H = 0;
   var raf = null, running = false;
-  var nodes = [], ripples = [], beams = [];
+  var nodes = [], ripples = [], beams = [], gridDots = [];
   var recv = { x: 0, y: 0 };
   var GRID = 52;          // dot grid spacing (css px) - sparser = calmer
   var last = 0, acc = 0;
@@ -90,6 +90,16 @@
   }
 
   function build() {
+    // precompute the static dotted grid once per resize (its radial falloff
+    // never changes between frames, so don't recompute hypot() per dot/frame)
+    gridDots = [];
+    for (var gx = GRID; gx < W; gx += GRID) {
+      for (var gy = GRID; gy < H; gy += GRID) {
+        var dd = Math.hypot(gx - recv.x, gy - recv.y) / (Math.max(W, H) * 0.7);
+        gridDots.push({ x: gx, y: gy, a: 0.045 * (1 - Math.min(dd, 1) * 0.55) });
+      }
+    }
+
     nodes = [];
     var area = W * H;
     // sparser than before - fewer, quieter stations read as elegant
@@ -137,17 +147,13 @@
     if (fade < 1) fade = Math.min(1, fade + 0.012);
     ctx.globalAlpha = fade;
 
-    // ---- faint dotted grid (very quiet) ----
-    for (var gx = GRID; gx < W; gx += GRID) {
-      for (var gy = GRID; gy < H; gy += GRID) {
-        // gentle radial falloff so the grid melts toward the edges
-        var d = Math.hypot(gx - recv.x, gy - recv.y) / (Math.max(W, H) * 0.7);
-        var ga = 0.045 * (1 - Math.min(d, 1) * 0.55);
-        ctx.fillStyle = rgba(COL.grid, ga);
-        ctx.beginPath();
-        ctx.arc(gx, gy, 0.85, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // ---- faint dotted grid (precomputed; gentle radial falloff) ----
+    for (var gi = 0; gi < gridDots.length; gi++) {
+      var gd = gridDots[gi];
+      ctx.fillStyle = rgba(COL.grid, gd.a);
+      ctx.beginPath();
+      ctx.arc(gd.x, gd.y, 0.85, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     // ---- ripples (on-air rings) ----
@@ -208,7 +214,9 @@
     });
 
     // ---- the receiver ("you") ----
-    var beat = 0.5 + 0.5 * Math.sin(now * 0.0018);
+    // beat on the page carrier (2.2s) so the background heartbeat matches
+    // the on-air dot / brand beacon: ω = 2π / 2200ms ≈ 0.002856
+    var beat = 0.5 + 0.5 * Math.sin(now * 0.002856);
     ctx.beginPath();
     ctx.strokeStyle = rgba(COL.volt, 0.10 + beat * 0.05);
     ctx.lineWidth = 1.1;

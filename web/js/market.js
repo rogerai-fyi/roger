@@ -200,12 +200,30 @@
     });
   }
 
-  /* ---------- shimmer (rAF, only the live head bars) ------------- */
+  /* ---------- live signal "VU" (rAF, only the head bars) ----------
+     Each on-air channel's top cell breathes on its own phase, like a
+     fluctuating signal meter rather than a uniform fade: opacity rides
+     a sine and, at the peak of the breath, the glyph ticks up one notch
+     on the ▁▂▃▄▅▆▇█ ramp so the level reads as ALIVE, not as decoration.
+     The swap is RELATIVE to each cell's own base glyph, so a weak band
+     never jumps to a full bar. Cheap: one sine + an optional glyph swap. */
   function tick() {
-    shimmer += 0.04;
+    shimmer += 0.035;
     var heads = listEl.querySelectorAll(".sigbar--head");
-    var o = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(shimmer));
-    for (var i = 0; i < heads.length; i++) heads[i].style.opacity = o.toFixed(3);
+    for (var i = 0; i < heads.length; i++) {
+      var h = heads[i];
+      // remember each head's base glyph + its one-notch-up neighbour once
+      if (h.__lo == null) {
+        h.__lo = h.textContent;
+        var bi = BARGLYPH.indexOf(h.__lo);
+        h.__hi = bi >= 0 ? BARGLYPH[Math.min(BARGLYPH.length - 1, bi + 1)] : h.__lo;
+        h.__ph = i * 0.9;   // stagger so the band doesn't pulse in lockstep
+      }
+      var s = 0.5 + 0.5 * Math.sin(shimmer + h.__ph);
+      h.style.opacity = (0.5 + 0.5 * s).toFixed(3);
+      var want = s > 0.82 ? h.__hi : h.__lo;   // peak of the breath = +1 notch
+      if (h.textContent !== want) h.textContent = want;
+    }
     rafId = requestAnimationFrame(tick);
   }
   function startShimmer() {

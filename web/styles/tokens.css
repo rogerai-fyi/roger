@@ -141,6 +141,15 @@
   --d-4: 560ms;  /* scroll reveal */
   --d-5: 820ms;  /* hero choreography */
 
+  /* ---- CARRIER ----------------------------------------------------
+     One shared "transmit" rhythm the whole instrument breathes on, so
+     the on-air dot, hero beacon, brand pulse, radar and beam all read
+     as the SAME carrier wave rather than unrelated loops. Multiples of
+     the carrier keep ambient motion phase-coherent (the page "ticks").
+     2.2s base = the founder-approved on-air/beacon beat. */
+  --carrier:    2.2s;   /* the on-air carrier period */
+  --carrier-2x: 4.4s;   /* radar sweep / slow ambient (one octave down) */
+
   /* z layers */
   --z-base:   0;
   --z-card:   10;

@@ -43,7 +43,8 @@ code, pre { font-family: var(--font-mono); }
 }
 
 .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding-inline: var(--gutter); }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1, "ss01" 1; letter-spacing: -0.01em; }
 .ember { color: var(--ember); }
 .cs { color: var(--gold); }
 
@@ -120,9 +121,29 @@ code, pre { font-family: var(--font-mono); }
   font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live);
   letter-spacing: -.02em; white-space: nowrap; display: inline-flex; align-items: center;
 }
-.onair .onair__dot { display: inline-block; animation: onairBeat 2.2s var(--ease-in-out) infinite; }
+.onair .onair__dot {
+  position: relative; display: inline-block;
+  animation: onairBeat var(--carrier) var(--ease-in-out) infinite;
+}
 @keyframes onairBeat { 0%,100% { opacity: .5; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.1); } }
-@media (prefers-reduced-motion: reduce) { .onair .onair__dot { animation: none; opacity: 1; } }
+/* transmit ripple: a single faint ring leaves the dot on every carrier beat,
+   echoing the blip-map's on-air rings so the inline glyph and the background
+   read as one instrument. currentColor inherits the live/idle hue. */
+.onair .onair__dot::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px;
+  margin: -3px 0 0 -3px; border-radius: 50%;
+  border: 1px solid currentColor; opacity: 0; pointer-events: none;
+  animation: onairRipple var(--carrier) var(--ease-out-quint) infinite;
+}
+@keyframes onairRipple {
+  0%   { opacity: .55; transform: scale(.5); }
+  70%  { opacity: 0;   transform: scale(3.4); }
+  100% { opacity: 0;   transform: scale(3.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onair .onair__dot { animation: none; opacity: 1; }
+  .onair .onair__dot::after { animation: none; opacity: 0; }
+}
 
 /* ===== blip-map background ====================================== */
 .blipmap {
@@ -170,7 +191,7 @@ code, pre { font-family: var(--font-mono); }
 /* the center diamond is the on-air beacon: a live red that glows + breathes */
 .brand__pulse { fill: #FF3B3B; transform-box: fill-box; transform-origin: center;
   filter: drop-shadow(0 0 3px rgba(255, 59, 59, .9));
-  animation: brandPulse 2.2s var(--ease-in-out) infinite; }
+  animation: brandPulse var(--carrier) var(--ease-in-out) infinite; }
 @keyframes brandPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .72; transform: scale(.84); } }
 @media (prefers-reduced-motion: reduce) {
   .brand__pulse { animation: none; opacity: 1; }
@@ -464,9 +485,9 @@ code, pre { font-family: var(--font-mono); }
   content: ""; position: absolute; top: 50%; left: 0; width: 7px; height: 7px;
   border-radius: 50%; background: var(--volt); transform: translate(-50%,-50%);
   box-shadow: 0 0 8px var(--volt-glow);
-  animation: beam 2.4s var(--ease-in-out) infinite;
+  animation: beam var(--carrier-2x) var(--ease-in-out) infinite;
 }
-@keyframes beam { 0% { left: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@keyframes beam { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 80% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .twoway__beam::after { animation: none; left: 50%; } }
 @media (max-width: 820px) {
   .twoway { grid-template-columns: 1fr; }
@@ -584,17 +605,21 @@ code, pre { font-family: var(--font-mono); }
 .radar__svg { width: 100%; height: 100%; overflow: visible; }
 .radar__ring { stroke: var(--hairline-2); stroke-width: 1; fill: none; }
 .radar__cross { stroke: var(--hairline-2); stroke-width: 1; opacity: .7; }
-.radar__sweep { transform-origin: 32px 32px; animation: radarSpin 4s linear infinite; }
+/* sweep runs on the carrier octave so the radar shares the page's rhythm.
+   Each blip is phase-locked to the moment the arm passes its bearing, then
+   decays like scope phosphor - so the sweep visibly PAINTS the contacts. */
+.radar__sweep { transform-origin: 32px 32px; animation: radarSpin var(--carrier-2x) linear infinite; }
 @keyframes radarSpin { to { transform: rotate(360deg); } }
-.radar__blip { fill: var(--live); opacity: 0; }
-.radar__blip--1 { animation: radarBlip 4s linear infinite; animation-delay: .65s; }
-.radar__blip--2 { animation: radarBlip 4s linear infinite; animation-delay: 2.2s; }
-.radar__blip--3 { animation: radarBlip 4s linear infinite; animation-delay: 3.1s; }
+.radar__blip { fill: var(--live); opacity: 0; transform-box: fill-box; transform-origin: center; }
+.radar__blip--1 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: .61s; }
+.radar__blip--3 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 1.78s; }
+.radar__blip--2 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 2.75s; }
 @keyframes radarBlip {
-  0% { opacity: 0; transform: scale(.4); transform-box: fill-box; transform-origin: center; }
-  6% { opacity: 1; transform: scale(1); transform-box: fill-box; transform-origin: center; }
-  55% { opacity: .35; }
-  85%,100% { opacity: 0; }
+  0%   { opacity: 0;   transform: scale(.4); }
+  2%   { opacity: 1;   transform: scale(1.25); }  /* the arm hits: hard ping */
+  10%  { opacity: .9;  transform: scale(1); }
+  60%  { opacity: .22; }                          /* phosphor decay */
+  88%,100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .radar__sweep { animation: none; opacity: .5; }
@@ -758,7 +783,7 @@ code, pre { font-family: var(--font-mono); }
 .hero__dot {
   color: #FF3B3B; -webkit-text-fill-color: #FF3B3B;
   text-shadow: 0 0 9px rgba(255, 59, 59, .75);
-  animation: heroDot 2.2s var(--ease-in-out) infinite;
+  animation: heroDot var(--carrier) var(--ease-in-out) infinite;
 }
 @keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
 @media (prefers-reduced-motion: reduce) { .hero__dot { animation: none; opacity: 1; } }
