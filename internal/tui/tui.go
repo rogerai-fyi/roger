@@ -266,6 +266,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = 0
 		}
 		// "wait & notify" stub: if a watched band has dipped under the limit, say so.
+		notified := false
 		if m.watching != "" {
 			for _, b := range m.bands {
 				if b.model == m.watching && b.online {
@@ -273,11 +274,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if lim.MaxOut == 0 || b.minOut <= lim.MaxOut {
 						m.status = stLive.Render("⚡ " + b.model + " dipped under your limit (" + money(b.minOut) + " out) - tune in")
 						m.watching = ""
+						notified = true
 					}
 				}
 			}
 		}
-		m.status = fmt.Sprintf("%d bands · %d stations on air", len(m.bands), countOnline(m.offers))
+		// Don't clobber a fresh dip-under notification with the scan summary.
+		if !notified {
+			m.status = fmt.Sprintf("%d bands · %d stations on air", len(m.bands), countOnline(m.offers))
+		}
 		return m, nil
 	case balanceMsg:
 		m.balance, m.haveBal = float64(msg), true
