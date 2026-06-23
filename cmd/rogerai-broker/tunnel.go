@@ -214,6 +214,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
 		return
 	}
+	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
+	// flood the broker or a provider. Checked before the costly moderation/pick.
+	if ok, retry := b.rl.allow(user); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+		return
+	}
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`
