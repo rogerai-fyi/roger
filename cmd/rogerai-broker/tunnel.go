@@ -242,26 +242,33 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			if cost > maxCost {
 				cost = maxCost // never capture more than was authorized
 			}
-			newBal, _ := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
-			settled = true
-			tps := 0.0
-			if rec.CompletionTokens > 0 {
-				if el := time.Since(start).Seconds(); el > 0 {
-					tps = float64(rec.CompletionTokens) / el
-					b.updateTPS(node.NodeID, tps)
+			newBal, ferr := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
+			if ferr != nil {
+				// Settle failed - leave settled=false so the deferred ReleaseHold
+				// refunds the user in full (fail safe toward the customer) and emit no
+				// billing headers; the completion body is still returned below.
+				log.Printf("relay settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
+			} else {
+				settled = true
+				tps := 0.0
+				if rec.CompletionTokens > 0 {
+					if el := time.Since(start).Seconds(); el > 0 {
+						tps = float64(rec.CompletionTokens) / el
+						b.updateTPS(node.NodeID, tps)
+					}
 				}
+				w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
+				w.Header().Set("X-RogerAI-Provider", node.NodeID)
+				w.Header().Set("X-RogerAI-Cost", ftoa(round6(cost)))
+				w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
+				lockedUntil := int64(0)
+				if !until.IsZero() {
+					lockedUntil = until.Unix()
+				}
+				w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
+				w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
+				log.Printf("relay user=%s node=%s in=%d out=%d price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, rec.PromptTokens, rec.CompletionTokens, pin, pout, cost, tps)
 			}
-			w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
-			w.Header().Set("X-RogerAI-Provider", node.NodeID)
-			w.Header().Set("X-RogerAI-Cost", ftoa(round6(cost)))
-			w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
-			lockedUntil := int64(0)
-			if !until.IsZero() {
-				lockedUntil = until.Unix()
-			}
-			w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
-			w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
-			log.Printf("relay user=%s node=%s in=%d out=%d price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, rec.PromptTokens, rec.CompletionTokens, pin, pout, cost, tps)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(res.Status)
@@ -323,8 +330,12 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			if cost > maxCost {
 				cost = maxCost
 			}
-			b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
-			settled = true
+			if _, ferr := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec); ferr != nil {
+				// settle failed - leave settled=false so the deferred ReleaseHold refunds
+				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
+			} else {
+				settled = true
+			}
 			if rec.CompletionTokens > 0 {
 				if el := time.Since(start).Seconds(); el > 0 {
 					b.updateTPS(node.NodeID, float64(rec.CompletionTokens)/el)
