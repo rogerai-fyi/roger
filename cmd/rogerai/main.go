@@ -173,6 +173,9 @@ func main() {
 		err = cmdShare(cfg, os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
+	case "ping":
+		// easter egg: walk the mascot across the terminal once, then exit.
+		err = tui.PingWalk()
 	case "version":
 		fmt.Println("rogerai 0.1.0 (P1)")
 	case "-h", "--help", "help":
@@ -507,6 +510,7 @@ func usage() {
   rogerai config limits              show your per-model spend limits
   rogerai config set-limit <model> --max-out P [--max-in P] [--min-tps N]
   rogerai config clear-limit <model>
+  rogerai ping                       say hi to Ping (mascot walks the terminal)
   rogerai version
 
 env: ROGER_BROKER, ROGER_USER override config (%s)
