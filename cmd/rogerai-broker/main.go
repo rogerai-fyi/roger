@@ -485,6 +485,7 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
+	cors(w) // public market data - let the website (rogerai.fyi) fetch it
 	b.mu.Lock()
 	now := time.Now()
 	var out []offerView
@@ -524,6 +525,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
+	cors(w) // public market data - let the website (rogerai.fyi) fetch it
 	type acc struct {
 		providers   int
 		inflight    int
@@ -900,6 +902,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func jsonErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
+}
+
+// cors lets the public website (rogerai.fyi) fetch read-only market data from a
+// browser. Applied only to public GET endpoints (/discover, /market).
+func cors(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
