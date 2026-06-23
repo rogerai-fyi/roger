@@ -120,12 +120,16 @@ func main() {
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/balance", b.balance)
-	mux.HandleFunc("/me", b.me)                     // consumer dashboard: balance, spend, recent
-	mux.HandleFunc("/earnings", b.earnings)         // owner dashboard: accrued earnings, recent
-	mux.HandleFunc("/market", b.market)             // per-model market metrics + signal
-	mux.HandleFunc("/auth/github", b.authGitHub)    // bind a GitHub owner to the signing pubkey (CLI device flow)
-	mux.HandleFunc("/billing/checkout", b.checkout) // Stripe top-up -> credits
-	mux.HandleFunc("/billing/webhook", b.webhook)   // Stripe payment webhook
+	mux.HandleFunc("/me", b.me)                                   // consumer dashboard: balance, spend, recent
+	mux.HandleFunc("/earnings", b.earnings)                       // owner dashboard: accrued earnings, recent
+	mux.HandleFunc("/market", b.market)                           // per-model market metrics + signal
+	mux.HandleFunc("/auth/github", b.authGitHub)                  // bind a GitHub owner to the signing pubkey (CLI device flow)
+	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)       // web: 302 to GitHub authorize
+	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
+	mux.HandleFunc("/auth/logout", b.authLogout)                  // web: clear the session cookie
+	mux.HandleFunc("/account", b.account)                         // web: who is logged in (session cookie)
+	mux.HandleFunc("/billing/checkout", b.checkout)               // Stripe top-up -> credits
+	mux.HandleFunc("/billing/webhook", b.webhook)                 // Stripe payment webhook
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {

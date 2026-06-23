@@ -249,6 +249,55 @@ paths:
         "400": { description: access_token required }
         "401": { description: unsigned request or GitHub token rejected, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /auth/github/login:
+    get:
+      tags: [auth]
+      summary: Web GitHub login - 302 to GitHub authorize
+      description: |
+        Browser login (separate from the CLI device flow). Sets a short-lived signed
+        state cookie (CSRF) and redirects to GitHub's authorize page with the public
+        client id and `redirect_uri=https://rogerai.fyi/auth/github/callback`.
+      responses:
+        "302": { description: redirect to GitHub authorize }
+        "503": { description: web GitHub login not configured (no client id/secret) }
+
+  /auth/github/callback:
+    get:
+      tags: [auth]
+      summary: Web GitHub callback - exchange code, set session, 302 to dashboard
+      description: |
+        Validates the state cookie, exchanges the code for a token using the client
+        SECRET (server-side only), fetches the GitHub user, sets a signed http-only
+        session cookie (`roger_session`), and redirects to the dashboard. On any
+        failure it redirects back to /login?error=...
+      parameters:
+        - { in: query, name: code, required: true, schema: { type: string } }
+        - { in: query, name: state, required: true, schema: { type: string } }
+      responses:
+        "302": { description: redirect to the dashboard (or /login on error) }
+        "503": { description: web GitHub login not configured }
+
+  /account:
+    get:
+      tags: [auth]
+      summary: The web session owner (from the signed session cookie)
+      description: |
+        Used by the minimal web /dashboard to show who is logged in and to route
+        logged-out visitors to /login. Credentialed CORS (explicit web origin).
+      responses:
+        "200":
+          description: Logged-in owner
+          content:
+            application/json:
+              schema: { type: object, properties: { github_login: { type: string }, github_id: { type: integer } } }
+        "401": { description: no valid session }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear the web session cookie
+      responses: { "200": { description: ok } }
+
   /nodes/register:
     post:
       tags: [provider]

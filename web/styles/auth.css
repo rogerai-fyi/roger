@@ -1,0 +1,76 @@
+/* Minimal, white auth pages (/login, /dashboard). Essentials only - detail lives
+   behind the CLI. Intentionally independent of the marketing site's heavier CSS. */
+:root {
+  --ink: #111418;
+  --muted: #5b6470;
+  --line: #e7e9ee;
+  --brand: #5b5bff;
+  --bg: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body.auth {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.card {
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 32px;
+}
+.back {
+  display: inline-block;
+  margin-bottom: 24px;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+.back b { color: var(--brand); }
+h1 { font-size: 24px; margin: 0 0 8px; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.gh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.gh:hover { opacity: 0.92; }
+.fine { color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+.panel { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 20px; }
+.panel p { margin: 0 0 12px; color: var(--muted); }
+.cmd {
+  background: #f6f7f9;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font: 13px/1.7 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink);
+  overflow-x: auto;
+}
+code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
+.ghost {
+  margin-top: 24px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+}
+.ghost:hover { color: var(--ink); border-color: var(--ink); }

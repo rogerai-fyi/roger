@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - RogerAI</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles/auth.css" />
+</head>
+<body class="auth">
+  <main class="card" id="card" hidden>
+    <a class="back" href="/">Roger<b>AI</b></a>
+    <h1>Dashboard</h1>
+    <p class="sub">Signed in as <b id="who">-</b></p>
+
+    <section class="panel">
+      <h2>Earn</h2>
+      <p>Put a GPU on air and earn per token. Install, then link this account on the box:</p>
+      <pre class="cmd">curl -fsSL https://rogerai.fyi/install.sh | sh
+rogerai login
+rogerai share</pre>
+      <p class="fine">Once a node serves under your account, its live earnings show on <code>rogerai console</code>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Spend</h2>
+      <p>Consuming needs no account. From the CLI: <code>rogerai use &lt;model&gt;</code> and <code>rogerai balance</code>.</p>
+    </section>
+
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  <script src="js/auth.js"></script>
+</body>
+</html>

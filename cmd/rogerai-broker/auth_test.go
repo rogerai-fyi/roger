@@ -75,6 +75,80 @@ func TestAuthGitHubBindsOwner(t *testing.T) {
 	}
 }
 
+// TestSessionRoundTrip verifies the web session cookie: a freshly signed cookie
+// verifies, a tampered one fails, and an expired one fails.
+func TestSessionRoundTrip(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := &broker{priv: priv}
+
+	exp := time.Now().Add(time.Hour).Unix()
+	cookie := b.signSession("octocat", 42, exp)
+	login, gid, ok := b.verifySession(cookie)
+	if !ok || login != "octocat" || gid != 42 {
+		t.Fatalf("verify = (%q,%d,%v), want (octocat,42,true)", login, gid, ok)
+	}
+	// Tamper: flip a char in the signature half.
+	if _, _, ok := b.verifySession(cookie + "x"); ok {
+		t.Error("tampered cookie should not verify")
+	}
+	if _, _, ok := b.verifySession("garbage"); ok {
+		t.Error("garbage cookie should not verify")
+	}
+	// Expired.
+	old := b.signSession("octocat", 42, time.Now().Add(-time.Minute).Unix())
+	if _, _, ok := b.verifySession(old); ok {
+		t.Error("expired cookie should not verify")
+	}
+	// A different broker key must not validate this broker's cookie.
+	_, priv2, _ := ed25519.GenerateKey(nil)
+	b2 := &broker{priv: priv2}
+	if _, _, ok := b2.verifySession(cookie); ok {
+		t.Error("cookie from another broker key should not verify")
+	}
+}
+
+// TestAccountEndpoint verifies GET /account: 401 with no/invalid session, 200 with
+// a valid session cookie.
+func TestAccountEndpoint(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := &broker{priv: priv}
+
+	// No cookie → 401.
+	w := httptest.NewRecorder()
+	b.account(w, httptest.NewRequest(http.MethodGet, "/account", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("no session = %d, want 401", w.Code)
+	}
+	// Valid cookie → 200 with the login.
+	r := httptest.NewRequest(http.MethodGet, "/account", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	w = httptest.NewRecorder()
+	b.account(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid session = %d, want 200", w.Code)
+	}
+	var out struct {
+		GitHubLogin string `json:"github_login"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.GitHubLogin != "octocat" {
+		t.Errorf("login = %q, want octocat", out.GitHubLogin)
+	}
+}
+
+// TestWebLoginUnconfigured verifies the web flow degrades safely (503) when the
+// GitHub client id/secret are not set.
+func TestWebLoginUnconfigured(t *testing.T) {
+	t.Setenv("GITHUB_OAUTH_CLIENT_ID", "")
+	t.Setenv("GITHUB_OAUTH_CLIENT_SECRET", "")
+	b := &broker{}
+	w := httptest.NewRecorder()
+	b.authGitHubLogin(w, httptest.NewRequest(http.MethodGet, "/auth/github/login", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("unconfigured login = %d, want 503", w.Code)
+	}
+}
+
 // TestRegisterEarningGate verifies the login-to-monetize gate: a priced node must
 // be registered with a signed request from a GitHub-linked owner; free nodes and
 // unsigned-but-priced attempts behave as specified.
