@@ -265,3 +265,36 @@ func TestVerifyAttestation(t *testing.T) {
 		t.Error("a 64+ char attestation should pass the stub")
 	}
 }
+
+func TestCORSPreflight(t *testing.T) {
+	b := &broker{
+		nodes: map[string]protocol.NodeRegistration{}, lastSeen: map[string]time.Time{},
+		tps: map[string]float64{}, confidential: map[string]bool{},
+		inflight: map[string]int{}, success: map[string]float64{},
+	}
+	for _, ep := range []struct {
+		name string
+		h    http.HandlerFunc
+	}{
+		{"/discover", b.discover},
+		{"/market", b.market},
+	} {
+		rec := httptest.NewRecorder()
+		ep.h(rec, httptest.NewRequest(http.MethodOptions, ep.name, nil))
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("%s OPTIONS = %d, want 204", ep.name, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("%s OPTIONS Allow-Origin = %q, want *", ep.name, got)
+		}
+		// GET still serves and carries the CORS header.
+		rec = httptest.NewRecorder()
+		ep.h(rec, httptest.NewRequest(http.MethodGet, ep.name, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s GET = %d, want 200", ep.name, rec.Code)
+		}
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("%s GET Allow-Origin = %q, want *", ep.name, got)
+		}
+	}
+}

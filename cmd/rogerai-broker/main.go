@@ -482,6 +482,9 @@ type offerView struct {
 // discover handles GET /discover: all model offers with live status, measured
 // throughput, and active (time-of-use) price, cheapest-now first.
 func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
+	if corsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
@@ -522,6 +525,9 @@ type marketView struct {
 // active price, the best measured throughput, mean success rate, and a 0..100
 // "signal" combining supply, quality, and reliability. Concurrency-safe.
 func (b *broker) market(w http.ResponseWriter, r *http.Request) {
+	if corsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
@@ -907,7 +913,21 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 // cors lets the public website (rogerai.fyi) fetch read-only market data from a
 // browser. Applied only to public GET endpoints (/discover, /market).
 func cors(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	h := w.Header()
+	h.Set("Access-Control-Allow-Origin", "*")
+	h.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	h.Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+// corsPreflight answers a CORS preflight (OPTIONS) for the public read endpoints
+// with 204 + the CORS headers. Returns true if it handled the request.
+func corsPreflight(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	cors(w)
+	w.WriteHeader(http.StatusNoContent)
+	return true
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
