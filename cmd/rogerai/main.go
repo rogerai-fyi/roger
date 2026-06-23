@@ -31,6 +31,18 @@ import (
 // Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
 const defaultBroker = "https://broker.rogerai.fyi"
 
+// defaultGitHubClientID is the PUBLIC OAuth client id of the org-owned "RogerAI"
+// GitHub app (Device Flow enabled). Public by design; overridable for forks via
+// GITHUB_OAUTH_CLIENT_ID. No client secret ever lives in the CLI.
+const defaultGitHubClientID = "Ov23liQE7Z6ITMbeJoF3"
+
+func gitHubClientID() string {
+	if v := os.Getenv("GITHUB_OAUTH_CLIENT_ID"); v != "" {
+		return v
+	}
+	return defaultGitHubClientID
+}
+
 // Limit is the per-model spend ceiling a user sets once and enforces: max input
 // price, max output price (the headline cap, since we bill on output), and a
 // throughput floor. All in the same units as /discover (credits per 1M tokens,
@@ -147,6 +159,12 @@ func main() {
 		err = client.Search(cfg.Broker)
 	case "balance":
 		err = client.Balance(cfg.Broker, cfg.User)
+	case "login":
+		err = client.Login(cfg.Broker, gitHubClientID())
+	case "logout":
+		err = client.Logout()
+	case "whoami":
+		err = client.Whoami()
 	case "topup":
 		err = cmdTopup(cfg, os.Args[2:])
 	case "use":
@@ -481,6 +499,9 @@ func usage() {
   rogerai use <model> [--max-out P] [--max-in P] [--min-tps N] [--yes]   local OpenAI endpoint; set your spend limits
   rogerai balance                    wallet credits
   rogerai topup [usd]                buy credits (opens a checkout link)
+  rogerai login                      link a GitHub account (only needed to monetize)
+  rogerai logout                     forget the local GitHub link
+  rogerai whoami                     show your signed identity + linked GitHub
   rogerai share [flags]              share your local model (auto-detects it)
   rogerai config set broker <url>    switch brokers
   rogerai config limits              show your per-model spend limits

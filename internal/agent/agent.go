@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bownux/rogerai/internal/client"
 	"github.com/bownux/rogerai/internal/protocol"
 )
 
@@ -261,7 +262,13 @@ func postResult(client *http.Client, cfg Config, token string, res protocol.JobR
 
 func register(broker string, reg protocol.NodeRegistration) error {
 	b, _ := json.Marshal(reg)
-	resp, err := http.Post(broker+"/nodes/register", "application/json", bytes.NewReader(b))
+	req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	// Sign the registration with the OWNER's user key too: a node advertising a
+	// nonzero price is an earning node and the broker requires the signing pubkey to
+	// be bound to a GitHub owner (`rogerai login`). Free/unsigned sharing still works.
+	client.SignRequest(req, b)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -269,6 +276,10 @@ func register(broker string, reg protocol.NodeRegistration) error {
 	if resp.StatusCode != http.StatusOK {
 		// Surface a broker rejection instead of silently "succeeding" - otherwise
 		// the node would start poll loops against a registration that didn't take.
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
+		}
 		return fmt.Errorf("broker returned status %d", resp.StatusCode)
 	}
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)

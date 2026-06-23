@@ -129,3 +129,28 @@ func TestAddCredits(t *testing.T) {
 		t.Errorf("after +5 got %v", b)
 	}
 }
+
+func TestOwnerBinding(t *testing.T) {
+	m := NewMem()
+	if _, ok, _ := m.OwnerByPubkey("pk1"); ok {
+		t.Error("no owner should exist yet")
+	}
+	if err := m.BindOwner(Owner{GitHubID: 42, Login: "octocat", Pubkey: "pk1"}); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	o, ok, _ := m.OwnerByPubkey("pk1")
+	if !ok || o.GitHubID != 42 || o.Login != "octocat" {
+		t.Errorf("owner = %+v ok=%v, want octocat/42", o, ok)
+	}
+	// a different pubkey is independent
+	if _, ok, _ := m.OwnerByPubkey("pk2"); ok {
+		t.Error("pk2 should not be bound")
+	}
+	// re-bind (refresh) updates the login but keeps the binding
+	if err := m.BindOwner(Owner{GitHubID: 42, Login: "octocat-renamed", Pubkey: "pk1"}); err != nil {
+		t.Fatalf("rebind: %v", err)
+	}
+	if o, _, _ := m.OwnerByPubkey("pk1"); o.Login != "octocat-renamed" {
+		t.Errorf("rebind login = %q, want octocat-renamed", o.Login)
+	}
+}

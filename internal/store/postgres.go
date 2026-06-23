@@ -25,7 +25,12 @@ CREATE TABLE IF NOT EXISTS rogerai.receipts (
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
 CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
-CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());`
+CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS rogerai.owners (
+    pubkey TEXT PRIMARY KEY,                    -- hex ed25519 user pubkey (the binding key)
+    github_id BIGINT NOT NULL,
+    login TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now());`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -201,6 +206,31 @@ func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
 	var bal float64
 	err := p.db.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held).Scan(&bal)
 	return bal, err
+}
+
+// BindOwner upserts the owner binding for a pubkey, preserving created_at on
+// refresh (a re-login with the same key keeps its original bind time).
+func (p *Postgres) BindOwner(o Owner) error {
+	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login) VALUES($1,$2,$3)
+		ON CONFLICT (pubkey) DO UPDATE SET github_id=$2, login=$3`, o.Pubkey, o.GitHubID, o.Login)
+	return err
+}
+
+func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
+	var o Owner
+	var created sql.NullTime
+	err := p.db.QueryRow(`SELECT pubkey,github_id,login,created_at FROM rogerai.owners WHERE pubkey=$1`, pubkey).
+		Scan(&o.Pubkey, &o.GitHubID, &o.Login, &created)
+	if err == sql.ErrNoRows {
+		return Owner{}, false, nil
+	}
+	if err != nil {
+		return Owner{}, false, err
+	}
+	if created.Valid {
+		o.CreatedAt = created.Time.Unix()
+	}
+	return o, true, nil
 }
 
 func (p *Postgres) Close() error { return p.db.Close() }

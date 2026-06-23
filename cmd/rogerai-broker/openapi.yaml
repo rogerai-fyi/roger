@@ -30,6 +30,7 @@ tags:
   - { name: meta, description: Service metadata }
   - { name: consumer, description: Discover + use models }
   - { name: billing, description: Prepaid credit wallet (Stripe) }
+  - { name: auth, description: GitHub login (owners who monetize) }
   - { name: provider, description: Node registration + the outbound job tunnel }
 
 paths:
@@ -217,14 +218,58 @@ paths:
       parameters: [ { in: header, name: Stripe-Signature, required: true, schema: { type: string } } ]
       responses: { "200": { description: received }, "400": { description: bad signature } }
 
+  /auth/github:
+    post:
+      tags: [auth]
+      summary: Bind a GitHub owner to the caller's signing pubkey (login to monetize)
+      description: |
+        Login-to-monetize. After a GitHub OAuth Device Flow (`rogerai login`), the
+        CLI posts its GitHub access token here over a SIGNED request. The broker
+        verifies the token against `GET https://api.github.com/user` server-side,
+        then binds `github_id` <-> `login` <-> the signing pubkey as an owner.
+        Earning operations (priced node registration, future withdraws) require this
+        binding; the consume/free paths never do. The access token is verified and
+        discarded - never stored or logged.
+      security: [ { signedUser: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [access_token], properties: { access_token: { type: string, description: GitHub OAuth access token from the device flow } } }
+      responses:
+        "200":
+          description: Bound
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean }, github_login: { type: string }, github_id: { type: integer } } }
+        "400": { description: access_token required }
+        "401": { description: unsigned request or GitHub token rejected, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   /nodes/register:
     post:
       tags: [provider]
       summary: Register/refresh a provider node and its offers
+      description: |
+        Proof-of-possession: signed with the node key (anti-replay TS). A node
+        advertising a NONZERO price is an EARNING node and the request must ALSO be
+        signed with the owner's user key (the `signedUser` scheme) bound to a GitHub
+        owner via POST /auth/github - otherwise 401 (unsigned) / 403 (not linked).
+        Free (all-zero-price) nodes register with no login.
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/NodeRegistration' } } }
-      responses: { "200": { description: ok } }
+      responses:
+        "200": { description: ok }
+        "401": { description: invalid signature, or priced offer without a signed owner request }
+        "403": { description: priced offer but the signing key is not a GitHub-linked owner }
 
   /nodes/heartbeat:
     post:

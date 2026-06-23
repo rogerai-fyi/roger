@@ -61,7 +61,23 @@ type Store interface {
 	Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
 	// ReleaseHold returns a full reservation to the user (request failed, no charge).
 	ReleaseHold(user string, held float64) (newBalance float64, err error)
+	// BindOwner records (or refreshes) an owner binding: a verified GitHub identity
+	// linked to the signing pubkey of the logged-in CLI. Earning operations require
+	// this binding; it never affects the free/consume paths. Idempotent per pubkey.
+	BindOwner(o Owner) error
+	// OwnerByPubkey returns the owner bound to a signing pubkey, ok=false if none.
+	OwnerByPubkey(pubkey string) (Owner, bool, error)
 	Close() error
+}
+
+// Owner is a monetizing account: a GitHub identity bound to the CLI's signing
+// pubkey. Consumers never need one; it gates earning (priced node registration,
+// future withdraws). Additive - the consume/wallet paths ignore it.
+type Owner struct {
+	GitHubID  int64  `json:"github_id"`
+	Login     string `json:"login"`
+	Pubkey    string `json:"pubkey"` // hex ed25519 user pubkey (the binding key)
+	CreatedAt int64  `json:"created_at"`
 }
 
 // Mem is the in-memory implementation (single-process, non-durable).
@@ -72,10 +88,11 @@ type Mem struct {
 	spend     map[string]float64
 	entries   []Entry
 	processed map[string]bool
+	owners    map[string]Owner // keyed by pubkey
 }
 
 func NewMem() *Mem {
-	return &Mem{wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{}, processed: map[string]bool{}}
+	return &Mem{wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{}, processed: map[string]bool{}, owners: map[string]Owner{}}
 }
 
 func (m *Mem) BalanceOf(user string, seed float64) (float64, error) {
@@ -195,6 +212,26 @@ func (m *Mem) CreditOnce(key, user string, amount float64) (bool, float64, error
 	m.processed[key] = true
 	m.wallet[user] += amount
 	return true, m.wallet[user], nil
+}
+
+func (m *Mem) BindOwner(o Owner) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.owners == nil {
+		m.owners = map[string]Owner{}
+	}
+	if existing, ok := m.owners[o.Pubkey]; ok && existing.CreatedAt != 0 {
+		o.CreatedAt = existing.CreatedAt // preserve the original bind time on refresh
+	}
+	m.owners[o.Pubkey] = o
+	return nil
+}
+
+func (m *Mem) OwnerByPubkey(pubkey string) (Owner, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.owners[pubkey]
+	return o, ok, nil
 }
 
 func (m *Mem) Close() error { return nil }

@@ -36,8 +36,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	var reg protocol.NodeRegistration
-	if err := json.NewDecoder(r.Body).Decode(&reg); err != nil {
+	if err := json.Unmarshal(body, &reg); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad registration")
 		return
 	}
@@ -55,6 +56,26 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	if skew := time.Since(time.Unix(reg.TS, 0)); skew > 5*time.Minute || skew < -5*time.Minute {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
+	}
+	// Login-to-monetize: a node advertising a NONZERO price is an earning node, which
+	// requires a GitHub-linked owner bound to the user signing key on this request.
+	// Free/zero-priced supply (and unsigned registrations) are unaffected, so the
+	// consume path and free sharing never need login.
+	if offersPriced(reg.Offers) {
+		uid, authed, sok := b.identityOf(r, body)
+		if !sok {
+			jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+			return
+		}
+		if !authed {
+			jsonErr(w, http.StatusUnauthorized, "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)")
+			return
+		}
+		if _, ok := b.requireOwner(r); !ok {
+			jsonErr(w, http.StatusForbidden, "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`")
+			return
+		}
+		_ = uid
 	}
 	b.mu.Lock()
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
@@ -75,6 +96,23 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	b.mu.Unlock()
 	log.Printf("registered node %s (%d offers, %s)", reg.NodeID, len(reg.Offers), reg.HW)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// offersPriced reports whether any offer advertises a nonzero price (in its base
+// price or in any scheduled window) - i.e. the node intends to EARN. A purely free
+// node (all prices zero, only Free windows) is not gated on login.
+func offersPriced(offers []protocol.ModelOffer) bool {
+	for _, o := range offers {
+		if o.PriceIn > 0 || o.PriceOut > 0 {
+			return true
+		}
+		for _, w := range o.Schedule {
+			if !w.Free && (w.In > 0 || w.Out > 0) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // heartbeat handles POST /nodes/heartbeat: keeps a node marked online (~35s TTL).

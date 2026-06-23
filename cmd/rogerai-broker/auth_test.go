@@ -1,0 +1,132 @@
+package main
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/bownux/rogerai/internal/store"
+)
+
+// signReq attaches the user signing headers to a request for the given body.
+func signReq(r *http.Request, priv ed25519.PrivateKey, body []byte) {
+	pub, ts, sig := protocol.SignRequest(priv, r.Method, r.URL.Path, body)
+	r.Header.Set(protocol.HeaderPubkey, pub)
+	r.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	r.Header.Set(protocol.HeaderSig, sig)
+}
+
+// TestAuthGitHubBindsOwner verifies POST /auth/github verifies the token against
+// GitHub server-side and binds github_id<->login<->signing pubkey.
+func TestAuthGitHubBindsOwner(t *testing.T) {
+	// Stub GitHub /user.
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer good-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "login": "octocat"})
+	}))
+	defer gh.Close()
+	old := gitHubAPI
+	gitHubAPI = gh.URL
+	defer func() { gitHubAPI = old }()
+
+	mem := store.NewMem()
+	b := &broker{db: mem, pubOfUser: map[string]string{}}
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+
+	post := func(token string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"access_token": token})
+		r := httptest.NewRequest(http.MethodPost, "/auth/github", bytes.NewReader(body))
+		signReq(r, priv, body)
+		w := httptest.NewRecorder()
+		b.authGitHub(w, r)
+		return w
+	}
+
+	if w := post("good-token"); w.Code != http.StatusOK {
+		t.Fatalf("valid bind = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	o, ok, _ := mem.OwnerByPubkey(pubHex)
+	if !ok || o.GitHubID != 99 || o.Login != "octocat" {
+		t.Errorf("owner = %+v ok=%v, want octocat/99", o, ok)
+	}
+	// A bad GitHub token is rejected and binds nothing new.
+	if w := post("bad-token"); w.Code != http.StatusUnauthorized {
+		t.Errorf("bad token = %d, want 401", w.Code)
+	}
+	// Unsigned request cannot bind (no pubkey to attach the owner to).
+	body, _ := json.Marshal(map[string]string{"access_token": "good-token"})
+	r := httptest.NewRequest(http.MethodPost, "/auth/github", bytes.NewReader(body))
+	r.Header.Set(protocol.HeaderUser, "someone")
+	w := httptest.NewRecorder()
+	b.authGitHub(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unsigned bind = %d, want 401", w.Code)
+	}
+}
+
+// TestRegisterEarningGate verifies the login-to-monetize gate: a priced node must
+// be registered with a signed request from a GitHub-linked owner; free nodes and
+// unsigned-but-priced attempts behave as specified.
+func TestRegisterEarningGate(t *testing.T) {
+	mem := store.NewMem()
+	b := &broker{
+		db:           mem,
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+		pubOfUser:    map[string]string{},
+	}
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	userPubHex := hex.EncodeToString(userPriv.Public().(ed25519.PublicKey))
+
+	mkReg := func(nodeID string, priceOut float64) []byte {
+		reg := protocol.NodeRegistration{
+			NodeID: nodeID, PubKey: hex.EncodeToString(nodePub), TS: time.Now().Unix(),
+			Offers: []protocol.ModelOffer{{Model: "m", PriceOut: priceOut}},
+		}
+		reg.SignRegistration(nodePriv)
+		body, _ := json.Marshal(reg)
+		return body
+	}
+	doRegister := func(body []byte, signUser bool) int {
+		r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+		if signUser {
+			signReq(r, userPriv, body)
+		}
+		w := httptest.NewRecorder()
+		b.register(w, r)
+		return w.Code
+	}
+
+	// Free node (price 0), unsigned → allowed (free supply never needs login).
+	if code := doRegister(mkReg("free1", 0), false); code != http.StatusOK {
+		t.Errorf("free unsigned register = %d, want 200", code)
+	}
+	// Priced node, signed but NOT a linked owner → 403.
+	if code := doRegister(mkReg("paid1", 0.5), true); code != http.StatusForbidden {
+		t.Errorf("priced non-owner register = %d, want 403", code)
+	}
+	// Priced node, unsigned → 401 (signature required to even check ownership).
+	if code := doRegister(mkReg("paid2", 0.5), false); code != http.StatusUnauthorized {
+		t.Errorf("priced unsigned register = %d, want 401", code)
+	}
+	// Link the owner, then a priced signed register succeeds.
+	_ = mem.BindOwner(store.Owner{GitHubID: 1, Login: "owner", Pubkey: userPubHex})
+	if code := doRegister(mkReg("paid3", 0.5), true); code != http.StatusOK {
+		t.Errorf("priced owner register = %d, want 200", code)
+	}
+}

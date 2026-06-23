@@ -123,6 +123,7 @@ func main() {
 	mux.HandleFunc("/me", b.me)                     // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)         // owner dashboard: accrued earnings, recent
 	mux.HandleFunc("/market", b.market)             // per-model market metrics + signal
+	mux.HandleFunc("/auth/github", b.authGitHub)    // bind a GitHub owner to the signing pubkey (CLI device flow)
 	mux.HandleFunc("/billing/checkout", b.checkout) // Stripe top-up -> credits
 	mux.HandleFunc("/billing/webhook", b.webhook)   // Stripe payment webhook
 	mux.HandleFunc("/v1/chat/completions", b.relay)
