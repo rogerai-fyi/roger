@@ -7,17 +7,17 @@
   --brand: #5b5bff;
   --bg: #ffffff;
 }
-/* Honor the OS theme (these standalone pages have no in-page toggle). */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e9edf2;
-    --muted: #9aa3b0;
-    --line: #232831;
-    --bg: #0b0d12;
-  }
-  .gh { background: #e9edf2; color: #0b0d12; }
-  .cmd { background: #11141a; }
+/* Follow the saved roger-theme (js/theme-init.js sets data-theme before paint),
+   with the OS preference as the default. Keyed on data-theme so the visitor's
+   toggle choice wins, and the higher specificity fixes the button text contrast. */
+:root[data-theme="dark"] {
+  --ink: #e9edf2;
+  --muted: #9aa3b0;
+  --line: #232831;
+  --bg: #0b0d12;
 }
+:root[data-theme="dark"] .gh { background: #e9edf2; color: #0b0d12; }
+:root[data-theme="dark"] .cmd { background: #11141a; }
 /* No animation on these pages; keep the guard so any future transition is opt-out. */
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
