@@ -164,6 +164,11 @@ func cmdShare(cfg config, args []string) error {
 	if mdl == "" {
 		return fmt.Errorf("could not determine a model; pass --model")
 	}
+	// Accept --upstream as a base URL (http://host:port), a /v1 URL, or the full
+	// /v1/chat/completions URL - normalize to the chat-completions endpoint the
+	// agent POSTs to. Auto-detected upstreams already carry the full path (this
+	// is idempotent for them).
+	up = normalizeUpstream(up)
 
 	var sched []protocol.PriceWindow
 	if *freeWindow != "" {
@@ -250,6 +255,26 @@ func hostname() string {
 		return "node"
 	}
 	return strings.ToLower(h)
+}
+
+// normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible
+// chat-completions URL the agent POSTs to. It accepts a base URL
+// (http://host:port), a /v1 URL, or the already-full /v1/chat/completions URL,
+// so the natural inputs all work and match what detect.Detect produces.
+func normalizeUpstream(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return u
+	}
+	u = strings.TrimRight(u, "/")
+	switch {
+	case strings.HasSuffix(u, "/chat/completions"):
+		return u
+	case strings.HasSuffix(u, "/v1"):
+		return u + "/chat/completions"
+	default:
+		return u + "/v1/chat/completions"
+	}
 }
 
 func detectHW() string {
