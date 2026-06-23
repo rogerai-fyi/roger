@@ -140,6 +140,37 @@ func TestLooksLikeDerivedID(t *testing.T) {
 	}
 }
 
+// TestReservedID guards the unsigned-claim reservation: both the pubkey-derived
+// shape AND the github-scoped web wallet prefix are reserved, so an unsigned legacy
+// header can never read another caller's wallet by guessing the id.
+func TestReservedID(t *testing.T) {
+	for _, r := range []string{"u_0123456789abcdef", "u_gh_7", "u_gh_123456"} {
+		if !reservedID(r) {
+			t.Errorf("%q should be reserved from the unsigned path", r)
+		}
+	}
+	for _, ok := range []string{"alice", "u_geez", "ghuser", ""} {
+		if reservedID(ok) {
+			t.Errorf("%q should NOT be reserved", ok)
+		}
+	}
+}
+
+// TestUnsignedCannotClaimGitHubWallet verifies a /me read with an unsigned
+// X-Roger-User naming a github-scoped wallet (u_gh_<id>) is rejected (401), so the
+// session-only wallet can't be read by guessing a GitHub numeric id.
+func TestUnsignedCannotClaimGitHubWallet(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := &broker{priv: priv, db: store.NewMem(), pubOfUser: map[string]string{}, seedFunds: 100}
+	r := httptest.NewRequest(http.MethodGet, "/me", nil)
+	r.Header.Set(protocol.HeaderUser, "u_gh_7")
+	w := httptest.NewRecorder()
+	b.me(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unsigned u_gh_ read = %d, want 401", w.Code)
+	}
+}
+
 // TestRelayRejectsUnsignedSpend verifies the spend handler refuses an unsigned
 // request (the core P0 invariant: an unsigned legacy request can never spend).
 func TestRelayRejectsUnsignedSpend(t *testing.T) {

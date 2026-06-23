@@ -220,10 +220,13 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := time.Now().Add(24 * time.Hour).Unix()
-	// SameSite=None so the browser sends this cookie on cross-site XHR: the dashboard
-	// lives on the web origin (rogerai.fyi) but reads /me, /earnings from the broker
-	// origin (broker.rogerai.fyi). None REQUIRES Secure. The short-lived oauth_state
-	// cookie above stays Lax (it is only ever read on the same-site callback).
+	// SameSite=None so the browser sends this cookie on the dashboard's cross-ORIGIN
+	// XHR to the broker. For the default deploy (rogerai.fyi <-> broker.rogerai.fyi,
+	// same registrable domain) Lax would already suffice; None is what makes a
+	// CROSS-SITE ROGERAI_WEB_ORIGIN (a different registrable domain) work too. None
+	// REQUIRES Secure. Low risk: the cookie is HttpOnly, spends still require an
+	// Ed25519 signature, and the only cookie-readable surfaces are GET reads + the
+	// logout POST. The short-lived oauth_state cookie stays Lax (same-site callback).
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: b.signSession(gu.Login, gu.ID, exp), Path: "/",
 		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,

@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,18 +245,28 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 	// plain X-Roger-User header to spend an unsigned-but-impersonating request. Reject
 	// any legacy header that looks like a derived id so the reservation holds.
 	if u := r.Header.Get(protocol.HeaderUser); u != "" {
-		if looksLikeDerivedID(u) {
+		if reservedID(u) {
 			return "", false, false
 		}
 		return u, false, true
 	}
 	if a := r.Header.Get("Authorization"); len(a) > 7 && a[:7] == "Bearer " {
-		if looksLikeDerivedID(a[7:]) {
+		if reservedID(a[7:]) {
 			return "", false, false
 		}
 		return a[7:], false, true
 	}
 	return "anon", false, true
+}
+
+// reservedID reports whether an id belongs to a namespace that an UNSIGNED legacy
+// header must never be allowed to claim: the pubkey-derived wallet ("u_"+16hex,
+// owned by a signed caller) OR the github-scoped web wallet ("u_gh_<id>", owned by
+// a session-cookie holder). Both are guessable from public info (a pubkey, or a
+// GitHub numeric id), so the unsigned path must reject them or it leaks another
+// caller's balance/spend/recent. See identityOf.
+func reservedID(s string) bool {
+	return looksLikeDerivedID(s) || strings.HasPrefix(s, "u_gh_")
 }
 
 // looksLikeDerivedID reports whether s is shaped like a pubkey-derived wallet id
