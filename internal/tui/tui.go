@@ -371,7 +371,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.offers)-1 {
+			if m.cursor < len(m.bands)-1 { // browse list is the bands (grouped), not raw offers
 				m.cursor++
 			}
 		case "enter":
