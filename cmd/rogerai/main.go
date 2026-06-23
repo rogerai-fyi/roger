@@ -102,11 +102,38 @@ func saveConfig(c config) error {
 	return os.WriteFile(configPath(), b, 0600)
 }
 
+// tuiLimits builds the TUI spend-limit store from the config, with a Save
+// callback that persists edits back to config.json (the TUI owns no I/O).
+func tuiLimits(cfg config) *tui.LimitStore {
+	models := map[string]tui.Limit{}
+	for m, l := range cfg.Limits.Models {
+		models[m] = tui.Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+	}
+	typ := cfg.Limits.TypicalOutTok
+	if typ <= 0 {
+		typ = 800
+	}
+	return &tui.LimitStore{
+		Models:     models,
+		Default:    tui.Limit{MaxIn: cfg.Limits.Default.MaxIn, MaxOut: cfg.Limits.Default.MaxOut, MinTPS: cfg.Limits.Default.MinTPS},
+		TypicalOut: typ,
+		Save: func(tm map[string]tui.Limit, def tui.Limit) {
+			c := loadConfig()
+			c.Limits.Models = map[string]Limit{}
+			for m, l := range tm {
+				c.Limits.Models[m] = Limit{MaxIn: l.MaxIn, MaxOut: l.MaxOut, MinTPS: l.MinTPS}
+			}
+			c.Limits.Default = Limit{MaxIn: def.MaxIn, MaxOut: def.MaxOut, MinTPS: def.MinTPS}
+			_ = saveConfig(c)
+		},
+	}
+}
+
 func main() {
 	cfg := loadConfig()
 	if len(os.Args) < 2 {
 		// no args -> launch the interactive radio TUI
-		if err := tui.Run(cfg.Broker, cfg.User); err != nil {
+		if err := tui.RunWith(cfg.Broker, cfg.User, tuiLimits(cfg)); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -115,7 +142,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "tui":
-		err = tui.Run(cfg.Broker, cfg.User)
+		err = tui.RunWith(cfg.Broker, cfg.User, tuiLimits(cfg))
 	case "search", "discover", "models":
 		err = client.Search(cfg.Broker)
 	case "balance":
@@ -144,6 +171,12 @@ func main() {
 }
 
 func cmdUse(cfg config, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-in P] [--max-out P] [--min-tps N] [--yes]")
+	}
+	// The model is the first positional; flags follow it. (Go's flag package stops
+	// at the first non-flag arg, so we pull the model out before parsing.)
+	model := args[0]
 	fs := flag.NewFlagSet("use", flag.ExitOnError)
 	port := fs.Int("port", 4141, "local endpoint port")
 	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
@@ -153,11 +186,7 @@ func cmdUse(cfg config, args []string) error {
 	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
 	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
 	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-in P] [--max-out P] [--min-tps N] [--yes]")
-	}
-	model := fs.Arg(0)
+	fs.Parse(args[1:])
 	// Start from the resolved per-model limit (or Default), then let flags override
 	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
 	lim, typical := cfg.resolve(model)
@@ -334,15 +363,17 @@ func cmdConfig(args []string) error {
 // [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
 // flags passed are changed (the rest of that model's limit is preserved).
 func cmdSetLimit(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rogerai config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
+	}
+	// The model is the first positional; flags follow it. (Go's flag package stops
+	// at the first non-flag arg, so we pull the model out before parsing.)
+	model := args[0]
 	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
 	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
 	maxOut := fs.Float64("max-out", -1, "$/1M output price cap (the headline cap; 0 = no cap)")
 	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
-	fs.Parse(args)
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: rogerai config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
-	}
-	model := fs.Arg(0)
+	fs.Parse(args[1:])
 	c := loadConfig()
 	var cur Limit
 	if model == "default" {
