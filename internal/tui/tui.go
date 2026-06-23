@@ -5,7 +5,9 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -401,7 +403,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeHelp
 		case "r":
 			m.status = "re-scanning the band…"
-			m.scanErr = false
+			m.scanErr, m.scanned = false, false // back to the loading pose while we retune
 			return m, fetchOffers(m.broker)
 		}
 	}
@@ -417,7 +419,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	switch fields[0] {
 	case "search", "s":
 		m.status = "re-scanning the band…"
-		m.scanErr = false
+		m.scanErr, m.scanned = false, false
 		return m, fetchOffers(m.broker)
 	case "connect", "tune":
 		return m.connect()
@@ -1223,8 +1225,10 @@ func fetchOffers(broker string) tea.Cmd {
 		var d struct {
 			Offers []offer `json:"offers"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
-			return errMsg("broker unreachable: " + broker) // unparseable body -> treat as a drop
+		// A valid 200 with an empty body is a legitimate "no offers" scan (io.EOF),
+		// not a drop; only a genuinely malformed body is treated as a broker drop.
+		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil && !errors.Is(err, io.EOF) {
+			return errMsg("broker unreachable: " + broker)
 		}
 		sort.Slice(d.Offers, func(i, j int) bool { return d.Offers[i].PriceIn < d.Offers[j].PriceIn })
 		return offersMsg(d.Offers)
