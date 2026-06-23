@@ -16,13 +16,21 @@ type Found struct {
 	Models  []string
 }
 
+// Common local OpenAI-compatible servers, by default port. Any server exposing
+// GET /v1/models works; this just enables zero-config detection. Users can always
+// point at anything with `rogerai share --upstream <url>`.
 var probes = []struct{ name, base string }{
 	{"ollama", "http://127.0.0.1:11434/v1"},
 	{"lm-studio", "http://127.0.0.1:1234/v1"},
+	{"jan", "http://127.0.0.1:1337/v1"},
 	{"litellm", "http://127.0.0.1:4000/v1"},
-	{"vllm", "http://127.0.0.1:8000/v1"},
+	{"gpt4all", "http://127.0.0.1:4891/v1"},
+	{"text-generation-webui/tabbyapi", "http://127.0.0.1:5000/v1"},
+	{"koboldcpp", "http://127.0.0.1:5001/v1"},
+	{"vllm/tgi", "http://127.0.0.1:8000/v1"},
 	{"cpu-bots", "http://127.0.0.1:8060/v1"},
-	{"llama.cpp", "http://127.0.0.1:8080/v1"},
+	{"llama.cpp/localai/llamafile", "http://127.0.0.1:8080/v1"},
+	{"mlx-lm", "http://127.0.0.1:8082/v1"},
 }
 
 // Detect probes the common local endpoints and returns the reachable ones with

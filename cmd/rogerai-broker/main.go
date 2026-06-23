@@ -81,7 +81,7 @@ type priceQuote struct {
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:7070", "listen address")
-	fee := flag.Float64("fee", 0.25, "platform take rate")
+	fee := flag.Float64("fee", 0.30, "platform take rate")
 	seed := flag.Float64("seed-credits", 100.0, "starting credits per new user (until Stripe)")
 	lock := flag.Duration("price-lock", 24*time.Hour, "how long a quoted price is honored per user+node+model")
 	flag.Parse()
