@@ -34,7 +34,7 @@
         <span class="brand__name">Roger<b>AI</b></span>
       </a>
       <nav class="nav__right">
-        <a class="nav__link" href="#what">What it is</a>
+        <a class="nav__link" href="#market">The band</a>
         <a class="nav__link" href="#how">How it works</a>
         <a class="nav__link" href="#monetize">Monetize</a>
         <a class="nav__link nav__link--ghost" href="https://github.com/bownux/rogerai">GitHub</a>
@@ -89,8 +89,9 @@
       <div class="demo__head" data-reveal>
         <span class="eyebrow eyebrow--ascii">The whole thing</span>
         <h2>Run <code class="inline">rogerai</code>. Tune in. Get an endpoint.</h2>
-        <p>An OpenAI-compatible endpoint on <code class="inline">127.0.0.1</code>, in three keystrokes.
-          Point your bots or any tool at it.</p>
+        <p>Browse stations by signal, tune in, and RogerAI hands you a local
+          <b>OpenAI-compatible endpoint + key</b> on <code class="inline">127.0.0.1</code> -
+          a drop-in for Hermes, your bots, or any tool that speaks OpenAI.</p>
       </div>
 
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
@@ -101,6 +102,76 @@
           <button class="term__replay" id="termReplay" type="button" aria-label="Replay demo">replay</button>
         </div>
         <pre class="term__screen" id="termScreen" aria-hidden="true"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LIVE SIGNAL TOWER / MARKET ===================== -->
+  <section class="market" id="market">
+    <div class="wrap">
+      <div class="market__head" data-reveal>
+        <span class="eyebrow eyebrow--ascii">Live from the band</span>
+        <h2>The signal tower.</h2>
+        <p>Every model is a channel. <b>More online providers&nbsp;=&nbsp;stronger signal</b>,
+          faster tokens, lower price. As a channel fills up, signal and quality dip and the
+          price drifts up - supply and demand, in real time.</p>
+      </div>
+
+      <div class="market__panel" data-reveal data-reveal-delay="80">
+        <!-- top status line: the on-air pulse + live broker status -->
+        <div class="market__bar">
+          <span class="market__status" id="marketStatus">
+            <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+            <span id="marketStatusText">tuning in to the broker…</span>
+          </span>
+          <span class="market__meta">
+            <span class="market__legend" aria-hidden="true">
+              <i class="market__legbar"></i> signal&nbsp;·&nbsp;providers online
+            </span>
+            <button class="market__refresh" id="marketRefresh" type="button"
+                    aria-label="Refresh the live band">refresh</button>
+          </span>
+        </div>
+
+        <!-- column header -->
+        <div class="mkt-row mkt-row--head" aria-hidden="true">
+          <span class="mkt-cell mkt-cell--model">station</span>
+          <span class="mkt-cell mkt-cell--signal">signal</span>
+          <span class="mkt-cell mkt-cell--speed">speed</span>
+          <span class="mkt-cell mkt-cell--quality">quality</span>
+          <span class="mkt-cell mkt-cell--price">price · out</span>
+        </div>
+
+        <!-- the live rows render here -->
+        <ul class="mkt-list" id="marketList" aria-live="polite">
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+        </ul>
+
+        <p class="market__foot mono" id="marketFoot">
+          live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens
+        </p>
+      </div>
+
+      <!-- money: what a token costs + wallet, glanceable -->
+      <div class="money" data-reveal data-reveal-delay="140" aria-label="What it costs">
+        <div class="money__card">
+          <span class="money__label">a million tokens, typically</span>
+          <b class="money__big mono ember">$0.18 - $0.55</b>
+          <span class="money__sub">in &amp; out · set by each station · ~150-400 chat replies</span>
+        </div>
+        <div class="money__card">
+          <span class="money__label">your wallet</span>
+          <b class="money__big mono">$42.17</b>
+          <span class="money__sub">prepaid credit · top up with Stripe · debited per token</span>
+        </div>
+        <div class="money__card">
+          <span class="money__label">a typical reply costs</span>
+          <b class="money__big mono ember">$0.0001</b>
+          <span class="money__sub">24 tokens out @ 0.22 $/M · you watch it tick, live</span>
+        </div>
       </div>
     </div>
   </section>
@@ -255,7 +326,7 @@
         Roger<b>AI</b>
       </div>
       <nav class="footer__links">
-        <a href="#what">What it is</a>
+        <a href="#market">The band</a>
         <a href="#how">How it works</a>
         <a href="#monetize">Monetize</a>
         <a href="https://github.com/bownux/rogerai">GitHub</a>
@@ -276,6 +347,7 @@
 
   <script src="js/radiomap.js" defer></script>
   <script src="js/terminal.js" defer></script>
+  <script src="js/market.js" defer></script>
   <script src="js/site.js" defer></script>
 </body>
 </html>

@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bownux/rogerai/internal/client"
@@ -76,6 +77,23 @@ type offer struct {
 	TPS          float64 `json:"tps"`
 }
 
+// alertBox is a tiny thread-safe mailbox: the relay's failover callback (running
+// in the proxy goroutine) drops a line in, and the Bubble Tea tick loop drains it
+// onto the status line. Pointer-shared so the model copy on each Update sees it.
+type alertBox struct {
+	mu  sync.Mutex
+	msg string
+}
+
+func (a *alertBox) set(s string) { a.mu.Lock(); a.msg = s; a.mu.Unlock() }
+func (a *alertBox) take() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.msg
+	a.msg = ""
+	return s
+}
+
 type mode int
 
 const (
@@ -104,6 +122,7 @@ type model struct {
 	balance          float64
 	haveBal          bool
 	status           string
+	alert            *alertBox
 }
 
 // ---- messages ----
@@ -120,7 +139,7 @@ func New(broker, user string) model {
 	ch := textinput.New()
 	ch.Prompt = stSelText.Render("you ▸ ")
 	ch.Placeholder = "say something on channel…"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, proxyAddr: "127.0.0.1:4141", status: "tuning in…"}
+	return model{broker: broker, user: user, cmd: ci, chatIn: ch, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}}
 }
 
 func (m model) Init() tea.Cmd {
@@ -133,6 +152,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.frame++
+		if m.alert != nil {
+			if a := m.alert.take(); a != "" {
+				m.status = stEmber.Render("⚡ " + a)
+			}
+		}
 		return m, tick()
 	case offersMsg:
 		m.offers = []offer(msg)
@@ -295,7 +319,14 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 		}
 		m.endpoint = "http://" + ln.Addr().String() + "/v1"
 		m.proxyUp = true
-		go http.Serve(ln, client.ProxyHandler(m.broker, m.user, m.confidentialOnly))
+		// Failover alerts from the relay land in a shared box the tick loop drains
+		// onto the status line - bots keep hitting the same endpoint regardless.
+		alert := m.alert
+		opts := client.ProxyOptions{
+			Broker: m.broker, User: m.user, Confidential: m.confidentialOnly,
+			Alert: func(s string) { alert.set(s) },
+		}
+		go http.Serve(ln, client.ProxyHandler(opts))
 	}
 	m.connected = &o
 	m.apikey = "roger-local"

@@ -97,13 +97,15 @@
     stations.forEach(function (s) { line(stationRow(s)); });
     line(dim("  ──────────────────────────────────────────────────────────────────────"));
     line("");
-    line(ok("  ◉ CHANNEL OPEN") + "  " + head("llama3.3-70b") + " " + dim("@basement") + "   " + live("44 t/s"));
+    line(ok("  ◉ CHANNEL OPEN") + "  " + head("qwen3-coder-30b") + " " + dim("@nightowl") + "   " + gold("◆ verified") + "   " + live("58 t/s"));
     line("");
-    line("  " + dim("BASE URL   ") + money("http://127.0.0.1:8779/v1"));
-    line("  " + dim("API KEY    ") + money("rog-sk-live-9f3c…a71d"));
-    line("  " + dim("MODEL      ") + money("llama3.3-70b"));
+    line(dim("  ╭───────────── point Hermes / your bots here ─────────────╮"));
+    line(dim("  │  ") + dim("BASE URL  ") + money("http://127.0.0.1:8779/v1") + dim("      ") + volt("[copy ⌘C]") + dim("  │"));
+    line(dim("  │  ") + dim("API KEY   ") + money("rog-sk-live-9f3c…a71d") + dim("    ") + volt("[copy ⌘K]") + dim("  │"));
+    line(dim("  │  ") + dim("MODEL     ") + money("qwen3-coder-30b") + dim("                       │"));
+    line(dim("  ╰─────────────────────────────────────────────────────────╯"));
     line("");
-    line(dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that."));
+    line(dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + live("roger that."));
     flush();
   }
 
@@ -138,7 +140,7 @@
         rebuildBand();
       });
       at(d * stations.length + 2000, function () {
-        rebuildBand(span("t-prompt", "roger> ") + head("connect @nightowl") + CURSOR);
+        rebuildBand(span("t-prompt", "roger> ") + head("/connect @nightowl") + CURSOR);
       });
 
       // 4) connecting handshake
@@ -161,10 +163,10 @@
         clear();
         line(ok("  ◉ CHANNEL OPEN") + "  " + head("qwen3-coder-30b") + " " + dim("@nightowl") + "   " + gold("◆ verified") + "   " + live("58 t/s"));
         line("");
-        line(dim("  ╭──────────── point your bots here ─────────────╮"));
-        line(dim("  │  ") + dim("BASE URL ") + money("http://127.0.0.1:8779/v1") + dim("           │"));
-        line(dim("  │  ") + dim("API KEY  ") + money("rog-sk-live-9f3c…a71d") + dim("              │"));
-        line(dim("  │  ") + dim("MODEL    ") + money("qwen3-coder-30b") + dim("                    │"));
+        line(dim("  ╭───────────── point Hermes / your bots here ─────────────╮"));
+        line(dim("  │  ") + dim("BASE URL  ") + money("http://127.0.0.1:8779/v1") + dim("      ") + volt("[copy ⌘C]") + dim("  │"));
+        line(dim("  │  ") + dim("API KEY   ") + money("rog-sk-live-9f3c…a71d") + dim("    ") + volt("[copy ⌘K]") + dim("  │"));
+        line(dim("  │  ") + dim("MODEL     ") + money("qwen3-coder-30b") + dim("                       │"));
         line(dim("  ╰─────────────────────────────────────────────────────────╯"));
         line("");
         line(dim("  drop-in, OpenAI-compatible. ") + live("roger that.") + dim("  the endpoint stays live."));

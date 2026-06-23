@@ -25,6 +25,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -266,8 +267,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
+	// Client-side failover hints: pin to a specific node, and/or skip nodes that
+	// just failed for this caller (comma-separated). These let the connector route
+	// AROUND a dropped provider without the broker re-handing it the same one.
+	pinNode := r.Header.Get("X-Roger-Node")
+	exclude := parseNodeSet(r.Header.Get("X-Roger-Exclude-Nodes"))
 	b.mu.Lock()
-	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice)
+	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, pinNode, exclude)
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
@@ -495,8 +501,10 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 }
 
 // pick: cheapest-RIGHT-NOW online node offering the model, ranked by the active
-// (time-of-use) price; optionally restricted to confidential nodes. Caller holds lock.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn float64) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+// (time-of-use) price; optionally restricted to confidential nodes. When pin is
+// set, only that node is eligible (client failover pinning); nodes in exclude are
+// skipped (the providers a client just saw fail). Caller holds lock.
+func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn float64, pin string, exclude map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	var best protocol.NodeRegistration
 	var bestOffer protocol.ModelOffer
 	bestPrice := 0.0
@@ -504,6 +512,12 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn fl
 	now := time.Now()
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+			continue
+		}
+		if pin != "" && n.NodeID != pin {
+			continue
+		}
+		if exclude[n.NodeID] {
 			continue
 		}
 		if confidentialOnly && !b.confidential[n.NodeID] {
@@ -549,6 +563,21 @@ func (b *broker) updateTPS(node string, sample float64) {
 func parseFloat(s string) float64 {
 	f, _ := strconv.ParseFloat(s, 64)
 	return f
+}
+
+// parseNodeSet parses a comma-separated node-id list (X-Roger-Exclude-Nodes) into
+// a set, ignoring empty entries. Returns nil for an empty header (no exclusions).
+func parseNodeSet(s string) map[string]bool {
+	if s == "" {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, part := range strings.Split(s, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			set[id] = true
+		}
+	}
+	return set
 }
 
 // verifyAttestation is a STUB. Real TEE remote-attestation verification (NVIDIA
