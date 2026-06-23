@@ -59,6 +59,7 @@ type broker struct {
 	seedFunds    float64
 	lockWin      time.Duration
 	bill         billing
+	mod          moderation
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -111,6 +112,7 @@ func main() {
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
+	b.mod = loadModeration()
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)
 
 	mux := http.NewServeMux()

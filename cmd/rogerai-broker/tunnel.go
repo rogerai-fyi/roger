@@ -220,6 +220,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &req)
 
+	// Mandatory pre-dispatch content screen: an illegal prompt is blocked HERE,
+	// before it reaches any provider. Off by default in dev; required + fail-closed
+	// for launch (see moderation.go). Covers streaming too (this is before the branch).
+	if st, msg := b.mod.screen(promptText(body)); st != 0 {
+		log.Printf("moderation reject model=%s status=%d: %s", req.Model, st, msg)
+		jsonErr(w, st, msg)
+		return
+	}
+
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
