@@ -283,7 +283,7 @@ func usage() {
   rogerai search                     discover models (cheapest first)
   rogerai use <model> [--port N]     local OpenAI endpoint via the broker
   rogerai balance                    wallet credits
-  rogerai topup [usd]                buy credits (Stripe checkout link)
+  rogerai topup [usd]                buy credits (opens a checkout link)
   rogerai share [flags]              share your local model (auto-detects it)
   rogerai config set broker <url>    switch brokers
   rogerai version

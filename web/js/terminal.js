@@ -146,9 +146,9 @@
     flush();
   }
 
-  function endpointPanel(stationWho) {
+  function endpointPanel(stationWho, tps) {
     line(ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via " + stationWho) +
-         "   " + gold("◆ verified") + "   " + live("58 t/s"));
+         "   " + gold("◆ verified") + "   " + live(tps + " t/s"));
     line("");
     line(dim("  ╭───────────── point Hermes / your bots here ─────────────╮"));
     line(dim("  │  ") + dim("BASE URL  ") + money("http://127.0.0.1:8779/v1") + dim("      ") + volt("[copy ⌘C]") + dim("  │"));
@@ -166,7 +166,7 @@
     stations.forEach(function (s) { line(stationRow(s)); });
     line(dim("  ──────────────────────────────────────────────────────────────────────"));
     line("");
-    endpointPanel("@glacier");
+    endpointPanel("@glacier", "47");
     line("");
     line(dim("  @nightowl faded -> re-tuned to ") + head("@glacier") +
          dim("  (<= " + MAX_PRICE + " $/M, >= " + MIN_TPS + " t/s)"));
@@ -226,7 +226,7 @@
           // 5) channel open + endpoint panel (the money moment)
           at(afterLock, function () {
             clear();
-            endpointPanel("@nightowl");
+            endpointPanel("@nightowl", "58");
             line("");
             line("  " + dim("┌ live ──────────────────────────────────────────────────────┐"));
             line("  " + dim("│ ") + ok("◉ open ") + gold("◆") + dim(" │ ") + head("@nightowl") + dim(" │ ") + live("58 t/s ▆▆▇▆▅▆▇") + dim(" │ bal ") + money("$42.17") + dim(" │"));
@@ -237,14 +237,14 @@
           // 6) RESILIENCE: @nightowl FADES -> auto re-tune to @glacier
           at(afterLock + STAGE_HOLD + 900, function () {
             clear();
-            endpointPanel("@nightowl");
+            endpointPanel("@nightowl", "58");
             line("");
             line(volt("  ! station ") + head("@nightowl") + volt(" faded") + dim("  (home GPU offline)") + "  re-tuning…");
             flush();
           });
           at(afterLock + STAGE_HOLD + 2100, function () {
             clear();
-            endpointPanel("@nightowl");
+            endpointPanel("@nightowl", "58");
             line("");
             line(ok("  ◉") + " re-tuned to " + head("@glacier") + dim("  still <= ") + money(MAX_PRICE + " $/M") + dim(", >= ") + money(MIN_TPS + " t/s") + "  " + ok("no dropped session"));
             flush();
@@ -252,7 +252,7 @@
           // 7) settle onto @glacier: same channel, new station
           at(afterLock + STAGE_HOLD + 3400, function () {
             clear();
-            endpointPanel("@glacier");
+            endpointPanel("@glacier", "47");
             line("");
             line("  " + dim("┌ live ──────────────────────────────────────────────────────┐"));
             line("  " + dim("│ ") + ok("◉ open ") + gold("◆") + dim(" │ ") + head("@glacier ") + dim(" │ ") + live("47 t/s ▆▅▆▅▄▅▆") + dim(" │ bal ") + money("$42.16") + dim(" │"));
