@@ -163,8 +163,17 @@ type UsageReceipt struct {
 	// LineageMethod ("toploc"/"logprob") + LineageProof (opaque bytes).
 	LineageMethod string `json:"lineage_method,omitempty"`
 	LineageProof  string `json:"lineage_proof,omitempty"`
-	NodeSig       string `json:"node_sig,omitempty"`
-	BrokerSig     string `json:"broker_sig,omitempty"`
+	// L1 independent re-count (broker-side, off the hot path): the broker
+	// re-tokenizes the completion with the canonical tokenizer for Model and
+	// records its OWN count here. TokenizerExact is false when the re-count used
+	// the calibrated heuristic (no exact tokenizer for the model) - then the
+	// count is an outlier gate only, never a discrepancy trigger. Settlement
+	// still bills the node's count for now; enforced re-bill is the next step
+	// (see docs-internal/VERIFICATION-DESIGN.md). 0 = not re-counted.
+	BrokerCompletionTokens int    `json:"broker_completion_tokens,omitempty"`
+	TokenizerExact         bool   `json:"tokenizer_exact,omitempty"`
+	NodeSig                string `json:"node_sig,omitempty"`
+	BrokerSig              string `json:"broker_sig,omitempty"`
 }
 
 // signingBytes is the canonical form signed by both parties (sigs excluded).
