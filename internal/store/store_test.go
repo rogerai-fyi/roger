@@ -1,10 +1,61 @@
 package store
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bownux/rogerai/internal/protocol"
 )
+
+// The core security property of #23: under heavy concurrency, holds serialize so a
+// wallet can never be overdrawn (no negative balance = no free inference).
+func TestHoldNeverOverdraws(t *testing.T) {
+	m := NewMem()
+	_, _ = m.BalanceOf("u", 1.0) // 1.0 credit
+	var ok int64
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if held, _ := m.Hold("u", 0.3); held {
+				atomic.AddInt64(&ok, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if ok != 3 { // floor(1.0 / 0.3) = 3
+		t.Errorf("successful holds = %d, want 3", ok)
+	}
+	if bal, _ := m.BalanceOf("u", 0); bal < 0 || !approx(bal, 0.1) {
+		t.Errorf("balance = %v, want 0.1 and never negative", bal)
+	}
+}
+
+func TestHoldFinalizeRelease(t *testing.T) {
+	m := NewMem()
+	_, _ = m.BalanceOf("u", 10)
+	if held, _ := m.Hold("u", 2.0); !held { // balance 8, reserved 2
+		t.Fatal("hold should succeed")
+	}
+	// capture 0.5 of the 2.0 hold, refund 1.5 → balance 9.5
+	bal, _ := m.Finalize("u", "n", 2.0, 0.5, 0.35, protocol.UsageReceipt{RequestID: "r", Model: "m", TS: 1})
+	if !approx(bal, 9.5) {
+		t.Errorf("finalize balance = %v, want 9.5", bal)
+	}
+	if e, _ := m.EarningsOf("n"); !approx(e, 0.35) {
+		t.Errorf("earnings = %v, want 0.35", e)
+	}
+	if s, _ := m.SpendOf("u"); !approx(s, 0.5) {
+		t.Errorf("spend = %v, want 0.5", s)
+	}
+	// release path: a failed request returns the full hold
+	_, _ = m.Hold("u", 2.0) // balance 7.5
+	if bal, _ := m.ReleaseHold("u", 2.0); !approx(bal, 9.5) {
+		t.Errorf("release balance = %v, want 9.5", bal)
+	}
+}
 
 func TestMarkProcessedIdempotent(t *testing.T) {
 	m := NewMem()

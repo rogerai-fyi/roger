@@ -162,4 +162,45 @@ func (p *Postgres) CreditOnce(key, user string, amount float64) (bool, float64, 
 	return true, bal, tx.Commit()
 }
 
+// Hold atomically reserves credits: the WHERE balance>=amount makes concurrent
+// holds serialize at the row, so a wallet can never be driven negative.
+func (p *Postgres) Hold(user string, amount float64) (bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 AND balance>=$2`, user, amount)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var bal float64
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.earnings(node,balance) VALUES($1,$2)
+		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, ownerShare); err != nil {
+		return 0, err
+	}
+	rj, _ := json.Marshal(rec)
+	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
+}
+
+func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
+	var bal float64
+	err := p.db.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held).Scan(&bal)
+	return bal, err
+}
+
 func (p *Postgres) Close() error { return p.db.Close() }

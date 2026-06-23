@@ -161,8 +161,6 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, pinNode, exclude)
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
-	bal, _ := b.db.BalanceOf(user, b.seedFunds)
-
 	if !ok || t == nil {
 		msg := "no node offers " + req.Model
 		if confidentialOnly {
@@ -171,7 +169,19 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, msg)
 		return
 	}
-	if bal <= 0 {
+
+	// Pre-authorize an upper-bound cost (a "hold") BEFORE doing any work, so
+	// concurrent requests can never drive a wallet negative (free inference). The
+	// hold is captured (Finalize) or returned (ReleaseHold) on every exit path.
+	holdIn, holdOut, _, _ := offer.ActivePrice(time.Now())
+	maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
+	_, _ = b.db.BalanceOf(user, b.seedFunds) // seed new users so the hold can land
+	held, herr := b.db.Hold(user, maxCost)
+	if herr != nil {
+		jsonErr(w, http.StatusInternalServerError, "wallet error")
+		return
+	}
+	if !held {
 		jsonErr(w, http.StatusPaymentRequired, "insufficient credits")
 		return
 	}
@@ -187,9 +197,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
 	if req.Stream {
-		b.relayStream(w, t, node, offer, user, req.Model, job, resCh)
+		b.relayStream(w, t, node, offer, user, req.Model, job, resCh, maxCost)
 		return
 	}
+
+	settled := false
+	defer func() {
+		if !settled {
+			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
+		}
+	}()
 
 	start := time.Now()
 	b.enterInflight(node.NodeID)
@@ -222,7 +239,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.SignBroker(b.priv)
 			cost := rec.Cost()
-			newBal, _ := b.db.Settle(user, node.NodeID, cost, cost*(1-b.feeRate), rec)
+			if cost > maxCost {
+				cost = maxCost // never capture more than was authorized
+			}
+			newBal, _ := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
+			settled = true
 			tps := 0.0
 			if rec.CompletionTokens > 0 {
 				if el := time.Since(start).Seconds(); el > 0 {
@@ -255,7 +276,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 // headers, registers the client as a sink, and enqueues the job. The node pipes
 // chunks via /agent/stream straight to this client; when it finishes it posts a
 // receipt (resCh) which settles the wallet. No metering headers (already streaming).
-func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, user, model string, job protocol.Job, resCh chan protocol.JobResult) {
+func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, user, model string, job protocol.Job, resCh chan protocol.JobResult, maxCost float64) {
+	settled := false
+	defer func() {
+		if !settled {
+			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
+		}
+	}()
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
@@ -293,7 +320,11 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.SignBroker(b.priv)
 			cost := rec.Cost()
-			b.db.Settle(user, node.NodeID, cost, cost*(1-b.feeRate), rec)
+			if cost > maxCost {
+				cost = maxCost
+			}
+			b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
+			settled = true
 			if rec.CompletionTokens > 0 {
 				if el := time.Since(start).Seconds(); el > 0 {
 					b.updateTPS(node.NodeID, float64(rec.CompletionTokens)/el)
@@ -304,6 +335,31 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	case <-time.After(300 * time.Second):
 		b.exitInflight(node.NodeID, false)
 	}
+}
+
+// estimateMaxCost is the upper-bound credits a request could cost - used to place a
+// pre-auth hold before dispatch. Output is bounded by max_tokens (capped to the
+// model's ctx); the prompt is over-estimated from the body size. At the offer's
+// active price, so the actual capture on settle is always <= this.
+func estimateMaxCost(body []byte, in, out float64, ctx int) float64 {
+	var req struct {
+		MaxTokens int `json:"max_tokens"`
+	}
+	_ = json.Unmarshal(body, &req)
+	capTok := ctx
+	if capTok <= 0 {
+		capTok = 8192
+	}
+	maxOut := req.MaxTokens
+	if maxOut <= 0 || maxOut > capTok {
+		maxOut = capTok
+	}
+	promptEst := len(body)/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
+	c := (float64(promptEst)*in + float64(maxOut)*out) / 1e6
+	if c < 1e-6 {
+		c = 1e-6 // floor so a hold is always placed
+	}
+	return c
 }
 
 // agentStream handles POST /agent/stream?node=&job= - the node pipes a job's SSE

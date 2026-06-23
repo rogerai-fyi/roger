@@ -50,6 +50,17 @@ type Store interface {
 	// single transaction: returns credited=true only the first time. Prevents both
 	// double-credit (redelivery) and lost-credit (mark succeeds, credit fails).
 	CreditOnce(key, user string, amount float64) (credited bool, newBalance float64, err error)
+	// Hold atomically reserves `amount` from the user's balance (conditional debit);
+	// ok=false if the balance can't cover it. This authorize-then-capture flow makes
+	// concurrent spend safe - a wallet can never go negative. Settle the reservation
+	// with Finalize, or return it untouched with ReleaseHold.
+	Hold(user string, amount float64) (ok bool, err error)
+	// Finalize captures a held reservation: charges `cost` (the caller caps it at the
+	// held amount), refunds held-cost to the user, credits the owner share, and
+	// records the receipt. Returns the new balance.
+	Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
+	// ReleaseHold returns a full reservation to the user (request failed, no charge).
+	ReleaseHold(user string, held float64) (newBalance float64, err error)
 	Close() error
 }
 
@@ -87,6 +98,37 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
 		Cost: cost, OwnerShare: ownerShare, TS: rec.TS,
 	})
+	return m.wallet[user], nil
+}
+
+func (m *Mem) Hold(user string, amount float64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.wallet[user] < amount {
+		return false, nil
+	}
+	m.wallet[user] -= amount
+	return true, nil
+}
+
+func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.wallet[user] += held - cost // refund the unused reservation
+	m.earnings[node] += ownerShare
+	m.spend[user] += cost
+	m.entries = append(m.entries, Entry{
+		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
+		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
+		Cost: cost, OwnerShare: ownerShare, TS: rec.TS,
+	})
+	return m.wallet[user], nil
+}
+
+func (m *Mem) ReleaseHold(user string, held float64) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.wallet[user] += held
 	return m.wallet[user], nil
 }
 
