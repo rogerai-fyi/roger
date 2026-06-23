@@ -9,11 +9,12 @@ import (
 	"time"
 )
 
+// Found is a reachable local OpenAI-compatible server discovered by Detect.
 type Found struct {
-	Name    string
-	BaseURL string // .../v1
-	Chat    string // .../v1/chat/completions
-	Models  []string
+	Name    string   // friendly server name (e.g. "ollama")
+	BaseURL string   // .../v1
+	Chat    string   // .../v1/chat/completions
+	Models  []string // served model ids from GET /v1/models
 }
 
 // Common local OpenAI-compatible servers, by default port. Any server exposing

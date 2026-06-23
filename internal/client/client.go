@@ -23,12 +23,26 @@ import (
 // the CLI logs it to stderr. nil = no surfacing.
 type AlertFunc func(string)
 
-func Search(broker string) error {
-	resp, err := http.Get(broker + "/discover")
+// getJSON issues GET broker+path (optionally as `user`) and decodes the JSON body
+// into out. It centralizes the request/decode boilerplate the consumer commands
+// share; a decode error on a 2xx body is ignored (the caller validates fields).
+func getJSON(broker, path, user string, out any) error {
+	req, _ := http.NewRequest(http.MethodGet, broker+path, nil)
+	if user != "" {
+		req.Header.Set("X-Roger-User", user)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	_ = json.NewDecoder(resp.Body).Decode(out)
+	return nil
+}
+
+// Search prints the live model marketplace (GET /discover), cheapest first, as a
+// table - node, model, in/out price, throughput, context, region, status, flags.
+func Search(broker string) error {
 	var d struct {
 		Offers []struct {
 			NodeID       string  `json:"node_id"`
@@ -43,7 +57,9 @@ func Search(broker string) error {
 			TPS          float64 `json:"tps"`
 		} `json:"offers"`
 	}
-	json.NewDecoder(resp.Body).Decode(&d)
+	if err := getJSON(broker, "/discover", "", &d); err != nil {
+		return err
+	}
 	if len(d.Offers) == 0 {
 		fmt.Println("no offers yet - run `rogerai share` on a box with a local model")
 		return nil
@@ -70,19 +86,15 @@ func Search(broker string) error {
 	return nil
 }
 
+// Balance prints the caller's wallet credits (GET /balance as `user`).
 func Balance(broker, user string) error {
-	req, _ := http.NewRequest(http.MethodGet, broker+"/balance", nil)
-	req.Header.Set("X-Roger-User", user)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
 	var b struct {
 		User    string  `json:"user"`
 		Balance float64 `json:"balance"`
 	}
-	json.NewDecoder(resp.Body).Decode(&b)
+	if err := getJSON(broker, "/balance", user, &b); err != nil {
+		return err
+	}
 	fmt.Printf("%s: %.6f credits\n", b.User, b.Balance)
 	return nil
 }

@@ -25,6 +25,10 @@ import (
 	"github.com/bownux/rogerai/internal/protocol"
 )
 
+// Config is everything `rogerai share` needs to become a provider: the broker to
+// register with, the local upstream to serve against, the single model offer and
+// its pricing/schedule, and operational knobs (poll concurrency, confidential
+// attestation, bridge token).
 type Config struct {
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
@@ -41,6 +45,10 @@ var (
 	lastHash string
 )
 
+// Run registers the node with the broker and starts cfg.Parallel outbound
+// long-poll workers that serve relayed jobs against the local upstream. It blocks
+// forever (the node serves until the process is killed); it returns early only if
+// the initial broker registration fails.
 func Run(cfg Config) error {
 	priv := loadOrCreateKey()
 	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
@@ -255,7 +263,12 @@ func register(broker string, reg protocol.NodeRegistration) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		// Surface a broker rejection instead of silently "succeeding" - otherwise
+		// the node would start poll loops against a registration that didn't take.
+		return fmt.Errorf("broker returned status %d", resp.StatusCode)
+	}
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)
 	return nil
 }
