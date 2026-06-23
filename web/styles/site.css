@@ -7,6 +7,7 @@
 /* ---------- reset / base ---------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+html { overflow-x: clip; } /* guard wide assets without making body a scroll container (keeps sticky nav) */
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body {
   margin: 0;
@@ -19,6 +20,8 @@ body {
   text-rendering: optimizeLegibility;
 }
 h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { text-wrap: balance; } /* even, premium line-breaks on headings */
+.section__head p, .demo__head p, .market__head p, .hero__sub { text-wrap: pretty; }
 a { color: inherit; text-decoration: none; }
 button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
 svg { display: block; }
@@ -135,21 +138,45 @@ code, pre { font-family: var(--font-mono); }
 .brand__name { font-size: 1.0625rem; }
 .brand b { color: var(--volt); font-weight: var(--weight-semi); }
 
-/* brand mark = the ASCII signature glyph ▟█▙ in volt */
+/* brand mark = the broadcast-tower logo, in volt; tints via currentColor */
+.brand__logo {
+  width: 26px; height: 26px; color: var(--volt); flex-shrink: 0;
+  overflow: visible;
+}
+/* quiet on-air pulse: the beacon breathes, arcs fade in turn */
+.brand__beacon { transform-box: fill-box; transform-origin: center;
+  animation: brandBeacon 2.8s var(--ease-in-out) infinite; }
+.brand__arc { opacity: .5; }
+.brand__arc--1 { opacity: .85; animation: brandArc 2.8s var(--ease-in-out) infinite; }
+.brand__arc--2 { animation: brandArc 2.8s var(--ease-in-out) .35s infinite; }
+@keyframes brandBeacon { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .8; transform: scale(.9); } }
+@keyframes brandArc { 0%,100% { opacity: .3; } 50% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) {
+  .brand__beacon, .brand__arc--1, .brand__arc--2 { animation: none; }
+  .brand__arc { opacity: .7; }
+}
+/* legacy ASCII mark, kept available as a fallback */
 .brand__mark {
   font-family: var(--font-mono); font-size: 1.0625rem; line-height: 1;
   color: var(--volt); letter-spacing: -.06em; transform: translateY(.5px);
 }
 
 .nav__right { display: flex; align-items: center; gap: var(--s-6); }
-.nav__link { font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2); }
+.nav__link {
+  display: inline-flex; align-items: center; min-height: 40px;
+  font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2);
+}
 .nav__link:hover { color: var(--ink-900); }
 .nav__link--ghost {
   padding: 7px 14px; border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
   color: var(--ink-900); background: var(--white); box-shadow: var(--e-1);
 }
 .nav__link--ghost:hover { border-color: var(--volt); color: var(--volt); }
-@media (max-width: 720px) { .nav__link:not(.nav__link--ghost) { display: none; } }
+/* mobile: collapse section links, keep the brand + GitHub (the one real CTA) */
+@media (max-width: 720px) {
+  .nav__right { gap: var(--s-4); }
+  .nav__link:not(.nav__link--ghost) { display: none; }
+}
 
 /* ============================ HERO ============================= */
 .hero { position: relative; }
@@ -216,8 +243,8 @@ code, pre { font-family: var(--font-mono); }
 }
 
 /* ===================== TERMINAL DEMO =========================== */
-.demo { padding-top: var(--s-12); padding-bottom: var(--s-24); }
-.demo__head { text-align: center; max-width: 60ch; margin: 0 auto var(--s-10); }
+.demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
+.demo__head { text-align: center; max-width: 60ch; margin: 0 auto var(--head-gap); }
 .demo__head h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
@@ -270,10 +297,10 @@ code, pre { font-family: var(--font-mono); }
 @media (prefers-reduced-motion: reduce) { .t-cursor { animation: none; } }
 
 /* ===================== generic sections ======================= */
-.section { padding-block: var(--s-32); position: relative; }
+.section { padding-block: var(--section-y); position: relative; }
 .band { background: rgba(255,255,255,.55); border-block: 1px solid var(--hairline);
   backdrop-filter: blur(2px); }
-.section__head { max-width: 56ch; margin: 0 auto var(--s-16); text-align: center; }
+.section__head { max-width: 56ch; margin: 0 auto var(--head-gap); text-align: center; }
 .section__head h2, .demo__head h2 { margin: 0; }
 .section h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
@@ -422,7 +449,7 @@ code, pre { font-family: var(--font-mono); }
 .earn__foot { font-size: var(--t-xs); color: var(--ink-400); text-align: center; }
 
 /* ---------- CTA strip ------------------------------------------ */
-.cta { padding-block: var(--s-32); }
+.cta { padding-block: var(--section-y); }
 .cta__inner { text-align: center; display: flex; flex-direction: column; align-items: center; }
 .cta h2 { font-size: var(--t-h1); letter-spacing: -.03em; color: var(--ink-900); font-weight: var(--weight-bold); }
 .cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); }
@@ -431,8 +458,8 @@ code, pre { font-family: var(--font-mono); }
 @media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
 
 /* ===================== LIVE SIGNAL TOWER / MARKET ============== */
-.market { padding-block: var(--s-24) var(--s-16); position: relative; }
-.market__head { text-align: center; max-width: 60ch; margin: 0 auto var(--s-10); }
+.market { padding-block: var(--section-y2) var(--section-y2); position: relative; }
+.market__head { text-align: center; max-width: 60ch; margin: 0 auto var(--head-gap); }
 .market__head h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
@@ -591,6 +618,7 @@ code, pre { font-family: var(--font-mono); }
 .footer__inner { display: flex; align-items: center; justify-content: space-between; gap: var(--s-6);
   padding-block: var(--s-10); flex-wrap: wrap; }
 .footer__brand { display: inline-flex; align-items: center; gap: 10px; font-weight: var(--weight-semi); color: var(--ink-900); }
+.footer__brand .brand__logo { width: 24px; height: 24px; color: var(--volt); }
 .footer__brand b { color: var(--volt); }
 .footer__links { display: flex; gap: var(--s-6); flex-wrap: wrap; }
 .footer__links a { font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2); }

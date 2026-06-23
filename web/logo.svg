@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="RogerAI">
+  <!-- RogerAI mark: an abstract broadcast tower.
+       Solid central mast (the █) flanked by two angled legs (the ▟ ▙),
+       a beacon dot (the • on-air motif) emitting two signal arcs (the ((•)) waves).
+       Tints via currentColor; arcs carry the on-air pulse. -->
+  <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- signal arcs, radiating from the beacon -->
+    <path opacity="0.55" d="M9.6 8.2a9 9 0 0 1 12.8 0" />
+    <path opacity="0.85" d="M12.6 11.4a4.6 4.6 0 0 1 6.8 0" />
+  </g>
+  <!-- beacon -->
+  <circle cx="16" cy="15.2" r="2.2" fill="currentColor" />
+  <!-- tower legs (the ▟ ▙ kinship) -->
+  <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 17.4 9.4 28" />
+    <path d="M16 17.4 22.6 28" />
+    <!-- a single cross-brace, keeps it reading as a tower -->
+    <path d="M12.7 22.8h6.6" stroke-width="2" />
+  </g>
+</svg>
