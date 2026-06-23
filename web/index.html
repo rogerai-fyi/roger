@@ -46,6 +46,12 @@
   <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
   <div class="blipmap-fallback" aria-hidden="true"></div>
 
+  <!-- ===== running head: this page is one bound document ===== -->
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Operating Manual</span>
+    <span class="rail__rev">Rev. 2026.06 · ((•))</span>
+  </div>
+
   <!-- ============================ NAV ============================ -->
   <header class="nav" id="nav">
     <div class="wrap nav__inner">
@@ -60,7 +66,8 @@
       </a>
       <nav class="nav__right">
         <a class="nav__link" href="#market">The band</a>
-        <a class="nav__link" href="#how">How it works</a>
+        <a class="nav__link" href="#how">Operating</a>
+        <a class="nav__link" href="#spec">Spec</a>
         <a class="nav__link" href="#monetize">Monetize</a>
         <button class="theme-toggle" id="themeToggle" type="button"
                 aria-label="Switch to dark theme" aria-pressed="false">
@@ -98,11 +105,13 @@
 
       <span class="hero__eyebrow" data-reveal>
         <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <span class="hero__callsign">ON AIR</span>
+        <span class="hero__sep" aria-hidden="true">·</span>
         a two-way radio for GPUs
       </span>
 
       <h1 class="hero__title" data-reveal data-reveal-delay="60">
-        Tune in to the world's<br /><span class="hero__grad">home GPUs.</span>
+        Tune in to the world's<br /><span class="hero__op">home GPUs.</span>
       </h1>
 
       <p class="hero__sub" data-reveal data-reveal-delay="120">
@@ -112,6 +121,7 @@
 
       <!-- THE primary CTA: the install command -->
       <div class="install" data-reveal data-reveal-delay="180">
+        <span class="fig" aria-hidden="true">FIG. 1 — TUNE IN</span>
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
           <span class="install__prompt" aria-hidden="true">$</span>
@@ -139,7 +149,7 @@
   <section class="demo" id="demo">
     <div class="wrap">
       <div class="demo__head" data-reveal>
-        <span class="eyebrow eyebrow--ascii">Operating procedure</span>
+        <span class="sectionno">§1 / OPERATING PROCEDURE</span>
         <h2>Pick a band. Lock the signal. Get an endpoint.</h2>
         <p>Set your band and your margins. RogerAI locks the strongest station and
           hands you a local <b>OpenAI-compatible endpoint + key</b> on
@@ -147,6 +157,7 @@
           tool that speaks OpenAI.</p>
       </div>
 
+      <span class="fig fig--center" aria-hidden="true">FIG. 2 — THE DIAL · TUNE-IN REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
            aria-label="A replay of the RogerAI terminal: picking a band with margins, locking the strongest station, auto re-tuning when a station fades, and receiving a local OpenAI-compatible endpoint and key.">
         <div class="term__bar">
@@ -163,8 +174,8 @@
   <section class="market" id="market">
     <div class="wrap">
       <div class="market__head" data-reveal>
-        <span class="eyebrow eyebrow--ascii">Live from the band</span>
-        <!-- signal-sweep radar: a quiet premium asset, reinforces "the tower" -->
+        <span class="sectionno">§2 / THE BAND · LIVE</span>
+        <!-- signal-sweep radar: a small instrument, FIG.-labelled -->
         <span class="radar" aria-hidden="true">
           <svg class="radar__svg" viewBox="0 0 64 64" fill="none">
             <circle class="radar__ring" cx="32" cy="32" r="27" />
@@ -254,16 +265,11 @@
   </section>
   </main>
 
-  <!-- signal-bar equalizer divider ▁▂▃▄▅▆▇█ -->
-  <div class="eq" aria-hidden="true">
-    <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-  </div>
-
   <!-- ===================== WHAT IT IS ===================== -->
   <section class="section band" id="what">
     <div class="wrap">
       <div class="section__head" data-reveal>
-        <span class="eyebrow">The tune</span>
+        <span class="sectionno">§3 / THE TUNE</span>
         <h2>Home GPUs, on the air.</h2>
         <p>Powerful open models sit idle on home GPUs everywhere. RogerAI opens that silicon
           as one shared band: an operator puts a model on the air at a price they set, you
@@ -313,81 +319,99 @@
     </div>
   </section>
 
-  <!-- ===================== HOW IT WORKS ===================== -->
+  <!-- ===================== SPECIFICATIONS ===================== -->
+  <section class="section" id="spec">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§4 / SPECIFICATIONS</span>
+        <h2>Read the spec sheet.</h2>
+        <p>The whole instrument, on one plate. No surprises behind the dial.</p>
+      </div>
+
+      <dl class="spec" data-reveal data-reveal-delay="60" aria-label="RogerAI specifications">
+        <div class="spec__row">
+          <dt>Protocol</dt>
+          <dd>OpenAI-compatible <span class="spec__note">drop-in</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Transport</dt>
+          <dd>Outbound long-poll <span class="spec__note">no inbound ports</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Endpoint</dt>
+          <dd><span class="mono">127.0.0.1</span> <span class="spec__note">local · key-scoped</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Pricing</dt>
+          <dd>Per token <span class="spec__note">operator-set, $/1M</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Settlement</dt>
+          <dd>Prepaid credit <span class="spec__note">debited live, per token</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Lineage</dt>
+          <dd>ed25519 co-signed <span class="cs">&#9670;</span> <span class="spec__note">weights · shard · token</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Split</dt>
+          <dd><span class="mono">70 / 30</span> <span class="spec__note">in the operator's favor</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Backends</dt>
+          <dd><span class="mono">vLLM · llama.cpp · Ollama</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Reach</dt>
+          <dd>Only the model port <span class="spec__note">no shell, no files, no context</span></dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===================== OPERATING NOTES ===================== -->
   <section class="section" id="how">
     <div class="wrap">
-      <div class="section__head" data-reveal>
-        <span class="eyebrow">How it works</span>
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§5 / OPERATING NOTES</span>
         <h2>Built to keep the channel open.</h2>
       </div>
 
-      <div class="cards">
-        <article class="feat" data-reveal>
-          <div class="feat__icon feat__icon--volt" aria-hidden="true">
-            <!-- tune-in: a tower radiating an arc, with live signal bars -->
-            <svg class="ico ico--tune" viewBox="0 0 32 32" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path class="ico__wave ico__wave--1" d="M9.5 12a6 6 0 0 1 0 8" />
-              <path class="ico__wave ico__wave--2" d="M22.5 12a6 6 0 0 1 0 8" />
-              <g class="ico__bars" stroke-width="2.4">
-                <line x1="13" y1="20" x2="13" y2="18" />
-                <line x1="16" y1="20" x2="16" y2="15" />
-                <line x1="19" y1="20" x2="19" y2="13" />
-              </g>
-            </svg>
+      <ol class="notes" data-reveal data-reveal-delay="60">
+        <li class="note">
+          <span class="note__no" aria-hidden="true">01</span>
+          <div class="note__body">
+            <h3>Lock and hold.</h3>
+            <p>Tune to a band with margins. The radio locks the strongest station, then auto
+              re-tunes within those margins when one fades. The channel stays open.</p>
           </div>
-          <h3>Lock and hold</h3>
-          <p>Tune to a band with margins. The radio locks the strongest station, then auto
-            re-tunes within those margins when one fades. The channel stays open.</p>
-        </article>
-
-        <article class="feat" data-reveal data-reveal-delay="70">
-          <div class="feat__icon feat__icon--gold" aria-hidden="true">
-            <!-- lineage receipt: a torn ticket with a gold call-sign ◆ -->
-            <svg class="ico ico--receipt" viewBox="0 0 32 32" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 6.5h16v15.5l-2.7-1.6-2.7 1.6-2.6-1.6-2.7 1.6-2.6-1.6L8 22z" />
-              <path d="M12 11h8" stroke-width="1.6" />
-              <rect class="ico__cs" x="13.2" y="14" width="5.6" height="5.6" rx="1"
-                    transform="rotate(45 16 16.8)" stroke="none" fill="currentColor" />
-            </svg>
+        </li>
+        <li class="note">
+          <span class="note__no" aria-hidden="true">02</span>
+          <div class="note__body">
+            <h3>Sign every token. <span class="cs">&#9670;</span></h3>
+            <p>A gold call-sign signs every token with its lineage: base weights, fine-tunes,
+              and the exact station that aired it. Co-signed ed25519, verifiable.</p>
           </div>
-          <h3>Lineage receipts</h3>
-          <p>A gold call-sign <span class="cs">&#9670;</span> signs every token with its lineage:
-            base weights, fine-tunes, and the exact station that aired it.</p>
-        </article>
-
-        <article class="feat" data-reveal data-reveal-delay="140">
-          <div class="feat__icon feat__icon--ember" aria-hidden="true">
-            <!-- wallet: prepaid credit with a tucked-in token -->
-            <svg class="ico ico--wallet" viewBox="0 0 32 32" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M6 11.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2" />
-              <rect x="6" y="11.5" width="20" height="13" rx="2.5" />
-              <path class="ico__flap" d="M20 17.5h6.5v3H20a1.5 1.5 0 0 1 0-3z" />
-              <circle class="ico__coin" cx="22.4" cy="19" r="0.9" fill="currentColor" stroke="none" />
-            </svg>
+        </li>
+        <li class="note">
+          <span class="note__no" aria-hidden="true">03</span>
+          <div class="note__body">
+            <h3>Set your own rate.</h3>
+            <p>Per-token rates per model, or share for free. Open during your hours, cap usage,
+              throttle by time of day. The market clears the rest.</p>
           </div>
-          <h3>Your rate, your terms</h3>
-          <p>Set per-token rates per model, or share for free. Open during your hours,
-            cap usage, throttle by time of day. The market clears the rest.</p>
-        </article>
-
-        <article class="feat" data-reveal data-reveal-delay="210">
-          <div class="feat__icon feat__icon--live" aria-hidden="true">
-            <!-- privacy: a shield bridging only the model port -->
-            <svg class="ico ico--shield" viewBox="0 0 32 32" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M16 5l8 3v6.2c0 5.4-3.4 9-8 10.6-4.6-1.6-8-5.2-8-10.6V8z" />
-              <path class="ico__check" d="M12.3 16.2l2.6 2.6 4.8-5" />
-            </svg>
+        </li>
+        <li class="note">
+          <span class="note__no" aria-hidden="true">04</span>
+          <div class="note__body">
+            <h3>Expose only the model.</h3>
+            <p>RogerAI bridges the LLM endpoint and nothing more. No shell, no files, no context,
+              no personal data, ever reachable. Run the confidential tier when the payload must
+              stay sealed.</p>
           </div>
-          <h3>Only the model. Nothing else.</h3>
-          <p>RogerAI bridges the LLM endpoint and nothing more. No shell, no files, no context,
-            no personal data, ever reachable. The rest of your machine stays yours. Or run the
-            confidential tier when the payload must stay sealed.</p>
-        </article>
-      </div>
+        </li>
+      </ol>
     </div>
   </section>
 
@@ -395,7 +419,7 @@
   <section class="section band" id="monetize">
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
-        <span class="eyebrow">Monetize idle silicon</span>
+        <span class="sectionno">§6 / MONETIZE</span>
         <h2>Your GPU pays rent while you sleep.</h2>
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
           stations broadcast for the love of the band.</p>
@@ -408,6 +432,7 @@
       </div>
 
       <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example earnings panel">
+        <span class="fig" aria-hidden="true">FIG. 3 — OPERATOR PANEL</span>
         <div class="earn__head">
           <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
           <span class="earn__onair"><span class="dot"></span> ON AIR</span>
@@ -428,6 +453,7 @@
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
+      <span class="sectionno">§7 / GO</span>
       <h2>Pick up the mic.</h2>
       <p>Install the CLI. One command to go on air, or to tune in.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"
