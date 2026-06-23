@@ -27,6 +27,29 @@ func TestRenderBrowse(t *testing.T) {
 	}
 }
 
+// TestEmptyStates: before any scan, the browse view shows the "tuning in"
+// loading line; after a scan returns empty (broker serializes offers as null),
+// it must flip to the idle "band is quiet" standing-by line, NOT stay on the
+// loading pose; a broker drop shows the "...static" line.
+func TestEmptyStates(t *testing.T) {
+	var m tea.Model = New("http://broker.local", "tester")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 92, Height: 30})
+	if !strings.Contains(m.View(), "tuning in") {
+		t.Errorf("pre-scan should show the loading line:\n%s", m.View())
+	}
+	// An empty scan (offers null -> nil slice) must reach the idle line.
+	m, _ = m.Update(offersMsg(nil))
+	if !strings.Contains(m.View(), "the band is quiet") {
+		t.Errorf("empty scan should show the standing-by line, not loading:\n%s", m.View())
+	}
+	// A broker drop shows the static line.
+	d, _ := New("http://broker.local", "tester").Update(tea.WindowSizeMsg{Width: 92, Height: 30})
+	d, _ = d.Update(errMsg("broker unreachable: x"))
+	if !strings.Contains(d.View(), "static") {
+		t.Errorf("broker drop should show the static line:\n%s", d.View())
+	}
+}
+
 func TestConnectConfirmAndHelp(t *testing.T) {
 	// Enter now opens the cost-confirmation screen FIRST (default DENY); the
 	// endpoint binds only on accept.

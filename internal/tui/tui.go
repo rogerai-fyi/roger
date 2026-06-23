@@ -222,6 +222,7 @@ type model struct {
 	showDetail bool   // [d] expands the connect-confirm screen; default off (simple)
 	relaying   bool   // a chat request is in flight (drives Ping's transmit line)
 	scanErr    bool   // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned    bool   // at least one scan has come back (good or empty) -> Ping idle, not tx
 }
 
 // ---- messages ----
@@ -265,6 +266,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case offersMsg:
 		m.offers = []offer(msg)
 		m.scanErr = false
+		m.scanned = true // a scan returned (even empty) -> stop showing the loading pose
 		m.bands = groupBands(m.offers, m.limits)
 		if m.cursor >= len(m.bands) {
 			m.cursor = 0
@@ -907,7 +909,7 @@ func (m model) browseView(w int) string {
 		switch {
 		case m.scanErr:
 			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air - press r to retune") + "\n"
-		case m.offers == nil:
+		case !m.scanned:
 			return "\n" + pingPose(pingTx, m.frame, w, "tuning in… reaching for stations on air") + "\n"
 		default:
 			return "\n" + pingPose(pingIdle, m.frame, w, "the band is quiet - go ahead, press r to listen again…") + "\n"
@@ -1146,11 +1148,6 @@ func (m model) helpView() string {
 }
 
 // ---- helpers / cmds ----
-// signalBars renders measured throughput as a tinted animated equalizer.
-func signalBars(frame int, tps float64, online bool) string {
-	return tintSignal(signalBarsRaw(frame, tps, online), tps, online)
-}
-
 // signalBarsRaw returns the 5-cell equalizer glyphs WITHOUT color, so callers can
 // pad/align on the true display width before tinting. Bar height is set by the
 // node's measured tok/s; offline or unmeasured shows a flat low signal.
@@ -1193,7 +1190,8 @@ func signalBarsRaw(frame int, tps float64, online bool) string {
 }
 
 // tintSignal colors a raw equalizer: live-green when the station is up and
-// measured, dim otherwise. Padding spaces (added for alignment) carry no color.
+// measured, dim otherwise. Any alignment padding in raw is tinted too, but
+// spaces have no visible color so the column stays clean.
 func tintSignal(raw string, tps float64, online bool) string {
 	if online && tps > 0 {
 		return stLive.Render(raw)
@@ -1225,7 +1223,9 @@ func fetchOffers(broker string) tea.Cmd {
 		var d struct {
 			Offers []offer `json:"offers"`
 		}
-		json.NewDecoder(resp.Body).Decode(&d)
+		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+			return errMsg("broker unreachable: " + broker) // unparseable body -> treat as a drop
+		}
 		sort.Slice(d.Offers, func(i, j int) bool { return d.Offers[i].PriceIn < d.Offers[j].PriceIn })
 		return offersMsg(d.Offers)
 	}
