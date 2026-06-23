@@ -5,7 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RogerAI - a two-way radio for GPUs</title>
   <meta name="description" content="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token. One CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" />
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="light dark" />
+
+  <!-- No-flash theme: set data-theme BEFORE first paint. Saved choice wins,
+       else the OS preference. Kept tiny and synchronous on purpose.
+       Its sha256 is allow-listed in _headers (script-src) for the CSP. -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("roger-theme");
+        var dark = saved ? saved === "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
 
   <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
   <meta property="og:description" content="Go on air with your home GPU. Tune in to the community's models. Pay per token. One CLI." />
@@ -54,6 +68,29 @@
         <a class="nav__link" href="#market">The band</a>
         <a class="nav__link" href="#how">How it works</a>
         <a class="nav__link" href="#monetize">Monetize</a>
+        <button class="theme-toggle" id="themeToggle" type="button"
+                aria-label="Switch to dark theme" aria-pressed="false">
+          <!-- moon: shown in light mode (click switches to dark) -->
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
+          </svg>
+          <!-- sun: shown in dark mode (click switches to light) -->
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <g class="theme-toggle__rays">
+              <line x1="12" y1="2.5" x2="12" y2="5" />
+              <line x1="12" y1="19" x2="12" y2="21.5" />
+              <line x1="2.5" y1="12" x2="5" y2="12" />
+              <line x1="19" y1="12" x2="21.5" y2="12" />
+              <line x1="5.3" y1="5.3" x2="7" y2="7" />
+              <line x1="17" y1="17" x2="18.7" y2="18.7" />
+              <line x1="5.3" y1="18.7" x2="7" y2="17" />
+              <line x1="17" y1="7" x2="18.7" y2="5.3" />
+            </g>
+          </svg>
+        </button>
         <a class="nav__link nav__link--ghost" href="https://github.com/bownux/rogerai">GitHub</a>
       </nav>
     </div>

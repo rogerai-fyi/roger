@@ -39,6 +39,11 @@
   --ember-glow:   rgba(255, 138, 61, 0.26);
   --pulse-glow:   rgba(255, 61, 139, 0.28);
 
+  /* frosted-glass backings (nav, hero pill, band) - theme aware */
+  --glass:        rgba(255, 255, 255, 0.72);
+  --glass-soft:   rgba(255, 255, 255, 0.55);
+  --gold-tint:    #FBF1D6; /* fill behind the gold lineage icon */
+
   /* ---- TYPE -------------------------------------------------------- */
   --font-ui:   "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, "Menlo", monospace;
@@ -133,6 +138,64 @@
   --z-card:   10;
   --z-nav:    100;
   --z-overlay:1000;
+}
+
+/* =====================================================================
+   DARK THEME - "white room, neon wiring" inverted to an ink room.
+   Driven entirely by [data-theme="dark"] on <html>. Only the surface,
+   ink, tint/glow, and elevation tokens flip; the type/space/motion
+   scales are shared. Accents keep the SAME identity (volt/live/ember/
+   gold) but are lifted a touch for AA contrast on the ink base.
+   ===================================================================== */
+:root[data-theme="dark"] {
+  /* ---- SURFACE: layered ink. The base is #0B0D12 from DESIGN.md. --- */
+  --white:        #161922; /* "raised to white" - cards/panels sit here */
+  --paper:        #0B0D12; /* default page background (the ink base) */
+  --paper-2:      #12151D; /* subtle raised panels / bars */
+  --paper-3:      #1B1F2A; /* deepest neutral fill */
+  --hairline:     #232734; /* the ONLY divider color */
+  --hairline-2:   #2D3242; /* slightly stronger hairline */
+
+  /* ---- INK becomes LIGHT: near-white text on ink. ----------------- */
+  --ink-900:      #F4F6FB; /* headlines, primary text */
+  --ink-700:      #D2D7E3; /* body text */
+  --ink-500:      #99A0B2; /* secondary text (AA on paper) */
+  --ink-400:      #79808F; /* tertiary / captions */
+  --ink-300:      #565C6B; /* disabled, placeholder, off bars */
+
+  /* ---- ACCENTS: same signals, lifted for contrast on ink. -------- */
+  --volt:         #8A8AFF; /* brand / you / primary action */
+  --live:         #2BE0A0; /* availability / health / online */
+  --ember:        #FFA866; /* money / cost / GPU heat */
+  --pulse:        #FF5FA0; /* live data / hero only */
+  --gold:         #F2C45A; /* lineage call-sign - verified provenance */
+
+  /* tints (low-alpha fills behind icons, never large surfaces) */
+  --volt-tint:    rgba(138,138,255,0.16);
+  --live-tint:    rgba(43,224,160,0.16);
+  --ember-tint:   rgba(255,168,102,0.16);
+  --pulse-tint:   rgba(255,95,160,0.16);
+
+  /* glows (used sparingly, hero + live dots) - a touch stronger on ink */
+  --volt-glow:    rgba(138,138,255,0.30);
+  --live-glow:    rgba(43,224,160,0.34);
+  --ember-glow:   rgba(255,168,102,0.30);
+  --pulse-glow:   rgba(255,95,160,0.32);
+
+  /* ---- ELEVATION: shadows go deeper; add a faint top-light inset. -- */
+  --e-0: none;
+  --e-1: 0 1px 2px rgba(0,0,0,0.40), 0 1px 1px rgba(0,0,0,0.30);
+  --e-2: 0 2px 10px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.35);
+  --e-3: 0 10px 34px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.40);
+  --e-4: 0 22px 56px rgba(0,0,0,0.62), 0 6px 16px rgba(0,0,0,0.45);
+  --e-glass: 0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 34px rgba(0,0,0,0.50);
+
+  /* frosted-glass backings tuned for ink */
+  --glass:        rgba(13, 16, 23, 0.72);
+  --glass-soft:   rgba(13, 16, 23, 0.50);
+  --gold-tint:    rgba(242, 196, 90, 0.14);
+
+  color-scheme: dark;
 }
 
 /* Reduced motion: collapse choreography, keep legibility. */

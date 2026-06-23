@@ -28,6 +28,20 @@ svg { display: block; }
 code, pre { font-family: var(--font-mono); }
 ::selection { background: var(--volt-tint); color: var(--volt); }
 
+/* ---------- theme cross-fade -----------------------------------
+   A subtle fade when toggling light<->dark. Scoped to color/bg/border
+   so layout never animates. Disabled under reduced-motion. */
+.theme-anim, .theme-anim *::before, .theme-anim *::after, .theme-anim * {
+  transition: background-color var(--d-3) var(--ease-standard),
+              border-color var(--d-3) var(--ease-standard),
+              color var(--d-3) var(--ease-standard),
+              fill var(--d-3) var(--ease-standard),
+              stroke var(--d-3) var(--ease-standard);
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-anim, .theme-anim *::before, .theme-anim *::after, .theme-anim * { transition: none; }
+}
+
 .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding-inline: var(--gutter); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .ember { color: var(--ember); }
@@ -115,7 +129,7 @@ code, pre { font-family: var(--font-mono); }
     display: block; position: fixed; inset: 0; z-index: -1; pointer-events: none;
     background:
       radial-gradient(circle at 70% 18%, var(--volt-glow), transparent 22%),
-      radial-gradient(circle at 22% 60%, rgba(0,199,129,.12), transparent 18%);
+      radial-gradient(circle at 22% 60%, var(--live-glow), transparent 18%);
     opacity: .5;
   }
 }
@@ -127,7 +141,7 @@ code, pre { font-family: var(--font-mono); }
   transition: background var(--d-3) var(--ease-standard), border-color var(--d-3);
 }
 .nav.is-scrolled {
-  background: rgba(255,255,255,.72);
+  background: var(--glass);
   backdrop-filter: saturate(180%) blur(16px);
   -webkit-backdrop-filter: saturate(180%) blur(16px);
   border-bottom-color: var(--hairline);
@@ -162,6 +176,31 @@ code, pre { font-family: var(--font-mono); }
 }
 
 .nav__right { display: flex; align-items: center; gap: var(--s-6); }
+
+/* ---------- theme toggle (sun / moon) ---------------------------- */
+.theme-toggle {
+  display: inline-grid; place-items: center;
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: var(--r-pill); color: var(--ink-500);
+  border: 1px solid var(--hairline-2); background: var(--white);
+  box-shadow: var(--e-1);
+  transition: color var(--d-2), border-color var(--d-2), background var(--d-2), transform var(--d-2) var(--ease-out-quint);
+}
+.theme-toggle:hover { color: var(--volt); border-color: var(--volt); transform: translateY(-1px); }
+.theme-toggle:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.theme-toggle svg { width: 18px; height: 18px; overflow: visible; }
+/* the icon rays/beams animate gently when settling on a theme */
+.theme-toggle__rays line {
+  transform-origin: 12px 12px; transition: opacity var(--d-3) var(--ease-out-quint);
+}
+/* show the sun in dark mode (click -> light), the moon in light mode (click -> dark) */
+.theme-toggle__sun  { display: none; }
+.theme-toggle__moon { display: block; }
+:root[data-theme="dark"] .theme-toggle__sun  { display: block; }
+:root[data-theme="dark"] .theme-toggle__moon { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle:hover { transform: none; }
+}
 .nav__link {
   display: inline-flex; align-items: center; min-height: 40px;
   font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2);
@@ -187,7 +226,7 @@ code, pre { font-family: var(--font-mono); }
 .hero__eyebrow {
   display: inline-flex; align-items: center; gap: 9px;
   padding: 6px 15px 6px 11px; margin-bottom: var(--s-6);
-  background: rgba(255,255,255,.72); backdrop-filter: blur(8px);
+  background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
   font-size: var(--t-xs); color: var(--ink-500); font-weight: var(--weight-medium);
 }
@@ -298,8 +337,8 @@ code, pre { font-family: var(--font-mono); }
 
 /* ===================== generic sections ======================= */
 .section { padding-block: var(--section-y); position: relative; }
-.band { background: rgba(255,255,255,.55); border-block: 1px solid var(--hairline);
-  backdrop-filter: blur(2px); }
+.band { background: var(--glass-soft); border-block: 1px solid var(--hairline);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
 .section__head { max-width: 56ch; margin: 0 auto var(--head-gap); text-align: center; }
 .section__head h2, .demo__head h2 { margin: 0; }
 .section h2 { font-size: var(--t-h2); letter-spacing: -.025em; color: var(--ink-900);
@@ -370,7 +409,7 @@ code, pre { font-family: var(--font-mono); }
   border: 1px solid var(--hairline); transition: transform var(--d-3) var(--ease-out-quint), box-shadow var(--d-3); }
 .feat:hover .feat__icon { transform: translateY(-1px) scale(1.03); }
 .feat__icon--volt  { background: var(--volt-tint);  color: var(--volt); }
-.feat__icon--gold  { background: #FBF1D6;           color: var(--gold); }
+.feat__icon--gold  { background: var(--gold-tint);  color: var(--gold); }
 .feat__icon--ember { background: var(--ember-tint); color: var(--ember); }
 .feat__icon--live  { background: var(--live-tint);  color: var(--live); }
 .feat h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: -.01em; }

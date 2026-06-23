@@ -11,6 +11,55 @@
 
   var INSTALL_CMD = "curl -fsSL https://rogerai.fyi/install.sh | sh";
 
+  /* ---- theme toggle (light <-> dark) ----------------------------- */
+  var STORE_KEY = "roger-theme";
+  var root = document.documentElement;
+  var toggle = document.getElementById("themeToggle");
+  var mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+  function isDark() { return root.getAttribute("data-theme") === "dark"; }
+
+  function syncToggle() {
+    if (!toggle) return;
+    var dark = isDark();
+    // the button switches AWAY from the current theme
+    toggle.setAttribute("aria-pressed", dark ? "true" : "false");
+    toggle.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+  }
+
+  function applyTheme(dark, animate) {
+    if (animate) {
+      root.classList.add("theme-anim");
+      window.setTimeout(function () { root.classList.remove("theme-anim"); }, 360);
+    }
+    if (dark) root.setAttribute("data-theme", "dark");
+    else root.removeAttribute("data-theme");
+    syncToggle();
+    // let theme-aware canvases (blip-map) re-read CSS variables and repaint
+    window.dispatchEvent(new CustomEvent("themechange", { detail: { dark: dark } }));
+  }
+
+  syncToggle(); // reflect the pre-paint state set by the inline <head> script
+
+  if (toggle) {
+    toggle.addEventListener("click", function () {
+      var next = !isDark();
+      applyTheme(next, true);
+      try { localStorage.setItem(STORE_KEY, next ? "dark" : "light"); } catch (e) {}
+    });
+  }
+
+  // follow the OS only while the user hasn't made an explicit choice
+  if (mql) {
+    var onMql = function (e) {
+      var saved;
+      try { saved = localStorage.getItem(STORE_KEY); } catch (err) { saved = null; }
+      if (!saved) applyTheme(e.matches, true);
+    };
+    if (mql.addEventListener) mql.addEventListener("change", onMql);
+    else if (mql.addListener) mql.addListener(onMql);
+  }
+
   /* ---- sticky nav ------------------------------------------------ */
   var nav = document.getElementById("nav");
   function onScroll() { if (nav) nav.classList.toggle("is-scrolled", window.scrollY > 8); }

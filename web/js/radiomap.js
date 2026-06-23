@@ -30,6 +30,8 @@
   var FRAME = 1000 / 40;  // throttle the loop to ~40fps; plenty for ambient
   var fade = 0;           // global opacity ramp on first start
 
+  // Palette is pulled from the live CSS variables so light/dark themes
+  // (and any token tweak) drive the canvas with no duplicated hex here.
   var COL = {
     grid:  [11, 13, 18],
     volt:  [91, 91, 255],
@@ -38,6 +40,40 @@
     idle:  [174, 179, 192],
   };
   function rgba(c, a) { return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
+
+  // parse "#rgb"/"#rrggbb"/"rgb(...)" into [r,g,b]; null if unparseable
+  function toRGB(str) {
+    if (!str) return null;
+    str = str.trim();
+    var m;
+    if (str[0] === "#") {
+      var h = str.slice(1);
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      if (h.length >= 6) {
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+      }
+      return null;
+    }
+    m = str.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+    if (m) return [Math.round(+m[1]), Math.round(+m[2]), Math.round(+m[3])];
+    return null;
+  }
+
+  function syncPalette() {
+    var cs = getComputedStyle(document.documentElement);
+    // grid = the page ink (so dots invert sensibly between themes)
+    var grid = toRGB(cs.getPropertyValue("--ink-900"));
+    var volt = toRGB(cs.getPropertyValue("--volt"));
+    var live = toRGB(cs.getPropertyValue("--live"));
+    var ember = toRGB(cs.getPropertyValue("--ember"));
+    var idle = toRGB(cs.getPropertyValue("--ink-400"));
+    if (grid)  COL.grid = grid;
+    if (volt)  COL.volt = volt;
+    if (live)  COL.live = live;
+    if (ember) COL.ember = ember;
+    if (idle)  COL.idle = idle;
+  }
+  syncPalette();
 
   function resize() {
     W = window.innerWidth;
@@ -211,6 +247,12 @@
 
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) stop(); else start();
+  });
+
+  // re-read theme tokens when the user flips light/dark; repaint once if paused
+  window.addEventListener("themechange", function () {
+    syncPalette();
+    if (!running) render(performance.now());
   });
 
   // pause when the canvas is fully scrolled out of view
