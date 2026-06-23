@@ -157,17 +157,12 @@ code, pre { font-family: var(--font-mono); }
   width: 26px; height: 26px; color: var(--volt); flex-shrink: 0;
   overflow: visible;
 }
-/* quiet on-air pulse: the beacon breathes, arcs fade in turn */
-.brand__beacon { transform-box: fill-box; transform-origin: center;
-  animation: brandBeacon 2.8s var(--ease-in-out) infinite; }
-.brand__arc { opacity: .5; }
-.brand__arc--1 { opacity: .85; animation: brandArc 2.8s var(--ease-in-out) infinite; }
-.brand__arc--2 { animation: brandArc 2.8s var(--ease-in-out) .35s infinite; }
-@keyframes brandBeacon { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .8; transform: scale(.9); } }
-@keyframes brandArc { 0%,100% { opacity: .3; } 50% { opacity: .9; } }
+/* quiet on-air pulse: the center diamond (the eye) breathes between the brackets */
+.brand__pulse { transform-box: fill-box; transform-origin: center;
+  animation: brandPulse 2.6s var(--ease-in-out) infinite; }
+@keyframes brandPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .62; transform: scale(.82); } }
 @media (prefers-reduced-motion: reduce) {
-  .brand__beacon, .brand__arc--1, .brand__arc--2 { animation: none; }
-  .brand__arc { opacity: .7; }
+  .brand__pulse { animation: none; opacity: 1; }
 }
 /* legacy ASCII mark, kept available as a fallback */
 .brand__mark {
