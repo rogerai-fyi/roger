@@ -362,27 +362,32 @@ func TestDashboardEndpoints(t *testing.T) {
 
 func TestMarketSignal(t *testing.T) {
 	// No providers → dead channel.
-	if s := marketSignal(0, 0, 500, 1); s != 0 {
+	if s := marketSignal(0, 0, 500, 1, 1); s != 0 {
 		t.Errorf("no-providers signal = %d want 0", s)
 	}
-	// Healthy: plenty of supply, fast, reliable, idle → near max.
-	full := marketSignal(5, 0, 300, 1.0)
+	// Healthy: plenty of supply, fast, reliable, fully trusted, idle → near max.
+	full := marketSignal(5, 0, 300, 1.0, 1.0)
 	if full < 95 {
 		t.Errorf("healthy signal = %d want ~100", full)
 	}
 	// More supply must not lower the signal (monotonic in supply).
-	if marketSignal(1, 0, 300, 1) > marketSignal(3, 0, 300, 1) {
+	if marketSignal(1, 0, 300, 1, 1) > marketSignal(3, 0, 300, 1, 1) {
 		t.Error("signal should not decrease with more providers")
 	}
 	// Congestion must lower the signal vs. the same idle channel.
-	idle := marketSignal(2, 0, 300, 1)
-	busy := marketSignal(2, 8, 300, 1)
+	idle := marketSignal(2, 0, 300, 1, 1)
+	busy := marketSignal(2, 8, 300, 1, 1)
 	if busy >= idle {
 		t.Errorf("congested (%d) should be < idle (%d)", busy, idle)
 	}
 	// Low success rate must lower the signal.
-	if marketSignal(5, 0, 300, 0.2) >= marketSignal(5, 0, 300, 1.0) {
+	if marketSignal(5, 0, 300, 0.2, 1) >= marketSignal(5, 0, 300, 1.0, 1) {
 		t.Error("low success should reduce the signal")
+	}
+	// Low trust (failed canaries / token discrepancies) must lower the signal:
+	// a fast cheap node that fails verification ranks below an honest one.
+	if marketSignal(5, 0, 300, 1, 0.0) >= marketSignal(5, 0, 300, 1, 1.0) {
+		t.Error("low trust should reduce the signal")
 	}
 }
 
