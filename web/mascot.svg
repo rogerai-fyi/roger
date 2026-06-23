@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72" fill="currentColor" role="img" aria-label="Pip, the RogerAI on-air mascot">
+  <!--
+    Pip - the RogerAI mascot, grown from the ((  •  )) ON AIR motif.
+    Body inherits text color via currentColor; the on-air eye + glow are the
+    only fixed live-red (#FF3B3B). Self-animating (blink, bob, on-air pulse,
+    signal waves) and reduced-motion aware. NOT wired into the site yet.
+    Part ids let a page drive it: #pip-eye #pip-glow #pip-wave-a #pip-wave-b #pip-body
+  -->
+  <style>
+    /* the whole creature does a slow 1px monospace-style bob */
+    #pip { animation: pip-bob 3.6s var(--pip-ease, ease-in-out) infinite; transform-origin: 32px 64px; }
+    @keyframes pip-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+
+    /* on-air glow breathes */
+    #pip-glow { animation: pip-pulse 2s ease-in-out infinite; transform-origin: 32px 22px; }
+    @keyframes pip-pulse { 0%,100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
+
+    /* the eye blinks: a quick vertical squash to a line every ~5s */
+    #pip-eye { animation: pip-blink 5s steps(1,end) infinite; transform-origin: 32px 22px; }
+    @keyframes pip-blink {
+      0%, 94%, 100% { transform: scaleY(1); }
+      96%           { transform: scaleY(.12); }
+      98%           { transform: scaleY(1); }
+    }
+
+    /* signal arcs radiate out of the antennae (the vector 'transmitting' frames) */
+    #pip-wave-a, #pip-wave-b { transform-origin: 32px 22px; }
+    #pip-wave-a { animation: pip-wave 2.4s ease-out infinite; }
+    #pip-wave-b { animation: pip-wave 2.4s ease-out infinite 1.2s; }
+    @keyframes pip-wave {
+      0%   { opacity: 0;  transform: scale(.65); }
+      30%  { opacity: .7; }
+      100% { opacity: 0;  transform: scale(1.6); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #pip, #pip-glow, #pip-eye, #pip-wave-a, #pip-wave-b { animation: none; }
+      #pip-wave-a, #pip-wave-b { opacity: .35; }
+    }
+  </style>
+
+  <g id="pip">
+    <!-- signal-wave arcs (radiate from the antennae / eye) -->
+    <g fill="none" stroke="#FF3B3B" stroke-linecap="round" stroke-width="2">
+      <path id="pip-wave-a" d="M16 22 A18 18 0 0 1 48 22" opacity="0"/>
+      <path id="pip-wave-b" d="M11 24 A24 24 0 0 1 53 24" opacity="0"/>
+    </g>
+
+    <g id="pip-body">
+      <!-- left bracket arm/antenna (blocky, mirrors logo.svg) -->
+      <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+      <!-- right bracket arm/antenna -->
+      <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+
+      <!-- little body block with shoulders -->
+      <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+      <!-- feet -->
+      <rect x="25" y="64" width="5" height="5" rx="1"/>
+      <rect x="34" y="64" width="5" height="5" rx="1"/>
+    </g>
+
+    <!-- on-air eye: glow halo + faceted red pip (matches the logo beacon) -->
+    <circle id="pip-glow" cx="32" cy="22" r="9" fill="#FF3B3B" opacity="0.3"/>
+    <path id="pip-eye" d="M32 14 L37 19 L38.5 22 L37 25 L32 30 L27 25 L25.5 22 L27 19 Z" fill="#FF3B3B"/>
+  </g>
+</svg>
