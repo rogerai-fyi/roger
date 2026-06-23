@@ -211,14 +211,15 @@ type model struct {
 	status           string
 	alert            *alertBox
 	// pricing UX state
-	limits    *LimitStore
-	bands     []band // offers grouped by model (the band list, 3.1)
-	q         quote  // the in-flight connect quote (confirm / over-limit)
-	editBuf   string // inline numeric edit buffer (over-limit + limits edit)
-	editField int    // which field is focused in the limits editor (0=out,1=tps)
-	limCursor int    // cursor in the limits view
-	limModels []string
-	watching  string // band we are "wait & notify" watching (stub label)
+	limits     *LimitStore
+	bands      []band // offers grouped by model (the band list, 3.1)
+	q          quote  // the in-flight connect quote (confirm / over-limit)
+	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
+	editField  int    // which field is focused in the limits editor (0=out,1=tps)
+	limCursor  int    // cursor in the limits view
+	limModels  []string
+	watching   string // band we are "wait & notify" watching (stub label)
+	showDetail bool   // [d] expands the connect-confirm screen; default off (simple)
 }
 
 // ---- messages ----
@@ -349,6 +350,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k.String() {
 		case "enter", "y", "Y":
 			return m.openChannel()
+		case "d", "D": // toggle the detail block (default screen stays minimal)
+			m.showDetail = !m.showDetail
+			return m, nil
 		default: // esc, n, N, anything else - default DENY
 			m.mode = modeBrowse
 			m.status = stDim.Render("denied - no channel opened")
@@ -464,6 +468,7 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.q = q
+	m.showDetail = false // open simple; [d] expands
 	m.mode = modeConnectConfirm
 	return m, nil
 }
@@ -718,25 +723,44 @@ func (m model) View() string {
 func (m model) confirmView(w int) string {
 	q := m.q
 	bd := q.b
-	var b strings.Builder
-	b.WriteString("\n" + stGold.Render("  ◆ ") + stSelText.Render("tune in to  ") + stSelText.Render(bd.model) + "\n\n")
 	st := bd.cheapest
-	b.WriteString(stDim.Render("    station       ") + "@" + st.NodeID + "  " + stDim.Render(st.Region) + "  " + tpsCell(st.TPS, st.Online) + stDim.Render("  the strongest match") + "\n")
-	if bd.stations > 1 {
-		b.WriteString(stDim.Render("    live range    ") + stEmber.Render(rangeStr(bd)) + stDim.Render(" $/1M out   ("+fmt.Sprintf("%d", bd.stations)+" on air)") + "\n")
+	var b strings.Builder
+
+	// Header: model, the station you'd lock, throughput, lineage.
+	verified := ""
+	if bd.lineage > 0 {
+		verified = stDim.Render("   ") + stGold.Render("◆ verified")
 	}
-	b.WriteString(stDim.Render("    price now     ") + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out   ·   ") + stEmber.Render(money(st.PriceOut)) + " " + stDim.Render("(cheapest, in "+money(st.PriceIn)+")") + "\n")
+	b.WriteString("\n" + stGold.Render("  ◆ ") + stSelText.Render(bd.model) + stDim.Render("   via @") + st.NodeID + stDim.Render("   ") + tpsCell(st.TPS, st.Online) + verified + "\n\n")
+
+	// One glanceable line: what you pay, that it's under your cap, est cost.
+	cap := ""
 	if q.limit.MaxOut > 0 {
-		b.WriteString(stDim.Render("    your max      ") + stEmber.Render(money(q.limit.MaxOut)) + stDim.Render(" $/1M out   ") + stLive.Render("within your limit ✓") + "\n")
+		cap = stDim.Render("   ·   ") + stLive.Render("under your "+money(q.limit.MaxOut)+" cap")
 	}
-	b.WriteString(stDim.Render("    locked        each reply price-locks at send; a hold pre-auths your session") + "\n\n")
-	b.WriteString(stDim.Render(fmt.Sprintf("    est. cost     ~ %.6f cr / typical reply  (~%d out tokens)", q.estReply, q.typical)) + "\n")
-	if m.haveBal {
-		b.WriteString(stDim.Render(fmt.Sprintf("                  ~ %.6f cr / 100 replies        balance %.4f cr", q.estReply*100, m.balance)) + "\n")
+	b.WriteString("    " + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out") + cap +
+		stDim.Render(fmt.Sprintf("   ·   ~%.6f cr / reply", q.estReply)) + "\n")
+
+	// Everything else is behind [d] - keep the default screen simple.
+	if m.showDetail {
+		b.WriteString("\n")
+		if bd.stations > 1 {
+			b.WriteString(stDim.Render("    live range   ") + stEmber.Render(rangeStr(bd)) + stDim.Render(" $/1M out  ("+fmt.Sprintf("%d", bd.stations)+" on air)") + "\n")
+		}
+		b.WriteString(stDim.Render("    input price  ") + stEmber.Render(money(st.PriceIn)) + stDim.Render(" $/1M in") + "\n")
+		if m.haveBal {
+			reps := 0.0
+			if q.estReply > 0 {
+				reps = m.balance / q.estReply
+			}
+			b.WriteString(stDim.Render(fmt.Sprintf("    balance      %.4f cr   (~%.0f replies)", m.balance, reps)) + "\n")
+		}
+		b.WriteString(stDim.Render("    locked       each reply price-locks at send; a hold pre-auths the session") + "\n")
 	}
+
 	b.WriteString("\n")
-	b.WriteString("       " + stLive.Render("accept · open channel") + "          " + stDim.Render("deny · back to the band") + "\n")
-	b.WriteString("       " + stKey.Render("[ enter / y ]") + "                  " + stDim.Render("[ esc / n ]  (default)") + "\n")
+	b.WriteString("       " + stLive.Render("accept · open channel") + "     " + stDim.Render("deny · back") + "     " + stDim.Render("more detail") + "\n")
+	b.WriteString("       " + stKey.Render("[ enter / y ]") + "         " + stDim.Render("[ esc / n ]") + "     " + stKey.Render("[ d ]") + "\n")
 	return b.String()
 }
 
@@ -763,9 +787,8 @@ func (m model) overLimitView(w int) string {
 	} else {
 		hint = stEmber.Render("still below the band (" + money(bd.minOut) + ")")
 	}
-	b.WriteString(stDim.Render("    raise your max for "+bd.model) + "\n")
-	b.WriteString("      $/1M out   " + stSelText.Render("▏"+editShown+"▏") + "   " + hint + "\n")
-	b.WriteString(stDim.Render(fmt.Sprintf("                 min %s   ·   suggested %s   ·   was %s", money(bd.minOut), money(bd.minOut), money(q.limit.MaxOut))) + "\n\n")
+	b.WriteString(stDim.Render("    raise your max for "+bd.model+"   (was "+money(q.limit.MaxOut)+")") + "\n")
+	b.WriteString("      $/1M out   " + stSelText.Render("▏"+editShown+"▏") + "   " + hint + "\n\n")
 	b.WriteString("    " + stKey.Render("⏎ save & re-check") + stDim.Render("   ↑ +0.01   ↓ -0.01   ") + stDim.Render("w wait & notify   esc deny") + "\n")
 	return b.String()
 }
