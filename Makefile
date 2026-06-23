@@ -3,8 +3,9 @@ GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
 build:
-	go build -o bin/rogerai-broker ./cmd/rogerai-broker
-	go build -o bin/rogerai        ./cmd/rogerai
+	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
+	go build -o bin/rogerai           ./cmd/rogerai
+	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
 
 # cross-compile the client for all platforms (single static binary each).
 # CGO_ENABLED=0 => no libc dependency, so one Linux binary runs on glibc

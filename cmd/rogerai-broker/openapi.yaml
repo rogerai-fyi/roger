@@ -457,6 +457,8 @@ components:
             free_now: { type: boolean }
             scheduled: { type: boolean }
             tps: { type: number, description: measured output tokens/sec (0 = unmeasured) }
+            ttft_ms: { type: number, description: probe-measured time-to-first-token in ms (0 = unmeasured) }
+            quality: { type: number, description: "0..1 broker-measured trust/verification signal (token-recount fidelity + probe canary)" }
     NodeRegistration:
       type: object
       required: [node_id, pub_key, offers]
@@ -484,6 +486,8 @@ components:
         ts: { type: integer }
         prev_hash: { type: string }
         lineage_method: { type: string }
+        broker_completion_tokens: { type: integer, description: "broker's independent L1 re-count of the completion (0 = not re-counted)" }
+        tokenizer_exact: { type: boolean, description: "true when the L1 re-count used an exact tokenizer (false = calibrated heuristic, outlier-gate only)" }
         node_sig: { type: string }
         broker_sig: { type: string }
     MarketModel:
@@ -495,8 +499,10 @@ components:
         in_flight: { type: integer, description: active requests across those nodes }
         min_price: { type: number, description: cheapest active input price (credits/1M) }
         best_tps: { type: number, description: fastest measured output tok/s }
+        ttft_ms: { type: number, description: best (lowest) probe-measured time-to-first-token across providers in ms (0 = unmeasured) }
+        quality: { type: number, description: "mean broker-measured trust/verification signal across providers (0..1)" }
         success_rate: { type: number, description: mean EWMA success across providers (0..1) }
-        signal: { type: integer, description: 0..100 demand/quality/reliability signal }
+        signal: { type: integer, description: 0..100 demand/quality/reliability/verification signal }
     Entry:
       type: object
       description: One settled request, as surfaced to the /me and /earnings dashboards.
