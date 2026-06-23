@@ -7,6 +7,21 @@
   --brand: #5b5bff;
   --bg: #ffffff;
 }
+/* Honor the OS theme (these standalone pages have no in-page toggle). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e9edf2;
+    --muted: #9aa3b0;
+    --line: #232831;
+    --bg: #0b0d12;
+  }
+  .gh { background: #e9edf2; color: #0b0d12; }
+  .cmd { background: #11141a; }
+}
+/* No animation on these pages; keep the guard so any future transition is opt-out. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body.auth {
@@ -74,3 +89,18 @@ code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
   font: inherit;
 }
 .ghost:hover { color: var(--ink); border-color: var(--ink); }
+.stats { display: flex; gap: 32px; margin: 0 0 8px; }
+.stats dt { color: var(--muted); font-size: 13px; margin: 0; }
+.stats dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; }
+.recent { list-style: none; margin: 12px 0 0; padding: 0; }
+.recent li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.r-model { color: var(--ink); font-family: "Geist Mono", ui-monospace, monospace; }
+.r-cost { color: var(--muted); }
+a { color: var(--brand); }

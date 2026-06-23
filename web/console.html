@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard - RogerAI</title>
+  <title>Console - RogerAI</title>
   <meta name="robots" content="noindex" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="styles/auth.css" />
@@ -11,33 +11,27 @@
 <body class="auth">
   <main class="card" id="card" hidden>
     <a class="back" href="/">Roger<b>AI</b></a>
-    <h1>Dashboard</h1>
+    <h1>Console</h1>
     <p class="sub">Signed in as <b id="who">-</b></p>
 
     <section class="panel">
-      <h2>Wallet</h2>
+      <h2>Earnings</h2>
       <dl class="stats">
-        <div><dt>Balance</dt><dd id="balance">-</dd></div>
-        <div><dt>Lifetime spend</dt><dd id="spend">-</dd></div>
+        <div><dt>Accrued</dt><dd id="earnings">-</dd></div>
+        <div><dt>Status</dt><dd id="status">-</dd></div>
       </dl>
       <ul class="recent" id="recent" hidden></ul>
-      <p class="fine" id="recentEmpty" hidden>No requests yet. Tune in with <code>rogerai use &lt;model&gt;</code>.</p>
+      <p class="fine" id="note">Pass <code>?node=&lt;id&gt;</code> to view a node's accrued earnings. A per-account node list lands with GPU binding.</p>
     </section>
 
     <section class="panel">
-      <h2>Earn</h2>
-      <p>Put a GPU on air and earn per token. Install, then link this account on the box:</p>
+      <h2>Put a GPU on air</h2>
       <pre class="cmd">curl -fsSL https://rogerai.fyi/install.sh | sh
 rogerai login
 rogerai share</pre>
-      <p class="fine">Once a node serves under your account, its earnings show on <a href="/console">the owner console</a> (or <code>rogerai console</code>).</p>
     </section>
 
-    <section class="panel">
-      <h2>Spend</h2>
-      <p>Consuming needs no account. From the CLI: <code>rogerai use &lt;model&gt;</code> and <code>rogerai balance</code>.</p>
-    </section>
-
+    <p class="fine"><a href="/dashboard">Back to dashboard</a></p>
     <button id="logout" class="ghost">Sign out</button>
   </main>
   <script src="js/auth.js"></script>

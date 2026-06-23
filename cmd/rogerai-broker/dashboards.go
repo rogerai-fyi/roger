@@ -9,11 +9,16 @@ import (
 )
 
 // balance handles GET /balance: the caller's wallet credits (seeds new users).
+// Identity comes from a signed request OR a logged-in browser session cookie.
 func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	user, _, ok := b.identityOf(r, nil)
+	corsCreds(w, r)
+	user, ok := b.dashIdentity(r)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
@@ -26,10 +31,15 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 // spend, and recent settled requests (newest first). `limit` query caps history
 // (default 20, max 100).
 func (b *broker) me(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	user, _, ok := b.identityOf(r, nil)
+	corsCreds(w, r)
+	login, _, _ := b.webSession(r)
+	user, ok := b.dashIdentity(r)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
@@ -41,10 +51,11 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 		recent = []store.Entry{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":    user,
-		"balance": round6(bal),
-		"spend":   round6(spend),
-		"recent":  recent,
+		"user":         user,
+		"github_login": login, // "" for a signed-CLI read; set for a logged-in browser
+		"balance":      round6(bal),
+		"spend":        round6(spend),
+		"recent":       recent,
 	})
 }
 
@@ -52,9 +63,13 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 // (unpaid) owner credits and recent settled requests for that node. The node id
 // is the source of truth (a serving node knows its own id).
 func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
+	corsCreds(w, r)
 	node := r.URL.Query().Get("node")
 	if node == "" {
 		jsonErr(w, http.StatusBadRequest, "node query param required")
@@ -68,11 +83,13 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	online := time.Since(b.lastSeen[node]) < 35*time.Second
 	b.mu.Unlock()
+	login, _, _ := b.webSession(r)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"node":     node,
-		"online":   online,
-		"earnings": round6(accrued),
-		"recent":   recent,
+		"node":         node,
+		"online":       online,
+		"earnings":     round6(accrued),
+		"recent":       recent,
+		"github_login": login, // "" unless read by a logged-in browser
 	})
 }
 

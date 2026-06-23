@@ -220,9 +220,13 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exp := time.Now().Add(24 * time.Hour).Unix()
+	// SameSite=None so the browser sends this cookie on cross-site XHR: the dashboard
+	// lives on the web origin (rogerai.fyi) but reads /me, /earnings from the broker
+	// origin (broker.rogerai.fyi). None REQUIRES Secure. The short-lived oauth_state
+	// cookie above stays Lax (it is only ever read on the same-site callback).
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: b.signSession(gu.Login, gu.ID, exp), Path: "/",
-		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
 	})
 	// Clear the state cookie.
 	http.SetCookie(w, &http.Cookie{Name: "roger_oauth_state", Value: "", Path: "/", MaxAge: -1})
@@ -298,20 +302,69 @@ func (b *broker) authLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // corsCreds allows the web origin to send the session cookie (credentialed CORS:
-// an explicit origin, never "*"). Only the apex site is allowed.
+// an explicit origin, never "*"). Only the configured web origin is allowed. The
+// allowed request headers include X-Roger-* so a signed XHR (a logged-in browser
+// that ALSO carries the signing headers) preflights cleanly.
 func corsCreds(w http.ResponseWriter, r *http.Request) {
 	origin := envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
+	// Always vary on Origin: the response differs per origin even when we don't
+	// emit the allow header (so a shared cache never serves the wrong one).
+	w.Header().Add("Vary", "Origin")
 	if o := r.Header.Get("Origin"); o == origin {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", origin)
 		h.Set("Access-Control-Allow-Credentials", "true")
 		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "Content-Type")
-		h.Set("Vary", "Origin")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Roger-Pubkey, X-Roger-TS, X-Roger-Sig, X-Roger-User")
+		h.Set("Access-Control-Max-Age", "600")
 	}
+}
+
+// corsCredsPreflight answers a credentialed OPTIONS preflight (204 + the explicit
+// web-origin CORS headers) for the session/dashboard endpoints. Returns true when
+// it handled the request so the caller can stop.
+func corsCredsPreflight(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodOptions {
+		return false
+	}
+	corsCreds(w, r)
+	w.WriteHeader(http.StatusNoContent)
+	return true
+}
+
+// webSession returns the logged-in browser identity from the signed session cookie,
+// or ok=false when there is no valid session. login is the GitHub login; wallet is
+// a stable, github-scoped wallet id ("u_gh_<githubID>") distinct from the reserved
+// pubkey-derived id space, so a logged-in browser (which holds the cookie, not the
+// Ed25519 signing key) still has a consistent wallet to read.
+func (b *broker) webSession(r *http.Request) (login, wallet string, ok bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return "", "", false
+	}
+	login, gid, vok := b.verifySession(c.Value)
+	if !vok {
+		return "", "", false
+	}
+	return login, "u_gh_" + strconv.FormatInt(gid, 10), true
+}
+
+// dashIdentity resolves the wallet identity for a credentialed dashboard read
+// (/me, /balance). It accepts EITHER a signed request (the CLI/proxy path, which
+// owns the pubkey-derived wallet) OR a logged-in browser session cookie (which
+// reads the github-scoped wallet). ok=false means neither was usable (caller 401s).
+func (b *broker) dashIdentity(r *http.Request) (id string, ok bool) {
+	if _, w, sok := b.webSession(r); sok {
+		return w, true
+	}
+	id, _, iok := b.identityOf(r, nil)
+	if !iok {
+		return "", false
+	}
+	return id, true
 }

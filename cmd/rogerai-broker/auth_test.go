@@ -149,6 +149,68 @@ func TestWebLoginUnconfigured(t *testing.T) {
 	}
 }
 
+// TestMeCredentialedCORS verifies /me answers credentialed CORS for the web origin
+// (explicit origin, not "*", with allow-credentials) and a preflight 204, and that
+// it reads the github-scoped wallet from a session cookie.
+func TestMeCredentialedCORS(t *testing.T) {
+	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := &broker{priv: priv, db: store.NewMem(), pubOfUser: map[string]string{}, seedFunds: 100}
+
+	// Preflight: OPTIONS from the web origin → 204 with credentialed CORS headers.
+	pre := httptest.NewRequest(http.MethodOptions, "/me", nil)
+	pre.Header.Set("Origin", "https://rogerai.fyi")
+	w := httptest.NewRecorder()
+	b.me(w, pre)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("preflight = %d, want 204", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fyi" {
+		t.Errorf("ACAO = %q, want the explicit web origin (never *)", got)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Errorf("ACAC = %q, want true", got)
+	}
+
+	// GET with a session cookie → 200, github_login echoed, github-scoped wallet.
+	r := httptest.NewRequest(http.MethodGet, "/me", nil)
+	r.Header.Set("Origin", "https://rogerai.fyi")
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	w = httptest.NewRecorder()
+	b.me(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session /me = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fyi" {
+		t.Errorf("GET ACAO = %q, want explicit web origin", got)
+	}
+	var out struct {
+		User        string  `json:"user"`
+		GitHubLogin string  `json:"github_login"`
+		Balance     float64 `json:"balance"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.GitHubLogin != "octocat" {
+		t.Errorf("github_login = %q, want octocat", out.GitHubLogin)
+	}
+	if out.User != "u_gh_7" {
+		t.Errorf("wallet = %q, want u_gh_7 (github-scoped)", out.User)
+	}
+	if out.Balance != 100 {
+		t.Errorf("balance = %v, want seeded 100", out.Balance)
+	}
+
+	// A request from another origin gets no allow-origin header (cookie not honored).
+	other := httptest.NewRequest(http.MethodGet, "/me", nil)
+	other.Header.Set("Origin", "https://evil.example")
+	other.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	w = httptest.NewRecorder()
+	b.me(w, other)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("foreign origin ACAO = %q, want empty", got)
+	}
+}
+
 // TestRegisterEarningGate verifies the login-to-monetize gate: a priced node must
 // be registered with a signed request from a GitHub-linked owner; free nodes and
 // unsigned-but-priced attempts behave as specified.
