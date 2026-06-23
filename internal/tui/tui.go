@@ -906,11 +906,11 @@ func (m model) browseView(w int) string {
 		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle.
 		switch {
 		case m.scanErr:
-			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air — press r to retune") + "\n"
+			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air - press r to retune") + "\n"
 		case m.offers == nil:
 			return "\n" + pingPose(pingTx, m.frame, w, "tuning in… reaching for stations on air") + "\n"
 		default:
-			return "\n" + pingPose(pingIdle, m.frame, w, "the band is quiet — go ahead, press r to listen again…") + "\n"
+			return "\n" + pingPose(pingIdle, m.frame, w, "the band is quiet - go ahead, press r to listen again…") + "\n"
 		}
 	}
 	var b strings.Builder
@@ -929,7 +929,7 @@ func (m model) browseView(w int) string {
 			nameStyle = stSelText
 		}
 		name := nameStyle.Render(pad(bd.model, 20))
-		stationsLbl := "—"
+		stationsLbl := "-"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
 		}
