@@ -9,3 +9,4 @@ docs-internal/
 dist/
 /rogerai-broker
 /rogerai
+*.exe
