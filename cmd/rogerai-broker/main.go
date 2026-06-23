@@ -63,6 +63,9 @@ type broker struct {
 	confidential map[string]bool
 	tps          map[string]float64 // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
+	metricsMu    sync.Mutex         // guards the per-node market metrics below
+	inflight     map[string]int     // in-flight (active) requests per node
+	success      map[string]float64 // EWMA success rate per node (0..1)
 	streamMu     sync.Mutex
 	streams      map[string]*streamSink // jobID -> waiting client (streaming)
 	db           store.Store
@@ -118,6 +121,7 @@ func main() {
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
+		inflight: map[string]int{}, success: map[string]float64{},
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
@@ -133,6 +137,7 @@ func main() {
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/me", b.me)                     // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)         // owner dashboard: accrued earnings, recent
+	mux.HandleFunc("/market", b.market)             // per-model market metrics + signal
 	mux.HandleFunc("/billing/checkout", b.checkout) // Stripe top-up -> credits
 	mux.HandleFunc("/billing/webhook", b.webhook)   // Stripe payment webhook
 	mux.HandleFunc("/v1/chat/completions", b.relay)
@@ -309,15 +314,18 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
+	b.enterInflight(node.NodeID)
 	select {
 	case t.jobs <- job:
 	case <-time.After(3 * time.Second):
+		b.exitInflight(node.NodeID, false)
 		jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
 		return
 	}
 
 	select {
 	case res := <-resCh:
+		b.exitInflight(node.NodeID, res.Status < 500)
 		rec := res.Receipt
 		if rec.VerifyNode(node.PubKey) {
 			// Bill at the price the user was first quoted for this node+model
@@ -360,6 +368,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(res.Status)
 		_, _ = w.Write(res.Body)
 	case <-time.After(120 * time.Second):
+		b.exitInflight(node.NodeID, false)
 		jsonErr(w, http.StatusGatewayTimeout, "node timed out")
 	}
 }
@@ -386,13 +395,16 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	flusher.Flush()
 
 	start := time.Now()
+	b.enterInflight(node.NodeID)
 	select {
 	case t.jobs <- job:
 	case <-time.After(3 * time.Second):
+		b.exitInflight(node.NodeID, false)
 		return // headers already sent; the client just gets an empty stream
 	}
 	select {
 	case res := <-resCh:
+		b.exitInflight(node.NodeID, res.Status < 500)
 		rec := res.Receipt
 		if rec.VerifyNode(node.PubKey) {
 			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
@@ -412,6 +424,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
 		}
 	case <-time.After(300 * time.Second):
+		b.exitInflight(node.NodeID, false)
 	}
 }
 
@@ -490,6 +503,123 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	b.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].In < out[j].In })
 	writeJSON(w, http.StatusOK, map[string]any{"offers": out})
+}
+
+// marketView is the per-model market summary surfaced by GET /market.
+type marketView struct {
+	Model       string  `json:"model"`
+	Providers   int     `json:"providers"`    // online nodes offering this model
+	InFlight    int     `json:"in_flight"`    // active requests across those nodes
+	MinPrice    float64 `json:"min_price"`    // cheapest active input price (credits/1M)
+	BestTPS     float64 `json:"best_tps"`     // fastest measured output tok/s
+	SuccessRate float64 `json:"success_rate"` // mean EWMA success across providers (0..1)
+	Signal      int     `json:"signal"`       // 0..100 demand/quality signal
+}
+
+// market handles GET /market: a per-model marketplace view aggregated from live
+// node state - how many providers are online, current in-flight load, the cheapest
+// active price, the best measured throughput, mean success rate, and a 0..100
+// "signal" combining supply, quality, and reliability. Concurrency-safe.
+func (b *broker) market(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	type acc struct {
+		providers   int
+		inflight    int
+		minPrice    float64
+		havePrice   bool
+		bestTPS     float64
+		successSum  float64
+		successSeen int
+	}
+	now := time.Now()
+	agg := map[string]*acc{}
+
+	b.mu.Lock()
+	b.metricsMu.Lock()
+	for _, n := range b.nodes {
+		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+			continue
+		}
+		tps := b.tps[n.NodeID]
+		inflight := b.inflight[n.NodeID]
+		sr, srSeen := b.success[n.NodeID]
+		for _, o := range n.Offers {
+			a := agg[o.Model]
+			if a == nil {
+				a = &acc{}
+				agg[o.Model] = a
+			}
+			a.providers++
+			a.inflight += inflight
+			in, _, _, _ := o.ActivePrice(now)
+			if !a.havePrice || in < a.minPrice {
+				a.minPrice, a.havePrice = in, true
+			}
+			if tps > a.bestTPS {
+				a.bestTPS = tps
+			}
+			if srSeen {
+				a.successSum += sr
+				a.successSeen++
+			}
+		}
+	}
+	b.metricsMu.Unlock()
+	b.mu.Unlock()
+
+	out := make([]marketView, 0, len(agg))
+	for model, a := range agg {
+		successRate := 1.0 // optimistic until we have evidence
+		if a.successSeen > 0 {
+			successRate = a.successSum / float64(a.successSeen)
+		}
+		out = append(out, marketView{
+			Model: model, Providers: a.providers, InFlight: a.inflight,
+			MinPrice: a.minPrice, BestTPS: a.bestTPS,
+			SuccessRate: round6(successRate),
+			Signal:      marketSignal(a.providers, a.inflight, a.bestTPS, successRate),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
+	writeJSON(w, http.StatusOK, map[string]any{"market": out})
+}
+
+// marketSignal scores a model 0..100. Higher = a healthier channel: more online
+// providers (supply), proven throughput (quality), high success (reliability),
+// lightly discounted by current congestion (in-flight load per provider). This is
+// deliberately simple + monotonic; it is NOT a price - it's a glanceable health bar.
+func marketSignal(providers, inflight int, bestTPS, successRate float64) int {
+	if providers == 0 {
+		return 0
+	}
+	// Supply: saturates around ~5 providers.
+	supply := float64(providers) / 5.0
+	if supply > 1 {
+		supply = 1
+	}
+	// Quality: measured tok/s, saturating around 300 t/s.
+	quality := bestTPS / 300.0
+	if quality > 1 {
+		quality = 1
+	}
+	// Congestion penalty: load per provider; ~2+ in-flight each = fully congested.
+	congestion := float64(inflight) / float64(providers) / 2.0
+	if congestion > 1 {
+		congestion = 1
+	}
+	// Weighted blend, then knock off congestion.
+	score := 0.45*supply + 0.30*quality + 0.25*successRate
+	score *= (1 - 0.4*congestion)
+	s := int(score*100 + 0.5)
+	if s < 0 {
+		s = 0
+	}
+	if s > 100 {
+		s = 100
+	}
+	return s
 }
 
 // balance handles GET /balance: the caller's wallet credits (seeds new users).
@@ -608,6 +738,31 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn fl
 		}
 	}
 	return best, bestOffer, found
+}
+
+// enterInflight / exitInflight track active requests per node (concurrency-safe).
+// exit also folds the outcome into the node's success-rate EWMA.
+func (b *broker) enterInflight(node string) {
+	b.metricsMu.Lock()
+	b.inflight[node]++
+	b.metricsMu.Unlock()
+}
+
+func (b *broker) exitInflight(node string, ok bool) {
+	b.metricsMu.Lock()
+	if b.inflight[node] > 0 {
+		b.inflight[node]--
+	}
+	sample := 0.0
+	if ok {
+		sample = 1.0
+	}
+	if cur, seen := b.success[node]; seen {
+		b.success[node] = 0.2*sample + 0.8*cur
+	} else {
+		b.success[node] = sample
+	}
+	b.metricsMu.Unlock()
 }
 
 // updateTPS folds a throughput sample into the node's EWMA (output tokens/sec).

@@ -136,6 +136,112 @@ func TestDashboardEndpoints(t *testing.T) {
 	}
 }
 
+func TestMarketSignal(t *testing.T) {
+	// No providers → dead channel.
+	if s := marketSignal(0, 0, 500, 1); s != 0 {
+		t.Errorf("no-providers signal = %d want 0", s)
+	}
+	// Healthy: plenty of supply, fast, reliable, idle → near max.
+	full := marketSignal(5, 0, 300, 1.0)
+	if full < 95 {
+		t.Errorf("healthy signal = %d want ~100", full)
+	}
+	// More supply must not lower the signal (monotonic in supply).
+	if marketSignal(1, 0, 300, 1) > marketSignal(3, 0, 300, 1) {
+		t.Error("signal should not decrease with more providers")
+	}
+	// Congestion must lower the signal vs. the same idle channel.
+	idle := marketSignal(2, 0, 300, 1)
+	busy := marketSignal(2, 8, 300, 1)
+	if busy >= idle {
+		t.Errorf("congested (%d) should be < idle (%d)", busy, idle)
+	}
+	// Low success rate must lower the signal.
+	if marketSignal(5, 0, 300, 0.2) >= marketSignal(5, 0, 300, 1.0) {
+		t.Error("low success should reduce the signal")
+	}
+}
+
+func TestMarketEndpoint(t *testing.T) {
+	now := time.Now()
+	b := &broker{
+		nodes: map[string]protocol.NodeRegistration{
+			"fast": {NodeID: "fast", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.5}}},
+			"cheap": {NodeID: "cheap", Offers: []protocol.ModelOffer{
+				{Model: "m", PriceIn: 0.1}, {Model: "other", PriceIn: 0.3},
+			}},
+			"stale": {NodeID: "stale", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.01}}},
+		},
+		lastSeen:     map[string]time.Time{"fast": now, "cheap": now, "stale": now.Add(-time.Minute)},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{"fast": 250, "cheap": 30},
+		inflight:     map[string]int{"fast": 2},
+		success:      map[string]float64{"fast": 1.0, "cheap": 0.9},
+	}
+
+	rec := httptest.NewRecorder()
+	b.market(rec, httptest.NewRequest(http.MethodGet, "/market", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var resp struct {
+		Market []marketView `json:"market"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	byModel := map[string]marketView{}
+	for _, mv := range resp.Market {
+		byModel[mv.Model] = mv
+	}
+	m, ok := byModel["m"]
+	if !ok {
+		t.Fatalf("model m missing from market %+v", resp.Market)
+	}
+	// stale node excluded → 2 providers (fast, cheap)
+	if m.Providers != 2 {
+		t.Errorf("providers = %d want 2 (stale excluded)", m.Providers)
+	}
+	// min price across online offers = 0.1 (cheap), not 0.01 (stale, offline)
+	if m.MinPrice != 0.1 {
+		t.Errorf("min_price = %v want 0.1", m.MinPrice)
+	}
+	if m.BestTPS != 250 {
+		t.Errorf("best_tps = %v want 250", m.BestTPS)
+	}
+	if m.InFlight != 2 {
+		t.Errorf("in_flight = %d want 2", m.InFlight)
+	}
+	if m.Signal <= 0 || m.Signal > 100 {
+		t.Errorf("signal = %d out of range", m.Signal)
+	}
+}
+
+func TestInflightAndSuccess(t *testing.T) {
+	b := &broker{inflight: map[string]int{}, success: map[string]float64{}}
+	b.enterInflight("n")
+	b.enterInflight("n")
+	if b.inflight["n"] != 2 {
+		t.Fatalf("inflight = %d want 2", b.inflight["n"])
+	}
+	b.exitInflight("n", true)
+	if b.inflight["n"] != 1 {
+		t.Errorf("inflight after exit = %d want 1", b.inflight["n"])
+	}
+	if b.success["n"] != 1.0 {
+		t.Errorf("success after one ok = %v want 1.0", b.success["n"])
+	}
+	b.exitInflight("n", false) // a failure pulls the EWMA below 1
+	if b.success["n"] >= 1.0 {
+		t.Errorf("success after a failure = %v want <1.0", b.success["n"])
+	}
+	// inflight never goes negative
+	b.exitInflight("n", true)
+	b.exitInflight("n", true)
+	if b.inflight["n"] != 0 {
+		t.Errorf("inflight = %d want 0 (clamped)", b.inflight["n"])
+	}
+}
+
 func TestParseNodeSet(t *testing.T) {
 	if parseNodeSet("") != nil {
 		t.Error("empty header should be nil set")

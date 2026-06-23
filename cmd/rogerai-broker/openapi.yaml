@@ -124,6 +124,27 @@ paths:
                   recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
         "400": { description: node query param required }
 
+  /market:
+    get:
+      tags: [consumer]
+      summary: Per-model market metrics (supply, load, speed, quality, signal)
+      description: |
+        A live, per-model marketplace view aggregated from node state: how many
+        providers are online, current in-flight load, the cheapest active input
+        price, the best measured throughput, the mean success rate, and a 0..100
+        "signal" combining supply, quality, and reliability (lightly discounted by
+        congestion). Sorted by signal, highest first. The signal is a glanceable
+        health bar, NOT a price.
+      responses:
+        "200":
+          description: Market
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  market: { type: array, items: { $ref: '#/components/schemas/MarketModel' } }
+
   /v1/chat/completions:
     post:
       tags: [consumer]
@@ -323,6 +344,17 @@ components:
         lineage_method: { type: string }
         node_sig: { type: string }
         broker_sig: { type: string }
+    MarketModel:
+      type: object
+      description: Aggregated market metrics for one model (see GET /market).
+      properties:
+        model: { type: string }
+        providers: { type: integer, description: online nodes offering this model }
+        in_flight: { type: integer, description: active requests across those nodes }
+        min_price: { type: number, description: cheapest active input price (credits/1M) }
+        best_tps: { type: number, description: fastest measured output tok/s }
+        success_rate: { type: number, description: mean EWMA success across providers (0..1) }
+        signal: { type: integer, description: 0..100 demand/quality/reliability signal }
     Entry:
       type: object
       description: One settled request, as surfaced to the /me and /earnings dashboards.
