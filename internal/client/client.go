@@ -296,11 +296,14 @@ func joinSet(set map[string]bool) string {
 }
 
 // Use opens a local OpenAI-compatible endpoint that relays to the broker.
-func Use(broker, user, model string, port int, confidential bool) error {
+func Use(broker, user, model string, port int, confidential bool, maxPrice, minTPS float64) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	fmt.Printf("RogerAI endpoint: http://%s/v1   model=%s  user=%s  broker=%s\n", addr, model, user, broker)
+	if maxPrice > 0 || minTPS > 0 {
+		fmt.Printf("  margins: max-price=%g $/1M in   min-tps=%g t/s   (only tunes to stations within these)\n", maxPrice, minTPS)
+	}
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
-	opts := ProxyOptions{Broker: broker, User: user, Confidential: confidential, Alert: func(s string) {
+	opts := ProxyOptions{Broker: broker, User: user, Confidential: confidential, MaxPrice: maxPrice, MinTPS: minTPS, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
 	return http.ListenAndServe(addr, ProxyHandler(opts))

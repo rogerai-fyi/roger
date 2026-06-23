@@ -112,11 +112,13 @@ func cmdUse(cfg config, args []string) error {
 	fs := flag.NewFlagSet("use", flag.ExitOnError)
 	port := fs.Int("port", 4141, "local endpoint port")
 	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
+	maxPrice := fs.Float64("max-price", 0, "your margin: skip stations priced above this ($/1M input tokens); 0 = no cap")
+	minTPS := fs.Float64("min-tps", 0, "your margin: require at least this measured throughput (tokens/sec); 0 = no floor")
 	fs.Parse(args)
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential]")
+		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-price P] [--min-tps N]")
 	}
-	return client.Use(cfg.Broker, cfg.User, fs.Arg(0), *port, *confidential)
+	return client.Use(cfg.Broker, cfg.User, fs.Arg(0), *port, *confidential, *maxPrice, *minTPS)
 }
 
 func cmdShare(cfg config, args []string) error {
@@ -281,7 +283,7 @@ func usage() {
 	fmt.Printf(`rogerai - crowd-sourced LLM marketplace client
 
   rogerai search                     discover models (cheapest first)
-  rogerai use <model> [--port N]     local OpenAI endpoint via the broker
+  rogerai use <model> [--max-price P] [--min-tps N]   local OpenAI endpoint; set your margins
   rogerai balance                    wallet credits
   rogerai topup [usd]                buy credits (opens a checkout link)
   rogerai share [flags]              share your local model (auto-detects it)
