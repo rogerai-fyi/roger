@@ -220,6 +220,8 @@ type model struct {
 	limModels  []string
 	watching   string // band we are "wait & notify" watching (stub label)
 	showDetail bool   // [d] expands the connect-confirm screen; default off (simple)
+	relaying   bool   // a chat request is in flight (drives Ping's transmit line)
+	scanErr    bool   // last band scan failed (broker unreachable) -> Ping "...static"
 }
 
 // ---- messages ----
@@ -262,6 +264,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 	case offersMsg:
 		m.offers = []offer(msg)
+		m.scanErr = false
 		m.bands = groupBands(m.offers, m.limits)
 		if m.cursor >= len(m.bands) {
 			m.cursor = 0
@@ -289,9 +292,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.balance, m.haveBal = float64(msg), true
 		return m, nil
 	case chatMsg:
+		m.relaying = false
 		m.transcript = append(m.transcript, stLive.Render("◂ ")+msg.reply, stDim.Render("   "+msg.status))
 		return m, nil
 	case errMsg:
+		m.relaying = false
+		if strings.HasPrefix(string(msg), "broker unreachable") {
+			m.scanErr = true // the band scan dropped -> Ping goes "...static"
+		}
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
 	case tea.KeyMsg:
@@ -338,6 +346,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.chatIn.SetValue("")
 			m.transcript = append(m.transcript, stSelText.Render("▸ ")+p)
+			m.relaying = true
 			return m, sendChat(m.broker, m.user, m.connected.Model, p, m.confidentialOnly)
 		}
 		var c tea.Cmd
@@ -390,6 +399,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeHelp
 		case "r":
 			m.status = "re-scanning the band…"
+			m.scanErr = false
 			return m, fetchOffers(m.broker)
 		}
 	}
@@ -405,6 +415,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	switch fields[0] {
 	case "search", "s":
 		m.status = "re-scanning the band…"
+		m.scanErr = false
 		return m, fetchOffers(m.broker)
 	case "connect", "tune":
 		return m.connect()
@@ -855,13 +866,29 @@ func tpsCell(tps float64, online bool) string {
 	return dot + stDim.Render("  - t/s")
 }
 
+// onAirPulse returns the breathing ON-AIR motif in a FIXED-width cell so the
+// header's right edge never jitters as the arcs grow/shrink. The eye is live-red
+// (the one red glyph), the arcs live-green. Cadence is gated on a slow phase so
+// it reads as a calm breath, not a flicker.
+func onAirPulse(frame int) string {
+	// arc widths 1..3..1, on a 9-cell stage; the eye sits dead center.
+	arcs := []int{1, 2, 3, 2}[anim(frame/2)%4]
+	open := strings.Repeat("(", arcs)
+	clos := strings.Repeat(")", arcs)
+	body := stLive.Render(open) + " " + stPingEye.Render("•") + " " + stLive.Render(clos)
+	const stage = 9 // width of "((( • )))"
+	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
+}
+
 func (m model) header(w int) string {
 	tower := stBrand.Render("▟█▙")
-	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I ")
-	pulse := []string{"( • )", "(( • ))", "((( • )))", "(( • ))"}[anim(m.frame)%4]
-	right := stLive.Render(pulse)
+	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I")
+	pulse := onAirPulse(m.frame)
+	var right string
 	if m.connected != nil {
-		right = stGold.Render("◆ ") + stLive.Render("on channel "+m.connected.NodeID) + " " + stLive.Render(pulse)
+		right = "  " + stGold.Render("◆") + " " + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) + "  " + pulse
+	} else {
+		right = "  " + pulse
 	}
 	left := tower + name + right
 	tag := stDim.Render("borrow a GPU, pay by the token")
@@ -874,11 +901,26 @@ func (m model) header(w int) string {
 
 func (m model) browseView(w int) string {
 	if len(m.bands) == 0 {
-		return "\n" + stDim.Render("   scanning the band for stations on air…  (r to rescan)") + "\n"
+		// Three empty cases, all filled with Ping in the dead space (never over
+		// real content): the broker dropped -> Ping "...static"; still scanning
+		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle.
+		switch {
+		case m.scanErr:
+			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air — press r to retune") + "\n"
+		case m.offers == nil:
+			return "\n" + pingPose(pingTx, m.frame, w, "tuning in… reaching for stations on air") + "\n"
+		default:
+			return "\n" + pingPose(pingIdle, m.frame, w, "the band is quiet — go ahead, press r to listen again…") + "\n"
+		}
 	}
 	var b strings.Builder
-	b.WriteString(stDim.Render(fmt.Sprintf("  the band - %d models on air", len(m.bands))) + "\n")
-	b.WriteString(stDim.Render(fmt.Sprintf("  %-20s %-8s %-15s %-9s %s", "band", "stations", "$/1M out (range)", "signal", "flags")) + "\n")
+	// Section heading, manual-style: a thin tab + a count, like the web's §-markers.
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
+		stDim.Render(fmt.Sprintf("   %d models on air", len(m.bands))) + "\n")
+	// Column header, tabular. Widths match the body cells exactly so price + signal
+	// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
+	b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
+		"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
 	for i, bd := range m.bands {
 		nameStyle := lipgloss.NewStyle().Foreground(cInk)
 		cur := " "
@@ -887,39 +929,44 @@ func (m model) browseView(w int) string {
 			nameStyle = stSelText
 		}
 		name := nameStyle.Render(pad(bd.model, 20))
-		stationsLbl := "-"
+		stationsLbl := "—"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
 		}
-		stations := stDim.Render(pad(stationsLbl, 8))
-		// price range, tinted: cheap end live, spread dim
-		rng := stEmber.Render(pad(rangeStr(bd), 15))
-		// per-band spark "weather" (omitted under NO_COLOR / single station)
-		spark := ""
-		if s := priceSpark(bd); s != "" {
-			spark = " " + stDim.Render(s)
-		}
-		// signal from the cheapest station's measured tps
+		stations := stDim.Render(pad(stationsLbl, 7))
+		// Price range, tinted: cheap end ember (money), single point or min ~ max.
+		rng := stEmber.Render(pad(rangeStr(bd), 17))
+		// Signal from the cheapest station's measured tps (fixed 5-cell equalizer).
 		var sigTPS float64
 		online := bd.online
 		if bd.cheapest != nil {
 			sigTPS = bd.cheapest.TPS
 		}
-		sig := signalBars(m.frame, sigTPS, online)
-		badge := stDim.Render("·")
-		if bd.lineage > 0 {
-			badge = stGold.Render(fmt.Sprintf("◆ %d", bd.lineage))
-		}
-		if bd.free {
-			badge += " " + stLive.Render("FREE")
-		}
-		if bandOverLimit(bd, m.limits) {
-			badge += " " + stEmber.Render("above limit")
-		}
-		b.WriteString(fmt.Sprintf("%s %s %s %s%s %s %s\n",
-			cur, name, stations, rng, spark, sig, badge))
+		sig := pad(signalBarsRaw(m.frame, sigTPS, online), 8) // pad on the RAW glyphs
+		sig = tintSignal(sig, sigTPS, online)
+		b.WriteString(fmt.Sprintf("%s %s  %s  %s  %s  %s\n",
+			cur, name, stations, rng, sig, bandBadge(bd, m.limits)))
 	}
 	return b.String()
+}
+
+// bandBadge renders the right-hand flag cell: the gold ◆ lineage call-sign (with
+// the verified hop count), a live FREE tag, and the ember above-limit warning.
+func bandBadge(bd band, limits *LimitStore) string {
+	parts := []string{}
+	if bd.lineage > 0 {
+		parts = append(parts, stGold.Render(fmt.Sprintf("◆ %d", bd.lineage)))
+	}
+	if bd.free {
+		parts = append(parts, stLive.Render("FREE"))
+	}
+	if bandOverLimit(bd, limits) {
+		parts = append(parts, stEmber.Render("above limit"))
+	}
+	if len(parts) == 0 {
+		return stDim.Render("·")
+	}
+	return strings.Join(parts, " ")
 }
 
 // groupBands groups offers by model into bands, computing each band's live
@@ -1001,28 +1048,6 @@ func rangeStr(b band) string {
 	return money(b.minOut) + " ~ " + money(b.maxOut)
 }
 
-// priceSpark renders a tiny block-ramp "weather" glyph for a band's spread using
-// the existing signal-bar ramp. With no real history (P0) it is a static shape
-// derived from the spread width, guarded for NO_COLOR / non-UTF8 (returns "" so
-// the caller omits it, matching the design's fallback).
-func priceSpark(b band) string {
-	if quiet || !b.online || b.stations <= 1 || b.maxOut <= b.minOut {
-		return ""
-	}
-	glyphs := []rune("▁▂▃▄▅▆▇█")
-	// A small fixed bowl whose depth scales with the spread - a visual hint that a
-	// wider spread means more to shop around. Not real history (that is P1).
-	shape := []int{2, 3, 5, 4, 3, 2, 1}
-	var sb strings.Builder
-	for _, lvl := range shape {
-		if lvl >= len(glyphs) {
-			lvl = len(glyphs) - 1
-		}
-		sb.WriteRune(glyphs[lvl])
-	}
-	return sb.String()
-}
-
 // pad truncates (with an ellipsis) or right-pads s to n display runes.
 func pad(s string, n int) string {
 	r := []rune(s)
@@ -1042,8 +1067,19 @@ func (m model) chatView(w int) string {
 	for _, l := range lines {
 		b.WriteString("  " + l + "\n")
 	}
+	// While a reply is in flight, Ping relays it: a subtle one-line transmit. It
+	// sits just under the last message and never displaces the transcript.
+	if m.relaying {
+		b.WriteString("  " + transmitLine(m.frame) + "\n")
+	}
 	b.WriteString("\n  " + m.chatIn.View() + "\n")
 	return b.String()
+}
+
+// transmitLine is Ping's inline relay indicator: the on-air motif breathing with
+// a short radio caption. Single line, so it never obstructs the chat transcript.
+func transmitLine(frame int) string {
+	return onAirPulse(frame) + " " + stLive.Render("◂ ") + stDim.Render("relaying… ping carries your tokens to the station")
 }
 
 func (m model) endpointPanel(w int) string {
@@ -1110,12 +1146,18 @@ func (m model) helpView() string {
 }
 
 // ---- helpers / cmds ----
-// signalBars renders measured throughput as an animated equalizer. Bar height is
-// set by the node's measured tok/s; unmeasured (0) shows a dim flat signal.
+// signalBars renders measured throughput as a tinted animated equalizer.
 func signalBars(frame int, tps float64, online bool) string {
+	return tintSignal(signalBarsRaw(frame, tps, online), tps, online)
+}
+
+// signalBarsRaw returns the 5-cell equalizer glyphs WITHOUT color, so callers can
+// pad/align on the true display width before tinting. Bar height is set by the
+// node's measured tok/s; offline or unmeasured shows a flat low signal.
+func signalBarsRaw(frame int, tps float64, online bool) string {
 	glyphs := []rune("▁▂▃▄▅▆▇█")
 	if !online {
-		return stDim.Render("▁▁▁▁▁")
+		return "▁▁▁▁▁"
 	}
 	base := 0
 	switch {
@@ -1133,7 +1175,7 @@ func signalBars(frame int, tps float64, online bool) string {
 		base = 1
 	}
 	if base == 0 {
-		return stDim.Render("▁▁▁▁▁") // online but not yet measured
+		return "▁▁▁▁▁" // online but not yet measured
 	}
 	var sb strings.Builder
 	frame = anim(frame)
@@ -1147,7 +1189,16 @@ func signalBars(frame int, tps float64, online bool) string {
 		}
 		sb.WriteRune(glyphs[lvl])
 	}
-	return stLive.Render(sb.String())
+	return sb.String()
+}
+
+// tintSignal colors a raw equalizer: live-green when the station is up and
+// measured, dim otherwise. Padding spaces (added for alignment) carry no color.
+func tintSignal(raw string, tps float64, online bool) string {
+	if online && tps > 0 {
+		return stLive.Render(raw)
+	}
+	return stDim.Render(raw)
 }
 
 func countOnline(o []offer) int {
