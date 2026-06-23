@@ -39,7 +39,7 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 	// select + connect (enter) -> confirmation screen, NOT yet bound
 	cm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	cv := cm.View()
-	if !strings.Contains(cv, "tune in to") || !strings.Contains(cv, "est. cost") {
+	if !strings.Contains(cv, "open channel") || !strings.Contains(cv, "cr / reply") {
 		t.Errorf("confirm screen not shown:\n%s", cv)
 	}
 	if strings.Contains(cv, "127.0.0.1:") {
@@ -91,7 +91,7 @@ func TestOverLimitFlow(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(m.View(), "tune in to") {
+	if !strings.Contains(m.View(), "open channel") {
 		t.Errorf("after raising the max, expected the confirm screen:\n%s", m.View())
 	}
 	// and the new limit was persisted into the store
