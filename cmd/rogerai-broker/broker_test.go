@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/bownux/rogerai/internal/store"
 )
 
 func TestLockedPrice(t *testing.T) {
@@ -68,6 +72,67 @@ func TestPickPinAndExclude(t *testing.T) {
 	// Exclude every node → nothing.
 	if _, _, ok := b.pick("m", false, 0, 0, "", map[string]bool{"a": true, "b": true, "c": true}); ok {
 		t.Error("excluding all nodes should yield nothing")
+	}
+}
+
+func TestDashboardEndpoints(t *testing.T) {
+	mem := store.NewMem()
+	b := &broker{db: mem, seedFunds: 100, lastSeen: map[string]time.Time{"n1": time.Now()}}
+	// settle a couple of requests for alice on n1
+	_, _ = mem.BalanceOf("alice", 100)
+	for i, c := range []float64{1.0, 2.0} {
+		rec := protocol.UsageReceipt{RequestID: []string{"a", "b"}[i], Model: "m", TS: int64(100 + i)}
+		_, _ = mem.Settle("alice", "n1", c, c*0.7, rec)
+	}
+
+	// GET /me
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	req.Header.Set("X-Roger-User", "alice")
+	b.me(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("/me status %d", rec.Code)
+	}
+	var me struct {
+		Balance, Spend float64
+		Recent         []store.Entry
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &me)
+	if me.Spend != 3.0 {
+		t.Errorf("/me spend = %v want 3.0", me.Spend)
+	}
+	if me.Balance != 97.0 {
+		t.Errorf("/me balance = %v want 97.0", me.Balance)
+	}
+	if len(me.Recent) != 2 {
+		t.Errorf("/me recent len = %d want 2", len(me.Recent))
+	}
+
+	// GET /earnings?node=n1
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/earnings?node=n1", nil)
+	b.earnings(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("/earnings status %d", rec.Code)
+	}
+	var earn struct {
+		Earnings float64
+		Online   bool
+		Recent   []store.Entry
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &earn)
+	if !earn.Online {
+		t.Error("/earnings should report n1 online")
+	}
+	if len(earn.Recent) != 2 {
+		t.Errorf("/earnings recent len = %d want 2", len(earn.Recent))
+	}
+
+	// GET /earnings with no node → 400
+	rec = httptest.NewRecorder()
+	b.earnings(rec, httptest.NewRequest(http.MethodGet, "/earnings", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("/earnings without node = %d want 400", rec.Code)
 	}
 }
 

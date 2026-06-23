@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS rogerai.receipts (
     request_id TEXT PRIMARY KEY, usr TEXT, node TEXT, model TEXT,
     prompt_tokens INT, completion_tokens INT, cost DOUBLE PRECISION,
     ts BIGINT, receipt JSONB, created_at TIMESTAMPTZ DEFAULT now());
+ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS owner_share DOUBLE PRECISION NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS receipts_usr_ts  ON rogerai.receipts (usr, ts DESC);
+CREATE INDEX IF NOT EXISTS receipts_node_ts ON rogerai.receipts (node, ts DESC);
 CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());`
 
 func NewPostgres(dsn string) (*Postgres, error) {
@@ -63,9 +66,9 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 	}
 	rj, _ := json.Marshal(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,ts,receipt)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, rec.TS, rj); err != nil {
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
 		return 0, err
 	}
 	return bal, tx.Commit()
@@ -78,6 +81,46 @@ func (p *Postgres) EarningsOf(node string) (float64, error) {
 		return 0, nil
 	}
 	return bal, err
+}
+
+func (p *Postgres) SpendOf(user string) (float64, error) {
+	var spend float64
+	err := p.db.QueryRow(`SELECT COALESCE(SUM(cost),0) FROM rogerai.receipts WHERE usr=$1`, user).Scan(&spend)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return spend, err
+}
+
+func (p *Postgres) RecentByUser(user string, limit int) ([]Entry, error) {
+	return p.recent(`usr`, user, limit)
+}
+
+func (p *Postgres) RecentByNode(node string, limit int) ([]Entry, error) {
+	return p.recent(`node`, node, limit)
+}
+
+// recent returns the most-recent receipts where `col` (a trusted literal column
+// name, usr|node) equals val, newest first. limit<=0 defaults to 50.
+func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := p.db.Query(`SELECT request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts
+		FROM rogerai.receipts WHERE `+col+`=$1 ORDER BY ts DESC LIMIT $2`, val, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 func (p *Postgres) AddCredits(user string, amount float64) (float64, error) {

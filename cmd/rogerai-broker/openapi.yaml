@@ -76,6 +76,54 @@ paths:
                 type: object
                 properties: { user: { type: string }, balance: { type: number } }
 
+  /me:
+    get:
+      tags: [consumer]
+      summary: Consumer dashboard - balance, lifetime spend, recent requests
+      description: |
+        The caller's spend dashboard: current wallet balance, lifetime total spend
+        (sum of settled costs), and the most-recent settled requests (newest first).
+      parameters:
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        "200":
+          description: Dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { type: string }
+                  balance: { type: number, description: current wallet credits }
+                  spend: { type: number, description: lifetime credits spent }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+
+  /earnings:
+    get:
+      tags: [provider]
+      summary: Owner dashboard - accrued earnings + recent requests for a node
+      description: |
+        A node owner's earnings dashboard: accrued (unpaid) owner credits for the
+        node and its most-recent settled requests (newest first). The node id is the
+        source of truth - a serving node knows its own id.
+      parameters:
+        - { in: query, name: node, required: true, schema: { type: string }, description: the node id }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        "200":
+          description: Earnings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node: { type: string }
+                  online: { type: boolean }
+                  earnings: { type: number, description: accrued (unpaid) owner credits }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+        "400": { description: node query param required }
+
   /v1/chat/completions:
     post:
       tags: [consumer]
@@ -91,6 +139,8 @@ paths:
         - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes." }
         - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec)." }
         - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M)." }
+        - { in: header, name: X-Roger-Node, schema: { type: string }, description: "Pin to a specific node (used by client-side failover to target a chosen provider)." }
+        - { in: header, name: X-Roger-Exclude-Nodes, schema: { type: string }, description: "Comma-separated node ids to skip (the providers a client just saw fail) - lets the connector route AROUND a dropped provider." }
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/ChatRequest' } } }
@@ -190,6 +240,11 @@ components:
       name: X-Roger-User
       schema: { type: string }
       description: Caller identity (wallet owner). Alternatively `Authorization: Bearer <user>`.
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Max history rows to return (default 20, clamped to 100).
   schemas:
     ServiceInfo:
       type: object
@@ -268,6 +323,19 @@ components:
         lineage_method: { type: string }
         node_sig: { type: string }
         broker_sig: { type: string }
+    Entry:
+      type: object
+      description: One settled request, as surfaced to the /me and /earnings dashboards.
+      properties:
+        request_id: { type: string }
+        user: { type: string, description: real wallet owner (dashboards are owner-private) }
+        node: { type: string }
+        model: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        cost: { type: number, description: credits the consumer paid }
+        owner_share: { type: number, description: credits credited to the node owner }
+        ts: { type: integer }
     Job:
       type: object
       properties:
