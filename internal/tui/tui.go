@@ -1160,6 +1160,7 @@ func fetchOffers(broker string) tea.Cmd {
 func fetchBalance(broker, user string) tea.Cmd {
 	return func() tea.Msg {
 		req, _ := http.NewRequest(http.MethodGet, broker+"/balance", nil)
+		client.SignRequest(req, nil)
 		req.Header.Set("X-Roger-User", user)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {

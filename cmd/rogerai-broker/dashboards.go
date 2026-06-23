@@ -13,7 +13,11 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	user := userOf(r)
+	user, _, ok := b.identityOf(r, nil)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user, "balance": bal})
 }
@@ -25,7 +29,11 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	user := userOf(r)
+	user, _, ok := b.identityOf(r, nil)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
 	spend, _ := b.db.SpendOf(user)
 	recent, _ := b.db.RecentByUser(user, recentLimit(r))

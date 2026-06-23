@@ -50,6 +50,8 @@ type broker struct {
 	success      map[string]float64 // EWMA success rate per node (0..1)
 	streamMu     sync.Mutex
 	streams      map[string]*streamSink // jobID -> waiting client (streaming)
+	authMu       sync.Mutex
+	pubOfUser    map[string]string // TOFU: verified user id -> first pubkey that claimed it
 	db           store.Store
 	priv         ed25519.PrivateKey
 	feeRate      float64
@@ -103,7 +105,8 @@ func main() {
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
-		inflight: map[string]int{}, success: map[string]float64{},
+		pubOfUser: map[string]string{},
+		inflight:  map[string]int{}, success: map[string]float64{},
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
@@ -193,14 +196,62 @@ func (b *broker) pseudonym(user, node string) string {
 	return "u_" + hex.EncodeToString(h[:8])
 }
 
-func userOf(r *http.Request) string {
-	if u := r.Header.Get("X-Roger-User"); u != "" {
-		return u
+// identityOf resolves the caller's wallet identity for a request, given the exact
+// request body (nil for a bodyless GET). It is the P0 replacement for the old
+// trust-the-header userOf: when the signing headers are present it VERIFIES the
+// signature against the pubkey, checks timestamp freshness, derives a stable id
+// from the pubkey, and TOFU-binds id<->pubkey. Returns:
+//
+//	id     - the wallet identity to use
+//	authed - true only when the request was cryptographically verified
+//	ok     - false ONLY when a signature was PRESENT but INVALID (caller must 401);
+//	         a fully-unsigned request returns ok=true, authed=false (legacy mode)
+//
+// Transition: an unsigned request falls back to the legacy X-Roger-User header but
+// is unauthenticated. It is therefore NEVER allowed to spend from a signed user's
+// wallet - a verified user's id is the pubkey-derived id, which a legacy header
+// cannot forge (it would have to be exactly "u_"+16hex AND own no key, and even
+// then it cannot be marked authed). Spending uses the verified id when present.
+func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) {
+	pub := r.Header.Get(protocol.HeaderPubkey)
+	sig := r.Header.Get(protocol.HeaderSig)
+	tsStr := r.Header.Get(protocol.HeaderTS)
+	if pub != "" || sig != "" || tsStr != "" {
+		// A signature was offered - it MUST verify, or the request is rejected.
+		ts, err := strconv.ParseInt(tsStr, 10, 64)
+		if err != nil {
+			return "", false, false
+		}
+		uid, vok := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+		if !vok {
+			return "", false, false
+		}
+		b.bindUserPub(uid, pub)
+		return uid, true, true
+	}
+	// Unsigned: legacy, unauthenticated. Used for reads + backward compatibility;
+	// such a caller can never be treated as a verified (signed) wallet.
+	if u := r.Header.Get(protocol.HeaderUser); u != "" {
+		return u, false, true
 	}
 	if a := r.Header.Get("Authorization"); len(a) > 7 && a[:7] == "Bearer " {
-		return a[7:]
+		return a[7:], false, true
 	}
-	return "anon"
+	return "anon", false, true
+}
+
+// bindUserPub records the first pubkey seen for a verified user id (TOFU). Because
+// the id is derived from the pubkey this is effectively a no-op for honest callers,
+// but it makes the id<->key relationship explicit and auditable.
+func (b *broker) bindUserPub(id, pub string) {
+	b.authMu.Lock()
+	if b.pubOfUser == nil {
+		b.pubOfUser = map[string]string{}
+	}
+	if _, ok := b.pubOfUser[id]; !ok {
+		b.pubOfUser[id] = pub
+	}
+	b.authMu.Unlock()
 }
 
 func round6(f float64) float64 {

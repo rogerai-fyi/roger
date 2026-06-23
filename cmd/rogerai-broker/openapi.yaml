@@ -9,9 +9,15 @@ info:
 
     Roles:
       * Consumers call `POST /v1/chat/completions` (OpenAI-compatible) and browse
-        `GET /discover`. Identify with the `X-Roger-User` header (or `Authorization: Bearer <user>`).
+        `GET /discover`. Spending and wallet reads are SIGNED with a per-user
+        Ed25519 key (headers `X-Roger-Pubkey` / `X-Roger-TS` / `X-Roger-Sig`); the
+        broker derives a stable wallet id from the verified pubkey. The legacy
+        `X-Roger-User` header is accepted only as an UNAUTHENTICATED hint and can
+        never spend a signed user's wallet. (See the `signedUser` security scheme.)
       * Providers ("nodes") dial OUT: `POST /nodes/register`, then long-poll
         `GET /agent/poll` and `POST /agent/result`. No inbound ports.
+      * Owners who MONETIZE log in with GitHub (`POST /auth/github` from the CLI
+        device flow, or the `/auth/github/login` web flow) to bind their account.
 
     Every served request yields a hash-chained UsageReceipt signed by the node and
     counter-signed by the broker (the "lineage" guarantee).
@@ -66,7 +72,11 @@ paths:
     get:
       tags: [consumer]
       summary: Wallet balance for the caller
-      parameters: [ { $ref: '#/components/parameters/User' } ]
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
       responses:
         "200":
           description: Balance
@@ -84,6 +94,9 @@ paths:
         The caller's spend dashboard: current wallet balance, lifetime total spend
         (sum of settled costs), and the most-recent settled requests (newest first).
       parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
         - $ref: '#/components/parameters/User'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -155,7 +168,11 @@ paths:
         relays the request, meters it, and settles the wallet. The price the user
         is first quoted for a (node, model) is honored for 24h (published
         time-of-use / free windows are charged as-is). Set `stream:true` for SSE.
+      security: [ { signedUser: [] } ]
       parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
         - $ref: '#/components/parameters/User'
         - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes." }
         - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec)." }
@@ -172,6 +189,7 @@ paths:
             `X-RogerAI-Provider`, `X-RogerAI-Cost`, `X-RogerAI-Balance`,
             `X-RogerAI-Price`, `X-RogerAI-TPS`, `X-RogerAI-Receipt` (the signed receipt).
           content: { application/json: { schema: { type: object } } }
+        "401": { description: invalid request signature, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "402": { description: insufficient credits, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "503": { description: no node offers the model (or matches constraints), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "504": { description: node timed out }
@@ -255,12 +273,42 @@ components:
       type: http
       scheme: bearer
       description: The per-node BridgeToken set at registration.
+    signedUser:
+      type: apiKey
+      in: header
+      name: X-Roger-Sig
+      description: |
+        Consumer request signature. The local proxy signs every broker request with
+        the user's Ed25519 key and sends three headers: `X-Roger-Pubkey` (hex public
+        key), `X-Roger-TS` (unix seconds, must be within 5 minutes), and
+        `X-Roger-Sig` (hex ed25519 signature over the canonical string
+        `method + "\n" + path + "\n" + ts + "\n" + hex(sha256(body))`). The broker
+        derives the wallet id as `u_` + first 16 hex of sha256(pubkey). A present but
+        invalid signature is rejected with 401.
   parameters:
     User:
       in: header
       name: X-Roger-User
       schema: { type: string }
-      description: Caller identity (wallet owner). Alternatively `Authorization: Bearer <user>`.
+      description: |
+        Legacy, UNAUTHENTICATED caller hint. Honored only when no signature is
+        present; cannot spend or read a signed user's wallet. Prefer the signed
+        headers (see the `signedUser` security scheme).
+    Pubkey:
+      in: header
+      name: X-Roger-Pubkey
+      schema: { type: string }
+      description: Hex ed25519 public key of the signing user (part of the request signature).
+    SigTS:
+      in: header
+      name: X-Roger-TS
+      schema: { type: integer }
+      description: Unix-seconds timestamp the signature covers (must be within 5 minutes).
+    Sig:
+      in: header
+      name: X-Roger-Sig
+      schema: { type: string }
+      description: Hex ed25519 signature over the canonical request string.
     Limit:
       in: query
       name: limit

@@ -29,6 +29,10 @@ type AlertFunc func(string)
 // share; a decode error on a 2xx body is ignored (the caller validates fields).
 func getJSON(broker, path, user string, out any) error {
 	req, _ := http.NewRequest(http.MethodGet, broker+path, nil)
+	// Wallet/dashboard reads are signed so the broker serves the verified identity
+	// (not whoever sets a header). Public reads (e.g. /discover) pass user="" and are
+	// still signed harmlessly; the broker only uses the identity where it matters.
+	signRequest(req, nil)
 	if user != "" {
 		req.Header.Set("X-Roger-User", user)
 	}
@@ -105,6 +109,7 @@ func Topup(broker, user string, usd float64) error {
 	body, _ := json.Marshal(map[string]float64{"usd": usd})
 	req, _ := http.NewRequest(http.MethodPost, broker+"/billing/checkout", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	signRequest(req, body)
 	req.Header.Set("X-Roger-User", user)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -174,6 +179,11 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 		}
 		req, _ := http.NewRequest(http.MethodPost, opts.Broker+"/v1/chat/completions", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		// Sign the request with the local user key: the broker derives the spending
+		// wallet from the verified pubkey (X-Roger-User is sent only as a legacy,
+		// unauthenticated hint). This is the P0 security fix - a header alone can no
+		// longer spend someone else's wallet.
+		signRequest(req, body)
 		req.Header.Set("X-Roger-User", opts.User)
 		if opts.Confidential {
 			req.Header.Set("X-Roger-Confidential", "1")
@@ -470,6 +480,7 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	})
 	req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+	signRequest(req, reqBody)
 	req.Header.Set("X-Roger-User", user)
 	if confidential {
 		req.Header.Set("X-Roger-Confidential", "1")

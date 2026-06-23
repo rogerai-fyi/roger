@@ -66,11 +66,16 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "billing not configured")
 		return
 	}
-	user := userOf(r)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	user, _, ok := b.identityOf(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
 	var req struct {
 		USD float64 `json:"usd"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	_ = json.Unmarshal(body, &req)
 	if req.USD < 1 {
 		req.USD = 10
 	}
@@ -97,9 +102,9 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
-		log.Printf("stripe checkout error %d: %s", resp.StatusCode, body)
+		log.Printf("stripe checkout error %d: %s", resp.StatusCode, respBody)
 		jsonErr(w, http.StatusBadGateway, "stripe error")
 		return
 	}
@@ -107,7 +112,7 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url"`
 		ID  string `json:"id"`
 	}
-	_ = json.Unmarshal(body, &sess)
+	_ = json.Unmarshal(respBody, &sess)
 	writeJSON(w, http.StatusOK, map[string]any{"url": sess.URL, "usd": req.USD, "credits": credits})
 }
 

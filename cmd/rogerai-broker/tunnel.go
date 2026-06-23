@@ -163,8 +163,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
-	user := userOf(r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	user, _, ok := b.identityOf(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
 	var req struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`

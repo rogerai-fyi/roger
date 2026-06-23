@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,64 @@ func TestRegisterProofOfPossession(t *testing.T) {
 	pub2, priv2, _ := ed25519.GenerateKey(nil)
 	if code := post(time.Now().Unix(), priv2, hex.EncodeToString(pub2)); code != http.StatusForbidden {
 		t.Errorf("node_id takeover = %d, want 403", code)
+	}
+}
+
+// TestIdentityOf verifies the P0 auth resolver: a signed request yields the
+// verified pubkey-derived id (authed), an unsigned request falls back to the
+// legacy header (unauthenticated), and a present-but-invalid signature is rejected.
+func TestIdentityOf(t *testing.T) {
+	b := &broker{pubOfUser: map[string]string{}}
+	_, priv, _ := ed25519.GenerateKey(nil)
+	body := []byte(`{"model":"m"}`)
+
+	signed := func(method, path string, bd []byte) *http.Request {
+		r := httptest.NewRequest(method, path, nil)
+		pub, ts, sig := protocol.SignRequest(priv, method, path, bd)
+		r.Header.Set(protocol.HeaderPubkey, pub)
+		r.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+		r.Header.Set(protocol.HeaderSig, sig)
+		return r
+	}
+
+	// Valid signature → verified id, authed, ok.
+	id, authed, ok := b.identityOf(signed("POST", "/v1/chat/completions", body), body)
+	if !ok || !authed {
+		t.Fatalf("signed request: authed=%v ok=%v, want both true", authed, ok)
+	}
+	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	if want := protocol.UserIDFromPubkey(pubHex); id != want {
+		t.Errorf("identity = %q, want pubkey-derived %q", id, want)
+	}
+
+	// identityOf prefers the verified id even when a (spoofed) X-Roger-User is also
+	// present - the verified pubkey wins, so a header can't redirect the wallet.
+	r := signed("POST", "/v1/chat/completions", body)
+	r.Header.Set(protocol.HeaderUser, "victim")
+	if vid, va, _ := b.identityOf(r, body); !va || vid == "victim" {
+		t.Errorf("verified id must win over X-Roger-User: id=%q authed=%v", vid, va)
+	}
+
+	// Present but INVALID signature (tampered body) → rejected (ok=false → 401).
+	if _, _, ok := b.identityOf(signed("POST", "/v1/chat/completions", body), []byte(`{"model":"evil"}`)); ok {
+		t.Error("invalid signature must be rejected (ok=false)")
+	}
+
+	// Malformed ts with signing headers present → rejected.
+	bad := httptest.NewRequest("POST", "/x", nil)
+	bad.Header.Set(protocol.HeaderPubkey, pubHex)
+	bad.Header.Set(protocol.HeaderSig, "00")
+	bad.Header.Set(protocol.HeaderTS, "notanumber")
+	if _, _, ok := b.identityOf(bad, body); ok {
+		t.Error("bad ts header must be rejected")
+	}
+
+	// Unsigned with legacy header → unauthenticated fallback (ok=true, authed=false).
+	leg := httptest.NewRequest("GET", "/balance", nil)
+	leg.Header.Set(protocol.HeaderUser, "legacy-user")
+	uid, ua, uok := b.identityOf(leg, nil)
+	if !uok || ua || uid != "legacy-user" {
+		t.Errorf("legacy unsigned = (%q,%v,%v), want (legacy-user,false,true)", uid, ua, uok)
 	}
 }
 
