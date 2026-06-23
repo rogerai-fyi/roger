@@ -1,0 +1,11 @@
+/bin/
+*.log
+node.key
+web/node_modules/
+web/.next/
+.DS_Store
+.env
+docs-internal/
+dist/
+/rogerai-broker
+/rogerai

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RogerAI - a two-way radio for GPUs</title>
+  <meta name="description" content="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token. One CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" />
+  <meta name="color-scheme" content="light" />
+
+  <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
+  <meta property="og:description" content="Go on air with your home GPU. Tune in to the community's models. Pay per token. One CLI." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://rogerai.fyi" />
+
+  <!-- Inter + Geist Mono via Google Fonts; degrades to system stacks offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/site.css" />
+</head>
+<body>
+
+  <!-- ===== blip-map background: stations on air across a faint grid ===== -->
+  <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
+  <div class="blipmap-fallback" aria-hidden="true"></div>
+
+  <!-- ============================ NAV ============================ -->
+  <header class="nav" id="nav">
+    <div class="wrap nav__inner">
+      <a class="brand" href="#top" aria-label="RogerAI home">
+        <span class="brand__mark" aria-hidden="true">
+          <span class="brand__wave"></span><span class="brand__wave"></span><span class="brand__wave"></span>
+        </span>
+        <span class="brand__name">Roger<b>AI</b></span>
+      </a>
+      <nav class="nav__right">
+        <a class="nav__link" href="#what">What it is</a>
+        <a class="nav__link" href="#how">How it works</a>
+        <a class="nav__link" href="#monetize">Monetize</a>
+        <a class="nav__link nav__link--ghost" href="https://github.com/bownux/rogerai">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============================ HERO ============================ -->
+  <main id="top">
+  <section class="hero">
+    <div class="wrap hero__inner">
+
+      <span class="hero__eyebrow" data-reveal>
+        <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+        a two-way radio for GPUs
+      </span>
+
+      <h1 class="hero__title" data-reveal data-reveal-delay="60">
+        Tune in to the world's<br /><span class="hero__grad">home GPUs.</span>
+      </h1>
+
+      <p class="hero__sub" data-reveal data-reveal-delay="120">
+        A community of local-AI enthusiasts - like ham radio, for models. People go
+        <b>on air</b> with their self-hosted LLMs; you <b>tune in</b> and pay per token.
+        One CLI does all of it.
+      </p>
+
+      <!-- THE primary CTA: the install command -->
+      <div class="install" data-reveal data-reveal-delay="180">
+        <button class="install__box" id="installCmd" type="button"
+                aria-label="Copy install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+          <span class="install__copy" id="installCopy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <div class="install__meta">
+          <span id="installNote">macOS · Linux · Windows - no account needed to browse</span>
+          <a class="install__alt" href="https://github.com/bownux/rogerai/releases">or download a binary →</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== TERMINAL DEMO ===================== -->
+  <section class="demo" id="demo">
+    <div class="wrap">
+      <div class="demo__head" data-reveal>
+        <span class="eyebrow">The whole thing</span>
+        <h2>Run <code class="inline">rogerai</code>. Tune in. Get an endpoint.</h2>
+        <p>An OpenAI-compatible endpoint on <code class="inline">127.0.0.1</code>, in three keystrokes.
+          Point your bots or any tool at it.</p>
+      </div>
+
+      <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
+           aria-label="A replay of the RogerAI terminal: browsing stations by signal, tuning in, and receiving a local OpenAI-compatible endpoint and key.">
+        <div class="term__bar">
+          <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="term__title">rogerai - the dial</span>
+          <button class="term__replay" id="termReplay" type="button" aria-label="Replay demo">replay</button>
+        </div>
+        <pre class="term__screen" id="termScreen" aria-hidden="true"></pre>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <!-- ===================== WHAT IT IS ===================== -->
+  <section class="section band" id="what">
+    <div class="wrap">
+      <div class="section__head" data-reveal>
+        <span class="eyebrow">The idea</span>
+        <h2>Hobbyist GPUs, on the air.</h2>
+        <p>There's a whole community running powerful open models on hardware at home.
+          RogerAI turns that idle capacity into a shared band - discoverable, fair, and
+          dead-simple to join from either side.</p>
+      </div>
+
+      <div class="twoway" data-reveal data-reveal-delay="80">
+        <article class="twoway__side">
+          <div class="twoway__tag twoway__tag--air">go on air</div>
+          <h3>Share a model</h3>
+          <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama). Set a call-sign,
+            a price, and the hours you're around. Flip the switch - you're on air.</p>
+          <code class="twoway__cmd">rogerai share waterfall --rate 0.30</code>
+        </article>
+
+        <div class="twoway__link" aria-hidden="true">
+          <span class="twoway__beam"></span>
+        </div>
+
+        <article class="twoway__side">
+          <div class="twoway__tag twoway__tag--tune">tune in</div>
+          <h3>Use a model</h3>
+          <p>Browse stations by signal, price, and distance. Tune in and RogerAI hands you a
+            local OpenAI endpoint + key - a drop-in for anything that speaks OpenAI.</p>
+          <code class="twoway__cmd">rogerai connect @nightowl</code>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HOW IT WORKS ===================== -->
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section__head" data-reveal>
+        <span class="eyebrow">How it works</span>
+        <h2>Flexible by design. Easy by default.</h2>
+      </div>
+
+      <div class="cards">
+        <article class="feat" data-reveal>
+          <div class="feat__icon feat__icon--volt" aria-hidden="true">
+            <span class="bars"><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <h3>On air / tune in</h3>
+          <p>Two verbs. Owners broadcast a model; users tune to a channel. Signal bars are
+            tokens per second, so good and bad are obvious at a glance.</p>
+        </article>
+
+        <article class="feat" data-reveal data-reveal-delay="70">
+          <div class="feat__icon feat__icon--gold" aria-hidden="true">
+            <span class="diamond"></span>
+          </div>
+          <h3>Lineage receipts</h3>
+          <p>A gold call-sign <span class="cs">&#9670;</span> means every token is signed with its
+            lineage - base weights, fine-tunes, and the exact station that aired it.</p>
+        </article>
+
+        <article class="feat" data-reveal data-reveal-delay="140">
+          <div class="feat__icon feat__icon--ember" aria-hidden="true">
+            <span class="coin">$</span>
+          </div>
+          <h3>Your price, your terms</h3>
+          <p>Set per-token rates per model - or share for free. Open only during your hours,
+            cap usage, throttle by time of day. The market clears the rest.</p>
+        </article>
+
+        <article class="feat" data-reveal data-reveal-delay="210">
+          <div class="feat__icon feat__icon--live" aria-hidden="true">
+            <span class="shield"></span>
+          </div>
+          <h3>Only the model. Nothing else.</h3>
+          <p>RogerAI bridges the LLM endpoint and only that. No shell, no files, no context,
+            no personal data - ever reachable. The rest of your machine stays yours.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MONETIZE ===================== -->
+  <section class="section band" id="monetize">
+    <div class="wrap monetize">
+      <div class="monetize__copy" data-reveal>
+        <span class="eyebrow">Monetize idle silicon</span>
+        <h2>Your GPU pays rent while you sleep.</h2>
+        <p>Set a fair rate and keep the lion's share of every token you serve. Free is
+          welcome too - plenty of stations run open for the love of the band.</p>
+        <ul class="checks">
+          <li><span class="tick">&#10003;</span> Per-input and per-output pricing, per model</li>
+          <li><span class="tick">&#10003;</span> Time-of-use windows &amp; usage caps you control</li>
+          <li><span class="tick">&#10003;</span> Provably fair metering - no under-reporting, no over-charging</li>
+          <li><span class="tick">&#10003;</span> Revenue share that favors the operator</li>
+        </ul>
+      </div>
+
+      <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example earnings panel">
+        <div class="earn__head">
+          <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
+          <span class="earn__onair"><span class="dot"></span> ON AIR</span>
+        </div>
+        <div class="earn__row"><span>model</span><b class="mono">waterfall</b></div>
+        <div class="earn__row"><span>rate · out</span><b class="mono ember">$0.30 / 1M</b></div>
+        <div class="earn__row"><span>rate · in</span><b class="mono ember">$0.18 / 1M</b></div>
+        <div class="earn__spark">
+          <span class="earn__label">est. / day</span>
+          <span class="earn__bars" aria-hidden="true"></span>
+          <b class="mono ember earn__amt">$1.10 - $3.40</b>
+        </div>
+        <div class="earn__foot mono">you'll appear in the band within ~10s</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ===================== CTA STRIP ===================== -->
+  <section class="cta">
+    <div class="wrap cta__inner" data-reveal>
+      <h2>Pick up the mic.</h2>
+      <p>Install the CLI and you're one command from on air - or tuned in.</p>
+      <button class="install__box install__box--lg" id="installCmd2" type="button"
+              aria-label="Copy install command to clipboard">
+        <span class="install__prompt" aria-hidden="true">$</span>
+        <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        <span class="install__copy" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+          </svg>
+        </span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================ FOOTER ============================ -->
+  <footer class="footer">
+    <div class="wrap footer__inner">
+      <div class="footer__brand">
+        <span class="brand__mark" aria-hidden="true">
+          <span class="brand__wave"></span><span class="brand__wave"></span><span class="brand__wave"></span>
+        </span>
+        Roger<b>AI</b>
+      </div>
+      <nav class="footer__links">
+        <a href="#what">What it is</a>
+        <a href="#how">How it works</a>
+        <a href="#monetize">Monetize</a>
+        <a href="https://github.com/bownux/rogerai">GitHub</a>
+        <a href="https://github.com/bownux/rogerai/releases">Releases</a>
+      </nav>
+    </div>
+    <div class="wrap footer__bar">
+      <small>&copy; 2026 RogerAI · built on real machines</small>
+      <span class="footer__status">
+        <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+        the band is open · roger that
+      </span>
+    </div>
+  </footer>
+
+  <!-- toast for copy confirmation -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/radiomap.js" defer></script>
+  <script src="js/terminal.js" defer></script>
+  <script src="js/site.js" defer></script>
+</body>
+</html>

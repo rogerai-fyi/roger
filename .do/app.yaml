@@ -1,0 +1,29 @@
+# DigitalOcean App Platform spec for the RogerAI broker.
+#   doctl apps create --spec .do/app.yaml
+# Set DATABASE_URL (your existing managed Postgres) as an encrypted env in the DO UI.
+name: rogerai-broker
+region: nyc
+services:
+  - name: broker
+    dockerfile_path: Dockerfile
+    github:
+      repo: bownux/rogerai
+      branch: main
+      deploy_on_push: true
+    http_port: 8080
+    instance_size_slug: basic-xxs   # cheapest; broker is I/O-bound
+    instance_count: 1
+    health_check:
+      http_path: /health
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+    routes:
+      - path: /
+domains:
+  - domain: broker.rogerai.fyi
+    type: PRIMARY

@@ -1,0 +1,272 @@
+openapi: 3.1.0
+info:
+  title: RogerAI Broker API
+  version: 0.1.0
+  description: |
+    The RogerAI broker - the only public component of the RogerAI marketplace.
+    It is an OpenAI-compatible relay plus a registry, wallet, and metering layer
+    over a fleet of crowd-sourced, self-hosted LLM nodes.
+
+    Roles:
+      * Consumers call `POST /v1/chat/completions` (OpenAI-compatible) and browse
+        `GET /discover`. Identify with the `X-Roger-User` header (or `Authorization: Bearer <user>`).
+      * Providers ("nodes") dial OUT: `POST /nodes/register`, then long-poll
+        `GET /agent/poll` and `POST /agent/result`. No inbound ports.
+
+    Every served request yields a hash-chained UsageReceipt signed by the node and
+    counter-signed by the broker (the "lineage" guarantee).
+  license: { name: Proprietary }
+servers:
+  - url: https://broker.rogerai.fyi
+  - url: http://127.0.0.1:7070
+
+tags:
+  - { name: meta, description: Service metadata }
+  - { name: consumer, description: Discover + use models }
+  - { name: billing, description: Prepaid credit wallet (Stripe) }
+  - { name: provider, description: Node registration + the outbound job tunnel }
+
+paths:
+  /health:
+    get:
+      tags: [meta]
+      summary: Liveness probe
+      responses: { "200": { description: ok, content: { text/plain: { schema: { type: string, example: ok } } } } }
+
+  /:
+    get:
+      tags: [meta]
+      summary: Service descriptor
+      responses:
+        "200":
+          description: Service info
+          content: { application/json: { schema: { $ref: '#/components/schemas/ServiceInfo' } } }
+
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This OpenAPI document
+      responses: { "200": { description: spec, content: { application/yaml: {} } } }
+
+  /discover:
+    get:
+      tags: [consumer]
+      summary: List model offers (cheapest active price first)
+      responses:
+        "200":
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offers: { type: array, items: { $ref: '#/components/schemas/Offer' } }
+
+  /balance:
+    get:
+      tags: [consumer]
+      summary: Wallet balance for the caller
+      parameters: [ { $ref: '#/components/parameters/User' } ]
+      responses:
+        "200":
+          description: Balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { user: { type: string }, balance: { type: number } }
+
+  /v1/chat/completions:
+    post:
+      tags: [consumer]
+      summary: OpenAI-compatible chat completion, relayed to the best node
+      description: |
+        Drop-in OpenAI endpoint. The broker matches an online node serving `model`
+        (cheapest active price; optionally filtered by the constraint headers),
+        relays the request, meters it, and settles the wallet. The price the user
+        is first quoted for a (node, model) is honored for 24h (published
+        time-of-use / free windows are charged as-is). Set `stream:true` for SSE.
+      parameters:
+        - $ref: '#/components/parameters/User'
+        - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes." }
+        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec)." }
+        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M)." }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChatRequest' } } }
+      responses:
+        "200":
+          description: |
+            Completion (verbatim upstream body). Response headers carry the meter:
+            `X-RogerAI-Provider`, `X-RogerAI-Cost`, `X-RogerAI-Balance`,
+            `X-RogerAI-Price`, `X-RogerAI-TPS`, `X-RogerAI-Receipt` (the signed receipt).
+          content: { application/json: { schema: { type: object } } }
+        "402": { description: insufficient credits, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "503": { description: no node offers the model (or matches constraints), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "504": { description: node timed out }
+
+  /billing/checkout:
+    post:
+      tags: [billing]
+      summary: Create a Stripe Checkout session to buy credits
+      parameters: [ { $ref: '#/components/parameters/User' } ]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { usd: { type: number, default: 10 } } } } }
+      responses:
+        "200":
+          description: Checkout link
+          content:
+            application/json:
+              schema: { type: object, properties: { url: { type: string }, usd: { type: number }, credits: { type: number } } }
+        "503": { description: billing not configured }
+
+  /billing/webhook:
+    post:
+      tags: [billing]
+      summary: Stripe webhook (checkout.session.completed → credit wallet)
+      description: HMAC-verified via `Stripe-Signature`; idempotent (credits each session once).
+      parameters: [ { in: header, name: Stripe-Signature, required: true, schema: { type: string } } ]
+      responses: { "200": { description: received }, "400": { description: bad signature } }
+
+  /nodes/register:
+    post:
+      tags: [provider]
+      summary: Register/refresh a provider node and its offers
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NodeRegistration' } } }
+      responses: { "200": { description: ok } }
+
+  /nodes/heartbeat:
+    post:
+      tags: [provider]
+      summary: Keep a node marked online
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { node_id: { type: string } } } } }
+      responses: { "200": { description: ok } }
+
+  /agent/poll:
+    get:
+      tags: [provider]
+      summary: Long-poll for a relayed job (held up to 25s)
+      security: [ { nodeToken: [] } ]
+      parameters: [ { in: query, name: node, required: true, schema: { type: string } } ]
+      responses:
+        "200": { description: a job, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        "204": { description: no job within the window - re-poll }
+        "401": { description: bad node token }
+
+  /agent/result:
+    post:
+      tags: [provider]
+      summary: Return a served job's result + signed receipt
+      security: [ { nodeToken: [] } ]
+      parameters: [ { in: query, name: node, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/JobResult' } } }
+      responses: { "200": { description: ok }, "401": { description: bad node token } }
+
+components:
+  securitySchemes:
+    nodeToken:
+      type: http
+      scheme: bearer
+      description: The per-node BridgeToken set at registration.
+  parameters:
+    User:
+      in: header
+      name: X-Roger-User
+      schema: { type: string }
+      description: Caller identity (wallet owner). Alternatively `Authorization: Bearer <user>`.
+  schemas:
+    ServiceInfo:
+      type: object
+      properties:
+        service: { type: string, example: rogerai-broker }
+        version: { type: string }
+        spec: { type: string, example: /openapi.yaml }
+    Error:
+      type: object
+      properties: { error: { type: object, properties: { message: { type: string } } } }
+    ChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model: { type: string }
+        messages: { type: array, items: { type: object } }
+        stream: { type: boolean }
+        max_tokens: { type: integer }
+    PriceWindow:
+      type: object
+      description: Time-of-use rule (HH:MM UTC; may wrap midnight; empty days = daily).
+      properties:
+        days: { type: array, items: { type: integer } }
+        start: { type: string, example: "18:00" }
+        end: { type: string, example: "22:00" }
+        price_in: { type: number }
+        price_out: { type: number }
+        free: { type: boolean }
+    ModelOffer:
+      type: object
+      properties:
+        model: { type: string }
+        price_in: { type: number, description: credits per 1M input tokens (base/fallback) }
+        price_out: { type: number, description: credits per 1M output tokens (base/fallback) }
+        ctx: { type: integer }
+        schedule: { type: array, items: { $ref: '#/components/schemas/PriceWindow' } }
+    Offer:
+      allOf:
+        - $ref: '#/components/schemas/ModelOffer'
+        - type: object
+          properties:
+            node_id: { type: string }
+            region: { type: string }
+            hw: { type: string }
+            online: { type: boolean }
+            confidential: { type: boolean }
+            free_now: { type: boolean }
+            scheduled: { type: boolean }
+            tps: { type: number, description: measured output tokens/sec (0 = unmeasured) }
+    NodeRegistration:
+      type: object
+      required: [node_id, pub_key, offers]
+      properties:
+        node_id: { type: string }
+        pub_key: { type: string, description: hex ed25519 public key }
+        bridge_token: { type: string, description: shared secret authenticating this node's poll/result }
+        region: { type: string }
+        hw: { type: string }
+        offers: { type: array, items: { $ref: '#/components/schemas/ModelOffer' } }
+        confidential: { type: boolean }
+        attestation: { type: string, description: TEE attestation blob (verified before the confidential badge) }
+    UsageReceipt:
+      type: object
+      description: Hash-chained, node-signed + broker-counter-signed per-request record.
+      properties:
+        request_id: { type: string }
+        node_id: { type: string }
+        user: { type: string, description: pseudonymized per (user, node) }
+        model: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        price_in: { type: number }
+        price_out: { type: number }
+        ts: { type: integer }
+        prev_hash: { type: string }
+        lineage_method: { type: string }
+        node_sig: { type: string }
+        broker_sig: { type: string }
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        user: { type: string }
+        body: { type: object, description: the raw OpenAI request }
+    JobResult:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: integer }
+        body: { type: object }
+        receipt: { $ref: '#/components/schemas/UsageReceipt' }

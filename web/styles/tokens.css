@@ -1,0 +1,135 @@
+/* =====================================================================
+   RogerAI - Design Tokens
+   "White room, neon wiring." Color is a SIGNAL, not a surface.
+   Every value here is the single source of truth. Do not hardcode.
+   ===================================================================== */
+
+:root {
+  /* ---- SURFACE: ~85% white / near-white. ------------------------- */
+  --white:        #FFFFFF;
+  --paper:        #FCFCFD; /* default page background */
+  --paper-2:      #F7F8FA; /* subtle raised panels */
+  --paper-3:      #F1F2F6; /* deepest neutral fill */
+  --hairline:     #ECEDF1; /* the ONLY divider color */
+  --hairline-2:   #E2E4EB; /* slightly stronger hairline */
+
+  /* ---- INK: near-black. Pure #000 is BANNED. --------------------- */
+  --ink-900:      #0B0D12; /* headlines, primary text */
+  --ink-700:      #2A2E38; /* body text */
+  --ink-500:      #5A6072; /* secondary text */
+  --ink-400:      #868C9B; /* tertiary / captions */
+  --ink-300:      #AEB3C0; /* disabled, placeholder */
+
+  /* ---- ACCENTS: 4 signals, each with ONE fixed job. -------------- */
+  --volt:         #5B5BFF; /* BRAND / you / primary action */
+  --live:         #00C781; /* availability / health / online */
+  --ember:        #FF8A3D; /* money / cost / GPU heat */
+  --pulse:        #FF3D8B; /* live data / hero only */
+
+  /* tints (for fills behind icons, never large surfaces) */
+  --volt-tint:    #EEEEFF;
+  --live-tint:    #E2F8F0;
+  --ember-tint:   #FFF0E6;
+  --pulse-tint:   #FFE8F1;
+
+  /* glows (used sparingly, hero + live dots) */
+  --volt-glow:    rgba(91, 91, 255, 0.22);
+  --live-glow:    rgba(0, 199, 129, 0.30);
+  --ember-glow:   rgba(255, 138, 61, 0.26);
+  --pulse-glow:   rgba(255, 61, 139, 0.28);
+
+  /* ---- TYPE -------------------------------------------------------- */
+  --font-ui:   "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, "Menlo", monospace;
+
+  /* Type scale (1.20 minor-third-ish, tuned). rem on 16px root. */
+  --t-display: 4.25rem;   /* hero */
+  --t-h1:      2.75rem;
+  --t-h2:      2rem;
+  --t-h3:      1.375rem;
+  --t-lead:    1.1875rem; /* lead paragraph */
+  --t-body:    1rem;
+  --t-sm:      0.875rem;
+  --t-xs:      0.75rem;
+  --t-micro:   0.6875rem; /* labels / eyebrows */
+
+  --lh-tight:  1.04;
+  --lh-snug:   1.18;
+  --lh-body:   1.55;
+
+  --tracking-tight: -0.022em;
+  --tracking-flat:  0em;
+  --tracking-label: 0.14em; /* uppercase eyebrows */
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semi:    600;
+  --weight-bold:    700;
+
+  /* ---- SPACING: 4px base unit ------------------------------------- */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3:  12px;
+  --s-4:  16px;
+  --s-5:  20px;
+  --s-6:  24px;
+  --s-8:  32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+  --s-20: 80px;
+  --s-24: 96px;
+  --s-32: 128px;
+  --s-40: 160px;
+
+  --gutter: clamp(20px, 5vw, 64px);
+  --maxw:   1200px;
+
+  /* ---- RADII ------------------------------------------------------- */
+  --r-xs:   6px;
+  --r-sm:   10px;
+  --r-md:   14px;
+  --r-lg:   20px;
+  --r-xl:   28px;
+  --r-pill: 999px;
+
+  /* ---- ELEVATION: soft, neutral, almost weightless ---------------- */
+  --e-0: none;
+  --e-1: 0 1px 2px rgba(11,13,18,0.04), 0 1px 1px rgba(11,13,18,0.03);
+  --e-2: 0 2px 8px rgba(11,13,18,0.05), 0 1px 2px rgba(11,13,18,0.04);
+  --e-3: 0 8px 28px rgba(11,13,18,0.08), 0 2px 6px rgba(11,13,18,0.05);
+  --e-4: 0 18px 48px rgba(11,13,18,0.12), 0 4px 12px rgba(11,13,18,0.06);
+  --e-glass: 0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 30px rgba(11,13,18,0.06);
+
+  /* ---- MOTION ------------------------------------------------------ */
+  /* easing */
+  --ease-out-quint: cubic-bezier(.22, 1, .36, 1);   /* primary reveal / lift */
+  --ease-out-expo:  cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out:    cubic-bezier(.65, 0, .35, 1);
+  --ease-standard:  cubic-bezier(.4, 0, .2, 1);
+  /* Spring notes (for JS / Framer Motion port):
+     - UI micro (hover, dots):   stiffness 420, damping 32, mass 1
+     - Magnetic CTA:             stiffness 260, damping 22, mass 1
+     - Number-roll settle:       stiffness 180, damping 26, mass 1
+     - Reveal (translate+fade):  use --ease-out-quint, 560ms, no spring */
+
+  /* durations */
+  --d-1: 120ms;  /* taps, dot pulse step */
+  --d-2: 200ms;  /* hover */
+  --d-3: 320ms;  /* small reveal */
+  --d-4: 560ms;  /* scroll reveal */
+  --d-5: 820ms;  /* hero choreography */
+
+  /* z layers */
+  --z-base:   0;
+  --z-card:   10;
+  --z-nav:    100;
+  --z-overlay:1000;
+}
+
+/* Reduced motion: collapse choreography, keep legibility. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-1: 0ms; --d-2: 0ms; --d-3: 0ms; --d-4: 0ms; --d-5: 0ms;
+  }
+}

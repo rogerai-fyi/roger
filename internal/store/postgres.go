@@ -1,0 +1,122 @@
+package store
+
+import (
+	"database/sql"
+	"encoding/json"
+
+	"github.com/bownux/rogerai/internal/protocol"
+	_ "github.com/jackc/pgx/v5/stdlib"
+)
+
+// Postgres is a durable Store. Tables are prefixed `rogerai_` so they share an
+// existing database cleanly. Swap this out for any other Store impl freely.
+type Postgres struct{ db *sql.DB }
+
+// The `rogerai` schema is provisioned by an admin and OWNED by the app's DB user
+// (least privilege: the user has no DB-level CREATE, only its own schema). The app
+// just manages tables inside it.
+const schema = `
+CREATE TABLE IF NOT EXISTS rogerai.wallet   (usr  TEXT PRIMARY KEY, balance DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS rogerai.earnings (node TEXT PRIMARY KEY, balance DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS rogerai.receipts (
+    request_id TEXT PRIMARY KEY, usr TEXT, node TEXT, model TEXT,
+    prompt_tokens INT, completion_tokens INT, cost DOUBLE PRECISION,
+    ts BIGINT, receipt JSONB, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS rogerai.processed_events (key TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now());`
+
+func NewPostgres(dsn string) (*Postgres, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(schema); err != nil {
+		return nil, err
+	}
+	return &Postgres{db: db}, nil
+}
+
+func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
+	if _, err := p.db.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2) ON CONFLICT (usr) DO NOTHING`, user, seed); err != nil {
+		return 0, err
+	}
+	var bal float64
+	err := p.db.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal)
+	return bal, err
+}
+
+func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var bal float64
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 RETURNING balance`, user, cost).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.earnings(node,balance) VALUES($1,$2)
+		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, ownerShare); err != nil {
+		return 0, err
+	}
+	rj, _ := json.Marshal(rec)
+	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,ts,receipt)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, rec.TS, rj); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
+}
+
+func (p *Postgres) EarningsOf(node string) (float64, error) {
+	var bal float64
+	err := p.db.QueryRow(`SELECT COALESCE(balance,0) FROM rogerai.earnings WHERE node=$1`, node).Scan(&bal)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return bal, err
+}
+
+func (p *Postgres) AddCredits(user string, amount float64) (float64, error) {
+	var bal float64
+	err := p.db.QueryRow(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2)
+		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2 RETURNING balance`, user, amount).Scan(&bal)
+	return bal, err
+}
+
+func (p *Postgres) MarkProcessed(key string) (bool, error) {
+	res, err := p.db.Exec(`INSERT INTO rogerai.processed_events(key) VALUES($1) ON CONFLICT (key) DO NOTHING`, key)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (p *Postgres) CreditOnce(key, user string, amount float64) (bool, float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO rogerai.processed_events(key) VALUES($1) ON CONFLICT (key) DO NOTHING`, key)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var bal float64
+		_ = tx.QueryRow(`SELECT COALESCE(balance,0) FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal)
+		return false, bal, tx.Commit()
+	}
+	var bal float64
+	if err := tx.QueryRow(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2)
+		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2 RETURNING balance`, user, amount).Scan(&bal); err != nil {
+		return false, 0, err
+	}
+	return true, bal, tx.Commit()
+}
+
+func (p *Postgres) Close() error { return p.db.Close() }
