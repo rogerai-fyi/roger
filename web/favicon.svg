@@ -4,6 +4,6 @@
   <g fill="#fff">
     <path d="M5 7 h8 v4 H9 v10 h4 v4 H5 Z" />
     <path d="M27 7 h-8 v4 h4 v10 h-4 v4 h8 Z" />
-    <path d="M16 11.5 L20.5 16 L16 20.5 L11.5 16 Z" />
   </g>
+  <path d="M16 11.5 L20.5 16 L16 20.5 L11.5 16 Z" fill="#FF3B3B" />
 </svg>

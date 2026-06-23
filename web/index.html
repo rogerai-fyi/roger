@@ -374,44 +374,31 @@
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§5 / OPERATING NOTES</span>
-        <h2>Built to keep the channel open.</h2>
+        <h2>Four notes before you transmit.</h2>
       </div>
 
-      <ol class="notes" data-reveal data-reveal-delay="60">
-        <li class="note">
-          <span class="note__no" aria-hidden="true">01</span>
-          <div class="note__body">
-            <h3>Lock and hold.</h3>
-            <p>Tune to a band with margins. The radio locks the strongest station, then auto
-              re-tunes within those margins when one fades. The channel stays open.</p>
-          </div>
-        </li>
-        <li class="note">
-          <span class="note__no" aria-hidden="true">02</span>
-          <div class="note__body">
-            <h3>Sign every token. <span class="cs">&#9670;</span></h3>
-            <p>A gold call-sign signs every token with its lineage: base weights, fine-tunes,
-              and the exact station that aired it. Co-signed ed25519, verifiable.</p>
-          </div>
-        </li>
-        <li class="note">
-          <span class="note__no" aria-hidden="true">03</span>
-          <div class="note__body">
-            <h3>Set your own rate.</h3>
-            <p>Per-token rates per model, or share for free. Open during your hours, cap usage,
-              throttle by time of day. The market clears the rest.</p>
-          </div>
-        </li>
-        <li class="note">
-          <span class="note__no" aria-hidden="true">04</span>
-          <div class="note__body">
-            <h3>Expose only the model.</h3>
-            <p>RogerAI bridges the LLM endpoint and nothing more. No shell, no files, no context,
-              no personal data, ever reachable. Run the confidential tier when the payload must
-              stay sealed.</p>
-          </div>
-        </li>
-      </ol>
+      <div class="opnotes" data-reveal data-reveal-delay="60">
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">01</span>
+          <h3>Lock and hold</h3>
+          <p>Tune with margins. The radio locks the strongest station and re-tunes when one fades.</p>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">02</span>
+          <h3>Sign every token <span class="cs">&#9670;</span></h3>
+          <p>A gold call-sign co-signs each token's lineage. ed25519, verifiable.</p>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">03</span>
+          <h3>Set your own rate</h3>
+          <p>Per-token rates per model, free hours, time-of-use, usage caps. You decide.</p>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">04</span>
+          <h3>Only the model</h3>
+          <p>RogerAI bridges the LLM endpoint, nothing else. No shell, files, or context. The confidential tier seals the payload.</p>
+        </article>
+      </div>
     </div>
   </section>
 

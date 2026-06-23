@@ -163,9 +163,11 @@ code, pre { font-family: var(--font-mono); }
   overflow: visible;
 }
 /* quiet on-air pulse: the center diamond (the eye) breathes between the brackets */
-.brand__pulse { transform-box: fill-box; transform-origin: center;
-  animation: brandPulse 2.6s var(--ease-in-out) infinite; }
-@keyframes brandPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .62; transform: scale(.82); } }
+/* the center diamond is the on-air beacon: a live red that glows + breathes */
+.brand__pulse { fill: #FF3B3B; transform-box: fill-box; transform-origin: center;
+  filter: drop-shadow(0 0 3px rgba(255, 59, 59, .9));
+  animation: brandPulse 2.2s var(--ease-in-out) infinite; }
+@keyframes brandPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .72; transform: scale(.84); } }
 @media (prefers-reduced-motion: reduce) {
   .brand__pulse { animation: none; opacity: 1; }
 }
@@ -240,12 +242,12 @@ code, pre { font-family: var(--font-mono); }
   letter-spacing: -.035em; font-weight: var(--weight-bold);
   color: var(--ink-900); max-width: 16ch;
 }
-/* one ink; the operative phrase carries a single volt underline (no gradient) */
+/* the operative phrase carries the signal gradient (volt -> violet) */
 .hero__op {
-  color: var(--ink-900);
-  background-image: linear-gradient(var(--volt), var(--volt));
-  background-repeat: no-repeat; background-position: 0 100%;
-  background-size: 100% 3px; padding-bottom: 2px;
+  color: var(--volt); /* fallback if background-clip:text is unsupported */
+  background-image: linear-gradient(100deg, var(--volt) 8%, #B14BFF 92%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 .hero__sub {
   margin-top: var(--s-6); max-width: 54ch;
@@ -438,24 +440,23 @@ code, pre { font-family: var(--font-mono); }
   .spec__row { grid-template-columns: 1fr; gap: 4px; padding: var(--s-3) 0; }
 }
 
-/* ---------- operating notes (numbered procedure list) ---------- */
-.notes { list-style: none; margin: 0; padding: 0; max-width: 820px;
-  border-top: 1px solid var(--ink-900); }
-.note {
-  display: grid; grid-template-columns: 56px 1fr; gap: var(--s-6);
-  padding: var(--s-6) 0; border-bottom: 1px solid var(--hairline);
+/* ---------- operating notes (compact horizontal boxes) --------- */
+.opnotes { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-4); }
+.opnote {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-5);
+  border: 1px solid var(--hairline); border-top: 2px solid var(--volt);
+  border-radius: var(--r-md, 6px); background: var(--paper);
 }
-.note__no {
-  font-family: var(--font-mono); font-size: var(--t-h3); font-weight: var(--weight-medium);
-  color: var(--volt); font-variant-numeric: tabular-nums; line-height: 1.1;
+.opnote__no {
+  font-family: var(--font-mono); font-size: var(--t-sm); font-weight: var(--weight-medium);
+  color: var(--volt); font-variant-numeric: tabular-nums; letter-spacing: .04em;
 }
-.note__body h3 { font-size: var(--t-h3); color: var(--ink-900);
+.opnote h3 { margin: 0; font-size: var(--t-body); color: var(--ink-900);
   font-weight: var(--weight-semi); letter-spacing: -.01em; }
-.note__body p { margin-top: var(--s-2); color: var(--ink-500); font-size: var(--t-sm);
-  max-width: 60ch; }
-@media (max-width: 480px) {
-  .note { grid-template-columns: 40px 1fr; gap: var(--s-4); }
-}
+.opnote p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.45; }
+@media (max-width: 900px) { .opnotes { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px) { .opnotes { grid-template-columns: 1fr; } }
 
 /* ---------- monetize ------------------------------------------- */
 .monetize { display: grid; grid-template-columns: 1.1fr .9fr; gap: var(--s-16); align-items: center; }
