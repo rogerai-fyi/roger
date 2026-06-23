@@ -753,3 +753,12 @@ code, pre { font-family: var(--font-mono); }
 }
 .toast.is-shown { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+
+/* the period after "home GPUs" is a live-red on-air beacon, glowing like the logo */
+.hero__dot {
+  color: #FF3B3B; -webkit-text-fill-color: #FF3B3B;
+  text-shadow: 0 0 9px rgba(255, 59, 59, .75);
+  animation: heroDot 2.2s var(--ease-in-out) infinite;
+}
+@keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .hero__dot { animation: none; opacity: 1; } }
