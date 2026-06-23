@@ -33,9 +33,9 @@ import (
 type pingState int
 
 const (
-	pingIdle    pingState = iota // breathe + occasional wave, for empty "standing by" states
-	pingTx                       // transmitting: arcs radiate, eye pulses wide (loading / relay)
-	pingStatic                   // hollow-eyed "...static" for dropped / error states
+	pingIdle   pingState = iota // breathe + occasional wave, for empty "standing by" states
+	pingTx                      // transmitting: arcs radiate, eye pulses wide (loading / relay)
+	pingStatic                  // hollow-eyed "...static" for dropped / error states
 )
 
 // pingEye paints the eye glyph live-red; everything else in a Ping frame is the
