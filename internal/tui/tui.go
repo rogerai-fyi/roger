@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,7 +17,29 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
 )
+
+// quiet is true when output isn't an interactive color TTY (NO_COLOR set, or
+// piped / redirected). lipgloss already strips color in that case; we also
+// freeze the animation to a single representative frame so the on-air pulse
+// and signal bars render as a clean static fallback instead of garbled glyph
+// churn in a pipe. Honors DESIGN.md: "static fallback when NO_COLOR / non-TTY".
+var quiet = func() bool {
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return true
+	}
+	return !isatty.IsTerminal(os.Stdout.Fd()) && !isatty.IsCygwinTerminal(os.Stdout.Fd())
+}()
+
+// anim returns the live frame counter, or a fixed frame when quiet so motion
+// settles into a stable, well-formed snapshot.
+func anim(frame int) int {
+	if quiet {
+		return 1
+	}
+	return frame
+}
 
 // ---- palette (the "white room, neon wiring" tokens) ----
 var (
@@ -95,8 +118,8 @@ func New(broker, user string) model {
 	ci.Prompt = lipgloss.NewStyle().Foreground(cVolt).Render("/ ")
 	ci.Placeholder = "search · connect · chat · config · share · endpoint · balance · help · quit"
 	ch := textinput.New()
-	ch.Prompt = stEmber.Render("you ▸ ")
-	ch.Placeholder = "message the model…"
+	ch.Prompt = stSelText.Render("you ▸ ")
+	ch.Placeholder = "say something on channel…"
 	return model{broker: broker, user: user, cmd: ci, chatIn: ch, proxyAddr: "127.0.0.1:4141", status: "tuning in…"}
 }
 
@@ -122,7 +145,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.balance, m.haveBal = float64(msg), true
 		return m, nil
 	case chatMsg:
-		m.transcript = append(m.transcript, stLive.Render("◆ ")+msg.reply, stDim.Render("   "+msg.status))
+		m.transcript = append(m.transcript, stLive.Render("◂ ")+msg.reply, stDim.Render("   "+msg.status))
 		return m, nil
 	case errMsg:
 		m.status = stEmber.Render("! " + string(msg))
@@ -170,7 +193,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.chatIn.SetValue("")
-			m.transcript = append(m.transcript, stEmber.Render("▸ ")+p)
+			m.transcript = append(m.transcript, stSelText.Render("▸ ")+p)
 			return m, sendChat(m.broker, m.user, m.connected.Model, p, m.confidentialOnly)
 		}
 		var c tea.Cmd
@@ -276,7 +299,7 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	}
 	m.connected = &o
 	m.apikey = "roger-local"
-	m.status = stLive.Render("◆ on channel ") + o.NodeID + " - endpoint live"
+	m.status = stGold.Render("◆ ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
 	return m, nil
 }
 
@@ -306,10 +329,10 @@ func (m model) View() string {
 func (m model) header(w int) string {
 	tower := stBrand.Render("▟█▙")
 	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I ")
-	pulse := []string{"( • )", "(( • ))", "((( • )))", "(( • ))"}[m.frame%4]
+	pulse := []string{"( • )", "(( • ))", "((( • )))", "(( • ))"}[anim(m.frame)%4]
 	right := stLive.Render(pulse)
 	if m.connected != nil {
-		right = stLive.Render("◆ ON CHANNEL "+m.connected.NodeID) + " " + stLive.Render(pulse)
+		right = stGold.Render("◆ ") + stLive.Render("on channel "+m.connected.NodeID) + " " + stLive.Render(pulse)
 	}
 	left := tower + name + right
 	tag := stDim.Render("borrow a GPU, pay by the token")
@@ -325,7 +348,8 @@ func (m model) browseView(w int) string {
 		return stDim.Render("\n   scanning the band for stations on air…  (r to rescan)\n")
 	}
 	var b strings.Builder
-	b.WriteString(stDim.Render(fmt.Sprintf("  %-14s %-20s %-12s %-8s %-7s %s\n", "STATION", "MODEL", "$/1M in·out", "REGION", "SIGNAL", "")))
+	b.WriteString(stDim.Render(fmt.Sprintf("  the band - %d on air\n", countOnline(m.offers))))
+	b.WriteString(stDim.Render(fmt.Sprintf("  %-14s %-20s %-12s %-8s %-7s %s\n", "station", "model", "$/1M in·out", "region", "signal", "")))
 	for i, o := range m.offers {
 		sel := "  "
 		nm := o.NodeID
@@ -362,7 +386,7 @@ func (m model) browseView(w int) string {
 
 func (m model) chatView(w int) string {
 	var b strings.Builder
-	b.WriteString(stDim.Render(fmt.Sprintf("  test channel · %s · esc to leave\n", m.connected.NodeID)))
+	b.WriteString(stGold.Render("  ◆ ") + stDim.Render(fmt.Sprintf("on channel · %s · esc to leave\n", m.connected.NodeID)))
 	lines := m.transcript
 	if len(lines) > 12 {
 		lines = lines[len(lines)-12:]
@@ -375,10 +399,21 @@ func (m model) chatView(w int) string {
 }
 
 func (m model) endpointPanel(w int) string {
-	body := stLive.Render("◆ tuned in - point any OpenAI tool here") + "\n" +
-		"  endpoint  " + stKey.Render(m.endpoint) + "\n" +
-		"  api key   " + stKey.Render(m.apikey) + "\n" +
-		stDim.Render("  point your tools here: OPENAI_API_BASE="+m.endpoint+"  ·  /chat to test")
+	lineage := stDim.Render("·")
+	if m.connected != nil && m.connected.Confidential {
+		lineage = stGold.Render("◆ verified")
+	}
+	head := stGold.Render("◆ ") + stLive.Render("channel open") + "  " +
+		stDim.Render("point your bots here") + "  " + lineage
+	model := stDim.Render("-")
+	if m.connected != nil {
+		model = stKey.Render(m.connected.Model)
+	}
+	body := head + "\n" +
+		stDim.Render("  base url  ") + stKey.Render(m.endpoint) + "\n" +
+		stDim.Render("  api key   ") + stKey.Render(m.apikey) + "\n" +
+		stDim.Render("  model     ") + model + "\n" +
+		stDim.Render("  drop-in, openai-compatible. ") + stLive.Render("roger that.") + stDim.Render("  ·  /chat to test")
 	return stPanel.Render(body)
 }
 
@@ -452,6 +487,7 @@ func signalBars(frame int, tps float64, online bool) string {
 		return stDim.Render("▁▁▁▁▁") // online but not yet measured
 	}
 	var sb strings.Builder
+	frame = anim(frame)
 	for i := 0; i < 5; i++ {
 		lvl := base - (i % 2) + (frame+i)%2 // gentle shimmer around the measured level
 		if lvl < 0 {

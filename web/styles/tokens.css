@@ -25,6 +25,7 @@
   --live:         #00C781; /* availability / health / online */
   --ember:        #FF8A3D; /* money / cost / GPU heat */
   --pulse:        #FF3D8B; /* live data / hero only */
+  --gold:         #E8B339; /* lineage call-sign ◆ - verified provenance */
 
   /* tints (for fills behind icons, never large surfaces) */
   --volt-tint:    #EEEEFF;

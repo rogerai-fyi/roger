@@ -28,8 +28,7 @@ code, pre { font-family: var(--font-mono); }
 .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding-inline: var(--gutter); }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .ember { color: var(--ember); }
-.cs { color: var(--gold, #E6A100); }
-:root { --gold: #E6A100; }
+.cs { color: var(--gold); }
 
 .eyebrow {
   display: inline-block; font-size: var(--t-micro); font-weight: var(--weight-semi);
@@ -63,6 +62,44 @@ code, pre { font-family: var(--font-mono); }
 @keyframes ring { 0% { transform: scale(1); opacity: .5; } 70% { transform: scale(2.8); opacity: 0; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .livedot__ring { animation: none; opacity: 0; } }
 
+/* ---------- ASCII signature accents ----------------------------- */
+/* on-air pulse  ((•))  - the lineage/transmit motif, in mono */
+.onair {
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--live);
+  letter-spacing: -.02em; white-space: nowrap; display: inline-flex; align-items: center;
+}
+.onair .onair__dot { display: inline-block; animation: onairBeat 2.2s var(--ease-in-out) infinite; }
+@keyframes onairBeat { 0%,100% { opacity: .5; transform: scale(.9); } 50% { opacity: 1; transform: scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .onair .onair__dot { animation: none; opacity: 1; } }
+
+/* signal-bar equalizer divider  ▁▂▃▄▅▆▇█  between sections */
+.eq {
+  display: flex; justify-content: center; align-items: flex-end; gap: 3px;
+  height: 26px; margin: 0 auto; padding-block: var(--s-16) 0;
+  user-select: none;
+}
+.eq i {
+  width: 4px; border-radius: 2px; background: var(--volt); opacity: .28;
+  transform-origin: bottom; animation: eqPulse 1.7s var(--ease-in-out) infinite;
+}
+.eq i:nth-child(1)  { height: 24%; animation-delay: 0s; }
+.eq i:nth-child(2)  { height: 40%; animation-delay: .07s; }
+.eq i:nth-child(3)  { height: 62%; animation-delay: .14s; }
+.eq i:nth-child(4)  { height: 86%; animation-delay: .21s; }
+.eq i:nth-child(5)  { height: 100%; animation-delay: .28s; opacity: .42; }
+.eq i:nth-child(6)  { height: 74%; animation-delay: .35s; }
+.eq i:nth-child(7)  { height: 50%; animation-delay: .42s; }
+.eq i:nth-child(8)  { height: 32%; animation-delay: .49s; }
+.eq i:nth-child(9)  { height: 20%; animation-delay: .56s; }
+@keyframes eqPulse { 0%,100% { transform: scaleY(.5); } 50% { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) { .eq i { animation: none; } }
+
+/* ascii section marker - a tiny mono call-sign before eyebrows */
+.eyebrow--ascii::before {
+  content: "◆ "; color: var(--gold); font-family: var(--font-mono);
+  -webkit-text-fill-color: var(--gold);
+}
+
 /* ===== blip-map background ====================================== */
 .blipmap {
   position: fixed; inset: 0; width: 100%; height: 100%;
@@ -93,20 +130,16 @@ code, pre { font-family: var(--font-mono); }
   border-bottom-color: var(--hairline);
 }
 .nav__inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink-900);
+.brand { display: inline-flex; align-items: center; gap: 9px; color: var(--ink-900);
   font-weight: var(--weight-semi); letter-spacing: -.01em; }
 .brand__name { font-size: 1.0625rem; }
 .brand b { color: var(--volt); font-weight: var(--weight-semi); }
 
-/* brand mark = three signal waves */
-.brand__mark { display: inline-flex; align-items: flex-end; gap: 2px; height: 16px; }
-.brand__wave { width: 3px; border-radius: 2px; background: var(--volt); animation: wave 1.6s var(--ease-in-out) infinite; }
-.brand__wave:nth-child(1) { height: 6px;  animation-delay: 0s; }
-.brand__wave:nth-child(2) { height: 14px; animation-delay: .18s; }
-.brand__wave:nth-child(3) { height: 9px;  animation-delay: .36s; }
-@keyframes wave { 0%,100% { transform: scaleY(.55); opacity: .65; } 50% { transform: scaleY(1); opacity: 1; } }
-.brand__wave { transform-origin: bottom; }
-@media (prefers-reduced-motion: reduce) { .brand__wave { animation: none; } }
+/* brand mark = the ASCII signature glyph ▟█▙ in volt */
+.brand__mark {
+  font-family: var(--font-mono); font-size: 1.0625rem; line-height: 1;
+  color: var(--volt); letter-spacing: -.06em; transform: translateY(.5px);
+}
 
 .nav__right { display: flex; align-items: center; gap: var(--s-6); }
 .nav__link { font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2); }
@@ -131,7 +164,7 @@ code, pre { font-family: var(--font-mono); }
   border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
   font-size: var(--t-xs); color: var(--ink-500); font-weight: var(--weight-medium);
 }
-.hero__eyebrow .livedot { --dot: var(--pulse); }
+.hero__eyebrow .onair { font-size: var(--t-xs); color: var(--live); margin-right: 1px; }
 .hero__title {
   font-size: var(--t-display); line-height: var(--lh-tight);
   letter-spacing: -.035em; font-weight: var(--weight-bold);
