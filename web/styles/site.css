@@ -242,12 +242,17 @@ code, pre { font-family: var(--font-mono); }
   letter-spacing: -.035em; font-weight: var(--weight-bold);
   color: var(--ink-900); max-width: 16ch;
 }
-/* the operative phrase carries the signal gradient (volt -> violet) */
+/* the operative phrase: signal gradient text (volt -> violet) + a live-red on-air
+   underline that glows, so "home GPUs." reads as the thing that's on the air */
 .hero__op {
+  position: relative;
   color: var(--volt); /* fallback if background-clip:text is unsupported */
   background-image: linear-gradient(100deg, var(--volt) 8%, #B14BFF 92%);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
+  border-bottom: 3px solid #FF3B3B;
+  padding-bottom: 3px;
+  filter: drop-shadow(0 2px 5px rgba(255, 59, 59, .28));
 }
 .hero__sub {
   margin-top: var(--s-6); max-width: 54ch;
