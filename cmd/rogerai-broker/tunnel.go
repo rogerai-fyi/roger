@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,9 +26,15 @@ type nodeTunnel struct {
 }
 
 // streamSink is the waiting client connection a node streams SSE chunks into.
+// cap (when non-nil) accumulates the assistant completion text from the SSE
+// chunks so the broker can run its L1 token re-count at stream end (off the hot
+// path). Guarded by capMu since agentStream writes it while relayStream reads it.
 type streamSink struct {
-	w     http.ResponseWriter
-	flush func()
+	w      http.ResponseWriter
+	flush  func()
+	capMu  sync.Mutex
+	cap    *bytes.Buffer
+	capRaw bytes.Buffer // carry for SSE lines split across reads
 }
 
 // register handles POST /nodes/register: a node announces itself + its offers
@@ -355,7 +362,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				}
 				w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
 				w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
+				w.Header().Set("X-RogerAI-Quality", ftoa(round6(b.trustScore(node.NodeID))))
 				log.Printf("relay user=%s node=%s in=%d out=%d price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, rec.PromptTokens, rec.CompletionTokens, pin, pout, cost, tps)
+				// L1 independent re-count, OFF the hot path: reconcile the node's
+				// claimed completion tokens against our own tokenizer count.
+				go b.recountAsync(node.NodeID, recountModel(rec, req.Model), completionText(res.Body), rec.CompletionTokens)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -383,8 +394,12 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	sink := &streamSink{w: w, flush: flusher.Flush}
+	if b.recount.enabled() {
+		sink.cap = &bytes.Buffer{} // capture completion text for the L1 re-count
+	}
 	b.streamMu.Lock()
-	b.streams[job.ID] = &streamSink{w: w, flush: flusher.Flush}
+	b.streams[job.ID] = sink
 	b.streamMu.Unlock()
 	defer func() { b.streamMu.Lock(); delete(b.streams, job.ID); b.streamMu.Unlock() }()
 
@@ -430,6 +445,14 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				}
 			}
 			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
+			// L1 independent re-count, OFF the hot path: reconcile the node's
+			// claimed completion tokens against the text we captured streaming.
+			if sink.cap != nil {
+				sink.capMu.Lock()
+				completion := sink.cap.String()
+				sink.capMu.Unlock()
+				go b.recountAsync(node.NodeID, recountModel(rec, model), completion, rec.CompletionTokens)
+			}
 		}
 	case <-time.After(300 * time.Second):
 		b.exitInflight(node.NodeID, false)
@@ -489,6 +512,15 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			sink.w.Write(buf[:n])
 			sink.flush()
+			// Capture the streamed completion text (off-band, for the L1 re-count
+			// at stream end). The bytes still go straight to the client above; this
+			// only siphons a copy when capture is enabled.
+			sink.capMu.Lock()
+			if sink.cap != nil {
+				sink.capRaw.Write(buf[:n])
+				drainSSEDeltas(&sink.capRaw, sink.cap)
+			}
+			sink.capMu.Unlock()
 		}
 		if err != nil {
 			break
@@ -512,6 +544,7 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 	var bestOffer protocol.ModelOffer
 	bestPrice := 0.0
 	found := false
+	bestFailing := false // whether `best` is a probe-failing node (deprioritized)
 	now := time.Now()
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
@@ -533,6 +566,10 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 				continue
 			}
 		}
+		// Probe verification: a node failing recent canaries is DEPRIORITIZED -
+		// only chosen if no healthy node offers the model (so a transient probe
+		// failure never makes a model unavailable). See probe.go.
+		failing := b.probeFailing(n.NodeID)
 		for _, o := range n.Offers {
 			if o.Model != model {
 				continue
@@ -546,9 +583,14 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			}
 			// Rank by active OUTPUT price: that is what we headline and bill the most
 			// on, and what the client quotes at connect time, so the station the user
-			// is shown is the station the broker routes to (quote == route).
-			if !found || out < bestPrice {
-				best, bestOffer, bestPrice, found = n, o, out, true
+			// is shown is the station the broker routes to (quote == route). A healthy
+			// node always beats a probe-failing one regardless of price; among equals
+			// on health, cheapest-output wins.
+			better := !found ||
+				(bestFailing && !failing) || // healthy beats failing
+				(bestFailing == failing && out < bestPrice) // same health: cheaper wins
+			if better {
+				best, bestOffer, bestPrice, found, bestFailing = n, o, out, true, failing
 			}
 		}
 	}
@@ -603,6 +645,59 @@ func authNode(r *http.Request, token string) bool {
 func parseFloat(s string) float64 {
 	f, _ := strconv.ParseFloat(s, 64)
 	return f
+}
+
+// drainSSEDeltas consumes COMPLETE newline-terminated lines from raw, appends
+// any assistant delta text it finds to out, and leaves a trailing partial line
+// in raw for the next read. Used to reconstruct the completion text from the SSE
+// stream for the L1 re-count (off the hot path). Best-effort: a malformed chunk
+// is skipped, never fatal.
+func drainSSEDeltas(raw, out *bytes.Buffer) {
+	data := raw.Bytes()
+	last := bytes.LastIndexByte(data, '\n')
+	if last < 0 {
+		return // no complete line yet
+	}
+	complete := data[:last+1]
+	for _, line := range bytes.Split(complete, []byte{'\n'}) {
+		if t := sseDelta(line); t != "" {
+			out.WriteString(t)
+		}
+	}
+	// Keep the trailing partial line as the new carry.
+	rest := append([]byte(nil), data[last+1:]...)
+	raw.Reset()
+	raw.Write(rest)
+}
+
+// sseDelta extracts the assistant content from one OpenAI streaming "data: {...}"
+// SSE line (choices[].delta.content or choices[].text). Returns "" for keepalive
+// lines, the [DONE] sentinel, or anything it can't parse.
+func sseDelta(line []byte) string {
+	i := bytes.IndexByte(line, '{')
+	if i < 0 {
+		return ""
+	}
+	var d struct {
+		Choices []struct {
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+			Text string `json:"text"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(line[i:], &d) != nil {
+		return ""
+	}
+	var s strings.Builder
+	for _, c := range d.Choices {
+		if c.Delta.Content != "" {
+			s.WriteString(c.Delta.Content)
+		} else if c.Text != "" {
+			s.WriteString(c.Text)
+		}
+	}
+	return s.String()
 }
 
 // parseNodeSet parses a comma-separated node-id list (X-Roger-Exclude-Nodes) into

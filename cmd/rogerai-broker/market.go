@@ -18,7 +18,9 @@ type offerView struct {
 	Confidential bool    `json:"confidential"`
 	FreeNow      bool    `json:"free_now"`
 	Scheduled    bool    `json:"scheduled"`
-	TPS          float64 `json:"tps"` // measured output tokens/sec (0 = not yet measured)
+	TPS          float64 `json:"tps"`     // measured output tokens/sec (0 = not yet measured)
+	TTFTMs       float64 `json:"ttft_ms"` // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	Quality      float64 `json:"quality"` // 0..1 broker-measured trust/verification signal
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -42,7 +44,8 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 				NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
 				In: pin, Out: pout, Ctx: o.Ctx, Online: online,
 				Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
-				TPS: b.tps[n.NodeID],
+				TPS:    b.tps[n.NodeID],
+				TTFTMs: b.probeTTFT(n.NodeID), Quality: b.trustScore(n.NodeID),
 			})
 		}
 	}
@@ -58,6 +61,8 @@ type marketView struct {
 	InFlight    int     `json:"in_flight"`    // active requests across those nodes
 	MinPrice    float64 `json:"min_price"`    // cheapest active input price (credits/1M)
 	BestTPS     float64 `json:"best_tps"`     // fastest measured output tok/s
+	BestTTFTMs  float64 `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
+	Quality     float64 `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
 	SuccessRate float64 `json:"success_rate"` // mean EWMA success across providers (0..1)
 	Signal      int     `json:"signal"`       // 0..100 demand/quality signal
 }
@@ -80,6 +85,9 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		minPrice    float64
 		havePrice   bool
 		bestTPS     float64
+		bestTTFT    float64 // lowest non-zero probe TTFT (ms)
+		haveTTFT    bool
+		qualitySum  float64
 		successSum  float64
 		successSeen int
 	}
@@ -95,6 +103,9 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		tps := b.tps[n.NodeID]
 		inflight := b.inflight[n.NodeID]
 		sr, srSeen := b.success[n.NodeID]
+		tq := b.trust[n.NodeID]
+		ttft := tq.ttftMs
+		quality := tq.score()
 		for _, o := range n.Offers {
 			a := agg[o.Model]
 			if a == nil {
@@ -110,6 +121,10 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 			if tps > a.bestTPS {
 				a.bestTPS = tps
 			}
+			if ttft > 0 && (!a.haveTTFT || ttft < a.bestTTFT) {
+				a.bestTTFT, a.haveTTFT = ttft, true
+			}
+			a.qualitySum += quality
 			if srSeen {
 				a.successSum += sr
 				a.successSeen++
@@ -125,11 +140,16 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		if a.successSeen > 0 {
 			successRate = a.successSum / float64(a.successSeen)
 		}
+		quality := 1.0 // optimistic until measured
+		if a.providers > 0 {
+			quality = a.qualitySum / float64(a.providers)
+		}
 		out = append(out, marketView{
 			Model: model, Providers: a.providers, InFlight: a.inflight,
-			MinPrice: a.minPrice, BestTPS: a.bestTPS,
+			MinPrice: a.minPrice, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
+			Quality:     round6(quality),
 			SuccessRate: round6(successRate),
-			Signal:      marketSignal(a.providers, a.inflight, a.bestTPS, successRate),
+			Signal:      marketSignal(a.providers, a.inflight, a.bestTPS, successRate, quality),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
@@ -140,7 +160,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 // providers (supply), proven throughput (quality), high success (reliability),
 // lightly discounted by current congestion (in-flight load per provider). This is
 // deliberately simple + monotonic; it is NOT a price - it's a glanceable health bar.
-func marketSignal(providers, inflight int, bestTPS, successRate float64) int {
+func marketSignal(providers, inflight int, bestTPS, successRate, trust float64) int {
 	if providers == 0 {
 		return 0
 	}
@@ -149,18 +169,26 @@ func marketSignal(providers, inflight int, bestTPS, successRate float64) int {
 	if supply > 1 {
 		supply = 1
 	}
-	// Quality: measured tok/s, saturating around 300 t/s.
-	quality := bestTPS / 300.0
-	if quality > 1 {
-		quality = 1
+	// Speed: measured tok/s, saturating around 300 t/s.
+	speed := bestTPS / 300.0
+	if speed > 1 {
+		speed = 1
+	}
+	if trust < 0 {
+		trust = 0
+	}
+	if trust > 1 {
+		trust = 1
 	}
 	// Congestion penalty: load per provider; ~2+ in-flight each = fully congested.
 	congestion := float64(inflight) / float64(providers) / 2.0
 	if congestion > 1 {
 		congestion = 1
 	}
-	// Weighted blend, then knock off congestion.
-	score := 0.45*supply + 0.30*quality + 0.25*successRate
+	// Weighted blend, then knock off congestion. The trust/verification term
+	// means a fast cheap node that fails canaries or over-reports tokens ranks
+	// BELOW an honest one (the whole point of the Now-tier verification).
+	score := 0.40*supply + 0.25*speed + 0.20*successRate + 0.15*trust
 	score *= (1 - 0.4*congestion)
 	s := int(score*100 + 0.5)
 	if s < 0 {

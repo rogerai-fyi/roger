@@ -46,9 +46,10 @@ type broker struct {
 	confidential map[string]bool
 	tps          map[string]float64 // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
-	metricsMu    sync.Mutex         // guards the per-node market metrics below
-	inflight     map[string]int     // in-flight (active) requests per node
-	success      map[string]float64 // EWMA success rate per node (0..1)
+	metricsMu    sync.Mutex            // guards the per-node market metrics below
+	inflight     map[string]int        // in-flight (active) requests per node
+	success      map[string]float64    // EWMA success rate per node (0..1)
+	trust        map[string]trustState // L1 re-count + probe trust/quality per node
 	streamMu     sync.Mutex
 	streams      map[string]*streamSink // jobID -> waiting client (streaming)
 	authMu       sync.Mutex
@@ -61,6 +62,8 @@ type broker struct {
 	bill         billing
 	mod          moderation
 	rl           *rateLimiter
+	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
+	probe        probeConfig   // active canary + latency probe
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -109,12 +112,14 @@ func main() {
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
-		inflight:  map[string]int{}, success: map[string]float64{},
+		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
 	b.mod = loadModeration()
 	b.rl = loadRateLimiter()
+	b.recount = loadRecount()
+	b.probe = loadProbe()
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)
 
 	mux := http.NewServeMux()
@@ -142,6 +147,10 @@ func main() {
 		_, _ = w.Write([]byte(openapiSpec))
 	})
 	mux.HandleFunc("/", b.root) // service descriptor - the broker is API-only (no website)
+
+	if b.probe.enabled() {
+		go b.proberLoop()
+	}
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
 	log.Fatal(http.ListenAndServe(*addr, mux))
