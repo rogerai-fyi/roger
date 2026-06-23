@@ -34,12 +34,19 @@ say "  ${C_BOLD}${C_VOLT}RogerAI${C_RESET} ${C_DIM}- a two-way radio for GPUs${C
 say ""
 
 # ---- detect downloader ---------------------------------------------
+# dl URL FILE        download to a file (fails on HTTP errors)
+# dl_stdout URL      download to stdout
+# resolve_redirect URL  print the final URL after following redirects
 if command -v curl >/dev/null 2>&1; then
-  dl()      { curl -fsSL "$1" -o "$2"; }
-  dl_stdout(){ curl -fsSL "$1"; }
+  dl()              { curl -fsSL "$1" -o "$2"; }
+  dl_stdout()       { curl -fsSL "$1"; }
+  resolve_redirect(){ curl -fsSLI -o /dev/null -w '%{url_effective}' "$1" 2>/dev/null; }
 elif command -v wget >/dev/null 2>&1; then
-  dl()      { wget -qO "$2" "$1"; }
-  dl_stdout(){ wget -qO- "$1"; }
+  dl()              { wget -qO "$2" "$1"; }
+  dl_stdout()       { wget -qO- "$1"; }
+  # --max-redirect 0 makes wget print the Location: header to stderr; grab it.
+  resolve_redirect(){ wget -S --max-redirect=0 -qO /dev/null "$1" 2>&1 \
+                        | awk '/^ *[Ll]ocation:/ {print $2; exit}'; }
 else
   die "need curl or wget to install RogerAI."
 fi
@@ -69,9 +76,10 @@ info "platform: ${C_BOLD}${OS}/${ARCH}${C_RESET}"
 # ---- resolve version ------------------------------------------------
 if [ "$VERSION" = "latest" ]; then
   info "resolving latest release…"
-  # follow the redirect from /releases/latest to read the tag
-  REDIR="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-            "https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
+  # follow the redirect from /releases/latest to read the tag (curl or wget)
+  REDIR="$(resolve_redirect "https://github.com/$REPO/releases/latest" || true)"
+  REDIR="${REDIR%/}"   # strip any trailing slash/CR
+  REDIR="$(printf '%s' "$REDIR" | tr -d '\r')"
   TAG="${REDIR##*/tag/}"
   case "$TAG" in
     ""|*github.com*|*releases*) TAG="" ;;   # no published release yet
@@ -115,23 +123,95 @@ fi
 # sanity check: non-empty file
 [ -s "$OUT" ] || die "downloaded file is empty - aborting."
 
-# ---- install --------------------------------------------------------
-mkdir -p "$INSTALL_DIR"
-chmod +x "$OUT" 2>/dev/null || true
+# ---- verify checksum (if the release ships checksums.txt) -----------
+# Pick whatever sha256 tool the distro provides. sha256sum (coreutils:
+# Debian/Ubuntu/Fedora/Arch/Gentoo/openSUSE/Bazzite), shasum -a 256
+# (macOS/Perl), or sha256 (BSD). If none exist, skip with a warning
+# rather than failing - the binary is still served over HTTPS.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v sha256 >/dev/null 2>&1; then
+    sha256 -q "$1"
+  else
+    return 1
+  fi
+}
+
+SUMS="$TMP/checksums.txt"
+if dl "https://github.com/$REPO/releases/download/$TAG/checksums.txt" "$SUMS" 2>/dev/null \
+   && [ -s "$SUMS" ]; then
+  # the expected hash is the line whose filename column matches our asset
+  WANT="$(awk -v f="$ASSET" '$2 == f || $2 == "*"f {print $1; exit}' "$SUMS")"
+  if [ -n "$WANT" ]; then
+    GOT="$(sha256_of "$OUT")" || {
+      say ""
+      say "  ${C_DIM}note:${C_RESET} no sha256 tool found - skipping checksum verification."
+      GOT=""
+    }
+    if [ -n "$GOT" ]; then
+      if [ "$GOT" = "$WANT" ]; then
+        ok "checksum verified"
+      else
+        die "checksum mismatch for ${ASSET} - refusing to install. expected ${WANT}, got ${GOT}."
+      fi
+    fi
+  else
+    say "  ${C_DIM}note:${C_RESET} ${ASSET} not listed in checksums.txt - skipping verification."
+  fi
+else
+  say "  ${C_DIM}note:${C_RESET} no checksums.txt in this release - skipping verification."
+fi
+
+# ---- install (atomic) ----------------------------------------------
+# Stage into INSTALL_DIR so the final rename is on the same filesystem
+# (mv across filesystems isn't atomic and can leave a half-written bin
+# if interrupted). chmod first, then rename over any existing copy -
+# this is idempotent, so re-running the installer just updates in place.
+if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+  die "can't create ${INSTALL_DIR}. Set ROGERAI_INSTALL_DIR to a writable directory."
+fi
+[ -w "$INSTALL_DIR" ] || die "${INSTALL_DIR} isn't writable. Set ROGERAI_INSTALL_DIR to a writable directory."
+
 DEST="$INSTALL_DIR/$BIN$EXT"
-mv -f "$OUT" "$DEST"
+STAGE="$INSTALL_DIR/.$BIN.$$.tmp"
+cp "$OUT" "$STAGE" || die "failed to stage binary in ${INSTALL_DIR}."
+chmod +x "$STAGE" 2>/dev/null || true
+if ! mv -f "$STAGE" "$DEST"; then
+  rm -f "$STAGE" 2>/dev/null || true
+  die "failed to install to ${DEST}."
+fi
 ok "installed ${C_BOLD}${BIN}${C_RESET} → ${DEST}"
 
 # ---- PATH hint ------------------------------------------------------
+# On immutable distros (Bazzite/Silverblue/Kinoite) ~/.local/bin is on
+# PATH by default, so this block stays quiet there. Elsewhere we point
+# at the right rc file for the user's login shell.
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) : ;;
   *)
     say ""
     say "  ${C_DIM}note:${C_RESET} ${INSTALL_DIR} isn't on your PATH. Add it:"
     case "${SHELL##*/}" in
-      fish) say "    fish_add_path $INSTALL_DIR" ;;
-      *)    say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.profile && . ~/.profile" ;;
+      fish)
+        say "    fish_add_path $INSTALL_DIR"
+        ;;
+      zsh)
+        rc="${ZDOTDIR:-$HOME}/.zshrc"
+        say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc && . $rc"
+        ;;
+      bash)
+        # bash reads ~/.bashrc interactively; ~/.profile for login shells.
+        rc="$HOME/.bashrc"; [ -f "$rc" ] || rc="$HOME/.profile"
+        say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $rc && . $rc"
+        ;;
+      *)
+        say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.profile && . ~/.profile"
+        ;;
     esac
+    say "    ${C_DIM}then restart your shell (or open a new terminal).${C_RESET}"
     ;;
 esac
 

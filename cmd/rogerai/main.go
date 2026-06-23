@@ -64,7 +64,7 @@ func loadConfig() config {
 func saveConfig(c config) error {
 	_ = os.MkdirAll(filepath.Dir(configPath()), 0700)
 	b, _ := json.MarshalIndent(c, "", "  ")
-	return os.WriteFile(configPath(), b, 0644)
+	return os.WriteFile(configPath(), b, 0600)
 }
 
 func main() {
