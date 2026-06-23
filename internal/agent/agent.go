@@ -6,6 +6,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -96,8 +97,111 @@ func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.
 		var job protocol.Job
 		json.NewDecoder(resp.Body).Decode(&job)
 		resp.Body.Close()
-		postResult(poll, cfg, token, serve(cfg, offer, priv, up, job))
+		if isStream(job.Body) {
+			serveStream(cfg, offer, priv, token, job)
+		} else {
+			postResult(poll, cfg, token, serve(cfg, offer, priv, up, job))
+		}
 	}
+}
+
+func isStream(body []byte) bool {
+	var p struct {
+		Stream bool `json:"stream"`
+	}
+	_ = json.Unmarshal(body, &p)
+	return p.Stream
+}
+
+// serveStream serves a streaming (SSE) job: it streams the upstream response to
+// the broker's /agent/stream (which pipes it to the waiting client), captures
+// token usage from the final chunk, then posts a signed receipt to settle. The
+// node asks the upstream to include a usage chunk so we can meter the stream.
+func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) {
+	client := &http.Client{Timeout: 10 * time.Minute} // streams can be long
+	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(job.Body)))
+	upReq.Header.Set("Content-Type", "application/json")
+	if cfg.UpstreamKey != "" {
+		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
+	}
+	resp, err := client.Do(upReq)
+	if err != nil {
+		postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway})
+		return
+	}
+	defer resp.Body.Close()
+
+	// Pipe upstream SSE -> broker, scanning for the usage chunk as it flows.
+	pr, pw := io.Pipe()
+	var promptTok, compTok int
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+		for sc.Scan() {
+			line := sc.Bytes()
+			pw.Write(line)
+			pw.Write([]byte{'\n'})
+			if bytes.Contains(line, []byte(`"usage"`)) {
+				if p, c, ok := parseUsage(line); ok {
+					promptTok, compTok = p, c
+				}
+			}
+		}
+		pw.Close()
+	}()
+
+	streamURL := cfg.Broker + "/agent/stream?node=" + url.QueryEscape(cfg.NodeID) + "&job=" + url.QueryEscape(job.ID)
+	sreq, _ := http.NewRequest(http.MethodPost, streamURL, pr)
+	sreq.Header.Set("Authorization", "Bearer "+token)
+	sreq.Header.Set("Content-Type", "text/event-stream")
+	if sresp, err := client.Do(sreq); err == nil { // blocks until the stream finishes
+		sresp.Body.Close()
+	}
+
+	rec := protocol.UsageReceipt{
+		RequestID: job.ID, NodeID: cfg.NodeID, User: job.User, Model: cfg.Model,
+		PromptTokens: promptTok, CompletionTokens: compTok,
+		PriceIn: offer.PriceIn, PriceOut: offer.PriceOut, TS: time.Now().Unix(),
+		LineageMethod: "p0-upstream-usage-stream",
+	}
+	mu.Lock()
+	rec.PrevHash = lastHash
+	rec.SignNode(priv)
+	lastHash = rec.Hash()
+	mu.Unlock()
+	postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Receipt: rec})
+}
+
+// withUsageOption sets stream_options.include_usage so the upstream emits a final
+// usage chunk (OpenAI streaming) - needed to meter the stream.
+func withUsageOption(body []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return body
+	}
+	m["stream_options"] = json.RawMessage(`{"include_usage":true}`)
+	if b, err := json.Marshal(m); err == nil {
+		return b
+	}
+	return body
+}
+
+// parseUsage extracts token counts from an SSE "data: {...usage...}" line.
+func parseUsage(line []byte) (prompt, completion int, ok bool) {
+	i := bytes.IndexByte(line, '{')
+	if i < 0 {
+		return 0, 0, false
+	}
+	var d struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(line[i:], &d) == nil && (d.Usage.PromptTokens > 0 || d.Usage.CompletionTokens > 0) {
+		return d.Usage.PromptTokens, d.Usage.CompletionTokens, true
+	}
+	return 0, 0, false
 }
 
 func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {

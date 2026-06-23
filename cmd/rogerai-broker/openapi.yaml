@@ -167,6 +167,17 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/JobResult' } } }
       responses: { "200": { description: ok }, "401": { description: bad node token } }
 
+  /agent/stream:
+    post:
+      tags: [provider]
+      summary: Pipe a streaming job's SSE chunks back to the client
+      description: For `stream:true` jobs, the node POSTs the upstream SSE body here and the broker forwards it, flushing, to the waiting consumer; the node then posts the receipt to /agent/result.
+      security: [ { nodeToken: [] } ]
+      parameters:
+        - { in: query, name: node, required: true, schema: { type: string } }
+        - { in: query, name: job, required: true, schema: { type: string } }
+      responses: { "200": { description: piped }, "401": { description: bad node token }, "404": { description: no active stream } }
+
 components:
   securitySchemes:
     nodeToken:

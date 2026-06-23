@@ -120,15 +120,33 @@ func ProxyHandler(broker, user string, confidential bool) http.Handler {
 			return
 		}
 		defer resp.Body.Close()
-		rb, _ := io.ReadAll(resp.Body)
-		w.Header().Set("Content-Type", "application/json")
-		for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Cost", "X-RogerAI-Balance"} {
+		ct := resp.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "application/json"
+		}
+		w.Header().Set("Content-Type", ct)
+		for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt"} {
 			if v := resp.Header.Get(h); v != "" {
 				w.Header().Set(h, v)
 			}
 		}
 		w.WriteHeader(resp.StatusCode)
-		w.Write(rb)
+		// Stream the body through (flush per chunk) so SSE (stream:true) works
+		// end-to-end; for a buffered response this just copies it once.
+		flusher, _ := w.(http.Flusher)
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
 	})
 	return mux
 }

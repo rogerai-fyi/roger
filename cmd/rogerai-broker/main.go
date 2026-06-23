@@ -48,6 +48,12 @@ type nodeTunnel struct {
 	token   string
 }
 
+// streamSink is the waiting client connection a node streams SSE chunks into.
+type streamSink struct {
+	w     http.ResponseWriter
+	flush func()
+}
+
 type broker struct {
 	mu           sync.Mutex
 	nodes        map[string]protocol.NodeRegistration
@@ -56,6 +62,8 @@ type broker struct {
 	confidential map[string]bool
 	tps          map[string]float64 // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
+	streamMu     sync.Mutex
+	streams      map[string]*streamSink // jobID -> waiting client (streaming)
 	db           store.Store
 	priv         ed25519.PrivateKey
 	feeRate      float64
@@ -107,7 +115,8 @@ func main() {
 	priv := loadBrokerKey()
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
-		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{}, quotes: map[string]priceQuote{}, db: db,
+		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
+		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
@@ -118,6 +127,7 @@ func main() {
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
 	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
+	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/billing/checkout", b.checkout) // Stripe top-up -> credits
@@ -248,7 +258,8 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	user := userOf(r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	var req struct {
-		Model string `json:"model"`
+		Model  string `json:"model"`
+		Stream bool   `json:"stream"`
 	}
 	_ = json.Unmarshal(body, &req)
 
@@ -283,6 +294,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	t.waiters[job.ID] = resCh
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
+
+	if req.Stream {
+		b.relayStream(w, t, node, offer, user, req.Model, job, resCh)
+		return
+	}
 
 	start := time.Now()
 	select {
@@ -338,6 +354,93 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	case <-time.After(120 * time.Second):
 		jsonErr(w, http.StatusGatewayTimeout, "node timed out")
 	}
+}
+
+// relayStream handles the streaming path of POST /v1/chat/completions: it sends SSE
+// headers, registers the client as a sink, and enqueues the job. The node pipes
+// chunks via /agent/stream straight to this client; when it finishes it posts a
+// receipt (resCh) which settles the wallet. No metering headers (already streaming).
+func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, user, model string, job protocol.Job, resCh chan protocol.JobResult) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	b.streamMu.Lock()
+	b.streams[job.ID] = &streamSink{w: w, flush: flusher.Flush}
+	b.streamMu.Unlock()
+	defer func() { b.streamMu.Lock(); delete(b.streams, job.ID); b.streamMu.Unlock() }()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-RogerAI-Provider", node.NodeID)
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	start := time.Now()
+	select {
+	case t.jobs <- job:
+	case <-time.After(3 * time.Second):
+		return // headers already sent; the client just gets an empty stream
+	}
+	select {
+	case res := <-resCh:
+		rec := res.Receipt
+		if rec.VerifyNode(node.PubKey) {
+			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+			pin, pout := curIn, curOut
+			if !scheduled {
+				pin, pout, _ = b.lockedPrice(user, node.NodeID, model, curIn, curOut)
+			}
+			rec.PriceIn, rec.PriceOut = pin, pout
+			rec.SignBroker(b.priv)
+			cost := rec.Cost()
+			b.db.Settle(user, node.NodeID, cost, cost*(1-b.feeRate), rec)
+			if rec.CompletionTokens > 0 {
+				if el := time.Since(start).Seconds(); el > 0 {
+					b.updateTPS(node.NodeID, float64(rec.CompletionTokens)/el)
+				}
+			}
+			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
+		}
+	case <-time.After(300 * time.Second):
+	}
+}
+
+// agentStream handles POST /agent/stream?node=&job= - the node pipes a job's SSE
+// chunks here and the broker forwards them to the waiting client, flushing each.
+func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	nodeID := r.URL.Query().Get("node")
+	jobID := r.URL.Query().Get("job")
+	b.mu.Lock()
+	t := b.tunnels[nodeID]
+	b.mu.Unlock()
+	if t == nil || !authNode(r, t.token) {
+		jsonErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	b.streamMu.Lock()
+	sink := b.streams[jobID]
+	b.streamMu.Unlock()
+	if sink == nil {
+		jsonErr(w, http.StatusNotFound, "no active stream")
+		return
+	}
+	buf := make([]byte, 8192)
+	for {
+		n, err := r.Body.Read(buf)
+		if n > 0 {
+			sink.w.Write(buf[:n])
+			sink.flush()
+		}
+		if err != nil {
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type offerView struct {
