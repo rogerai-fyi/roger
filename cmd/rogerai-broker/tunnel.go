@@ -433,7 +433,9 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // pick: cheapest-RIGHT-NOW online node offering the model, ranked by the active
-// (time-of-use) INPUT price; optionally restricted to confidential nodes. When pin
+// (time-of-use) OUTPUT price - what we headline and bill the most on, and what the
+// client quotes, so the quoted station is the routed station; optionally restricted
+// to confidential nodes. When pin
 // is set, only that node is eligible (client failover pinning); nodes in exclude
 // are skipped (the providers a client just saw fail). maxPriceIn / maxPriceOut are
 // the user's spend caps: a station whose active input price exceeds maxPriceIn, or
@@ -477,8 +479,11 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			if maxPriceOut > 0 && out > maxPriceOut {
 				continue
 			}
-			if !found || in < bestPrice {
-				best, bestOffer, bestPrice, found = n, o, in, true
+			// Rank by active OUTPUT price: that is what we headline and bill the most
+			// on, and what the client quotes at connect time, so the station the user
+			// is shown is the station the broker routes to (quote == route).
+			if !found || out < bestPrice {
+				best, bestOffer, bestPrice, found = n, o, out, true
 			}
 		}
 	}

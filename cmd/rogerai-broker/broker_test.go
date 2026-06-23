@@ -85,9 +85,9 @@ func TestPickPinAndExclude(t *testing.T) {
 	now := time.Now()
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{
-			"a": {NodeID: "a", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.5}}},
-			"b": {NodeID: "b", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.2}}},
-			"c": {NodeID: "c", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.1}}},
+			"a": {NodeID: "a", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.5, PriceOut: 0.5}}},
+			"b": {NodeID: "b", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.2, PriceOut: 0.2}}},
+			"c": {NodeID: "c", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.1, PriceOut: 0.1}}},
 		},
 		lastSeen:     map[string]time.Time{"a": now, "b": now, "c": now},
 		confidential: map[string]bool{},
@@ -118,8 +118,8 @@ func TestPickPinAndExclude(t *testing.T) {
 
 // TestPickPriceCaps verifies the spend caps: a station is filtered out when its
 // active INPUT price exceeds max-price-in OR its active OUTPUT price exceeds
-// max-price-out (cap on both, 0 = no cap on that side). pick ranks by input
-// price, so within the survivors the cheapest-in still wins.
+// max-price-out (cap on both, 0 = no cap on that side). pick ranks by OUTPUT
+// price, so within the survivors the cheapest-out wins (matches the quote).
 func TestPickPriceCaps(t *testing.T) {
 	now := time.Now()
 	b := &broker{
@@ -136,17 +136,17 @@ func TestPickPriceCaps(t *testing.T) {
 		tps:          map[string]float64{},
 	}
 
-	// No caps → cheapest-in (a).
-	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil); !ok || n.NodeID != "a" {
-		t.Errorf("no caps pick = %q ok=%v, want a", n.NodeID, ok)
+	// No caps → cheapest-OUT (b: out 0.20, vs a 0.90, c 0.40).
+	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil); !ok || n.NodeID != "b" {
+		t.Errorf("no caps pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Out cap 0.30 excludes a (0.90) and c (0.40); only b survives.
 	if n, _, ok := b.pick("m", false, 0, 0, 0.30, "", nil); !ok || n.NodeID != "b" {
 		t.Errorf("out-cap pick = %q ok=%v, want b", n.NodeID, ok)
 	}
-	// In cap 0.30 excludes c (0.50); a and b survive, cheapest-in is a.
-	if n, _, ok := b.pick("m", false, 0, 0.30, 0, "", nil); !ok || n.NodeID != "a" {
-		t.Errorf("in-cap pick = %q ok=%v, want a", n.NodeID, ok)
+	// In cap 0.30 excludes c (in 0.50); a and b survive, cheapest-OUT is b (0.20 vs 0.90).
+	if n, _, ok := b.pick("m", false, 0, 0.30, 0, "", nil); !ok || n.NodeID != "b" {
+		t.Errorf("in-cap pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Both caps: in<=0.30 keeps a,b; out<=0.30 then drops a (out 0.90) → b.
 	if n, _, ok := b.pick("m", false, 0, 0.30, 0.30, "", nil); !ok || n.NodeID != "b" {
