@@ -209,14 +209,16 @@ func (b *broker) pseudonym(user, node string) string {
 //
 //	id     - the wallet identity to use
 //	authed - true only when the request was cryptographically verified
-//	ok     - false ONLY when a signature was PRESENT but INVALID (caller must 401);
-//	         a fully-unsigned request returns ok=true, authed=false (legacy mode)
+//	ok     - false when a signature was PRESENT but INVALID, OR an unsigned legacy
+//	         header impersonates the reserved pubkey-derived id space (caller 401s);
+//	         a plain unsigned request returns ok=true, authed=false (legacy mode)
 //
-// Transition: an unsigned request falls back to the legacy X-Roger-User header but
-// is unauthenticated. It is therefore NEVER allowed to spend from a signed user's
-// wallet - a verified user's id is the pubkey-derived id, which a legacy header
-// cannot forge (it would have to be exactly "u_"+16hex AND own no key, and even
-// then it cannot be marked authed). Spending uses the verified id when present.
+// Two layers keep an unsigned request from EVER spending a signed user's wallet:
+//  1. the pubkey-derived id space ("u_"+16hex) is reserved - an unsigned legacy
+//     header claiming such an id is rejected here (looksLikeDerivedID), so a public
+//     pubkey can't be turned into a spendable impersonation; and
+//  2. spend handlers additionally require authed==true (see relay), so even a
+//     non-derived legacy id can never spend.
 func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) {
 	pub := r.Header.Get(protocol.HeaderPubkey)
 	sig := r.Header.Get(protocol.HeaderSig)
@@ -235,14 +237,41 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 		return uid, true, true
 	}
 	// Unsigned: legacy, unauthenticated. Used for reads + backward compatibility;
-	// such a caller can never be treated as a verified (signed) wallet.
+	// such a caller can never be treated as a verified (signed) wallet. The
+	// pubkey-derived id space ("u_"+16hex) is RESERVED for verified callers: the
+	// pubkey travels in cleartext (it is public), so without this guard an attacker
+	// who learns a victim's pubkey could compute the victim's id and present it in a
+	// plain X-Roger-User header to spend an unsigned-but-impersonating request. Reject
+	// any legacy header that looks like a derived id so the reservation holds.
 	if u := r.Header.Get(protocol.HeaderUser); u != "" {
+		if looksLikeDerivedID(u) {
+			return "", false, false
+		}
 		return u, false, true
 	}
 	if a := r.Header.Get("Authorization"); len(a) > 7 && a[:7] == "Bearer " {
+		if looksLikeDerivedID(a[7:]) {
+			return "", false, false
+		}
 		return a[7:], false, true
 	}
 	return "anon", false, true
+}
+
+// looksLikeDerivedID reports whether s is shaped like a pubkey-derived wallet id
+// ("u_" + 16 lowercase hex). That id space is reserved for VERIFIED (signed)
+// callers; an unsigned legacy header claiming such an id is an impersonation
+// attempt and must be rejected (see identityOf).
+func looksLikeDerivedID(s string) bool {
+	if len(s) != 18 || s[0] != 'u' || s[1] != '_' {
+		return false
+	}
+	for _, c := range s[2:] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because

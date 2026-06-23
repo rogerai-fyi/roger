@@ -66,6 +66,10 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusServiceUnavailable, "billing not configured")
 		return
 	}
+	// Top-up may be anonymous (design: anon top-up is OK, claimable on login), so we
+	// do not require `authed` here. identityOf still rejects an unsigned request that
+	// impersonates the reserved pubkey-derived id space, so a legacy header can never
+	// add credits to (or otherwise touch) a signed user's wallet.
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	user, _, ok := b.identityOf(r, body)
 	if !ok {

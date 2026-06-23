@@ -202,9 +202,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	user, _, ok := b.identityOf(r, body)
+	user, authed, ok := b.identityOf(r, body)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
+	// Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
+	// never spend a wallet. This enforces the core P0 invariant directly on the spend
+	// path (not just via the reserved-id guard in identityOf).
+	if !authed {
+		jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
 		return
 	}
 	var req struct {

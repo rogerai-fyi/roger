@@ -110,6 +110,57 @@ func TestIdentityOf(t *testing.T) {
 	if !uok || ua || uid != "legacy-user" {
 		t.Errorf("legacy unsigned = (%q,%v,%v), want (legacy-user,false,true)", uid, ua, uok)
 	}
+
+	// IMPERSONATION GUARD: an unsigned legacy header claiming a victim's
+	// pubkey-derived id ("u_"+16hex) must be REJECTED (ok=false). The pubkey is
+	// public, so without this an attacker could compute the id and spend unsigned.
+	victimID := protocol.UserIDFromPubkey(pubHex)
+	imp := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	imp.Header.Set(protocol.HeaderUser, victimID)
+	if _, _, iok := b.identityOf(imp, body); iok {
+		t.Errorf("unsigned request impersonating derived id %q must be rejected", victimID)
+	}
+	// Same via the Authorization bearer fallback.
+	impB := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	impB.Header.Set("Authorization", "Bearer "+victimID)
+	if _, _, iok := b.identityOf(impB, body); iok {
+		t.Error("unsigned bearer impersonating a derived id must be rejected")
+	}
+}
+
+// TestLooksLikeDerivedID guards the reserved-id-space matcher.
+func TestLooksLikeDerivedID(t *testing.T) {
+	if !looksLikeDerivedID("u_0123456789abcdef") {
+		t.Error("a u_+16hex id should match")
+	}
+	for _, bad := range []string{"", "u_short", "alice", "u_0123456789ABCDEF", "u_0123456789abcdeg", "x_0123456789abcdef", "u_0123456789abcdef0"} {
+		if looksLikeDerivedID(bad) {
+			t.Errorf("%q should not match the derived-id shape", bad)
+		}
+	}
+}
+
+// TestRelayRejectsUnsignedSpend verifies the spend handler refuses an unsigned
+// request (the core P0 invariant: an unsigned legacy request can never spend).
+func TestRelayRejectsUnsignedSpend(t *testing.T) {
+	b := &broker{
+		db:           store.NewMem(),
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+		pubOfUser:    map[string]string{},
+		seedFunds:    100,
+	}
+	// Unsigned, plain legacy handle → 401 (must be signed to spend).
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	r.Header.Set(protocol.HeaderUser, "alice")
+	w := httptest.NewRecorder()
+	b.relay(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unsigned spend = %d, want 401", w.Code)
+	}
 }
 
 func TestLockedPrice(t *testing.T) {
