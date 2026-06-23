@@ -174,13 +174,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
+	maxPriceOut := parseFloat(r.Header.Get("X-Roger-Max-Price-Out"))
 	// Client-side failover hints: pin to a specific node, and/or skip nodes that
 	// just failed for this caller (comma-separated). These let the connector route
 	// AROUND a dropped provider without the broker re-handing it the same one.
 	pinNode := r.Header.Get("X-Roger-Node")
 	exclude := parseNodeSet(r.Header.Get("X-Roger-Exclude-Nodes"))
 	b.mu.Lock()
-	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, pinNode, exclude)
+	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude)
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
@@ -432,10 +433,14 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // pick: cheapest-RIGHT-NOW online node offering the model, ranked by the active
-// (time-of-use) price; optionally restricted to confidential nodes. When pin is
-// set, only that node is eligible (client failover pinning); nodes in exclude are
-// skipped (the providers a client just saw fail). Caller holds lock.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn float64, pin string, exclude map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+// (time-of-use) INPUT price; optionally restricted to confidential nodes. When pin
+// is set, only that node is eligible (client failover pinning); nodes in exclude
+// are skipped (the providers a client just saw fail). maxPriceIn / maxPriceOut are
+// the user's spend caps: a station whose active input price exceeds maxPriceIn, or
+// whose active OUTPUT price exceeds maxPriceOut, is filtered out (0 = no cap on
+// that side). We bill primarily on output, so the out-price cap is the one the
+// pricing UX surfaces; both are enforced. Caller holds lock.
+func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	var best protocol.NodeRegistration
 	var bestOffer protocol.ModelOffer
 	bestPrice := 0.0
@@ -465,8 +470,11 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn fl
 			if o.Model != model {
 				continue
 			}
-			in, _, _, _ := o.ActivePrice(now)
+			in, out, _, _ := o.ActivePrice(now)
 			if maxPriceIn > 0 && in > maxPriceIn {
+				continue
+			}
+			if maxPriceOut > 0 && out > maxPriceOut {
 				continue
 			}
 			if !found || in < bestPrice {

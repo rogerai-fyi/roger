@@ -95,24 +95,66 @@ func TestPickPinAndExclude(t *testing.T) {
 	}
 
 	// No pin/exclude → cheapest (c).
-	if n, _, ok := b.pick("m", false, 0, 0, "", nil); !ok || n.NodeID != "c" {
+	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil); !ok || n.NodeID != "c" {
 		t.Errorf("cheapest pick = %q ok=%v, want c", n.NodeID, ok)
 	}
 	// Exclude the cheapest two → must fall back to a.
-	if n, _, ok := b.pick("m", false, 0, 0, "", map[string]bool{"c": true, "b": true}); !ok || n.NodeID != "a" {
+	if n, _, ok := b.pick("m", false, 0, 0, 0, "", map[string]bool{"c": true, "b": true}); !ok || n.NodeID != "a" {
 		t.Errorf("excluded pick = %q ok=%v, want a", n.NodeID, ok)
 	}
 	// Pin to b → only b, even though c is cheaper.
-	if n, _, ok := b.pick("m", false, 0, 0, "b", nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pick("m", false, 0, 0, 0, "b", nil); !ok || n.NodeID != "b" {
 		t.Errorf("pinned pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Pin to an excluded node → nothing eligible.
-	if _, _, ok := b.pick("m", false, 0, 0, "b", map[string]bool{"b": true}); ok {
+	if _, _, ok := b.pick("m", false, 0, 0, 0, "b", map[string]bool{"b": true}); ok {
 		t.Error("pin+exclude of the same node should yield nothing")
 	}
 	// Exclude every node → nothing.
-	if _, _, ok := b.pick("m", false, 0, 0, "", map[string]bool{"a": true, "b": true, "c": true}); ok {
+	if _, _, ok := b.pick("m", false, 0, 0, 0, "", map[string]bool{"a": true, "b": true, "c": true}); ok {
 		t.Error("excluding all nodes should yield nothing")
+	}
+}
+
+// TestPickPriceCaps verifies the spend caps: a station is filtered out when its
+// active INPUT price exceeds max-price-in OR its active OUTPUT price exceeds
+// max-price-out (cap on both, 0 = no cap on that side). pick ranks by input
+// price, so within the survivors the cheapest-in still wins.
+func TestPickPriceCaps(t *testing.T) {
+	now := time.Now()
+	b := &broker{
+		nodes: map[string]protocol.NodeRegistration{
+			// cheap in, expensive out
+			"a": {NodeID: "a", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.10, PriceOut: 0.90}}},
+			// mid in, cheap out
+			"b": {NodeID: "b", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.20, PriceOut: 0.20}}},
+			// expensive in, mid out
+			"c": {NodeID: "c", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.50, PriceOut: 0.40}}},
+		},
+		lastSeen:     map[string]time.Time{"a": now, "b": now, "c": now},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+	}
+
+	// No caps → cheapest-in (a).
+	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil); !ok || n.NodeID != "a" {
+		t.Errorf("no caps pick = %q ok=%v, want a", n.NodeID, ok)
+	}
+	// Out cap 0.30 excludes a (0.90) and c (0.40); only b survives.
+	if n, _, ok := b.pick("m", false, 0, 0, 0.30, "", nil); !ok || n.NodeID != "b" {
+		t.Errorf("out-cap pick = %q ok=%v, want b", n.NodeID, ok)
+	}
+	// In cap 0.30 excludes c (0.50); a and b survive, cheapest-in is a.
+	if n, _, ok := b.pick("m", false, 0, 0.30, 0, "", nil); !ok || n.NodeID != "a" {
+		t.Errorf("in-cap pick = %q ok=%v, want a", n.NodeID, ok)
+	}
+	// Both caps: in<=0.30 keeps a,b; out<=0.30 then drops a (out 0.90) → b.
+	if n, _, ok := b.pick("m", false, 0, 0.30, 0.30, "", nil); !ok || n.NodeID != "b" {
+		t.Errorf("both-caps pick = %q ok=%v, want b", n.NodeID, ok)
+	}
+	// Out cap below every station → nothing.
+	if _, _, ok := b.pick("m", false, 0, 0, 0.10, "", nil); ok {
+		t.Error("out cap below all stations should yield nothing")
 	}
 }
 
