@@ -277,21 +277,8 @@ func normalizeUpstream(u string) string {
 	}
 }
 
-func detectHW() string {
-	if b, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, "model name") {
-				if i := strings.Index(line, ":"); i >= 0 {
-					return strings.TrimSpace(line[i+1:])
-				}
-			}
-		}
-	}
-	return "unknown"
-}
-
 func usage() {
-	fmt.Print(`rogerai - crowd-sourced LLM marketplace client
+	fmt.Printf(`rogerai - crowd-sourced LLM marketplace client
 
   rogerai search                     discover models (cheapest first)
   rogerai use <model> [--port N]     local OpenAI endpoint via the broker
@@ -301,6 +288,6 @@ func usage() {
   rogerai config set broker <url>    switch brokers
   rogerai version
 
-env: ROGER_BROKER, ROGER_USER override config (~/.config/rogerai/config.json)
-`)
+env: ROGER_BROKER, ROGER_USER override config (%s)
+`, configPath())
 }

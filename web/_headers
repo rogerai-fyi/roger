@@ -12,3 +12,8 @@
 /install.sh
   Content-Type: text/x-shellscript; charset=utf-8
   Cache-Control: no-cache
+
+# The Windows installer, served as plain text so `irm … | iex` gets the source.
+/install.ps1
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-cache
