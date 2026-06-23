@@ -288,12 +288,20 @@ code, pre { font-family: var(--font-mono); }
 }
 .twoway__side:hover { box-shadow: var(--e-3); transform: translateY(-3px); }
 .twoway__tag {
-  display: inline-block; font-size: var(--t-micro); font-weight: var(--weight-semi);
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--t-micro); font-weight: var(--weight-semi);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
-  padding: 4px 10px; border-radius: var(--r-pill); margin-bottom: var(--s-5);
+  padding: 4px 11px 4px 9px; border-radius: var(--r-pill); margin-bottom: var(--s-5);
 }
 .twoway__tag--air  { color: var(--live); background: var(--live-tint); }
 .twoway__tag--tune { color: var(--volt); background: var(--volt-tint); }
+.twoway__ico { width: 14px; height: 14px; overflow: visible; }
+.twoway__ico path { opacity: .75; transition: opacity var(--d-3); transform-origin: 8px 8px; }
+.twoway__side:hover .twoway__ico path { animation: icoWave 1.7s var(--ease-in-out) infinite; }
+.twoway__side:hover .twoway__ico path:last-child { animation-delay: .22s; }
+@media (prefers-reduced-motion: reduce) {
+  .twoway__side:hover .twoway__ico path { animation: none; opacity: .9; }
+}
 .twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: -.01em; }
 .twoway__side p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
 .twoway__cmd {
@@ -331,31 +339,52 @@ code, pre { font-family: var(--font-mono); }
   padding: var(--s-8); transition: box-shadow var(--d-3) var(--ease-out-quint), transform var(--d-3) var(--ease-out-quint), border-color var(--d-3);
 }
 .feat:hover { box-shadow: var(--e-3); transform: translateY(-3px); border-color: var(--hairline-2); }
-.feat__icon { width: 52px; height: 52px; border-radius: var(--r-md); display: grid; place-items: center; margin-bottom: var(--s-5); }
-.feat__icon--volt  { background: var(--volt-tint); }
-.feat__icon--gold  { background: #FBF1D6; }
-.feat__icon--ember { background: var(--ember-tint); }
-.feat__icon--live  { background: var(--live-tint); }
+.feat__icon { width: 52px; height: 52px; border-radius: var(--r-md); display: grid; place-items: center; margin-bottom: var(--s-5);
+  border: 1px solid var(--hairline); transition: transform var(--d-3) var(--ease-out-quint), box-shadow var(--d-3); }
+.feat:hover .feat__icon { transform: translateY(-1px) scale(1.03); }
+.feat__icon--volt  { background: var(--volt-tint);  color: var(--volt); }
+.feat__icon--gold  { background: #FBF1D6;           color: var(--gold); }
+.feat__icon--ember { background: var(--ember-tint); color: var(--ember); }
+.feat__icon--live  { background: var(--live-tint);  color: var(--live); }
 .feat h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: -.01em; }
 .feat p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
 
-/* feat icon internals */
-.bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; }
-.bars i { width: 4px; border-radius: 2px; background: var(--volt); transform-origin: bottom;
-  animation: barsPulse 1.6s var(--ease-in-out) infinite; }
-.bars i:nth-child(1) { height: 30%; animation-delay: 0s; }
-.bars i:nth-child(2) { height: 55%; animation-delay: .1s; }
-.bars i:nth-child(3) { height: 80%; animation-delay: .2s; }
-.bars i:nth-child(4) { height: 60%; animation-delay: .3s; }
-.bars i:nth-child(5) { height: 100%; animation-delay: .4s; }
-@keyframes barsPulse { 0%,100% { transform: scaleY(.65); } 50% { transform: scaleY(1); } }
-.diamond { width: 16px; height: 16px; background: var(--gold); transform: rotate(45deg);
-  box-shadow: 0 0 10px rgba(230,161,0,.4); }
-.coin { font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--ember); font-size: 20px; }
-.shield { width: 20px; height: 24px; background: var(--live);
-  -webkit-mask: var(--shield-mask) center/contain no-repeat; mask: var(--shield-mask) center/contain no-repeat; }
-:root { --shield-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2 3 6v6c0 5 3.8 8.5 9 10 5.2-1.5 9-5 9-10V6z'/%3E%3C/svg%3E"); }
-@media (prefers-reduced-motion: reduce) { .bars i { animation: none; } }
+/* ---------- hand-built inline-SVG icons ------------------------ */
+.ico { width: 28px; height: 28px; overflow: visible; }
+
+/* tune-in: arcs sweep, signal bars rise on hover */
+.ico--tune .ico__wave { opacity: .42; transition: opacity var(--d-3); transform-origin: 16px 16px; }
+.feat:hover .ico--tune .ico__wave--1 { animation: icoWave 1.6s var(--ease-in-out) infinite; }
+.feat:hover .ico--tune .ico__wave--2 { animation: icoWave 1.6s var(--ease-in-out) .25s infinite; }
+@keyframes icoWave { 0%,100% { opacity: .3; } 50% { opacity: .85; } }
+.ico--tune .ico__bars line { transform-origin: bottom; transition: transform var(--d-3) var(--ease-out-quint); transform: scaleY(.55); }
+.feat:hover .ico--tune .ico__bars line { transform: scaleY(1); }
+.feat:hover .ico--tune .ico__bars line:nth-child(2) { transition-delay: .05s; }
+.feat:hover .ico--tune .ico__bars line:nth-child(3) { transition-delay: .1s; }
+
+/* lineage receipt: the gold ◆ settles on hover */
+.ico--receipt .ico__cs { transition: transform var(--d-4) var(--ease-out-quint); transform-box: fill-box; transform-origin: center; }
+.feat:hover .ico--receipt .ico__cs { animation: icoDiamond 2.6s var(--ease-in-out) infinite; }
+@keyframes icoDiamond { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+/* wallet: a token slides into the flap */
+.ico--wallet .ico__coin { transition: transform var(--d-4) var(--ease-out-quint); }
+.feat:hover .ico--wallet .ico__coin { animation: icoCoin 2.4s var(--ease-in-out) infinite; }
+@keyframes icoCoin { 0% { transform: translateX(2px); opacity: .4; } 40%,100% { transform: none; opacity: 1; } }
+
+/* privacy: the check draws in on hover */
+.ico--shield .ico__check { stroke-dasharray: 16; stroke-dashoffset: 0; transition: stroke-dashoffset var(--d-4) var(--ease-out-quint); }
+.feat:hover .ico--shield .ico__check { animation: icoDraw 1.6s var(--ease-out-quint); }
+@keyframes icoDraw { 0% { stroke-dashoffset: 16; } 100% { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .feat:hover .feat__icon { transform: none; }
+  .ico--tune .ico__wave { opacity: .55; }
+  .feat:hover .ico__wave--1, .feat:hover .ico__wave--2,
+  .feat:hover .ico--receipt .ico__cs, .feat:hover .ico--wallet .ico__coin,
+  .feat:hover .ico--shield .ico__check { animation: none; }
+  .feat:hover .ico--tune .ico__bars line { transition: none; }
+}
 
 /* ---------- monetize ------------------------------------------- */
 .monetize { display: grid; grid-template-columns: 1.1fr .9fr; gap: var(--s-16); align-items: center; }
@@ -408,6 +437,28 @@ code, pre { font-family: var(--font-mono); }
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
 .market__head p b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---------- signal-sweep radar (premium animated asset) -------- */
+.radar { display: block; width: 64px; height: 64px; margin: var(--s-2) auto var(--s-5); }
+.radar__svg { width: 100%; height: 100%; overflow: visible; }
+.radar__ring { stroke: var(--hairline-2); stroke-width: 1; fill: none; }
+.radar__cross { stroke: var(--hairline-2); stroke-width: 1; opacity: .7; }
+.radar__sweep { transform-origin: 32px 32px; animation: radarSpin 4s linear infinite; }
+@keyframes radarSpin { to { transform: rotate(360deg); } }
+.radar__blip { fill: var(--live); opacity: 0; }
+.radar__blip--1 { animation: radarBlip 4s linear infinite; animation-delay: .65s; }
+.radar__blip--2 { animation: radarBlip 4s linear infinite; animation-delay: 2.2s; }
+.radar__blip--3 { animation: radarBlip 4s linear infinite; animation-delay: 3.1s; }
+@keyframes radarBlip {
+  0% { opacity: 0; transform: scale(.4); transform-box: fill-box; transform-origin: center; }
+  6% { opacity: 1; transform: scale(1); transform-box: fill-box; transform-origin: center; }
+  55% { opacity: .35; }
+  85%,100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar__sweep { animation: none; opacity: .5; }
+  .radar__blip { animation: none; opacity: .8; transform: none; }
+}
 
 .market__panel {
   max-width: 880px; margin: 0 auto; background: var(--white);

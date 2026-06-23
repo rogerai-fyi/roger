@@ -111,6 +111,29 @@
     <div class="wrap">
       <div class="market__head" data-reveal>
         <span class="eyebrow eyebrow--ascii">Live from the band</span>
+        <!-- signal-sweep radar: a quiet premium asset, reinforces "the tower" -->
+        <span class="radar" aria-hidden="true">
+          <svg class="radar__svg" viewBox="0 0 64 64" fill="none">
+            <circle class="radar__ring" cx="32" cy="32" r="27" />
+            <circle class="radar__ring" cx="32" cy="32" r="18" />
+            <circle class="radar__ring" cx="32" cy="32" r="9" />
+            <line class="radar__cross" x1="32" y1="5" x2="32" y2="59" />
+            <line class="radar__cross" x1="5" y1="32" x2="59" y2="32" />
+            <g class="radar__sweep">
+              <path d="M32 32 L32 5 A27 27 0 0 1 55.4 18.5 Z" fill="url(#radarGrad)" />
+            </g>
+            <circle class="radar__blip radar__blip--1" cx="44" cy="22" r="2" />
+            <circle class="radar__blip radar__blip--2" cx="22" cy="42" r="2" />
+            <circle class="radar__blip radar__blip--3" cx="40" cy="44" r="1.6" />
+            <defs>
+              <linearGradient id="radarGrad" x1="32" y1="32" x2="32" y2="5"
+                              gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="var(--live)" stop-opacity="0" />
+                <stop offset="1" stop-color="var(--live)" stop-opacity="0.28" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
         <h2>The signal tower.</h2>
         <p>Every model is a channel. <b>More online providers&nbsp;=&nbsp;stronger signal</b>,
           faster tokens, lower price. As a channel fills up, signal and quality dip and the
@@ -195,7 +218,16 @@
 
       <div class="twoway" data-reveal data-reveal-delay="80">
         <article class="twoway__side">
-          <div class="twoway__tag twoway__tag--air">go on air</div>
+          <div class="twoway__tag twoway__tag--air">
+            <!-- share: antenna emitting outward -->
+            <svg class="twoway__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                 stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+              <line x1="8" y1="8" x2="8" y2="13" />
+              <circle cx="8" cy="6" r="1.4" fill="currentColor" stroke="none" />
+              <path d="M4.8 9.2a4.5 4.5 0 0 1 0-6.4M11.2 2.8a4.5 4.5 0 0 1 0 6.4" />
+            </svg>
+            go on air
+          </div>
           <h3>Share a model</h3>
           <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama). Set a call-sign,
             a price, and the hours you're around. Flip the switch - you're on air.</p>
@@ -207,7 +239,16 @@
         </div>
 
         <article class="twoway__side">
-          <div class="twoway__tag twoway__tag--tune">tune in</div>
+          <div class="twoway__tag twoway__tag--tune">
+            <!-- tune in: receiver dish catching a signal -->
+            <svg class="twoway__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                 stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+              <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
+              <path d="M5 8a3 3 0 0 1 3-3M3 8a5 5 0 0 1 5-5" />
+              <path d="M11 8a3 3 0 0 1-3 3M13 8a5 5 0 0 1-5 5" />
+            </svg>
+            tune in
+          </div>
           <h3>Use a model</h3>
           <p>Browse stations by signal, price, and distance. Tune in and RogerAI hands you a
             local OpenAI endpoint + key - a drop-in for anything that speaks OpenAI.</p>
@@ -228,7 +269,18 @@
       <div class="cards">
         <article class="feat" data-reveal>
           <div class="feat__icon feat__icon--volt" aria-hidden="true">
-            <span class="bars"><i></i><i></i><i></i><i></i><i></i></span>
+            <!-- tune-in: a tower radiating an arc, with live signal bars -->
+            <svg class="ico ico--tune" viewBox="0 0 32 32" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path class="ico__wave ico__wave--1" d="M9.5 12a6 6 0 0 1 0 8" />
+              <path class="ico__wave ico__wave--2" d="M22.5 12a6 6 0 0 1 0 8" />
+              <path d="M13 16h6" stroke-width="0" />
+              <g class="ico__bars" stroke-width="2.4">
+                <line x1="13" y1="20" x2="13" y2="18" />
+                <line x1="16" y1="20" x2="16" y2="15" />
+                <line x1="19" y1="20" x2="19" y2="13" />
+              </g>
+            </svg>
           </div>
           <h3>On air / tune in</h3>
           <p>Two verbs. Owners broadcast a model; users tune to a channel. Signal bars are
@@ -237,7 +289,14 @@
 
         <article class="feat" data-reveal data-reveal-delay="70">
           <div class="feat__icon feat__icon--gold" aria-hidden="true">
-            <span class="diamond"></span>
+            <!-- lineage receipt: a torn ticket with a gold call-sign ◆ -->
+            <svg class="ico ico--receipt" viewBox="0 0 32 32" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 6.5h16v15.5l-2.7-1.6-2.7 1.6-2.6-1.6-2.7 1.6-2.6-1.6L8 22z" />
+              <path d="M12 11h8" stroke-width="1.6" />
+              <rect class="ico__cs" x="13.2" y="14" width="5.6" height="5.6" rx="1"
+                    transform="rotate(45 16 16.8)" stroke="none" fill="currentColor" />
+            </svg>
           </div>
           <h3>Lineage receipts</h3>
           <p>A gold call-sign <span class="cs">&#9670;</span> means every token is signed with its
@@ -246,7 +305,14 @@
 
         <article class="feat" data-reveal data-reveal-delay="140">
           <div class="feat__icon feat__icon--ember" aria-hidden="true">
-            <span class="coin">$</span>
+            <!-- wallet: prepaid credit with a tucked-in token -->
+            <svg class="ico ico--wallet" viewBox="0 0 32 32" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 11.5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2" />
+              <rect x="6" y="11.5" width="20" height="13" rx="2.5" />
+              <path class="ico__flap" d="M20 17.5h6.5v3H20a1.5 1.5 0 0 1 0-3z" />
+              <circle class="ico__coin" cx="22.4" cy="19" r="0.9" fill="currentColor" stroke="none" />
+            </svg>
           </div>
           <h3>Your price, your terms</h3>
           <p>Set per-token rates per model - or share for free. Open only during your hours,
@@ -255,7 +321,12 @@
 
         <article class="feat" data-reveal data-reveal-delay="210">
           <div class="feat__icon feat__icon--live" aria-hidden="true">
-            <span class="shield"></span>
+            <!-- privacy: a shield bridging only the model port -->
+            <svg class="ico ico--shield" viewBox="0 0 32 32" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 5l8 3v6.2c0 5.4-3.4 9-8 10.6-4.6-1.6-8-5.2-8-10.6V8z" />
+              <path class="ico__check" d="M12.3 16.2l2.6 2.6 4.8-5" />
+            </svg>
           </div>
           <h3>Only the model. Nothing else.</h3>
           <p>RogerAI bridges the LLM endpoint and only that. No shell, no files, no context,
