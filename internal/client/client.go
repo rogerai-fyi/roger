@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -130,7 +131,8 @@ type ProxyOptions struct {
 	Broker, User string
 	Confidential bool
 	MinTPS       float64   // X-Roger-Min-TPS floor (0 = none)
-	MaxPrice     float64   // X-Roger-Max-Price cap (0 = none)
+	MaxPriceIn   float64   // X-Roger-Max-Price cap on input price (0 = none)
+	MaxPriceOut  float64   // X-Roger-Max-Price-Out cap on output price (0 = none)
 	Alert        AlertFunc // surfaced when failover is exhausted (nil = silent)
 }
 
@@ -149,7 +151,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 			Model string `json:"model"`
 		}
 		_ = json.Unmarshal(body, &model)
-		crit := Criteria{Model: model.Model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPrice: opts.MaxPrice}
+		crit := Criteria{Model: model.Model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut}
 		relayWithFailover(w, opts, crit, body, httpClient, policy)
 	})
 	return mux
@@ -179,8 +181,11 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 		if opts.MinTPS > 0 {
 			req.Header.Set("X-Roger-Min-TPS", fmt.Sprintf("%g", opts.MinTPS))
 		}
-		if opts.MaxPrice > 0 {
-			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", opts.MaxPrice))
+		if opts.MaxPriceIn > 0 {
+			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", opts.MaxPriceIn))
+		}
+		if opts.MaxPriceOut > 0 {
+			req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", opts.MaxPriceOut))
 		}
 		if pin != "" {
 			req.Header.Set("X-Roger-Node", pin)
@@ -246,8 +251,11 @@ func failoverError(crit Criteria, lastStatus int, lastErr error) string {
 	if crit.MinTPS > 0 {
 		constraints = append(constraints, fmt.Sprintf("min-tps=%g", crit.MinTPS))
 	}
-	if crit.MaxPrice > 0 {
-		constraints = append(constraints, fmt.Sprintf("max-price=%g", crit.MaxPrice))
+	if crit.MaxPriceIn > 0 {
+		constraints = append(constraints, fmt.Sprintf("max-in=%g", crit.MaxPriceIn))
+	}
+	if crit.MaxPriceOut > 0 {
+		constraints = append(constraints, fmt.Sprintf("max-out=%g", crit.MaxPriceOut))
 	}
 	suffix := ""
 	if len(constraints) > 0 {
@@ -295,18 +303,161 @@ func joinSet(set map[string]bool) string {
 	return strings.Join(parts, ",")
 }
 
-// Use opens a local OpenAI-compatible endpoint that relays to the broker.
-func Use(broker, user, model string, port int, confidential bool, maxPrice, minTPS float64) error {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	fmt.Printf("RogerAI endpoint: http://%s/v1   model=%s  user=%s  broker=%s\n", addr, model, user, broker)
-	if maxPrice > 0 || minTPS > 0 {
-		fmt.Printf("  margins: max-price=%g $/1M in   min-tps=%g t/s   (only tunes to stations within these)\n", maxPrice, minTPS)
+// UseOptions are the resolved spend limits + flags for `rogerai use`.
+type UseOptions struct {
+	Port         int
+	Confidential bool
+	MaxIn        float64 // cap on $/1M input price (0 = none)
+	MaxOut       float64 // cap on $/1M output price (0 = none); the headline cap
+	MinTPS       float64 // throughput floor (0 = none)
+	TypicalOut   int     // output tokens for the est-cost line (default 800)
+	Yes          bool    // skip the (y/N) confirm (scripts / Hermes / bots)
+}
+
+// balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
+func balanceOf(broker, user string) float64 {
+	var b struct {
+		Balance float64 `json:"balance"`
+	}
+	if err := getJSON(broker, "/balance", user, &b); err != nil {
+		return -1
+	}
+	return b.Balance
+}
+
+// Use opens a local OpenAI-compatible endpoint that relays to the broker. Before
+// binding the endpoint it surfaces the live cross-station out-price range for the
+// band, picks the cheapest station within the spend limits, shows the estimated
+// cost per typical reply + balance, and requires an explicit (y/N) confirm
+// (default DENY). --yes skips the prompt for scripts/Hermes. When nothing is on
+// air within the limits it prints the gap (cheapest vs your max) and lets the
+// user type a new max or abort; a new max re-checks.
+func Use(broker, user, model string, opt UseOptions) error {
+	typical := opt.TypicalOut
+	if typical <= 0 {
+		typical = 800
+	}
+	maxOut := opt.MaxOut
+	in := os.Stdin
+
+	for {
+		br, ok := BandRangeFor(broker, model)
+		if !ok {
+			fmt.Printf("no station on air for %q right now - try `rogerai search` or come back.\n", model)
+			return nil
+		}
+		// Is the cheapest station within the out-price cap?
+		if maxOut > 0 && br.Min > maxOut {
+			gap := br.Min - maxOut
+			pct := gap / maxOut * 100
+			fmt.Printf("\n  the band is above your limit  %s\n", model)
+			fmt.Printf("    cheapest on air   %.2f $/1M out   @%s   %s\n", br.Min, br.CheapNode, tpsLabel(br.CheapTPS))
+			fmt.Printf("    your max          %.2f $/1M out\n", maxOut)
+			fmt.Printf("    gap               +%.2f  (%.0f%% over)   you would pay %.6f cr / reply\n", gap, pct, estReplyCost(br.Min, typical))
+			fmt.Printf("    the band is %s today.\n", rangeLabel(br))
+			if opt.Yes {
+				return fmt.Errorf("cheapest on air %.2f > your max-out %.2f for %q (--yes: not raising the limit)", br.Min, maxOut, model)
+			}
+			fmt.Printf("\n  raise your max for %s (enter a new $/1M out, or blank to abort): ", model)
+			line, _ := readLine(in)
+			line = strings.TrimSpace(line)
+			if line == "" {
+				fmt.Println("  aborted - no channel opened.")
+				return nil
+			}
+			nm, err := strconv.ParseFloat(line, 64)
+			if err != nil || nm <= 0 {
+				fmt.Println("  not a number - aborting.")
+				return nil
+			}
+			maxOut = nm
+			continue // re-check with the new max
+		}
+		// Within limits (or no cap): show the deal and confirm.
+		fmt.Printf("\n  tune in to  %s\n", model)
+		if br.Stations == 1 {
+			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in\n", br.Min, br.CheapIn)
+		} else {
+			fmt.Printf("    live range     %s   (%d stations on air)\n", rangeLabel(br), br.Stations)
+			fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in   (cheapest)\n", br.Min, br.CheapIn)
+		}
+		fmt.Printf("    station        @%s   %s   (the strongest match)\n", br.CheapNode, tpsLabel(br.CheapTPS))
+		if maxOut > 0 {
+			fmt.Printf("    your max       %.2f $/1M out   (within limit)\n", maxOut)
+		}
+		fmt.Printf("    est. cost      ~ %.6f cr / typical reply  (~%d out tokens)\n", estReplyCost(br.Min, typical), typical)
+		if bal := balanceOf(broker, user); bal >= 0 {
+			per100 := estReplyCost(br.Min, typical) * 100
+			fmt.Printf("                   ~ %.6f cr / 100 replies        balance %.4f cr\n", per100, bal)
+		}
+		fmt.Printf("    locked         each reply price-locks at send; a hold pre-auths your session\n")
+
+		if !opt.Yes {
+			fmt.Printf("\n  open the channel? (y/N) ")
+			line, _ := readLine(in)
+			if !isYes(line) {
+				fmt.Println("  denied - no channel opened.")
+				return nil
+			}
+		}
+		break
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	fmt.Printf("\nRogerAI endpoint: http://%s/v1   model=%s  user=%s  broker=%s\n", addr, model, user, broker)
+	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
+		fmt.Printf("  limits: max-in=%g  max-out=%g $/1M   min-tps=%g t/s   (only tunes to stations within these)\n", opt.MaxIn, maxOut, opt.MinTPS)
 	}
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
-	opts := ProxyOptions{Broker: broker, User: user, Confidential: confidential, MaxPrice: maxPrice, MinTPS: minTPS, Alert: func(s string) {
+	opts := ProxyOptions{Broker: broker, User: user, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
 	return http.ListenAndServe(addr, ProxyHandler(opts))
+}
+
+// rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single
+// point price when there is only one station (do not fake a spread).
+func rangeLabel(br BandRange) string {
+	if br.Stations <= 1 || br.Min == br.Max {
+		return fmt.Sprintf("%.2f $/1M out", br.Min)
+	}
+	return fmt.Sprintf("%.2f ~ %.2f $/1M out", br.Min, br.Max)
+}
+
+// tpsLabel renders measured throughput, or a dash when unmeasured.
+func tpsLabel(tps float64) string {
+	if tps <= 0 {
+		return "- t/s"
+	}
+	return fmt.Sprintf("%.0f t/s", tps)
+}
+
+// readLine reads one line from r (stdin), without the trailing newline.
+func readLine(r *os.File) (string, error) {
+	buf := make([]byte, 0, 64)
+	one := make([]byte, 1)
+	for {
+		n, err := r.Read(one)
+		if n > 0 {
+			if one[0] == '\n' {
+				break
+			}
+			if one[0] != '\r' {
+				buf = append(buf, one[0])
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return string(buf), nil
+}
+
+// isYes reports whether a confirm answer is an explicit yes (default is DENY, so
+// only "y"/"yes" accept; anything else - including blank - denies).
+func isYes(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return s == "y" || s == "yes"
 }
 
 // Chat sends one message through the broker and returns the reply + a status

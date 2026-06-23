@@ -15,7 +15,8 @@ type Criteria struct {
 	Model        string
 	Confidential bool
 	MinTPS       float64 // require measured tok/s >= this (0 = no floor)
-	MaxPrice     float64 // skip offers whose input price exceeds this (0 = no cap)
+	MaxPriceIn   float64 // skip offers whose input price exceeds this (0 = no cap)
+	MaxPriceOut  float64 // skip offers whose output price exceeds this (0 = no cap)
 }
 
 // Offer is one discoverable provider offer (a subset of the broker's /discover
@@ -24,6 +25,7 @@ type Offer struct {
 	NodeID       string  `json:"node_id"`
 	Model        string  `json:"model"`
 	PriceIn      float64 `json:"price_in"`
+	PriceOut     float64 `json:"price_out"`
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
 	TPS          float64 `json:"tps"`
@@ -91,7 +93,10 @@ func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (strin
 		if c.Confidential && !o.Confidential {
 			continue
 		}
-		if c.MaxPrice > 0 && o.PriceIn > c.MaxPrice {
+		if c.MaxPriceIn > 0 && o.PriceIn > c.MaxPriceIn {
+			continue
+		}
+		if c.MaxPriceOut > 0 && o.PriceOut > c.MaxPriceOut {
 			continue
 		}
 		// Only exclude nodes MEASURED as too slow; unmeasured (tps==0) get a
@@ -111,6 +116,63 @@ func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (strin
 		return eligible[i].PriceIn < eligible[j].PriceIn // then cheaper
 	})
 	return eligible[0].NodeID, true
+}
+
+// BandRange is the live cross-station OUTPUT-price spread for one model: min/max
+// of the active out-price across the online stations serving that band, plus the
+// cheapest station and how many are on air. It answers "if I tune this band this
+// second, what could I pay?" - the headline range the pricing UX shows. Single
+// station => Min==Max, Stations==1 (no spread; do not fake one).
+type BandRange struct {
+	Model     string
+	Min, Max  float64 // $/1M out across online stations
+	Stations  int     // online stations serving this band
+	CheapNode string  // node id at Min (the broker's default route)
+	CheapTPS  float64 // that node's measured tok/s (0 = unmeasured)
+	CheapIn   float64 // that node's input price (shown in connect detail)
+}
+
+// bandRange computes the cross-station out-price range for `model` from a set of
+// offers (pure, so it is unit-testable). Only online offers of the exact model
+// count. ok=false when no station serves the band right now.
+func bandRange(offers []Offer, model string) (BandRange, bool) {
+	br := BandRange{Model: model}
+	for _, o := range offers {
+		if !o.Online || o.Model != model {
+			continue
+		}
+		if br.Stations == 0 || o.PriceOut < br.Min {
+			br.Min = o.PriceOut
+			br.CheapNode = o.NodeID
+			br.CheapTPS = o.TPS
+			br.CheapIn = o.PriceIn
+		}
+		if br.Stations == 0 || o.PriceOut > br.Max {
+			br.Max = o.PriceOut
+		}
+		br.Stations++
+	}
+	return br, br.Stations > 0
+}
+
+// BandRangeFor fetches /discover and returns the live cross-station out-price
+// range for `model` (the headline range the connect screens show).
+func BandRangeFor(broker, model string) (BandRange, bool) {
+	offers, err := discover(broker)
+	if err != nil {
+		return BandRange{Model: model}, false
+	}
+	return bandRange(offers, model)
+}
+
+// estReplyCost is the credits one typical reply costs at out-price `priceOut`,
+// given `outTokens` output tokens (default ~800). Input cost is negligible for
+// the headline estimate; we bill primarily on output.
+func estReplyCost(priceOut float64, outTokens int) float64 {
+	if outTokens <= 0 {
+		outTokens = 800
+	}
+	return priceOut * float64(outTokens) / 1e6
 }
 
 // discover fetches the current offer list from the broker.

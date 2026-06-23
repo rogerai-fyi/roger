@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -30,9 +31,43 @@ import (
 // Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
 const defaultBroker = "https://broker.rogerai.fyi"
 
+// Limit is the per-model spend ceiling a user sets once and enforces: max input
+// price, max output price (the headline cap, since we bill on output), and a
+// throughput floor. All in the same units as /discover (credits per 1M tokens,
+// tok/s). A zero field means "no cap on that knob".
+type Limit struct {
+	MaxIn  float64 `json:"max_in,omitempty"`
+	MaxOut float64 `json:"max_out,omitempty"`
+	MinTPS float64 `json:"min_tps,omitempty"`
+}
+
+// Limits is the optional, backward-compatible spend-limits section of the config:
+// a per-model map plus a Default that applies to any band not pinned, and a knob
+// for the typical reply size used in the connect-time est-cost line. Absent =
+// no caps (same as before this section existed); old configs still load.
+type Limits struct {
+	Default       Limit            `json:"default"`
+	Models        map[string]Limit `json:"models,omitempty"`
+	TypicalOutTok int              `json:"typical_out_tokens,omitempty"`
+}
+
 type config struct {
 	Broker string `json:"broker"`
 	User   string `json:"user"`
+	Limits Limits `json:"limits"`
+}
+
+// resolve returns the effective limit for model m: the per-model limit if set,
+// else the Default. typicalOut is the configured reply size, or 800.
+func (c config) resolve(m string) (Limit, int) {
+	typ := c.Limits.TypicalOutTok
+	if typ <= 0 {
+		typ = 800
+	}
+	if l, ok := c.Limits.Models[m]; ok {
+		return l, typ
+	}
+	return c.Limits.Default, typ
 }
 
 func configPath() string {
@@ -112,13 +147,37 @@ func cmdUse(cfg config, args []string) error {
 	fs := flag.NewFlagSet("use", flag.ExitOnError)
 	port := fs.Int("port", 4141, "local endpoint port")
 	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
-	maxPrice := fs.Float64("max-price", 0, "your margin: skip stations priced above this ($/1M input tokens); 0 = no cap")
-	minTPS := fs.Float64("min-tps", 0, "your margin: require at least this measured throughput (tokens/sec); 0 = no floor")
+	// --max-in is the new name; --max-price is its backward-compatible alias.
+	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
+	maxPrice := fs.Float64("max-price", -1, "alias of --max-in ($/1M input price)")
+	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
+	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
+	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
 	fs.Parse(args)
 	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-price P] [--min-tps N]")
+		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-in P] [--max-out P] [--min-tps N] [--yes]")
 	}
-	return client.Use(cfg.Broker, cfg.User, fs.Arg(0), *port, *confidential, *maxPrice, *minTPS)
+	model := fs.Arg(0)
+	// Start from the resolved per-model limit (or Default), then let flags override
+	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
+	lim, typical := cfg.resolve(model)
+	if *maxIn >= 0 {
+		lim.MaxIn = *maxIn
+	}
+	if *maxPrice >= 0 { // alias; an explicit --max-price overrides --max-in
+		lim.MaxIn = *maxPrice
+	}
+	if *maxOut >= 0 {
+		lim.MaxOut = *maxOut
+	}
+	if *minTPS >= 0 {
+		lim.MinTPS = *minTPS
+	}
+	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
+		Port: *port, Confidential: *confidential,
+		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
+		TypicalOut: typical, Yes: *yes,
+	})
 }
 
 func cmdShare(cfg config, args []string) error {
@@ -214,10 +273,30 @@ func cmdTopup(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\n(%s)\n", c.Broker, c.User, configPath())
+		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
+		printLimits(c)
+		fmt.Printf("(%s)\n", configPath())
 		return nil
 	}
 	switch args[0] {
+	case "limits":
+		printLimits(loadConfig())
+		return nil
+	case "set-limit":
+		return cmdSetLimit(args[1:])
+	case "clear-limit":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: rogerai config clear-limit <model>")
+		}
+		c := loadConfig()
+		if c.Limits.Models != nil {
+			delete(c.Limits.Models, args[1])
+		}
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Printf("cleared limit for %s\n", args[1])
+		return nil
 	case "get":
 		c := loadConfig()
 		if len(args) > 1 {
@@ -249,6 +328,91 @@ func cmdConfig(args []string) error {
 		fmt.Printf("set %s = %s\n", args[1], args[2])
 	}
 	return nil
+}
+
+// cmdSetLimit handles `rogerai config set-limit <model> [--max-in P] [--max-out P]
+// [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
+// flags passed are changed (the rest of that model's limit is preserved).
+func cmdSetLimit(args []string) error {
+	fs := flag.NewFlagSet("set-limit", flag.ExitOnError)
+	maxIn := fs.Float64("max-in", -1, "$/1M input price cap (0 = no cap)")
+	maxOut := fs.Float64("max-out", -1, "$/1M output price cap (the headline cap; 0 = no cap)")
+	minTPS := fs.Float64("min-tps", -1, "min throughput floor in tok/s (0 = no floor)")
+	fs.Parse(args)
+	if fs.NArg() < 1 {
+		return fmt.Errorf("usage: rogerai config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
+	}
+	model := fs.Arg(0)
+	c := loadConfig()
+	var cur Limit
+	if model == "default" {
+		cur = c.Limits.Default
+	} else if c.Limits.Models != nil {
+		cur = c.Limits.Models[model]
+	}
+	if *maxIn >= 0 {
+		cur.MaxIn = *maxIn
+	}
+	if *maxOut >= 0 {
+		cur.MaxOut = *maxOut
+	}
+	if *minTPS >= 0 {
+		cur.MinTPS = *minTPS
+	}
+	if model == "default" {
+		c.Limits.Default = cur
+	} else {
+		if c.Limits.Models == nil {
+			c.Limits.Models = map[string]Limit{}
+		}
+		c.Limits.Models[model] = cur
+	}
+	if err := saveConfig(c); err != nil {
+		return err
+	}
+	fmt.Printf("set limit for %s: %s\n", model, limitStr(cur))
+	return nil
+}
+
+// limitStr renders a Limit as a compact human line.
+func limitStr(l Limit) string {
+	parts := []string{}
+	if l.MaxOut > 0 {
+		parts = append(parts, fmt.Sprintf("max-out=%g", l.MaxOut))
+	}
+	if l.MaxIn > 0 {
+		parts = append(parts, fmt.Sprintf("max-in=%g", l.MaxIn))
+	}
+	if l.MinTPS > 0 {
+		parts = append(parts, fmt.Sprintf("min-tps=%g", l.MinTPS))
+	}
+	if len(parts) == 0 {
+		return "no caps"
+	}
+	return strings.Join(parts, "  ")
+}
+
+// printLimits shows the spend-limits section (the static 3.4 view) on the CLI.
+func printLimits(c config) {
+	d := c.Limits.Default
+	typ := c.Limits.TypicalOutTok
+	if typ <= 0 {
+		typ = 800
+	}
+	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
+	if len(c.Limits.Models) == 0 && d == (Limit{}) {
+		fmt.Println("  (none set - no caps; `rogerai config set-limit <model> --max-out P`)")
+		return
+	}
+	models := make([]string, 0, len(c.Limits.Models))
+	for m := range c.Limits.Models {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	for _, m := range models {
+		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
+	}
+	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
 }
 
 func hostname() string {
@@ -283,11 +447,14 @@ func usage() {
 	fmt.Printf(`rogerai - crowd-sourced LLM marketplace client
 
   rogerai search                     discover models (cheapest first)
-  rogerai use <model> [--max-price P] [--min-tps N]   local OpenAI endpoint; set your margins
+  rogerai use <model> [--max-out P] [--max-in P] [--min-tps N] [--yes]   local OpenAI endpoint; set your spend limits
   rogerai balance                    wallet credits
   rogerai topup [usd]                buy credits (opens a checkout link)
   rogerai share [flags]              share your local model (auto-detects it)
   rogerai config set broker <url>    switch brokers
+  rogerai config limits              show your per-model spend limits
+  rogerai config set-limit <model> --max-out P [--max-in P] [--min-tps N]
+  rogerai config clear-limit <model>
   rogerai version
 
 env: ROGER_BROKER, ROGER_USER override config (%s)
