@@ -2,7 +2,11 @@ package agent
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/bownux/rogerai/internal/protocol"
 )
 
 func TestWithUsageOption(t *testing.T) {
@@ -48,6 +52,29 @@ func TestWithUsageOptionInvalidJSON(t *testing.T) {
 	if got := withUsageOption(in); string(got) != string(in) {
 		t.Errorf("invalid JSON should pass through unchanged, got %q", got)
 	}
+}
+
+// TestRegisterStatus confirms register() surfaces a broker rejection: a non-200
+// response is an error (so Run won't spin up poll loops), while 200 succeeds.
+func TestRegisterStatus(t *testing.T) {
+	t.Run("non-200 is an error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "denied", http.StatusForbidden)
+		}))
+		defer srv.Close()
+		if err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err == nil {
+			t.Error("register should error on a non-200 broker response")
+		}
+	})
+	t.Run("200 succeeds", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+		if err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err != nil {
+			t.Errorf("register should succeed on 200, got %v", err)
+		}
+	})
 }
 
 func TestParseUsage(t *testing.T) {
