@@ -345,27 +345,28 @@ func (m model) header(w int) string {
 
 func (m model) browseView(w int) string {
 	if len(m.offers) == 0 {
-		return stDim.Render("\n   scanning the band for stations on air…  (r to rescan)\n")
+		return "\n" + stDim.Render("   scanning the band for stations on air…  (r to rescan)") + "\n"
 	}
 	var b strings.Builder
-	b.WriteString(stDim.Render(fmt.Sprintf("  the band - %d on air\n", countOnline(m.offers))))
-	b.WriteString(stDim.Render(fmt.Sprintf("  %-14s %-20s %-12s %-8s %-7s %s\n", "station", "model", "$/1M in·out", "region", "signal", "")))
+	b.WriteString(stDim.Render(fmt.Sprintf("  the band - %d on air", countOnline(m.offers))) + "\n")
+	b.WriteString(stDim.Render(fmt.Sprintf("  %-14s %-20s %-12s %-7s %s", "station", "model", "$/1M in·out", "region", "signal")) + "\n")
 	for i, o := range m.offers {
-		sel := "  "
-		nm := o.NodeID
-		md := o.Model
+		// IMPORTANT: pad the plain text to fixed widths FIRST, then style - applying
+		// width to an already-ANSI-styled string miscounts the escape bytes.
+		nameStyle := lipgloss.NewStyle().Foreground(cInk)
+		cur := " "
 		if i == m.cursor {
-			sel = stSelBar.Render("▎ ")
-			nm = stSelText.Render(o.NodeID)
-			md = stSelText.Render(o.Model)
-		} else {
-			nm = lipgloss.NewStyle().Foreground(cInk).Render(o.NodeID)
+			cur = stSelBar.Render("▌")
+			nameStyle = stSelText
 		}
-		price := stEmber.Render(fmt.Sprintf("%.2f·%.2f", o.PriceIn, o.PriceOut))
+		name := nameStyle.Render(pad(o.NodeID, 14))
+		md := nameStyle.Render(pad(o.Model, 20))
+		price := stEmber.Render(pad(fmt.Sprintf("%.2f·%.2f", o.PriceIn, o.PriceOut), 12))
+		region := stDim.Render(pad(o.Region, 7))
 		sig := signalBars(m.frame, o.TPS, o.Online)
-		tps := stDim.Render("   -")
+		tps := stDim.Render(" -    ")
 		if o.TPS > 0 {
-			tps = stLive.Render(fmt.Sprintf("%4.0f", o.TPS))
+			tps = stLive.Render(fmt.Sprintf("%4.0f t/s", o.TPS))
 		}
 		dot := stDim.Render("○")
 		if o.Online {
@@ -378,15 +379,24 @@ func (m model) browseView(w int) string {
 		if o.FreeNow {
 			badge += " " + stLive.Render("FREE")
 		}
-		b.WriteString(fmt.Sprintf("%s%-22s %-20s %-22s %-8s %s%s t/s %s %s\n",
-			sel, nm, md, price, stDim.Render(o.Region), sig, tps, dot, badge))
+		b.WriteString(fmt.Sprintf("%s %s %s %s %s %s %s %s %s\n",
+			cur, name, md, price, region, sig, tps, dot, badge))
 	}
 	return b.String()
 }
 
+// pad truncates (with an ellipsis) or right-pads s to n display runes.
+func pad(s string, n int) string {
+	r := []rune(s)
+	if len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s + strings.Repeat(" ", n-len(r))
+}
+
 func (m model) chatView(w int) string {
 	var b strings.Builder
-	b.WriteString(stGold.Render("  ◆ ") + stDim.Render(fmt.Sprintf("on channel · %s · esc to leave\n", m.connected.NodeID)))
+	b.WriteString(stGold.Render("  ◆ ") + stDim.Render(fmt.Sprintf("on channel · %s · esc to leave", m.connected.NodeID)) + "\n")
 	lines := m.transcript
 	if len(lines) > 12 {
 		lines = lines[len(lines)-12:]
@@ -456,7 +466,7 @@ func (m model) helpView() string {
 	for _, c := range cmds {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-18s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
-	b.WriteString(stDim.Render("\n  press any key to go back\n"))
+	b.WriteString("\n" + stDim.Render("  press any key to go back") + "\n")
 	return b.String()
 }
 
