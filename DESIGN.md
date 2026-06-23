@@ -27,6 +27,10 @@ lineage-verified.** "Roger that" = connected. Lean on it everywhere, lightly.
 - Signal bars: `▁▂▃▄▅▆▇█` (height ∝ measured tok/s)
 - Lineage / confidential call-sign: `◆` (gold)
 - Online / offline dot: `●` (live) / `○` (mist)
+- Price range (cross-station, live): `min ~ max` ($/1M out); single station = a point, no `~`.
+  Cheap end tinted `live`, high end `ember`. The 24h price track reuses the signal-bar
+  ramp `▁▂▃▄▅▆▇█`; the hour-trend caret is `▴` up / `▾` down / `─` flat. Over a user's
+  per-model max = `above limit` in `ember` (sorts last). Same kit on web and TUI.
 
 ## Motion
 - **Quiet + slow.** Ambient, never demanding. 60fps, `requestAnimationFrame`, pause offscreen.

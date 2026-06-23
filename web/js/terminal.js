@@ -128,11 +128,26 @@
   }
 
   // ---- band table render helpers --------------------------------------
+  // bandRange returns the cross-station out-price spread "min ~ max" across the
+  // ONLINE stations (matches the TUI's live band range). A single online station
+  // shows a point price (no faked spread).
+  function bandRange() {
+    var prices = [];
+    stations.forEach(function (s) {
+      if (s.tps !== "over") { prices.push(parseFloat(s.price)); }
+    });
+    if (prices.length === 0) { return "-"; }
+    var lo = Math.min.apply(null, prices), hi = Math.max.apply(null, prices);
+    if (lo === hi) { return lo.toFixed(2); }
+    return lo.toFixed(2) + " ~ " + hi.toFixed(2);
+  }
+
   function bandHeadLines(cmd) {
     return [
       PROMPT + head(cmd),
       "",
-      dim("  band ") + head(BAND) + dim("   4 stations serving it          sort: signal ▸"),
+      dim("  band ") + head(BAND) + dim("   4 stations    ") +
+        money(bandRange() + " $/M out") + dim(" (live range)") + dim("    sort: signal ▸"),
       dim("  ──────────────────────────────────────────────────────────────────────"),
     ];
   }
