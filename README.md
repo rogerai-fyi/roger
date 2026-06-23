@@ -11,7 +11,7 @@ curl -fsSL https://rogerai.fyi/install.sh | sh
 ```
 
 Then just run `rogerai` for the interactive radio (browse stations, tune in, test, copy the
-endpoint). Already have Go? `go install github.com/bownux/rogerai/cmd/rogerai@latest`.
+endpoint). Already have Go? `go install github.com/rogerai-fyi/roger/cmd/rogerai@latest`.
 
 ## Use it
 

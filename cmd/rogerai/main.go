@@ -20,11 +20,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bownux/rogerai/internal/agent"
-	"github.com/bownux/rogerai/internal/client"
-	"github.com/bownux/rogerai/internal/detect"
-	"github.com/bownux/rogerai/internal/protocol"
-	"github.com/bownux/rogerai/internal/tui"
+	"github.com/rogerai-fyi/roger/internal/agent"
+	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/detect"
+	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/tui"
 )
 
 // The production broker is the default - `rogerai` works out of the box, no config.

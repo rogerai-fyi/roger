@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bownux/rogerai/internal/protocol"
-	"github.com/bownux/rogerai/internal/store"
+	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/store"
 )
 
 // TestRegisterProofOfPossession verifies #24: a node must sign its registration

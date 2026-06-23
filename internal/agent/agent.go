@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bownux/rogerai/internal/client"
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Config is everything `rogerai share` needs to become a provider: the broker to

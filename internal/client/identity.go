@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // The consumer's signing identity: an Ed25519 keypair at

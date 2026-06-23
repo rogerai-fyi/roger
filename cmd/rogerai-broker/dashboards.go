@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/bownux/rogerai/internal/store"
+	"github.com/rogerai-fyi/roger/internal/store"
 )
 
 // balance handles GET /balance: the caller's wallet credits (seeds new users).

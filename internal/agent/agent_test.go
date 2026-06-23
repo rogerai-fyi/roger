@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 func TestWithUsageOption(t *testing.T) {

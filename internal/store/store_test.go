@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // The core security property of #23: under heavy concurrency, holds serialize so a

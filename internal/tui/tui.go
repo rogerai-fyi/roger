@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bownux/rogerai/internal/client"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
+	"github.com/rogerai-fyi/roger/internal/client"
 )
 
 // quiet is true when output isn't an interactive color TTY (NO_COLOR set, or

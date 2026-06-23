@@ -10,7 +10,7 @@
 # =====================================================================
 set -eu
 
-REPO="bownux/rogerai"
+REPO="rogerai-fyi/roger"
 BIN="rogerai"
 INSTALL_DIR="${ROGERAI_INSTALL_DIR:-$HOME/.local/bin}"
 # Override the version with:  ROGERAI_VERSION=v0.2.0 sh install.sh

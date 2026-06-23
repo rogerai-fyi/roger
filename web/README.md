@@ -42,7 +42,7 @@ the rationale for the tech choices are in **[`TECH.md`](TECH.md)**. The hero
 ## install.sh
 
 A real POSIX installer: detects OS/arch, downloads the matching
-`rogerai-<os>-<arch>` asset from `github.com/bownux/rogerai` releases into
+`rogerai-<os>-<arch>` asset from `github.com/rogerai-fyi/roger` releases into
 `~/.local/bin`, and prints a PATH hint. If no release is published yet (or the
 asset is missing for a platform), it degrades gracefully with a clear
 "build from source" message instead of failing silently. Override the version

@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"github.com/bownux/rogerai/internal/protocol"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Postgres is a durable Store. Tables are prefixed `rogerai_` so they share an

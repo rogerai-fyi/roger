@@ -124,7 +124,7 @@
     var p = (navigator.platform || "") + " " + (navigator.userAgent || "");
     var os = /Mac/i.test(p) ? "macOS" : /Win/i.test(p) ? "Windows" : /Linux|X11/i.test(p) ? "Linux" : null;
     if (os === "Windows") {
-      note.innerHTML = 'On Windows? Use WSL, or <a class="install__alt" href="https://github.com/bownux/rogerai/releases" style="display:inline">grab the .exe →</a>';
+      note.innerHTML = 'On Windows? Use WSL, or <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases" style="display:inline">grab the .exe →</a>';
     } else if (os) {
       note.textContent = "Detected " + os + " · also runs on macOS, Linux & Windows";
     }

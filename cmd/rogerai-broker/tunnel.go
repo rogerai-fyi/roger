@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // nodeTunnel is the broker's per-node relay state: a buffered job queue the node

@@ -31,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$Repo = 'bownux/rogerai'
+$Repo = 'rogerai-fyi/roger'
 $Bin  = 'rogerai'
 
 # ---- pretty output --------------------------------------------------

@@ -7,7 +7,7 @@ services:
   - name: broker
     dockerfile_path: Dockerfile
     github:
-      repo: bownux/rogerai
+      repo: rogerai-fyi/roger
       branch: main
       deploy_on_push: true
     http_port: 8080

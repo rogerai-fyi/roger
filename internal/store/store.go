@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/bownux/rogerai/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Entry is one settled request, as surfaced to dashboards. It carries the real

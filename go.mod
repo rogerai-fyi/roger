@@ -1,4 +1,4 @@
-module github.com/bownux/rogerai
+module github.com/rogerai-fyi/roger
 
 go 1.25.0
 
