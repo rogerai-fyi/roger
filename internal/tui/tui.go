@@ -2345,8 +2345,41 @@ func (m model) toggleCompact() model {
 	return m
 }
 
+// cyclePreset steps the preset bank one button in dir (+1 next / -1 previous),
+// wrapping around the ends, and fires the destination's jump - so left/right behave
+// exactly like pressing that preset's number/letter. The "current" preset is the lit
+// one in presetButtons() (exactly one is lit in every context cyclePreset is reached
+// from: AGENT / TUNE IN / SHARE / CONFIG / HELP); LOGIN is never a resting mode, so a
+// missing lit preset just falls back to the TUNE IN slot. The new key is dispatched
+// back through presetForKey so the jump action is identical to the keypress.
+func (m model) cyclePreset(dir int) (tea.Model, tea.Cmd, bool) {
+	btns := m.presetButtons()
+	cur := 1 // default to TUNE IN if nothing is lit (LOGIN has no resting mode)
+	for i, b := range btns {
+		if b.active {
+			cur = i
+			break
+		}
+	}
+	n := len(btns)
+	next := ((cur+dir)%n + n) % n
+	return m.presetForKey(btns[next].key)
+}
+
 func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
+	case "right":
+		// Sequential tab navigation across the preset bank: step to the NEXT preset
+		// (0 -> 1 -> 2 -> 3 -> L -> ? -> wrap to 0) and fire its jump, so left/right
+		// behave exactly like pressing the number/letter. presetForKey is only ever
+		// consulted from non-text-entry contexts (browse / a SHARE sub-screen not pasting
+		// / limits-not-editing / help), so left/right inherit that exact guard and never
+		// steal a cursor move in the schedule editor's window sub-fields, the command
+		// palette, chat, the AGENT prompt, the `f` filter, or a numeric field.
+		return m.cyclePreset(+1)
+	case "left":
+		// Previous preset (wraps the other way: 0 -> ? -> L -> 3 -> 2 -> 1 -> 0).
+		return m.cyclePreset(-1)
 	case "m":
 		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
 		// alongside the preset jumps so it works in every non-text-entry context (browse /
@@ -4460,13 +4493,13 @@ func (m model) footer(w int) string {
 		if m.connected != nil {
 			discKey = " · d"
 		}
-		left = stDim.Render("↑↓ ⏎" + discKey + " · f filter · S sort · s · / · ?")
+		left = stDim.Render("↑↓ ⏎" + discKey + " · f filter · ←→ section · s · ?")
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · d disconnect · tab/c channel · f filter · S sort · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · d disconnect · tab/c channel · ←/→ section · s share")
 	} else {
-		left = stDim.Render("↑↓ pick · enter tune in · f filter · S sort · F/C/O · s share · m · / · ? · q")
+		left = stDim.Render("↑↓ pick · enter tune in · f filter · S sort · F/C/O · ←/→ section · s share")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -4504,6 +4537,7 @@ func (m model) helpView() string {
 	// Lead with the few things a new user needs - the two-way radio in one breath.
 	start := [][2]string{
 		{"0", "AGENT: a small tool-capable agent (dj.md persona) - reads files, runs commands (you confirm)"},
+		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
@@ -4545,7 +4579,8 @@ func (m model) helpView() string {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-22s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
 	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /disconnect /quit") + "\n")
-	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
+	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("←/→") + stDim.Render(" switch section (cycle the [0]…[?] bar) · ") +
+		stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
 		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
 	b.WriteString("  " + stDim.Render("view: ") + stKey.Render("m") +
 		stDim.Render(" toggles COMPACT - the calm, dense, animation-free windowshade") + "\n")
