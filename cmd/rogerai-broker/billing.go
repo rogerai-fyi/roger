@@ -42,7 +42,11 @@ func loadBilling() billing {
 		creditUSD:     cu,
 	}
 	if b.secretKey == "" {
-		log.Printf("billing: disabled (set STRIPE_SECRET_KEY to enable wallet top-ups)")
+		if stripeLive() {
+			log.Printf("billing: STRIPE_LIVE set but STRIPE_SECRET_PROD_KEY missing/not sk_live - billing DISABLED (refusing test fallback in production)")
+		} else {
+			log.Printf("billing: disabled (set STRIPE_SECRET_KEY for test, or STRIPE_LIVE=1 + STRIPE_SECRET_PROD_KEY for production)")
+		}
 	} else {
 		mode := "test"
 		if strings.HasPrefix(b.secretKey, "sk_live") {
@@ -60,20 +64,38 @@ func envOr(k, def string) string {
 	return def
 }
 
-// stripeSecretKey / stripeWebhookSecret prefer the PRODUCTION credentials when set
-// (STRIPE_SECRET_PROD_KEY / STRIPE_WEBHOOK_PROD_SECRET), else the test ones. Setting
-// the _PROD_ vars flips the broker to live; clearing them reverts to test. The startup
-// log reports the active mode (an sk_live prefix -> LIVE).
+// stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
+// REQUIRES this flag - it is never inferred from the presence of a prod key, so a
+// stray or blanked prod var can never silently flip modes.
+func stripeLive() bool {
+	switch strings.ToLower(os.Getenv("STRIPE_LIVE")) {
+	case "1", "true", "yes", "live", "on":
+		return true
+	}
+	return false
+}
+
+// stripeSecretKey returns the ACTIVE secret key. In live mode it returns ONLY a real
+// sk_live prod key and FAILS CLOSED (empty -> billing disabled) when the prod key is
+// missing or not sk_live, so production can never silently fall back to test mode and
+// accept fake test cards. In test mode it returns the test key.
 func stripeSecretKey() string {
-	if k := os.Getenv("STRIPE_SECRET_PROD_KEY"); k != "" {
-		return k
+	if stripeLive() {
+		if k := os.Getenv("STRIPE_SECRET_PROD_KEY"); strings.HasPrefix(k, "sk_live") {
+			return k
+		}
+		return "" // fail closed: live flag set but no real live key
 	}
 	return os.Getenv("STRIPE_SECRET_KEY")
 }
 
+// stripeWebhookSecret mirrors stripeSecretKey's mode selection + fail-closed rule.
 func stripeWebhookSecret() string {
-	if s := os.Getenv("STRIPE_WEBHOOK_PROD_SECRET"); s != "" {
-		return s
+	if stripeLive() {
+		if strings.HasPrefix(os.Getenv("STRIPE_SECRET_PROD_KEY"), "sk_live") {
+			return os.Getenv("STRIPE_WEBHOOK_PROD_SECRET")
+		}
+		return ""
 	}
 	return os.Getenv("STRIPE_WEBHOOK_SECRET")
 }
