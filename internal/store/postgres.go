@@ -101,11 +101,11 @@ CREATE TABLE IF NOT EXISTS rogerai.grants (
     revoked      BOOLEAN DEFAULT false,
     created_at   BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS grants_owner ON rogerai.grants (owner);
--- per-grant token usage rollup (daily/monthly cap check + dashboard). window is a
+-- per-grant token usage rollup (daily/monthly cap check + dashboard). bucket is the UTC day/month key (window was a
 -- UTC day ("YYYY-MM-DD") or month ("YYYY-MM"); tokens accumulate at settle time.
 CREATE TABLE IF NOT EXISTS rogerai.grant_usage (
-    grant_id TEXT NOT NULL, window TEXT NOT NULL, tokens BIGINT NOT NULL DEFAULT 0,
-    PRIMARY KEY (grant_id, window));
+    grant_id TEXT NOT NULL, bucket TEXT NOT NULL, tokens BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (grant_id, bucket));
 -- tag receipts with the grant that served them (NULL for public-market traffic),
 -- so the dashboard can GROUP BY grant_id. Additive, like owner_share.
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS grant_id TEXT;
