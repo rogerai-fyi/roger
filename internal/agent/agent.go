@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -683,4 +685,80 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// ShareNodeID derives the broker node id for a share. It MUST be the single source
+// of truth for both `rogerai share` (CLI) and the in-TUI [2] SHARE / h HIDE flows so
+// that every model a host shares becomes a DISTINCT broker node.
+//
+// History: the node id used to be the bare hostname. One `share` process serves one
+// model, so running several bands/models on one host registered them all under the
+// SAME node id. The broker keys nodes/tunnels/lastSeen/bridge-token by node id, so
+// each register overwrote the prior sibling's token; the clobbered sibling's
+// heartbeat then 401'd, its self-healing re-registrar fired and overwrote back - an
+// infinite token-war / on-air "flapping" storm where only the last-registered band
+// stayed visible.
+//
+// The scheme is `<hostname>-<model-slug>` (readable + lowercased, e.g.
+// `larrys-mac-studio-qwen3-coder-next`), which already makes DIFFERENT models on one
+// host distinct nodes. When the SAME model is shared twice on one host we still must
+// not collide, so a DETERMINISTIC disambiguator derived from the upstream (its
+// host:port, which is unique per local server / process) is appended. This is STABLE
+// across a restart of the same (host, model, upstream) share, so it re-registers as
+// the same node (no orphan churn) instead of minting a new id each launch. Only when
+// no upstream is available at all do we fall back to a short random suffix.
+func ShareNodeID(hostname, model, upstream string) string {
+	host := slugify(hostname)
+	if host == "" {
+		host = "node"
+	}
+	slug := slugify(model)
+	id := host
+	if slug != "" {
+		id = host + "-" + slug
+	}
+	if d := upstreamDisambig(upstream); d != "" {
+		id += "-" + d
+	}
+	return id
+}
+
+// upstreamDisambig turns a local upstream URL into a short, STABLE, readable
+// disambiguator so two shares of the SAME model on one host (but different local
+// servers) get distinct, restart-stable node ids. It prefers the upstream port (the
+// natural per-process key, e.g. `8080`); if the URL carries no port it falls back to
+// a short deterministic hash of the (normalized) upstream; an empty upstream yields a
+// short random suffix (the only non-deterministic case, and the rarest).
+func upstreamDisambig(upstream string) string {
+	upstream = strings.TrimSpace(upstream)
+	if upstream == "" {
+		return randHex(2)
+	}
+	if u, err := url.Parse(upstream); err == nil {
+		if p := u.Port(); p != "" {
+			return p
+		}
+	}
+	sum := sha256.Sum256([]byte(upstream))
+	return hex.EncodeToString(sum[:])[:6]
+}
+
+// slugify lowercases s and collapses every run of non-alphanumeric characters to a
+// single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
+// fragments (e.g. "Qwen3-Coder/Next" -> "qwen3-coder-next").
+func slugify(s string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if !prevDash {
+			b.WriteByte('-')
+			prevDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
