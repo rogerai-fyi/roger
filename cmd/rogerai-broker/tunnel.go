@@ -223,10 +223,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var user string
+	var user string   // the signed identity (pubkey-derived; drives self-use + price-lock)
+	var wallet string // the MONEY key: github-scoped when logged in, else == user
 	var authed bool
 	if gok {
 		user = gc.wallet // "g_<id>" grant-scoped wallet (reservedID-protected)
+		wallet = user
 	} else {
 		var iok bool
 		user, authed, iok = b.identityOf(r, body)
@@ -234,6 +236,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 			return
 		}
+		// One wallet per account: a logged-in keypair resolves to the SAME
+		// "u_gh_<githubID>" wallet the web session uses; an unbound keypair keeps its
+		// anonymous pubkey-derived id (no balance - see the paid-request gate below).
+		wallet = b.walletOf(r, user)
 		// Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
 		// never spend a wallet. This enforces the core P0 invariant directly on the spend
 		// path (not just via the reserved-id guard in identityOf).
@@ -320,12 +326,25 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve the price + payer for this request. Grant: the grant's price (free/self
 	// = 0/0, owner-sponsored otherwise). Signed self-use: $0 when the caller-owner
-	// owns the picked node. Public: the offer's active market price billed to `user`.
-	pricing := b.resolvePricing(gc, gok, user, node, offer)
+	// owns the picked node. Public: the offer's active market price billed to the
+	// resolved account wallet.
+	pricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
 	payer := pricing.payer
 	grantID := ""
 	if gok {
 		grantID = gc.grant.ID
+	}
+
+	// Anonymous = free models + grant keys only, no balance. A not-logged-in keypair
+	// hitting a PAID public model is rejected here with a clear login prompt (we never
+	// silently seed an anon wallet to spend). Free models, self-use, and grants are
+	// unaffected: this fires only for a public, priced offer billed to an anon wallet.
+	if !gok && !pricing.free && !walletLoggedIn(payer) {
+		ain, aout, afree, _ := offer.ActivePrice(time.Now())
+		if !afree && (ain > 0 || aout > 0) {
+			jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `rogerai login` (free models and grant keys work without an account)")
+			return
+		}
 	}
 
 	// Pre-authorize an upper-bound cost (a "hold") BEFORE doing any work, so

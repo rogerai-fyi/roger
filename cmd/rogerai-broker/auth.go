@@ -87,6 +87,11 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
+	// Grant the starter balance to the GitHub ACCOUNT on first login, idempotent per
+	// github id (the "seed:<wallet>" idem key guards re-login). Seed credits attach to
+	// the account wallet, NOT to anonymous keypairs - those have no balance by design.
+	wallet := "u_gh_" + strconv.FormatInt(gu.ID, 10)
+	_, _, _ = b.db.SeedOnce(wallet, b.seedFunds)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "github_login": gu.Login, "github_id": gu.ID})
 }
 
@@ -427,9 +432,11 @@ func (b *broker) dashIdentity(r *http.Request) (id string, ok bool) {
 	if _, w, sok := b.webSession(r); sok {
 		return w, true
 	}
-	id, _, iok := b.identityOf(r, nil)
+	rid, _, iok := b.identityOf(r, nil)
 	if !iok {
 		return "", false
 	}
-	return id, true
+	// A logged-in keypair reads the SAME github-scoped wallet the web session uses
+	// (one wallet); an unbound keypair reads its own pubkey-derived id.
+	return b.walletOf(r, rid), true
 }

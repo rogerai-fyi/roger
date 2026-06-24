@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
@@ -23,8 +24,23 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
 	}
+	// A logged-in caller (github-scoped wallet) has a real balance; an anonymous
+	// keypair has NO wallet/balance - free models + grant keys only. We never seed an
+	// anonymous wallet, and we tell the client it is not logged in so the CLI/TUI can
+	// say "log in to use your wallet" instead of showing a bogus 0.
+	if !walletLoggedIn(user) {
+		writeJSON(w, http.StatusOK, map[string]any{"user": user, "logged_in": false})
+		return
+	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
-	writeJSON(w, http.StatusOK, map[string]any{"user": user, "balance": bal})
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "balance": bal, "logged_in": true})
+}
+
+// walletLoggedIn reports whether a resolved wallet id belongs to a logged-in
+// account (the github-scoped or the grant-scoped namespace - both back a real
+// balance) versus an anonymous pubkey-derived id (no wallet by design).
+func walletLoggedIn(wallet string) bool {
+	return strings.HasPrefix(wallet, "u_gh_")
 }
 
 // me handles GET /me: the caller's consumer dashboard - wallet balance, lifetime
@@ -44,6 +60,15 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
 	}
+	// An anonymous (unbound) keypair has no wallet: report logged_in=false and no
+	// balance/spend, so the client surfaces "log in to use your wallet" rather than a
+	// seeded-looking 0. A logged-in caller reads the github-scoped wallet.
+	if !walletLoggedIn(user) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"user": user, "logged_in": false, "recent": []store.Entry{},
+		})
+		return
+	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
 	spend, _ := b.db.SpendOf(user)
 	recent, _ := b.db.RecentByUser(user, recentLimit(r))
@@ -53,6 +78,7 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":         user,
 		"github_login": login, // "" for a signed-CLI read; set for a logged-in browser
+		"logged_in":    true,
 		"balance":      round6(bal),
 		"spend":        round6(spend),
 		"recent":       recent,

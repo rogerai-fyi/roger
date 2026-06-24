@@ -31,6 +31,15 @@ type Entry struct {
 type Store interface {
 	// BalanceOf returns the user's credit balance, seeding a new user with `seed`.
 	BalanceOf(user string, seed float64) (float64, error)
+	// SeedOnce grants `seed` starter credits to a wallet exactly once (idempotent on
+	// the wallet id): the first call posts the seed + a ledger row, later calls are
+	// no-ops. Used to grant the starter balance to a GitHub account on first login,
+	// so the credit lands once per account and is never re-applied on re-login. A
+	// wallet that already has any seed/topup is left untouched.
+	SeedOnce(wallet string, seed float64) (newBalance float64, seeded bool, err error)
+	// PeekBalance returns a wallet's balance WITHOUT seeding it (0 for an unknown
+	// wallet). Used to read an anonymous/unbound wallet that must never be seeded.
+	PeekBalance(wallet string) (float64, error)
 	// Settle atomically debits the user by cost, credits the node's owner share,
 	// and appends the lineage receipt. Returns the user's new balance.
 	Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
@@ -248,6 +257,32 @@ func (m *Mem) BalanceOf(user string, seed float64) (float64, error) {
 		}
 	}
 	return m.wallet[user], nil
+}
+
+// SeedOnce grants starter credits to a wallet exactly once, keyed on the same
+// "seed:<wallet>" idem key BalanceOf uses, so the seed is applied at most once per
+// wallet whichever path touches it first.
+func (m *Mem) SeedOnce(wallet string, seed float64) (float64, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.idem["seed:"+wallet] {
+		return m.wallet[wallet], false, nil // already seeded (here or via BalanceOf)
+	}
+	if _, ok := m.wallet[wallet]; !ok {
+		m.wallet[wallet] = 0
+	}
+	if seed != 0 {
+		m.wallet[wallet] += seed
+		m.appendLedgerLocked(wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0)
+	}
+	return m.wallet[wallet], true, nil
+}
+
+// PeekBalance returns a wallet's balance without ever seeding it.
+func (m *Mem) PeekBalance(wallet string) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.wallet[wallet], nil
 }
 
 func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {

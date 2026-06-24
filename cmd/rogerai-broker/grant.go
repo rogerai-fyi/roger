@@ -139,7 +139,13 @@ type streamBill struct {
 //     (identity-match self-use, section 3.4.1), fixed.
 //   - public market        -> the offer's active price billed to `user`; NOT fixed
 //     (the relay applies the price-lock window).
-func (b *broker) resolvePricing(gc grantContext, gok bool, user string, node protocol.NodeRegistration, offer protocol.ModelOffer) pricingPlan {
+//
+// `user` is the signed pubkey-derived identity (used for the self-use ownership
+// match); `wallet` is the resolved MONEY key (the github-scoped wallet when the
+// caller is logged in, else the same pubkey-derived id). They differ only for a
+// logged-in user, so self-use still keys on the pubkey while public spend bills the
+// unified account wallet.
+func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, node protocol.NodeRegistration, offer protocol.ModelOffer) pricingPlan {
 	if gok {
 		in, out := gc.grant.GrantPrice()
 		if in == 0 && out == 0 {
@@ -150,12 +156,12 @@ func (b *broker) resolvePricing(gc grantContext, gok bool, user string, node pro
 	}
 	// Signed self-use: consuming your OWN node is $0, automatically (metering only).
 	if acct, ok, _ := b.db.AccountOfNode(node.NodeID); ok && b.ownsNode(user, acct) {
-		return pricingPlan{payer: user, free: true, fixed: true}
+		return pricingPlan{payer: wallet, free: true, fixed: true}
 	}
 	// Public market: the relay applies the active price + price-lock window itself
-	// (fixed=false), so we only need to name the payer here.
+	// (fixed=false), so we only need to name the payer (the unified account wallet).
 	_ = offer
-	return pricingPlan{payer: user}
+	return pricingPlan{payer: wallet}
 }
 
 // ownsNode reports whether the signed consumer `user` is the owner account that

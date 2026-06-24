@@ -75,6 +75,106 @@ func TestAuthGitHubBindsOwner(t *testing.T) {
 	}
 }
 
+// TestKeypairBindsToOneWallet verifies the identity+wallet unification: a signed
+// keypair resolves to its anonymous pubkey-derived id BEFORE login, and to the SAME
+// "u_gh_<githubID>" wallet the web session uses AFTER login - one wallet per account.
+// It also checks the anon-vs-logged-in gate (loggedInWallet) and that seed credits
+// land on the github account exactly once.
+func TestKeypairBindsToOneWallet(t *testing.T) {
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "login": "octocat"})
+	}))
+	defer gh.Close()
+	old := gitHubAPI
+	gitHubAPI = gh.URL
+	defer func() { gitHubAPI = old }()
+
+	mem := store.NewMem()
+	b := &broker{db: mem, pubOfUser: map[string]string{}, seedFunds: 100}
+	_, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
+	signedID := protocol.UserIDFromPubkey(pubHex)
+
+	// A signed /balance read BEFORE login resolves to the anonymous pubkey-derived id,
+	// and the gate reports not-logged-in (no wallet).
+	balReq := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/balance", nil)
+		signReq(r, priv, nil)
+		w := httptest.NewRecorder()
+		b.balance(w, r)
+		return w
+	}
+	if id, ok := b.loggedInWallet(httptest.NewRequest(http.MethodGet, "/x", nil), nil); ok {
+		t.Errorf("unsigned request should not be logged in (got %q)", id)
+	}
+	{
+		r := httptest.NewRequest(http.MethodGet, "/x", nil)
+		signReq(r, priv, nil)
+		if id, ok := b.loggedInWallet(r, nil); ok {
+			t.Errorf("anon keypair should not be logged in (got %q)", id)
+		}
+	}
+	w := balReq()
+	var pre struct {
+		User     string  `json:"user"`
+		LoggedIn bool    `json:"logged_in"`
+		Balance  float64 `json:"balance"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &pre)
+	if pre.LoggedIn || pre.User != signedID || pre.Balance != 0 {
+		t.Fatalf("anon balance = %+v, want logged_in=false, anon id, no balance", pre)
+	}
+	// PeekBalance must NOT have seeded the anon wallet.
+	if peek, _ := mem.PeekBalance(signedID); peek != 0 {
+		t.Errorf("anon wallet was seeded (%.2f) - it must have no balance", peek)
+	}
+
+	// LOG IN: bind the keypair to the github account (seeds u_gh_7 once).
+	body, _ := json.Marshal(map[string]string{"access_token": "tok"})
+	ar := httptest.NewRequest(http.MethodPost, "/auth/github", bytes.NewReader(body))
+	signReq(ar, priv, body)
+	aw := httptest.NewRecorder()
+	b.authGitHub(aw, ar)
+	if aw.Code != http.StatusOK {
+		t.Fatalf("login = %d, want 200 (%s)", aw.Code, aw.Body.String())
+	}
+
+	// Now the SAME keypair resolves to the github wallet (one wallet) + is logged in.
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	signReq(r, priv, nil)
+	wal, ok := b.loggedInWallet(r, nil)
+	if !ok || wal != "u_gh_7" {
+		t.Fatalf("post-login wallet = %q ok=%v, want u_gh_7", wal, ok)
+	}
+	// /balance now shows the github wallet's seeded balance (== the web wallet).
+	w = balReq()
+	var post struct {
+		User     string  `json:"user"`
+		LoggedIn bool    `json:"logged_in"`
+		Balance  float64 `json:"balance"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &post)
+	if !post.LoggedIn || post.User != "u_gh_7" || post.Balance != 100 {
+		t.Fatalf("post-login balance = %+v, want logged_in=true u_gh_7 bal=100", post)
+	}
+	// The web session for the same github id reads the SAME wallet id (one wallet:
+	// CLI keypair and web cookie resolve to identical "u_gh_<id>").
+	bWeb := &broker{priv: priv}
+	wr := httptest.NewRequest(http.MethodGet, "/me", nil)
+	wr.AddCookie(&http.Cookie{Name: sessionCookie, Value: bWeb.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	if _, webWallet, sok := bWeb.webSession(wr); !sok || webWallet != post.User {
+		t.Errorf("web wallet %q != CLI wallet %q - not one wallet", webWallet, post.User)
+	}
+
+	// Re-login must NOT re-seed (idempotent per github id).
+	ar2 := httptest.NewRequest(http.MethodPost, "/auth/github", bytes.NewReader(body))
+	signReq(ar2, priv, body)
+	b.authGitHub(httptest.NewRecorder(), ar2)
+	if bal, _ := mem.PeekBalance("u_gh_7"); bal != 100 {
+		t.Errorf("re-login balance = %.2f, want 100 (seed once per account)", bal)
+	}
+}
+
 // TestSessionRoundTrip verifies the web session cookie: a freshly signed cookie
 // verifies, a tampered one fails, and an expired one fails.
 func TestSessionRoundTrip(t *testing.T) {

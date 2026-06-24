@@ -120,22 +120,23 @@ func TestResolvePricing(t *testing.T) {
 
 	// Free grant -> $0 metering only.
 	gcFree := grantContext{grant: store.Grant{ID: "g", Owner: owner, Free: true}, wallet: "g_g"}
-	if p := b.resolvePricing(gcFree, true, "g_g", node, offer); !p.free || !p.fixed || p.payer != "g_g" {
+	if p := b.resolvePricing(gcFree, true, "g_g", "g_g", node, offer); !p.free || !p.fixed || p.payer != "g_g" {
 		t.Fatalf("free grant pricing = %+v", p)
 	}
 	// Priced grant -> owner sponsors (owner consumer wallet), fixed price.
 	gcPriced := grantContext{grant: store.Grant{ID: "g2", Owner: owner, PriceIn: 0.1, PriceOut: 0.3}, wallet: "g_g2"}
-	p := b.resolvePricing(gcPriced, true, "g_g2", node, offer)
+	p := b.resolvePricing(gcPriced, true, "g_g2", "g_g2", node, offer)
 	if p.free || !p.fixed || p.out != 0.3 || p.payer != protocol.UserIDFromPubkey(owner) {
 		t.Fatalf("priced grant pricing = %+v", p)
 	}
 	// Signed self-use: the caller-owner consuming their own node -> $0.
 	selfUser := protocol.UserIDFromPubkey(owner)
-	if sp := b.resolvePricing(grantContext{}, false, selfUser, node, offer); !sp.free || !sp.fixed {
+	if sp := b.resolvePricing(grantContext{}, false, selfUser, selfUser, node, offer); !sp.free || !sp.fixed {
 		t.Fatalf("self-use should be free: %+v", sp)
 	}
-	// Public market: a stranger -> not fixed, not free (relay applies market price).
-	if pp := b.resolvePricing(grantContext{}, false, "u_stranger", node, offer); pp.free || pp.fixed {
+	// Public market: a stranger -> not fixed, not free (relay applies market price),
+	// billed to the resolved wallet (here == the signed id, a logged-out keypair).
+	if pp := b.resolvePricing(grantContext{}, false, "u_stranger", "u_stranger", node, offer); pp.free || pp.fixed || pp.payer != "u_stranger" {
 		t.Fatalf("public traffic should bill market price: %+v", pp)
 	}
 }

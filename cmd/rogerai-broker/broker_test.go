@@ -301,18 +301,21 @@ func TestPickPriceCaps(t *testing.T) {
 
 func TestDashboardEndpoints(t *testing.T) {
 	mem := store.NewMem()
-	b := &broker{db: mem, seedFunds: 100, lastSeen: map[string]time.Time{"n1": time.Now()}}
-	// settle a couple of requests for alice on n1
-	_, _ = mem.BalanceOf("alice", 100)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := &broker{db: mem, priv: priv, seedFunds: 100, lastSeen: map[string]time.Time{"n1": time.Now()}}
+	// A logged-in consumer reads their github-scoped wallet (one wallet per account);
+	// settle a couple of requests against it on n1.
+	const wallet = "u_gh_42"
+	_, _ = mem.BalanceOf(wallet, 100)
 	for i, c := range []float64{1.0, 2.0} {
 		rec := protocol.UsageReceipt{RequestID: []string{"a", "b"}[i], Model: "m", TS: int64(100 + i)}
-		_, _ = mem.Settle("alice", "n1", c, c*0.7, rec)
+		_, _ = mem.Settle(wallet, "n1", c, c*0.7, rec)
 	}
 
-	// GET /me
+	// GET /me as a logged-in browser session (the github wallet path).
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
-	req.Header.Set("X-Roger-User", "alice")
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 42, time.Now().Add(time.Hour).Unix())})
 	b.me(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("/me status %d", rec.Code)

@@ -80,10 +80,15 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	// wallet and the dashboard balance never moves. Fall back to identityOf (with the
 	// body, for signature verification) for CLI/anon top-ups.
 	var user string
-	if _, w, sok := b.webSession(r); sok {
-		user = w
+	if _, sw, sok := b.webSession(r); sok {
+		user = sw
 	} else if u, _, iok := b.identityOf(r, body); iok {
-		user = u
+		// One wallet per account: a logged-in keypair tops up the SAME
+		// "u_gh_<githubID>" wallet the web session + the CLI balance read use, so a
+		// CLI top-up and a web top-up land in one place. An anonymous keypair tops up
+		// its own pubkey-derived wallet (anon top-up is allowed; the credit is there to
+		// claim once they log in - see the migration note in ACCOUNT-PAYOUTS-DESIGN).
+		user = b.walletOf(r, u)
 	} else {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return

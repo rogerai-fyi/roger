@@ -199,6 +199,54 @@ func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
 	return bal, tx.Commit()
 }
 
+// SeedOnce grants starter credits to a wallet exactly once. The seed ledger row's
+// idem_key "seed:<wallet>" is the unique guard: a duplicate insert is a no-op, so a
+// re-login never re-seeds. seeded reports whether this call applied the credit.
+func (p *Postgres) SeedOnce(wallet string, seed float64) (float64, bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	// Ensure a wallet row exists (balance 0); the credit is applied below only when
+	// the seed ledger row is newly inserted, so the amount lands at most once.
+	if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, wallet); err != nil {
+		return 0, false, err
+	}
+	seeded := false
+	if seed != 0 {
+		res, err := tx.Exec(`INSERT INTO rogerai.ledger(holder,side,kind,amount,idem_key,state,ref,ts)
+			VALUES($1,'consumer',$2,$3,$4,$5,'seed',$6) ON CONFLICT (idem_key) DO NOTHING`,
+			wallet, KindAdjustment, seed, "seed:"+wallet, StatePosted, time.Now().Unix())
+		if err != nil {
+			return 0, false, err
+		}
+		// Apply the credit only when the seed ledger row was newly inserted (so a
+		// re-login, which finds the row already present, never re-credits).
+		if n, _ := res.RowsAffected(); n == 1 {
+			seeded = true
+			if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1`, wallet, seed); err != nil {
+				return 0, false, err
+			}
+		}
+	}
+	var bal float64
+	if err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, wallet).Scan(&bal); err != nil {
+		return 0, false, err
+	}
+	return bal, seeded, tx.Commit()
+}
+
+// PeekBalance returns a wallet's balance without seeding it (0 if it doesn't exist).
+func (p *Postgres) PeekBalance(wallet string) (float64, error) {
+	var bal float64
+	err := p.db.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, wallet).Scan(&bal)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return bal, err
+}
+
 func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
