@@ -140,3 +140,190 @@ func TestSignalGrading(t *testing.T) {
 		t.Errorf("station count should lift the signal tower: %q == %q", one, many)
 	}
 }
+
+// ---- connect / disconnect / reconnect flow (founder bug fixes) ----
+
+// freeBand is the canonical free offer used by the flow tests so a connect needs
+// no login / wallet (anonymous can tune free bands).
+func freeBand(mdl string) offer {
+	return offer{NodeID: "demo", Region: "home", Model: mdl, PriceIn: 0, PriceOut: 0, Online: true, TPS: 62, FreeNow: true}
+}
+
+// connectFree drives the model through connect -> openChannel into the open channel
+// without binding a real TCP socket (proxyUp is pre-set), returning the connected
+// model. It is the shared setup for the flow tests.
+func connectFree(t *testing.T, mm model, mdl string) model {
+	t.Helper()
+	// pre-bind so openChannel skips the real net.Listen.
+	mm.proxyUp = true
+	mm.endpoint = "http://127.0.0.1:4141/v1"
+	// put the cursor on the wanted band.
+	for i, b := range mm.bands {
+		if b.model == mdl {
+			mm.cursor = i
+		}
+	}
+	nm, _ := mm.connect()
+	mm = nm.(model)
+	if mm.mode != modeConnectConfirm {
+		t.Fatalf("connect did not open the confirm (mode=%d)", mm.mode)
+	}
+	nm, _ = mm.openChannel()
+	mm = nm.(model)
+	return mm
+}
+
+// TestBandSurvivesDisconnect (#1): a band you connect to then disconnect from must
+// STAY in the browse list as a selectable station - even after its node ages out of
+// /discover and after a manual re-scan (r). Regression for the vanishing-band bug.
+func TestBandSurvivesDisconnect(t *testing.T) {
+	var tm tea.Model = New("http://broker.local", "tester")
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tm, _ = tm.Update(offersMsg{freeBand("gpt-oss-20b")})
+	mm := connectFree(t, tm.(model), "gpt-oss-20b")
+	if mm.connected == nil {
+		t.Fatalf("openChannel did not connect")
+	}
+	// disconnect (esc from the channel / d from the list both call disconnect()).
+	nm, _ := mm.disconnect()
+	mm = nm.(model)
+	if mm.connected != nil {
+		t.Fatalf("disconnect left a live channel")
+	}
+	// Now simulate the node aging out of /discover (empty scan, as a periodic re-scan
+	// would deliver) - the OLD bug dropped the band here and r could not bring it back.
+	nm, _ = mm.Update(offersMsg{})
+	mm = nm.(model)
+	found := false
+	for _, b := range mm.bands {
+		if b.model == "gpt-oss-20b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("band vanished from the list after disconnect + node age-out:\n%s", stripANSI(mm.View()))
+	}
+	// It is still rendered + selectable in the browse view.
+	out := stripANSI(mm.View())
+	if !strings.Contains(out, "gpt-oss-20b") {
+		t.Errorf("disconnected band not shown in browse list:\n%s", out)
+	}
+	// And r (re-scan) still keeps it even when /discover stays empty.
+	var km tea.Model = mm
+	km, _ = km.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	mm = km.(model)
+	mm2, _ := mm.Update(offersMsg{})
+	mm = mm2.(model)
+	stillFound := false
+	for _, b := range mm.bands {
+		if b.model == "gpt-oss-20b" {
+			stillFound = true
+		}
+	}
+	if !stillFound {
+		t.Errorf("band vanished after r re-scan:\n%s", stripANSI(mm.View()))
+	}
+}
+
+// TestListDisconnectToggle (#2): the connected band is MARKED in the browse list
+// (lit "connected" row) and a from-the-list d disconnects it; Enter on it re-opens
+// the channel. So the user can see + toggle the connection from the list.
+func TestListDisconnectToggle(t *testing.T) {
+	var tm tea.Model = New("http://broker.local", "tester")
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tm, _ = tm.Update(offersMsg{freeBand("gpt-oss-20b")})
+	mm := connectFree(t, tm.(model), "gpt-oss-20b")
+	// jump to browse (tab peeks at the band without disconnecting).
+	var km tea.Model = mm
+	km, _ = km.Update(tea.KeyMsg{Type: tea.KeyTab})
+	mm = km.(model)
+	if mm.mode != modeBrowse {
+		t.Fatalf("tab did not return to browse (mode=%d)", mm.mode)
+	}
+	// The list marks the connected row.
+	out := stripANSI(mm.View())
+	if !strings.Contains(out, "connected") {
+		t.Errorf("connected band not marked in the list:\n%s", out)
+	}
+	if !strings.Contains(out, "d disconnect") {
+		t.Errorf("footer missing the d disconnect hint:\n%s", out)
+	}
+	// d disconnects from the list.
+	km = mm
+	km, _ = km.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	mm = km.(model)
+	if mm.connected != nil {
+		t.Fatalf("d in the list did not disconnect")
+	}
+	if mm.mode != modeBrowse {
+		t.Errorf("d left an odd mode=%d (want browse)", mm.mode)
+	}
+	// Enter on the (still-present, now-warm) band re-connects fast (see #3 test).
+	for i, b := range mm.bands {
+		if b.model == "gpt-oss-20b" {
+			mm.cursor = i
+		}
+	}
+	km = mm
+	km, _ = km.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm = km.(model)
+	// warm reconnect to a free band drops into the channel (the confirm still gates a
+	// cold connect; here connect() opens the confirm, which is fine - the key point is
+	// the band is selectable + tunable again).
+	if mm.mode == modeBrowse && mm.connected == nil {
+		// connect() should have advanced past plain browse (confirm or channel).
+		t.Errorf("Enter on the reconnectable band did nothing (mode=%d)", mm.mode)
+	}
+}
+
+// TestWarmReconnectSkipsStagedSequence (#3): a FIRST (cold) connect runs the staged
+// tune-in; a re-connect to a band tuned earlier this session is FAST - it drops
+// straight into the open channel with no staged modeConnecting dwell. (The staged
+// view is also skippable via any key, covered by the modeConnecting key handler.)
+func TestWarmReconnectSkipsStagedSequence(t *testing.T) {
+	var tm tea.Model = New("http://broker.local", "tester")
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	tm, _ = tm.Update(offersMsg{freeBand("gpt-oss-20b")})
+	mm := connectFree(t, tm.(model), "gpt-oss-20b")
+	// First connect: under quiet (tests are non-TTY) the staged view auto-resolves to
+	// the channel, but the band is now marked recent/warm.
+	if !mm.recentBands["gpt-oss-20b"] {
+		t.Fatalf("first connect did not record the band as recent")
+	}
+	if mm.mode != modeChat {
+		t.Fatalf("first connect did not reach the channel (mode=%d)", mm.mode)
+	}
+	// disconnect, then re-connect: the warm path goes STRAIGHT to the channel.
+	nm, _ := mm.disconnect()
+	mm = nm.(model)
+	mm.proxyUp = true
+	mm.endpoint = "http://127.0.0.1:4141/v1"
+	nm, _ = mm.connect()
+	mm = nm.(model)
+	nm, _ = mm.openChannel()
+	mm = nm.(model)
+	if mm.mode != modeChat {
+		t.Errorf("warm reconnect did not drop straight into the channel (mode=%d)", mm.mode)
+	}
+	if mm.connectStage != connectStageDone {
+		t.Errorf("warm reconnect did not skip the staged sequence (stage=%d)", mm.connectStage)
+	}
+}
+
+// TestStagedSequenceSkippable (#3): in the staged tune-in, any key jumps straight to
+// the open channel (an impatient operator should not sit through the animation).
+func TestStagedSequenceSkippable(t *testing.T) {
+	mm := New("http://broker.local", "tester")
+	mm.width, mm.height = 100, 30
+	mm.connected = &offer{NodeID: "nyx", Model: "gpt-oss-20b", Online: true}
+	mm.endpoint = "http://127.0.0.1:4141/v1"
+	mm.apikey = "roger-local"
+	mm.mode = modeConnecting
+	mm.connectStage = 1 // mid-sequence
+	var km tea.Model = mm
+	km, _ = km.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	mm = km.(model)
+	if mm.mode != modeChat {
+		t.Errorf("enter during the staged sequence did not skip to the channel (mode=%d)", mm.mode)
+	}
+}
