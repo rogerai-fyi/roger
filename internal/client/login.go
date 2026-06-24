@@ -100,7 +100,10 @@ func Login(broker, clientID string) error {
 		return fmt.Errorf("broker rejected the login (status %d)", resp.StatusCode)
 	}
 	_ = saveAuth(authState{GitHubLogin: out.GitHubLogin, GitHubID: out.GitHubID, BoundAt: time.Now().Unix()})
-	fmt.Printf("\nlogged in as GitHub @%s - this machine can now earn as a provider.\n", out.GitHubLogin)
+	// Binding collapses the CLI keypair onto the account wallet: this keypair now
+	// spends/tops-up/reads the SAME wallet as the web session (one wallet per account),
+	// and earning as a provider is unlocked.
+	fmt.Printf("\nlogged in as @%s, wallet ready - this keypair now shares one wallet with your account (and can earn as a provider).\n", out.GitHubLogin)
 	return nil
 }
 
@@ -131,20 +134,23 @@ func Logout() error {
 	if err := os.Remove(authPath()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	fmt.Println("logged out (local GitHub link forgotten; your signing key is kept).")
+	fmt.Println("logged out - GitHub link forgotten locally; your signing keypair is kept (now anonymous). Run `rogerai login` to use your wallet again.")
 	return nil
 }
 
-// Whoami prints the signed identity (always present) and the linked GitHub owner
-// (if logged in).
+// Whoami states plainly whether you are LOGGED IN (GitHub-linked, one account
+// wallet) or ANONYMOUS (a bare signing keypair, free models + grant keys only), then
+// shows the signing pubkey. The wallet/balance line is shown only when logged in.
 func Whoami() error {
-	fmt.Printf("signed identity: %s\n", SignedUserID())
-	fmt.Printf("  pubkey:        %s\n", UserPubHex())
 	if a, ok := loadAuth(); ok {
-		fmt.Printf("github:          @%s (id %d)\n", a.GitHubLogin, a.GitHubID)
-	} else {
-		fmt.Printf("github:          not linked (run `rogerai login` to monetize)\n")
+		fmt.Printf("logged in as @%s (github id %d)\n", a.GitHubLogin, a.GitHubID)
+		fmt.Printf("  wallet:  your account wallet (one wallet: CLI + web)\n")
+		fmt.Printf("  pubkey:  %s\n", UserPubHex())
+		return nil
 	}
+	fmt.Println("anonymous - not logged in")
+	fmt.Println("  free models and grant keys work; run `rogerai login` to use your wallet + earn")
+	fmt.Printf("  pubkey:  %s\n", UserPubHex())
 	return nil
 }
 

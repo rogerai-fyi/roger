@@ -1,11 +1,15 @@
 package tui
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/agent"
 )
 
 func TestRenderBrowse(t *testing.T) {
@@ -17,11 +21,12 @@ func TestRenderBrowse(t *testing.T) {
 		{NodeID: "demo-node", Region: "home", Model: "gpt-oss-20b", PriceIn: 0.2, PriceOut: 0.3, Ctx: 32768, Online: true},
 		{NodeID: "alt-node", Region: "us-w", Model: "gpt-oss-20b", PriceIn: 0.25, PriceOut: 0.41, Ctx: 32768, Online: true},
 	})
-	m, _ = m.Update(balanceMsg(100))
+	m, _ = m.Update(balanceMsg{balance: 100, loggedIn: true})
 	m, _ = m.Update(tickMsg{})
 	out := m.View()
-	// model name, the range column header, the live range, the balance + footer.
-	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M out (range)", "0.30 ~ 0.41", "balance", "↑↓ tune"} {
+	// model name, the range column header, the live range, the logged-in balance ($)
+	// + footer.
+	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M out (range)", "0.30 ~ 0.41", "$100", "↑↓ tune"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("browse view missing %q\n---\n%s", want, out)
 		}
@@ -57,7 +62,7 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.proxyAddr = "127.0.0.1:0" // ephemeral port - no fixed-port conflict/leak in tests
 	var m tea.Model = mm
-	m, _ = m.Update(balanceMsg(42))
+	m, _ = m.Update(balanceMsg{balance: 42, loggedIn: true})
 	m, _ = m.Update(offersMsg{{NodeID: "nyx-home", Model: "llama-3.3-70b", PriceIn: 0.2, PriceOut: 0.55, Online: true}})
 
 	// select + connect (enter) -> confirmation screen, NOT yet bound
@@ -152,6 +157,7 @@ func TestLiveInputEcho(t *testing.T) {
 	cm.proxyAddr = "127.0.0.1:0"
 	var c tea.Model = cm
 	c, _ = c.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	c, _ = c.Update(balanceMsg{balance: 50, loggedIn: true}) // paid bands need an account
 	c, _ = c.Update(offersMsg{{NodeID: "n", Model: "m", PriceOut: 0.1, Online: true}})
 	c, _ = c.Update(tea.KeyMsg{Type: tea.KeyEnter}) // confirm
 	c, _ = c.Update(tea.KeyMsg{Type: tea.KeyEnter}) // accept -> connected
@@ -172,6 +178,7 @@ func TestOverLimitFlow(t *testing.T) {
 	mm := NewWith("http://broker.local", "tester", store)
 	mm.proxyAddr = "127.0.0.1:0"
 	var m tea.Model = mm
+	m, _ = m.Update(balanceMsg{balance: 50, loggedIn: true}) // paid bands need an account
 	m, _ = m.Update(offersMsg{{NodeID: "n", Model: "m", PriceOut: 0.34, Online: true}})
 
 	// connect -> over-limit (0.34 > 0.20)
@@ -229,7 +236,7 @@ func TestInTUIFlows(t *testing.T) {
 	}
 
 	// Empty balance + /balance surfaces the /topup hint.
-	bm, _ := tm.Update(balanceMsg(0))
+	bm, _ := tm.Update(balanceMsg{balance: 0, loggedIn: true})
 	bm = runCmd(bm, "balance")
 	if !strings.Contains(bm.View(), "/topup") {
 		t.Errorf("empty balance should surface /topup:\n%s", bm.View())
@@ -293,7 +300,7 @@ func TestNarrowReflow(t *testing.T) {
 			{NodeID: "demo-node", Region: "home", Model: "gpt-oss-20b", PriceIn: 0.2, PriceOut: 0.3, Ctx: 32768, Online: true, FreeNow: true},
 			{NodeID: "alt-node", Region: "us-w", Model: "llama-3.3-70b-instruct", PriceIn: 0.25, PriceOut: 0.41, Online: true},
 		})
-		m, _ = m.Update(balanceMsg(12.5))
+		m, _ = m.Update(balanceMsg{balance: 12.5, loggedIn: true})
 		m, _ = m.Update(tickMsg{})
 		for _, line := range strings.Split(m.View(), "\n") {
 			vis := utf8.RuneCountInString(stripANSI(line))
@@ -301,5 +308,107 @@ func TestNarrowReflow(t *testing.T) {
 				t.Errorf("width %d: line overflows (%d cols): %q", w, vis, stripANSI(line))
 			}
 		}
+	}
+}
+
+// TestLoginStateHeader: the header shows a clear login prompt when anonymous (no
+// balance number), and flips to "@login · $balance" once logged in. Balance ONLY
+// appears when logged in (the founder-approved anon = no-balance rule).
+func TestLoginStateHeader(t *testing.T) {
+	var m tea.Model = New("http://broker.local", "tester")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	// Anonymous: the broker reports logged_in=false (no balance).
+	m, _ = m.Update(balanceMsg{loggedIn: false})
+	m, _ = m.Update(tickMsg{})
+	anon := stripANSI(m.View())
+	if !strings.Contains(anon, "not logged in") || !strings.Contains(anon, "/login") {
+		t.Errorf("anon header missing the login prompt:\n%s", anon)
+	}
+	if strings.Contains(anon, "$") {
+		t.Errorf("anon header must show NO balance:\n%s", anon)
+	}
+	// Log in (the in-TUI loginMsg lands the github login), then balance comes back.
+	m, _ = m.Update(loginMsg("octocat"))
+	m, _ = m.Update(balanceMsg{balance: 12.5, loggedIn: true})
+	m, _ = m.Update(tickMsg{})
+	in := stripANSI(m.View())
+	if !strings.Contains(in, "@octocat") || !strings.Contains(in, "$12.50") {
+		t.Errorf("logged-in header missing @login + $balance:\n%s", in)
+	}
+	if strings.Contains(in, "not logged in") {
+		t.Errorf("logged-in header still shows the anon prompt:\n%s", in)
+	}
+}
+
+// TestAnonPaidConnectPrompt: an anonymous user tuning a PRICED band gets an inline
+// "type /login" prompt and no channel opens; a FREE band stays open to anyone.
+func TestAnonPaidConnectPrompt(t *testing.T) {
+	var m tea.Model = New("http://broker.local", "tester")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = m.Update(balanceMsg{loggedIn: false}) // anonymous
+	m, _ = m.Update(offersMsg{{NodeID: "n", Model: "paid", PriceOut: 0.5, Online: true}})
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // tune the priced band
+	v := stripANSI(mm.View())
+	if !strings.Contains(v, "/login") {
+		t.Errorf("anon paid connect should prompt /login:\n%s", v)
+	}
+	if strings.Contains(v, "open the channel") || strings.Contains(v, "accept") {
+		t.Errorf("anon paid connect must NOT open the confirm:\n%s", v)
+	}
+}
+
+// TestOnAirQuitGuard: quitting while ON AIR (sharing) opens a confirm asking to go
+// off air (does not quit); declining stays on air; off air, quit is immediate. The
+// on-air session is created against a tiny stub broker so register() succeeds.
+func TestOnAirQuitGuard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+
+	mm := New(srv.URL, "tester")
+	mm.proxyAddr = "127.0.0.1:0"
+	// Off air: q quits immediately (returns the tea.Quit command).
+	if _, cmd := mm.requestQuit(); cmd == nil {
+		t.Fatal("off-air quit should be immediate (a tea.Quit cmd)")
+	}
+
+	// Go ON AIR: one live in-process share session (registers with the stub broker).
+	sess, err := agent.Start(agent.Config{Broker: srv.URL, Upstream: "http://127.0.0.1:0", NodeID: "n", Model: "m", Ctx: 8192, Parallel: 1})
+	if err != nil {
+		t.Fatalf("agent.Start: %v", err)
+	}
+	defer sess.Stop()
+	mm.shares = map[string]*agent.Session{"m": sess}
+	mm.refreshShareHeadline()
+	if mm.onAirCount() != 1 {
+		t.Fatalf("onAirCount = %d, want 1", mm.onAirCount())
+	}
+
+	// q while on air -> NO immediate quit; enters the quit-confirm modal.
+	var m tea.Model = mm
+	qm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd != nil {
+		t.Fatal("on-air quit must NOT quit immediately (it should confirm first)")
+	}
+	v := stripANSI(qm.View())
+	if !strings.Contains(v, "ON AIR") || !strings.Contains(v, "go off air") || !strings.Contains(v, "[y/N]") {
+		t.Errorf("quit-guard prompt missing:\n%s", v)
+	}
+
+	// Decline (n) -> stays on air, back to browse, no quit.
+	dm, dcmd := qm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if dcmd != nil {
+		t.Fatal("declining the quit-guard must not quit")
+	}
+	if !strings.Contains(stripANSI(dm.View()), "still on air") {
+		t.Errorf("decline should keep sharing:\n%s", stripANSI(dm.View()))
+	}
+
+	// Confirm (y) -> goes off air + quits (a tea.Quit cmd).
+	qm2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	_, ycmd := qm2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if ycmd == nil {
+		t.Fatal("confirming the quit-guard should quit (a tea.Quit cmd)")
 	}
 }

@@ -91,16 +91,23 @@ func Search(broker string) error {
 	return nil
 }
 
-// Balance prints the caller's wallet credits (GET /balance as `user`).
+// Balance prints the caller's wallet credits (GET /balance as `user`). When the
+// caller is NOT logged in (an anonymous keypair) there is no wallet/balance: it says
+// so and points at `rogerai login` instead of printing a misleading 0.
 func Balance(broker, user string) error {
 	var b struct {
-		User    string  `json:"user"`
-		Balance float64 `json:"balance"`
+		User     string  `json:"user"`
+		Balance  float64 `json:"balance"`
+		LoggedIn bool    `json:"logged_in"`
 	}
 	if err := getJSON(broker, "/balance", user, &b); err != nil {
 		return err
 	}
-	fmt.Printf("%s: %.6f credits\n", b.User, b.Balance)
+	if !b.LoggedIn {
+		fmt.Println("not logged in - run `rogerai login` to use your wallet (free models and grant keys work without an account)")
+		return nil
+	}
+	fmt.Printf("logged in - wallet %s: $%.4f\n", b.User, b.Balance)
 	return nil
 }
 

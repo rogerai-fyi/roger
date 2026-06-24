@@ -162,11 +162,12 @@ func tuiLimits(cfg config) *tui.LimitStore {
 // so the in-TUI /share, /login, /topup, /grant flows are real actions.
 func tuiHooks(cfg config) tui.Hooks {
 	h := tui.Hooks{
-		NodeID:   hostname(),
-		HW:       detectHW(),
-		GitHubID: gitHubClientID(),
-		Login:    client.LoginReturn,
-		TopupURL: client.TopupURL,
+		NodeID:      hostname(),
+		HW:          detectHW(),
+		GitHubID:    gitHubClientID(),
+		LinkedLogin: client.LinkedLogin(), // "" when not logged in -> header shows the /login prompt
+		Login:       client.LoginReturn,
+		TopupURL:    client.TopupURL,
 		GrantCreate: func(broker, name string, free bool) (string, error) {
 			return client.GrantCreateSecret(broker, name, free)
 		},

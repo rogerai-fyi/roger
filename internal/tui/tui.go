@@ -34,6 +34,7 @@ type Hooks struct {
 	NodeID      string                                        // this node's id (hostname)
 	HW          string                                        // hardware label for the offer
 	GitHubID    string                                        // public GitHub OAuth client id (device flow)
+	LinkedLogin string                                        // the locally-linked GitHub login at startup ("" = anonymous)
 	ShareModel  string                                        // saved onboarding model (default offer)
 	SharePriceI float64                                       // saved input price (0 = free)
 	SharePriceO float64                                       // saved output price (0 = free)
@@ -171,6 +172,7 @@ const (
 	modeOverLimit      // 3.3 over-limit + inline edit-your-max
 	modeLimits         // 3.4 per-model spend limits
 	modeShare          // k9s-style provider table: list local models, toggle on/off-air
+	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -300,7 +302,8 @@ type model struct {
 	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
 	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
 	onAir     bool           // ON AIR indicator + panel (true while any share is live)
-	ghLogin   string         // linked GitHub login once /login succeeds
+	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
+	loggedIn  bool           // true when the broker confirms a real account wallet (gates the balance display)
 	grantList []GrantRow     // last /grant list result
 	// k9s-style SHARE / provider table (modeShare): one row per locally-detected
 	// model, each independently flippable on/off air. shares holds the live session
@@ -310,6 +313,7 @@ type model struct {
 	shareRows   []shareRow                // the provider table rows (detected models)
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
+	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
 }
 
 // shareRow is one model in the k9s-style provider table: a locally-detected model
@@ -321,7 +325,13 @@ type shareRow struct {
 
 // ---- messages ----
 type offersMsg []offer
-type balanceMsg float64
+
+// balanceMsg carries the wallet read: the balance plus whether the broker says the
+// caller is logged in (has a real account wallet). Balance is shown only when in.
+type balanceMsg struct {
+	balance  float64
+	loggedIn bool
+}
 type chatMsg struct {
 	reply, status string
 	cost          float64
@@ -351,6 +361,10 @@ func NewWith(broker, user string, limits *LimitStore) model {
 func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 	m := newBase(broker, user, limits)
 	m.hooks = hooks
+	// Reflect the locally-linked login at startup so the header shows the right state
+	// before the first /balance comes back. The broker's logged_in flag (from the
+	// signed balance read) is the source of truth and confirms it.
+	m.ghLogin = hooks.LinkedLogin
 	return m
 }
 
@@ -419,7 +433,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case balanceMsg:
-		m.balance, m.haveBal = float64(msg), true
+		m.loggedIn = msg.loggedIn
+		if msg.loggedIn {
+			m.balance, m.haveBal = msg.balance, true
+		} else {
+			// Anonymous: no wallet/balance to show.
+			m.balance, m.haveBal = 0, false
+		}
 		return m, nil
 	case chatMsg:
 		m.relaying = false
@@ -453,8 +473,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loginMsg:
 		m.ghLogin = string(msg)
-		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - you can now earn as a provider")
-		return m, nil
+		m.loggedIn = true
+		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - wallet ready, you can now earn as a provider")
+		// Refresh the wallet so the header flips to @login · $balance right away.
+		return m, fetchBalance(m.broker, m.user)
 	case topupMsg:
 		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
 		return m, nil
@@ -487,6 +509,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The quit-confirm modal owns every key while open (answer the on-air guard).
+	if m.mode == modeQuitConfirm {
+		switch k.String() {
+		case "y", "Y", "enter":
+			return m.quitNow()
+		default: // n/N/esc/anything else - stay on air, return to where we were
+			m.mode = m.quitReturn
+			m.status = stDim.Render("still on air - kept sharing")
+			return m, nil
+		}
+	}
+	// Ctrl+C is a global quit, intercepted everywhere so the on-air guard can fire
+	// (otherwise a text-input mode would swallow it). q/esc stay mode-specific below.
+	if k.String() == "ctrl+c" {
+		return m.requestQuit()
+	}
 	switch m.mode {
 	case modeCommand:
 		switch k.String() {
@@ -563,8 +601,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareKey(k)
 	default: // browse
 		switch k.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
+		case "q":
+			return m.requestQuit()
 		case "/", ":":
 			m.mode = modeCommand
 			m.cmd.Focus()
@@ -662,7 +700,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		sysLine("/model /clear /save /system <p> /cost /confidential /endpoint /help /quit · tab leaves channel")
 		return m, nil
 	case "quit", "q":
-		return m, tea.Quit
+		return m.requestQuit()
 	default:
 		sysLine("unknown: /" + cmd + " · /help for in-session commands")
 		return m, nil
@@ -690,6 +728,10 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 		m.status = "tune in to a station first (Enter)"
 	case "balance", "bal":
+		if !m.loggedInState() {
+			m.status = stDim.Render("not logged in - ") + stKey.Render("type /login") + stDim.Render(" to use your wallet")
+			return m, nil
+		}
 		if m.haveBal && m.balance <= 0 {
 			m.status = stEmber.Render("balance empty") + stDim.Render(" - ") + stKey.Render("/topup") + stDim.Render(" to add funds")
 		}
@@ -721,7 +763,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "help", "h":
 		m.mode = modeHelp
 	case "quit", "q":
-		return m, tea.Quit
+		return m.requestQuit()
 	default:
 		m.status = "unknown: /" + fields[0] + "  (try /help)"
 	}
@@ -832,6 +874,13 @@ func (m *model) toggleShareAt(i int) {
 	if row.model == m.hooks.ShareModel {
 		priceIn, priceOut = m.hooks.SharePriceI, m.hooks.SharePriceO
 	}
+	// Share-to-EARN needs an account: a priced share requires `rogerai login` (the
+	// broker 403s a priced node from an unlinked owner). Flash a clear login prompt
+	// instead of a failed start; free sharing stays open to anyone, no login.
+	if (priceIn > 0 || priceOut > 0) && !m.loggedInState() {
+		m.status = stEmber.Render("earning needs an account - ") + stKey.Render("type /login") + stDim.Render(" (free sharing works without one)")
+		return
+	}
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: m.shareUp, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
@@ -871,6 +920,35 @@ func (m *model) stopAllShares() {
 		delete(m.shares, mdl)
 	}
 	m.share, m.onAir = nil, false
+}
+
+// onAirCount is how many models are currently ON AIR (live shares). Drives the
+// quit-guard: quitting while > 0 must confirm going off air first.
+func (m model) onAirCount() int {
+	n := m.sharesOnAir()
+	if n == 0 && m.onAir && m.share != nil {
+		n = 1 // a legacy single-share session not tracked in the shares map
+	}
+	return n
+}
+
+// requestQuit is the single quit entry point. While ON AIR (sharing as a provider)
+// it does NOT quit immediately: it opens a confirm so the user knows quitting takes
+// them off air. Off air, quit is immediate. Returns the (model, cmd) to apply.
+func (m model) requestQuit() (tea.Model, tea.Cmd) {
+	if m.onAirCount() > 0 {
+		m.quitReturn = m.mode
+		m.mode = modeQuitConfirm
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
+// quitNow goes cleanly off air (releasing every share) and quits. Used when the
+// on-air quit-guard is confirmed.
+func (m *model) quitNow() (tea.Model, tea.Cmd) {
+	m.stopAllShares()
+	return m, tea.Quit
 }
 
 // onShareKey drives the k9s-style provider table: up/down (j/k) move the
@@ -991,6 +1069,13 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	bd := m.bands[m.cursor]
 	if !bd.online || bd.cheapest == nil {
 		m.status = stDim.Render("no station on air for " + bd.model + " - try /search")
+		return m, nil
+	}
+	// Anonymous = free models only. Tuning a PRICED band needs an account wallet:
+	// flash a clear inline login prompt instead of opening a confirm the broker would
+	// reject. A FREE band (minOut 0, or a free-now window) stays open to anyone.
+	if !m.loggedInState() && bd.minOut > 0 && !bd.free {
+		m.status = stEmber.Render("this band is paid - ") + stKey.Render("type /login") + stDim.Render(" to use your wallet (free bands work without an account)")
 		return m, nil
 	}
 	lim := m.limits.resolve(bd.model)
@@ -1273,6 +1358,8 @@ func (m model) View() string {
 		b.WriteString(m.limitsView(w))
 	case modeShare:
 		b.WriteString(m.shareView(w))
+	case modeQuitConfirm:
+		b.WriteString(m.quitConfirmView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
@@ -1306,6 +1393,19 @@ func (m model) promptLine(w int) string {
 		hint = "/ command · ⏎ tune in"
 	}
 	return stPrompt.Render("  rog › ") + stDim.Render(hint)
+}
+
+// quitConfirmView is the on-air quit-guard: a clear "you are ON AIR - quit and go
+// off air?" prompt with the SAFE default on NO (keep sharing). Shown only while at
+// least one model is live (requestQuit gates entry).
+func (m model) quitConfirmView(w int) string {
+	n := m.onAirCount()
+	body := stRed.Render("● ON AIR") + stDim.Render(" - you are sharing ") +
+		stKey.Render(fmt.Sprintf("%d model(s)", n)) + "\n\n" +
+		"  You are ON AIR sharing " + stKey.Render(fmt.Sprintf("%d model(s)", n)) +
+		stDim.Render(" - quit and go off air? ") + stEmber.Render("[y/N]") + "\n\n" +
+		stDim.Render("  y quits + goes off air cleanly · n / esc keeps you on air")
+	return "\n" + stPanel.Render(body) + "\n"
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -1520,7 +1620,7 @@ func (m model) header(w int) string {
 		bar := stGold.Render("◆") + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
-			stDim.Render(" · bal ") + stEmber.Render(m.balDollars()) +
+			stDim.Render(" · ") + m.accountTag(true) +
 			"  " + tintSignal(signalBarsRaw(m.frame, o.TPS, true), o.TPS, true)
 		return bar + "\n" + rule
 	}
@@ -1551,7 +1651,7 @@ func (m model) header(w int) string {
 	if m.connected != nil {
 		state = stGold.Render("  ◆ ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render(" · bal ") + stEmber.Render(m.balDollars()) + stDim.Render("  ([m] minimize)")
+			stDim.Render(" · ") + m.accountTag(m.narrow()) + stDim.Render("  ([m] minimize)")
 	} else {
 		on := countOnline(m.offers)
 		summary := "scanning the band…"
@@ -1560,9 +1660,10 @@ func (m model) header(w int) string {
 		}
 		// The beacon in the lockup above already carries the (( • )) motif, so the
 		// state line drops its literal ((•)) prefix - exactly one on-air mark in the
-		// header (TUI-V2-CRITIQUE C).
+		// header (TUI-V2-CRITIQUE C). The account lockup carries login state + balance;
+		// the balance only appears when logged in.
 		state = stDim.Render("  ") + stDim.Render(summary) +
-			stDim.Render(" · balance ") + stEmber.Render(m.balDollars())
+			stDim.Render(" · ") + m.accountTag(m.narrow())
 	}
 	return top + "\n" + state + "\n" + rule
 }
@@ -1594,6 +1695,38 @@ func (m model) balDollars() string {
 		return "-"
 	}
 	return dollars(m.balance)
+}
+
+// loggedInState reports whether the user has a real account wallet: the broker's
+// logged_in flag, or (before the first balance comes back) a locally-linked login.
+func (m model) loggedInState() bool { return m.loggedIn || m.ghLogin != "" }
+
+// accountTag renders the header/footer account lockup: logged in shows
+// "◆ @login · $balance"; anonymous shows a calm, steady "not logged in · /login to
+// use your wallet" prompt (no balance number is ever shown when anonymous). When
+// `compact` is set it drops to a terser form for the thin bar / narrow widths.
+func (m model) accountTag(compact bool) string {
+	if !m.loggedInState() {
+		if compact {
+			return stKey.Render("/login")
+		}
+		return stDim.Render("not logged in · ") + stKey.Render("/login") + stDim.Render(" to use your wallet")
+	}
+	// Compact (thin bar / narrow footer): just the balance ($), the load-bearing bit.
+	if compact {
+		if !m.haveBal {
+			return stGold.Render("◆")
+		}
+		return stEmber.Render(dollars(m.balance))
+	}
+	who := stGold.Render("◆") + stDim.Render(" logged in")
+	if m.ghLogin != "" {
+		who = stGold.Render("◆") + stDim.Render(" @") + stSelText.Render(m.ghLogin)
+	}
+	if !m.haveBal {
+		return who
+	}
+	return who + stDim.Render(" · ") + stEmber.Render(dollars(m.balance))
 }
 
 func (m model) browseView(w int) string {
@@ -2104,26 +2237,32 @@ func (m model) footer(w int) string {
 		if m.narrow() {
 			left = stDim.Render("⏎/y accept · esc/n deny · d detail")
 		}
-		right := stEmber.Render("bal " + m.balDollars())
-		return modalFooter(m.effWidth(), left, right, m.status)
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeOverLimit:
 		left = stDim.Render("⏎ save & re-check  ·  ↑↓ nudge  ·  w wait  ·  esc deny")
 		if m.narrow() {
 			left = stDim.Render("⏎ save · ↑↓ nudge · w wait · esc")
 		}
-		return modalFooter(m.effWidth(), left, stEmber.Render("bal "+m.balDollars()), m.status)
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeLimits:
 		left = stDim.Render("↑↓ move  ·  ⏎ edit  ·  tab field  ·  d clear  ·  esc done")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎ edit · tab · d · esc")
 		}
-		return modalFooter(m.effWidth(), left, stEmber.Render("bal "+m.balDollars()), m.status)
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:
 		left = stDim.Render("↑↓/jk move  ·  ⏎/a toggle on-air  ·  r re-detect  ·  esc done")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎/a on-air · r · esc")
 		}
 		right := stRed.Render(fmt.Sprintf("%d on air", m.sharesOnAir()))
+		return modalFooter(m.effWidth(), left, right, m.status)
+	case modeQuitConfirm:
+		left = stDim.Render("y quit + go off air  ·  n/esc stay on air")
+		if m.narrow() {
+			left = stDim.Render("y quit · n/esc stay")
+		}
+		right := stRed.Render(fmt.Sprintf("%d on air", m.onAirCount()))
 		return modalFooter(m.effWidth(), left, right, m.status)
 	}
 	if m.mode == modeChat {
@@ -2145,7 +2284,7 @@ func (m model) footer(w int) string {
 	if m.confidentialOnly {
 		confMode = stGold.Render("◆conf-only") + "  "
 	}
-	right := confMode + stEmber.Render("bal "+m.balDollars()) + "  " + stDim.Render(m.broker)
+	right := confMode + m.accountTag(true) + "  " + stDim.Render(m.broker)
 	st := ""
 	if m.status != "" {
 		st = "\n" + stDim.Render("  ") + m.status
@@ -2164,7 +2303,7 @@ func (m model) footer(w int) string {
 	if gap < 1 {
 		// Wide-ish but the broker URL pushes past the edge: drop it (keep the
 		// balance, which is the load-bearing half) so the line fits.
-		right = confMode + stEmber.Render("bal "+m.balDollars())
+		right = confMode + m.accountTag(true)
 		gap = w - lipgloss.Width(left) - lipgloss.Width(right)
 		if gap < 1 {
 			return rule + "\n" + left + "\n" + right + st // last resort: stack
@@ -2356,10 +2495,11 @@ func fetchBalance(broker, user string) tea.Cmd {
 		}
 		defer resp.Body.Close()
 		var b struct {
-			Balance float64 `json:"balance"`
+			Balance  float64 `json:"balance"`
+			LoggedIn bool    `json:"logged_in"`
 		}
 		json.NewDecoder(resp.Body).Decode(&b)
-		return balanceMsg(b.Balance)
+		return balanceMsg{balance: b.Balance, loggedIn: b.LoggedIn}
 	}
 }
 

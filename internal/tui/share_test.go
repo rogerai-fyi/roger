@@ -20,7 +20,7 @@ func TestShareViewNarrowSafe(t *testing.T) {
 			{model: "qwen3-coder-30b-a3b-instruct", ctx: 32768},
 		}
 		var m tea.Model = mm
-		m, _ = m.Update(balanceMsg(5))
+		m, _ = m.Update(balanceMsg{balance: 5, loggedIn: true})
 		m, _ = m.Update(tickMsg{})
 		for _, line := range strings.Split(m.View(), "\n") {
 			if vis := utf8.RuneCountInString(stripANSI(line)); vis > w {
