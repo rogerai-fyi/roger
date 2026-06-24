@@ -114,7 +114,12 @@ html.js [data-reveal] {
   opacity: 0; transform: translateY(16px);
   transition: opacity var(--d-4) var(--ease-out-quint), transform var(--d-4) var(--ease-out-quint);
 }
-[data-reveal].is-revealed { opacity: 1; transform: none; }
+/* Must out-specify `html.js [data-reveal]` above (specificity 0,2,1): scope the
+   revealed rule under `html.js` too so this (0,3,1) selector wins and content
+   actually becomes visible once `is-revealed` lands. Without the `html.js`
+   prefix the hide rule kept opacity:0 even after reveal and the page rendered
+   blank. */
+html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html.js [data-reveal] { opacity: 1; transform: none; transition: none; }
 }
