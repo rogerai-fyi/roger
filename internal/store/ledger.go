@@ -36,15 +36,15 @@ const (
 
 // LedgerRow is one append-only money event.
 type LedgerRow struct {
-	ID       int64   `json:"id"`
-	Holder   string  `json:"holder"` // wallet id (consumer) or account id (operator)
-	Side     string  `json:"side"`   // "consumer" | "operator"
-	Kind     string  `json:"kind"`
-	Amount   float64 `json:"amount"` // signed: +credit to holder, -debit
-	IdemKey  string  `json:"idem_key,omitempty"`
-	State    string  `json:"state"`
-	Ref      string  `json:"ref,omitempty"` // request id / stripe id
-	TS       int64   `json:"ts"`            // unix seconds
+	ID      int64   `json:"id"`
+	Holder  string  `json:"holder"` // wallet id (consumer) or account id (operator)
+	Side    string  `json:"side"`   // "consumer" | "operator"
+	Kind    string  `json:"kind"`
+	Amount  float64 `json:"amount"` // signed: +credit to holder, -debit
+	IdemKey string  `json:"idem_key,omitempty"`
+	State   string  `json:"state"`
+	Ref     string  `json:"ref,omitempty"` // request id / stripe id
+	TS      int64   `json:"ts"`            // unix seconds
 }
 
 // Earning lifecycle states (rogerai.earning_lots).
@@ -73,11 +73,11 @@ type EarningLot struct {
 // EarningSplit is the held/reserved/payable/paid breakdown an operator sees, derived
 // from the lots as of a given clock.
 type EarningSplit struct {
-	Held      float64 `json:"held"`      // not yet releasable (gross-minus-reserve still inside hold)
-	Reserved  float64 `json:"reserved"`  // reserve portion not yet released
-	Payable   float64 `json:"payable"`   // releasable now, not yet paid
-	Paid      float64 `json:"paid"`      // lifetime transferred out
-	NextRelease int64 `json:"next_release"` // unix of the soonest upcoming release (0 = none)
+	Held        float64 `json:"held"`         // not yet releasable (gross-minus-reserve still inside hold)
+	Reserved    float64 `json:"reserved"`     // reserve portion not yet released
+	Payable     float64 `json:"payable"`      // releasable now, not yet paid
+	Paid        float64 `json:"paid"`         // lifetime transferred out
+	NextRelease int64   `json:"next_release"` // unix of the soonest upcoming release (0 = none)
 }
 
 // Payout is one requested transfer (one Stripe Transfer per operator per run).
