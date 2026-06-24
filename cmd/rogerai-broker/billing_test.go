@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +140,122 @@ func TestStripeSigReplayWindow(t *testing.T) {
 	// Empty secret (billing not configured) -> never verifies.
 	if verifyStripeSig(stripeSig(payload, secret, now), payload, "") {
 		t.Error("an empty secret must never verify")
+	}
+}
+
+// TestLoadBillingProdFlag locks the fail-closed production guard in loadBilling:
+//
+//	(a) an sk_live key -> billing ENABLED in LIVE mode;
+//	(b) an sk_test key with ROGERAI_REQUIRE_LIVE unset -> ENABLED in test mode
+//	    (so dev/local test keys keep working);
+//	(c) ROGERAI_REQUIRE_LIVE=1 + a non-sk_live key -> billing DISABLED (secretKey
+//	    AND webhookSecret cleared) so test cards can never run in production;
+//	(d) an empty key -> DISABLED.
+//
+// This is the regression lock for the test-card-in-prod exploit fix.
+func TestLoadBillingProdFlag(t *testing.T) {
+	// mode reports the human-readable mode loadBilling would log for b.
+	mode := func(b billing) string {
+		switch {
+		case b.secretKey == "":
+			return "disabled"
+		case strings.HasPrefix(b.secretKey, "sk_live"):
+			return "LIVE"
+		default:
+			return "test"
+		}
+	}
+
+	t.Run("sk_live key enables LIVE mode", func(t *testing.T) {
+		t.Setenv("ROGERAI_REQUIRE_LIVE", "")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_live_realprodkey")
+		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_live")
+		b := loadBilling()
+		if b.secretKey == "" {
+			t.Fatal("sk_live key must enable billing, got disabled")
+		}
+		if got := mode(b); got != "LIVE" {
+			t.Errorf("mode = %q, want LIVE", got)
+		}
+		if b.webhookSecret != "whsec_live" {
+			t.Errorf("webhookSecret = %q, want whsec_live (preserved)", b.webhookSecret)
+		}
+	})
+
+	t.Run("sk_test key without REQUIRE_LIVE enables test mode", func(t *testing.T) {
+		t.Setenv("ROGERAI_REQUIRE_LIVE", "")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_test_devkey")
+		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+		b := loadBilling()
+		if b.secretKey != "sk_test_devkey" {
+			t.Fatalf("sk_test key must enable billing locally, secretKey=%q", b.secretKey)
+		}
+		if got := mode(b); got != "test" {
+			t.Errorf("mode = %q, want test", got)
+		}
+		if b.webhookSecret != "whsec_test" {
+			t.Errorf("webhookSecret = %q, want whsec_test (preserved)", b.webhookSecret)
+		}
+	})
+
+	t.Run("REQUIRE_LIVE plus non-live key disables billing (fail closed)", func(t *testing.T) {
+		t.Setenv("ROGERAI_REQUIRE_LIVE", "1")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_test_devkey")
+		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+		b := loadBilling()
+		if b.secretKey != "" {
+			t.Errorf("REQUIRE_LIVE + sk_test must clear secretKey (fail closed), got %q", b.secretKey)
+		}
+		if b.webhookSecret != "" {
+			t.Errorf("REQUIRE_LIVE + sk_test must ALSO clear webhookSecret, got %q", b.webhookSecret)
+		}
+	})
+
+	t.Run("REQUIRE_LIVE plus sk_live key stays enabled", func(t *testing.T) {
+		t.Setenv("ROGERAI_REQUIRE_LIVE", "1")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_live_realprodkey")
+		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_live")
+		b := loadBilling()
+		if got := mode(b); got != "LIVE" {
+			t.Errorf("REQUIRE_LIVE + sk_live must stay LIVE, mode=%q key=%q", got, b.secretKey)
+		}
+	})
+
+	t.Run("empty key disables billing", func(t *testing.T) {
+		t.Setenv("ROGERAI_REQUIRE_LIVE", "")
+		t.Setenv("STRIPE_SECRET_KEY", "")
+		t.Setenv("STRIPE_WEBHOOK_SECRET", "")
+		b := loadBilling()
+		if b.secretKey != "" {
+			t.Errorf("empty key must disable billing, got %q", b.secretKey)
+		}
+		if got := mode(b); got != "disabled" {
+			t.Errorf("mode = %q, want disabled", got)
+		}
+	})
+}
+
+// TestRequireLive verifies the requireLive() truth table: only an explicit truthy
+// value (1/true/yes/on, case-insensitive) opts into production; everything else,
+// including an unset or empty value, is OFF (so prod is never inferred).
+func TestRequireLive(t *testing.T) {
+	on := []string{"1", "true", "TRUE", "yes", "YES", "on", "On"}
+	for _, v := range on {
+		t.Run("on/"+v, func(t *testing.T) {
+			t.Setenv("ROGERAI_REQUIRE_LIVE", v)
+			if !requireLive() {
+				t.Errorf("ROGERAI_REQUIRE_LIVE=%q should be live", v)
+			}
+		})
+	}
+	off := []string{"", "0", "false", "no", "off", "garbage"}
+	for _, v := range off {
+		t.Run("off/"+v, func(t *testing.T) {
+			t.Setenv("ROGERAI_REQUIRE_LIVE", v)
+			if requireLive() {
+				t.Errorf("ROGERAI_REQUIRE_LIVE=%q should NOT be live", v)
+			}
+		})
 	}
 }
 

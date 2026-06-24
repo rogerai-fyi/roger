@@ -246,3 +246,113 @@ func TestPayoutTransfersRecordedAmount(t *testing.T) {
 		t.Errorf("idempotency key = %q, want payout:%d", gotIdem, out.Payout.ID)
 	}
 }
+
+// TestPayoutPolicyDefaults asserts loadConnect adopts the Option A policy defaults
+// when no ROGERAI_PAYOUT_* env is set: a 90-day hold, $25 minimum, monthly schedule,
+// and a ZERO reserve (no separate rolling-reserve bucket). This is the broker-side
+// guard that the founder-approved payout policy ships unchanged.
+func TestPayoutPolicyDefaults(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "")
+	t.Setenv("ROGERAI_PAYOUT_SCHEDULE", "")
+	c := loadConnect()
+	if c.policy.HoldDays != 90 {
+		t.Errorf("HoldDays = %d, want 90", c.policy.HoldDays)
+	}
+	if c.policy.MinPayout != 25 {
+		t.Errorf("MinPayout = %v, want 25", c.policy.MinPayout)
+	}
+	if c.policy.Schedule != "monthly" {
+		t.Errorf("Schedule = %q, want monthly", c.policy.Schedule)
+	}
+	if c.policy.Reserve != 0 {
+		t.Errorf("Reserve = %v, want 0 (Option A: no separate reserve)", c.policy.Reserve)
+	}
+}
+
+// TestPayoutLedgerRollbackEndToEnd drives the full payoutsRequest rail twice through
+// the HTTP handler and asserts the LEDGER invariants the rollback rests on:
+//   - a transfer FAILURE reverses the payout ledger row (StateReversed) and marks the
+//     payout FAILED - so there is never a completed transfer without a posted payout
+//     row, nor a posted debit without a completed transfer;
+//   - a retried transfer SUCCESS writes a fresh POSTED payout ledger row debiting
+//     exactly the transferred amount, stamped with the real transfer id.
+func TestPayoutLedgerRollbackEndToEnd(t *testing.T) {
+	// Zero hold + zero reserve so the earning is payable at time.Now() (the handler
+	// reads the clock internally). Store loads policy at NewMem -> set env first.
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	_ = db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: "pk1"})
+	_ = db.BindNode("n", "pk1")
+	b := &broker{priv: priv, db: db, seedFunds: 0, conn: loadConnect()}
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	b.bill.creditUSD = 1
+
+	// Accrue 40 payable for the operator.
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 40)
+	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
+
+	// --- FAILURE: the only payout ledger row must end up REVERSED ----------------
+	b.conn.transfer = func(dest string, cents int64, idem string) (string, error) {
+		return "", errStripeTransfer
+	}
+	wf := httptest.NewRecorder()
+	b.payoutsRequest(wf, sessionReq(b, http.MethodPost, "/payouts/request", "octocat", 7))
+	if wf.Code != http.StatusBadGateway {
+		t.Fatalf("failed transfer = %d, want 502", wf.Code)
+	}
+	led, _ := db.LedgerOf("pk1", []string{store.KindPayout}, 10)
+	if len(led) != 1 {
+		t.Fatalf("after failed transfer: %d payout ledger rows, want 1", len(led))
+	}
+	if led[0].State != store.StateReversed {
+		t.Errorf("failed-transfer payout ledger row state = %q, want reversed (no posted debit without a completed transfer)", led[0].State)
+	}
+
+	// --- SUCCESS (retry): a fresh POSTED row debiting exactly the transferred amount
+	var gotCents int64
+	b.conn.transfer = func(dest string, cents int64, idem string) (string, error) {
+		gotCents = cents
+		return "tr_ok_2", nil
+	}
+	ws := httptest.NewRecorder()
+	b.payoutsRequest(ws, sessionReq(b, http.MethodPost, "/payouts/request", "octocat", 7))
+	if ws.Code != http.StatusOK {
+		t.Fatalf("retry payout = %d, want 200 body=%s", ws.Code, ws.Body.String())
+	}
+	var out struct {
+		Payout store.Payout `json:"payout"`
+	}
+	_ = json.Unmarshal(ws.Body.Bytes(), &out)
+
+	led2, _ := db.LedgerOf("pk1", []string{store.KindPayout}, 10)
+	// Find the posted row; assert exactly one posted row, stamped with the transfer id,
+	// debiting the transferred amount (no completed transfer without a recorded payout).
+	var posted *store.LedgerRow
+	postedCount := 0
+	for i := range led2 {
+		if led2[i].State == store.StatePosted {
+			postedCount++
+			posted = &led2[i]
+		}
+	}
+	if postedCount != 1 || posted == nil {
+		t.Fatalf("after success: %d posted payout rows, want exactly 1 (rows=%+v)", postedCount, led2)
+	}
+	wantAmount := -out.Payout.Amount
+	if posted.Amount != wantAmount {
+		t.Errorf("posted payout debit = %v, want %v (the transferred amount)", posted.Amount, wantAmount)
+	}
+	if posted.Ref != "tr_ok_2" {
+		t.Errorf("settled payout ledger row ref = %q, want the transfer id tr_ok_2", posted.Ref)
+	}
+	wantCents := int64(out.Payout.Amount*b.bill.creditUSD*100 + 0.5)
+	if gotCents != wantCents {
+		t.Errorf("transferred %d cents, recorded amount = %d cents - must match", gotCents, wantCents)
+	}
+}
