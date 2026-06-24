@@ -97,6 +97,23 @@ type Store interface {
 	// NodesOfAccount returns the node ids bound to an operator account (owner pubkey).
 	NodesOfAccount(accountID string) ([]string, error)
 
+	// --- node registry persistence (survives broker restarts) ---------------
+
+	// UpsertNode persists (or refreshes) a node's registration so the broker's
+	// in-memory registry can be RE-HYDRATED after a restart/redeploy. Keyed on
+	// NodeID; the full record (pubkey, offers+pricing, HW, region, confidential,
+	// bridge token, last_seen) is upserted on every register. registered_at is set
+	// once (first insert) and preserved on refresh. This is what stops a redeploy
+	// from wiping the registry and 404ing every still-running provider forever.
+	UpsertNode(n NodeRecord) error
+	// TouchNode bumps a persisted node's last_seen to `seen` WITHOUT a full
+	// re-register, so an ongoing heartbeat/poll keeps the durable liveness fresh
+	// (and a restart re-hydrates a recent last_seen, not a stale one). No-op if the
+	// node was never registered. Cheap: a single indexed UPDATE.
+	TouchNode(nodeID string, seen time.Time) error
+	// AllNodes returns every persisted node record (for startup re-hydration).
+	AllNodes() ([]NodeRecord, error)
+
 	// --- account hub (ACCOUNT-PAYOUTS-DESIGN) -------------------------------
 
 	// OwnerByLogin returns the owner with the given GitHub login, ok=false if none.
@@ -207,6 +224,21 @@ type Owner struct {
 	Anonymized    bool   `json:"anonymized,omitempty"`
 }
 
+// NodeRecord is a persisted node registration - the durable copy of the broker's
+// in-memory registry entry, written on every register and re-hydrated on startup
+// so a broker restart/redeploy does NOT wipe who is registered. It carries enough
+// to reconstruct the live entry (the protocol.NodeRegistration, the confidential
+// verdict, and the last_seen for a short liveness grace across the restart window).
+// The bridge token is stored so a re-hydrated node can still AUTH its ongoing
+// heartbeat/poll without re-registering.
+type NodeRecord struct {
+	NodeID       string                    `json:"node_id"`
+	Reg          protocol.NodeRegistration `json:"reg"` // pubkey, offers+pricing, HW, region, bridge token, attestation
+	Confidential bool                      `json:"confidential"`
+	LastSeen     int64                     `json:"last_seen"`     // unix seconds (for the restart-window grace)
+	RegisteredAt int64                     `json:"registered_at"` // unix seconds (set once, preserved on refresh)
+}
+
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
 	mu        sync.Mutex
@@ -218,17 +250,18 @@ type Mem struct {
 	owners    map[string]Owner // keyed by pubkey
 	policy    PayoutPolicy
 
-	ledger   []LedgerRow       // append-only money events
-	ledgerID int64             // monotonic ledger id
-	idem     map[string]bool   // ledger idem keys seen
-	lots     []EarningLot      // operator earning lifecycle lots
-	lotID    int64             // monotonic lot id
-	payouts  []Payout          // payout history
-	payoutID int64             // monotonic payout id
-	disputes map[string]bool   // seen stripe dispute ids (idempotency)
-	nodeAcct map[string]string // node id -> owner pubkey (TOFU)
-	charges  map[string]charge // stripe payment_intent/charge id -> checkout mapping
-	gs       *grantStore       // grant keys + per-grant usage rollups
+	ledger   []LedgerRow           // append-only money events
+	ledgerID int64                 // monotonic ledger id
+	idem     map[string]bool       // ledger idem keys seen
+	lots     []EarningLot          // operator earning lifecycle lots
+	lotID    int64                 // monotonic lot id
+	payouts  []Payout              // payout history
+	payoutID int64                 // monotonic payout id
+	disputes map[string]bool       // seen stripe dispute ids (idempotency)
+	nodeAcct map[string]string     // node id -> owner pubkey (TOFU)
+	charges  map[string]charge     // stripe payment_intent/charge id -> checkout mapping
+	gs       *grantStore           // grant keys + per-grant usage rollups
+	nodes    map[string]NodeRecord // persisted node registry (re-hydrated on restart)
 
 	// Seed cap: bound free-credit liability. seedLimit is the max number of distinct
 	// wallets ever seeded with non-zero starter credits (<=0 = unlimited); seedCount
@@ -252,7 +285,7 @@ func NewMem() *Mem {
 		wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
-		charges: map[string]charge{}, gs: newGrantStore(),
+		charges: map[string]charge{}, gs: newGrantStore(), nodes: map[string]NodeRecord{},
 	}
 }
 
@@ -591,6 +624,41 @@ func (m *Mem) NodesOfAccount(accountID string) ([]string, error) {
 		if a == accountID {
 			out = append(out, n)
 		}
+	}
+	return out, nil
+}
+
+func (m *Mem) UpsertNode(n NodeRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.nodes == nil {
+		m.nodes = map[string]NodeRecord{}
+	}
+	if prev, ok := m.nodes[n.NodeID]; ok && prev.RegisteredAt != 0 {
+		n.RegisteredAt = prev.RegisteredAt // preserve the first-register time on refresh
+	} else if n.RegisteredAt == 0 {
+		n.RegisteredAt = time.Now().Unix()
+	}
+	m.nodes[n.NodeID] = n
+	return nil
+}
+
+func (m *Mem) TouchNode(nodeID string, seen time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.nodes[nodeID]; ok { // no-op if the node was never registered
+		r.LastSeen = seen.Unix()
+		m.nodes[nodeID] = r
+	}
+	return nil
+}
+
+func (m *Mem) AllNodes() ([]NodeRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]NodeRecord, 0, len(m.nodes))
+	for _, r := range m.nodes {
+		out = append(out, r)
 	}
 	return out, nil
 }

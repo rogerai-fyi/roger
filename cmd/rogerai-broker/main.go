@@ -47,6 +47,7 @@ type broker struct {
 	tps          map[string]float64 // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
 	metricsMu    sync.Mutex            // guards the per-node market metrics below
+	lastPersist  map[string]time.Time  // last time a node's last_seen was flushed to the store (throttle)
 	inflight     map[string]int        // in-flight (active) requests per node
 	success      map[string]float64    // EWMA success rate per node (0..1)
 	trust        map[string]trustState // L1 re-count + probe trust/quality per node
@@ -129,8 +130,13 @@ func main() {
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
-		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
+		lastPersist: map[string]time.Time{},
+		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
+	// Re-hydrate the in-memory node registry from the store so a restart/redeploy
+	// does NOT wipe registrations: a still-running provider reappears once its next
+	// heartbeat re-confirms liveness, instead of being gone until a manual restart.
+	b.rehydrateNodes()
 	b.bill = loadBilling()
 	b.conn = loadConnect()
 	b.mod = loadModeration()

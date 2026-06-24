@@ -13,7 +13,17 @@ import (
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/store"
 )
+
+// nodeTTL is how long after a node's last heartbeat/poll it is still considered
+// ON AIR. It is the single source of truth for liveness in pick + discover. Set a
+// bit above the node's ~10s heartbeat cadence with headroom for a broker
+// restart/redeploy window: a still-running provider keeps heartbeating every ~10s,
+// so it re-confirms liveness against the re-hydrated registration within seconds of
+// the broker coming back, WITHOUT re-registering. 45s tolerates ~4 missed beats /
+// the redeploy gap while staying truthful (a genuinely dead node still ages out).
+const nodeTTL = 45 * time.Second
 
 // nodeTunnel is the broker's per-node relay state: a buffered job queue the node
 // long-polls, and the set of result waiters keyed by job id. The token is the
@@ -96,17 +106,102 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "node_id already bound to a different key")
 		return
 	}
+	now := time.Now()
 	b.nodes[reg.NodeID] = reg
-	b.lastSeen[reg.NodeID] = time.Now()
-	b.confidential[reg.NodeID] = reg.Confidential && verifyAttestation(reg.Attestation)
+	b.lastSeen[reg.NodeID] = now
+	confidential := reg.Confidential && verifyAttestation(reg.Attestation)
+	b.confidential[reg.NodeID] = confidential
 	if t := b.tunnels[reg.NodeID]; t == nil {
 		b.tunnels[reg.NodeID] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
 	} else {
 		t.token = reg.BridgeToken
 	}
 	b.mu.Unlock()
+	// Persist the registration so a broker restart/redeploy RE-HYDRATES this node
+	// instead of wiping it (older providers that don't auto-re-register would 404
+	// forever otherwise). Best-effort: a persistence error must not fail the live
+	// registration (the node is already serving from memory) - log and continue.
+	if b.db != nil {
+		if err := b.db.UpsertNode(store.NodeRecord{
+			NodeID: reg.NodeID, Reg: reg, Confidential: confidential, LastSeen: now.Unix(),
+		}); err != nil {
+			log.Printf("persist node %s failed: %v (registration still live in memory)", reg.NodeID, err)
+		}
+	}
 	log.Printf("registered node %s (%d offers, %s)", reg.NodeID, len(reg.Offers), reg.HW)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// persistThrottle is how often a node's last_seen is flushed to the store from the
+// hot heartbeat/poll path. The in-memory lastSeen is updated EVERY beat (liveness is
+// always exact in memory); the durable copy only needs to be recent enough that a
+// re-hydrate after a restart lands within the TTL grace, so we coalesce DB writes.
+const persistThrottle = 20 * time.Second
+
+// markSeen refreshes a node's liveness on a heartbeat/poll. The in-memory lastSeen
+// is bumped every call (so pick/discover are always exact); the durable last_seen is
+// flushed at most once per persistThrottle per node (TouchNode is a no-op for an
+// unknown/unpersisted node), keeping the DB write rate low while still giving a
+// re-hydrated node a recent last_seen across a restart window.
+func (b *broker) markSeen(node string) {
+	now := time.Now()
+	b.mu.Lock()
+	b.lastSeen[node] = now
+	b.mu.Unlock()
+	if b.db == nil {
+		return // no durable store (e.g. a minimal test broker): in-memory liveness is enough
+	}
+	b.metricsMu.Lock()
+	if b.lastPersist == nil {
+		b.lastPersist = map[string]time.Time{}
+	}
+	flush := now.Sub(b.lastPersist[node]) >= persistThrottle
+	if flush {
+		b.lastPersist[node] = now
+	}
+	b.metricsMu.Unlock()
+	if flush {
+		if err := b.db.TouchNode(node, now); err != nil {
+			log.Printf("touch node %s last_seen failed: %v", node, err)
+		}
+	}
+}
+
+// rehydrateNodes loads the persisted node registry into the in-memory maps at
+// startup so a broker restart/redeploy does NOT lose registrations. Liveness stays
+// TRUTHFUL: a re-hydrated node is seeded with its PERSISTED last_seen (not "now"),
+// so it is only treated as on-air if that timestamp is still within nodeTTL - a node
+// that was already dead before the restart does NOT come back as falsely on-air. A
+// still-running provider keeps heartbeating (~10s), so it re-confirms liveness within
+// seconds via markSeen WITHOUT re-registering. The tunnel is rebuilt with the stored
+// bridge token so the node's ongoing heartbeat/poll still authenticates.
+func (b *broker) rehydrateNodes() {
+	recs, err := b.db.AllNodes()
+	if err != nil {
+		log.Printf("re-hydrate node registry failed: %v (starting with an empty registry)", err)
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, rec := range recs {
+		reg := rec.Reg
+		if reg.NodeID == "" {
+			reg.NodeID = rec.NodeID
+		}
+		b.nodes[reg.NodeID] = reg
+		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
+		b.confidential[reg.NodeID] = rec.Confidential
+		if b.tunnels[reg.NodeID] == nil {
+			b.tunnels[reg.NodeID] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
+		} else {
+			b.tunnels[reg.NodeID].token = reg.BridgeToken
+		}
+		n++
+	}
+	if n > 0 {
+		log.Printf("re-hydrated %d node registration(s) from the store (liveness re-confirmed on next heartbeat)", n)
+	}
 }
 
 // offersPriced reports whether any offer advertises a nonzero price (in its base
@@ -153,9 +248,7 @@ func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	b.mu.Lock()
-	b.lastSeen[m.NodeID] = time.Now()
-	b.mu.Unlock()
+	b.markSeen(m.NodeID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -177,9 +270,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	b.mu.Lock()
-	b.lastSeen[node] = time.Now()
-	b.mu.Unlock()
+	b.markSeen(node)
 	select {
 	case job := <-t.jobs:
 		_ = json.NewEncoder(w).Encode(job)
@@ -670,7 +761,7 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 	bestFailing := false // whether `best` is a probe-failing node (deprioritized)
 	now := time.Now()
 	for _, n := range b.nodes {
-		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
 		if pin != "" && n.NodeID != pin {

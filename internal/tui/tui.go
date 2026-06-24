@@ -2826,7 +2826,7 @@ func (m model) View() string {
 	// COMPACT drops the bordered panel to a one-line status (density + width-safety).
 	if m.onAir && m.share != nil && (m.mode == modeBrowse || m.mode == modeCommand) {
 		if m.compact {
-			b.WriteString("\n" + truncVisible("  "+stRed.Render(glyphOnAir+" ON AIR")+stDim.Render(" · ")+stKey.Render(m.share.Model())+stDim.Render(" · /share off"), w))
+			b.WriteString("\n" + truncVisible("  "+linkBadge(m.share)+stDim.Render(" · ")+stKey.Render(m.share.Model())+stDim.Render(" · /share off"), w))
 		} else {
 			b.WriteString("\n" + m.onAirPanel(w))
 		}
@@ -3296,8 +3296,8 @@ func (m model) compactHeader(w int) string {
 			section = "SHARE"
 		}
 		state := stKey.Render(section) + sep + stDim.Render(summary)
-		if m.onAir {
-			state = stRed.Render(glyphOnAir+" ON AIR") + sep + state
+		if m.onAir && m.share != nil {
+			state = m.headlineBadge() + sep + state
 		}
 		mid = state
 	}
@@ -3405,8 +3405,8 @@ func (m model) header(w int) string {
 	if !m.narrow() {
 		badge += stDim.Render("  ·  ") + stDim.Render("mode ") + stSelText.Render(m.modeName())
 	}
-	if m.onAir {
-		badge = stRed.Render(glyphOnAir+" ON AIR") + stDim.Render("  ·  ") + badge
+	if m.onAir && m.share != nil {
+		badge = m.headlineBadge() + stDim.Render("  ·  ") + badge
 	}
 	var top string
 	if m.narrow() {
@@ -4375,6 +4375,41 @@ func (m model) endpointPanel(w int) string {
 
 // onAirPanel renders the live ON AIR provider instrument: model, price,
 // connections served, and running earnings in $, with an off-air hint.
+// linkBadge renders the TRUTHFUL provider status from the session's broker link
+// state: a real "ON AIR" ONLY while the broker is accepting our heartbeats (200),
+// "RECONNECTING" while heartbeats are failing/rejected/unreachable (we are NOT
+// routable, so we must not claim on-air), and "connecting" in the brief opening
+// window before the first heartbeat is acknowledged. NO_COLOR / narrow safe: the
+// plain words carry the meaning, the glyph + color are decoration.
+func linkBadge(s *agent.Session) string {
+	switch s.Link() {
+	case agent.LinkOnAir:
+		return stRed.Render(glyphOnAir + " ON AIR")
+	case agent.LinkReconnecting:
+		return stEmber.Render(glyphOffAir+" RECONNECTING") + stDim.Render(" - broker not acknowledging")
+	default: // LinkConnecting
+		return stDim.Render(glyphOffAir + " connecting…")
+	}
+}
+
+// headlineBadge is the terse header on-air indicator for the headline share session.
+// Truthful: it reads the broker LINK state, so the header shows "ON AIR" only while
+// the broker is accepting heartbeats, and "RECONNECTING" (no suffix, to fit the
+// narrow strip) while it is not. NO_COLOR / narrow safe (the word carries it).
+func (m model) headlineBadge() string {
+	if m.share == nil {
+		return stRed.Render(glyphOnAir + " ON AIR")
+	}
+	switch m.share.Link() {
+	case agent.LinkOnAir:
+		return stRed.Render(glyphOnAir + " ON AIR")
+	case agent.LinkReconnecting:
+		return stEmber.Render(glyphOffAir + " RECONNECTING")
+	default:
+		return stDim.Render(glyphOffAir + " connecting…")
+	}
+}
+
 func (m model) onAirPanel(w int) string {
 	s := m.share
 	in, out := s.Price()
@@ -4383,7 +4418,11 @@ func (m model) onAirPanel(w int) string {
 	if in > 0 || out > 0 {
 		price = stEmber.Render(dollars(out) + "/1M out  " + dollars(in) + "/1M in")
 	}
-	head := stRed.Render(glyphOnAir+" ON AIR") + "  " + stDim.Render("you are sharing") + "  " + stKey.Render(s.Model())
+	verb := "you are sharing"
+	if s.Link() != agent.LinkOnAir {
+		verb = "sharing" // not truthfully "on air" yet - don't imply customers can see us
+	}
+	head := linkBadge(s) + "  " + stDim.Render(verb) + "  " + stKey.Render(s.Model())
 	body := head + "\n" +
 		stDim.Render("  node       ") + stSelText.Render(s.Node()) + "\n" +
 		stDim.Render("  price      ") + price + "\n" +

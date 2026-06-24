@@ -37,7 +37,7 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var out []offerView
 	for _, n := range b.nodes {
-		online := time.Since(b.lastSeen[n.NodeID]) < 35*time.Second
+		online := time.Since(b.lastSeen[n.NodeID]) < nodeTTL
 		for _, o := range n.Offers {
 			pin, pout, free, _ := o.ActivePrice(now)
 			out = append(out, offerView{
@@ -97,7 +97,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	b.metricsMu.Lock()
 	for _, n := range b.nodes {
-		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
 		tps := b.tps[n.NodeID]
