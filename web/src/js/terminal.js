@@ -1,46 +1,45 @@
 /* =====================================================================
-   RogerAI - terminal replay (hand-built, asciinema-style).
-   Two sequences, played in a loop:
+   RogerAI - the demo console: a tape-deck / station-preset player.
 
-   SEQUENCE 1 - TUNE IN
-     rogerai search qwen3-coder-30b
-       -> band header (N stations, live $/M range)
-       -> station rows with INLINE SIGNAL BARS:
-          ◉ ◆ @callsign REGION  ▁▂▃▄▅▆▇  NN t/s  0.NN $/M   (+ one ○ over-margin)
-     rogerai use qwen3-coder-30b --max-price 0.30 --min-tps 40
-       -> ◉ scanning stations … ok
-       -> ◉ locking strongest @nightowl … ok
-       -> ◉ lineage handshake ◆ weights·shard·token ok
-       -> ◉ CHANNEL OPEN … ◆ verified
-       -> BASE URL / API KEY / MODEL block
-       -> "drop-in, OpenAI-compatible - point any OpenAI tool here. roger that."
+   Four switchable demos, each an animated terminal replay, selected from a
+   radio-preset bar ( [ rogerai ] [ search ] [ use ] [ share ] ) with the
+   current preset lit red. Transport controls (play / pause / replay) and a
+   tuning-bar progress readout, all radio/tape-deck styled.
 
-   SEQUENCE 2 - GO ON AIR (sharing)
-     rogerai share qwen3-coder-30b --rate 0.30
-       -> detect / your station -> ◉ ON AIR
-       -> a served request + an earnings tick
+     rogerai  - an animated walk of the bare interactive TUI: the preset bar,
+                tuning in, browsing the band, opening a channel.
+     search   - the band listing for a model, with inline signal bars.
+     use      - staged scanning -> locking -> handshake -> CHANNEL OPEN +
+                endpoint plate.
+     share    - going (( ON AIR )) and an earnings tick.
 
-   Lightweight: one timer chain writing pre-escaped HTML into a <pre>.
-   Respects prefers-reduced-motion (renders the final state, no typing),
-   only autoplays once it scrolls into view.
+   Engine: each demo compiles to a flat list of "frames" (a screen of lines +
+   a hold duration); typing a command expands to one frame per character. The
+   player walks the list on a single timer chain; a shared rAF advances ONLY
+   the tuning-bar fill (transform only). Auto-plays the first demo, gently
+   loops, pauses on hover + offscreen + tab-hidden. prefers-reduced-motion
+   renders the static FINAL frame of the selected demo (no typing, no loop,
+   no rAF).
+
+   Lightweight: pre-escaped HTML written into a <pre>; no deps.
    ===================================================================== */
 (function () {
   "use strict";
 
   var screen = document.getElementById("termScreen");
-  var replayBtn = document.getElementById("termReplay");
-  if (!screen) return;
+  var root = document.getElementById("term");
+  if (!screen || !root) return;
+
+  var presetBar = document.getElementById("termPresets");
+  var btnPlay = document.getElementById("termPlay");
+  var btnReplay = document.getElementById("termReplay");
+  var barFill = document.getElementById("termBarFill");
+  var titleEl = document.getElementById("termTitle");
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // ---- pacing knobs (ms) ----------------------------------------------
-  var TYPE_MS = 64;
-  var READ_AFTER_TYPE = 800;
-  var STEP_GAP = 560;
-  var STAGE_HOLD = 1400;
-
-  // ---- colored spans (text pre-escaped, safe) -------------------------
-  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  /* ---- colored spans (text pre-escaped, safe) ----------------------- */
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   function span(cls, s) { return '<span class="' + cls + '">' + esc(s) + "</span>"; }
   function dim(s) { return span("t-dim", s); }
   function ok(s) { return span("t-ok", s); }
@@ -51,16 +50,19 @@
 
   var PROMPT = span("t-prompt", "roger> ");
   var CURSOR = '<span class="t-cursor">&nbsp;</span>';
+  var RULE = dim("  ──────────────────────────────────────────────────────────────────");
 
   var BAND = "qwen3-coder-30b";
   var MAX_PRICE = "0.30";
   var MIN_TPS = "40";
 
+  function pad(s, n) { s = String(s); while (s.length < n) s += " "; return s; }
+  function padL(s, n) { s = String(s); while (s.length < n) s = " " + s; return s; }
+
   // inline signal-bar glyph for a 0..1 strength (7 cells, "head" highest)
   function sigbar(level) {
     var chars = "▁▂▃▄▅▆▇";
-    var n = Math.round(level * 6);
-    var s = "";
+    var n = Math.round(level * 6), s = "";
     for (var i = 0; i < 7; i++) s += i <= n ? chars[Math.min(i, 6)] : "·";
     return s;
   }
@@ -73,215 +75,313 @@
     { on: false, cs: false, who: "@afkrig",   loc: "NL",   sig: 0,    tps: "-",  price: "0.41", over: true  }
   ];
 
-  function pad(s, n) { s = String(s); while (s.length < n) s += " "; return s; }
-  function padL(s, n) { s = String(s); while (s.length < n) s = " " + s; return s; }
-
   function stationRow(s) {
     var dot = s.over ? dim("○") : ok("◉");
     var cs = s.cs ? gold("◆") : " ";
     var who = head(pad(s.who, 10));
     var loc = dim(pad(s.loc, 5));
     var bars = s.over ? dim("·······") : live(sigbar(s.sig));
-    var tps = s.over ? dim(padL("-", 3) + " t/s") : dim(padL(s.tps, 3) + " t/s");
+    var tps = dim(padL(s.over ? "-" : s.tps, 3) + " t/s");
     var price = money(padL(s.price, 4) + " $/M");
     var tail = s.over ? dim("  over margin") : "";
     return "    " + dot + " " + cs + " " + who + loc + "  " + bars + "  " + tps + "  " + price + tail;
   }
-
   function bandRange() {
-    var prices = [];
-    stations.forEach(function (s) { if (!s.over) prices.push(parseFloat(s.price)); });
-    var lo = Math.min.apply(null, prices), hi = Math.max.apply(null, prices);
-    return lo.toFixed(2) + " ~ " + hi.toFixed(2);
+    var p = [];
+    stations.forEach(function (s) { if (!s.over) p.push(parseFloat(s.price)); });
+    return Math.min.apply(null, p).toFixed(2) + " ~ " + Math.max.apply(null, p).toFixed(2);
   }
   function nStations() { var n = 0; stations.forEach(function (s) { if (!s.over) n++; }); return n; }
 
-  function bandHeadLines(cmd) {
-    var rule = dim("  ──────────────────────────────────────────────────────────────────");
+  function bandHead(cmd) {
     return [
-      PROMPT + head(cmd),
-      "",
+      PROMPT + head(cmd), "",
       dim("  band ") + head(BAND) + dim("   " + nStations() + " stations    ") +
         money(bandRange() + " $/M out") + dim(" (live range)"),
-      rule
+      RULE
+    ];
+  }
+  function endpointPlate(stationWho) {
+    return [
+      ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via " + stationWho) + "   " + gold("◆ verified"),
+      "",
+      dim("  BASE URL  ") + money("http://127.0.0.1:8779/v1"),
+      dim("  API KEY   ") + money("rog-sk-live-9f3c…a71d"),
+      dim("  MODEL     ") + money(BAND),
+      "",
+      dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + live("roger that.")
     ];
   }
 
-  function endpointPanel(stationWho, tps) {
-    line(ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via " + stationWho) +
-         "   " + gold("◆ verified"));
-    line("");
-    line(dim("  BASE URL  ") + money("http://127.0.0.1:8779/v1"));
-    line(dim("  API KEY   ") + money("rog-sk-live-9f3c…a71d"));
-    line(dim("  MODEL     ") + money(BAND));
-    line("");
-    line(dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + live("roger that."));
+  /* =====================================================================
+     Compile a demo to frames. Each demo builder uses:
+       c.show(lines, hold)            - print a screen, hold `hold` ms
+       c.type(prefixLines, cmd, hold) - type a command char-by-char, then settle
+     ===================================================================== */
+  var TYPE_MS = 60, AFTER_TYPE = 700, STEP = 600, STAGE = 1500, END_HOLD = 2800;
+
+  function compile(builder) {
+    var frames = [];
+    var c = {
+      show: function (lines, hold) { frames.push({ lines: lines.slice(), hold: hold == null ? STEP : hold }); },
+      type: function (prefixLines, cmd, settleHold) {
+        var prefix = prefixLines || [];
+        for (var i = 1; i <= cmd.length; i++) {
+          frames.push({ lines: prefix.concat([PROMPT + head(cmd.slice(0, i)) + CURSOR]), hold: TYPE_MS });
+        }
+        frames.push({ lines: prefix.concat([PROMPT + head(cmd)]), hold: settleHold == null ? AFTER_TYPE : settleHold });
+      }
+    };
+    builder(c);
+    return frames;
   }
 
-  // ---- timeline + buffer ----------------------------------------------
-  var timers = [];
-  function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
-  function reset() { timers.forEach(clearTimeout); timers = []; }
-  var buffer = [];
-  function flush() { screen.innerHTML = buffer.join("\n"); screen.scrollTop = screen.scrollHeight; }
-  function line(html) { buffer.push(html); }
-  function clear() { buffer = []; }
-
-  function typeInto(prefixLines, text, doneCb) {
-    var i = 0;
-    function tick() {
-      clear();
-      prefixLines.forEach(line);
-      line(PROMPT + head(text.slice(0, i)) + CURSOR);
-      flush();
-      if (i < text.length) { i++; at(TYPE_MS, tick); }
-      else {
-        at(READ_AFTER_TYPE, function () {
-          clear(); prefixLines.forEach(line);
-          line(PROMPT + head(text)); flush();
-          if (doneCb) at(STEP_GAP, doneCb);
+  /* ---- the four demos ------------------------------------------------ */
+  var DEMOS = {
+    // bare `rogerai` - a walk of the interactive TUI
+    rogerai: {
+      label: "rogerai", title: "rogerai - the dial",
+      build: function () {
+        return compile(function (c) {
+          c.type([], "rogerai", AFTER_TYPE);
+          c.show([
+            PROMPT + head("rogerai"), "",
+            dim("  ((•)) RogerAI   the two-way radio for GPUs   ") + dim("[ tuning in… ]")
+          ], STEP);
+          c.show([
+            PROMPT + head("rogerai"), "",
+            dim("  ((•)) RogerAI   ") + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
+            dim("  presets   ") + head("[ search ]") + dim("  [ use ]  [ share ]  [ balance ]")
+          ], STAGE);
+          c.show(bandHead("browse the band").concat(stations.slice(0, 2).map(stationRow)), STEP);
+          c.show(bandHead("browse the band").concat(stations.map(stationRow)).concat([RULE]), STAGE);
+          c.show([
+            dim("  band ") + head(BAND) + dim("   tuning in to ") + head("@nightowl") + dim("…"), ""
+          ].concat(endpointPlate("@nightowl")), END_HOLD);
         });
       }
-    }
-    tick();
-  }
+    },
 
-  // ---- static final state (also used under reduced-motion) ------------
-  function renderFinal() {
-    clear();
-    bandHeadLines("rogerai search " + BAND).forEach(line);
-    stations.forEach(function (s) { line(stationRow(s)); });
-    line(dim("  ──────────────────────────────────────────────────────────────────"));
-    line("");
-    endpointPanel("@nightowl", "58");
-    line("");
-    line(PROMPT + head("rogerai share " + BAND + " --rate " + MAX_PRICE));
-    line("");
-    line(ok("  ◉") + " detected backend  " + dim("vLLM · 127.0.0.1:8000") + "  " + ok("ok"));
-    line(ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" serving ") + head(BAND) +
-         dim(" at ") + money(MAX_PRICE + " $/M"));
-    line(dim("  served 1 request · +") + money("$0.0001") + dim(" · balance ") + money("$42.18"));
-    flush();
-  }
+    // `rogerai search` - the band listing with signal bars
+    search: {
+      label: "search", title: "rogerai search",
+      build: function () {
+        return compile(function (c) {
+          c.type([], "rogerai search " + BAND, AFTER_TYPE);
+          var hdr = bandHead("rogerai search " + BAND);
+          c.show(hdr, STEP);
+          for (var i = 0; i < stations.length; i++) {
+            c.show(hdr.concat(stations.slice(0, i + 1).map(stationRow)), 380);
+          }
+          c.show(hdr.concat(stations.map(stationRow)).concat([
+            RULE,
+            dim("   ◆ = lineage-verified   tune the BAND + your margins, not one station")
+          ]), END_HOLD);
+        });
+      }
+    },
 
-  // ====================== SEQUENCE 2: GO ON AIR ========================
-  function playShare(loopAfter) {
-    var shareCmd = "rogerai share " + BAND + " --rate " + MAX_PRICE;
-    typeInto([], shareCmd, function () {
-      clear();
-      line(PROMPT + head(shareCmd));
-      line("");
-      flush();
-      var steps = [
-        ok("  ◉") + " detecting backend  " + dim("scanning local ports") + "  " + ok("ok"),
-        ok("  ◉") + " backend locked     " + head("vLLM") + dim(" · 127.0.0.1:8000 · ") + head(BAND) + "  " + ok("ok"),
-        ok("  ◉") + " call-sign assigned " + head("@you") + " " + gold("◆") + dim(" · rate ") + money(MAX_PRICE + " $/M out") + "  " + ok("ok"),
-        ok("  ◉") + " lineage co-sign    " + gold("◆ weights·shard·token") + "  " + ok("ok")
-      ];
-      var base = STEP_GAP;
-      steps.forEach(function (s, i) { at(base * (i + 1), function () { line(s); flush(); }); });
-      var afterSteps = base * (steps.length + 1);
-
-      // your station goes on air
-      at(afterSteps, function () {
-        line("");
-        line(ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
-             dim(" · ") + live("station live") + dim(" · appears in the band in ~10s"));
-        flush();
-      });
-
-      // a request arrives + earnings tick
-      var earn = 42.18;
-      at(afterSteps + STAGE_HOLD, function () {
-        line("");
-        line(dim("  ┌ live ──────────────────────────────────────────────────────┐"));
-        line(dim("  │ ") + ok("◉ on air ") + gold("◆") + dim(" │ ") + head("@you    ") +
-             dim(" │ ") + live("incoming request from @ssh-bot…") + dim("            │"));
-        line(dim("  └────────────────────────────────────────────────────────────┘"));
-        flush();
-      });
-      at(afterSteps + STAGE_HOLD + 1200, function () {
-        line("");
-        line(ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money(MAX_PRICE + " $/M") +
-             dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"));
-        line(dim("  balance ") + money("$" + (earn + 0.0002).toFixed(4)) + dim("  ·  your GPU is paying rent. ") + live("roger that."));
-        flush();
-      });
-
-      // hold, then loop back to sequence 1
-      at(afterSteps + STAGE_HOLD + 1200 + 6500, function () { if (loopAfter) play(); });
-    });
-  }
-
-  // ====================== SEQUENCE 1: TUNE IN ==========================
-  function play() {
-    reset();
-    if (REDUCED) { renderFinal(); return; }
-
-    typeInto([], "rogerai search " + BAND, function () {
-      clear();
-      bandHeadLines("rogerai search " + BAND).forEach(line);
-      flush();
-
-      var d = 320;
-      stations.forEach(function (s, idx) {
-        at(d * (idx + 1), function () { line(stationRow(s)); flush(); });
-      });
-      var afterRows = d * (stations.length + 1);
-      at(afterRows, function () {
-        line(dim("  ──────────────────────────────────────────────────────────────────"));
-        line(dim("   ◆ = lineage-verified   tune the BAND + your margins, not one station"));
-        flush();
-      });
-
-      var useCmd = "rogerai use " + BAND + " --max-price " + MAX_PRICE + " --min-tps " + MIN_TPS;
-      at(afterRows + STAGE_HOLD, function () {
-        var prefix = bandHeadLines("rogerai search " + BAND).concat(
-          stations.map(stationRow),
-          [dim("  ──────────────────────────────────────────────────────────────────")]
-        );
-        typeInto(prefix, useCmd, function () {
-          clear();
-          line(PROMPT + head(useCmd));
-          line("");
-          flush();
+    // `rogerai use` - scanning -> locking -> handshake -> CHANNEL OPEN + plate
+    use: {
+      label: "use", title: "rogerai use",
+      build: function () {
+        return compile(function (c) {
+          var cmd = "rogerai use " + BAND + " --max-price " + MAX_PRICE + " --min-tps " + MIN_TPS;
+          c.type([], cmd, AFTER_TYPE);
+          var base = [PROMPT + head(cmd), ""];
           var steps = [
             ok("  ◉") + " scanning stations  " + dim(nStations() + " on this band") + "  " + ok("ok"),
             ok("  ◉") + " locking strongest  " + head("@nightowl") + dim(" · ") + live("58 t/s") + dim(" · ") + money("0.22 $/M") + "  " + ok("ok"),
             ok("  ◉") + " lineage handshake  " + gold("◆ weights·shard·token") + "  " + ok("ok")
           ];
-          var base = STEP_GAP;
-          steps.forEach(function (s, i) { at(base * (i + 1), function () { line(s); flush(); }); });
-          var afterLock = base * (steps.length + 1);
-
-          at(afterLock, function () {
-            line("");
-            endpointPanel("@nightowl", "58");
-            flush();
-          });
-
-          // hand off to sequence 2 (share), then loop
-          at(afterLock + STAGE_HOLD + 3200, function () { playShare(true); });
+          for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
+          c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
         });
-      });
+      }
+    },
+
+    // `rogerai share` - going ON AIR + an earnings tick
+    share: {
+      label: "share", title: "rogerai share",
+      build: function () {
+        return compile(function (c) {
+          var cmd = "rogerai share " + BAND + " --rate " + MAX_PRICE;
+          c.type([], cmd, AFTER_TYPE);
+          var base = [PROMPT + head(cmd), ""];
+          var steps = [
+            ok("  ◉") + " detecting backend  " + dim("scanning local ports") + "  " + ok("ok"),
+            ok("  ◉") + " backend locked     " + head("vLLM") + dim(" · 127.0.0.1:8000 · ") + head(BAND) + "  " + ok("ok"),
+            ok("  ◉") + " call-sign assigned " + head("@you") + " " + gold("◆") + dim(" · rate ") + money(MAX_PRICE + " $/M out") + "  " + ok("ok"),
+            ok("  ◉") + " lineage co-sign    " + gold("◆ weights·shard·token") + "  " + ok("ok")
+          ];
+          for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
+          var onair = base.concat(steps, ["",
+            ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
+              dim(" · ") + live("station live") + dim(" · appears in the band in ~10s")
+          ]);
+          c.show(onair, STAGE);
+          var live1 = onair.concat(["",
+            dim("  ┌ live ──────────────────────────────────────────────────────┐"),
+            dim("  │ ") + ok("◉ on air ") + gold("◆") + dim(" │ ") + head("@you    ") +
+              dim(" │ ") + live("incoming request from @ssh-bot…") + dim("            │"),
+            dim("  └────────────────────────────────────────────────────────────┘")
+          ]);
+          c.show(live1, STAGE);
+          c.show(live1.concat(["",
+            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money(MAX_PRICE + " $/M") +
+              dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"),
+            dim("  balance ") + money("$42.18") + dim("  ·  your GPU is paying rent. ") + live("roger that.")
+          ]), END_HOLD);
+        });
+      }
+    }
+  };
+
+  /* ---- engine -------------------------------------------------------- */
+  var current = "rogerai";
+  var frames = [];
+  var idx = 0;
+  var playing = false;
+  var hovered = false, visible = false;
+  var timer = null;
+  var elapsed = 0, total = 0;   // ms, for the tuning bar
+  var frameStart = 0;
+
+  function now() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
+  function flush(lines) { screen.innerHTML = lines.join("\n"); screen.scrollTop = screen.scrollHeight; }
+
+  function buildFrames(name) {
+    frames = DEMOS[name].build();
+    total = frames.reduce(function (a, f) { return a + f.hold; }, 0);
+  }
+  function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
+
+  function setBar(t) {
+    if (barFill) barFill.style.transform = "scaleX(" + Math.max(0, Math.min(1, t)) + ")";
+  }
+
+  function showFrame(i) {
+    idx = i;
+    flush(frames[i].lines);
+    frameStart = now();
+  }
+  function renderFinal() {
+    if (!frames.length) buildFrames(current);
+    flush(frames[frames.length - 1].lines);
+    idx = frames.length - 1; elapsed = total; setBar(1);
+  }
+
+  function advance() {
+    if (!playing) return;
+    if (idx >= frames.length - 1) {
+      elapsed = total; setBar(1);
+      timer = setTimeout(function () { if (playing) start(); }, 900); // gentle loop
+      return;
+    }
+    elapsed += frames[idx].hold;
+    showFrame(idx + 1);
+    timer = setTimeout(advance, frames[idx].hold);
+  }
+
+  function start() {
+    clearTimer();
+    if (!frames.length) buildFrames(current);
+    if (REDUCED) { renderFinal(); return; }
+    idx = 0; elapsed = 0; playing = true;
+    setPlayUI(true);
+    showFrame(0);
+    timer = setTimeout(advance, frames[0].hold);
+    startRAF();
+  }
+  function pause() {
+    if (!playing) return;
+    playing = false; clearTimer(); setPlayUI(false); stopRAF();
+  }
+  function resume() {
+    if (REDUCED || playing || !frames.length) return;
+    playing = true; setPlayUI(true);
+    var f = frames[idx];
+    var spent = Math.min(f.hold, now() - frameStart);
+    timer = setTimeout(advance, Math.max(60, f.hold - spent));
+    startRAF();
+  }
+
+  function setPlayUI(on) {
+    if (!btnPlay) return;
+    btnPlay.textContent = on ? "❚❚" : "▶";
+    btnPlay.setAttribute("aria-label", on ? "Pause demo" : "Play demo");
+    btnPlay.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  function select(name, autoplay) {
+    if (!DEMOS[name]) return;
+    current = name;
+    buildFrames(name);
+    if (titleEl) titleEl.textContent = DEMOS[name].title;
+    if (presetBar) {
+      var btns = presetBar.querySelectorAll("[data-demo]");
+      for (var i = 0; i < btns.length; i++) {
+        var on = btns[i].getAttribute("data-demo") === name;
+        btns[i].classList.toggle("is-on", on);
+        btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+      }
+    }
+    if (REDUCED) { renderFinal(); return; }
+    if (autoplay && visible && !hovered) start();
+    else { pause(); showFrame(0); setBar(0); }
+  }
+
+  /* ---- one shared rAF: advances ONLY the tuning-bar fill ------------- */
+  var rafId = null, rafRunning = false;
+  function tick() {
+    if (!rafRunning) return;
+    var f = frames[idx];
+    var frac = f ? Math.min(1, (now() - frameStart) / Math.max(1, f.hold)) : 0;
+    setBar(total ? (elapsed + (f ? f.hold * frac : 0)) / total : 0);
+    rafId = requestAnimationFrame(tick);
+  }
+  function startRAF() { if (REDUCED || rafRunning) return; rafRunning = true; rafId = requestAnimationFrame(tick); }
+  function stopRAF() { rafRunning = false; if (rafId) cancelAnimationFrame(rafId); rafId = null; }
+
+  /* ---- wiring -------------------------------------------------------- */
+  if (presetBar) {
+    presetBar.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-demo]");
+      if (btn) select(btn.getAttribute("data-demo"), true);
     });
   }
+  if (btnPlay) btnPlay.addEventListener("click", function () { if (playing) pause(); else resume(); });
+  if (btnReplay) btnReplay.addEventListener("click", function () { if (REDUCED) { renderFinal(); return; } start(); });
 
-  // ---- autoplay when scrolled into view; replay button ----------------
-  var started = false;
-  function kick() { if (started) return; started = true; play(); }
+  // pause on hover so it can be read; resume on leave
+  root.addEventListener("mouseenter", function () { hovered = true; pause(); });
+  root.addEventListener("mouseleave", function () { hovered = false; if (visible) resume(); });
 
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) pause();
+    else if (visible && !hovered) resume();
+  });
+
+  // autoplay the first demo once it scrolls into view; pause offscreen
+  var kicked = false;
+  function activate() {
+    visible = true;
+    if (REDUCED) { renderFinal(); return; }
+    if (!kicked) { kicked = true; select(current, true); }
+    else if (!hovered) resume();
+  }
   if ("IntersectionObserver" in window) {
     var io = new IntersectionObserver(function (entries) {
-      if (entries[0].isIntersecting) { kick(); io.disconnect(); }
+      entries.forEach(function (e) {
+        if (e.isIntersecting) activate();
+        else { visible = false; pause(); }
+      });
     }, { threshold: 0.3 });
-    io.observe(screen);
-  } else { kick(); }
-
-  if (replayBtn) {
-    replayBtn.addEventListener("click", function () { started = true; play(); });
-  }
+    io.observe(root);
+  } else { activate(); }
 
   // first paint so the panel isn't blank before it scrolls in
-  renderFinal();
+  buildFrames(current);
+  if (REDUCED) renderFinal();
+  else { showFrame(0); setBar(0); }
 })();

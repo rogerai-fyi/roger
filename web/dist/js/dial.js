@@ -97,24 +97,30 @@
 
   var bands = [], ready = false, stripX = 0, targetX = 0, arcW = 0, arcTarget = 0;
 
+  // band-to-band spacing along the strip, in viewBox units. Wide enough that
+  // a long model name (centered under its notch) never runs into its neighbor.
+  var SPACING = 250;
   function buildStrip() {
     while (strip.firstChild) strip.removeChild(strip.firstChild);
     if (!bands.length) return;
-    var spacing = 150;
     bands.forEach(function (b, i) {
-      var x = mid + i * spacing;
+      var x = mid + i * SPACING;
+      // minor ticks BETWEEN this band's notch and the next (not past the label)
       for (var k = 0; k < 5; k++) {
         var t = document.createElementNS(ns, "line");
-        var tx = x + k * (spacing / 5), major = k === 0;
+        var tx = x + k * (SPACING / 5), major = k === 0;
         t.setAttribute("x1", tx); t.setAttribute("x2", tx);
-        t.setAttribute("y1", major ? 14 : 30); t.setAttribute("y2", 58);
+        t.setAttribute("y1", major ? 14 : 32); t.setAttribute("y2", 56);
         t.setAttribute("stroke", "var(--ink-300)"); t.setAttribute("stroke-width", major ? "2" : "1");
         strip.appendChild(t);
       }
+      // label: centered under its own notch so names never collide
       var lbl = document.createElementNS(ns, "text");
-      lbl.setAttribute("x", x); lbl.setAttribute("y", 80);
+      lbl.setAttribute("x", x); lbl.setAttribute("y", 82);
+      lbl.setAttribute("text-anchor", "middle");
       lbl.setAttribute("fill", b.live ? "var(--ink-900)" : "var(--ink-400)");
-      lbl.setAttribute("font-family", "var(--font-mono)"); lbl.setAttribute("font-size", "15");
+      lbl.setAttribute("font-family", "var(--font-mono)");
+      lbl.setAttribute("font-size", "14"); lbl.setAttribute("letter-spacing", "-0.3");
       lbl.textContent = b.model;
       strip.appendChild(lbl);
     });
@@ -124,7 +130,7 @@
   }
   function lockTo(b) {
     var idx = bands.indexOf(b);
-    targetX = -(idx * 150);
+    targetX = -(idx * SPACING);
     arcTarget = b.signal * 120;
     if (lockedEl) lockedEl.innerHTML = "LOCKED · <b>" + escapeHtml(b.model) + "</b>";
     if (sigEl) sigEl.innerHTML = "SIGNAL <b>" + Math.round(b.signal * 100) + "</b>/100";
@@ -160,8 +166,12 @@
     buildStrip();
     var best = bands.filter(function (b) { return b.live; }).sort(function (a, b) { return b.signal - a.signal; })[0] || bands[0];
     if (best) {
-      if (REDUCED) { stripX = 0; } else if (!kicked) { stripX = 600; }
       lockTo(best);
+      // Always paint the CORRECT locked state synchronously - the dial must be
+      // right even if the rAF intro never runs (e.g. reduced-motion, headless,
+      // or before it scrolls into view). The scatter intro is layered on in
+      // activate(), and eases back to this same locked position.
+      stripX = targetX; arcW = arcTarget; apply();
     }
   }
 

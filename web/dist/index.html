@@ -185,24 +185,29 @@
         ports, no account to browse.
       </p>
 
-      <!-- SIGNATURE: the tuning dial, locked on the strongest live band -->
-      <div class="install" data-reveal data-reveal-delay="160" style="margin-top:var(--s-8)">
-        <span class="fig" aria-hidden="true">FIG. 1 - THE DIAL · LIVE BAND</span>
-        <figure class="dial" style="margin:0">
-          <div class="dial__top">
-            <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
-            <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
-          </div>
-          <div class="dial__svgwrap">
-            <svg id="dialSvg" role="img" aria-label="Tuning dial locked on the strongest live band"></svg>
-          </div>
-          <div class="dial__hint"><span class="dial__chip" id="dialChip"></span></div>
-        </figure>
-      </div>
+      <!-- ONE MOVE: the live band (FIG.1) -> tune in with the command (FIG.2).
+           A signature tuning-dial locked on the strongest live band, then the
+           install command directly below reads as the same gesture. -->
+      <div class="tunein" data-reveal data-reveal-delay="160">
+        <div class="install" style="margin-top:0">
+          <span class="fig" aria-hidden="true">FIG. 1 - THE LIVE BAND</span>
+          <figure class="dial" style="margin:0">
+            <div class="dial__top">
+              <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
+              <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
+            </div>
+            <div class="dial__svgwrap">
+              <svg id="dialSvg" role="img" aria-label="Tuning dial locked on the strongest live band"></svg>
+            </div>
+            <div class="dial__hint"><span class="dial__chip" id="dialChip"></span></div>
+          </figure>
+        </div>
 
-      <!-- THE hero object: the install command -->
-      <div class="install" data-reveal data-reveal-delay="200">
-        <span class="fig" aria-hidden="true">FIG. 2 - TUNE IN</span>
+        <p class="tunein__bridge">This is the band, live right now. Tune in with one command:</p>
+
+        <!-- THE hero object: the install command -->
+        <div class="install" style="margin-top:0">
+          <span class="fig" aria-hidden="true">FIG. 2 - TUNE IN</span>
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
           <span class="install__prompt" aria-hidden="true">$</span>
@@ -220,6 +225,7 @@
         </div>
         <div class="install__meta">
           <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+        </div>
         </div>
       </div>
 
@@ -246,27 +252,50 @@
     </div>
   </section>
 
-  <!-- ===================== TERMINAL DEMO ===================== -->
+  <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
   <section class="demo" id="demo">
     <div class="wrap">
       <div class="demo__head" data-reveal>
         <span class="sectionno">§1 / OPERATING PROCEDURE</span>
-        <h2>Pick a band. Lock the signal. Get an endpoint.</h2>
-        <p>Set your band and your margins. RogerAI locks the strongest station and
-          hands you a local <b>OpenAI-compatible endpoint + key</b> on
-          <code class="inline">127.0.0.1</code> - drop-in for Hermes, your bots, or any
-          tool that speaks OpenAI.</p>
+        <h2>Tune in. Use it. Go on air.</h2>
+        <p>One CLI does both sides of the radio. Tune the band and your margins;
+          RogerAI locks the strongest station and hands you a local
+          <b>OpenAI-compatible endpoint + key</b> on <code class="inline">127.0.0.1</code>.
+          Or flip the switch and put your own GPU on air. Pick a tape below and watch it run.</p>
       </div>
 
-      <span class="fig" aria-hidden="true">FIG. 3 - THE DIAL · TUNE-IN + GO-ON-AIR REPLAY</span>
+      <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="A replay of the RogerAI terminal: searching a band, reading the stations serving it, tuning in with margins to get a local OpenAI-compatible endpoint and key, then sharing your own GPU on air and watching it serve a request and earn.">
+           aria-label="An interactive replay of the RogerAI CLI. Switch between four demos: the bare interactive radio, searching a band and reading the stations serving it, tuning in to get a local OpenAI-compatible endpoint and key, and sharing your own GPU on air to serve a request and earn.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="term__title">rogerai - the dial</span>
-          <button class="term__replay" id="termReplay" type="button" aria-label="Replay demo">replay</button>
+          <span class="term__title" id="termTitle">rogerai - the dial</span>
         </div>
+
+        <!-- station-preset bar: switchable demos, current one lit red -->
+        <div class="term__presets" id="termPresets" role="group" aria-label="Choose a demo">
+          <button class="term__preset is-on" type="button" data-demo="rogerai" aria-pressed="true">
+            <span class="term__preset-led" aria-hidden="true"></span>rogerai
+          </button>
+          <button class="term__preset" type="button" data-demo="search" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>search
+          </button>
+          <button class="term__preset" type="button" data-demo="use" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>use
+          </button>
+          <button class="term__preset" type="button" data-demo="share" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>share
+          </button>
+        </div>
+
         <pre class="term__screen" id="termScreen" aria-hidden="true"></pre>
+
+        <!-- transport: play / pause / replay + a tuning-bar progress readout -->
+        <div class="term__transport" aria-hidden="true">
+          <button class="term__btn" id="termPlay" type="button" aria-label="Pause demo" aria-pressed="true">❚❚</button>
+          <button class="term__btn term__btn--replay" id="termReplay" type="button" aria-label="Replay demo">↻</button>
+          <span class="term__bar-track"><span class="term__bar-fill" id="termBarFill"></span></span>
+        </div>
       </div>
     </div>
   </section>
