@@ -363,7 +363,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !held {
-			msg := "insufficient credits"
+			msg := "insufficient balance - add funds"
 			if gok {
 				msg = "top up to keep sponsoring this grant, or make it --free"
 			}

@@ -245,7 +245,7 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 	// transfer id to record the payout, but we must not transfer below the minimum).
 	split, _ := b.db.EarningSplitOf(o.Pubkey, time.Now())
 	if split.Payable < b.conn.policy.MinPayout {
-		jsonErr(w, http.StatusBadRequest, "below minimum payout ("+strconv.FormatFloat(b.conn.policy.MinPayout, 'f', -1, 64)+" credits)")
+		jsonErr(w, http.StatusBadRequest, "below minimum payout ($"+strconv.FormatFloat(b.conn.policy.MinPayout, 'f', -1, 64)+")")
 		return
 	}
 

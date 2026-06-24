@@ -4,7 +4,7 @@
 //
 //	rogerai search                    discover models (cheapest first)
 //	rogerai use <model> [--port N]    open a local OpenAI endpoint via the broker
-//	rogerai balance                   wallet credits
+//	rogerai balance                   your wallet balance
 //	rogerai share [flags]             become a provider (auto-detects a local LLM)
 //	rogerai config set broker <url>   switch brokers (federation: pick who you trust)
 //	rogerai config get [key]
@@ -466,7 +466,7 @@ func cmdTopup(cfg config, args []string) error {
 // into balance so a user has one noun for money.
 func cmdBalance(cfg config, args []string) error {
 	fs := flag.NewFlagSet("balance", flag.ExitOnError)
-	topup := fs.Float64("topup", -1, "buy this many $ of credits (opens checkout); bare --topup uses $10")
+	topup := fs.Float64("topup", -1, "add this many $ to your wallet (opens checkout); bare --topup uses $10")
 	fs.Parse(args)
 	// Allow `rogerai balance topup [usd]` too (positional spelling).
 	rest := fs.Args()
@@ -689,7 +689,7 @@ func usage() {
   rogerai                       open the app (browse, tune in, chat)
   rogerai search                list models, cheapest first
   rogerai use <model>           local OpenAI endpoint for your bots  (--max-out $ caps spend)
-  rogerai balance               wallet credits  (balance --topup [usd] to add funds)
+  rogerai balance               your wallet balance  (balance --topup [usd] to add funds)
 
 providers (share your GPU):
   rogerai share                 go on air - FREE by default, no login (auto-detects your model)

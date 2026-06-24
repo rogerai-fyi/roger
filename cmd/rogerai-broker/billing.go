@@ -110,7 +110,7 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	form.Set("line_items[0][quantity]", "1")
 	form.Set("line_items[0][price_data][currency]", "usd")
 	form.Set("line_items[0][price_data][unit_amount]", strconv.Itoa(int(req.USD*100)))
-	form.Set("line_items[0][price_data][product_data][name]", "RogerAI credits")
+	form.Set("line_items[0][price_data][product_data][name]", "RogerAI wallet top-up")
 	form.Set("metadata[user]", user)
 	form.Set("metadata[credits]", strconv.FormatFloat(credits, 'f', 4, 64))
 

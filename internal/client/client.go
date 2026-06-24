@@ -134,7 +134,8 @@ func Topup(broker, user string, usd float64) error {
 	if d.URL == "" {
 		return fmt.Errorf("no checkout URL returned")
 	}
-	fmt.Printf("Buy %.0f credits - open this to pay:\n  %s\n", d.Credits, d.URL)
+	// 1 credit = $1, so the credit count is the dollar amount added to the wallet.
+	fmt.Printf("Add $%.2f to your wallet - open this to pay:\n  %s\n", d.Credits, d.URL)
 	return nil
 }
 
@@ -396,7 +397,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 			fmt.Printf("\n  the band is above your limit  %s\n", model)
 			fmt.Printf("    cheapest on air   %.2f $/1M out   @%s   %s\n", br.Min, br.CheapNode, tpsLabel(br.CheapTPS))
 			fmt.Printf("    your max          %.2f $/1M out\n", maxOut)
-			fmt.Printf("    gap               +%.2f  (%.0f%% over)   you would pay %.6f cr / reply\n", gap, pct, estReplyCost(br.Min, typical))
+			fmt.Printf("    gap               +%.2f  (%.0f%% over)   you would pay $%.6f / reply\n", gap, pct, estReplyCost(br.Min, typical))
 			fmt.Printf("    the band is %s today.\n", rangeLabel(br))
 			if opt.Yes {
 				return fmt.Errorf("cheapest on air %.2f > your max-out %.2f for %q (--yes: not raising the limit)", br.Min, maxOut, model)
@@ -428,10 +429,10 @@ func Use(broker, user, model string, opt UseOptions) error {
 		if maxOut > 0 {
 			fmt.Printf("    your max       %.2f $/1M out   (within limit)\n", maxOut)
 		}
-		fmt.Printf("    est. cost      ~ %.6f cr / typical reply  (~%d out tokens)\n", estReplyCost(br.Min, typical), typical)
+		fmt.Printf("    est. cost      ~ $%.6f / typical reply  (~%d out tokens)\n", estReplyCost(br.Min, typical), typical)
 		if bal := balanceOf(broker, user); bal >= 0 {
 			per100 := estReplyCost(br.Min, typical) * 100
-			fmt.Printf("                   ~ %.6f cr / 100 replies        balance %.4f cr\n", per100, bal)
+			fmt.Printf("                   ~ $%.6f / 100 replies        balance $%.4f\n", per100, bal)
 		}
 		fmt.Printf("    locked         each reply price-locks at send; a hold pre-auths your session\n")
 

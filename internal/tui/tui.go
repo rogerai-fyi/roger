@@ -2319,7 +2319,7 @@ func (m model) helpView() string {
 		{"/chat (c · tab)", "open the CHANNEL session with the connected model"},
 		{"/limits", "see + edit your per-model spend maxes"},
 		{"/balance", "wallet balance ($)"},
-		{"/topup [usd]", "add credits (opens checkout)"},
+		{"/topup [usd]", "add funds to your wallet (opens checkout)"},
 		{"/share [off]", "open the provider table - flip your local models on/off air"},
 		{"/login", "link GitHub (device flow) - to earn"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
