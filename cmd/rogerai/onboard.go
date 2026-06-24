@@ -130,10 +130,16 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	found := detect.Detect()
 	if len(found) == 0 {
-		fmt.Println("no local LLM detected (tried Ollama / LM Studio / llama.cpp / vLLM / LiteLLM).")
-		fmt.Println("start one, then run `rogerai share` (or `rogerai onboard`).")
-		cfg.Onboarded = true
-		return cfg, true, nil
+		// GUIDED FALLBACK: walk the user through starting a tool or pasting an endpoint
+		// instead of dead-ending. Non-interactive / declined -> the plain hint.
+		if picked, ok := guidedUpstream(cfg.Broker); ok {
+			found = []detect.Found{picked}
+		} else {
+			fmt.Println("no local LLM detected (tried Ollama / LM Studio / llama.cpp / vLLM / Jan / LiteLLM and your open ports).")
+			fmt.Println("start one, then run `rogerai share` (or `rogerai onboard`).")
+			cfg.Onboarded = true
+			return cfg, true, nil
+		}
 	}
 	pick := found[0]
 	model := ""
@@ -142,7 +148,7 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	}
 	port := freePort(4140)
 
-	sh := Share{Model: model, Port: port}
+	sh := Share{Model: model, Port: port, Upstream: pick.BaseURL}
 	if earn {
 		// Earn path: collect a price (default the platform suggestion). Login is a
 		// separate explicit step we point the user at - we never block here.
@@ -174,6 +180,74 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		fmt.Println("want private free keys for your bots/family? `rogerai grant create --name my-bots`.")
 	}
 	return cfg, true, nil
+}
+
+// startOneLiner maps a local-LLM tool to a copy-paste command that starts it
+// serving an OpenAI-compatible endpoint. These are the canonical per-tool
+// quickstarts; the user runs one in another terminal, then we re-detect.
+var startOneLiner = map[string]string{
+	"ollama":    "ollama serve   # then:  ollama run llama3.2   (serves http://127.0.0.1:11434)",
+	"lm-studio": "open LM Studio -> Developer tab -> Start Server   (serves http://127.0.0.1:1234)",
+	"vllm":      "vllm serve <model> --port 8000   (serves http://127.0.0.1:8000)",
+	"llamacpp":  "llama-server -m <model>.gguf --port 8080   (serves http://127.0.0.1:8080)",
+}
+
+// guidedUpstream is the interactive guided fallback when detection finds nothing:
+// it asks what the user is running, prints that tool's start one-liner (so they
+// can launch it and we re-detect), or takes a pasted endpoint and verifies it
+// serves /v1/models. Returns (verified server, true) on success. A non-interactive
+// run returns ok=false so the caller prints the plain "start one / --upstream"
+// hint instead of hanging.
+func guidedUpstream(broker string) (detect.Found, bool) {
+	if !interactive() {
+		return detect.Found{}, false
+	}
+	for {
+		choice := "other"
+		err := huh.NewSelect[string]().
+			Title("No running model found. What are you using?").
+			Description("Pick your tool for a one-liner to start it, or paste an endpoint and we'll verify it.").
+			Options(
+				huh.NewOption("Ollama", "ollama"),
+				huh.NewOption("LM Studio", "lm-studio"),
+				huh.NewOption("vLLM", "vllm"),
+				huh.NewOption("llama.cpp", "llamacpp"),
+				huh.NewOption("Other - paste a URL", "other"),
+				huh.NewOption("Cancel", "cancel"),
+			).Value(&choice).Run()
+		if err != nil || choice == "cancel" {
+			return detect.Found{}, false
+		}
+		if choice == "other" {
+			url := ""
+			if err := huh.NewInput().
+				Title("Paste your local OpenAI-compatible endpoint").
+				Description("e.g. http://127.0.0.1:8081  (we'll check it serves /v1/models)").
+				Value(&url).Run(); err != nil {
+				return detect.Found{}, false
+			}
+			if f, ok := detect.Probe(url); ok {
+				fmt.Printf("verified %s - serves %d model(s)\n", f.BaseURL, len(f.Models))
+				return f, true
+			}
+			fmt.Printf("could not reach an OpenAI-compatible server at %q (no /v1/models). Let's try again.\n", url)
+			continue
+		}
+		// A named tool: show the one-liner, let the user start it, then re-detect.
+		fmt.Printf("\nstart %s with:\n  %s\n\n", choice, startOneLiner[choice])
+		again := true
+		if err := huh.NewConfirm().
+			Title("Started it? Re-scan for a running model now?").
+			Affirmative("Re-scan").Negative("Cancel").
+			Value(&again).Run(); err != nil || !again {
+			return detect.Found{}, false
+		}
+		if found := detect.Detect(); len(found) > 0 {
+			fmt.Printf("found %s at %s\n", found[0].Name, found[0].BaseURL)
+			return found[0], true
+		}
+		fmt.Println("still nothing on the default ports / your open ports - give it a moment, or paste the URL.")
+	}
 }
 
 // freePort returns the first free TCP port at/above start (auto-pick so a user

@@ -77,12 +77,16 @@ type config struct {
 }
 
 // Share is the provider config the onboarding wizard saves: the model to expose,
-// the chosen port, and the price (0/0 = free). Absent = not a provider yet.
+// the chosen port, the price (0/0 = free), and optionally the verified local
+// upstream endpoint the guided fallback found (so a non-default / custom-port
+// server is remembered and re-detection isn't needed next time). Absent = not a
+// provider yet.
 type Share struct {
 	Model    string  `json:"model"`
 	Port     int     `json:"port"`
 	PriceIn  float64 `json:"price_in,omitempty"`
 	PriceOut float64 `json:"price_out,omitempty"`
+	Upstream string  `json:"upstream,omitempty"` // saved/verified local endpoint (the (e) source)
 }
 
 // resolve returns the effective limit for model m: the per-model limit if set,
@@ -341,10 +345,23 @@ func cmdShare(cfg config, args []string) error {
 	up := *upstream
 	mdl := *model
 	ctxLen := *ctx
+	// A saved/verified upstream (from the guided fallback) is the (e) source: probe
+	// it first so a non-default / custom-port server is remembered, not re-hunted.
+	savedUp := ""
+	if cfg.Share != nil {
+		savedUp = cfg.Share.Upstream
+	}
 	if up == "" {
-		found := detect.Detect()
+		found := detect.DetectWith(savedUp)
 		if len(found) == 0 {
-			return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/LiteLLM). Start one or pass --upstream")
+			// GUIDED FALLBACK: nothing is running. Walk the user through it instead of
+			// erroring out - pick your tool for a one-liner, or paste an endpoint we
+			// verify. Non-interactive runs still get the clear "start one or --upstream".
+			picked, ok := guidedUpstream(cfg.Broker)
+			if !ok {
+				return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM and your open ports). Start one, then `rogerai share`, or pass --upstream <url>")
+			}
+			found = []detect.Found{picked}
 		}
 		// prefer one that serves the requested model; else the first
 		pick := found[0]
@@ -368,6 +385,16 @@ func cmdShare(cfg config, args []string) error {
 			}
 		}
 		fmt.Printf("detected %s at %s - exposing model %q\n", pick.Name, pick.BaseURL, mdl)
+		// Remember the verified upstream so a custom-port / guided-fallback endpoint is
+		// not re-hunted next launch (the (e) saved-config source).
+		if pick.BaseURL != "" && pick.BaseURL != savedUp {
+			c := loadConfig()
+			if c.Share == nil {
+				c.Share = &Share{}
+			}
+			c.Share.Upstream = pick.BaseURL
+			_ = saveConfig(c)
+		}
 	}
 	if mdl == "" {
 		return fmt.Errorf("could not determine a model; pass --model")
