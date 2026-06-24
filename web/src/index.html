@@ -107,7 +107,10 @@
       </div>
 
       <!-- Ping, the operator persona: standing by / on air, driven by live state.
-           Click the operator to open a small record-player chat (Ping concierge). -->
+           The mascot is ALWAYS on, with a scrolling LED banner to its right (idle
+           it rolls flavor phrases; on a reply it scrolls the reply, like a station's
+           now-playing display). Clicking the mascot OR the banner opens a small
+           record-player chat (Ping concierge) for typing. -->
       <span class="hero__ping" id="pingDock">
         <button class="hero__ping-trigger" id="pingTrigger" type="button"
                 aria-haspopup="dialog" aria-expanded="false" aria-controls="pingDeck"
@@ -128,21 +131,34 @@
             <circle class="ping__eye" cx="32" cy="18" r="5" fill="var(--live)"/>
           </svg>
           <span class="hero__ping-tag mono" id="pingTag">standing by</span>
-          <span class="hero__ping-phrase mono" id="pingPhrase" aria-hidden="true">ON AIR</span>
         </button>
 
-        <!-- The record-player / tape-deck chat surface. Starts CLOSED + collapsed
-             so it never covers the hero. Lazily wired on first open by ping-chat.js. -->
+        <!-- ALWAYS-ON scrolling LED banner, beside the mascot. Part of the mascot,
+             not the popup. Clicking it opens the chat. Idle: flavor phrases roll;
+             on a reply: the reply scrolls across. #pingTag (above) is the single
+             status; this banner carries flavor + responses only. -->
+        <button class="pingband" id="pingBanner" type="button"
+                aria-label="Open Ping concierge to type a message"
+                aria-controls="pingDeck">
+          <span class="pingband__grille" aria-hidden="true"></span>
+          <span class="pingband__window">
+            <span class="pingband__text mono" id="pingBannerText">tune in / share / earn / signed receipts only</span>
+          </span>
+        </button>
+
+        <!-- The record-player / tape-deck chat surface (TYPING only now). Starts
+             CLOSED + collapsed so it never covers the hero. Draggable by its header.
+             Lazily wired on first open by ping-chat.js. -->
         <div class="pingdeck" id="pingDeck" role="dialog" aria-modal="false" aria-label="Ping, the RogerAI concierge" hidden>
-          <div class="pingdeck__head">
-            <span class="pingdeck__onair mono" id="pingDeckLight"><i class="pingdeck__led" aria-hidden="true"></i>ON AIR</span>
-            <span class="pingdeck__title mono">PING / CONCIERGE</span>
+          <div class="pingdeck__head" id="pingHead">
+            <span class="pingdeck__onair mono"><i class="pingdeck__led" id="pingDeckLight" aria-hidden="true"></i>PING / CONCIERGE</span>
+            <span class="pingdeck__grip mono" aria-hidden="true">::::</span>
             <button class="pingdeck__close" id="pingClose" type="button" aria-label="Close Ping">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
             </button>
           </div>
 
-          <!-- the deck: twin reels + a "now playing" ticker -->
+          <!-- the deck: twin reels (spin while transmitting), purely decorative -->
           <div class="pingdeck__deck" aria-hidden="true">
             <svg class="pingdeck__reel pingdeck__reel--l" viewBox="0 0 48 48" focusable="false">
               <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/>
@@ -152,7 +168,7 @@
                 <path d="M11.5 11.5 L16 16"/><path d="M32 32 L36.5 36.5"/><path d="M36.5 11.5 L32 16"/><path d="M16 32 L11.5 36.5"/>
               </g>
             </svg>
-            <span class="pingdeck__ticker" id="pingTicker"><span class="pingdeck__ticker-text" id="pingTickerText">tune in / share / earn</span></span>
+            <span class="pingdeck__deckline mono">NOW TRANSMITTING / replies roll on the banner</span>
             <svg class="pingdeck__reel pingdeck__reel--r" viewBox="0 0 48 48" focusable="false">
               <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/>
               <circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
