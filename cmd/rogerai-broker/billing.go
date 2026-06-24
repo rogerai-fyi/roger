@@ -35,8 +35,8 @@ func loadBilling() billing {
 		}
 	}
 	b := billing{
-		secretKey:     os.Getenv("STRIPE_SECRET_KEY"),
-		webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
+		secretKey:     stripeSecretKey(),
+		webhookSecret: stripeWebhookSecret(),
 		successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fyi/topup/success"),
 		cancelURL:     envOr("STRIPE_CANCEL_URL", "https://rogerai.fyi/topup/cancel"),
 		creditUSD:     cu,
@@ -58,6 +58,24 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// stripeSecretKey / stripeWebhookSecret prefer the PRODUCTION credentials when set
+// (STRIPE_SECRET_PROD_KEY / STRIPE_WEBHOOK_PROD_SECRET), else the test ones. Setting
+// the _PROD_ vars flips the broker to live; clearing them reverts to test. The startup
+// log reports the active mode (an sk_live prefix -> LIVE).
+func stripeSecretKey() string {
+	if k := os.Getenv("STRIPE_SECRET_PROD_KEY"); k != "" {
+		return k
+	}
+	return os.Getenv("STRIPE_SECRET_KEY")
+}
+
+func stripeWebhookSecret() string {
+	if s := os.Getenv("STRIPE_WEBHOOK_PROD_SECRET"); s != "" {
+		return s
+	}
+	return os.Getenv("STRIPE_WEBHOOK_SECRET")
 }
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
