@@ -6,7 +6,7 @@
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   Cross-Origin-Opener-Policy: same-origin
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data: https://github.com https://avatars.githubusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'sha256-SnDneqm6BGJa6PkBRyNyh7dC65pFhdmWIclxI/UxeeU=' 'sha256-WZRJfWvsnNCPcxzZwvyhovnZGqhZaC+8gPGPRbx6wTk='; connect-src 'self' https://broker.rogerai.fyi; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data: https://github.com https://avatars.githubusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'sha256-SnDneqm6BGJa6PkBRyNyh7dC65pFhdmWIclxI/UxeeU=' 'sha256-WZRJfWvsnNCPcxzZwvyhovnZGqhZaC+8gPGPRbx6wTk=' 'sha256-dhz791SJGjwR48M9Bg5QhzTI/dKpzDbXm+YjhUNkQHQ='; connect-src 'self' https://broker.rogerai.fyi; form-action 'self'; upgrade-insecure-requests
 
 # The installer must download as a plain script.
 /install.sh

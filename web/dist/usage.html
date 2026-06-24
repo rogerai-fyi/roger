@@ -18,6 +18,13 @@
        class never lands and the hero headline + install command render fully.
        The <noscript> below is the belt-and-braces fallback for the same case. -->
   <script>document.documentElement.classList.add("js");</script>
+  <!-- BULLETPROOF FAILSAFE: reveal everything even if site.js never runs, so a
+       JS error in ANY script can never blank the page again. Independent of
+       site.js - reveals all [data-reveal] on DOMContentLoaded plus a setTimeout
+       backstop. When site.js works it still adds is-revealed first (with the
+       staggered animation); this only guarantees content is never stuck
+       invisible. Its sha256 is allow-listed in _headers (script-src) for CSP. -->
+  <script>(function(){function r(){var n=document.querySelectorAll("[data-reveal]");for(var i=0;i<n.length;i++){n[i].classList.add("is-revealed");}}if(document.readyState!=="loading"){r();}else{document.addEventListener("DOMContentLoaded",r);}setTimeout(r,1200);})();</script>
   <noscript><style>[data-reveal]{opacity:1 !important;transform:none !important;}</style></noscript>
   <title>Usage - RogerAI</title>
 
