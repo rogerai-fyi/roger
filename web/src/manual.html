@@ -378,6 +378,23 @@
               share.</p>
             <pre><span class="p">$</span> rogerai login                 <span class="c"># link GitHub (device flow) - only to earn</span>
 <span class="p">$</span> rogerai share --price-in 0.18 --price-out 0.30</pre>
+            <p>Two price guards keep you honest by accident: if your out-price is more than
+              <b>3&times;</b> the live market median for that model, <code>share</code> prints
+              a non-blocking "double-check it's not a typo" heads-up before going on air; and
+              the broker hard-refuses to list a <b>public</b> node above <code>$100 / 1M</code>
+              out or <code>$50 / 1M</code> in (a real model never costs that, so only a
+              fat-finger trips it). If you genuinely want an unreachable price, that is what a
+              private band is for (§5).</p>
+
+            <h3>Self-healing: stays on air across broker restarts</h3>
+            <p>A share is durable. The broker persists its node registry, so a broker
+              restart or redeploy no longer drops a running provider - it re-hydrates the
+              registry and your station keeps serving without you touching anything. If the
+              broker briefly goes away, the provider single-flights one quiet re-registration
+              (a token refresh) and rides it out. The SHARE panel tells the truth about which
+              state you are in: <b>ON AIR</b> when the broker is acknowledging your
+              heartbeats, <b>RECONNECTING</b> while they are failing - never a green light
+              over a dead link.</p>
 
             <h3>Schedules and concurrency</h3>
             <div class="man-plate">
@@ -478,10 +495,22 @@
               they pay your price per token, or nothing if the band is free.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">--private</span><span class="man-plate__v">requires <code>rogerai login</code> - a private band is tied to your account</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">free limit</span><span class="man-plate__v">1 private band per account; more come in <code>$5</code> packs (Phase 2)</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">--freq</span><span class="man-plate__v">tune a consuming box to a code: <code>&lt;MHz&gt;-&lt;CODE&gt;</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">free limit</span><span class="man-plate__v">1 private band per account (the broker enforces it: a second mint is refused with "private band limit reached"); more come in <code>$5</code> packs (Phase 2)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--freq</span><span class="man-plate__v">tune a consuming box to a code: the MHz part is cosmetic, the code after it is what matters</span></div>
               <div class="man-plate__row"><span class="man-plate__k">vs. grant keys</span><span class="man-plate__v">a grant is a bearer API key for many users; a private band is one off-market frequency two boxes share</span></div>
             </div>
+
+            <h3>From inside the app</h3>
+            <p>You do not need the CLI. In <b>[2] SHARE</b>, press <kbd>h</kbd> on a model to
+              HIDE it onto a private band; a fresh band drops you on a one-time
+              <b>code card</b> where <kbd>c</kbd> copies the frequency code (shown once) and
+              the broker keeps only its hash. Press <kbd>h</kbd> again to put the model back
+              on the open market. To consume a private band from the app, tune in with the
+              code: from <b>[1] TUNE IN</b> press <kbd>Shift</kbd>+<kbd>F</kbd> (a guarded
+              key, deliberately not <kbd>f</kbd>) or run <code>/freq &lt;code&gt;</code>. The
+              band list then shows ONLY that frequency and the header reads
+              <b>FREQ &lt;display&gt;</b> instead of <b>OPEN MARKET</b>; <kbd>esc</kbd> (or a
+              bare <code>/freq</code>) clears the tune back to the open market.</p>
           </section>
 
           <!-- ============== §6 WALLET & BILLING ============== -->
@@ -499,6 +528,21 @@
             <p>Spend is debited live, per token, against the wallet balance. A conditional
               debit on the broker side means a wallet can never go negative. The web
               dashboard mirrors the same numbers.</p>
+
+            <h3>The $1 starter credit</h3>
+            <p>The first time you log in, the broker drops a <b>$1 starter credit</b> on
+              your wallet - enough to try a paid model before you ever top up. It is a
+              one-time seed (idempotent per account) and goes to the <b>first 1000</b>
+              accounts, so claim it early; <code>rogerai topup</code> adds more after.</p>
+
+            <h3>Price safety - you will not get surprised</h3>
+            <p>RogerAI guards both sides of the dial so a typo or a hostile listing cannot
+              quietly drain your wallet:</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">default ceiling</span><span class="man-plate__v">if you set no <code>--max-out</code>, the client still caps every connect at <code>$10 / 1M</code> out - this floor applies <b>even with <code>--yes</code></b>, so an unattended bot can never silently bind to an absurd price</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">type-the-price</span><span class="man-plate__v">to accept a station above <code>$20 / 1M</code> out you must <b>type the price back</b>, not just press <kbd>y</kbd> - a deliberate speed bump on genuinely expensive bands</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out or <code>$50 / 1M</code> in (base price <i>and</i> every scheduled window) - only a typo or a deterrent price trips it; if an operator truly wants an unreachable price they share <code>--private</code> instead (§5)</span></div>
+            </div>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">/account</span><span class="man-plate__v">profile, linked GitHub, payout status, export / delete</span></div>
               <div class="man-plate__row"><span class="man-plate__k">/billing</span><span class="man-plate__v">top-ups and the credit ledger</span></div>
@@ -634,6 +678,7 @@
                   <tr><td><code>whoami</code></td><td>show your signed identity + linked GitHub</td></tr>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
                   <tr><td><code>config</code></td><td>broker, user, spend limits: <code>config get/set broker|user</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
+                  <tr><td><code>support</code></td><td>open the site (community, docs, and the Discord invite live in its footer) (aliases: <code>community</code>, <code>discord</code>, <code>help-me</code>)</td></tr>
                   <tr><td><code>upgrade</code></td><td>self-update the binary; <code>--check</code> only reports availability (aliases: <code>update</code>, <code>self-update</code>)</td></tr>
                   <tr><td><code>version</code></td><td>print the client version</td></tr>
                   <tr><td><code>ping</code></td><td>easter egg: the mascot walks the terminal</td></tr>
@@ -670,6 +715,7 @@
                   <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> · <kbd>j</kbd> <kbd>k</kbd></td><td>move the cursor through your detected models</td></tr>
                   <tr><td><kbd>Enter</kbd> · <kbd>a</kbd> · <kbd>space</kbd></td><td>flip the selected model ON / OFF air</td></tr>
                   <tr><td><kbd>p</kbd> · <kbd>e</kbd></td><td>open the price + time-of-use schedule editor (login-gated - earning needs an account)</td></tr>
+                  <tr><td><kbd>h</kbd></td><td>HIDE the selected model onto a private frequency band (login-gated); a fresh band opens the one-time code card. Press <kbd>h</kbd> again to put it back on the open market (§5)</td></tr>
                   <tr><td><kbd>r</kbd></td><td>re-detect local models (falls into the guided setup if none)</td></tr>
                   <tr><td><kbd>esc</kbd> · <kbd>q</kbd> · <kbd>s</kbd></td><td>back to TUNE IN; on-air shares keep running in the background</td></tr>
                 </tbody>
@@ -717,6 +763,30 @@
               <span class="man-note__tag">in practice</span>
               RogerAI layers several checks so a station that serves the wrong model, a heavy quant, or pads its token counts is caught and made unprofitable: (a) co-signed lineage receipts on every token, (b) an independent token re-count - we re-count, not just trust the node, and (c) active canary probes that test each station's latency and that it serves the model it advertises - plus logprob spot-checks, a held-earnings escrow with slashing for caught cheating, and an optional TEE-attested confidential tier (§4). Together these make misreporting statistically detectable and not worth it. As with any model provider, verify that outputs meet your quality bar for your use case, and report anything off - we act on reports, and a station's record follows it.
             </div>
+
+            <h3>Pre-dispatch safety screen</h3>
+            <p>The broker is the one choke point every prompt passes through, so it is where
+              illegal content (CSAM and the like) is blocked <b>before</b> it ever reaches a
+              provider. Before a prompt is relayed to a station - and on the public Ping
+              concierge on the site - its text is checked against a moderation model. Today
+              that screen runs on <b>Groq's Llama Guard</b>, our moderation provider; the
+              check happens <b>in transit</b> (the prompt is not stored for it) but it does
+              mean the text is read by the screen, and sent to Groq, at dispatch time. That
+              is the one honest exception to the broker being content-blind, and it is
+              spelled out on the <a href="privacy.html">privacy page</a>, the
+              <a href="tos.html">Terms</a>, and the Acceptable Use Policy.</p>
+
+            <h3>Report a station</h3>
+            <p>If a station serves something off - low quality, the wrong model, or abuse -
+              report it. Every station card on the <a href="models.html">Models page</a> has
+              a <b>report</b> control (category: abuse / CSAM / spam / quality / other, plus
+              an optional request id and free-text detail); a report can be filed
+              anonymously and POSTs to the broker. Enough independent reports auto-eject a
+              node from routing, and a station's record follows it. You can also email
+              <a href="mailto:abuse@rogerai.fyi">abuse@rogerai.fyi</a> directly. Security
+              issues go to <a href="mailto:security@rogerai.fyi">security@rogerai.fyi</a>
+              (see the <a href="security.html">security page</a> and
+              <code>/.well-known/security.txt</code>).</p>
           </section>
 
           <!-- ============== §11 TROUBLESHOOTING ============== -->
@@ -808,7 +878,7 @@
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (same account = $0, or hand the code to a friend). Login-gated, 1 free band, $5 packs in Phase 2 (see §5). Self-healing SHARE: a provider auto-re-registers when the broker restarts (token refresh, no manual restart). Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> (or <kbd>h</kbd> in SHARE) prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (or <kbd>Shift</kbd>+<kbd>F</kbd> / <code>/freq</code> in-app; same account = $0, or hand the code to a friend). Login-gated, 1 free band (broker-enforced), $5 packs in Phase 2 (see §5). <b>Real TEE confidential tier</b>: the gold <span class="cs">&#9670;</span> now means a node passed live AMD SEV-SNP remote attestation - nonce-bound (no replay), measurement-allowlisted, re-attested on a cadence, fail-closed; <code>share --confidential</code> needs real TEE hardware and refuses honestly otherwise (§4, §10). <b>Trust + safety surface</b>: a pre-dispatch Groq Llama Guard moderation screen on the relay and the public Ping concierge, a report-a-station control on every Models card (POSTs to the broker, auto-ejects on enough reports), <a href="mailto:abuse@rogerai.fyi">abuse@</a> + a real ToS/AUP + <code>security.txt</code> (§10). <b>Wallet</b>: a one-time $1 starter credit for the first 1000 accounts; consumer price-safety guards (a $10/1M default cap even with <code>--yes</code>, type-the-price above $20/1M) and operator ceilings ($100/1M out, $50/1M in) (§4, §6). <b>Self-healing SHARE</b>: a provider auto-re-registers when the broker restarts (the registry is persisted and re-hydrated; no manual restart), with truthful ON AIR vs RECONNECTING status. <code>rogerai support</code> opens the site/Discord. Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.3.0</span><span class="man-plate__v">web-parity visual redesign: one palette, signal meters, the compact "windowshade" [m], a band-browser with filter / sort / FREE-confidential-on-air toggles + a virtualized list, [d] disconnect from the list, and a clean GitHub device-login panel with a confirmed [L] logout</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.2.x</span><span class="man-plate__v">payout command group (<code>rogerai payout status|onboard|request|history</code>) - headless cash-out for Stripe Connect earnings; the in-app preset bank ([0]-[3], [L], [?]) with arrow-key navigation</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.0.0</span><span class="man-plate__v">the v4 line: the "Live Operating Manual" redesign across the CLI and web, and the <b>[0] AGENT</b> harness - an in-app tool-use loop with a <code>dj.md</code> persona, a <code>/model</code> picker, auto read/list/fetch + confirm-gated write/run, cwd-sandboxed, session-only</span></div>
