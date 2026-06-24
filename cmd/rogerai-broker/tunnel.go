@@ -466,9 +466,17 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// before it reaches any provider. Off by default in dev; required + fail-closed
 	// for launch (see moderation.go). Grants do NOT bypass it (owner's legal
 	// exposure on shared access). Covers streaming too (this is before the branch).
-	if st, msg := b.mod.screen(promptText(body)); st != 0 {
-		log.Printf("moderation reject model=%s status=%d: %s", req.Model, st, msg)
-		jsonErr(w, st, msg)
+	if res := b.mod.screen(promptText(body)); !res.allow() {
+		log.Printf("moderation reject model=%s status=%d: %s", req.Model, res.status, res.msg)
+		// CSAM (child-exploitation) hit: do NOT discard. PRESERVE the offending request
+		// (access-controlled, retention-limited) and QUEUE a CyberTipline report
+		// obligation (18 USC 2258A). Non-CSAM unsafe content is the existing
+		// reject-and-discard. The pseudonym keeps the preserved record un-reversible to
+		// the real user while still distinguishing repeat offenders.
+		if res.csam {
+			b.preserveCSAM(b.pseudonym(user, "relay"), clientIP(r), res.category, body)
+		}
+		jsonErr(w, res.status, res.msg)
 		return
 	}
 
@@ -839,6 +847,11 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 	now := time.Now()
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
+			continue
+		}
+		// A reported/banned node is ejected from routing entirely (reuses the eject
+		// idea: treated as not-serving), so a flagged node stops being handed out.
+		if b.isBanned(n.NodeID) {
 			continue
 		}
 		if pin != "" && n.NodeID != pin {

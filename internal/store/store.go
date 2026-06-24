@@ -204,6 +204,32 @@ type Store interface {
 	// AddGrantUsage increments a grant's day + month token rollup at settle time.
 	AddGrantUsage(id string, tokens int64, now time.Time) error
 
+	// --- safety: CSAM preservation + abuse reports + node bans (safety.go) ----
+
+	// PreserveCSAM records a child-exploitation hit (18 USC 2258A): the broker-ENCRYPTED
+	// offending content plus pseudonym/ip/category/timestamp, in the access-controlled
+	// rogerai.csam_incidents table. ReportState defaults to "queued" (a CyberTipline
+	// report is owed). Returns the new incident id.
+	PreserveCSAM(inc CSAMIncident) (int64, error)
+	// PendingCSAMReports lists incidents still owing a report ("queued"), newest first,
+	// for a follow-up CyberTipline submitter to drain.
+	PendingCSAMReports(limit int) ([]CSAMIncident, error)
+	// MarkCSAMReported flips an incident's obligation to "reported" once filed.
+	MarkCSAMReported(id int64) error
+
+	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
+	AddReport(r Report) (int64, error)
+	// ReportCountByNode returns how many reports name a node (drives the ban threshold).
+	ReportCountByNode(nodeID string) (int, error)
+	// ReportsByNode lists a node's reports (admin/dashboard), newest first.
+	ReportsByNode(nodeID string, limit int) ([]Report, error)
+	// BanNode flips a node OUT of routing (pick/market/discover) with a reason.
+	// Idempotent (first reason wins).
+	BanNode(nodeID, reason string) error
+	// BannedNodes returns the banned node set (id -> reason), re-hydrated at startup so
+	// a ban survives a broker restart.
+	BannedNodes() (map[string]string, error)
+
 	Close() error
 }
 
@@ -263,6 +289,14 @@ type Mem struct {
 	gs       *grantStore           // grant keys + per-grant usage rollups
 	nodes    map[string]NodeRecord // persisted node registry (re-hydrated on restart)
 
+	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
+	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
+	csam     []CSAMIncident    // preserved child-exploitation hits (encrypted content)
+	csamID   int64             // monotonic incident id
+	reports  []Report          // abuse/quality reports (POST /report)
+	reportID int64             // monotonic report id
+	banned   map[string]string // node id -> ban reason (ejected from pick/market/discover)
+
 	// Seed cap: bound free-credit liability. seedLimit is the max number of distinct
 	// wallets ever seeded with non-zero starter credits (<=0 = unlimited); seedCount
 	// is how many have been seeded so far. Both are guarded by mu and the count is
@@ -286,6 +320,7 @@ func NewMem() *Mem {
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), nodes: map[string]NodeRecord{},
+		banned: map[string]string{},
 	}
 }
 
