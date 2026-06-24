@@ -115,6 +115,23 @@ else
 	info "node not found on PATH"
 fi
 
+# Manual version sync: the built operating manual MUST mention the current CLI
+# version. This is the sync guard - any release that bumps `const Version` in
+# cmd/rogerai/main.go but forgets to update web/src/manual.html (cover + changelog)
+# fails the gate here. Lightest reliable check: grep the version out of the source
+# of truth, then require it in the built dist manual. See CLAUDE.md "Release gate".
+cli_ver=$(sed -n 's/^const Version = "\([0-9][^"]*\)".*/\1/p' cmd/rogerai/main.go | head -n 1)
+if [ -z "$cli_ver" ]; then
+	red "read const Version from cmd/rogerai/main.go"
+elif [ ! -f "$ROOT/web/dist/manual.html" ]; then
+	red "manual mentions CLI version v$cli_ver (web/dist/manual.html missing - run node web/build.mjs)"
+elif grep -q "$cli_ver" "$ROOT/web/dist/manual.html"; then
+	green "manual mentions current CLI version (v$cli_ver)"
+else
+	red "manual mentions current CLI version (v$cli_ver)"
+	info "web/dist/manual.html does not contain '$cli_ver' - update web/src/manual.html (cover + changelog) and re-run node web/build.mjs"
+fi
+
 # ============================================================================
 # UNIT  (the regression suite, per-package)
 # ============================================================================
