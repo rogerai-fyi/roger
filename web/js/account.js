@@ -65,7 +65,10 @@
     });
   }
 
-  var path = location.pathname.replace(/\/$/, "");
+  // Strip a trailing slash AND a ".html" suffix so the branch matches whether the
+  // page is served at the clean path (/billing) or the static file (/billing.html) -
+  // the static host serves /billing.html, so matching only "/billing" left it blank.
+  var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
 
   if (path.endsWith("/account")) {
@@ -112,14 +115,75 @@
       if (!d) { location.replace("/login"); return; }
       text("balance", cr(d.balance));
       text("derived", cr(d.derived));
-      text("topupNote", d.checkout_ready ? "Top up from the CLI: rogerai topup, or the in-app button (coming soon)."
-        : "Stripe is not configured on this broker yet.");
+      if (d.checkout_ready) {
+        text("topupNote", "Top up below, or from the CLI: rogerai topup.");
+        show("topupBox");
+        wireTopup();
+      } else {
+        text("topupNote", "Top up from the CLI: rogerai topup.");
+        show("topupDisabled");
+      }
       fill("topups", "topupsEmpty", d.topups, function (t) {
         return li(when(t.ts) + " - session", cr(t.amount));
       });
       show("card");
       wireLogout();
     });
+
+    // Top-up control: a chosen preset OR a custom amount -> Stripe Checkout.
+    function wireTopup() {
+      var presets = document.getElementById("topupPresets");
+      var custom = document.getElementById("topupCustom");
+      var btn = document.getElementById("topup");
+
+      // selecting a preset clears the custom field; typing a custom clears presets.
+      if (presets) {
+        presets.addEventListener("click", function (ev) {
+          var b = ev.target.closest("button[data-usd]");
+          if (!b) return;
+          var btns = presets.querySelectorAll(".amount");
+          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
+          b.classList.add("is-active");
+          if (custom) custom.value = "";
+        });
+      }
+      if (custom) {
+        custom.addEventListener("input", function () {
+          if (!custom.value) return;
+          var btns = presets ? presets.querySelectorAll(".amount") : [];
+          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
+        });
+      }
+
+      function chosenUsd() {
+        if (custom && custom.value) {
+          var v = parseFloat(custom.value);
+          return isFinite(v) ? v : NaN;
+        }
+        var active = presets && presets.querySelector(".amount.is-active");
+        return active ? parseFloat(active.getAttribute("data-usd")) : NaN;
+      }
+
+      on("topup", "click", function () {
+        var usd = chosenUsd();
+        if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
+        usd = Math.round(usd * 100) / 100;
+        if (btn) btn.disabled = true;
+        text("topupMsg", " redirecting to Stripe...");
+        api("/billing/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usd: usd })
+        }).then(function (r) {
+          if (r && r.url) { window.location = r.url; return; }
+          if (btn) btn.disabled = false;
+          text("topupMsg", " could not start checkout");
+        }).catch(function () {
+          if (btn) btn.disabled = false;
+          text("topupMsg", " could not start checkout");
+        });
+      });
+    }
   } else if (path.endsWith("/usage")) {
     var group = qs.get("group") === "day" ? "day" : "model";
     get("/usage?group=" + group).then(function (d) {

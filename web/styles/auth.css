@@ -104,3 +104,28 @@ code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
 .r-model { color: var(--ink); font-family: "Geist Mono", ui-monospace, monospace; }
 .r-cost { color: var(--muted); }
 a { color: var(--brand); }
+
+/* ---- top-up control (billing.html) ----------------------------- */
+.amounts { display: flex; gap: 8px; margin: 4px 0 16px; }
+.amount {
+  flex: 1; padding: 12px 8px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--ink); font: inherit; font-weight: 600;
+  cursor: pointer;
+}
+.amount:hover { border-color: var(--brand); }
+.amount.is-active { border-color: var(--brand); color: var(--brand); box-shadow: 0 0 0 1px var(--brand) inset; }
+.amount:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(91,91,255,0.25); }
+.amount-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; }
+.amount-row__pre { color: var(--muted); font-weight: 600; }
+.amount-row input {
+  flex: 1; padding: 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--ink); font: inherit;
+}
+.amount-row input:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(91,91,255,0.25); }
+.primary {
+  margin-top: 16px; width: 100%; padding: 12px 16px; border: 0; border-radius: 10px;
+  background: var(--brand); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+}
+.primary:hover { opacity: 0.92; }
+.primary:disabled { opacity: 0.5; cursor: default; }
+.primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(91,91,255,0.35); }
