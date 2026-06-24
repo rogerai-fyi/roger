@@ -121,8 +121,9 @@ func Check(current string) (CheckResult, error) {
 // isNewer reports whether latest is strictly newer than current under a simple
 // dotted-numeric comparison (e.g. 0.2.0 > 0.1.9). A dev build that is AHEAD of
 // the published release must NOT advertise a downgrade as an "update", so we
-// compare ordering rather than mere inequality. Non-numeric / unparseable parts
-// fall back to a string compare so we still notice a differing tag.
+// compare ordering rather than mere inequality. When all parsed numeric parts
+// are equal (e.g. tags that differ only by a suffix), we conservatively treat
+// latest as NOT newer.
 func isNewer(current, latest string) bool {
 	if latest == "" || latest == current {
 		return false
