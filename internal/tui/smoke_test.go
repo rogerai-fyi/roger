@@ -213,6 +213,28 @@ func runCmd(m tea.Model, cmd string) tea.Model {
 	return m
 }
 
+// runShare submits /share and then SYNCHRONOUSLY drives the async detection: /share
+// now opens the SHARE table in a loading pose and returns a tea.Cmd that probes for
+// local models off the event loop (detectShares is injectable, so deterministic in
+// tests). runShare runs that command and feeds its sharesDetectedMsg back so the
+// caller sees the settled state (the table or the guided wizard).
+func runShare(m tea.Model) tea.Model {
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "share" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	var c tea.Cmd
+	m, c = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for c != nil {
+		msg := c()
+		if msg == nil {
+			break
+		}
+		m, c = m.Update(msg)
+	}
+	return m
+}
+
 // TestInTUIFlows: /help lists the in-TUI verbs, an empty balance surfaces /topup,
 // and the /grant list + /login flows fire through their hooks and update state.
 func TestInTUIFlows(t *testing.T) {

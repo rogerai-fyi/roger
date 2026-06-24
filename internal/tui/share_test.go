@@ -268,9 +268,10 @@ func TestGuidedFallbackWizard(t *testing.T) {
 	mm := New("http://127.0.0.1:1", "tester")
 	mm.width, mm.height = 100, 30
 	var m tea.Model = mm
-	// /share -> guided setup (no model detected). Assert via the view (the model may
-	// come back as a value or pointer through the command chain).
-	m = runCmd(m, "share")
+	// /share -> guided setup (no model detected). Detection is async now, so runShare
+	// drives the returned command. Assert via the view (the model may come back as a
+	// value or pointer through the command chain).
+	m = runShare(m)
 	v := stripANSI(m.View())
 	if !strings.Contains(v, "SET UP A MODEL") {
 		t.Fatalf("no-detection /share should open the guided setup:\n%s", v)
@@ -477,7 +478,7 @@ func TestShareSetupPasteVerifyFailure(t *testing.T) {
 	mm := New("http://127.0.0.1:1", "tester")
 	mm.width, mm.height = 100, 30
 	var m tea.Model = mm
-	m = runCmd(m, "share") // -> guided setup (nothing detected)
+	m = runShare(m) // -> guided setup (nothing detected, async detection driven)
 
 	// Move to the "Other - paste a URL" row (last option).
 	for i := 0; i < len(setupOptions)-1; i++ {
@@ -513,5 +514,124 @@ func TestQuitGuardDeclineRestoresMode(t *testing.T) {
 	}
 	if asModel(dm).mode != modeShare {
 		t.Errorf("decline should restore the prior mode (SHARE), got %v", asModel(dm).mode)
+	}
+}
+
+// TestShareDetectionIsAsync: entering SHARE must NOT block the event loop on
+// detection. doShare returns the SHARE table in a LOADING pose plus a tea.Cmd
+// (detection runs off the loop); the view shows the animated working spinner + a
+// "scanning the band" line; then a sharesDetectedMsg populates the rows and clears
+// the loading flag without re-running detection synchronously.
+func TestShareDetectionIsAsync(t *testing.T) {
+	// detectShares must NOT be called inside Update (it would block the loop). Track it.
+	old := detectShares
+	called := false
+	detectShares = func(extra ...string) []detect.Found {
+		called = true
+		return []detect.Found{{Name: "test", BaseURL: "http://x/v1", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
+	}
+	defer func() { detectShares = old }()
+
+	mm := New("http://broker.local", "tester")
+	mm.width, mm.height = 100, 30
+	var m tea.Model = mm
+	m, _ = m.Update(balanceMsg{balance: 5, loggedIn: true})
+
+	// Press [2] SHARE: immediately in modeShare + LOADING, with a detection cmd queued.
+	var cmd tea.Cmd
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	sm := asModel(m)
+	if sm.mode != modeShare {
+		t.Fatalf("SHARE should enter modeShare at once, got %v", sm.mode)
+	}
+	if !sm.shareLoading {
+		t.Error("SHARE should enter the LOADING state (shareLoading) before detection lands")
+	}
+	if called {
+		t.Error("detection must NOT run synchronously inside Update - it would block the loop")
+	}
+	if cmd == nil {
+		t.Fatal("SHARE should return a tea.Cmd that runs detection off the event loop")
+	}
+	// While loading, the view shows the working spinner + the scanning line, never rows.
+	lv := stripANSI(m.View())
+	if !strings.Contains(lv, "scanning the band for local models") {
+		t.Errorf("loading view should show the scanning indicator:\n%s", lv)
+	}
+
+	// Run the queued command (this is what the runtime does off the loop): it probes
+	// and yields a sharesDetectedMsg.
+	msg := cmd()
+	if _, ok := msg.(sharesDetectedMsg); !ok {
+		t.Fatalf("the detection cmd should yield a sharesDetectedMsg, got %T", msg)
+	}
+	if !called {
+		t.Error("running the detection cmd should have invoked detectShares")
+	}
+
+	// Folding the message in populates the rows and clears the loading flag.
+	m, _ = m.Update(msg)
+	dm := asModel(m)
+	if dm.shareLoading {
+		t.Error("sharesDetectedMsg must clear the loading flag")
+	}
+	if len(dm.shareRows) != 1 || dm.shareRows[0].model != "gpt-oss-20b" {
+		t.Errorf("sharesDetectedMsg should populate the provider rows, got %+v", dm.shareRows)
+	}
+	if !strings.Contains(stripANSI(m.View()), "gpt-oss-20b") {
+		t.Errorf("the settled table should list the detected model:\n%s", stripANSI(m.View()))
+	}
+}
+
+// TestShareDetectionEmptyEntersWizard: an empty async detection on the INITIAL SHARE
+// open lands the guided setup wizard (preserving the old behavior), but only AFTER
+// detection, not before.
+func TestShareDetectionEmptyEntersWizard(t *testing.T) {
+	old := detectShares
+	detectShares = func(extra ...string) []detect.Found { return nil }
+	defer func() { detectShares = old }()
+
+	mm := New("http://broker.local", "tester")
+	mm.width, mm.height = 100, 30
+	var m tea.Model = mm
+
+	var cmd tea.Cmd
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	if !asModel(m).shareLoading {
+		t.Fatal("SHARE should be loading before the empty result lands")
+	}
+	// Fold the empty detection result: now (and only now) the wizard opens.
+	m, _ = m.Update(cmd())
+	wm := asModel(m)
+	if wm.shareLoading {
+		t.Error("an empty result must clear the loading flag")
+	}
+	if wm.mode != modeShareSetup {
+		t.Errorf("an empty initial detection should open the guided wizard, got %v", wm.mode)
+	}
+	if !strings.Contains(stripANSI(m.View()), "SET UP A MODEL") {
+		t.Errorf("wizard view expected after empty detection:\n%s", stripANSI(m.View()))
+	}
+}
+
+// TestShareLoadingSpinnerAnimates: the loading indicator reuses the ((•)) working
+// spinner and advances with the tick (m.frame), so it visibly animates while
+// detection is in flight (not a frozen UI). Under live (non-quiet) rendering the
+// spinner phrase rotates across frames.
+func TestShareLoadingSpinnerAnimates(t *testing.T) {
+	if quiet {
+		t.Skip("animation is frozen under NO_COLOR / non-TTY (covered by the static-fallback test)")
+	}
+	mm := New("http://broker.local", "tester")
+	mm.width, mm.height = 100, 30
+	mm.mode = modeShare
+	mm.shareLoading = true
+	seen := map[string]bool{}
+	for f := 0; f < 40; f += 8 {
+		mm.frame = f
+		seen[stripANSI(mm.shareView(100))] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("loading indicator should animate across frames, got %d distinct frames", len(seen))
 	}
 }

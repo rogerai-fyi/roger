@@ -144,6 +144,17 @@ func rowSel(sel bool, plain string, width int) string {
 // ports). Production uses detect.DetectWith.
 var detectShares = func(extra ...string) []detect.Found { return detect.DetectWith(extra...) }
 
+// detectSharesCmd runs detectShares in a goroutine (a tea.Cmd) so the SHARE flows
+// detect local models WITHOUT blocking the Bubble Tea event loop - probing a busy
+// host's open ports can take a few seconds, which would otherwise freeze every
+// keystroke with no feedback. The result comes back as a sharesDetectedMsg the
+// Update handler folds into the provider table. detectShares stays injectable so
+// tests can make this deterministic (a test can also feed sharesDetectedMsg
+// directly to exercise the handler).
+func detectSharesCmd(extra string) tea.Cmd {
+	return func() tea.Msg { return sharesDetectedMsg{found: detectShares(extra)} }
+}
+
 type offer struct {
 	NodeID       string  `json:"node_id"`
 	Region       string  `json:"region"`
@@ -329,6 +340,20 @@ type model struct {
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
 	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
+	// async SHARE detection: probing the host's open ports for local LLMs can take a
+	// few seconds on a busy box (120+ listening ports). shareLoading marks the
+	// provider table as "scanning the band…" while detection runs OFF the Bubble Tea
+	// event loop (a tea.Cmd goroutine returning sharesDetectedMsg), so pressing
+	// [2]/SHARE/r never freezes the UI. sharePending holds the optional `/share
+	// <model>` shortcut model to flip on air once detection lands. setupOnEmpty
+	// chooses whether an empty detect drops into the guided setup wizard (the initial
+	// open) or stays on the table with a "still nothing" note (the in-table r
+	// re-detect, which must not yank the user into the wizard mid-table).
+	shareLoading bool
+	sharePending string
+	setupOnEmpty bool
+	shareRescan  bool   // the in-flight detect is a retry (re-scan), not a first open
+	setupHint    string // the note to show in the wizard if the in-flight rescan finds nothing
 	// per-model pricing + time-of-use schedule editor (modeShareEditor). prices the
 	// row at shareCursor; persisted via the host SavePrice hook (nil = in-session only).
 	edPriceIn  string             // $/1M in edit buffer
@@ -394,6 +419,12 @@ type shareRow struct {
 
 // ---- messages ----
 type offersMsg []offer
+
+// sharesDetectedMsg carries the result of an ASYNC local-LLM detection scan run off
+// the event loop (see detectSharesCmd). The Update handler turns it into provider
+// rows + clears the loading flag, so the SHARE table never blocks the UI while the
+// host's open ports are probed.
+type sharesDetectedMsg struct{ found []detect.Found }
 
 // balanceMsg carries the wallet read: the balance plus whether the broker says the
 // caller is logged in (has a real account wallet). Balance is shown only when in.
@@ -508,6 +539,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
 		}
 		return m, nil
+	case sharesDetectedMsg:
+		return m.onSharesDetected(msg.found)
 	case balanceMsg:
 		m.loggedIn = msg.loggedIn
 		if msg.loggedIn {
@@ -893,16 +926,55 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("off air - you stopped sharing")
 		return m, nil
 	}
-	found := detectShares(m.shareUp)
+	// ASYNC: enter the provider table in a LOADING pose IMMEDIATELY and fire detection
+	// off the event loop. detectShares used to run synchronously here and block every
+	// keystroke for seconds on a busy host (120+ open ports to probe); now the user
+	// sees the scanning indicator at once and the sharesDetectedMsg lands the rows.
+	m.mode = modeShare
+	m.shareLoading = true
+	m.setupOnEmpty = true // the initial open: an empty scan drops into the guided wizard
+	m.shareRescan = false
+	m.setupHint = ""
+	m.sharePending = ""
+	if len(args) > 0 {
+		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
+	}
+	m.status = stDim.Render("scanning the band for local models…")
+	return m, detectSharesCmd(m.shareUp)
+}
+
+// onSharesDetected folds an async detection result into the provider table: it
+// clears the loading pose, builds the rows, applies a pending `/share <model>`
+// shortcut, and - only on the initial open (setupOnEmpty) - drops into the guided
+// setup wizard when nothing was found. An empty re-detect from inside the table
+// (setupOnEmpty=false) stays on the table with a clear note rather than yanking the
+// user into the wizard mid-list.
+func (m model) onSharesDetected(found []detect.Found) (tea.Model, tea.Cmd) {
+	m.shareLoading = false
 	if len(found) == 0 {
-		// GUIDED FALLBACK: nothing detected -> the in-TUI setup wizard (pick a tool for
-		// a one-liner, or paste a URL we verify), not a dead-end status line.
-		return m.enterShareSetup(), nil
+		if m.setupOnEmpty {
+			// GUIDED FALLBACK: nothing detected -> the in-TUI setup wizard (pick a tool for
+			// a one-liner, or paste a URL we verify), not a dead-end status line. If we were
+			// already in the wizard (a re-scan / named-tool pick that found nothing), keep
+			// the wizard but flag the empty result inline.
+			nm := m.enterShareSetup()
+			if m.shareRescan {
+				note := m.setupHint
+				if note == "" {
+					note = "still nothing on the defaults / your open ports - give it a moment, or paste the URL below"
+				}
+				nm.setupErr = note
+			}
+			return nm, nil
+		}
+		m.status = stEmber.Render("! still nothing on the defaults / your open ports - press r to re-scan, or start a local LLM")
+		return m, nil
 	}
 	m.loadShareRows(found)
 	// `/share <model>` shortcut: flip that exact model on air, then show the table.
-	if len(args) > 0 {
-		want := args[0]
+	if m.sharePending != "" {
+		want := m.sharePending
+		m.sharePending = ""
 		for i, r := range m.shareRows {
 			if r.model == want {
 				m.shareCursor = i
@@ -1111,12 +1183,17 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// (free sharing stays open to anyone).
 		return m.enterShareEditor()
 	case "r":
-		if found := detectShares(m.shareUp); len(found) > 0 {
-			m.loadShareRows(found)
-			m.status = stDim.Render("re-detected local models")
-		} else {
-			return m.enterShareSetup(), nil
-		}
+		// ASYNC re-detect: stay on the table in the loading pose and probe off the event
+		// loop (a busy host's port scan must never freeze the table). An empty result
+		// keeps us on the table with a note (setupOnEmpty stays false) rather than yanking
+		// into the wizard mid-list.
+		m.shareLoading = true
+		m.setupOnEmpty = false
+		m.shareRescan = true
+		m.setupHint = ""
+		m.sharePending = ""
+		m.status = stDim.Render("re-scanning the band for local models…")
+		return m, detectSharesCmd(m.shareUp)
 	}
 	return m, nil
 }
@@ -1173,15 +1250,18 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setupErr = ""
 		return m, nil
 	case "r":
-		// Re-scan (after the user started their tool in another terminal).
-		if found := detectShares(m.shareUp); len(found) > 0 {
-			m.loadShareRows(found)
-			m.mode = modeShare
-			m.status = stLive.Render("found " + plural(len(m.shareRows), "model") + " - ↑↓ select, enter toggles on-air")
-		} else {
-			m.setupErr = "still nothing on the defaults / your open ports - give it a moment, or paste the URL below"
-		}
-		return m, nil
+		// Re-scan (after the user started their tool in another terminal). ASYNC: enter
+		// the loading table and probe off the event loop; an empty result returns to the
+		// wizard with a note (setupOnEmpty=true), a found result lands the table.
+		m.mode = modeShare
+		m.shareLoading = true
+		m.setupOnEmpty = true
+		m.shareRescan = true
+		m.setupHint = ""
+		m.sharePending = ""
+		m.setupErr = ""
+		m.status = stDim.Render("re-scanning the band for local models…")
+		return m, detectSharesCmd(m.shareUp)
 	case "enter":
 		if pasting {
 			url := strings.TrimSpace(m.setupPaste)
@@ -1199,16 +1279,17 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setupErr = "no OpenAI-compatible server at " + url + " (no /v1/models) - check it and try again"
 			return m, nil
 		}
-		// A named tool: try a re-detect first (maybe it's already up); else show the
-		// one-liner via the status line and keep the wizard so the user can press r.
-		if found := detectShares(m.shareUp); len(found) > 0 {
-			m.loadShareRows(found)
-			m.mode = modeShare
-			m.status = stLive.Render("found " + plural(len(m.shareRows), "model") + " on air")
-			return m, nil
-		}
-		m.setupErr = "start it, then press r to re-scan:  " + setupOptions[m.setupCursor].oneLiner
-		return m, nil
+		// A named tool: ASYNC re-detect (maybe it's already up). If nothing comes back we
+		// return to the wizard with this tool's start one-liner; a found result lands the
+		// table. Detection runs off the event loop so the pick never freezes the wizard.
+		m.mode = modeShare
+		m.shareLoading = true
+		m.setupOnEmpty = true
+		m.shareRescan = true
+		m.sharePending = ""
+		m.setupHint = "start it, then press r to re-scan:  " + setupOptions[m.setupCursor].oneLiner
+		m.status = stDim.Render("checking for " + setupOptions[m.setupCursor].label + "…")
+		return m, detectSharesCmd(m.shareUp)
 	case "backspace":
 		if pasting && m.setupPaste != "" {
 			m.setupPaste = m.setupPaste[:len(m.setupPaste)-1]
@@ -1937,7 +2018,11 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 func (m model) View() string {
 	w := m.effWidth()
 	var b strings.Builder
-	b.WriteString(m.presetBar(w) + "\n")
+	// A blank spacer line sets the preset bar apart from the brand lockup below it, so
+	// the [1] TUNE IN ... bar and the ▟█▙ R O G E R · A I ((•)) logo read as two
+	// distinct rows instead of one cramped block. A single line keeps it tight on a
+	// short terminal; an empty line is inherently NO_COLOR / narrow-safe.
+	b.WriteString(m.presetBar(w) + "\n\n")
 	b.WriteString(m.header(w) + "\n")
 	switch m.mode {
 	case modeHelp:
@@ -2848,6 +2933,16 @@ func (m model) shareView(w int) string {
 		b.WriteString("  " + head +
 			stDim.Render(fmt.Sprintf("   your GPU as a station   %s detected · %d on air",
 				plural(len(m.shareRows), "model"), m.sharesOnAir())) + "\n")
+	}
+
+	// LOADING: detection runs off the event loop, so while it's in flight we show a
+	// clear, animated indicator instead of a frozen UI. The ((•)) working spinner
+	// reuses transmitLine so it pulses with the tick (m.frame), and quiet (NO_COLOR /
+	// non-TTY / reduced-motion) freezes it to a static ((•)) frame via anim()/quiet.
+	if m.shareLoading {
+		spin := transmitLine(m.frame, 0)
+		return b.String() + "\n  " + spin + "\n  " +
+			stDim.Render("scanning the band for local models…") + "\n"
 	}
 
 	if len(m.shareRows) == 0 {
