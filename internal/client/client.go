@@ -167,9 +167,11 @@ func signalTower(tps float64, online bool) string {
 // so and points at `rogerai login` instead of printing a misleading 0.
 func Balance(broker, user string) error {
 	var b struct {
-		User     string  `json:"user"`
-		Balance  float64 `json:"balance"`
-		LoggedIn bool    `json:"logged_in"`
+		User         string  `json:"user"`
+		Balance      float64 `json:"balance"`
+		LoggedIn     bool    `json:"logged_in"`
+		MonthlyCap   float64 `json:"monthly_cap"`
+		MonthlySpend float64 `json:"monthly_spend"`
 	}
 	if err := getJSON(broker, "/balance", user, &b); err != nil {
 		return err
@@ -179,7 +181,87 @@ func Balance(broker, user string) error {
 		return nil
 	}
 	fmt.Printf("logged in - wallet %s: $%.4f\n", b.User, b.Balance)
+	// Monthly spend cap (a budget limit): show month-to-date vs the cap. 0 = unlimited
+	// (the opt-in default) - say so + how to set one.
+	if b.MonthlyCap > 0 {
+		fmt.Printf("monthly spend: $%.2f of $%.2f this month%s\n", b.MonthlySpend, b.MonthlyCap, monthlyNotice(b.MonthlySpend, b.MonthlyCap))
+	} else {
+		fmt.Printf("monthly spend: $%.2f this month  (no cap - set one with `rogerai limit --monthly $X`)\n", b.MonthlySpend)
+	}
 	return nil
+}
+
+// monthlyNotice renders the near/at-cap tail for the balance line: a 100% "limit
+// reached" warning, an 80% "approaching" warning, or "" when comfortably under.
+func monthlyNotice(spend, cap float64) string {
+	if cap <= 0 {
+		return ""
+	}
+	switch {
+	case spend >= cap:
+		return "  - LIMIT REACHED (raise it with `rogerai limit --monthly $X`)"
+	case spend >= cap*0.80:
+		return fmt.Sprintf("  - %.0f%% used", spend/cap*100)
+	}
+	return ""
+}
+
+// MonthlyCapInfo is the per-account monthly spend cap snapshot (GET /account/limit).
+type MonthlyCapInfo struct {
+	Cap   float64 `json:"monthly_cap"`
+	Spend float64 `json:"monthly_spend"`
+}
+
+// GetMonthlyLimit reads the caller's monthly spend cap + month-to-date spend.
+func GetMonthlyLimit(broker, user string) (MonthlyCapInfo, error) {
+	var out MonthlyCapInfo
+	req, _ := http.NewRequest(http.MethodGet, broker+"/account/limit", nil)
+	signRequest(req, nil)
+	if user != "" {
+		req.Header.Set("X-Roger-User", user)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return out, fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return out, fmt.Errorf("log in first - run `rogerai login` (the monthly limit is per account)")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return out, fmt.Errorf("broker returned status %d", resp.StatusCode)
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out, nil
+}
+
+// SetMonthlyLimit sets the caller's monthly spend cap ($; 0 = unlimited / clear) and
+// returns the resulting snapshot.
+func SetMonthlyLimit(broker, user string, cap float64) (MonthlyCapInfo, error) {
+	var out MonthlyCapInfo
+	if cap < 0 {
+		cap = 0
+	}
+	body, _ := json.Marshal(map[string]float64{"monthly_cap": cap})
+	req, _ := http.NewRequest(http.MethodPatch, broker+"/account/limit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	signRequest(req, body)
+	if user != "" {
+		req.Header.Set("X-Roger-User", user)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return out, fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return out, fmt.Errorf("log in first - run `rogerai login` (the monthly limit is per account)")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return out, fmt.Errorf("broker returned status %d", resp.StatusCode)
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out, nil
 }
 
 // Topup asks the broker for a Stripe Checkout URL to buy `usd` of credits.
@@ -776,6 +858,11 @@ func WithTopupHint(status int, msg string) string {
 	if status == http.StatusPaymentRequired {
 		if strings.TrimSpace(msg) == "" {
 			return "insufficient balance - " + TopupHint
+		}
+		// A monthly-spend-limit 402 already names its own remedy (raise the cap / wait
+		// for next month); topping up won't unblock it, so don't append the topup hint.
+		if strings.Contains(msg, "monthly spend limit") {
+			return msg
 		}
 		return msg + " - " + TopupHint
 	}

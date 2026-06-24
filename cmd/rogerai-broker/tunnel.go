@@ -667,6 +667,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		maxCost = 0
 	}
 	if maxCost > 0 {
+		// MONTHLY SPEND CAP (per-account budget limit): reject BEFORE dispatch if this
+		// request's worst-case cost would push the month-to-date captured spend past the
+		// account's cap. Global across every PAID path (this hold gate is the one all of
+		// public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
+		// the whole block, so they are never blocked. Sets near/at-cap notice headers.
+		if st, msg := b.monthlyCapCheck(w, payer, maxCost, time.Now()); st != 0 {
+			jsonErr(w, st, msg)
+			return
+		}
 		_, _ = b.db.BalanceOf(payer, b.seedFunds) // seed new users so the hold can land
 		held, herr := b.db.Hold(payer, maxCost)
 		if herr != nil {

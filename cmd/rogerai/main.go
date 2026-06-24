@@ -5,6 +5,7 @@
 //	rogerai search                    discover models (cheapest first)
 //	rogerai use <model> [--port N]    open a local OpenAI endpoint via the broker
 //	rogerai balance                   your wallet balance
+//	rogerai limit --monthly $X        cap your spend per calendar month (0/off = no cap)
 //	rogerai share [flags]             become a provider (auto-detects a local LLM)
 //	rogerai config set broker <url>   switch brokers (federation: pick who you trust)
 //	rogerai config get [key]
@@ -330,6 +331,10 @@ func main() {
 		// Mirror the TUI's /limits (prints the spend-limits view); editing stays under
 		// `config set-limit` for the flags.
 		err = cmdConfig(append([]string{"limits"}, os.Args[2:]...))
+	case "limit":
+		// `rogerai limit --monthly $X` sets the per-account MONTHLY SPEND CAP (a budget
+		// limit). Bare `rogerai limit` shows the current cap + month-to-date spend.
+		err = cmdLimit(cfg, os.Args[2:])
 	case "payout", "payouts", "cashout":
 		err = cmdPayout(cfg, os.Args[2:])
 	case "grant":
@@ -912,6 +917,60 @@ func cmdBalance(cfg config, args []string) error {
 	return client.Balance(cfg.Broker, cfg.User)
 }
 
+// cmdLimit is the per-account MONTHLY SPEND CAP verb (a budget limit, modeled on
+// Groq's "set a max you'll pay per month"). `rogerai limit --monthly $X` sets the
+// cap; `--monthly 0` or `--monthly off` clears it (unlimited); bare `rogerai limit`
+// shows the current cap + month-to-date spend. Requires login (the cap is per
+// account/wallet, enforced server-side at every paid path).
+func cmdLimit(cfg config, args []string) error {
+	fs := flag.NewFlagSet("limit", flag.ExitOnError)
+	monthly := fs.String("monthly", "", "max $ to spend per calendar month (e.g. 25); 0 or off = no cap")
+	fs.Parse(args)
+	if *monthly == "" {
+		// Read-only: show the current cap + month-to-date spend.
+		info, err := client.GetMonthlyLimit(cfg.Broker, cfg.User)
+		if err != nil {
+			return err
+		}
+		if info.Cap > 0 {
+			fmt.Printf("monthly spend limit: $%.2f   (used $%.2f this month)\n", info.Cap, info.Spend)
+		} else {
+			fmt.Printf("monthly spend limit: none   (used $%.2f this month)\n", info.Spend)
+			fmt.Println("set one with `rogerai limit --monthly $X`")
+		}
+		return nil
+	}
+	cap, err := parseMonthlyCap(*monthly)
+	if err != nil {
+		return err
+	}
+	info, err := client.SetMonthlyLimit(cfg.Broker, cfg.User, cap)
+	if err != nil {
+		return err
+	}
+	if info.Cap > 0 {
+		fmt.Printf("monthly spend limit set: $%.2f   (used $%.2f this month)\n", info.Cap, info.Spend)
+	} else {
+		fmt.Printf("monthly spend limit cleared - no cap   (used $%.2f this month)\n", info.Spend)
+	}
+	return nil
+}
+
+// parseMonthlyCap reads the `--monthly` value: "off"/"none"/"unlimited"/"0" clear the
+// cap (return 0); otherwise a positive dollar amount (a leading "$" is tolerated).
+func parseMonthlyCap(s string) (float64, error) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "$"))
+	switch strings.ToLower(s) {
+	case "off", "none", "unlimited", "0":
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 0 {
+		return 0, fmt.Errorf("invalid monthly limit %q - use a dollar amount (e.g. 25) or `off`", s)
+	}
+	return f, nil
+}
+
 // cmdAccount is the one identity verb (C4): bare prints who you are (whoami);
 // `account login` / `account logout` manage the GitHub link. Old top-level
 // login/logout/whoami stay as hidden aliases.
@@ -1113,6 +1172,7 @@ func usage() {
   rogerai search                list models, cheapest first
   rogerai use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   rogerai balance               your wallet balance  (balance --topup [usd] to add funds)
+  rogerai limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
 
 providers (share your GPU):
   rogerai share                 go on air - FREE by default, no login (auto-detects your model)

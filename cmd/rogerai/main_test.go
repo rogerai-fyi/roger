@@ -26,6 +26,31 @@ func TestNormalizeUpstream(t *testing.T) {
 	}
 }
 
+// TestParseMonthlyCap verifies the `rogerai limit --monthly` value parsing: a dollar
+// amount (with or without a leading $), the clear spellings (0/off/none/unlimited),
+// and the invalid cases.
+func TestParseMonthlyCap(t *testing.T) {
+	ok := map[string]float64{
+		"25": 25, "$25": 25, " 25 ": 25, "25.50": 25.5,
+		"0": 0, "off": 0, "OFF": 0, "none": 0, "unlimited": 0, "$0": 0,
+	}
+	for in, want := range ok {
+		got, err := parseMonthlyCap(in)
+		if err != nil {
+			t.Errorf("parseMonthlyCap(%q) errored: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parseMonthlyCap(%q) = %v, want %v", in, got, want)
+		}
+	}
+	for _, bad := range []string{"-5", "abc", "$-1", "12x"} {
+		if _, err := parseMonthlyCap(bad); err == nil {
+			t.Errorf("parseMonthlyCap(%q) should have errored", bad)
+		}
+	}
+}
+
 // TestLimitsLoadSaveBackCompat verifies the new limits section round-trips and
 // that an OLD config with NO limits section still loads (back-compat) with no
 // caps. Uses XDG_CONFIG_HOME so configPath() points at a temp dir.

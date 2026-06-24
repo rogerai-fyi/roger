@@ -429,10 +429,17 @@ func (b *broker) webSession(r *http.Request) (login, wallet string, ok bool) {
 // owns the pubkey-derived wallet) OR a logged-in browser session cookie (which
 // reads the github-scoped wallet). ok=false means neither was usable (caller 401s).
 func (b *broker) dashIdentity(r *http.Request) (id string, ok bool) {
+	return b.dashIdentityBody(r, nil)
+}
+
+// dashIdentityBody is dashIdentity for a request whose signature covers a body (e.g. a
+// signed PATCH): the caller has already read the body and passes it so the Ed25519
+// signature verifies over the same bytes. A nil body matches a GET (no body signed).
+func (b *broker) dashIdentityBody(r *http.Request, body []byte) (id string, ok bool) {
 	if _, w, sok := b.webSession(r); sok {
 		return w, true
 	}
-	rid, _, iok := b.identityOf(r, nil)
+	rid, _, iok := b.identityOf(r, body)
 	if !iok {
 		return "", false
 	}
