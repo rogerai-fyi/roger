@@ -1,18 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sign in - RogerAI</title>
-  <meta name="description" content="Sign in to RogerAI to monetize your GPU. Consuming needs no account." />
-  <meta name="robots" content="noindex" />
-  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <script src="js/theme-init.js"></script>
-  <link rel="stylesheet" href="styles/auth.css" />
+  <!-- include: head.html title="Sign in - RogerAI" desc="Sign in to RogerAI to monetize your GPU. Consuming needs no account." theme=external css=chrome robots=noindex -->
 </head>
 <body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
   <main class="card">
-    <a class="back" href="/">Roger<b>AI</b></a>
     <h1>Sign in</h1>
     <p class="sub">You only need an account to <b>monetize</b> a GPU. Using models needs no sign in, though signing in unlocks your usage dashboard - spend, history, and earnings.</p>
     <a class="gh" href="https://broker.rogerai.fyi/auth/github/login">
@@ -21,6 +15,10 @@
     </a>
     <p class="fine">We read your public GitHub profile to verify you - nothing else.</p>
   </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
   <script src="js/auth.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
 </body>
 </html>

@@ -1,17 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Console - RogerAI</title>
-  <meta name="robots" content="noindex" />
-  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <script src="js/theme-init.js"></script>
-  <link rel="stylesheet" href="styles/auth.css" />
+  <!-- include: head.html title="Console - RogerAI" theme=external css=chrome robots=noindex -->
 </head>
 <body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
   <main class="card" id="card" hidden>
-    <a class="back" href="/">Roger<b>AI</b></a>
     <h1>Console</h1>
     <p class="sub">Signed in as <b id="who">-</b></p>
 
@@ -35,7 +30,10 @@ rogerai share</pre>
     <p class="fine"><a href="/payouts.html">Payouts &amp; withdrawals</a> - <a href="/account.html">Account</a> - <a href="/dashboard.html">Back to dashboard</a></p>
     <button id="logout" class="ghost">Sign out</button>
   </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
   <script src="js/auth.js"></script>
+  <script src="js/site.js"></script>
   <script src="js/session.js"></script>
 </body>
 </html>
