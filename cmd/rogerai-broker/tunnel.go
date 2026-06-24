@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,48 @@ import (
 // the broker coming back, WITHOUT re-registering. 45s tolerates ~4 missed beats /
 // the redeploy gap while staying truthful (a genuinely dead node still ages out).
 const nodeTTL = 45 * time.Second
+
+// defaultMaxNodesPerOwner is the HARD per-owner on-air cap: how many nodes a single
+// owner account may have SIMULTANEOUSLY on air (live within nodeTTL) across all of
+// their machines. The server backstop so one account can't overwhelm the broker.
+// Override with ROGERAI_MAX_NODES_PER_OWNER (0 disables the cap).
+const defaultMaxNodesPerOwner = 20
+
+// maxNodesPerOwnerLimit reads the per-owner on-air cap from the environment, falling
+// back to the default. A negative value is ignored (keeps the default); 0 disables it.
+func maxNodesPerOwnerLimit() int {
+	if v := os.Getenv("ROGERAI_MAX_NODES_PER_OWNER"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultMaxNodesPerOwner
+}
+
+// ownerOnAirCount counts how many of the owner's nodes are currently ON AIR (live
+// within nodeTTL), EXCLUDING the node id `self` (so an idempotent re-register of an
+// existing node is never counted as a new one). It resolves each live node's owner
+// via the node_owner binding (b.db.AccountOfNode), so it spans all of the owner's
+// machines. Caller holds b.mu.
+func (b *broker) ownerOnAirCount(owner, self string) int {
+	if owner == "" {
+		return 0
+	}
+	n := 0
+	now := time.Now()
+	for id := range b.nodes {
+		if id == self {
+			continue // the node refreshing itself is not a NEW on-air node
+		}
+		if now.Sub(b.lastSeen[id]) >= nodeTTL {
+			continue // aged out: no longer on air
+		}
+		if acct, ok, _ := b.db.AccountOfNode(id); ok && acct == owner {
+			n++
+		}
+	}
+	return n
+}
 
 // nodeTunnel is the broker's per-node relay state: a buffered job queue the node
 // long-polls, and the set of result waiters keyed by job id. The token is the
@@ -136,6 +179,21 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		b.mu.Unlock()
 		jsonErr(w, http.StatusForbidden, "node_id already bound to a different key")
 		return
+	}
+	// HARD per-owner on-air cap (the server backstop): an owner account may have at
+	// most maxNodesPerOwner nodes SIMULTANEOUSLY on air across all their machines. Count
+	// the owner's currently-live on-air nodes (within nodeTTL) EXCLUDING this node id, so
+	// an idempotent re-register of an existing node never trips the cap (it is not a NEW
+	// on-air node). Only owner-bound (priced OR private) registrations are attributable
+	// and capped; free public supply has no owner and is not counted here. The
+	// (limit+1)th node is rejected with a clear 4xx the share UX surfaces verbatim.
+	if regOwner.Pubkey != "" && b.maxNodesPerOwner > 0 {
+		if b.ownerOnAirCount(regOwner.Pubkey, reg.NodeID) >= b.maxNodesPerOwner {
+			b.mu.Unlock()
+			jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf(
+				"station limit reached: %d bands on air for this account - take one off air", b.maxNodesPerOwner))
+			return
+		}
 	}
 	now := time.Now()
 	b.nodes[reg.NodeID] = reg

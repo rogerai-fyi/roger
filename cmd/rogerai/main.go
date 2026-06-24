@@ -108,6 +108,26 @@ type Share struct {
 	PriceIn  float64 `json:"price_in,omitempty"`
 	PriceOut float64 `json:"price_out,omitempty"`
 	Upstream string  `json:"upstream,omitempty"` // saved/verified local endpoint (the (e) source)
+	// MaxOnAir is the SOFT local cap on how many bands may be ON AIR at once from this
+	// CLI (the share.max_on_air knob). It is a deliberate "reset the CLI" guard read
+	// ONCE at startup: changing it requires a restart. <=0 means "use the default" (see
+	// defaultShareMaxOnAir). The TUI blocks flipping another row on air past this and
+	// tells the user to take one off air or raise the knob + restart.
+	MaxOnAir int `json:"max_on_air,omitempty"`
+}
+
+// defaultShareMaxOnAir is the soft local on-air cap when share.max_on_air is unset
+// (or <=0). Local UX guard against over-subscribing a host's GPU; the broker's hard
+// per-owner cap is the real backstop.
+const defaultShareMaxOnAir = 4
+
+// shareMaxOnAir resolves the effective soft on-air cap from the config: the saved
+// share.max_on_air when positive, else the default. Read once at CLI startup.
+func (c config) shareMaxOnAir() int {
+	if c.Share != nil && c.Share.MaxOnAir > 0 {
+		return c.Share.MaxOnAir
+	}
+	return defaultShareMaxOnAir
 }
 
 // resolve returns the effective limit for model m: the per-model limit if set,
@@ -239,6 +259,10 @@ func tuiHooks(cfg config) tui.Hooks {
 			_ = saveConfig(c)
 		},
 	}
+	// Soft local on-air cap (share.max_on_air), read ONCE here at startup: the TUI shows
+	// the ON AIR n/max slots and blocks flipping another band on air at the cap. Changing
+	// it is a deliberate restart-the-CLI knob (we never re-read it mid-session).
+	h.ShareMaxOnAir = cfg.shareMaxOnAir()
 	if cfg.Share != nil {
 		h.ShareModel, h.SharePriceI, h.SharePriceO = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
 	}

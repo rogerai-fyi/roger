@@ -40,14 +40,19 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
-	NodeID      string                                        // this host's base id (hostname); per-band node ids are derived from it + model + upstream via agent.ShareNodeID
-	HW          string                                        // hardware label for the offer
-	GitHubID    string                                        // public GitHub OAuth client id (device flow)
-	LinkedLogin string                                        // the locally-linked GitHub login at startup ("" = anonymous)
-	ShareModel  string                                        // saved onboarding model (default offer)
-	SharePriceI float64                                       // saved input price (0 = free)
-	SharePriceO float64                                       // saved output price (0 = free)
-	Login       func(broker, clientID string) (string, error) // device-flow login -> github login
+	NodeID      string  // this host's base id (hostname); per-band node ids are derived from it + model + upstream via agent.ShareNodeID
+	HW          string  // hardware label for the offer
+	GitHubID    string  // public GitHub OAuth client id (device flow)
+	LinkedLogin string  // the locally-linked GitHub login at startup ("" = anonymous)
+	ShareModel  string  // saved onboarding model (default offer)
+	SharePriceI float64 // saved input price (0 = free)
+	SharePriceO float64 // saved output price (0 = free)
+	// ShareMaxOnAir is the SOFT local cap on how many bands may be ON AIR at once (the
+	// share.max_on_air config knob), read once at startup. The [2] SHARE selector shows
+	// the ON AIR n/max slots and BLOCKS flipping another row on air at the cap. <=0 means
+	// "use the package default" (defaultShareMaxOnAir).
+	ShareMaxOnAir int
+	Login         func(broker, clientID string) (string, error) // device-flow login -> github login
 	// LoginBegin starts the GitHub device flow and returns the URL + code to show
 	// (no polling); LoginPoll then blocks until the user authorizes and returns the
 	// linked login. Split so the TUI can render its own clean login panel + auto-open
@@ -1616,6 +1621,15 @@ func (m *model) toggleShareAt(i int) {
 		m.status = stDim.Render("off air - stopped sharing ") + stKey.Render(row.model)
 		return
 	}
+	// SOFT local on-air cap (share.max_on_air): block putting ANOTHER band on air once
+	// the slots are full. The user frees a slot by taking one off air (or raises the knob
+	// + restarts). This is local UX to stop over-subscribing the host - the broker's
+	// per-owner cap is the hard backstop. (Toggling an already-on-air row OFF is handled
+	// above, so this only gates a NEW on-air row.)
+	if m.atOnAirLimit() {
+		m.status = m.onAirLimitMsg()
+		return
+	}
 	// Free by default (visible + changeable in the editor). The price + time-of-use
 	// schedule come from pricingFor (an edited price, the saved onboarding price for
 	// the default model, else free).
@@ -1681,6 +1695,16 @@ func (m *model) togglePrivateAt(i int) {
 	}
 	row := m.shareRows[i]
 	goPrivate := !m.sharePrivate[row.model] // toggling: if currently public -> private
+	wasOn := m.shares[row.model] != nil
+	// SOFT on-air cap: pressing `h` on an OFF-air row puts it on air (on a hidden band),
+	// so the same share.max_on_air guard applies. Re-pinning an already-on-air row's
+	// visibility does not add a slot (it restarts the same band), so only a NEW on-air row
+	// is gated. Checked BEFORE we stop/restart so we never tear down a live band just to
+	// bounce off the cap.
+	if !wasOn && m.atOnAirLimit() {
+		m.status = m.onAirLimitMsg()
+		return
+	}
 	// Stop any current session for this row so we can restart it with the new visibility.
 	if sess, ok := m.shares[row.model]; ok && sess != nil {
 		sess.Stop()
@@ -4829,6 +4853,35 @@ func (m model) sharesOnAir() int {
 	return n
 }
 
+// defaultShareMaxOnAir is the SOFT local on-air cap used when the host supplies no
+// share.max_on_air (Hooks.ShareMaxOnAir <= 0). Local UX guard so a user does not
+// over-subscribe their host; the broker's per-owner cap is the real backstop.
+const defaultShareMaxOnAir = 4
+
+// maxOnAir is the effective SOFT local cap on simultaneously-on-air bands: the
+// host-supplied share.max_on_air when positive, else the package default. Read from
+// the hook (the host reads it once at startup; changing it requires a restart).
+func (m model) maxOnAir() int {
+	if m.hooks.ShareMaxOnAir > 0 {
+		return m.hooks.ShareMaxOnAir
+	}
+	return defaultShareMaxOnAir
+}
+
+// atOnAirLimit reports whether the soft local on-air cap is already reached, so the
+// SHARE selector blocks flipping ANOTHER row on air (taking one off air frees a slot).
+func (m model) atOnAirLimit() bool {
+	return m.sharesOnAir() >= m.maxOnAir()
+}
+
+// onAirLimitMsg is the clear blocked-at-the-soft-limit message the SHARE selector
+// shows when the user tries to put one more band on air past share.max_on_air.
+func (m model) onAirLimitMsg() string {
+	max := m.maxOnAir()
+	return stEmber.Render(fmt.Sprintf("%d/%d on air", max, max)) +
+		stDim.Render(fmt.Sprintf(" - take one off air first, or raise share.max_on_air in config and restart"))
+}
+
 // sharePrice returns the price a row WOULD share at (its saved/edited price, FREE
 // by default), or the live session's price when it's on air.
 func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
@@ -4864,12 +4917,21 @@ func (m model) shareView(w int) string {
 	// windowshade compact mode forces the dense layout regardless of width.
 	dense := w < 88 || m.compact
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
+	// Slot meter: ON AIR n/max (the soft share.max_on_air cap). At the cap the count
+	// reads in the ember accent so the operator sees there are no free slots; below it,
+	// dim. NO_COLOR-safe (the n/max text carries the meaning, color is only emphasis).
+	on, max := m.sharesOnAir(), m.maxOnAir()
+	slot := fmt.Sprintf("ON AIR %d/%d", on, max)
+	slotCell := stDim.Render(slot)
+	if on >= max {
+		slotCell = stEmber.Render(slot)
+	}
 	if dense {
-		b.WriteString("  " + head + stDim.Render(fmt.Sprintf("   %d on air / %d", m.sharesOnAir(), len(m.shareRows))) + "\n")
+		b.WriteString("  " + head + "   " + slotCell + "\n")
 	} else {
 		b.WriteString("  " + head +
-			stDim.Render(fmt.Sprintf("   your GPU as a station   %s detected · %d on air",
-				plural(len(m.shareRows), "model"), m.sharesOnAir())) + "\n")
+			stDim.Render(fmt.Sprintf("   your GPU as a station   %s detected   ", plural(len(m.shareRows), "model"))) +
+			slotCell + "\n")
 	}
 
 	// LOADING: detection runs off the event loop, so while it's in flight we show a
