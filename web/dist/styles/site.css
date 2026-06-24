@@ -388,10 +388,9 @@ code, pre { font-family: var(--font-mono); }
   display: flex; flex-direction: column; align-items: flex-start; text-align: left;
   padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
 }
-/* the hero now breaks at the full-bleed dial: the lead block ends after the
-   subhead (no big bottom pad), the after-block carries the install + Ping. */
-.hero__inner { padding-bottom: var(--s-6); }
-.hero__inner--after { padding-top: 0; padding-bottom: var(--s-16); }
+/* the hero is now one left-bound column: eyebrow -> title -> subhead -> Ping ->
+   FIG.1 command -> FIG.2 teaser, all in the document grid. */
+.hero__inner { padding-bottom: var(--s-16); }
 .hero__eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
   margin-bottom: var(--s-6);
@@ -1558,8 +1557,11 @@ table.man-table tr:hover td { background: var(--paper); }
    --lock (0..1, detent glow) + --sig (0..1, signal meter) vars are driven by
    teaser.js; pre-seeded inline so JS-off / reduced-motion looks locked.
    ===================================================================== */
+/* FIG.2 sits BELOW the install command and shares its left edge + max-width
+   (640px, left-bound, no auto-centering). It is smaller than the old full-bleed
+   teaser: a short strip + compact rows. */
 .teaser {
-  display: block; max-width: 720px; margin: var(--s-8) auto;
+  display: block; max-width: 640px; width: 100%; margin: var(--s-8) 0 0;
   border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
   background: var(--paper); text-decoration: none; color: inherit;
   transition: border-color var(--d-2), box-shadow var(--d-2);
@@ -1567,10 +1569,17 @@ table.man-table tr:hover td { background: var(--paper); }
 .teaser:hover { border-color: var(--ink-400); }
 .teaser:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
 .teaser__fig { display: block; padding: var(--s-3) var(--s-4) 0; }
+/* the honest, casual bridge line (these are representative models, not strictly
+   live) - sits under the FIG label, inside the plate's left padding. */
+.teaser__bridge {
+  margin: 0; padding: 2px var(--s-4) 0;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+  letter-spacing: -.01em; line-height: 1.4;
+}
 .teaser__face { padding: var(--s-2) 0 0; --lock: 1; --sig: 0.87; }
 .teaser__top {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
-  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
+  padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline);
 }
 .teaser__locked { font-size: 0.82rem; color: var(--ink-900);
   font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; transition: color var(--d-2); }
@@ -1583,10 +1592,10 @@ table.man-table tr:hover td { background: var(--paper); }
    a bottom signal meter that reacts to --sig. Compact (short height). */
 .teaser__dial { position: relative; background: var(--paper-2);
   border-bottom: 1px solid var(--hairline); }
-.teaser__svgwrap { position: relative; overflow: hidden; padding: var(--s-3) 0 0;
+.teaser__svgwrap { position: relative; overflow: hidden; padding: var(--s-2) 0 0;
   background: linear-gradient(var(--paper) 0, var(--paper-2) 100%); }
-.teaser__svg { display: block; width: 100%; height: 80px; }
-@media (max-width: 560px) { .teaser__svg { height: 72px; } }
+.teaser__svg { display: block; width: 100%; height: 58px; }
+@media (max-width: 560px) { .teaser__svg { height: 52px; } }
 .teaser__tick { transition: stroke .25s ease; }
 .teaser__pip { transition: fill .25s ease; }
 .teaser__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
@@ -1594,7 +1603,7 @@ table.man-table tr:hover td { background: var(--paper); }
 /* fixed red needle, dead center, with a soft lock-glow that brightens at a
    detent (--lock -> 1). transform/opacity only. */
 .teaser__needle {
-  position: absolute; left: 50%; top: var(--s-3); bottom: 22px;
+  position: absolute; left: 50%; top: var(--s-2); bottom: 20px;
   width: 2px; margin-left: -1px; background: var(--live);
   box-shadow: 0 0 calc(2px + var(--lock) * 6px) var(--live-glow);
   pointer-events: none;
@@ -1623,10 +1632,10 @@ table.man-table tr:hover td { background: var(--paper); }
   background-clip: padding-box;
 }
 
-.teaser__list { list-style: none; margin: 0; padding: var(--s-2) 0; }
+.teaser__list { list-style: none; margin: 0; padding: 4px 0; }
 .teaser__band {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
-  padding: 7px var(--s-4); font-family: var(--font-mono); font-size: 0.78rem;
+  padding: 4px var(--s-4); font-family: var(--font-mono); font-size: 0.72rem;
   color: var(--ink-500); border-left: 2px solid transparent;
   transition: color var(--d-2), background var(--d-2), border-color var(--d-2);
 }
@@ -1642,8 +1651,8 @@ table.man-table tr:hover td { background: var(--paper); }
 
 .teaser__foot {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  gap: var(--s-3) var(--s-4); padding: var(--s-3) var(--s-4);
-  border-top: 1px solid var(--hairline); font-family: var(--font-mono); font-size: 0.72rem;
+  gap: var(--s-2) var(--s-4); padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--hairline); font-family: var(--font-mono); font-size: 0.7rem;
 }
 .teaser__chip { display: inline-flex; gap: var(--s-3); align-items: center; color: var(--ink-500);
   font-variant-numeric: tabular-nums slashed-zero; }
