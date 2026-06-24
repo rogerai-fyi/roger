@@ -1347,7 +1347,10 @@ func (m model) header(w int) string {
 		if m.scanned {
 			summary = fmt.Sprintf("%d on air", on)
 		}
-		state = stDim.Render("  ((•)) ") + stDim.Render(summary) +
+		// The beacon in the lockup above already carries the (( • )) motif, so the
+		// state line drops its literal ((•)) prefix - exactly one on-air mark in the
+		// header (TUI-V2-CRITIQUE C).
+		state = stDim.Render("  ") + stDim.Render(summary) +
 			stDim.Render(" · balance ") + stEmber.Render(m.balDollars())
 	}
 	return top + "\n" + state + "\n" + rule
@@ -1643,10 +1646,49 @@ func (m model) onAirPanel(w int) string {
 	return stPanel.Render(body)
 }
 
+// modalFooter renders a modal sub-screen's own footer (its keys + the balance),
+// width-safe: it stacks under a narrow width and drops the right half when it
+// can't fit. status rides under the rule like the main footer.
+func modalFooter(w int, left, right, status string) string {
+	rule := stHeadRule.Render(strings.Repeat("─", w))
+	st := ""
+	if status != "" {
+		st = "\n" + stDim.Render("  ") + status
+	}
+	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		return rule + "\n" + left + st // drop the right half; keys are what matter here
+	}
+	return rule + "\n" + left + strings.Repeat(" ", gap) + right + st
+}
+
 func (m model) footer(w int) string {
 	// Keybindings adapt to the mode so the footer always teaches the right keys. At
 	// narrow widths a terse key line replaces the full one so it fits.
 	var left string
+	// Modal sub-screens get their OWN footer keys (TUI-V2-CRITIQUE B) - the browse
+	// "↑↓ tune · / cmd" keys do nothing here and mislead.
+	switch m.mode {
+	case modeConnectConfirm:
+		left = stDim.Render("enter/y accept  ·  esc/n deny  ·  d detail")
+		if m.narrow() {
+			left = stDim.Render("⏎/y accept · esc/n deny · d detail")
+		}
+		right := stEmber.Render("bal " + m.balDollars())
+		return modalFooter(m.effWidth(), left, right, m.status)
+	case modeOverLimit:
+		left = stDim.Render("⏎ save & re-check  ·  ↑↓ nudge  ·  w wait  ·  esc deny")
+		if m.narrow() {
+			left = stDim.Render("⏎ save · ↑↓ nudge · w wait · esc")
+		}
+		return modalFooter(m.effWidth(), left, stEmber.Render("bal "+m.balDollars()), m.status)
+	case modeLimits:
+		left = stDim.Render("↑↓ move  ·  ⏎ edit  ·  tab field  ·  d clear  ·  esc done")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ edit · tab · d · esc")
+		}
+		return modalFooter(m.effWidth(), left, stEmber.Render("bal "+m.balDollars()), m.status)
+	}
 	if m.mode == modeChat {
 		if m.narrow() {
 			left = stDim.Render("talk · / cmds · tab · esc · ⌃c")
