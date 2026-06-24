@@ -359,6 +359,19 @@ type model struct {
 	connected     *offer
 	endpoint      string
 	apikey        string
+	// lastConnected is the band we most recently TUNED IN to (a "sticky" recent
+	// station). It is kept across band re-scans so a band you connected to never
+	// vanishes from the browse list when its node ages out of /discover - it stays as
+	// an available, tunable station you can re-tune. Set on connect, kept on disconnect
+	// (you disconnected on purpose, so you most want to reconnect), cleared only when a
+	// fresh /discover lists the band on air again (the live offer takes over). See the
+	// offersMsg handler (sticky-band merge) + disconnect().
+	lastConnected *offer
+	// recentBands records every model we have tuned in to this session, so a re-connect
+	// to one is FAST: the staged scan/lock/handshake animation plays only on the FIRST
+	// (cold) tune-in to a band; a band in this set drops straight into the open channel
+	// (warm reconnect). Cleared by nothing this session (a band stays "warm" once tuned).
+	recentBands map[string]bool
 	// staged tune-in sequence (modeConnecting): connectStage is the step the
 	// animation has reached (0..connectStageDone); connectStartFrame anchors the
 	// per-step dwell to m.frame so the steps advance on the one carrier beat. Under
@@ -623,7 +636,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.offers = []offer(msg)
 		m.scanErr = false
 		m.scanned = true // a scan returned (even empty) -> stop showing the loading pose
-		m.bands = groupBands(m.offers, m.limits)
+		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
 		if m.cursor >= len(m.bands) {
 			m.cursor = 0
 		}
@@ -886,7 +899,26 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "enter":
+			// Enter on the band you are ALREADY connected to jumps straight into the open
+			// channel (no re-tune, no staged sequence) - the connected row is a toggle:
+			// Enter opens it, d (below) disconnects it. Enter on any other band tunes in.
+			if m.connected != nil && m.cursorOnConnected() {
+				m.mode = modeChat
+				m.chatIn.Focus()
+				m.status = stGold.Render(glyphVerify+" ") + stLive.Render("back on channel ") + m.connected.NodeID
+				return m, textinput.Blink
+			}
 			return m.connect()
+		case "d":
+			// Disconnect FROM THE LIST: if connected, d drops the channel right here so the
+			// user can see + toggle what is connected without entering it first (the
+			// founder's "disconnect should be doable from the tune-in list"). The band stays
+			// in the list as a tunable station (sticky), so Enter re-tunes it.
+			if m.connected != nil {
+				return m.disconnect()
+			}
+			m.status = stDim.Render("nothing connected to disconnect - enter tunes in")
+			return m, nil
 		case "c", "tab":
 			if m.connected != nil {
 				m.mode = modeChat
@@ -1746,8 +1778,13 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	}
 	bd := m.bands[m.cursor]
 	if !bd.online || bd.cheapest == nil {
-		m.status = stDim.Render("no station on air for " + bd.model + " - try /search")
-		return m, nil
+		// An offline band (incl. the sticky recent station whose node aged out of
+		// /discover): Enter re-scans the band to find it back on air, rather than a
+		// dead-end - the natural "bring it back" action so a recent station is always
+		// re-tunable from here.
+		m.status = stDim.Render("no station on air for ") + stKey.Render(bd.model) + stDim.Render(" right now - re-scanning the band…")
+		m.scanErr, m.scanned = false, false
+		return m, fetchOffers(m.broker)
 	}
 	// Anonymous = free models only. Tuning a PRICED band needs an account wallet:
 	// flash a clear inline login prompt instead of opening a confirm the broker would
@@ -1799,6 +1836,25 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	}
 	m.connected = &o
 	m.apikey = "roger-local"
+	// Remember this station as the "sticky" recent band so it never vanishes from the
+	// browse list if its node ages out of /discover while we are on the channel (the
+	// founder's vanishing-band bug). mergeStickyBand re-includes it on every re-scan.
+	sticky := o
+	m.lastConnected = &sticky
+	// WARM RECONNECT: a band we have tuned in to before this session skips the staged
+	// scan/lock/handshake animation and drops straight into the open channel - only a
+	// FIRST (cold) tune-in plays the full sequence. The endpoint is already bound, so a
+	// reconnect is genuinely instant.
+	warm := m.recentBands[o.Model]
+	if m.recentBands == nil {
+		m.recentBands = map[string]bool{}
+	}
+	m.recentBands[o.Model] = true
+	if warm {
+		m.mode = modeConnecting
+		m.connectStage = connectStageDone
+		return m.finishConnect()
+	}
 	// Rather than snapping straight to the channel, run the web's staged tune-in:
 	//   ◉ scanning stations … ok
 	//   ◉ locking strongest @x · NN t/s · 0.NN $/M … ok
@@ -1928,7 +1984,7 @@ func (m *model) onOverLimitKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		lim := m.limits.resolve(m.q.b.model)
 		lim.MaxOut = nv
 		m.limits.set(m.q.b.model, lim)
-		m.bands = groupBands(m.offers, m.limits)
+		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
 		m.mode = modeBrowse
 		return m.connect()
 	default:
@@ -2356,7 +2412,7 @@ func (m model) confirmView(w int) string {
 	b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-22s  %-12s  %-10s  %s", "BAND", "STATION", "SIGNAL", "FLAGS")) + "\n")
 	b.WriteString("  " + selCarat(true) + rowSel(true,
 		fmt.Sprintf("  %-22s  %-12s  %-10s  %s",
-			pad(bd.model, 22), pad("@"+st.NodeID, 12), pad(tpsPlain(st.TPS, st.Online), 10), plainBandBadge(bd, m.limits)),
+			pad(bd.model, 22), pad("@"+st.NodeID, 12), pad(tpsPlain(st.TPS, st.Online), 10), plainBandBadge(bd, m.limits, false)),
 		w-4) + "\n\n")
 
 	// One glanceable line: what you pay, that it's under your cap, est cost.
@@ -2899,6 +2955,24 @@ func (m model) header(w int) string {
 // It also counts the user's own in-process /share when it serves that model, so a
 // solo founder sharing + chatting their own node is never told "no station" on a
 // stale scan (the share registered but a fresh /discover hasn't come back yet).
+// connectedModel returns the model id of the currently-open channel, or "" when
+// not connected. Used to MARK the connected band in the browse list (the lit
+// "◉ connected" row) and to drive the from-the-list disconnect shortcut.
+func (m model) connectedModel() string {
+	if m.connected == nil {
+		return ""
+	}
+	return m.connected.Model
+}
+
+// cursorOnConnected reports whether the browse cursor is on the band we are
+// currently connected to (used so Enter toggles into the open channel rather than
+// re-running the connect flow).
+func (m model) cursorOnConnected() bool {
+	cm := m.connectedModel()
+	return cm != "" && m.cursor >= 0 && m.cursor < len(m.bands) && m.bands[m.cursor].model == cm
+}
+
 func (m model) bandOnAir(model string) bool {
 	for _, b := range m.bands {
 		if b.model == model && b.online {
@@ -3013,14 +3087,14 @@ func (m model) browseView(w int) string {
 	if m.narrow() {
 		nameW = 14
 		if !m.compact {
-			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-7s  %s", "band", "on air", "$/1M out")) + "\n")
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-9s  %s", "band", "on air", "$/1M out")) + "\n")
 		}
 	} else {
 		// Column header, tabular. Widths match the body cells exactly so price + signal
 		// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
 		// COMPACT omits the header row entirely (denser; the cells stay self-evident).
 		if !m.compact {
-			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-8s  %s",
 				"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
 		}
 	}
@@ -3029,11 +3103,19 @@ func (m model) browseView(w int) string {
 	if tableW < 20 {
 		tableW = 20
 	}
+	connModel := m.connectedModel()
 	for i, bd := range m.bands {
 		sel := i == m.cursor
+		connected := connModel != "" && bd.model == connModel
 		stationsLbl := "-"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
+		}
+		// The band you are on the channel with reads "connected" in the on-air column
+		// (a lit row), so the open channel's station is obvious at a glance even when
+		// its node has briefly aged out of /discover (the sticky offline band).
+		if connected {
+			stationsLbl = "connected"
 		}
 		if m.narrow() {
 			free := ""
@@ -3041,18 +3123,27 @@ func (m model) browseView(w int) string {
 				free = "  FREE"
 			}
 			// PLAIN row for the reverse-video bar; the selected row is one accent bar.
-			plain := fmt.Sprintf("%s  %s  %s%s", pad(bd.model, nameW), pad(stationsLbl, 7), rangeStr(bd), free)
+			plain := fmt.Sprintf("%s  %s  %s%s", pad(bd.model, nameW), pad(stationsLbl, 9), rangeStr(bd), free)
+			if connected {
+				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", pad(bd.model, nameW-2), pad(stationsLbl, 9), rangeStr(bd))
+			}
 			if sel {
 				b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 				continue
 			}
-			// Unselected: dim band, tinted price + FREE tag.
+			// Unselected: dim band, tinted price + FREE tag. A connected row leads with the
+			// lit ◉ marker and a red "connected" label so it stands out in the list.
+			if connected {
+				b.WriteString(selCarat(false) + " " + stRed.Render(glyphOnAir) + " " + stKey.Render(pad(bd.model, nameW-2)) + "  " +
+					stRed.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + "\n")
+				continue
+			}
 			freeTag := ""
 			if bd.free {
 				freeTag = "  " + stLive.Render("FREE")
 			}
 			b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
-				stDim.Render(pad(stationsLbl, 7)) + "  " + stEmber.Render(rangeStr(bd)) + freeTag + "\n")
+				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + freeTag + "\n")
 			continue
 		}
 		// Signal from the cheapest station's measured tps (fixed 5-cell equalizer).
@@ -3067,22 +3158,35 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
-				pad(bd.model, nameW), pad(stationsLbl, 7), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits))
+				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
 		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8), sigTPS, online)
-		b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
-			stDim.Render(pad(stationsLbl, 7)) + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits) + "\n")
+		nameCell := stDim.Render(pad(bd.model, nameW))
+		statCell := stDim.Render(pad(stationsLbl, 9))
+		if connected {
+			// The connected band's name + on-air cell light up so the open channel is
+			// obvious in the list (the "◉ connected" badge is in the flags cell too).
+			nameCell = stKey.Render(pad(bd.model, nameW))
+			statCell = stRed.Render(pad(stationsLbl, 9))
+		}
+		b.WriteString(selCarat(false) + " " + nameCell + "  " +
+			statCell + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
 	}
 	return b.String()
 }
 
 // plainBandBadge is bandBadge without color, for the reverse-video selected row
 // (one accent style governs the whole row; an embedded fg color reads as noise).
-func plainBandBadge(bd band, limits *LimitStore) string {
+// connected leads the cell with the "◉ connected" marker so the open channel's
+// band is unmistakable even on the cursor row / under NO_COLOR.
+func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
+	if connected {
+		parts = append(parts, glyphOnAir+" connected")
+	}
 	if bd.lineage > 0 {
 		parts = append(parts, fmt.Sprintf("◆ %d", bd.lineage))
 	}
@@ -3098,10 +3202,14 @@ func plainBandBadge(bd band, limits *LimitStore) string {
 	return strings.Join(parts, " ")
 }
 
-// bandBadge renders the right-hand flag cell: the gold ◆ lineage call-sign (with
-// the verified hop count), a live FREE tag, and the ember above-limit warning.
-func bandBadge(bd band, limits *LimitStore) string {
+// bandBadge renders the right-hand flag cell: a lit "◉ connected" marker for the
+// open channel's band, the gold ◆ lineage call-sign (with the verified hop count),
+// a live FREE tag, and the ember above-limit warning.
+func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
+	if connected {
+		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
+	}
 	if bd.lineage > 0 {
 		parts = append(parts, stGold.Render(fmt.Sprintf("◆ %d", bd.lineage)))
 	}
@@ -3169,6 +3277,47 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		return out[i].minOut < out[j].minOut // then cheapest first
 	})
 	return out
+}
+
+// mergeStickyBand keeps a band you recently TUNED IN to in the browse list even
+// when the broker's latest /discover no longer carries it (the founder's
+// vanishing-band bug: a node you were on ages out of /discover at ~35s, so the
+// next periodic re-scan dropped it from m.bands and r could not bring it back).
+// If m.lastConnected is set and the fresh band list already contains that model,
+// the live offer wins and the sticky placeholder is cleared (it is on air again).
+// Otherwise we append a synthetic OFFLINE band carrying the remembered station, so
+// the row stays present, marked offline/available, and is still selectable to
+// re-tune. nil-safe: with no sticky band the input list passes through unchanged.
+func (m *model) mergeStickyBand(bands []band) []band {
+	if m.lastConnected == nil {
+		return bands
+	}
+	want := m.lastConnected.Model
+	for _, b := range bands {
+		if b.model == want {
+			// The band is back in /discover (on air or listed) - the live offer is the
+			// source of truth now; drop the stale sticky placeholder.
+			m.lastConnected = nil
+			return bands
+		}
+	}
+	// Not in the fresh scan: keep it as an offline, tunable station so it never
+	// vanishes. minOut/cheapest from the remembered offer let Enter re-tune it.
+	o := *m.lastConnected
+	sticky := band{
+		model:    o.Model,
+		stations: 0,
+		minOut:   o.PriceOut,
+		maxOut:   o.PriceOut,
+		cheapest: nil, // offline: no on-air station to lock right now
+		online:   false,
+		free:     o.FreeNow || (o.PriceOut == 0 && o.PriceIn == 0),
+		all:      []offer{o},
+	}
+	if o.Confidential {
+		sticky.lineage = 1
+	}
+	return append(bands, sticky)
 }
 
 // bandOverLimit reports whether a band's cheapest online station is over the
@@ -3908,13 +4057,18 @@ func (m model) footer(w int) string {
 			left = stDim.Render("type to talk  ·  esc disconnect  ·  tab peek at the band  ·  /quit leaves channel  ·  ⌃c quit app")
 		}
 	} else if m.narrow() {
-		left = stDim.Render("↑↓ · ⏎ tune in · s · m · / · ? · q")
+		discKey := ""
+		if m.connected != nil {
+			discKey = " · d disc"
+		}
+		left = stDim.Render("↑↓ · ⏎ tune in" + discKey + " · s · m · / · ? · q")
 	} else {
-		chatKey := ""
+		chatKey, discKey := "", ""
 		if m.connected != nil {
 			chatKey = " · tab/c channel"
+			discKey = " · d disconnect"
 		}
-		left = stDim.Render("↑↓ pick · enter tune in · s share" + chatKey + " · m compact · / cmd · ? help · q quit")
+		left = stDim.Render("↑↓ pick · enter tune in" + discKey + chatKey + " · s share · m compact · / cmd · ? help · q quit")
 	}
 	confMode := ""
 	if m.confidentialOnly {
