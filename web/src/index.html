@@ -41,23 +41,38 @@
       </p>
 
       <!-- ONE MOVE: the live band (FIG.1) -> tune in with the command (FIG.2).
-           A signature tuning-dial locked on the strongest live band, then the
-           install command directly below reads as the same gesture. -->
-      <div class="tunein" data-reveal data-reveal-delay="160">
-        <div class="install" style="margin-top:0">
-          <span class="fig" aria-hidden="true">FIG. 1 - THE LIVE BAND</span>
-          <figure class="dial" style="margin:0">
-            <div class="dial__top">
-              <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
-              <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
-            </div>
-            <div class="dial__svgwrap">
-              <svg id="dialSvg" role="img" aria-label="Tuning dial locked on the strongest live band"></svg>
-            </div>
-            <div class="dial__hint"><span class="dial__chip" id="dialChip"></span></div>
-          </figure>
-        </div>
+           A signature tuning-dial: a full-bleed instrument panel you can sweep
+           like a real radio. It snaps onto a band; the install command below
+           reads as the same gesture. -->
+    </div><!-- /.hero__inner : the dial breaks out of the document column -->
 
+    <!-- FIG.1 - the full-bleed tuner. role=slider, keyboard + pointer + touch. -->
+    <div class="tuner" data-reveal data-reveal-delay="160">
+      <span class="fig tuner__fig" aria-hidden="true">FIG. 1 - THE DIAL · LIVE BAND</span>
+      <figure class="dial" id="dial" tabindex="0" role="slider"
+              aria-label="Tuning dial. Sweep across the band; arrow keys tune station to station, Enter opens the locked station."
+              aria-valuemin="0" aria-valuenow="0" aria-valuemax="0"
+              aria-valuetext="tuning">
+        <div class="dial__top">
+          <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
+          <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
+        </div>
+        <div class="dial__face">
+          <div class="dial__svgwrap">
+            <svg id="dialSvg" aria-hidden="true"></svg>
+            <span class="dial__glass" aria-hidden="true"></span>
+            <span class="dial__pointer" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="dial__hint">
+          <span class="dial__chip" id="dialChip"></span>
+          <span class="dial__cue mono" id="dialCue" aria-hidden="true">drag to tune · &larr;/&rarr; bands · enter to open</span>
+        </div>
+      </figure>
+    </div>
+
+    <div class="wrap hero__inner hero__inner--after">
+      <div class="tunein" data-reveal data-reveal-delay="200">
         <p class="tunein__bridge">This is the band, live right now. Tune in with one command:</p>
 
         <!-- THE hero object: the install command -->
