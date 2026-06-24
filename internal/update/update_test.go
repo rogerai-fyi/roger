@@ -1,0 +1,42 @@
+package update
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestNoticeAndAvailability(t *testing.T) {
+	// up to date -> no banner
+	if n := (CheckResult{Current: "0.1.0", Latest: "0.1.0"}).Notice(); n != "" {
+		t.Errorf("up-to-date should produce no notice, got %q", n)
+	}
+	// newer available -> a banner naming both versions + the upgrade command
+	n := (CheckResult{Current: "0.1.0", Latest: "0.2.0", Available: true}).Notice()
+	for _, want := range []string{"v0.1.0", "v0.2.0", "rogerai upgrade"} {
+		if !strings.Contains(n, want) {
+			t.Errorf("notice %q missing %q", n, want)
+		}
+	}
+}
+
+func TestNormalize(t *testing.T) {
+	if normalize("v1.2.3") != "1.2.3" || normalize(" 1.2.3 ") != "1.2.3" {
+		t.Errorf("normalize failed: %q %q", normalize("v1.2.3"), normalize(" 1.2.3 "))
+	}
+}
+
+func TestCachedNoticeOptOut(t *testing.T) {
+	t.Setenv("ROGERAI_NO_UPDATE_CHECK", "1")
+	if n := CachedNotice("0.1.0"); n != "" {
+		t.Errorf("opt-out should return no notice, got %q", n)
+	}
+}
+
+func TestAssetNameAndCachePath(t *testing.T) {
+	if assetName() == "" {
+		t.Error("assetName empty")
+	}
+	if cachePath() == "" {
+		t.Error("cachePath empty")
+	}
+}

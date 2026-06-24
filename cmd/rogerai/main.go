@@ -25,7 +25,12 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/tui"
+	"github.com/rogerai-fyi/roger/internal/update"
 )
+
+// Version is the client version (compared against the latest GitHub release for
+// the update check / `rogerai upgrade`). Keep in sync with releases.
+const Version = "0.1.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
@@ -143,18 +148,30 @@ func tuiLimits(cfg config) *tui.LimitStore {
 
 func main() {
 	cfg := loadConfig()
+	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
+	// the TUI does no network at startup; the cache refreshes in the background.
+	notice := update.CachedNotice(Version)
 	if len(os.Args) < 2 {
 		// no args -> launch the interactive radio TUI
-		if err := tui.RunWith(cfg.Broker, cfg.User, tuiLimits(cfg)); err != nil {
+		if err := tui.RunWithNotice(cfg.Broker, cfg.User, tuiLimits(cfg), notice); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 		return
 	}
+	// On plain CLI subcommands (not the TUI / the upgrade command itself), print the
+	// banner to stderr so scripted stdout stays clean.
+	if notice != "" {
+		switch os.Args[1] {
+		case "tui", "upgrade", "update", "self-update", "ping", "version":
+		default:
+			fmt.Fprintln(os.Stderr, notice)
+		}
+	}
 	var err error
 	switch os.Args[1] {
 	case "tui":
-		err = tui.RunWith(cfg.Broker, cfg.User, tuiLimits(cfg))
+		err = tui.RunWithNotice(cfg.Broker, cfg.User, tuiLimits(cfg), notice)
 	case "search", "discover", "models":
 		err = client.Search(cfg.Broker)
 	case "balance":
@@ -176,8 +193,10 @@ func main() {
 	case "ping":
 		// easter egg: walk the mascot across the terminal once, then exit.
 		err = tui.PingWalk()
+	case "upgrade", "update", "self-update":
+		err = cmdUpgrade(os.Args[2:])
 	case "version":
-		fmt.Println("rogerai 0.1.0 (P1)")
+		fmt.Printf("rogerai %s\n", Version)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -308,6 +327,42 @@ func cmdShare(cfg config, args []string) error {
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: *ctx, Parallel: *parallel,
 		Confidential: *confidential, Attestation: att, Schedule: sched,
 	})
+}
+
+// cmdUpgrade self-updates the binary to the latest GitHub release (alias of the
+// `update` command). --help describes it; --check only reports availability.
+func cmdUpgrade(args []string) error {
+	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	check := fs.Bool("check", false, "only check whether an update is available; do not install")
+	fs.Usage = func() {
+		fmt.Printf(`rogerai upgrade - self-update to the latest release (alias: update)
+
+  rogerai upgrade           download + verify + atomically replace this binary
+  rogerai upgrade --check   only report whether a newer version is available
+
+Downloads the per-os/arch asset from github.com/%s, verifies its SHA256 against
+the published checksums, then atomically swaps the running binary. "Already on
+the latest version" is handled. Needs write permission on the install directory.
+
+The background check (shown subtly at startup) can be disabled with
+ROGERAI_NO_UPDATE_CHECK=1.
+`, update.Repo)
+	}
+	fs.Parse(args)
+	if *check {
+		res, err := update.Check(Version)
+		if err != nil {
+			fmt.Printf("could not check for updates (offline?): %v\n", err)
+			return nil // never fail the command on a network hiccup
+		}
+		if n := res.Notice(); n != "" {
+			fmt.Println(n)
+		} else {
+			fmt.Printf("rogerai is up to date (v%s)\n", res.Current)
+		}
+		return nil
+	}
+	return update.Upgrade(Version, os.Stdout)
 }
 
 func cmdTopup(cfg config, args []string) error {
@@ -511,6 +566,7 @@ func usage() {
   rogerai config set-limit <model> --max-out P [--max-in P] [--min-tps N]
   rogerai config clear-limit <model>
   rogerai ping                       say hi to Ping (mascot walks the terminal)
+  rogerai upgrade                    self-update to the latest release (alias: update)
   rogerai version
 
 env: ROGER_BROKER, ROGER_USER override config (%s)

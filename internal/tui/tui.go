@@ -1491,6 +1491,15 @@ func Run(broker, user string) error {
 // RunWith launches the TUI with a spend-limit store (the pricing UX: per-model
 // maxes, connect confirmation, over-limit edit). nil = no caps / no persistence.
 func RunWith(broker, user string, limits *LimitStore) error {
-	_, err := tea.NewProgram(NewWith(broker, user, limits), tea.WithAltScreen()).Run()
+	return RunWithNotice(broker, user, limits, "")
+}
+
+// RunWithNotice is RunWith plus a subtle, pre-computed "update available" line
+// (empty = none) surfaced in the status area. The host owns the (cached, async,
+// non-blocking) update check so the TUI never does network at startup.
+func RunWithNotice(broker, user string, limits *LimitStore, notice string) error {
+	m := NewWith(broker, user, limits)
+	m.updateLine = notice
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
