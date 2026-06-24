@@ -598,6 +598,40 @@
             <pre><span class="p">$</span> rogerai grant list              <span class="c"># your keys + usage per label</span>
 <span class="p">$</span> rogerai grant show my-bots       <span class="c"># one key's scope, caps, usage</span>
 <span class="p">$</span> rogerai grant revoke my-bots     <span class="c"># kill it (effective next request)</span></pre>
+
+            <h3>A private band: two boxes, one frequency code</h3>
+            <p>Sometimes you do not want a band on the public dial at all - you just want
+              your inference box and your agent box to find each other. Put the model on
+              air with <code>--private</code> and the radio gives you a one-time
+              <b>frequency code</b> instead of a public listing: a fake MHz frequency plus
+              a short pairing code. The band never appears on the open market; only a box
+              that tunes to that exact frequency can reach it.</p>
+            <pre><span class="c"># on your inference box (the home GPU)</span>
+<span class="p">$</span> rogerai share qwen3-coder-30b --private
+  private band on air. frequency code (shown ONCE):
+
+      <b>147.520 MHz · 8F3K-9M2Q</b>
+
+  hand this to a box or a friend to tune in.</pre>
+            <div class="man-note">
+              <span class="man-note__tag">the code is shown once</span>
+              The frequency code prints exactly once, at share time. Copy it then - the
+              broker keeps only its hash, so a lost code is re-issued, never recovered.
+            </div>
+            <p>On the box that should use it, tune to the frequency instead of the open
+              band:</p>
+            <pre><span class="c"># on your agent box (anywhere)</span>
+<span class="p">$</span> rogerai use qwen3-coder-30b --freq 147.520MHz-8F3K-9M2Q</pre>
+            <p>If both boxes are the same account, self-use is <b>$0</b> - the private band
+              is just a direct line between two of your own machines, no public signal in
+              between. Hand the code to a friend and they can tune in from their own box:
+              they pay your price per token, or nothing if the band is free.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">--private</span><span class="man-plate__v">requires <code>rogerai login</code> - a private band is tied to your account</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">free limit</span><span class="man-plate__v">1 private band per account; more come in <code>$5</code> packs (Phase 2)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">--freq</span><span class="man-plate__v">tune a consuming box to a code: <code>&lt;MHz&gt;-&lt;CODE&gt;</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">vs. grant keys</span><span class="man-plate__v">a grant is a bearer API key for many users; a private band is one off-market frequency two boxes share</span></div>
+            </div>
           </section>
 
           <!-- ============== §6 WALLET & BILLING ============== -->
@@ -924,7 +958,7 @@
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v">self-healing SHARE: a provider auto-re-registers when the broker restarts (token refresh, no manual restart). Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (same account = $0, or hand the code to a friend). Login-gated, 1 free band, $5 packs in Phase 2 (see §5). Self-healing SHARE: a provider auto-re-registers when the broker restarts (token refresh, no manual restart). Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.3.0</span><span class="man-plate__v">web-parity visual redesign: one palette, signal meters, the compact "windowshade" [m], a band-browser with filter / sort / FREE-confidential-on-air toggles + a virtualized list, [d] disconnect from the list, and a clean GitHub device-login panel with a confirmed [L] logout</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.2.x</span><span class="man-plate__v">payout command group (<code>rogerai payout status|onboard|request|history</code>) - headless cash-out for Stripe Connect earnings; the in-app preset bank ([0]-[3], [L], [?]) with arrow-key navigation</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.0.0</span><span class="man-plate__v">the v4 line: the "Live Operating Manual" redesign across the CLI and web, and the <b>[0] AGENT</b> harness - an in-app tool-use loop with a <code>dj.md</code> persona, a <code>/model</code> picker, auto read/list/fetch + confirm-gated write/run, cwd-sandboxed, session-only</span></div>
