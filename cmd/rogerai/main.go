@@ -278,6 +278,9 @@ func toTUIWindows(ws []SchedWindow) []tui.SchedWindow {
 func main() {
 	cfg := loadConfig()
 	tui.SetVersion(Version) // help/about surfaces match `rogerai version`
+	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
+	// couldn't be deleted while the old process was still running). No-op elsewhere.
+	update.CleanupOld()
 	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
 	// the TUI does no network at startup; the cache refreshes in the background.
 	notice := update.CachedNotice(Version)
