@@ -259,6 +259,146 @@ func TestRequireLive(t *testing.T) {
 	}
 }
 
+// TestWebhookCreditsFromAmountTotal verifies credits are computed from amount_total
+// (the REAL money charged), not from caller-supplied metadata: when metadata.credits
+// is absent the amount_total drives the credit, and when metadata.credits DIVERGES
+// (an inflated/forged value) the amount_total still wins.
+func TestWebhookCreditsFromAmountTotal(t *testing.T) {
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+	t.Setenv("ROGERAI_CREDIT_USD", "1")
+	mem := store.NewMem()
+	b := &broker{db: mem, bill: loadBilling()}
+
+	deliver := func(sessionID, user string, amountTotal int, metaCredits string) {
+		obj := map[string]any{
+			"id":             sessionID,
+			"amount_total":   amountTotal,
+			"payment_intent": "pi_" + sessionID,
+			"metadata":       map[string]any{"user": user},
+		}
+		if metaCredits != "" {
+			obj["metadata"].(map[string]any)["credits"] = metaCredits
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"type": "checkout.session.completed",
+			"data": map[string]any{"object": obj},
+		})
+		r := httptest.NewRequest(http.MethodPost, "/billing/webhook", bytes.NewReader(payload))
+		r.Header.Set("Stripe-Signature", stripeSig(payload, "whsec_test", time.Now().Unix()))
+		w := httptest.NewRecorder()
+		b.webhook(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("webhook = %d, want 200", w.Code)
+		}
+	}
+
+	// (1) No metadata.credits at all -> credit = amount_total/100 = 12.
+	deliver("cs_a", "u_gh_1", 1200, "")
+	if bal, _ := mem.PeekBalance("u_gh_1"); bal != 12 {
+		t.Errorf("credits from amount_total (no metadata) = %v, want 12", bal)
+	}
+
+	// (2) metadata.credits DIVERGES (claims 999) but amount_total is $5 -> credit = 5
+	// (metadata is advisory only; the real charge wins).
+	deliver("cs_b", "u_gh_2", 500, "999")
+	if bal, _ := mem.PeekBalance("u_gh_2"); bal != 5 {
+		t.Errorf("credits with divergent metadata = %v, want 5 (amount_total wins)", bal)
+	}
+}
+
+// TestDisputeResolvesWalletAndClawsLots is the chargeback P0 lock: a
+// charge.dispute.created carries NONE of the checkout metadata (only payment_intent /
+// charge), so the broker must resolve the consumer wallet via the mapping persisted at
+// checkout.session.completed time, debit that consumer's wallet, and claw the still
+// held/payable OPERATOR lots derived from that consumer. A redelivery is idempotent.
+func TestDisputeResolvesWalletAndClawsLots(t *testing.T) {
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+	t.Setenv("ROGERAI_CREDIT_USD", "1")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "90")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	mem := store.NewMem()
+	b := &broker{db: mem, bill: loadBilling()}
+
+	// An operator (pk1) owns node "n"; a consumer "u_gh_9" tops up $50 then spends 30
+	// on a request served by n (so pk1 holds a 30-credit lot derived from this consumer).
+	_ = mem.BindOwner(store.Owner{GitHubID: 9, Login: "op", Pubkey: "pk1"})
+	_ = mem.BindNode("n", "pk1")
+
+	// (a) checkout.session.completed -> credit the wallet AND persist the charge mapping.
+	csPayload, _ := json.Marshal(map[string]any{
+		"type": "checkout.session.completed",
+		"data": map[string]any{"object": map[string]any{
+			"id":             "cs_dispute",
+			"amount_total":   5000,
+			"payment_intent": "pi_dispute",
+			"metadata":       map[string]any{"user": "u_gh_9"},
+		}},
+	})
+	rcs := httptest.NewRequest(http.MethodPost, "/billing/webhook", bytes.NewReader(csPayload))
+	rcs.Header.Set("Stripe-Signature", stripeSig(csPayload, "whsec_test", time.Now().Unix()))
+	wcs := httptest.NewRecorder()
+	b.webhook(wcs, rcs)
+	if wcs.Code != http.StatusOK {
+		t.Fatalf("session.completed = %d, want 200", wcs.Code)
+	}
+	if bal, _ := mem.PeekBalance("u_gh_9"); bal != 50 {
+		t.Fatalf("post-topup balance = %v, want 50", bal)
+	}
+	// Spend 30 on a request served by node n: the consumer pays 30, pk1 earns a 30 lot.
+	_, _ = mem.Hold("u_gh_9", 30)
+	_, _ = mem.Finalize("u_gh_9", "n", 30, 30, 30, rec("rq1"))
+	if s, _ := mem.EarningSplitOf("pk1", time.Now()); s.Held < 29.9 {
+		t.Fatalf("operator held = %v, want ~30", s.Held)
+	}
+	walletBefore, _ := mem.PeekBalance("u_gh_9") // 50 - 30 = 20
+
+	// (b) charge.dispute.created for $50 - carries ONLY payment_intent, no metadata.user
+	// and no request_id. The wallet must be resolved via the stored mapping.
+	disputeBody := func() []byte {
+		p, _ := json.Marshal(map[string]any{
+			"type": "charge.dispute.created",
+			"data": map[string]any{"object": map[string]any{
+				"id":             "dp_1",
+				"amount":         5000,
+				"payment_intent": "pi_dispute",
+				"charge":         "ch_dispute",
+			}},
+		})
+		return p
+	}
+	deliverDispute := func() int {
+		p := disputeBody()
+		r := httptest.NewRequest(http.MethodPost, "/billing/webhook", bytes.NewReader(p))
+		r.Header.Set("Stripe-Signature", stripeSig(p, "whsec_test", time.Now().Unix()))
+		w := httptest.NewRecorder()
+		b.webhook(w, r)
+		return w.Code
+	}
+
+	if c := deliverDispute(); c != http.StatusOK {
+		t.Fatalf("dispute = %d, want 200", c)
+	}
+	// The consumer wallet is debited the full disputed amount (50).
+	if bal, _ := mem.PeekBalance("u_gh_9"); bal != walletBefore-50 {
+		t.Errorf("post-dispute wallet = %v, want %v (debited 50)", bal, walletBefore-50)
+	}
+	// The operator lot derived from this consumer is clawed (no longer held/payable).
+	if s, _ := mem.EarningSplitOf("pk1", time.Now()); s.Held+s.Payable > 1e-6 {
+		t.Errorf("operator held+payable after claw = %v, want 0 (lot clawed)", s.Held+s.Payable)
+	}
+
+	// (c) Idempotent: a redelivery of the SAME dispute id does not double-debit.
+	walletAfterFirst, _ := mem.PeekBalance("u_gh_9")
+	if c := deliverDispute(); c != http.StatusOK {
+		t.Fatalf("dispute redelivery = %d, want 200", c)
+	}
+	if bal, _ := mem.PeekBalance("u_gh_9"); bal != walletAfterFirst {
+		t.Errorf("redelivered dispute changed wallet %v -> %v (must be idempotent)", walletAfterFirst, bal)
+	}
+}
+
 // stripeSig builds a valid Stripe-Signature header (t=<ts>,v1=<hmac>) for payload.
 func stripeSig(payload []byte, secret string, ts int64) string {
 	mac := hmac.New(sha256.New, []byte(secret))

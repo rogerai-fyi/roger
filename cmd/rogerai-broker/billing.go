@@ -187,7 +187,9 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				ID                string `json:"id"`
 				ClientReferenceID string `json:"client_reference_id"`
 				AmountTotal       int    `json:"amount_total"`
-				Amount            int    `json:"amount"` // dispute objects carry `amount`
+				Amount            int    `json:"amount"`         // dispute objects carry `amount`
+				PaymentIntent     string `json:"payment_intent"` // session + dispute carry this
+				Charge            string `json:"charge"`         // dispute carries the charge id
 				Metadata          struct {
 					User      string `json:"user"`
 					Credits   string `json:"credits"`
@@ -199,21 +201,47 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(payload, &evt)
 	// Platform-liable dispute (ACCOUNT-PAYOUTS-DESIGN section 6.4): a consumer
 	// chargeback against a funding charge -> chargeback ledger row + clawback of any
-	// still-held/reserved operator earnings derived from the disputed request.
+	// still-held/payable operator earnings derived from that consumer. A dispute object
+	// carries NONE of the checkout metadata (no metadata.user / request_id), only a
+	// payment_intent + charge id, so we resolve the wallet via the mapping persisted at
+	// checkout.session.completed time. The clawback is then attributed by wallet+recency
+	// (no request id is available) up to the disputed amount.
 	if evt.Type == "charge.dispute.created" {
 		o := evt.Data.Object
-		user := o.Metadata.User
-		if user == "" {
-			user = o.ClientReferenceID
-		}
 		amount := float64(o.Amount) / 100 / b.bill.creditUSD
+		// Resolve the consumer wallet from the stored charge mapping (payment_intent or
+		// charge id). Fall back to any metadata/client_reference_id only if the mapping
+		// is missing (e.g. a charge created before this mapping shipped).
+		user, _, ok, err := b.db.WalletByCharge(o.PaymentIntent)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, "store error")
+			return
+		}
+		if !ok {
+			if user, _, ok, err = b.db.WalletByCharge(o.Charge); err != nil {
+				jsonErr(w, http.StatusInternalServerError, "store error")
+				return
+			}
+		}
+		if !ok {
+			user = o.Metadata.User
+			if user == "" {
+				user = o.ClientReferenceID
+			}
+			if user != "" {
+				log.Printf("stripe: dispute %s has no stored charge mapping (pi=%s ch=%s), falling back to metadata wallet %s", o.ID, o.PaymentIntent, o.Charge, user)
+			}
+		}
 		if user != "" && amount > 0 {
+			// requestID is empty for a real dispute: Chargeback claws lots by wallet+recency.
 			clawed, err := b.db.Chargeback(o.ID, user, o.Metadata.RequestID, amount, time.Now())
 			if err != nil {
 				jsonErr(w, http.StatusInternalServerError, "store error")
 				return
 			}
 			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from operators)", o.ID, user, amount, clawed)
+		} else {
+			log.Printf("stripe: dispute %s could not resolve a wallet (pi=%s ch=%s amount=%.4f) - no clawback", o.ID, o.PaymentIntent, o.Charge, amount)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
 		return
@@ -224,9 +252,14 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 		if user == "" {
 			user = o.ClientReferenceID
 		}
-		credits, _ := strconv.ParseFloat(o.Metadata.Credits, 64)
-		if credits == 0 {
-			credits = float64(o.AmountTotal) / 100 / b.bill.creditUSD
+		// Credits derive from the REAL money charged (amount_total), never from the
+		// caller-supplied metadata - metadata is advisory only (log if it diverges so a
+		// tampering attempt is visible). creditUSD converts dollars-charged to credits.
+		credits := float64(o.AmountTotal) / 100 / b.bill.creditUSD
+		if mc, mErr := strconv.ParseFloat(o.Metadata.Credits, 64); mErr == nil && mc != 0 {
+			if d := mc - credits; d > 1e-6 || d < -1e-6 {
+				log.Printf("stripe: session %s metadata credits %.4f diverge from amount_total-derived %.4f - using amount_total", o.ID, mc, credits)
+			}
 		}
 		if user != "" && credits > 0 {
 			// Atomic credit-once: dedups (Stripe redelivers at-least-once) AND can't
@@ -240,6 +273,11 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				log.Printf("stripe: credited %s +%.4f -> %.4f (session %s)", user, credits, newBal, o.ID)
 			} else {
 				log.Printf("stripe: duplicate session %s ignored", o.ID)
+			}
+			// Persist the charge mapping so a later charge.dispute.created (which carries
+			// none of this metadata) can resolve this wallet. Idempotent on session id.
+			if err := b.db.LinkCharge(o.ID, o.PaymentIntent, o.Charge, user, credits); err != nil {
+				log.Printf("stripe: LinkCharge(session %s) failed: %v (dispute clawback may not resolve this charge)", o.ID, err)
 			}
 		}
 	}

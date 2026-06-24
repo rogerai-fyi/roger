@@ -137,9 +137,21 @@ type Store interface {
 	// PayoutsOf returns an operator's payout history, newest first.
 	PayoutsOf(accountID string, limit int) ([]Payout, error)
 	// Chargeback records a consumer dispute: a chargeback ledger row against the
-	// consumer wallet, and a clawback against the operator's still-held/reserved lots
-	// derived from the same request. Idempotent on the Stripe dispute id.
+	// consumer wallet, and a clawback against the operator's still-held/payable lots
+	// derived from that consumer. Idempotent on the Stripe dispute id. When requestID
+	// is non-empty the clawback targets that one request's lots (legacy path); when it
+	// is empty the clawback targets lots attributed to `wallet` (via the request
+	// receipts) by recency, up to the disputed amount. Returns the credits clawed.
 	Chargeback(disputeID, wallet, requestID string, amount float64, now time.Time) (clawed float64, err error)
+	// LinkCharge persists the mapping from a Stripe payment_intent / charge id to the
+	// (wallet, credits) of a completed checkout, so a later charge.dispute.created
+	// (which carries NONE of the checkout metadata) can resolve the wallet to claw
+	// back. Idempotent on the session id (Stripe redelivery safe).
+	LinkCharge(sessionID, paymentIntent, charge, wallet string, credits float64) error
+	// WalletByCharge resolves the wallet + credits a completed checkout credited, keyed
+	// by EITHER the Stripe payment_intent or charge id (a dispute object carries one of
+	// these). ok=false if no mapping exists.
+	WalletByCharge(ref string) (wallet string, credits float64, ok bool, err error)
 	// OpenDisputeCount returns how many open disputes touch an operator account
 	// (gates account deletion / payout). accountID is the owner pubkey.
 	OpenDisputeCount(accountID string) (int, error)
@@ -205,7 +217,16 @@ type Mem struct {
 	payoutID int64             // monotonic payout id
 	disputes map[string]bool   // seen stripe dispute ids (idempotency)
 	nodeAcct map[string]string // node id -> owner pubkey (TOFU)
+	charges  map[string]charge // stripe payment_intent/charge id -> checkout mapping
 	gs       *grantStore       // grant keys + per-grant usage rollups
+}
+
+// charge is a persisted checkout->charge mapping, so a later dispute (which carries
+// none of the checkout metadata) can resolve the wallet to claw back.
+type charge struct {
+	sessionID string
+	wallet    string
+	credits   float64
 }
 
 func NewMem() *Mem {
@@ -213,7 +234,7 @@ func NewMem() *Mem {
 		wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
-		gs: newGrantStore(),
+		charges: map[string]charge{}, gs: newGrantStore(),
 	}
 }
 
@@ -756,19 +777,73 @@ func (m *Mem) Chargeback(disputeID, wallet, requestID string, amount float64, no
 	m.disputes[disputeID] = true
 	m.wallet[wallet] -= amount
 	m.appendLedgerLocked(wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix())
-	// Claw back the operator earnings derived from the same request while still
-	// held/reserved/payable (not yet paid out).
-	var clawed float64
-	for i := range m.lots {
-		l := &m.lots[i]
-		if l.RequestID != requestID || l.State == LotPaid || l.State == LotClawed {
-			continue
+
+	// Clawable lots: still held/payable (not yet paid out or already clawed). When a
+	// requestID is given we target that one request (legacy path); otherwise we target
+	// the request ids attributed to this consumer wallet (via the receipts), newest
+	// first, capped at the disputed amount.
+	clawable := func(l *EarningLot) bool { return l.State != LotPaid && l.State != LotClawed }
+	var order []int // indexes into m.lots to consider, in claw order
+	if requestID != "" {
+		for i := range m.lots {
+			if m.lots[i].RequestID == requestID && clawable(&m.lots[i]) {
+				order = append(order, i)
+			}
 		}
+	} else {
+		// request ids this consumer paid for, newest first.
+		reqTS := map[string]int64{}
+		for _, e := range m.entries {
+			if e.User == wallet {
+				reqTS[e.RequestID] = e.TS
+			}
+		}
+		for i := range m.lots {
+			if _, ok := reqTS[m.lots[i].RequestID]; ok && clawable(&m.lots[i]) {
+				order = append(order, i)
+			}
+		}
+		sort.SliceStable(order, func(a, b int) bool {
+			return reqTS[m.lots[order[a]].RequestID] > reqTS[m.lots[order[b]].RequestID]
+		})
+	}
+
+	// Claw lots up to the disputed amount (the platform is liable only for what it
+	// lost on this charge). With an explicit requestID we claw all its lots.
+	var clawed float64
+	for _, i := range order {
+		if requestID == "" && clawed >= amount {
+			break
+		}
+		l := &m.lots[i]
 		clawed += l.Gross
 		l.State = LotClawed
 		m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -l.Gross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
 	}
 	return clawed, nil
+}
+
+func (m *Mem) LinkCharge(sessionID, paymentIntent, charge_, wallet string, credits float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c := charge{sessionID: sessionID, wallet: wallet, credits: credits}
+	if paymentIntent != "" {
+		m.charges[paymentIntent] = c
+	}
+	if charge_ != "" {
+		m.charges[charge_] = c
+	}
+	return nil
+}
+
+func (m *Mem) WalletByCharge(ref string) (string, float64, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if ref == "" {
+		return "", 0, false, nil
+	}
+	c, ok := m.charges[ref]
+	return c.wallet, c.credits, ok, nil
 }
 
 func (m *Mem) OpenDisputeCount(accountID string) (int, error) {
