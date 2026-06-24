@@ -260,6 +260,7 @@ const (
 	modeShareEditor    // per-model pricing + time-of-use schedule editor (login-gated)
 	modeShareSetup     // guided fallback: no local model detected, pick a tool / paste a URL
 	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
+	modeAgent          // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -397,6 +398,19 @@ type model struct {
 	// chat session state (CHANNEL mode)
 	sysPrompt string  // /system prompt prepended to each turn
 	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
+	// [0] AGENT state (modeAgent): the embedded tool-capable harness. agent holds the
+	// session-only loop (dj.md persona + bounded tools); agentIn is the prompt; the
+	// transcript carries the streamed turn (assistant text, tool calls, results,
+	// answer). agentBusy is true while a turn runs in the background goroutine; the
+	// confirm sub-state (agentPendingConfirm) pauses the turn for a y/N on a mutating
+	// tool. agentCost is the running session cost. See agent.go for the wiring.
+	agent               *agentRuntime // nil until first entered; built lazily
+	agentIn             textinput.Model
+	agentLines          []string      // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
+	agentBusy           bool          // a turn is in flight (drives the working line)
+	agentStart          time.Time     // when the in-flight turn began (elapsed readout)
+	agentPendingConfirm *agentConfirm // non-nil while a mutating tool awaits y/N
+	agentCost           float64       // running AGENT session cost in dollars
 	// async, cached update check (non-blocking)
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
@@ -561,7 +575,10 @@ func newBase(broker, user string, limits *LimitStore) model {
 	ch := textinput.New()
 	ch.Prompt = ""
 	ch.Placeholder = "type to talk on channel  ·  / for in-session commands"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
+	ag := textinput.New()
+	ag.Prompt = ""
+	ag.Placeholder = "ask the agent to do something"
+	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
 }
 
 func (m model) Init() tea.Cmd {
@@ -695,6 +712,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flowErrMsg:
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
+	case agentEventMsg:
+		return m.onAgentEvent(msg)
+	case agentConfirmMsg:
+		// A side-effecting tool wants to run: pause the turn for an on-screen y/N (default
+		// DENY). The loop goroutine is blocked on the confirm's resp channel meanwhile.
+		c := agentConfirm(msg)
+		m.agentPendingConfirm = &c
+		m.agentLines = append(m.agentLines, "  "+stEmber.Render("? ")+stKey.Render(c.summary())+stDim.Render("   run it? [y/N]"))
+		m.status = stEmber.Render("! " + c.tool + " - y/n")
+		return m, nil
+	case agentCostMsg:
+		m.agentCost += float64(msg)
+		return m, nil
+	case agentDoneMsg:
+		m.agentBusy = false
+		m.status = stDim.Render("AGENT ready - ask it to do something")
+		return m, fetchBalance(m.broker, m.user)
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
@@ -828,6 +862,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareEditorKey(k)
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
+	case modeAgent:
+		return m.onAgentKey(k)
 	default: // browse
 		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
 		// first so the always-visible top bar's buttons jump straight to their mode.
@@ -2083,8 +2119,9 @@ type presetKey struct {
 // the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
 // actions (lit only while their screen shows).
 func (m model) presetButtons() []presetKey {
-	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp
+	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp && m.mode != modeAgent
 	return []presetKey{
+		{"0", "AGENT", m.mode == modeAgent},
 		{"1", "TUNE IN", tuneActive},
 		{"2", "SHARE", m.inShareSection()},
 		{"3", "CONFIG", m.mode == modeLimits},
@@ -2170,6 +2207,11 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		// own their keys and don't consult presetForKey). Persisted via SaveCompact so the
 		// choice sticks across launches (nil = session-only).
 		return m.toggleCompact(), nil, true
+	case "0":
+		// AGENT: open the embedded tool-capable harness (dj.md persona). It runs on the
+		// model on the current channel, or a default if none is tuned in.
+		nm, cmd := m.enterAgent()
+		return nm, cmd, true
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
@@ -2235,10 +2277,12 @@ func (m model) View() string {
 		b.WriteString(m.shareSetupView(w))
 	case modeQuitConfirm:
 		b.WriteString(m.quitConfirmView(w))
+	case modeAgent:
+		b.WriteString(m.agentView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
-	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && !m.inShareSection() {
+	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && m.mode != modeAgent && !m.inShareSection() {
 		// COMPACT drops the bordered endpoint plate (a "compact-on-connect extra") to a
 		// single terse status line - the load-bearing endpoint stays one /endpoint away.
 		if m.compact {
@@ -3843,6 +3887,19 @@ func (m model) footer(w int) string {
 		}
 		right := stRed.Render(fmt.Sprintf("%d on air", m.onAirCount()))
 		return modalFooter(m.effWidth(), left, right, m.status)
+	case modeAgent:
+		if m.agentPendingConfirm != nil {
+			left = stDim.Render("y run the tool  ·  n/esc deny (default DENY)")
+			if m.narrow() {
+				left = stDim.Render("y run · n/esc deny")
+			}
+		} else {
+			left = stDim.Render("type to ask  ·  /clear  ·  /persona  ·  esc exits AGENT")
+			if m.narrow() {
+				left = stDim.Render("ask · esc exit · ⌃c quit")
+			}
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	}
 	if m.mode == modeChat {
 		if m.narrow() {
@@ -3894,6 +3951,7 @@ func (m model) footer(w int) string {
 func (m model) helpView() string {
 	// Lead with the few things a new user needs - the two-way radio in one breath.
 	start := [][2]string{
+		{"0", "AGENT: a small tool-capable agent (dj.md persona) - reads files, runs commands (you confirm)"},
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
 		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
