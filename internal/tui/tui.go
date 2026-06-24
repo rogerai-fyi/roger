@@ -1170,7 +1170,10 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		sysLine("endpoint " + m.endpoint + " · key " + m.apikey + " · model " + m.connected.Model)
 		return m, nil
 	case "help", "h":
-		sysLine("/model /clear /save /system <p> /cost /confidential /endpoint /disconnect /quit")
+		// Keep this listing in lock-step with what runSession actually accepts (incl. the
+		// aliases), so no real command is hidden from /help.
+		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /confidential (/conf) · /endpoint (/ep)")
+		sysLine("/disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
 	case "disconnect", "leave", "dc":
@@ -2149,12 +2152,16 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	q := m.q
 	o := *q.b.cheapest
 	if !m.proxyUp {
-		ln, err := net.Listen("tcp", m.proxyAddr)
+		// Auto-pick a free port instead of dead-ending if 4141 is taken (mirrors the CLI's
+		// freePort): scan upward from the configured port so a busy port never bounces the
+		// user back to browse with a bind error and no recovery.
+		ln, err := listenFreePort(m.proxyAddr)
 		if err != nil {
 			m.mode = modeBrowse
 			m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
 			return m, nil
 		}
+		m.proxyAddr = ln.Addr().String() // remember the port we actually bound
 		m.endpoint = "http://" + ln.Addr().String() + "/v1"
 		m.proxyUp = true
 		// Failover alerts from the relay land in a shared box the tick loop drains
@@ -3236,6 +3243,33 @@ func (m model) compactHeader(w int) string {
 // splitting an escape sequence. It is the compact strip's width clamp (ansi.Truncate
 // is display-width aware and ANSI-safe, so a colored segment is cut cleanly rather
 // than leaking a half escape).
+// listenFreePort binds the first free TCP port at/above the port in addr ("host:port"),
+// returning the open listener. It mirrors the CLI's freePort (cmd/rogerai/onboard.go):
+// the configured port (4141) is tried first; if it is busy the scan walks upward so the
+// TUI's tune-in never dead-ends on "address in use". It returns an error only when the
+// whole window is busy (never falls back to a known-busy port). A malformed/portless addr
+// degrades to letting the OS pick (":0").
+func listenFreePort(addr string) (net.Listener, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return net.Listen("tcp", addr)
+	}
+	start, perr := strconv.Atoi(portStr)
+	if perr != nil || start <= 0 {
+		// No usable start port: let the OS assign one rather than fail.
+		return net.Listen("tcp", net.JoinHostPort(host, "0"))
+	}
+	var lastErr error
+	for p := start; p < start+200; p++ {
+		ln, lerr := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
+		if lerr == nil {
+			return ln, nil
+		}
+		lastErr = lerr
+	}
+	return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)
+}
+
 func truncVisible(s string, n int) string {
 	if lipgloss.Width(s) <= n {
 		return s

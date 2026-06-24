@@ -150,7 +150,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 		if m.agent.model != "" {
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
-				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · sandboxed to "+m.agent.loop.Root),
+				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · files sandboxed to "+m.agent.loop.Root+" · run_shell runs there but is NOT sandboxed"),
 			)
 		} else {
 			// Nothing tuned in (and nothing tuned in earlier this session): be honest up
@@ -588,6 +588,32 @@ func firstLine(s string) string {
 	return clipLine(s)
 }
 
+// wrapPlain soft-wraps a plain (no-ANSI) string to width n, returning the lines. It is
+// used to show a FULL run_shell command in the confirm gate without truncation: a long
+// command spills onto extra lines instead of being clipped, so it can never be approved
+// blind. Newlines in the input are preserved as line breaks; over-long unbroken runs are
+// hard-broken at n. n < 1 collapses to a single line (no width to wrap to).
+func wrapPlain(s string, n int) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	if n < 1 {
+		return []string{strings.ReplaceAll(s, "\n", " ")}
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for len(r) > n {
+			out = append(out, string(r[:n]))
+			r = r[n:]
+		}
+		out = append(out, string(r))
+	}
+	return out
+}
+
 // clipLine trims a value to a single, bounded line for the transcript.
 func clipLine(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
@@ -714,7 +740,7 @@ func (m model) agentView(w int) string {
 			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
 		}
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") +
-			stDim.Render("  ") + mdlCell + stDim.Render(" · sandbox ") + stKey.Render(shortPath(root)) +
+			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
 	}
@@ -775,7 +801,18 @@ func (m model) agentView(w int) string {
 		if m.narrow() {
 			prompt = "run it? "
 		}
-		b.WriteString("\n" + truncVisible("  "+stEmber.Render("? ")+stKey.Render(c.summary()), w) + "\n")
+		b.WriteString("\n")
+		if c.tool == "run_shell" {
+			// Show the FULL command, soft-wrapped across lines, so a long/obfuscated command
+			// is never approved blind on a single truncated line. The cmd is also NOT
+			// sandboxed (only the cwd is set), so the approver must see exactly what runs.
+			b.WriteString(truncVisible("  "+stEmber.Render("? ")+stKey.Render("run_shell")+stDim.Render(" (runs in cwd, NOT sandboxed):"), w) + "\n")
+			for _, ln := range wrapPlain(argStr(c.args["cmd"]), w-4) {
+				b.WriteString("    " + stKey.Render(ln) + "\n")
+			}
+		} else {
+			b.WriteString(truncVisible("  "+stEmber.Render("? ")+stKey.Render(c.summary()), w) + "\n")
+		}
 		b.WriteString(truncVisible("  "+stDim.Render(prompt)+stEmber.Render("[y/N]")+stDim.Render("  deny=default"), w) + "\n")
 		return b.String()
 	}
