@@ -138,7 +138,20 @@ ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;
 -- total seeded never exceeds the configured limit even under concurrency.
 CREATE TABLE IF NOT EXISTS rogerai.seed_grants (wallet TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
 CREATE TABLE IF NOT EXISTS rogerai.seed_counter (id INT PRIMARY KEY, count BIGINT NOT NULL DEFAULT 0);
-INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0) ON CONFLICT (id) DO NOTHING;`
+INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0) ON CONFLICT (id) DO NOTHING;
+-- persisted node registry: the durable copy of the broker's in-memory node table,
+-- so a broker restart/redeploy RE-HYDRATES who is registered instead of wiping it
+-- (older provider binaries that don't auto-re-register would otherwise 404 forever).
+-- reg is the full protocol.NodeRegistration JSON (pubkey, offers+pricing, HW, region,
+-- bridge token, attestation); last_seen carries a short liveness grace across the
+-- restart window; registered_at is set once. Liveness stays gated on a fresh
+-- heartbeat/poll - this only stops the registry from being lost.
+CREATE TABLE IF NOT EXISTS rogerai.nodes (
+    node_id       TEXT PRIMARY KEY,
+    reg           JSONB NOT NULL,
+    confidential  BOOLEAN NOT NULL DEFAULT false,
+    last_seen     BIGINT NOT NULL DEFAULT 0,
+    registered_at BIGINT NOT NULL DEFAULT 0);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -619,6 +632,59 @@ func (p *Postgres) NodesOfAccount(accountID string) ([]string, error) {
 			return nil, err
 		}
 		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// UpsertNode persists a node registration. registered_at is set on first insert and
+// preserved on refresh (COALESCE to the existing value); reg/confidential/last_seen
+// are refreshed every register so a re-hydrated node carries its latest offers, token,
+// and a recent last_seen.
+func (p *Postgres) UpsertNode(n NodeRecord) error {
+	reg, err := json.Marshal(n.Reg)
+	if err != nil {
+		return err
+	}
+	if n.RegisteredAt == 0 {
+		n.RegisteredAt = time.Now().Unix()
+	}
+	_, err = p.db.Exec(`
+		INSERT INTO rogerai.nodes(node_id,reg,confidential,last_seen,registered_at)
+		VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT (node_id) DO UPDATE SET
+			reg=$2, confidential=$3, last_seen=$4,
+			registered_at=COALESCE(NULLIF(rogerai.nodes.registered_at,0), EXCLUDED.registered_at)`,
+		n.NodeID, reg, n.Confidential, n.LastSeen, n.RegisteredAt)
+	return err
+}
+
+// TouchNode bumps last_seen without a re-register (no-op for an unknown node).
+func (p *Postgres) TouchNode(nodeID string, seen time.Time) error {
+	_, err := p.db.Exec(`UPDATE rogerai.nodes SET last_seen=$2 WHERE node_id=$1`, nodeID, seen.Unix())
+	return err
+}
+
+// AllNodes returns the persisted registry for startup re-hydration. A row whose reg
+// JSON fails to decode is skipped (defensive: a single bad row never blocks startup).
+func (p *Postgres) AllNodes() ([]NodeRecord, error) {
+	rows, err := p.db.Query(`SELECT node_id,reg,confidential,last_seen,registered_at FROM rogerai.nodes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NodeRecord
+	for rows.Next() {
+		var (
+			rec    NodeRecord
+			regRaw []byte
+		)
+		if err := rows.Scan(&rec.NodeID, &regRaw, &rec.Confidential, &rec.LastSeen, &rec.RegisteredAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(regRaw, &rec.Reg); err != nil {
+			continue // skip an undecodable row rather than fail the whole re-hydrate
+		}
+		out = append(out, rec)
 	}
 	return out, rows.Err()
 }

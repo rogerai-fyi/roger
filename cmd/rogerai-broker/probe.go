@@ -81,7 +81,7 @@ func (b *broker) probeOnce() {
 	b.mu.Lock()
 	b.metricsMu.Lock()
 	for _, n := range b.nodes {
-		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
 		if b.inflight[n.NodeID] > 0 {

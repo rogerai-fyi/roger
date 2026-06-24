@@ -52,6 +52,11 @@ var (
 	lastHash string
 )
 
+// heartbeatInterval is how often the node heartbeats the broker to stay on-air. It
+// is a var (not a const) only so tests can lower it; production uses ~10s, well
+// inside the broker's nodeTTL liveness window.
+var heartbeatInterval = 10 * time.Second
+
 // Session is a running in-process share (the TUI's /share). It exposes live
 // counters so the ON-AIR panel can render connections + earnings without the
 // agent importing the TUI. Stop ends the poll loops. Earnings here are the
@@ -63,6 +68,37 @@ type Session struct {
 	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
 	stop          chan struct{}
 	rereg         *reregistrar // shared self-healing re-register coordinator
+	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
+}
+
+// LinkState is the TRUTHFUL on-air status: whether the broker is actually accepting
+// this node (so customers + the website can see it), as observed from the heartbeat.
+// The TUI surfaces this instead of a blind "ON AIR" so the operator never sees on-air
+// while the broker is rejecting/unreachable (i.e. while customers can't reach them).
+type LinkState int32
+
+const (
+	// LinkConnecting: registration acknowledged, but no heartbeat has been accepted
+	// yet (the opening window right after going on air). Shown as "connecting".
+	LinkConnecting LinkState = iota
+	// LinkOnAir: the broker is accepting our heartbeats (200) - we are genuinely
+	// live and routable. The ONLY state that renders a true "ON AIR".
+	LinkOnAir
+	// LinkReconnecting: heartbeats are failing - unreachable (network), or the broker
+	// forgot us / rejected the token (a self-healing re-register is in flight). We are
+	// NOT routable right now; shown as "RECONNECTING".
+	LinkReconnecting
+)
+
+// Link reports the current truthful link state to the broker (see LinkState).
+func (s *Session) Link() LinkState { return LinkState(s.link.Load()) }
+
+// setLink records the latest observed broker link state (called from the heartbeat
+// loop on every beat).
+func (s *Session) setLink(st LinkState) {
+	if s != nil {
+		s.link.Store(int32(st))
+	}
 }
 
 // reregistrar is the node's self-healing coordinator. The broker is in-memory:
@@ -254,7 +290,10 @@ func Start(cfg Config) (*Session, error) {
 	// restart. All pollers + the heartbeat read its token each iteration.
 	rereg := newReregistrar(cfg.Broker, reg, priv)
 	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg}
-	go heartbeatUntil(cfg.Broker, cfg.NodeID, rereg, sess.stop)
+	// Registration was acknowledged (register() returned ok); the link is "connecting"
+	// until the first heartbeat is accepted, after which it flips to genuinely ON AIR.
+	sess.setLink(LinkConnecting)
+	go heartbeatUntil(cfg.Broker, cfg.NodeID, rereg, sess)
 
 	log.Printf("sharing: node=%s broker=%s upstream=%s model=%s ($%.2f/$%.2f per 1M) pollers=%d",
 		cfg.NodeID, cfg.Broker, cfg.Upstream, cfg.Model, cfg.PriceIn, cfg.PriceOut, cfg.Parallel)
@@ -343,31 +382,54 @@ func recordIf(sess *Session, rec protocol.UsageReceipt) {
 // rejected). Like the pollers, a 404 (or 401/403) means the broker forgot the
 // node after a restart, so the heartbeat also triggers a single-flight
 // re-register instead of silently failing forever.
-func heartbeatUntil(broker, nodeID string, rereg *reregistrar, stop <-chan struct{}) {
-	t := time.NewTicker(10 * time.Second)
+//
+// It also records the TRUTHFUL link state on the session from each beat's outcome
+// (200 -> ON AIR; unreachable/rejected -> RECONNECTING), so the provider UI reflects
+// whether the broker is actually accepting the node rather than a blind "ON AIR". A
+// beat fires immediately on entry (not only after the first 10s tick) so the status
+// confirms quickly after going on air.
+func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) {
+	stop := sess.stop
+	beat := func() {
+		token, gen := rereg.curToken()
+		b, _ := json.Marshal(map[string]string{"node_id": nodeID})
+		req, err := http.NewRequest(http.MethodPost, broker+"/nodes/heartbeat", bytes.NewReader(b))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			// Broker unreachable: we are NOT routable - tell the operator we are
+			// reconnecting, not falsely on-air. The pollers also retry/heal.
+			sess.setLink(LinkReconnecting)
+			return
+		}
+		status := resp.StatusCode
+		resp.Body.Close()
+		switch {
+		case status == http.StatusOK:
+			// The broker is accepting us: genuinely ON AIR (customers can see us).
+			sess.setLink(LinkOnAir)
+		case brokerForgot(status):
+			// Forgot/rejected (restart or stale token): not routable until the
+			// single-flight re-register heals it.
+			sess.setLink(LinkReconnecting)
+			rereg.recover(gen, stop)
+		default:
+			sess.setLink(LinkReconnecting)
+		}
+	}
+	beat() // confirm quickly on entry rather than waiting a full tick
+	t := time.NewTicker(heartbeatInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-stop:
 			return
 		case <-t.C:
-			token, gen := rereg.curToken()
-			b, _ := json.Marshal(map[string]string{"node_id": nodeID})
-			req, err := http.NewRequest(http.MethodPost, broker+"/nodes/heartbeat", bytes.NewReader(b))
-			if err != nil {
-				continue
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", "Bearer "+token)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				continue // transient; the pollers also retry/heal
-			}
-			status := resp.StatusCode
-			resp.Body.Close()
-			if brokerForgot(status) {
-				rereg.recover(gen, stop)
-			}
+			beat()
 		}
 	}
 }

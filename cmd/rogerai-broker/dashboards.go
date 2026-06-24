@@ -109,7 +109,7 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 		recent = []store.Entry{}
 	}
 	b.mu.Lock()
-	online := time.Since(b.lastSeen[node]) < 35*time.Second
+	online := time.Since(b.lastSeen[node]) < nodeTTL
 	b.mu.Unlock()
 	login, _, _ := b.webSession(r)
 	// Earnings lifecycle split (held -> reserved -> payable -> paid) for this node,

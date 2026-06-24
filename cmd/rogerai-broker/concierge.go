@@ -296,7 +296,7 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, n := range b.nodes {
-		if time.Since(b.lastSeen[n.NodeID]) >= 35*time.Second {
+		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
 		for _, o := range n.Offers {
