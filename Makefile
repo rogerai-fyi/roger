@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check site site-serve
+.PHONY: build demo clean kill test check site site-serve smoke smoke-live
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -30,6 +30,18 @@ check:
 	go test ./...
 	@out=$$(gofmt -l cmd internal); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 	@echo "check: ok"
+
+# The RELEASE GATE. Run this green before every `git tag`. It runs build + vet +
+# gofmt + the regression suite, then builds web/dist, serves it, asserts every
+# page returns 200, and crawls every internal <a href> to catch clean-URL 404s.
+# Exits non-zero on any failure and prints a single SMOKE: PASS/FAIL line.
+smoke:
+	@scripts/smoke.sh
+
+# Same gate, plus live production checks (rogerai.fyi + broker.rogerai.fyi/health
+# + a credentialed-CORS preflight assertion). Needs network.
+smoke-live:
+	@scripts/smoke.sh --live
 
 # cross-compile the client for all platforms (single static binary each).
 # CGO_ENABLED=0 => no libc dependency, so one Linux binary runs on glibc

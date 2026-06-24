@@ -45,6 +45,13 @@ make build        # bin/rogerai + bin/rogerai-broker
 make demo         # broker + node + request, end to end (needs a local OpenAI endpoint)
 make site         # web build (below)
 ```
+**Release gate:** run `make smoke` (must be green) before every `git tag`. It runs build + vet +
+gofmt + the regression suite, builds + serves `web/dist`, asserts every page returns 200, and
+crawls every internal `<a href>` to catch the clean-URL-404 class of bug; prints `SMOKE: PASS/FAIL`
+and exits non-zero on any failure. `make smoke-live` adds production checks (site + broker
+`/health` + a credentialed-CORS preflight). Script: `scripts/smoke.sh`. The same link crawl also
+runs under `go test ./...` via the self-contained `test/smoke/` package.
+
 Release: `git tag vX.Y.Z && git push --tags` -> `.github/workflows/release.yml` cross-compiles 6
 targets (linux/macos/windows x amd64/arm64, `CGO_ENABLED=0` static) + `checksums.txt`.
 Install: `curl rogerai.fyi/install.sh | sh` (POSIX) / `irm rogerai.fyi/install.ps1 | iex` (Windows);
