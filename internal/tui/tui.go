@@ -65,6 +65,9 @@ var (
 	stHeadRule = lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEDF1"))
 	stPanel    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(cVolt).Padding(0, 1)
 	stKey      = lipgloss.NewStyle().Foreground(cEmber).Bold(true)
+	stPrompt   = lipgloss.NewStyle().Foreground(cVolt).Bold(true) // the `rog ›` prompt lockup
+	cRed       = lipgloss.Color("#FF3B3B")                        // the live-red on-air beacon (web --carrier)
+	stRed      = lipgloss.NewStyle().Foreground(cRed).Bold(true)
 )
 
 type offer struct {
@@ -241,11 +244,13 @@ func New(broker, user string) model {
 // NewWith builds the model with a spend-limit store (nil = no caps / no persist).
 func NewWith(broker, user string, limits *LimitStore) model {
 	ci := textinput.New()
-	ci.Prompt = lipgloss.NewStyle().Foreground(cVolt).Render("/ ")
-	ci.Placeholder = "search · connect · chat · limits · config · share · endpoint · balance · help · quit"
+	// We render the `rog ›` lockup ourselves in promptLine, so the input carries no
+	// prompt of its own (avoids a doubled marker). Its View() still echoes live.
+	ci.Prompt = ""
+	ci.Placeholder = "search · connect · chat · limits · share · endpoint · balance · help · quit"
 	ch := textinput.New()
-	ch.Prompt = stSelText.Render("you ▸ ")
-	ch.Placeholder = "say something on channel…"
+	ch.Prompt = ""
+	ch.Placeholder = "type to talk on channel  ·  / for in-session commands"
 	return model{broker: broker, user: user, cmd: ci, chatIn: ch, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
 }
 
@@ -729,8 +734,25 @@ func (m model) View() string {
 	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits {
 		b.WriteString("\n" + m.endpointPanel(w))
 	}
+	// The command prompt is always present in browse/command mode so it is never a
+	// mystery WHERE to type: a labeled `rog ›` line that echoes every keystroke
+	// live (its textinput View() is re-rendered each Update). modeChat owns its own
+	// always-live prompt inside chatView.
+	if m.mode == modeBrowse || m.mode == modeCommand {
+		b.WriteString("\n" + m.promptLine(w))
+	}
 	b.WriteString("\n" + m.footer(w))
 	return b.String()
+}
+
+// promptLine renders the always-visible command prompt. It shows the live
+// textinput View() (cursor + echoed text) when focused, or a calm hint to press
+// `/` when idle, so the user always sees a clear, labeled place to type.
+func (m model) promptLine(w int) string {
+	if m.mode == modeCommand {
+		return stPrompt.Render("  rog › ") + m.cmd.View()
+	}
+	return stPrompt.Render("  rog › ") + stDim.Render("press / to type a command  ·  enter to tune in")
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -1076,7 +1098,9 @@ func (m model) chatView(w int) string {
 	if m.relaying {
 		b.WriteString("  " + transmitLine(m.frame) + "\n")
 	}
-	b.WriteString("\n  " + m.chatIn.View() + "\n")
+	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
+	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
+	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
 	return b.String()
 }
 

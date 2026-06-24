@@ -93,6 +93,44 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 	}
 }
 
+// TestLiveInputEcho proves the input-bug fix: a typed command echoes into the
+// view LIVE, before Enter, in a clearly labeled `rog ›` prompt; likewise the
+// channel `you ›` prompt echoes live before send. Regression guard for the bug
+// where the user saw nothing until pressing Enter.
+func TestLiveInputEcho(t *testing.T) {
+	var m tea.Model = New("http://broker.local", "tester")
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	// browse always shows the labeled prompt + the press-/ hint.
+	if !strings.Contains(m.View(), "rog ›") {
+		t.Fatalf("browse view missing the rog prompt:\n%s", m.View())
+	}
+	// enter command mode and type, WITHOUT pressing enter - it must echo live.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "search" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if !strings.Contains(m.View(), "search") {
+		t.Errorf("command input did not echo live before Enter:\n%s", m.View())
+	}
+
+	// channel prompt echoes live too. Connect first.
+	cm := New("http://broker.local", "tester")
+	cm.proxyAddr = "127.0.0.1:0"
+	var c tea.Model = cm
+	c, _ = c.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	c, _ = c.Update(offersMsg{{NodeID: "n", Model: "m", PriceOut: 0.1, Online: true}})
+	c, _ = c.Update(tea.KeyMsg{Type: tea.KeyEnter}) // confirm
+	c, _ = c.Update(tea.KeyMsg{Type: tea.KeyEnter}) // accept -> connected
+	c, _ = c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	for _, r := range "hello" {
+		c, _ = c.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	cv := c.View()
+	if !strings.Contains(cv, "you ›") || !strings.Contains(cv, "hello") {
+		t.Errorf("channel input did not echo live before send:\n%s", cv)
+	}
+}
+
 // TestOverLimitFlow: a band priced over the per-model max enters the over-limit
 // screen; raising the max inline (digits + enter) unblocks it into the confirm.
 func TestOverLimitFlow(t *testing.T) {
