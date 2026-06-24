@@ -343,6 +343,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// hint rather than 504-ing on a phantom model.
 		m.refreshAgentModel()
 		m.agentBusy = true
+		m.agentTurnState = poseThinking // turn sent, no tokens yet
 		m.agentStart = time.Now()
 		return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
 	}
@@ -487,14 +488,20 @@ func (m model) waitAgentEvent() tea.Cmd {
 // drain so the next step flows. The tool-call / result lines use the shared
 // iconography (◉ a tool firing, with a clear ok / error / denied outcome).
 func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
+	// Drive the reactive corner Ping off the same event stream: interim/final prose is
+	// the answer coming over the wire (transmitting); a tool call is "working the dial";
+	// a tool result hands back to the model to reason on (thinking again).
 	switch e.Kind {
 	case harness.EventAssistant:
+		m.agentTurnState = poseStreaming
 		if t := strings.TrimSpace(e.Text); t != "" {
 			m.agentLines = append(m.agentLines, stLive.Render("◂ ")+t)
 		}
 	case harness.EventToolCall:
+		m.agentTurnState = poseTool
 		m.agentLines = append(m.agentLines, "  "+stSelText.Render(glyphOnAir+" ")+stKey.Render(e.Tool)+stDim.Render(": ")+stDim.Render(toolArgSummary(e.Tool, e.Args)))
 	case harness.EventToolResult:
+		m.agentTurnState = poseThinking // result is back; the model reasons on it next
 		var mark, tail string
 		switch {
 		case e.Denied:
@@ -515,6 +522,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			m.agentLines = append(m.agentLines, resultPreview(e.Result)...)
 		}
 	case harness.EventFinal:
+		m.agentTurnState = poseStreaming
 		t := strings.TrimSpace(e.Text)
 		if t == "" {
 			t = stDim.Render("(the agent finished with no text)")
@@ -527,9 +535,15 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		}
 	case harness.EventError:
 		// A failed turn is a dead end unless we say what to do next. Replace the bare
-		// "status NNN / no reply" with a tight two-liner: the short cause + the
-		// actionable [1] tune in / [2] share hint.
-		m.agentLines = append(m.agentLines, failureHint(e.Text, m.narrow())...)
+		// "status NNN / no reply" with a tight two-liner: the short cause (naming the
+		// model when no station is serving it) + the actionable [1] tune in / [2] share
+		// hint. The model name turns "504" into "no station is serving <model> right now".
+		mdl := ""
+		if m.agent != nil {
+			mdl = m.agent.model
+		}
+		m.agentTurnState = poseWaiting // the turn failed; the corner Ping stands back by
+		m.agentLines = append(m.agentLines, failureHint(e.Text, mdl, m.narrow())...)
 	}
 	return m, m.waitAgentEvent()
 }
@@ -704,11 +718,25 @@ func (m model) agentView(w int) string {
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
 	}
-	// Scrollable transcript: keep the tail that fits the pane.
+	// Reactive corner Ping: a small operator at the desk that reacts to the live turn
+	// state (standing by / thinking / on air / working the dial). ONLY when a model is
+	// active - hidden entirely otherwise so the no-model screen stays a clean hint. It
+	// reserves a small top region (a 3-line head, or one status line under narrow /
+	// compact) and never overlaps the transcript or the prompt. The frame counter drives
+	// the animation; quiet (NO_COLOR / non-TTY / reduced-motion) freezes it to one pose.
+	cornerRows := 0
+	if mdl != "" {
+		corner := agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact)
+		for _, l := range corner {
+			b.WriteString(truncVisible("  "+l, w) + "\n")
+		}
+		cornerRows = len(corner)
+	}
+	// Scrollable transcript: keep the tail that fits the pane (minus the corner region).
 	lines := m.agentLines
-	max := m.height - 8
+	max := m.height - 8 - cornerRows
 	if m.compact {
-		max = m.height - 6
+		max = m.height - 6 - cornerRows
 	}
 	if max < 6 {
 		max = 12
@@ -803,16 +831,17 @@ func shortPath(p string) string {
 }
 
 // hintTuneOrShare is the actionable next-step line shown under EVERY relay/turn
-// failure (and the AGENT no-model ready-state): tune in a live model, or share your
-// own and use it. The founder's "status 504 with no reply" was a dead end - this
-// turns it into two moves the user can actually make. Width-aware: it shortens to a
-// terse `[1] tune in · [2] share` when narrow so it never overflows. Rendered in the
-// dim style (the error line above carries the red beacon).
+// failure (and the AGENT no-model ready-state): put a station on air, or tune in a live
+// one. The founder's "status 504 with no reply" was a dead end - this turns it into the
+// two moves the user can actually make (and with the market currently empty, [2] put
+// one on air is the one that unblocks them). Width-aware: it shortens to a terse
+// `[2] go on air · [1] tune in` when narrow so it never overflows. Rendered in the dim
+// style (the error line above carries the red beacon).
 func hintTuneOrShare(narrow bool) string {
 	if narrow {
-		return stDim.Render("    ") + stKey.Render("[1]") + stDim.Render(" tune in · ") + stKey.Render("[2]") + stDim.Render(" share")
+		return stDim.Render("    ") + stKey.Render("[2]") + stDim.Render(" go on air · ") + stKey.Render("[1]") + stDim.Render(" tune in")
 	}
-	return stDim.Render("    tune in a live model with ") + stKey.Render("[1]") + stDim.Render(", or ") + stKey.Render("[2]") + stDim.Render(" share yours and use it")
+	return stDim.Render("    put one on air with ") + stKey.Render("[2]") + stDim.Render(", or tune in ") + stKey.Render("[1]")
 }
 
 // failureHint shortens a raw relay/loop error into a concise, human first clause and
@@ -820,15 +849,17 @@ func hintTuneOrShare(narrow bool) string {
 // error surface for BOTH the AGENT turn and the CHANNEL chat: instead of a bare
 // "the station returned status 504 with no reply", the user sees
 //
-//	✕ no station answered (504)
-//	  tune in a live model with [1], or [2] share yours and use it
+//	✕ no station is serving gpt-oss-20b right now
+//	  put one on air with [2], or tune in [1]
 //
 // raw is the underlying error text (it may already mention a status / timeout / no
-// station). The first line uses the inline-error red style; the second is the dim
+// station). model is the bound model the turn ran on ("" when unknown); it lets the
+// no-station shape name the model so a bare 504 becomes "no station is serving <model>
+// right now". The first line uses the inline-error red style; the second is the dim
 // actionable hint. narrow trims the hint to fit a small terminal.
-func failureHint(raw string, narrow bool) []string {
+func failureHint(raw, model string, narrow bool) []string {
 	return []string{
-		stRed.Render("✕ ") + stEmber.Render(shortFailure(raw)),
+		stRed.Render("✕ ") + stEmber.Render(shortFailure(raw, model)),
 		hintTuneOrShare(narrow),
 	}
 }
@@ -837,23 +868,38 @@ func failureHint(raw string, narrow bool) []string {
 // the common shapes the broker/completer return (a 5xx with no reply, a timeout, an
 // unreachable broker, an empty response, "no station / no node") and collapses each to
 // a short phrase; anything else is passed through (clipped) so we never hide the real
-// cause.
-func shortFailure(raw string) string {
+// cause. model (when known) names the band in the no-station / no-reply / empty-reply
+// shapes so the user sees WHICH model has nobody on air, not a bare status code.
+func shortFailure(raw, model string) string {
 	s := strings.TrimSpace(raw)
 	low := strings.ToLower(s)
+	// A 504 / 503 / 502 with no usable body is, in practice, "no station is serving this
+	// model right now" - the broker had nobody to relay to. Name the model so the bare
+	// code becomes an actionable sentence.
 	switch {
-	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air"):
-		return "no station on air" + statusSuffix(s)
+	case strings.Contains(low, "no station") || strings.Contains(low, "no node") || strings.Contains(low, "not on air") || strings.Contains(low, "no model is tuned in"):
+		return noStationServing(model) + statusSuffix(s)
 	case strings.Contains(low, "no reply") || strings.Contains(low, "within ") && strings.Contains(low, "slow or offline"):
-		return "no station answered" + statusSuffix(s)
+		return noStationServing(model) + statusSuffix(s)
+	case strings.Contains(low, "with no reply") || strings.Contains(low, "empty response") || strings.Contains(low, "no text"):
+		return noStationServing(model) + statusSuffix(s)
 	case strings.Contains(low, "timeout") || strings.Contains(low, "deadline exceeded") || strings.Contains(low, "timed out"):
 		return "the station timed out" + statusSuffix(s)
 	case strings.Contains(low, "could not reach the broker") || strings.Contains(low, "broker unreachable") || strings.Contains(low, "connection refused") || strings.Contains(low, "connection reset"):
 		return "could not reach the broker"
-	case strings.Contains(low, "empty response") || strings.Contains(low, "no text"):
-		return "the station sent no reply" + statusSuffix(s)
 	}
 	return clipLine(s)
+}
+
+// noStationServing is the no-station phrase, naming the model when we know it: "no
+// station is serving gpt-oss-20b right now" (vs the generic "no station is on air right
+// now" when the model is unknown). It is the human face of a relay 504 with nobody on
+// the other end - the founder's confusing bare-504 dead end.
+func noStationServing(model string) string {
+	if model == "" {
+		return "no station is on air right now"
+	}
+	return "no station is serving " + model + " right now"
 }
 
 // statusSuffix pulls a trailing "(NNN)" out of a raw error that named an HTTP status

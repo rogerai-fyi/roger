@@ -78,7 +78,7 @@ func TestChatPreflightNoStation(t *testing.T) {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if v := m.View(); !strings.Contains(v, "no station on air for gpt-oss-20b") {
+	if v := m.View(); !strings.Contains(v, "no station is serving gpt-oss-20b right now") {
 		t.Errorf("pre-flight no-station notice missing:\n%s", v)
 	}
 }

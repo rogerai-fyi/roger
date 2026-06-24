@@ -44,10 +44,11 @@ func TestEmptyStates(t *testing.T) {
 		t.Errorf("pre-scan should show the loading line:\n%s", m.View())
 	}
 	// An empty scan (offers null -> nil slice) must reach the idle line: a rotating
-	// "scanning the band" hint (the first phase is "No stations on air right now").
+	// "scanning the band" hint whose first phase names the empty band AND the actionable
+	// move (share a model with [2]) - not a blank screen and not the loading pose.
 	m, _ = m.Update(offersMsg(nil))
-	if !strings.Contains(m.View(), "No stations on air") {
-		t.Errorf("empty scan should show the standing-by idle hint, not loading:\n%s", m.View())
+	if !strings.Contains(m.View(), "no stations on air") || !strings.Contains(m.View(), "[2]") {
+		t.Errorf("empty scan should show the standing-by idle hint with the [2] share move, not loading:\n%s", m.View())
 	}
 	// A broker drop shows the static line.
 	d, _ := New("http://broker.local", "tester").Update(tea.WindowSizeMsg{Width: 92, Height: 30})
