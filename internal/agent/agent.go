@@ -43,7 +43,6 @@ type Config struct {
 	Ctx, Parallel                 int
 	BridgeToken                   string
 	Confidential                  bool
-	Attestation                   string
 	Schedule                      []protocol.PriceWindow
 }
 
@@ -179,6 +178,21 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 		newTok := randHex(16)
 		reg := rr.reg
 		reg.BridgeToken = newTok
+		// Re-attestation: a confidential node must present a FRESH nonce-bound quote on
+		// every re-register (the broker spends the nonce single-use and lapses stale
+		// attestations). Fetch a new nonce + quote here so the badge survives a broker
+		// restart. If re-attestation fails (e.g. transient), drop the confidential
+		// claim for this attempt rather than sending a stale/replayed quote - it is
+		// re-earned on the next successful re-attest.
+		if rr.reg.Confidential {
+			if err := attestForRegistration(rr.broker, rr.priv, &reg); err != nil {
+				log.Printf("re-attestation failed, re-registering as standard this round: %v", err)
+				reg.Confidential = false
+				reg.Attestation = ""
+				reg.AttestKind = ""
+				reg.AttestNonce = ""
+			}
+		}
 		reg.TS = time.Now().Unix()
 		reg.SignRegistration(rr.priv)
 		if err := register(rr.broker, reg); err == nil {
@@ -278,7 +292,16 @@ func Start(cfg Config) (*Session, error) {
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
-		Confidential: cfg.Confidential, Attestation: cfg.Attestation,
+		Confidential: cfg.Confidential,
+	}
+	// Confidential tier: generate a REAL TEE quote bound to (pubkey, fresh broker
+	// nonce). On non-TEE hardware this fails - we surface the error so the node does
+	// NOT silently send a fake confidential claim. A node that did not ask for
+	// confidential skips this entirely.
+	if cfg.Confidential {
+		if err := attestForRegistration(cfg.Broker, priv, &reg); err != nil {
+			return nil, fmt.Errorf("confidential attestation: %w", err)
+		}
 	}
 	reg.TS = time.Now().Unix()
 	reg.SignRegistration(priv) // prove we hold PubKey's private key

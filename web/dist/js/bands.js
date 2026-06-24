@@ -54,7 +54,6 @@
   var sortEl   = document.getElementById("bandSort");
   var fltFree  = document.getElementById("fltFree");
   var fltConf  = document.getElementById("fltConf");
-  var fltVer   = document.getElementById("fltVer");
   var fltOn    = document.getElementById("fltOn");
   var fltSeen  = document.getElementById("fltSeen");
 
@@ -339,7 +338,7 @@
       ? '<span class="band-dot band-dot--on" aria-hidden="true">◉</span>'
       : '<span class="band-dot band-dot--off" aria-hidden="true">○</span>';
     var marks = "";
-    if (b.verified || b.confidential) marks += ' <span class="cs" title="lineage-verified / confidential">◆</span>';
+    if (b.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
     if (b.freeNow) marks += ' <span class="band-tag band-tag--free">FREE</span>';
     if (b.seen) marks += ' <span class="band-tag band-tag--seen" title="seen before, offline now">SEEN</span>';
     var ctx = b.ctx ? '<span class="band-ctx mono">' + fmtCtx(b.ctx) + ' ctx</span>' : "";
@@ -387,7 +386,6 @@
       if (q && b.model.toLowerCase().indexOf(q) === -1) return false;
       if (filters.free && !b.freeNow) return false;
       if (filters.conf && !b.confidential) return false;
-      if (filters.ver && !b.verified) return false;
       return true;
     });
     out.sort(function (a, b) {
@@ -732,7 +730,7 @@
     } else {
       stations.forEach(function (s) {
         var marks = "";
-        if (s.confidential) marks += ' <span class="cs" title="confidential">◆</span>';
+        if (s.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
         if (s.free) marks += ' <span class="band-tag band-tag--free">FREE</span>';
         var dot = s.online ? '<span class="band-dot--on">◉</span>' : '<span class="band-dot--off">○</span>';
         var pin = s.priceIn != null ? fmtPrice(s.priceIn) : "-";
@@ -751,8 +749,8 @@
 
     var nVer = stations.filter(function (s) { return s.confidential; }).length;
     document.getElementById("qslVerify").textContent = b.confidential
-      ? "verification: " + nVer + " confidential route" + (nVer === 1 ? "" : "s") + " - sealed payload"
-      : "verification: standard lineage receipts";
+      ? "verification: " + nVer + " TEE-attested confidential route" + (nVer === 1 ? "" : "s") + " (hardware-verified)"
+      : "verification: standard - signed lineage receipts, no TEE attestation";
 
     var hrsWrap = document.getElementById("qslHours");
     var h = qhrs(b);
@@ -894,7 +892,7 @@
       renderList();
     });
   }
-  bindChip(fltFree, "free"); bindChip(fltConf, "conf"); bindChip(fltVer, "ver");
+  bindChip(fltFree, "free"); bindChip(fltConf, "conf");
   if (fltOn) fltOn.addEventListener("click", function () {
     filters.on = true; filters.seen = false; syncOnSeenButtons(); renderList();
   });

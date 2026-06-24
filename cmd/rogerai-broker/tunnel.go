@@ -98,6 +98,17 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		// account to register a node id owns it), so earning lots + payouts resolve.
 		_ = b.db.BindNode(reg.NodeID, owner.Pubkey)
 	}
+	// Real TEE attestation - done BEFORE taking b.mu so the signature-chain check and
+	// (cached) AMD KDS fetch never hold the broker lock during network IO. A
+	// confidential CLAIM is only honored after the quote's signature chain, single-use
+	// nonce binding, and allowlisted launch measurement ALL verify. verifyRegistration
+	// returns an error ONLY when ROGERAI_TEE_REQUIRE is set and a claimed quote fails -
+	// then we reject the registration rather than silently downgrade it to standard.
+	confidential, attErr := b.attest.verifyRegistration(r.Context(), reg)
+	if attErr != nil {
+		jsonErr(w, http.StatusForbidden, attErr.Error())
+		return
+	}
 	b.mu.Lock()
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
 	// later registrations for that id must use the SAME key (no takeover).
@@ -109,8 +120,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = now
-	confidential := reg.Confidential && verifyAttestation(reg.Attestation)
 	b.confidential[reg.NodeID] = confidential
+	if b.attestedAt == nil {
+		b.attestedAt = map[string]time.Time{}
+	}
+	if confidential {
+		b.attestedAt[reg.NodeID] = now // start the re-attestation clock
+	} else {
+		delete(b.attestedAt, reg.NodeID)
+	}
 	if t := b.tunnels[reg.NodeID]; t == nil {
 		b.tunnels[reg.NodeID] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
 	} else {
@@ -130,6 +148,54 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("registered node %s (%d offers, %s)", reg.NodeID, len(reg.Offers), reg.HW)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// attestChallenge handles POST /nodes/challenge: issues a single-use, short-lived
+// nonce a node binds its TEE quote to. This is what makes the confidential tier
+// replay-safe: the node must produce a quote whose report_data == hash(pubkey ||
+// nonce), so a captured quote cannot be reused (the nonce is spent on the next
+// register) nor presented by a different node (the pubkey is bound in).
+func (b *broker) attestChallenge(w http.ResponseWriter, r *http.Request) {
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	writeJSON(w, http.StatusOK, b.attest.issueNonce())
+}
+
+// reattestSweep periodically drops verified-confidential status that has lapsed its
+// re-attestation cadence: a node must present a FRESH nonce-bound quote (by
+// re-registering) within reattestTTL or it loses the ◆ badge and the confidential
+// route filter stops sending it traffic. This stops a one-time verification from
+// granting the badge forever - the guarantee has to be re-proven on a cadence.
+func (b *broker) reattestSweep() {
+	ttl := b.attest.reattestTTL
+	if ttl <= 0 {
+		return
+	}
+	// Check at a fraction of the TTL so a lapse is caught promptly (min 1m).
+	tick := ttl / 4
+	if tick < time.Minute {
+		tick = time.Minute
+	}
+	for range time.Tick(tick) {
+		b.expireStaleAttestations(time.Now(), ttl)
+	}
+}
+
+// expireStaleAttestations drops confidential status for any node whose last
+// attestation is older than ttl. Split out so tests can drive it deterministically.
+func (b *broker) expireStaleAttestations(now time.Time, ttl time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for node, at := range b.attestedAt {
+		if now.Sub(at) > ttl {
+			if b.confidential[node] {
+				log.Printf("TEE: node %s re-attestation lapsed (>%s) - dropping confidential status", node, ttl)
+			}
+			b.confidential[node] = false
+			delete(b.attestedAt, node)
+		}
+	}
 }
 
 // persistThrottle is how often a node's last_seen is flushed to the store from the
@@ -192,6 +258,17 @@ func (b *broker) rehydrateNodes() {
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential
+		if rec.Confidential {
+			if b.attestedAt == nil {
+				b.attestedAt = map[string]time.Time{}
+			}
+			// Seed the re-attest clock from the persisted last_seen, NOT "now": a node
+			// that was verified-confidential before a restart keeps the badge only until
+			// its re-attest cadence lapses, at which point the sweep drops it unless the
+			// node re-registers with a fresh quote. (It cannot be re-verified across a
+			// restart without a quote, so this stays honest rather than trusting forever.)
+			b.attestedAt[reg.NodeID] = time.Unix(rec.LastSeen, 0)
+		}
 		if b.tunnels[reg.NodeID] == nil {
 			b.tunnels[reg.NodeID] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
 		} else {

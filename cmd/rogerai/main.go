@@ -426,14 +426,13 @@ func cmdShare(cfg config, args []string) error {
 	priceIn := fs.Float64("price-in", defIn, "$/1M input tokens to EARN (default 0 = free, no login needed)")
 	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
 	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
-	confidential := fs.Bool("confidential", false, "advertise as confidential (TEE-attested)")
-	attestation := fs.String("attestation", "", "TEE attestation blob (dev placeholder if --confidential without it)")
+	confidential := fs.Bool("confidential", false, "advertise as confidential - requires real TEE hardware (AMD SEV-SNP); a fresh hardware quote is generated + verified by the broker")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
 	fs.Parse(args)
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --attestation --free-window --schedule")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --free-window --schedule")
 	}
 
 	up := *upstream
@@ -519,10 +518,11 @@ func cmdShare(cfg config, args []string) error {
 		}
 		sched = append(sched, ws...)
 	}
-	att := *attestation
-	if *confidential && att == "" {
-		att = "dev-placeholder-attestation"
-		fmt.Println("warning: --confidential without --attestation won't earn the confidential badge - the broker rejects placeholder attestations (real TEE attestation required).")
+	if *confidential {
+		// Fail FAST and CLEARLY on hardware without a TEE, rather than sending a fake
+		// claim: the node-side attestation generates a REAL SEV-SNP quote at register
+		// time and errors out here if no TEE device is present.
+		fmt.Println("confidential: generating a real TEE attestation quote at registration (needs AMD SEV-SNP hardware) - the broker verifies it before granting the badge.")
 	}
 
 	if *priceIn == 0 && *priceOut == 0 && len(sched) == 0 {
@@ -532,7 +532,7 @@ func cmdShare(cfg config, args []string) error {
 		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
 		NodeID: *node, Region: *region, HW: detectHW(), Model: mdl,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, Parallel: *parallel,
-		Confidential: *confidential, Attestation: att, Schedule: sched,
+		Confidential: *confidential, Schedule: sched,
 	})
 }
 

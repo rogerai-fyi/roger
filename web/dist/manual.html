@@ -252,8 +252,8 @@
               <div><dt>tune in</dt><dd>Consuming. You pick a band, set margins, and the radio locks the strongest station.</dd></div>
               <div><dt>lineage receipt</dt><dd>The signed record co-produced for every request: model, shard, token counts, price - node-signed and broker counter-signed (Ed25519). See §10.</dd></div>
               <div><dt>grant key</dt><dd>An owner-issued private credential (<code>rog-grant_...</code>) that lets your bots, family, or your own remote box use your models with no login - free or at a price you sponsor. See §5.</dd></div>
-              <div><dt>call-sign</dt><dd>The gold <span class="cs">&#9670;</span> mark of a verified, GitHub-linked operator that co-signs each token's lineage.</dd></div>
-              <div><dt>confidential</dt><dd>A premium tier that routes only to TEE-attested (hardware-sealed) nodes. See §4 and §10.</dd></div>
+              <div><dt>verified operator</dt><dd>The <span class="cs">&#10003;</span> mark of a GitHub-linked operator that co-signs each token's lineage. It is an IDENTITY badge - it does NOT by itself mean the node is confidential.</dd></div>
+              <div><dt>confidential <span class="cs">&#9670;</span></dt><dd>The gold <span class="cs">&#9670;</span> is granted ONLY to a node that passes real TEE remote attestation: the broker cryptographically verifies a hardware quote (AMD SEV-SNP signature chain to the AMD root, a nonce binding that prevents replay, and an allowlisted launch measurement) and re-checks it on a cadence. Nodes without it are plainly "standard". See §4 and §10.</dd></div>
             </dl>
           </section>
 
@@ -538,12 +538,18 @@
             </div>
 
             <h3>The confidential tier</h3>
-            <p>Add <code>--confidential</code> with a real TEE attestation blob
-              (<code>--attestation</code>) to advertise as a hardware-sealed,
-              attested node and earn the confidential badge. The broker rejects placeholder
-              attestations - a real TEE attestation is required to carry the badge.
-              Consumers reach this tier with <code>--confidential</code> on
-              <code>use</code> or <code>/confidential</code> in the app.</p>
+            <p>Run <code>rogerai share --confidential</code> on real TEE hardware (today:
+              an AMD SEV-SNP confidential VM). At registration the node generates a fresh
+              hardware attestation quote bound to its key and a broker-issued nonce; the
+              broker cryptographically verifies it - the SEV-SNP signature chain up to the
+              AMD root, the nonce binding (so a quote cannot be replayed), and an
+              allowlisted launch measurement - and re-checks it on a cadence. Only a node
+              that passes carries the gold <span class="cs">&#9670;</span>; a node with no
+              TEE produces no quote, makes no claim, and is plainly "standard".
+              <code>--confidential</code> fails clearly if no TEE is present rather than
+              sending a fake claim. Consumers reach this tier with <code>--confidential</code>
+              on <code>use</code> or <code>/confidential</code> in the app, which routes only
+              to genuinely-verified nodes.</p>
             <p>Most provider flags live behind <code>--advanced</code>:
               <code>rogerai share --advanced</code> reveals <code>--node</code>,
               <code>--region</code>, <code>--parallel</code>, <code>--upstream</code>,
@@ -734,7 +740,7 @@
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code></td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). <code>balance --topup [usd]</code> (or <code>balance topup [usd]</code>) opens checkout; bare top-up is $10</td></tr>
                   <tr><td><code>topup [usd]</code></td><td>add funds, opening checkout (default $10)</td></tr>
-                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> / <code>--attestation</code>. With no local server it runs a guided "no model found" fallback</td></tr>
+                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> (real TEE hardware required). With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
                   <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>
                   <tr><td><code>payout</code></td><td>cash out provider earnings (login + KYC gated): <code>status</code> (default) · <code>onboard</code> (Stripe Connect KYC) · <code>request</code> (pays your payable balance) · <code>history</code> (aliases: <code>payouts</code> / <code>cashout</code>; <code>withdraw</code> for <code>request</code>)</td></tr>

@@ -602,15 +602,6 @@ func TestParseNodeSet(t *testing.T) {
 	}
 }
 
-func TestVerifyAttestation(t *testing.T) {
-	if verifyAttestation("") || verifyAttestation("short") || verifyAttestation("dev-placeholder-attestation") {
-		t.Error("empty/short/placeholder attestation must not pass")
-	}
-	if !verifyAttestation(strings.Repeat("a", 64)) {
-		t.Error("a 64+ char attestation should pass the stub")
-	}
-}
-
 func TestCORSPreflight(t *testing.T) {
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, lastSeen: map[string]time.Time{},
