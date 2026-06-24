@@ -26,7 +26,7 @@ func TestRenderBrowse(t *testing.T) {
 	out := m.View()
 	// model name, the range column header, the live range, the logged-in balance ($)
 	// + footer.
-	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M out (range)", "0.30 ~ 0.41", "$100", "↑↓ tune"} {
+	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M out (range)", "0.30 ~ 0.41", "$100", "enter tune in"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("browse view missing %q\n---\n%s", want, out)
 		}

@@ -69,11 +69,29 @@ type Limits struct {
 }
 
 type config struct {
-	Broker    string `json:"broker"`
-	User      string `json:"user"`
-	Limits    Limits `json:"limits"`
-	Onboarded bool   `json:"onboarded,omitempty"` // first-run wizard completed
-	Share     *Share `json:"share,omitempty"`     // saved provider config (the wizard's earn/free choice)
+	Broker    string                `json:"broker"`
+	User      string                `json:"user"`
+	Limits    Limits                `json:"limits"`
+	Onboarded bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
+	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
+	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
+}
+
+// SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
+// produced, persisted so the choice survives the session. Mirrors tui.Pricing.
+type SharePrice struct {
+	PriceIn  float64       `json:"price_in,omitempty"`
+	PriceOut float64       `json:"price_out,omitempty"`
+	Windows  []SchedWindow `json:"windows,omitempty"`
+}
+
+// SchedWindow mirrors tui.SchedWindow / protocol.PriceWindow for persistence.
+type SchedWindow struct {
+	Start string  `json:"start"`
+	End   string  `json:"end"`
+	In    float64 `json:"price_in,omitempty"`
+	Out   float64 `json:"price_out,omitempty"`
+	Free  bool    `json:"free,omitempty"`
 }
 
 // Share is the provider config the onboarding wizard saves: the model to expose,
@@ -186,11 +204,52 @@ func tuiHooks(cfg config) tui.Hooks {
 			}
 			return out, nil
 		},
+		// Persist a per-model price + schedule the in-TUI editor produced (the host
+		// owns the config write; the TUI does no disk I/O).
+		SavePrice: func(model string, p tui.Pricing) {
+			c := loadConfig()
+			if c.Prices == nil {
+				c.Prices = map[string]SharePrice{}
+			}
+			c.Prices[model] = SharePrice{PriceIn: p.In, PriceOut: p.Out, Windows: toCfgWindows(p.Windows)}
+			_ = saveConfig(c)
+		},
 	}
 	if cfg.Share != nil {
 		h.ShareModel, h.SharePriceI, h.SharePriceO = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
 	}
+	// Seed the editor with prices set in a previous session.
+	if len(cfg.Prices) > 0 {
+		h.SavedPrices = map[string]tui.Pricing{}
+		for mdl, p := range cfg.Prices {
+			h.SavedPrices[mdl] = tui.Pricing{In: p.PriceIn, Out: p.PriceOut, Windows: toTUIWindows(p.Windows)}
+		}
+	}
 	return h
+}
+
+// toCfgWindows / toTUIWindows convert the in-TUI schedule windows to/from the
+// persisted config form.
+func toCfgWindows(ws []tui.SchedWindow) []SchedWindow {
+	if len(ws) == 0 {
+		return nil
+	}
+	out := make([]SchedWindow, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, SchedWindow{Start: w.Start, End: w.End, In: w.In, Out: w.Out, Free: w.Free})
+	}
+	return out
+}
+
+func toTUIWindows(ws []SchedWindow) []tui.SchedWindow {
+	if len(ws) == 0 {
+		return nil
+	}
+	out := make([]tui.SchedWindow, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, tui.SchedWindow{Start: w.Start, End: w.End, In: w.In, Out: w.Out, Free: w.Free})
+	}
+	return out
 }
 
 func main() {

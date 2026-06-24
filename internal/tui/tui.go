@@ -24,6 +24,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/detect"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Hooks lets the host (cmd/rogerai) supply the few platform/auth bits the TUI
@@ -42,6 +43,13 @@ type Hooks struct {
 	TopupURL    func(broker, user string, usd float64) (string, error)
 	GrantCreate func(broker, name string, free bool) (secret string, err error)
 	GrantList   func(broker string) ([]GrantRow, error)
+	// SavePrice persists a per-model price + time-of-use schedule the in-TUI editor
+	// produced, so the choice survives the session (nil = in-session only). The host
+	// owns the config write; the TUI keeps no disk I/O.
+	SavePrice func(model string, p Pricing)
+	// SavedPrices seeds the editor with prices the user set in a previous session, so
+	// the provider table shows them and on-air uses them (nil = none).
+	SavedPrices map[string]Pricing
 }
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
@@ -131,6 +139,11 @@ func rowSel(sel bool, plain string, width int) string {
 	return stRowSel.Render(plain)
 }
 
+// detectShares is the indirection over local-LLM detection used by the SHARE
+// flows, so tests can make it deterministic (the real Detect scans the host's open
+// ports). Production uses detect.DetectWith.
+var detectShares = func(extra ...string) []detect.Found { return detect.DetectWith(extra...) }
+
 type offer struct {
 	NodeID       string  `json:"node_id"`
 	Region       string  `json:"region"`
@@ -172,6 +185,8 @@ const (
 	modeOverLimit      // 3.3 over-limit + inline edit-your-max
 	modeLimits         // 3.4 per-model spend limits
 	modeShare          // k9s-style provider table: list local models, toggle on/off-air
+	modeShareEditor    // per-model pricing + time-of-use schedule editor (login-gated)
+	modeShareSetup     // guided fallback: no local model detected, pick a tool / paste a URL
 	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
 )
 
@@ -314,6 +329,43 @@ type model struct {
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
 	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
+	// per-model pricing + time-of-use schedule editor (modeShareEditor). prices the
+	// row at shareCursor; persisted via the host SavePrice hook (nil = in-session only).
+	edPriceIn  string             // $/1M in edit buffer
+	edPriceOut string             // $/1M out edit buffer
+	edWindows  []SchedWindow      // time-of-use windows being edited
+	edField    int                // focused field (see edField* consts)
+	edModel    string             // the model this editor is pricing
+	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
+	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
+	// one-liner, or paste a URL we verify with detect.Probe.
+	setupCursor int    // selected option in the setup wizard
+	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
+	setupErr    string // last paste-verify error
+}
+
+// edField identifies the focused field in the pricing/schedule editor.
+const (
+	edFieldIn       = iota // $/1M input price
+	edFieldOut             // $/1M output price
+	edFieldAddWin          // the "add a time-of-use window" affordance
+	edFieldFirstWin        // first window row (each window is one field below this)
+)
+
+// SchedWindow is the TUI's editable view of a time-of-use price window (mirrors
+// protocol.PriceWindow). Times are "HH:MM" UTC; Free zeroes the price in-window.
+type SchedWindow struct {
+	Start, End string
+	In, Out    float64
+	Free       bool
+}
+
+// Pricing is the per-model saved price + schedule the editor produces. The host
+// persists it (and feeds it back as Hooks.SavedPricing); on-air it is applied
+// when a model goes live.
+type Pricing struct {
+	In, Out float64
+	Windows []SchedWindow
 }
 
 // shareRow is one model in the k9s-style provider table: a locally-detected model
@@ -365,6 +417,13 @@ func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 	// before the first /balance comes back. The broker's logged_in flag (from the
 	// signed balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
+	// Seed per-model pricing the user set in a previous session.
+	if len(hooks.SavedPrices) > 0 {
+		m.prices = map[string]Pricing{}
+		for mdl, p := range hooks.SavedPrices {
+			m.prices[mdl] = p
+		}
+	}
 	return m
 }
 
@@ -543,10 +602,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, c
 	case modeChat:
 		switch k.String() {
-		case "esc", "tab":
-			// leave CHANNEL for BROWSE; the channel + endpoint stay live.
+		case "esc":
+			// esc DISCONNECTS: drop the channel and return to the band browser. This is
+			// "leave this channel", NOT "quit RogerAI" - quitting is a deliberate q from
+			// BROWSE (or the on-air guard). tab is the non-destructive peek (below).
+			return m.disconnect()
+		case "tab":
+			// tab is a NON-destructive switch to BROWSE - the channel + endpoint stay
+			// live so you can tab back. (esc disconnects; this just looks away.)
 			m.mode = modeBrowse
 			m.chatIn.Blur()
+			m.status = stDim.Render("peeking at the band - the channel stays open · tab/c to return · esc here disconnects")
 			return m, nil
 		case "enter":
 			p := strings.TrimSpace(m.chatIn.Value())
@@ -599,6 +665,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onLimitsKey(k)
 	case modeShare:
 		return m.onShareKey(k)
+	case modeShareEditor:
+		return m.onShareEditorKey(k)
+	case modeShareSetup:
+		return m.onShareSetupKey(k)
 	default: // browse
 		switch k.String() {
 		case "q":
@@ -623,6 +693,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.chatIn.Focus()
 				return m, textinput.Blink
 			}
+		case "s":
+			// The one obvious section toggle: jump to SHARE (provide). esc/s returns.
+			return m.toggleSection()
 		case "m":
 			if m.connected != nil {
 				m.minimized = !m.minimized
@@ -697,10 +770,20 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		sysLine("endpoint " + m.endpoint + " · key " + m.apikey + " · model " + m.connected.Model)
 		return m, nil
 	case "help", "h":
-		sysLine("/model /clear /save /system <p> /cost /confidential /endpoint /help /quit · tab leaves channel")
+		sysLine("/model /clear /save /system <p> /cost /confidential /endpoint /disconnect /quit")
+		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
+	case "disconnect", "leave", "dc":
+		// Explicit "leave this channel" - same as esc. Returns to the band browser.
+		return m.disconnect()
 	case "quit", "q":
-		return m.requestQuit()
+		// /quit in a CHANNEL means leave the CHANNEL (disconnect), not quit the whole
+		// app - quitting RogerAI is a deliberate q from BROWSE / the on-air guard. If a
+		// share is live, fall through to the quit path so the on-air guard can fire.
+		if m.onAirCount() > 0 {
+			return m.requestQuit()
+		}
+		return m.disconnect()
 	default:
 		sysLine("unknown: /" + cmd + " · /help for in-session commands")
 		return m, nil
@@ -782,10 +865,11 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("off air - you stopped sharing")
 		return m, nil
 	}
-	found := detect.Detect()
+	found := detectShares(m.shareUp)
 	if len(found) == 0 {
-		m.status = stEmber.Render("! no local LLM detected - start Ollama/LM Studio/llama.cpp/vLLM, then /share")
-		return m, nil
+		// GUIDED FALLBACK: nothing detected -> the in-TUI setup wizard (pick a tool for
+		// a one-liner, or paste a URL we verify), not a dead-end status line.
+		return m.enterShareSetup(), nil
 	}
 	m.loadShareRows(found)
 	// `/share <model>` shortcut: flip that exact model on air, then show the table.
@@ -867,24 +951,23 @@ func (m *model) toggleShareAt(i int) {
 	if node == "" {
 		node = "node"
 	}
-	// Free by default (visible + changeable in the table); the saved onboarding
-	// price applies only to the saved model, so a different model shares FREE unless
-	// the user set a global price. A priced share still requires `rogerai login`.
-	priceIn, priceOut := 0.0, 0.0
-	if row.model == m.hooks.ShareModel {
-		priceIn, priceOut = m.hooks.SharePriceI, m.hooks.SharePriceO
-	}
+	// Free by default (visible + changeable in the editor). The price + time-of-use
+	// schedule come from pricingFor (an edited price, the saved onboarding price for
+	// the default model, else free).
+	p := m.pricingFor(row.model)
+	priceIn, priceOut := p.In, p.Out
 	// Share-to-EARN needs an account: a priced share requires `rogerai login` (the
 	// broker 403s a priced node from an unlinked owner). Flash a clear login prompt
 	// instead of a failed start; free sharing stays open to anyone, no login.
-	if (priceIn > 0 || priceOut > 0) && !m.loggedInState() {
-		m.status = stEmber.Render("earning needs an account - ") + stKey.Render("type /login") + stDim.Render(" (free sharing works without one)")
+	if (priceIn > 0 || priceOut > 0 || len(p.Windows) > 0) && !m.loggedInState() {
+		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render(" (free sharing works without an account)")
 		return
 	}
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: m.shareUp, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
 		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, Parallel: 4,
+		Schedule: schedToProtocol(p.Windows),
 	})
 	if err != nil {
 		m.status = stEmber.Render("! could not put " + row.model + " on air: " + err.Error())
@@ -952,12 +1035,14 @@ func (m *model) quitNow() (tea.Model, tea.Cmd) {
 }
 
 // onShareKey drives the k9s-style provider table: up/down (j/k) move the
-// reverse-video cursor, enter/a/space toggle the selected model on/off air, r
-// re-detects local models, esc/q leaves (shares keep running in the background).
+// reverse-video cursor, enter/a/space toggle the selected model on/off air, p
+// opens the per-model price + schedule editor (login-gated), r re-detects, esc/q
+// leaves (shares keep running in the background), s returns to TUNE IN.
 func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
-	case "esc", "q":
+	case "esc", "q", "s":
 		m.mode = modeBrowse
+		m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
 		return m, nil
 	case "up", "k":
 		if m.shareCursor > 0 {
@@ -969,15 +1054,279 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", "a", " ", "space":
 		m.toggleShareAt(m.shareCursor)
+	case "p", "e":
+		// Open the price + time-of-use schedule editor for the selected model. This is
+		// EARNING, so it is login-gated: anonymous users get a clear /login prompt
+		// (free sharing stays open to anyone).
+		return m.enterShareEditor()
 	case "r":
-		if found := detect.Detect(); len(found) > 0 {
+		if found := detectShares(m.shareUp); len(found) > 0 {
 			m.loadShareRows(found)
 			m.status = stDim.Render("re-detected local models")
 		} else {
-			m.status = stEmber.Render("! no local LLM detected")
+			return m.enterShareSetup(), nil
 		}
 	}
 	return m, nil
+}
+
+// enterShareSetup opens the in-TUI guided fallback when no local model was
+// detected: a small wizard to pick a tool (for a start one-liner) or paste an
+// endpoint we verify with detect.Probe. Mirrors the CLI guidedUpstream flow.
+func (m model) enterShareSetup() model {
+	m.mode = modeShareSetup
+	m.setupCursor = 0
+	m.setupPaste = ""
+	m.setupErr = ""
+	m.status = stDim.Render("no local model found - pick what you're running, or paste a URL")
+	return m
+}
+
+// setupOptions are the guided-fallback choices: a tool (with a start one-liner) or
+// the paste-a-URL path. Order is the on-screen order.
+var setupOptions = []struct{ key, label, oneLiner string }{
+	{"ollama", "Ollama", "ollama serve   then:  ollama run llama3.2   (→ :11434)"},
+	{"lm-studio", "LM Studio", "LM Studio → Developer → Start Server   (→ :1234)"},
+	{"vllm", "vLLM", "vllm serve <model> --port 8000   (→ :8000)"},
+	{"llamacpp", "llama.cpp", "llama-server -m <model>.gguf --port 8080   (→ :8080)"},
+	{"other", "Other - paste a URL", ""},
+}
+
+// onShareSetupKey drives the guided fallback: up/down move, enter picks; a named
+// tool shows its one-liner + offers a re-scan; the "Other" row turns the row into
+// a URL input we verify on enter. esc/s leaves.
+func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pasting := m.setupCursor == len(setupOptions)-1
+	switch k.String() {
+	case "esc", "s":
+		m.mode = modeBrowse
+		m.status = stDim.Render("TUNE IN - browse the band")
+		return m, nil
+	case "up", "k":
+		if m.setupCursor > 0 {
+			m.setupCursor--
+		}
+		m.setupErr = ""
+		return m, nil
+	case "down", "j":
+		if m.setupCursor < len(setupOptions)-1 {
+			m.setupCursor++
+		}
+		m.setupErr = ""
+		return m, nil
+	case "r":
+		// Re-scan (after the user started their tool in another terminal).
+		if found := detectShares(m.shareUp); len(found) > 0 {
+			m.loadShareRows(found)
+			m.mode = modeShare
+			m.status = stLive.Render("found " + plural(len(m.shareRows), "model") + " - ↑↓ select, enter toggles on-air")
+		} else {
+			m.setupErr = "still nothing on the defaults / your open ports - give it a moment, or paste the URL below"
+		}
+		return m, nil
+	case "enter":
+		if pasting {
+			url := strings.TrimSpace(m.setupPaste)
+			if url == "" {
+				m.setupErr = "paste your endpoint, e.g. http://127.0.0.1:8081"
+				return m, nil
+			}
+			if f, ok := detect.Probe(url); ok {
+				m.shareUp = normalizeUpstream(f.Chat)
+				m.loadShareRows([]detect.Found{f})
+				m.mode = modeShare
+				m.status = stLive.Render("verified " + f.BaseURL + " - " + plural(len(m.shareRows), "model") + " ready")
+				return m, nil
+			}
+			m.setupErr = "no OpenAI-compatible server at " + url + " (no /v1/models) - check it and try again"
+			return m, nil
+		}
+		// A named tool: try a re-detect first (maybe it's already up); else show the
+		// one-liner via the status line and keep the wizard so the user can press r.
+		if found := detectShares(m.shareUp); len(found) > 0 {
+			m.loadShareRows(found)
+			m.mode = modeShare
+			m.status = stLive.Render("found " + plural(len(m.shareRows), "model") + " on air")
+			return m, nil
+		}
+		m.setupErr = "start it, then press r to re-scan:  " + setupOptions[m.setupCursor].oneLiner
+		return m, nil
+	case "backspace":
+		if pasting && m.setupPaste != "" {
+			m.setupPaste = m.setupPaste[:len(m.setupPaste)-1]
+		}
+		return m, nil
+	default:
+		if pasting {
+			if s := k.String(); len(s) == 1 {
+				m.setupPaste += s
+			}
+		}
+		return m, nil
+	}
+}
+
+// enterShareEditor opens the per-model price + time-of-use schedule editor for the
+// row at the cursor. EARNING requires an account, so this is login-gated: an
+// anonymous user is shown "log in to earn - run /login" instead of being allowed
+// to set a price that could never pay out. Free sharing stays open to anyone, so
+// the table itself (and toggling FREE on/off air) never needs login.
+func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
+	if len(m.shareRows) == 0 {
+		return m, nil
+	}
+	if !m.loggedInState() {
+		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render("  (free sharing works without an account)")
+		return m, nil
+	}
+	row := m.shareRows[m.shareCursor]
+	m.edModel = row.model
+	p := m.pricingFor(row.model)
+	m.edPriceIn = trimZero(p.In)
+	m.edPriceOut = trimZero(p.Out)
+	m.edWindows = append([]SchedWindow(nil), p.Windows...)
+	m.edField = edFieldOut // out-price is the headline knob
+	m.mode = modeShareEditor
+	m.status = stDim.Render("set $/1M + time-of-use windows · tab next field · ⏎ save · esc cancel")
+	return m, nil
+}
+
+// onShareEditorKey drives the pricing + schedule editor. tab/↑↓ move between
+// fields (in, out, add-window, each window), digits edit the focused price, a adds
+// a window, d deletes the focused window, f flips a window FREE, enter saves +
+// returns to the provider table, esc cancels.
+func (m *model) onShareEditorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	nFields := edFieldFirstWin + len(m.edWindows)
+	switch k.String() {
+	case "esc":
+		m.mode = modeShare
+		m.status = stDim.Render("cancelled - price unchanged")
+		return m, nil
+	case "enter":
+		m.commitShareEditor()
+		m.mode = modeShare
+		return m, nil
+	case "tab", "down":
+		m.edField = (m.edField + 1) % nFields
+		return m, nil
+	case "shift+tab", "up":
+		m.edField = (m.edField - 1 + nFields) % nFields
+		return m, nil
+	case "a":
+		// Add a time-of-use window (ChargePoint-style): a default evening peak the
+		// user then edits. Focus jumps to the new window.
+		m.edWindows = append(m.edWindows, SchedWindow{Start: "18:00", End: "22:00", In: 0, Out: 0})
+		m.edField = edFieldFirstWin + len(m.edWindows) - 1
+		return m, nil
+	case "d":
+		if m.edField >= edFieldFirstWin {
+			i := m.edField - edFieldFirstWin
+			if i >= 0 && i < len(m.edWindows) {
+				m.edWindows = append(m.edWindows[:i], m.edWindows[i+1:]...)
+				if m.edField >= edFieldFirstWin+len(m.edWindows) {
+					m.edField = edFieldOut
+				}
+			}
+		}
+		return m, nil
+	case "f":
+		if m.edField >= edFieldFirstWin {
+			i := m.edField - edFieldFirstWin
+			if i >= 0 && i < len(m.edWindows) {
+				m.edWindows[i].Free = !m.edWindows[i].Free
+			}
+		}
+		return m, nil
+	case "backspace":
+		m.editShareField(func(s string) string {
+			if len(s) > 0 {
+				return s[:len(s)-1]
+			}
+			return s
+		})
+		return m, nil
+	default:
+		ch := k.String()
+		// Price fields take digits/dot; window fields take digits + ':' (HH:MM).
+		if d := digitsDot(ch); d != "" || ch == ":" {
+			add := d
+			if ch == ":" {
+				add = ":"
+			}
+			m.editShareField(func(s string) string { return s + add })
+		}
+		return m, nil
+	}
+}
+
+// editShareField applies edit fn to the buffer of the focused editor field. Price
+// fields (in/out) edit the price buffers; a window field edits its Start time
+// (the most-edited slot; End/prices use the same digits with ':' as the divider).
+func (m *model) editShareField(fn func(string) string) {
+	switch m.edField {
+	case edFieldIn:
+		m.edPriceIn = fn(m.edPriceIn)
+	case edFieldOut:
+		m.edPriceOut = fn(m.edPriceOut)
+	case edFieldAddWin:
+		// nothing to type on the add-window affordance
+	default:
+		i := m.edField - edFieldFirstWin
+		if i >= 0 && i < len(m.edWindows) {
+			m.edWindows[i].Start = fn(m.edWindows[i].Start)
+		}
+	}
+}
+
+// commitShareEditor writes the edited price + schedule into m.prices, persists it
+// via the host SavePrice hook (if any), and re-prices a live share so an on-air
+// model reflects the new base price immediately.
+func (m *model) commitShareEditor() {
+	if m.prices == nil {
+		m.prices = map[string]Pricing{}
+	}
+	in, _ := strconv.ParseFloat(strings.TrimSpace(m.edPriceIn), 64)
+	out, _ := strconv.ParseFloat(strings.TrimSpace(m.edPriceOut), 64)
+	p := Pricing{In: in, Out: out, Windows: append([]SchedWindow(nil), m.edWindows...)}
+	m.prices[m.edModel] = p
+	if m.hooks.SavePrice != nil {
+		m.hooks.SavePrice(m.edModel, p)
+	}
+	kind := "FREE"
+	if in > 0 || out > 0 {
+		kind = dollars(out) + "/1M out · " + dollars(in) + "/1M in"
+	}
+	win := ""
+	if len(p.Windows) > 0 {
+		win = stDim.Render(" · " + plural(len(p.Windows), "window"))
+	}
+	m.status = stLive.Render("saved ") + stKey.Render(m.edModel) + stDim.Render(" at ") + stEmber.Render(kind) + win
+}
+
+// pricingFor returns the saved (edited) pricing for a model, falling back to the
+// host's saved onboarding price for the default model, else free.
+func (m model) pricingFor(model string) Pricing {
+	if p, ok := m.prices[model]; ok {
+		return p
+	}
+	if model == m.hooks.ShareModel {
+		return Pricing{In: m.hooks.SharePriceI, Out: m.hooks.SharePriceO}
+	}
+	return Pricing{}
+}
+
+// schedToProtocol converts the TUI's editable windows into the wire
+// protocol.PriceWindow the agent publishes (times "HH:MM" UTC; Free zeroes the
+// in-window price). Empty in -> no schedule.
+func schedToProtocol(ws []SchedWindow) []protocol.PriceWindow {
+	if len(ws) == 0 {
+		return nil
+	}
+	out := make([]protocol.PriceWindow, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, protocol.PriceWindow{Start: w.Start, End: w.End, In: w.In, Out: w.Out, Free: w.Free})
+	}
+	return out
 }
 
 // doLogin runs the GitHub device flow in-TUI (async; the result lands as a
@@ -1130,6 +1479,29 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	}
 	m.status = stGold.Render("◆ ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
 	return m, textinput.Blink
+}
+
+// disconnect leaves the current CHANNEL: it drops the connected band and returns
+// to the band browser. This is "leave this channel", a distinct action from
+// quitting RogerAI (q from BROWSE / the on-air guard). The local proxy endpoint is
+// left bound (cheap, and bots may still hold it) but the conversation is cleared
+// so re-tuning starts fresh. A no-op when not connected.
+func (m model) disconnect() (tea.Model, tea.Cmd) {
+	if m.connected == nil {
+		m.mode = modeBrowse
+		return m, nil
+	}
+	was := m.connected.Model
+	m.connected = nil
+	m.transcript = nil
+	m.sessCost = 0
+	m.sysPrompt = ""
+	m.minimized = false
+	m.chatIn.Blur()
+	m.chatIn.SetValue("")
+	m.mode = modeBrowse
+	m.status = stDim.Render("disconnected from ") + stKey.Render(was) + stDim.Render(" - back on the band · enter to tune in, q to quit RogerAI")
+	return m, nil
 }
 
 // onOverLimitKey drives the over-limit screen (3.3): inline numeric edit of your
@@ -1358,12 +1730,16 @@ func (m model) View() string {
 		b.WriteString(m.limitsView(w))
 	case modeShare:
 		b.WriteString(m.shareView(w))
+	case modeShareEditor:
+		b.WriteString(m.shareEditorView(w))
+	case modeShareSetup:
+		b.WriteString(m.shareSetupView(w))
 	case modeQuitConfirm:
 		b.WriteString(m.quitConfirmView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
-	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits && m.mode != modeShare {
+	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits && !m.inShareSection() {
 		b.WriteString("\n" + m.endpointPanel(w))
 	}
 	// The ON AIR provider panel rides under the browse view whenever /share is live.
@@ -1416,12 +1792,18 @@ func (m model) confirmView(w int) string {
 	st := bd.cheapest
 	var b strings.Builder
 
-	// Header: model, the station you'd lock, throughput, lineage.
-	verified := ""
-	if bd.lineage > 0 {
-		verified = stDim.Render("   ") + stGold.Render("◆ verified")
-	}
-	b.WriteString("\n" + stGold.Render("  ◆ ") + stSelText.Render(bd.model) + stDim.Render("   via @") + st.NodeID + stDim.Render("   ") + tpsCell(st.TPS, st.Online) + verified + "\n\n")
+	// Section-tab heading, matching the SHARE / CHANNEL look so the connect-confirm
+	// reads as part of the same designed system, not an older screen.
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("TUNE IN") +
+		stDim.Render("   confirm the channel before it opens") + "\n\n")
+
+	// A k9s-style aligned one-row table: the station you'd lock, padded under the
+	// same column-header style the share table uses (reverse-video cursor row + carat).
+	b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-22s  %-12s  %-10s  %s", "BAND", "STATION", "SIGNAL", "FLAGS")) + "\n")
+	b.WriteString("  " + selCarat(true) + rowSel(true,
+		fmt.Sprintf("  %-22s  %-12s  %-10s  %s",
+			pad(bd.model, 22), pad("@"+st.NodeID, 12), pad(tpsPlain(st.TPS, st.Online), 10), plainBandBadge(bd, m.limits)),
+		w-4) + "\n\n")
 
 	// One glanceable line: what you pay, that it's under your cap, est cost.
 	cap := ""
@@ -1545,6 +1927,19 @@ func tpsCell(tps float64, online bool) string {
 	return dot + stDim.Render("  - t/s")
 }
 
+// tpsPlain is tpsCell without color (for a reverse-video selected row, where one
+// accent style must govern the whole row).
+func tpsPlain(tps float64, online bool) string {
+	dot := "○"
+	if online {
+		dot = "●"
+	}
+	if tps > 0 {
+		return fmt.Sprintf("%s %.0f t/s", dot, tps)
+	}
+	return dot + " - t/s"
+}
+
 // onAirPulse returns the breathing ON-AIR beacon in a FIXED-width cell so the
 // header's right edge never jitters as the arcs grow/shrink. The eye is the
 // live-red (#FF3B3B) on-air beacon matching the web --carrier; the arcs are
@@ -1583,6 +1978,60 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
 }
 
+// inShareSection reports whether the current screen is part of the SHARE (provide)
+// section vs the TUNE IN (consume) section. The header names the section so it is
+// never ambiguous that RogerAI does both.
+func (m model) inShareSection() bool {
+	switch m.mode {
+	case modeShare, modeShareEditor, modeShareSetup:
+		return true
+	}
+	return false
+}
+
+// sectionName is the two-mode top-level indicator: TUNE IN (consume: browse /
+// connect / chat) vs SHARE (provide: your models / earnings / on air).
+func (m model) sectionName() string {
+	if m.inShareSection() {
+		return "SHARE"
+	}
+	return "TUNE IN"
+}
+
+// sectionBadge renders the section indicator with the inactive section shown dim
+// beside it, so the header reads "TUNE IN | share" (or "tune in | SHARE") and the
+// `s` toggle is self-evident. SHARE is ember (provide = money), TUNE IN is volt
+// (consume). At narrow widths it collapses to just the ACTIVE section so it never
+// overflows the (already stacked) header line.
+func (m model) sectionBadge() string {
+	if m.narrow() {
+		if m.inShareSection() {
+			return stEmber.Bold(true).Render("SHARE") + stDim.Render(" [s]")
+		}
+		return stSelText.Render("TUNE IN") + stDim.Render(" [s]")
+	}
+	tune, share := stDim.Render("tune in"), stDim.Render("share")
+	if m.inShareSection() {
+		share = stEmber.Bold(true).Render("SHARE")
+	} else {
+		tune = stSelText.Render("TUNE IN")
+	}
+	return tune + stDim.Render(" │ ") + share + stDim.Render(" ([s])")
+}
+
+// toggleSection flips between the TUNE IN and SHARE sections - the one obvious key
+// (s) that makes "I can both consume and provide" unmistakable. Entering SHARE
+// runs detection (opening the provider table or the guided fallback); leaving SHARE
+// returns to the band browser. A live CHANNEL is left intact (tab back to it).
+func (m model) toggleSection() (tea.Model, tea.Cmd) {
+	if m.inShareSection() {
+		m.mode = modeBrowse
+		m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
+		return m, nil
+	}
+	return m.doShare(nil)
+}
+
 // modeName returns the current mode's short label for the indicator, so the
 // header badge names the actual screen (not a stale BROWSE) while you are in a
 // confirm / over-limit / limits sub-screen.
@@ -1597,7 +2046,11 @@ func (m model) modeName() string {
 	case modeLimits:
 		return "LIMITS"
 	case modeShare:
-		return "SHARE"
+		return "PROVIDER TABLE"
+	case modeShareEditor:
+		return "PRICE + SCHEDULE"
+	case modeShareSetup:
+		return "SET UP A MODEL"
 	default:
 		return "BROWSE"
 	}
@@ -1625,10 +2078,18 @@ func (m model) header(w int) string {
 		return bar + "\n" + rule
 	}
 
-	// EXPANDED: brand lockup + eye on the left; the mode badge on the right. When
-	// /share is live, a single ON AIR mark leads the badge (the one on-air indicator).
+	// EXPANDED: brand lockup + eye on the left; the SECTION + screen badge on the
+	// right. The section (TUNE IN vs SHARE) is the load-bearing "which half of the app
+	// am I in" indicator, always shown so it is never ambiguous that you can both
+	// consume and provide; the screen mode is the secondary detail. When /share is
+	// live, a single ON AIR mark leads the badge (the one on-air indicator).
 	left := tower + name + "  " + eye
-	badge := stDim.Render("mode ") + stSelText.Render(m.modeName())
+	// Narrow: just the section + ON AIR (the screen "mode X" detail is dropped so the
+	// stacked badge line fits the real width). Wide: section + screen mode.
+	badge := m.sectionBadge()
+	if !m.narrow() {
+		badge += stDim.Render("  ·  ") + stDim.Render("mode ") + stSelText.Render(m.modeName())
+	}
 	if m.onAir {
 		badge = stRed.Render("● ON AIR") + stDim.Render("  ·  ") + badge
 	}
@@ -1974,8 +2435,11 @@ func (m model) chatView(w int) string {
 	if m.sysPrompt != "" {
 		sys = stDim.Render(" · system set")
 	}
-	b.WriteString(stGold.Render("  ◆ ") + stDim.Render("CHANNEL · "+m.connected.NodeID+" · "+m.connected.Model) +
-		stDim.Render(" · cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
+	// Section-tab heading, matching the SHARE table's "▌ SECTION  context" look so
+	// the channel reads as part of the same designed system.
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
+		stDim.Render("   ") + stGold.Render("◆") + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+		stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
 	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂).
 	lines := m.transcript
 	max := m.height - 8
@@ -2001,7 +2465,7 @@ func (m model) chatView(w int) string {
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
 	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
-	b.WriteString("  " + stDim.Render("/help for in-session commands  ·  tab leaves channel  ·  enter sends") + "\n")
+	b.WriteString("  " + stDim.Render("enter sends  ·  ") + stKey.Render("esc") + stDim.Render(" disconnects (leave this channel)  ·  ") + stKey.Render("tab") + stDim.Render(" peek at the band  ·  /help") + "\n")
 	return b.String()
 }
 
@@ -2067,16 +2531,20 @@ func (m model) sharesOnAir() int {
 	return n
 }
 
-// sharePrice returns the price a row WOULD share at (FREE unless it's the saved
-// model with a saved price), or the live session's price when it's on air.
+// sharePrice returns the price a row WOULD share at (its saved/edited price, FREE
+// by default), or the live session's price when it's on air.
 func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
 	if live != nil {
 		return live.Price()
 	}
-	if row.model == m.hooks.ShareModel {
-		return m.hooks.SharePriceI, m.hooks.SharePriceO
-	}
-	return 0, 0
+	p := m.pricingFor(row.model)
+	return p.In, p.Out
+}
+
+// hasSchedule reports whether a row has a time-of-use schedule set (so the table
+// can flag it), live session schedules are not surfaced per-window here.
+func (m model) hasSchedule(row shareRow) bool {
+	return len(m.pricingFor(row.model).Windows) > 0
 }
 
 // shareView is the k9s-style provider table: one row per locally-detected model
@@ -2143,6 +2611,11 @@ func (m model) shareView(w int) string {
 		if in > 0 || out > 0 {
 			priceTxt = dollars(out) + "/1M out"
 		}
+		// A time-of-use schedule is flagged with a clock so the table shows it at a
+		// glance (the per-window detail lives in the editor).
+		if !on && m.hasSchedule(row) {
+			priceTxt += " ~tou"
+		}
 
 		// Build the row body as PLAIN text first (cells padded), then color it: a
 		// selected row is one reverse-video bar; an unselected row tints the status
@@ -2191,12 +2664,21 @@ func (m model) shareView(w int) string {
 			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
 	}
 
+	// Pricing affordance: logged in -> the per-model editor; anonymous -> the clear
+	// "log in to earn" gate (free sharing still works without an account).
 	if compact {
-		b.WriteString("\n  " + stDim.Render("free by default · ") + stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles") + "\n")
+		ph := stKey.Render("p") + stDim.Render(" price")
+		if !m.loggedInState() {
+			ph = stDim.Render("log in to earn")
+		}
+		b.WriteString("\n  " + stDim.Render("free · ") + stKey.Render("⏎") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggle · ") + ph + "\n")
 	} else {
-		b.WriteString("\n  " + stDim.Render("free by default · the selected model toggles with ") +
-			stKey.Render("enter") + stDim.Render(" or ") + stKey.Render("a") +
-			stDim.Render(" · shares keep serving when you leave this view") + "\n")
+		ph := stKey.Render("p") + stDim.Render(" set price + schedule")
+		if !m.loggedInState() {
+			ph = stDim.Render("log in to earn (") + stKey.Render("/login") + stDim.Render(")")
+		}
+		b.WriteString("\n  " + stDim.Render("free by default · ") +
+			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") + ph + "\n")
 	}
 	return b.String()
 }
@@ -2207,6 +2689,146 @@ func sharePriceCell(txt string) string {
 		return stLive.Render(txt)
 	}
 	return stEmber.Render(txt)
+}
+
+// shareEditorView is the per-model price + time-of-use schedule editor (the
+// ChargePoint-style earning surface), reached with `p` from the provider table and
+// login-gated (enterShareEditor flashes the /login prompt for anonymous users, so
+// this view only renders for a logged-in owner). It carries the same designed
+// look as the share table: a section tab heading, a focused-field cursor, and a
+// contextual key footer.
+func (m model) shareEditorView(w int) string {
+	var b strings.Builder
+	narrow := m.narrow()
+	headTail := stDim.Render("   what you earn per 1M tokens")
+	if narrow {
+		headTail = ""
+	}
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("PRICE + SCHEDULE") +
+		stDim.Render("   ") + stKey.Render(m.edModel) + headTail + "\n\n")
+
+	field := func(idx int, label, val, unit string) string {
+		cur := "  "
+		nameSt := stDim
+		valSt := stEmber
+		if m.edField == idx {
+			cur = stSelText.Render("▌ ")
+			nameSt = stSelText
+		}
+		shown := val
+		if shown == "" {
+			shown = "0"
+		}
+		box := "▏" + shown + "▏"
+		if m.edField == idx {
+			box = stSelText.Render("▏" + shown + "▏")
+		} else {
+			box = valSt.Render(box)
+		}
+		tail := stDim.Render("  " + unit)
+		if narrow {
+			tail = ""
+		}
+		return cur + nameSt.Render(pad(label, 16)) + box + tail + "\n"
+	}
+	b.WriteString(field(edFieldIn, "$/1M input", m.edPriceIn, "$ per 1,000,000 input tokens"))
+	b.WriteString(field(edFieldOut, "$/1M output", m.edPriceOut, "$ per 1M output  (the headline price)"))
+
+	// The add-window affordance.
+	addCur := "  "
+	addSt := stDim
+	if m.edField == edFieldAddWin {
+		addCur = stSelText.Render("▌ ")
+		addSt = stSelText
+	}
+	winTail := stDim.Render("   ") + stKey.Render("a") + stDim.Render(" add a window · ChargePoint-style")
+	if narrow {
+		winTail = stDim.Render(" · ") + stKey.Render("a") + stDim.Render(" add")
+	}
+	b.WriteString("\n" + addCur + addSt.Render("time-of-use windows") + winTail + "\n")
+
+	if len(m.edWindows) == 0 {
+		empty := stDim.Render("    (none - flat price all day · ") + stKey.Render("a") + stDim.Render(" adds a peak)")
+		if narrow {
+			empty = stDim.Render("    (none · ") + stKey.Render("a") + stDim.Render(" adds one)")
+		}
+		b.WriteString(empty + "\n")
+	}
+	for i, win := range m.edWindows {
+		idx := edFieldFirstWin + i
+		cur := "    "
+		nameSt := stDim
+		if m.edField == idx {
+			cur = "  " + stSelText.Render("▌ ")
+			nameSt = stSelText
+		}
+		price := stEmber.Render(dollars(win.Out) + "/1M out")
+		if win.Free {
+			price = stLive.Render("FREE")
+		}
+		b.WriteString(cur + nameSt.Render(pad(win.Start+"-"+win.End+" UTC", 18)) + price + "\n")
+	}
+
+	if !narrow {
+		b.WriteString("\n  " + stDim.Render("a window's price applies in its hours; the base price applies outside them.") + "\n")
+	}
+	return b.String()
+}
+
+// shareSetupView is the in-TUI guided fallback when no local model was detected: a
+// k9s-styled option list (pick a tool for a start one-liner, or paste a URL we
+// verify). It carries the same selection-cursor + contextual-footer feel as the
+// provider table so the SHARE section reads as one designed system.
+func (m model) shareSetupView(w int) string {
+	var b strings.Builder
+	narrow := m.narrow()
+	headTail := stDim.Render("   no running model found - what are you using?")
+	if narrow {
+		headTail = ""
+	}
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("SET UP A MODEL") + headTail + "\n")
+	if narrow {
+		b.WriteString("  " + stDim.Render("what are you running?") + "\n")
+	}
+	b.WriteString("\n")
+
+	nameW := 24
+	if narrow {
+		nameW = 18
+	}
+	for i, opt := range setupOptions {
+		sel := i == m.setupCursor
+		label := opt.label
+		row := selCarat(sel) + " "
+		if sel {
+			row += rowSel(true, "  "+pad(label, nameW), w-4)
+		} else {
+			row += "  " + stDim.Render(pad(label, nameW))
+		}
+		b.WriteString(row + "\n")
+		// Under the selected named tool, show its start one-liner inline (truncated to
+		// the terminal width so it never overflows).
+		if sel && opt.key != "other" && opt.oneLiner != "" {
+			line := "      " + "start it: " + opt.oneLiner
+			b.WriteString(stDim.Render(pad(line, w-2)) + "\n")
+		}
+	}
+
+	// The paste row turns into a live input when the "Other" option is selected.
+	if m.setupCursor == len(setupOptions)-1 {
+		tail := stDim.Render("   e.g. http://127.0.0.1:8081  ·  ⏎ verifies /v1/models")
+		if narrow {
+			tail = ""
+		}
+		b.WriteString("\n  " + stPrompt.Render("url › ") + stSelText.Render(m.setupPaste+"▏") + tail + "\n")
+	} else {
+		hint := stDim.Render("started your tool? press ") + stKey.Render("r") + stDim.Render(" to re-scan")
+		b.WriteString("\n  " + hint + "\n")
+	}
+	if m.setupErr != "" {
+		b.WriteString("\n  " + stEmber.Render(pad("! "+m.setupErr, w-2)) + "\n")
+	}
+	return b.String()
 }
 
 // modalFooter renders a modal sub-screen's own footer (its keys + the balance),
@@ -2251,12 +2873,24 @@ func (m model) footer(w int) string {
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:
-		left = stDim.Render("↑↓/jk move  ·  ⏎/a toggle on-air  ·  r re-detect  ·  esc done")
+		left = stDim.Render("↑↓/jk move  ·  ⏎/a on-air  ·  p price+schedule  ·  r re-detect  ·  s/esc tune in")
 		if m.narrow() {
-			left = stDim.Render("↑↓ · ⏎/a on-air · r · esc")
+			left = stDim.Render("↑↓ · ⏎/a air · p · r · esc")
 		}
 		right := stRed.Render(fmt.Sprintf("%d on air", m.sharesOnAir()))
 		return modalFooter(m.effWidth(), left, right, m.status)
+	case modeShareEditor:
+		left = stDim.Render("tab/↑↓ field  ·  type to set $  ·  a add window  ·  f free  ·  d delete  ·  ⏎ save  ·  esc cancel")
+		if m.narrow() {
+			left = stDim.Render("tab field · a/f/d · ⏎ save · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeShareSetup:
+		left = stDim.Render("↑↓ pick  ·  ⏎ select/verify  ·  r re-scan  ·  s/esc tune in")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎ · r · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeQuitConfirm:
 		left = stDim.Render("y quit + go off air  ·  n/esc stay on air")
 		if m.narrow() {
@@ -2267,18 +2901,18 @@ func (m model) footer(w int) string {
 	}
 	if m.mode == modeChat {
 		if m.narrow() {
-			left = stDim.Render("talk · / cmds · tab · esc · ⌃c")
+			left = stDim.Render("talk · esc disconnect · tab peek · ⌃c quit")
 		} else {
-			left = stDim.Render("type to talk  ·  / in-session cmds  ·  tab browse  ·  esc leave  ·  ⌃c quit")
+			left = stDim.Render("type to talk  ·  esc disconnect  ·  tab peek at the band  ·  /quit leaves channel  ·  ⌃c quit app")
 		}
 	} else if m.narrow() {
-		left = stDim.Render("↑↓ · ⏎ on-air · / · ? · q")
+		left = stDim.Render("↑↓ · ⏎ tune in · s share · / · ? · q")
 	} else {
 		chatKey := ""
 		if m.connected != nil {
 			chatKey = "  ·  tab/c channel  ·  m minimize"
 		}
-		left = stDim.Render("↑↓ tune  ·  enter on-air" + chatKey + "  ·  / cmd  ·  ? help  ·  q quit")
+		left = stDim.Render("↑↓ pick  ·  enter tune in  ·  s share" + chatKey + "  ·  / cmd  ·  ? help  ·  q quit")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -2313,19 +2947,25 @@ func (m model) footer(w int) string {
 }
 
 func (m model) helpView() string {
+	// Lead with the few things a new user needs - the two-way radio in one breath.
+	start := [][2]string{
+		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
+		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
+		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
+		{"q (browsing)", "quit RogerAI"},
+	}
 	cmds := [][2]string{
-		{"/search", "re-scan the band for stations"},
-		{"/connect (enter)", "tune in to the selected station"},
+		{"/search", "re-scan the band for stations (CLI: rogerai search)"},
+		{"/connect (enter)", "tune in to the selected station (CLI: rogerai use)"},
 		{"/chat (c · tab)", "open the CHANNEL session with the connected model"},
+		{"/share [off]", "SHARE: the provider table - flip your models on/off air"},
+		{"/login", "link GitHub - only needed to EARN (CLI: rogerai login)"},
+		{"/balance · /topup", "your wallet balance · add funds (CLI: rogerai balance)"},
 		{"/limits", "see + edit your per-model spend maxes"},
-		{"/balance", "wallet balance ($)"},
-		{"/topup [usd]", "add funds to your wallet (opens checkout)"},
-		{"/share [off]", "open the provider table - flip your local models on/off air"},
-		{"/login", "link GitHub (device flow) - to earn"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
-		{"/endpoint  /config", "endpoint + key · broker/identity"},
-		{"/help  /quit", "this · exit"},
+		{"/endpoint · /config", "endpoint + key · broker/identity"},
+		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder
 	// Ping rests here, on air and standing by - an intentional home for the mascot
@@ -2333,12 +2973,17 @@ func (m model) helpView() string {
 	ping := renderPing(pingIdleFrames[anim(m.frame)%len(pingIdleFrames)], "•")
 	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
 	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
-	b.WriteString(stBrand.Render("  commands") + stDim.Render("  (a two-way radio for GPUs)") + "\n\n")
-	for _, c := range cmds {
-		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-18s", c[0])) + stDim.Render(c[1]) + "\n")
+	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for GPUs)") + "\n\n")
+	for _, c := range start {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
-	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /confidential /endpoint /help /quit") + "\n")
-	b.WriteString("  " + stDim.Render("modes: tab switches BROWSE ⇄ CHANNEL · m minimizes the header") + "\n")
+	b.WriteString("\n" + stBrand.Render("  all commands") + stDim.Render("  (each is also a `rogerai <cmd>` you can script)") + "\n\n")
+	for _, c := range cmds {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-22s", c[0])) + stDim.Render(c[1]) + "\n")
+	}
+	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /disconnect /quit") + "\n")
+	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
+		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel · ") + stKey.Render("m") + stDim.Render(" minimizes the header") + "\n")
 	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
 	return b.String()
 }
