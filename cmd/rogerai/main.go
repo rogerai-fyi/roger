@@ -189,6 +189,8 @@ func main() {
 		err = cmdUse(cfg, os.Args[2:])
 	case "share":
 		err = cmdShare(cfg, os.Args[2:])
+	case "grant":
+		err = cmdGrant(cfg, os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
 	case "ping":
