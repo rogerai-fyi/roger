@@ -87,6 +87,10 @@ func Login(broker, clientID string) error {
 	// spends/tops-up/reads the SAME wallet as the web session (one wallet per account),
 	// and earning as a provider is unlocked.
 	fmt.Printf("\nlogged in as @%s, wallet ready - this keypair now shares one wallet with your account (and can earn as a provider).\n", login)
+	// First login lands the $1 starter credit on the account wallet (the broker seeds
+	// once per account). Surface it so a new user knows they can try a paid model right
+	// away; a re-login is a no-op so this line is harmless if the seed was already given.
+	fmt.Println("  + $1 starter credit on your wallet - enough to try a paid model. `rogerai topup` adds more.")
 	return nil
 }
 

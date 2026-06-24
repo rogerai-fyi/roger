@@ -45,6 +45,8 @@ type broker struct {
 	tunnels      map[string]*nodeTunnel
 	lastSeen     map[string]time.Time
 	confidential map[string]bool
+	private      map[string]bool      // node id -> hidden from /discover+/market, freq-code-only routing
+	bandOf       map[string]string    // node id -> band id (the private channel it serves)
 	attestedAt   map[string]time.Time // when each node last passed TEE attestation (for re-attest lapse)
 	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
 	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
@@ -143,7 +145,8 @@ func main() {
 	}
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
-		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
+		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
+		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
 		attestedAt: map[string]time.Time{}, attest: loadAttestRegistry(),
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
@@ -201,6 +204,9 @@ func main() {
 	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
 	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
+	mux.HandleFunc("/bands", b.bands)                             // owner private bands: list + revoke by id
+	mux.HandleFunc("/bands/", b.bandsByID)                        // /bands/{id} revoke; /bands/resolve = public freq lookup
+	mux.HandleFunc("/bands/resolve", b.bandResolve)               // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/concierge", b.conciergeHandler) // "Ping" homepage chatbot (public)
 	mux.HandleFunc("/report", b.report)              // public abuse/quality report + node-ban flow

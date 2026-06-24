@@ -238,6 +238,7 @@ type ProxyOptions struct {
 	MinTPS       float64   // X-Roger-Min-TPS floor (0 = none)
 	MaxPriceIn   float64   // X-Roger-Max-Price cap on input price (0 = none)
 	MaxPriceOut  float64   // X-Roger-Max-Price-Out cap on output price (0 = none)
+	Freq         string    // X-Roger-Freq private band code (empty = open market)
 	Alert        AlertFunc // surfaced when failover is exhausted (nil = silent)
 }
 
@@ -294,8 +295,17 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 		if opts.MaxPriceIn > 0 {
 			req.Header.Set("X-Roger-Max-Price", fmt.Sprintf("%g", opts.MaxPriceIn))
 		}
-		if opts.MaxPriceOut > 0 {
-			req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", opts.MaxPriceOut))
+		// Always carry an out-price cap: the caller's, or the default consumer ceiling
+		// when none was set. This is the enforced overpay guard - it bounds even a
+		// headless / --yes / scripted caller that never saw the interactive confirm.
+		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(opts.MaxPriceOut)))
+		// Private band tune-in: carry the frequency code so the broker admits ONLY the
+		// resolved (hidden) station. The code is discovery + routing admission, NOT
+		// spend-auth - the request is still signed (above) and billed to the signed
+		// wallet; self-use stays $0. Failover via /discover won't see a private node, so
+		// a freq channel simply has no public alternative to fail over to (by design).
+		if opts.Freq != "" {
+			req.Header.Set("X-Roger-Freq", opts.Freq)
 		}
 		if pin != "" {
 			req.Header.Set("X-Roger-Node", pin)
@@ -413,6 +423,39 @@ func joinSet(set map[string]bool) string {
 	return strings.Join(parts, ",")
 }
 
+// Consumer price-safety bounds (the spend side of the marketplace's price guards).
+//
+//   - ConsumerDefaultMaxOut is the out-price ceiling APPLIED when the caller set no cap
+//     (no --max-out, no stored limit). It closes the accidental-overpay path: even a
+//     headless / --yes caller is bounded to this unless it opts into a higher cap.
+//   - ConsumerConfirmThreshold is the out-price above which the interactive confirm
+//     escalates from a (y/N) to TYPE-THE-PRICE, so an expensive station cannot be
+//     waved through by a reflexive yes.
+const (
+	ConsumerDefaultMaxOut    = 10.0 // $/1M out
+	ConsumerConfirmThreshold = 20.0 // $/1M out
+)
+
+// priceMatches reports whether a typed out-price confirms the shown one, tolerating
+// float/round noise (the user reads "12.50" and types "12.50"; an exact-string match
+// would be brittle). A cent of slack is plenty for a $/1M price.
+func priceMatches(typed, shown float64) bool {
+	d := typed - shown
+	if d < 0 {
+		d = -d
+	}
+	return d <= 0.01
+}
+
+// effectiveMaxOut applies the default consumer out-price cap when none was set, so the
+// relay always carries a max-out the broker can enforce (the headless-overpay guard).
+func effectiveMaxOut(maxOut float64) float64 {
+	if maxOut <= 0 {
+		return ConsumerDefaultMaxOut
+	}
+	return maxOut
+}
+
 // UseOptions are the resolved spend limits + flags for `rogerai use`.
 type UseOptions struct {
 	Port         int
@@ -422,6 +465,7 @@ type UseOptions struct {
 	MinTPS       float64 // throughput floor (0 = none)
 	TypicalOut   int     // output tokens for the est-cost line (default 800)
 	Yes          bool    // skip the (y/N) confirm (scripts / Hermes / bots)
+	Freq         string  // private band frequency code (empty = open market). Routes via X-Roger-Freq.
 }
 
 // balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
@@ -448,8 +492,27 @@ func Use(broker, user, model string, opt UseOptions) error {
 		typical = 800
 	}
 	maxOut := opt.MaxOut
+	// Consumer price-safety: when NO out-price cap was set (no --max-out, no stored
+	// limit), apply the default ConsumerDefaultMaxOut ceiling. This closes the one real
+	// accidental-overpay path - a headless / --yes caller with no cap would otherwise
+	// pay whatever the cheapest station charges. The relay ALSO enforces this default
+	// (relayWithFailover), so the guard holds even for callers that bypass this prompt.
+	defaultedCap := false
+	if maxOut <= 0 {
+		maxOut = ConsumerDefaultMaxOut
+		defaultedCap = true
+	}
 	in := os.Stdin
 	var locked BandRange // the station we resolve + confirm (used for the staged lock)
+	_ = defaultedCap
+
+	// Private band tune-in (--freq): resolve the frequency code against the broker's
+	// PUBLIC constant-work resolver (no login), then open the channel routed via
+	// X-Roger-Freq. A wrong / off-air code returns the SAME uniform "no station" reply
+	// the broker gives (no oracle). The price-safety confirm + default cap still apply.
+	if opt.Freq != "" {
+		return useOnFreq(broker, user, model, opt, maxOut, typical, defaultedCap, in)
+	}
 
 	for {
 		br, ok := BandRangeFor(broker, model)
@@ -495,7 +558,11 @@ func Use(broker, user, model string, opt UseOptions) error {
 		}
 		fmt.Printf("    station        @%s   %s   (the strongest match)\n", br.CheapNode, tpsLabel(br.CheapTPS))
 		if maxOut > 0 {
-			fmt.Printf("    your max       %.2f $/1M out   (within limit)\n", maxOut)
+			note := "(within limit)"
+			if defaultedCap {
+				note = "(default safety cap - pass --max-out to change)"
+			}
+			fmt.Printf("    your max       %.2f $/1M out   %s\n", maxOut, note)
 		}
 		fmt.Printf("    est. cost      ~ $%.6f / typical reply  (~%d out tokens)\n", estReplyCost(br.Min, typical), typical)
 		if bal := balanceOf(broker, user); bal >= 0 {
@@ -504,12 +571,27 @@ func Use(broker, user, model string, opt UseOptions) error {
 		}
 		fmt.Printf("    locked         each reply price-locks at send; a hold pre-auths your session\n")
 
+		// HIGH-PRICE confirm: above ConsumerConfirmThreshold $/1M out we require the user
+		// to TYPE THE PRICE (not just "y"), so a fat-finger on an expensive station can't
+		// be waved through by a reflexive yes. A --yes/headless caller is still bounded by
+		// the relay's enforced max-out cap, so it cannot silently overpay either.
 		if !opt.Yes {
-			fmt.Printf("\n  open the channel? (y/N) ")
-			line, _ := readLine(in)
-			if !isYes(line) {
-				fmt.Println("  denied - no channel opened.")
-				return nil
+			if br.Min > ConsumerConfirmThreshold {
+				fmt.Printf("\n  this station is %.2f $/1M out - above the $%.0f confirm line.\n", br.Min, ConsumerConfirmThreshold)
+				fmt.Printf("  to confirm, TYPE THE OUT-PRICE exactly (%.2f), or blank to abort: ", br.Min)
+				line, _ := readLine(in)
+				typed, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
+				if err != nil || !priceMatches(typed, br.Min) {
+					fmt.Println("  price not confirmed - no channel opened.")
+					return nil
+				}
+			} else {
+				fmt.Printf("\n  open the channel? (y/N) ")
+				line, _ := readLine(in)
+				if !isYes(line) {
+					fmt.Println("  denied - no channel opened.")
+					return nil
+				}
 			}
 		}
 		break
@@ -538,6 +620,79 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
 	opts := ProxyOptions{Broker: broker, User: user, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
+		fmt.Fprintln(os.Stderr, "rogerai: "+s)
+	}}
+	return http.ListenAndServe(addr, ProxyHandler(opts))
+}
+
+// useOnFreq is the private-band branch of Use: resolve a frequency code, confirm the
+// price (same price-safety as the open market), then bind a local endpoint that routes
+// every request via X-Roger-Freq. A wrong / off-air code gets the broker's uniform
+// "no station on that frequency" reply. The code is discovery + routing admission only
+// - spend still uses the signed wallet, self-use stays $0.
+func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typical int, defaultedCap bool, in *os.File) error {
+	offers, display, ok := ResolveBand(broker, opt.Freq, model)
+	if !ok {
+		fmt.Println("  no station on that frequency (it may be off air) - check the code.")
+		return nil
+	}
+	// Cheapest matching station on the band (out-price), for the price screen.
+	br, _ := bandRange(offers, model)
+	if br.Stations == 0 {
+		// Resolved offers but none match the model exactly (shouldn't happen: resolve
+		// filtered by model) - treat as no station, uniform.
+		fmt.Println("  no station on that frequency (it may be off air) - check the code.")
+		return nil
+	}
+	if display == "" {
+		display = "private band"
+	}
+	fmt.Printf("\n  tune in to  %s   on   %s\n", model, display)
+	fmt.Printf("    price now      %.2f $/1M out   ·   %.2f $/1M in   (private)\n", br.Min, br.CheapIn)
+	fmt.Printf("    station        @%s   %s\n", br.CheapNode, tpsLabel(br.CheapTPS))
+	if maxOut > 0 {
+		note := "(within limit)"
+		if defaultedCap {
+			note = "(default safety cap - pass --max-out to change)"
+		}
+		fmt.Printf("    your max       %.2f $/1M out   %s\n", maxOut, note)
+	}
+	fmt.Printf("    est. cost      ~ $%.6f / typical reply  (~%d out tokens)\n", estReplyCost(br.Min, typical), typical)
+
+	// Same price-safety confirm as the open market: above the threshold the user must
+	// TYPE THE PRICE; otherwise a (y/N). --yes/headless is still bounded by the relay's
+	// enforced max-out cap.
+	if !opt.Yes {
+		if br.Min > ConsumerConfirmThreshold {
+			fmt.Printf("\n  this station is %.2f $/1M out - above the $%.0f confirm line.\n", br.Min, ConsumerConfirmThreshold)
+			fmt.Printf("  to confirm, TYPE THE OUT-PRICE exactly (%.2f), or blank to abort: ", br.Min)
+			line, _ := readLine(in)
+			typed, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
+			if err != nil || !priceMatches(typed, br.Min) {
+				fmt.Println("  price not confirmed - no channel opened.")
+				return nil
+			}
+		} else {
+			fmt.Printf("\n  open the channel? (y/N) ")
+			line, _ := readLine(in)
+			if !isYes(line) {
+				fmt.Println("  denied - no channel opened.")
+				return nil
+			}
+		}
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
+	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
+	fmt.Printf("  %s locking @%s · %s · %.2f $/M ... ok\n", glyphOnAir, br.CheapNode, tpsLabel(br.CheapTPS), br.Min)
+	fmt.Printf("  %s CHANNEL OPEN (private) %s via @%s\n", glyphOnAir, model, br.CheapNode)
+	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
+	fmt.Printf("  %-9s %s\n", "API KEY", "roger-local")
+	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	fmt.Printf("  %-9s %s\n", "FREQ", display)
+	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
+	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
+	opts := ProxyOptions{Broker: broker, User: user, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
 	return http.ListenAndServe(addr, ProxyHandler(opts))

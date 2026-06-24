@@ -15,6 +15,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -294,6 +296,7 @@ const (
 	modeOverLimit      // 3.3 over-limit + inline edit-your-max
 	modeLimits         // 3.4 per-model spend limits
 	modeShare          // k9s-style provider table: list local models, toggle on/off-air
+	modeBandCard       // private band code card: shows the one-time frequency code after going private
 	modeShareEditor    // per-model pricing + time-of-use schedule editor (login-gated)
 	modeShareSetup     // guided fallback: no local model detected, pick a tool / paste a URL
 	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
@@ -527,6 +530,19 @@ type model struct {
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
 	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
+	// Private bands ("frequency codes"): sharePrivate[model] marks a row shared on a
+	// hidden band (h toggles it). The band-card buffers hold the one-time secret code +
+	// cosmetic display to show ONCE on a modeBandCard card (c copies it). The card
+	// returns to SHARE on any key.
+	sharePrivate  map[string]bool // model -> shared on a private (hidden) band
+	bandCardCode  string          // the one-time secret frequency code (cleared on leave)
+	bandCardDisp  string          // cosmetic "147.520 MHz · ..." for the card
+	bandCardModel string          // which model the card is for
+	// TUNE-IN private band: tuneFreq is the active frequency code (empty = OPEN MARKET);
+	// tuneFreqLabel is the cosmetic display shown in the header (e.g. "147.520 MHz").
+	// /freq sets them after a successful resolve; esc clears back to OPEN MARKET.
+	tuneFreq      string
+	tuneFreqLabel string
 	// async SHARE detection: probing the host's open ports for local LLMs can take a
 	// few seconds on a busy box (120+ listening ports). shareLoading marks the
 	// provider table as "scanning the band…" while detection runs OFF the Bubble Tea
@@ -622,6 +638,16 @@ type shareRow struct {
 
 // ---- messages ----
 type offersMsg []offer
+
+// freqResolvedMsg carries the result of a /freq private-band resolve (run off the
+// event loop). ok=false means the broker's uniform "no station on that frequency"
+// reply (wrong / revoked / expired / off air - indistinguishable, by design).
+type freqResolvedMsg struct {
+	freq   string  // the code typed (kept so the relay can route via X-Roger-Freq)
+	label  string  // cosmetic display for the header (e.g. "147.520 MHz · ...")
+	offers []offer // the band's live offers (already TUI-shaped)
+	ok     bool
+}
 
 // sharesDetectedMsg carries the result of an ASYNC local-LLM detection scan run off
 // the event loop (see detectSharesCmd). The Update handler turns it into provider
@@ -753,7 +779,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(tick(), fetchOffers(m.broker))
 		}
 		return m, tick()
+	case freqResolvedMsg:
+		if !msg.ok {
+			// Uniform negative (wrong / revoked / expired / off air - indistinguishable).
+			m.status = stEmber.Render("no station on that frequency (it may be off air)") + stDim.Render(" - check the code")
+			return m, nil
+		}
+		// Tuned to a private band: show ONLY its offers, set the header indicator, and
+		// route subsequent tune-ins via X-Roger-Freq. esc clears back to OPEN MARKET.
+		m.tuneFreq, m.tuneFreqLabel = msg.freq, msg.label
+		m.offers = msg.offers
+		m.scanErr, m.scanned, m.loadedOnce = false, true, true
+		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
+		m.clampBrowse()
+		m.mode = modeBrowse
+		m.status = stLive.Render(glyphOnAir+" FREQ ") + stKey.Render(freqLabelShort(msg.label)) + stDim.Render(" - private band tuned · esc for OPEN MARKET")
+		return m, nil
 	case offersMsg:
+		// A private freq is tuned: ignore the periodic public-market scan so it does not
+		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
+		if m.tuneFreq != "" {
+			return m, nil
+		}
 		m.offers = []offer(msg)
 		m.scanErr = false
 		m.scanned = true    // a scan returned (even empty) -> stop showing the loading pose
@@ -1088,6 +1135,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onLimitsKey(k)
 	case modeShare:
 		return m.onShareKey(k)
+	case modeBandCard:
+		return m.onBandCardKey(k)
 	case modeShareEditor:
 		return m.onShareEditorKey(k)
 	case modeShareSetup:
@@ -1171,6 +1220,24 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// quick toggle: only bands with a station on air.
 			m.fOn = !m.fOn
 			m.clampBrowse()
+			return m, nil
+		case "~":
+			// PRIVATE FREQUENCY entry (a guarded shift-key, deliberately NOT the `f`
+			// name-filter): open the command line pre-seeded with `/freq ` so the user just
+			// pastes the code. esc (below) returns to OPEN MARKET when a freq is tuned.
+			m.mode = modeCommand
+			m.cmd.SetValue("/freq ")
+			m.cmd.CursorEnd()
+			m.cmd.Focus()
+			return m, textinput.Blink
+		case "esc":
+			// esc clears a tuned PRIVATE frequency back to OPEN MARKET (re-scan the public
+			// band). With no freq tuned it is a harmless no-op (browse has no other esc use).
+			if m.tuneFreq != "" {
+				m.tuneFreq, m.tuneFreqLabel = "", ""
+				m.status = stDim.Render("back to ") + stKey.Render("OPEN MARKET")
+				return m, fetchOffers(m.broker)
+			}
 			return m, nil
 		case "up", "k":
 			if m.cursor > 0 {
@@ -1352,6 +1419,11 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "confidential-only off"
 		}
+	case "freq", "f":
+		// /freq <code> tunes the band browser to a PRIVATE frequency (esc returns to
+		// OPEN MARKET). Bare /freq with an active freq clears it; bare with none prompts.
+		// NOTE: /freq, not the f filter key - the filter stays on its own key.
+		return m.doFreq(strings.TrimSpace(strings.TrimPrefix(cmd, fields[0])))
 	case "share":
 		return m.doShare(fields[1:])
 	case "login", "logout":
@@ -1565,6 +1637,131 @@ func (m *model) toggleShareAt(i int) {
 	m.status = stRed.Render(glyphOnAir+" ON AIR ") + stDim.Render("- sharing ") + stKey.Render(row.model) + stDim.Render(" ("+kind+")")
 }
 
+// togglePrivateAt flips the PRIVATE-band state of the row at index i. Going private is
+// EARNING-adjacent (a per-owner resource) so it is LOGIN-GATED: an anonymous user gets
+// the same /login flash as the price editor. On enable it (re)starts that row's session
+// with Private:true and, when the broker mints a fresh code, opens the one-time code
+// card (modeBandCard). On disable it restarts the row as a public share. It returns the
+// new mode so the caller can route to the card. Mirrors toggleShareAt's start logic.
+func (m *model) togglePrivateAt(i int) {
+	if i < 0 || i >= len(m.shareRows) {
+		return
+	}
+	if !m.loggedInState() {
+		// Login-gated: flash the existing /login line (same copy as the price editor).
+		m.status = stEmber.Render("log in to go private - run ") + stKey.Render("/login") + stDim.Render("  (a private band needs an account)")
+		return
+	}
+	if m.shares == nil {
+		m.shares = map[string]*agent.Session{}
+	}
+	if m.sharePrivate == nil {
+		m.sharePrivate = map[string]bool{}
+	}
+	row := m.shareRows[i]
+	goPrivate := !m.sharePrivate[row.model] // toggling: if currently public -> private
+	// Stop any current session for this row so we can restart it with the new visibility.
+	if sess, ok := m.shares[row.model]; ok && sess != nil {
+		sess.Stop()
+		delete(m.shares, row.model)
+	}
+	node := m.hooks.NodeID
+	if node == "" {
+		node = "node"
+	}
+	p := m.pricingFor(row.model)
+	up := row.upstream
+	if up == "" {
+		up = m.shareUp
+	}
+	sess, err := agent.Start(agent.Config{
+		Broker: m.broker, Upstream: up, NodeID: node,
+		Region: "home", HW: m.hooks.HW, Model: row.model,
+		PriceIn: p.In, PriceOut: p.Out, Ctx: row.ctx, Parallel: 4,
+		Private: goPrivate, Schedule: schedToProtocol(p.Windows),
+	})
+	if err != nil {
+		m.status = stEmber.Render("! could not change " + row.model + " visibility: " + err.Error())
+		return
+	}
+	m.shares[row.model] = sess
+	m.sharePrivate[row.model] = goPrivate
+	m.refreshShareHeadline()
+	if !goPrivate {
+		m.status = stDim.Render("back on the OPEN MARKET - ") + stKey.Render(row.model) + stDim.Render(" is public again")
+		return
+	}
+	// Private: surface the one-time frequency code on a card (only when freshly minted;
+	// a re-register returns no code, only the cosmetic display).
+	_, code, display := sess.Band()
+	if code != "" {
+		m.bandCardCode, m.bandCardDisp, m.bandCardModel = code, display, row.model
+		m.mode = modeBandCard
+		m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(row.model) + stDim.Render(" is on a hidden band")
+		return
+	}
+	// No fresh code (already had a band): just mark it private, note the display.
+	m.bandCardDisp = display
+	m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(row.model) + stDim.Render(" on band "+display)
+}
+
+// onBandCardKey drives the one-time frequency-code card (modeBandCard): `c` copies the
+// code to the OS clipboard (best-effort; if no clipboard tool is present the code stays
+// shown for manual select), any other key returns to the SHARE table. The secret is
+// CLEARED from the model when leaving so it is never re-rendered after this one view.
+func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "c":
+		if copyToClipboard(m.bandCardCode) {
+			m.status = stLive.Render("copied the frequency code to your clipboard")
+		} else {
+			m.status = stDim.Render("no clipboard tool found - select the code above to copy it")
+		}
+		return m, nil
+	default:
+		// Leave the card: clear the secret so it is shown exactly once.
+		m.bandCardCode = ""
+		m.bandCardModel = ""
+		m.mode = modeShare
+		return m, nil
+	}
+}
+
+// copyToClipboard best-effort copies s to the OS clipboard via the platform tool
+// (wl-copy / xclip / xsel on Linux, pbcopy on macOS, clip on Windows). Returns true
+// on success. Never fatal - a missing tool just returns false and the caller falls
+// back to "select it manually". No network, no persistence.
+func copyToClipboard(s string) bool {
+	if s == "" {
+		return false
+	}
+	type tool struct {
+		bin  string
+		args []string
+	}
+	var tools []tool
+	switch runtime.GOOS {
+	case "darwin":
+		tools = []tool{{"pbcopy", nil}}
+	case "windows":
+		tools = []tool{{"clip", nil}}
+	default:
+		tools = []tool{{"wl-copy", nil}, {"xclip", []string{"-selection", "clipboard"}}, {"xsel", []string{"--clipboard", "--input"}}}
+	}
+	for _, t := range tools {
+		path, err := exec.LookPath(t.bin)
+		if err != nil {
+			continue
+		}
+		cmd := exec.Command(path, t.args...)
+		cmd.Stdin = strings.NewReader(s)
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // refreshShareHeadline repoints m.share / m.onAir at any still-live session so the
 // header ON-AIR badge and the onAirPanel reflect the current set after a toggle.
 func (m *model) refreshShareHeadline() {
@@ -1645,6 +1842,10 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", "a", " ", "space":
 		m.toggleShareAt(m.shareCursor)
+	case "h":
+		// HIDE / PRIVATE: toggle the selected row onto a hidden frequency band
+		// (login-gated). A fresh mint routes into the one-time code card (modeBandCard).
+		m.togglePrivateAt(m.shareCursor)
 	case "p", "e":
 		// Open the price + time-of-use schedule editor for the selected model. This is
 		// EARNING, so it is login-gated: anonymous users get a clear /login prompt
@@ -2229,6 +2430,55 @@ func (m model) doGrant(args []string) (tea.Model, tea.Cmd) {
 	}
 }
 
+// doFreq tunes the band browser to a PRIVATE frequency. A bare /freq with an active
+// freq clears back to OPEN MARKET; a bare /freq with none prompts. A code resolves
+// off the event loop (freqResolvedMsg) so the UI never blocks; on success the browse
+// list shows ONLY that band, the header reads FREQ <display>, and esc returns to OPEN
+// MARKET. A wrong / off-air code gets the uniform "no station on that frequency".
+func (m model) doFreq(arg string) (tea.Model, tea.Cmd) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		if m.tuneFreq != "" {
+			// Clear: return to OPEN MARKET and re-scan the public band.
+			m.tuneFreq, m.tuneFreqLabel = "", ""
+			m.status = stDim.Render("back to ") + stKey.Render("OPEN MARKET")
+			return m, fetchOffers(m.broker)
+		}
+		m.status = stDim.Render("usage: ") + stKey.Render("/freq <code>") + stDim.Render("  e.g. /freq \"147.520 MHz 8F3K-9M2Q\"")
+		return m, nil
+	}
+	broker := m.broker
+	m.status = stDim.Render("scanning frequency…")
+	return m, func() tea.Msg {
+		offs, display, ok := client.ResolveBand(broker, arg, "")
+		if !ok {
+			return freqResolvedMsg{freq: arg, ok: false}
+		}
+		// Map client offers -> TUI offers (the browse list's shape).
+		out := make([]offer, 0, len(offs))
+		for _, o := range offs {
+			out = append(out, offer{
+				NodeID: o.NodeID, Model: o.Model, PriceIn: o.PriceIn, PriceOut: o.PriceOut,
+				Online: o.Online, Confidential: o.Confidential, TPS: o.TPS,
+			})
+		}
+		return freqResolvedMsg{freq: arg, label: display, offers: out, ok: true}
+	}
+}
+
+// freqLabelShort renders the cosmetic frequency for the header: the "<n>.<n> MHz"
+// part of a display string (the part before the middot), or the whole thing if it
+// has no separator. Falls back to "private" for an empty label.
+func freqLabelShort(display string) string {
+	if display == "" {
+		return "private"
+	}
+	if i := strings.Index(display, "·"); i > 0 {
+		return strings.TrimSpace(display[:i])
+	}
+	return strings.TrimSpace(display)
+}
+
 // connect is two-phase: it builds the quote for the selected band and enters the
 // cost-confirmation screen (or the over-limit screen if the cheapest station is
 // above the user's max). The proxy is only bound on accept (openChannel).
@@ -2294,6 +2544,7 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 		opts := client.ProxyOptions{
 			Broker: m.broker, User: m.user, Confidential: m.confidentialOnly,
 			MaxPriceIn: q.limit.MaxIn, MaxPriceOut: q.limit.MaxOut, MinTPS: q.limit.MinTPS,
+			Freq:  m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
 			Alert: func(s string) { alert.set(s) },
 		}
 		go http.Serve(ln, client.ProxyHandler(opts))
@@ -2830,6 +3081,8 @@ func (m model) View() string {
 		b.WriteString(m.limitsView(w))
 	case modeShare:
 		b.WriteString(m.shareView(w))
+	case modeBandCard:
+		b.WriteString(m.bandCardView(w))
 	case modeShareEditor:
 		b.WriteString(m.shareEditorView(w))
 	case modeShareSetup:
@@ -3219,7 +3472,7 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 // never ambiguous that RogerAI does both.
 func (m model) inShareSection() bool {
 	switch m.mode {
-	case modeShare, modeShareEditor, modeShareSetup:
+	case modeShare, modeBandCard, modeShareEditor, modeShareSetup:
 		return true
 	}
 	return false
@@ -3832,12 +4085,29 @@ func (m model) browseView(w int) string {
 		// the footer still teaches S, and the filter line carries the active state.
 		sortTag = ""
 	}
+	// Frequency indicator: OPEN MARKET by default, FREQ <display> when a private band
+	// is tuned (esc returns to OPEN MARKET). Always present so the user knows whether
+	// they are browsing the public market or a hidden channel.
+	// On narrow/compact widths the default OPEN MARKET label is dropped (it would
+	// overflow the slim heading); a tuned FREQ is always shown since it is load-bearing
+	// state, and the status line also carries it on tune-in.
+	freqTag := ""
+	switch {
+	case m.tuneFreq != "" && (m.narrow() || m.compact):
+		// Narrow: the MHz label would overflow the slim heading - show a bare FREQ marker
+		// (the status line + the freq-only band list carry the detail).
+		freqTag = stDim.Render(" · ") + stLive.Render("FREQ")
+	case m.tuneFreq != "":
+		freqTag = stDim.Render(" · ") + stLive.Render("FREQ "+freqLabelShort(m.tuneFreqLabel))
+	case !m.narrow() && !m.compact:
+		freqTag = stDim.Render(" · ") + stDim.Render("OPEN MARKET")
+	}
 	if m.compact {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("BAND") +
-			stDim.Render(fmt.Sprintf("  %d", matched)) + sortTag + "\n")
+			stDim.Render(fmt.Sprintf("  %d", matched)) + sortTag + freqTag + "\n")
 	} else {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
-			stDim.Render(fmt.Sprintf("   %d models on air", total)) + sortTag + "\n")
+			stDim.Render(fmt.Sprintf("   %d models on air", total)) + sortTag + freqTag + "\n")
 	}
 	// FILTER line: shown while the live filter input is open (f) OR when a filter /
 	// toggle is applied. It carries the active name filter, the quick toggles, and the
@@ -4597,10 +4867,15 @@ func (m model) shareView(w int) string {
 		sel := i == m.shareCursor
 		live := m.shares[row.model]
 		on := live != nil
-		// Status cell text (plain, so the reverse-video bar governs a selected row).
+		// Status cell text (plain, so the reverse-video bar governs a selected row). A
+		// row on a private (hidden) band reads PRIVATE instead of ON-AIR so the operator
+		// sees at a glance which models are freq-code-only.
 		statusTxt := "OFF-AIR"
 		if on {
 			statusTxt = "ON-AIR"
+			if m.sharePrivate[row.model] {
+				statusTxt = "PRIVATE"
+			}
 		}
 		in, out := m.sharePrice(row, live)
 		priceTxt := "FREE"
@@ -4667,20 +4942,50 @@ func (m model) shareView(w int) string {
 		if !m.loggedInState() {
 			ph = stDim.Render("log in to earn")
 		}
-		b.WriteString("\n  " + stDim.Render("free · ") + stKey.Render("⏎") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggle · ") + ph + "\n")
+		b.WriteString("\n  " + stDim.Render("free · ") + stKey.Render("⏎") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggle · ") + stKey.Render("h") + stDim.Render(" hide · ") + ph + "\n")
 	} else {
 		ph := stKey.Render("p") + stDim.Render(" set price + schedule")
 		if !m.loggedInState() {
 			ph = stDim.Render("log in to earn (") + stKey.Render("/login") + stDim.Render(")")
 		}
 		b.WriteString("\n  " + stDim.Render("free by default · ") +
-			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") + ph + "\n")
+			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") +
+			stKey.Render("h") + stDim.Render(" hide on a private band · ") + ph + "\n")
 	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
 	// Width-safe + NO_COLOR-safe; empty when there's nothing actionable.
 	if hint := m.payoutHint(); hint != "" {
 		b.WriteString("  " + truncVisible(hint, w-4) + "\n")
 	}
+	return b.String()
+}
+
+// bandCardView is the one-time PRIVATE-band code card (modeBandCard), shown right
+// after a row goes private. It presents the cosmetic frequency display BIG and mono,
+// states it is shown once, and offers c=copy. Any other key returns to SHARE (which
+// clears the secret). Width/NO_COLOR-safe: no animation, plain glyphs.
+func (m model) bandCardView(w int) string {
+	var b strings.Builder
+	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
+	head := stSelBar.Render("▌") + " " + stBrand.Render("PRIVATE BAND")
+	line(head + stDim.Render("  shown once"))
+	b.WriteString("\n")
+	if m.bandCardModel != "" {
+		line(stDim.Render("model ") + stKey.Render(m.bandCardModel))
+	}
+	// The big mono code line. We surface the cosmetic display ("147.520 MHz · 8F3K-9M2Q")
+	// - it carries the secret tail; the broker stores only its hash.
+	disp := m.bandCardDisp
+	if disp == "" {
+		disp = m.bandCardCode
+	}
+	b.WriteString("\n")
+	line(stRed.Render(glyphOnAir) + "  " + stKey.Render(disp))
+	b.WriteString("\n")
+	line(stDim.Render("tune in: ") + stKey.Render("rogerai use <model> --freq \""+m.bandCardCode+"\""))
+	line(stDim.Render("the MHz part is cosmetic; the code is the secret."))
+	b.WriteString("\n")
+	line(stKey.Render("c") + stDim.Render(" copy · any key returns (not shown again)"))
 	return b.String()
 }
 

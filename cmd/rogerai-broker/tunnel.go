@@ -74,26 +74,46 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
 	}
-	// Login-to-monetize: a node advertising a NONZERO price is an earning node, which
-	// requires a GitHub-linked owner bound to the user signing key on this request.
-	// Free/zero-priced supply (and unsigned registrations) are unaffected, so the
-	// consume path and free sharing never need login.
-	if offersPriced(reg.Offers) {
+	// Price-safety, operator side: a HARD ceiling on what a public station may charge,
+	// so a fat-fingered or deterrent price can never land on the open market and burn a
+	// consumer. Checked against EVERY offer's base AND scheduled-window prices. A station
+	// that genuinely wants to be unreachable to the public should go --private (a hidden
+	// freq-code band), not post an absurd public price - the copy steers there.
+	if msg := registerPriceCeiling(reg.Offers); msg != "" {
+		jsonErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	// Login-to-monetize / login-to-go-private: a node advertising a NONZERO price is
+	// an earning node, AND a node going PRIVATE (its own discovery visibility is a
+	// per-owner resource) both require a GitHub-linked owner bound to the signing key
+	// on this request. Free PUBLIC supply (and unsigned registrations) are unaffected,
+	// so the consume path and free public sharing never need login.
+	var regOwner store.Owner // set when this register is owner-bound (priced OR private)
+	if offersPriced(reg.Offers) || reg.Private {
 		uid, authed, sok := b.identityOf(r, body)
 		if !sok {
 			jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 			return
 		}
 		if !authed {
-			jsonErr(w, http.StatusUnauthorized, "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)")
+			msg := "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)"
+			if reg.Private {
+				msg = "a private band requires `rogerai login` (anonymous private sharing is not allowed)"
+			}
+			jsonErr(w, http.StatusUnauthorized, msg)
 			return
 		}
 		owner, ok := b.requireOwner(r)
 		if !ok {
-			jsonErr(w, http.StatusForbidden, "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`")
+			msg := "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`"
+			if reg.Private {
+				msg = "a private band requires a GitHub-linked owner - run `rogerai login`"
+			}
+			jsonErr(w, http.StatusForbidden, msg)
 			return
 		}
 		_ = uid
+		regOwner = owner
 		// Attribute this node's future earnings to the owner account (TOFU: the first
 		// account to register a node id owns it), so earning lots + payouts resolve.
 		_ = b.db.BindNode(reg.NodeID, owner.Pubkey)
@@ -121,6 +141,21 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	b.nodes[reg.NodeID] = reg
 	b.lastSeen[reg.NodeID] = now
 	b.confidential[reg.NodeID] = confidential
+	// Re-apply the signed Private flag on EVERY register so it survives a broker
+	// restart (the node re-asserts it) and a node can also go back PUBLIC by
+	// re-registering with Private=false. The flag is part of regSigningBytes, so it
+	// cannot be stripped/flipped by anyone but the node's own key. (Lazy-init the maps
+	// so a minimally-constructed test broker doesn't panic on a nil map.)
+	if b.private == nil {
+		b.private = map[string]bool{}
+	}
+	if b.bandOf == nil {
+		b.bandOf = map[string]string{}
+	}
+	b.private[reg.NodeID] = reg.Private
+	if !reg.Private {
+		delete(b.bandOf, reg.NodeID)
+	}
 	if b.attestedAt == nil {
 		b.attestedAt = map[string]time.Time{}
 	}
@@ -135,6 +170,36 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		t.token = reg.BridgeToken
 	}
 	b.mu.Unlock()
+
+	// Private band: ensure this node has a band (mint once, idempotent on re-register).
+	// The secret frequency code is returned ONCE here, on the FIRST register that mints
+	// it; every later register returns ONLY band_id (never the code again - this is what
+	// makes the node's idempotent re-register safe to repeat without re-leaking). A free
+	// cap of 1 active band per owner is enforced via CountActiveBands vs BandQuota inside
+	// mintBandForNode. We never log the raw code (only band_id / cosmetic display).
+	bandID, bandCode, bandDisplay := "", "", ""
+	if reg.Private {
+		existing, found, _ := b.db.BandByNode(reg.NodeID)
+		if found && existing.Owner == regOwner.Pubkey && !existing.Revoked {
+			bandID, bandDisplay = existing.ID, existing.CodeDisplay // re-register: id only, no code
+		} else if found && existing.Owner != regOwner.Pubkey {
+			jsonErr(w, http.StatusForbidden, "this node already has a private band owned by another account")
+			return
+		} else {
+			band, code, cerr := b.mintBandForNode(regOwner, reg.NodeID)
+			if cerr != "" {
+				jsonErr(w, http.StatusForbidden, cerr)
+				return
+			}
+			bandID, bandCode, bandDisplay = band.ID, code, band.CodeDisplay // shown ONCE
+			log.Printf("minted private band %s for node %s (owner %s)", band.ID, reg.NodeID, regOwner.Login)
+		}
+		reg.BandID = bandID
+		b.mu.Lock()
+		b.bandOf[reg.NodeID] = bandID
+		b.mu.Unlock()
+	}
+
 	// Persist the registration so a broker restart/redeploy RE-HYDRATES this node
 	// instead of wiping it (older providers that don't auto-re-register would 404
 	// forever otherwise). Best-effort: a persistence error must not fail the live
@@ -146,8 +211,16 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 			log.Printf("persist node %s failed: %v (registration still live in memory)", reg.NodeID, err)
 		}
 	}
-	log.Printf("registered node %s (%d offers, %s)", reg.NodeID, len(reg.Offers), reg.HW)
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	log.Printf("registered node %s (%d offers, %s, private=%v)", reg.NodeID, len(reg.Offers), reg.HW, reg.Private)
+	resp := map[string]any{"ok": true}
+	if reg.Private {
+		resp["band_id"] = bandID
+		resp["band_display"] = bandDisplay // cosmetic, not secret
+		if bandCode != "" {
+			resp["band_code"] = bandCode // the SECRET, returned ONCE at mint only
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // attestChallenge handles POST /nodes/challenge: issues a single-use, short-lived
@@ -249,6 +322,12 @@ func (b *broker) rehydrateNodes() {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.private == nil {
+		b.private = map[string]bool{}
+	}
+	if b.bandOf == nil {
+		b.bandOf = map[string]string{}
+	}
 	n := 0
 	for _, rec := range recs {
 		reg := rec.Reg
@@ -258,6 +337,14 @@ func (b *broker) rehydrateNodes() {
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential
+		// Re-hydrate the private/band-of state from the signed reg so a restart keeps
+		// a private node hidden + freq-routable until it re-registers (and re-asserts
+		// or drops Private). The band row itself lives in the store, so resolve still
+		// works across a restart even before the node re-registers.
+		b.private[reg.NodeID] = reg.Private
+		if reg.Private && reg.BandID != "" {
+			b.bandOf[reg.NodeID] = reg.BandID
+		}
 		if rec.Confidential {
 			if b.attestedAt == nil {
 				b.attestedAt = map[string]time.Time{}
@@ -481,6 +568,29 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
+	// Private band tune-in: X-Roger-Freq carries the frequency code. Resolve it with
+	// the SAME constant-work lookup as POST /bands/resolve (always hash, uniform on
+	// any miss - no enumeration oracle). A valid live band yields privateAllow={node},
+	// admitting ONLY that station into pick; a present-but-unresolvable code yields an
+	// empty set and the uniform "no station on that frequency" error. The code is
+	// discovery + routing ADMISSION only - it is NOT spend-auth (spending still needs
+	// the signed wallet below; self-use stays $0 via ownsNode). Never logged raw.
+	var privateAllow map[string]bool
+	var freqBand store.Band
+	if freq := r.Header.Get("X-Roger-Freq"); freq != "" {
+		pa, bnd, _ := b.resolveFreqAllow(freq, time.Now())
+		privateAllow, freqBand = pa, bnd
+		if len(privateAllow) == 0 {
+			jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
+			return
+		}
+		if freqBand.ModelDenied(req.Model) {
+			// Uniform with the no-station message: do not reveal that the band exists
+			// but excludes this model (no oracle on a valid code's model list).
+			jsonErr(w, http.StatusServiceUnavailable, "no station on that frequency (it may be off air) - check the code")
+			return
+		}
+	}
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
 	maxPriceOut := parseFloat(r.Header.Get("X-Roger-Max-Price-Out"))
@@ -504,7 +614,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.mu.Lock()
-	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow)
+	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow)
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
@@ -838,7 +948,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 // whose active OUTPUT price exceeds maxPriceOut, is filtered out (0 = no cap on
 // that side). We bill primarily on output, so the out-price cap is the one the
 // pricing UX surfaces; both are enforced. Caller holds lock.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	var best protocol.NodeRegistration
 	var bestOffer protocol.ModelOffer
 	bestPrice := 0.0
@@ -852,6 +962,13 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 		// A reported/banned node is ejected from routing entirely (reuses the eject
 		// idea: treated as not-serving), so a flagged node stops being handed out.
 		if b.isBanned(n.NodeID) {
+			continue
+		}
+		// A PRIVATE (freq-code) node is only eligible when the caller resolved its
+		// band: privateAllow holds exactly the node(s) a valid X-Roger-Freq mapped to.
+		// Without that, a private node is invisible to pick - so the public market path
+		// (no freq) can never accidentally route to a hidden station.
+		if b.private[n.NodeID] && !privateAllow[n.NodeID] {
 			continue
 		}
 		if pin != "" && n.NodeID != pin {

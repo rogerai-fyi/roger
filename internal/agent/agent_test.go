@@ -68,7 +68,7 @@ func TestRegisterStatus(t *testing.T) {
 			http.Error(w, "denied", http.StatusForbidden)
 		}))
 		defer srv.Close()
-		if err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err == nil {
+		if _, err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err == nil {
 			t.Error("register should error on a non-200 broker response")
 		}
 	})
@@ -77,7 +77,7 @@ func TestRegisterStatus(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer srv.Close()
-		if err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err != nil {
+		if _, err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"}); err != nil {
 			t.Errorf("register should succeed on 200, got %v", err)
 		}
 	})

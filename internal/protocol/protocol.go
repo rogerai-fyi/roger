@@ -126,6 +126,21 @@ type NodeRegistration struct {
 	// which binds the quote to THIS node's key AND to a fresh broker challenge so a
 	// quote cannot be replayed by another node or reused after it goes stale.
 	AttestNonce string `json:"attest_nonce,omitempty"`
+	// Private marks this node as a PRIVATE band ("frequency code" discovery): the
+	// broker hides it from /discover + /market and routes to it ONLY when a caller
+	// resolves the node's secret frequency code (see BandID + /bands/resolve). It is
+	// covered by regSigningBytes (the Sig field is the only exclusion), so the signed
+	// flag cannot be stripped or flipped in flight by anyone but the node's key. A
+	// private node MUST be registered by a logged-in owner (anonymous private is
+	// rejected at register). See BANDS-DESIGN.
+	Private bool `json:"private,omitempty"`
+	// BandID is the broker-minted band id ("band_<rand>") this node's private channel
+	// is bound to. The node leaves it EMPTY on first register; the broker mints a band
+	// (returning the code ONCE in the register response) and echoes the band id on
+	// every subsequent register so the node can carry it without ever seeing the
+	// secret code again. It tags the node's band for idempotent re-register; it is NOT
+	// the secret (that is the Crockford code, stored only as a sha256 hash).
+	BandID string `json:"band_id,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.

@@ -393,6 +393,7 @@ func cmdUse(cfg config, args []string) error {
 	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
 	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
 	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
+	freq := fs.String("freq", "", "tune in to a PRIVATE band by its frequency code, e.g. \"147.520 MHz 8F3K-9M2Q\" (the code is what matters; cosmetic part optional)")
 	fs.Parse(args[1:])
 	if *advanced {
 		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes")
@@ -420,7 +421,7 @@ func cmdUse(cfg config, args []string) error {
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
-		TypicalOut: typical, Yes: *yes,
+		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq),
 	})
 }
 
@@ -446,6 +447,7 @@ func cmdShare(cfg config, args []string) error {
 	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
 	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
 	confidential := fs.Bool("confidential", false, "advertise as confidential - requires real TEE hardware (AMD SEV-SNP); a fresh hardware quote is generated + verified by the broker")
+	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `rogerai login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
@@ -547,12 +549,61 @@ func cmdShare(cfg config, args []string) error {
 	if *priceIn == 0 && *priceOut == 0 && len(sched) == 0 {
 		fmt.Println("sharing FREE (price 0/0) - on air with no login. set --price-out to earn (needs `rogerai login`).")
 	}
-	return agent.Run(agent.Config{
+	if *private {
+		// A private band requires login (the broker 401s an anonymous private register).
+		// Fail clearly here rather than after a detection/upstream probe.
+		if client.LinkedLogin() == "" {
+			return fmt.Errorf("`--private` needs a GitHub-linked owner - run `rogerai login` first (anonymous private sharing is not allowed)")
+		}
+		fmt.Println("sharing PRIVATE - hidden from the public market; only people with your frequency code can tune in.")
+	}
+	// Operator soft price-warn (non-blocking): if your out-price is far above the live
+	// per-model market median, flag it so a fat-finger surfaces before you go on air.
+	if msg := softPriceWarn(*broker, mdl, *priceOut); msg != "" {
+		fmt.Println(msg)
+	}
+	cfgRun := agent.Config{
 		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
 		NodeID: *node, Region: *region, HW: detectHW(), Model: mdl,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, Parallel: *parallel,
-		Confidential: *confidential, Schedule: sched,
-	})
+		Confidential: *confidential, Private: *private, Schedule: sched,
+	}
+	if !*private {
+		return agent.Run(cfgRun)
+	}
+	// Private: start (not Run) so we can surface the one-time frequency code, then block.
+	sess, err := agent.Start(cfgRun)
+	if err != nil {
+		return err
+	}
+	if _, code, display := sess.Band(); code != "" {
+		fmt.Printf("\n  %s YOUR FREQUENCY CODE (shown once - copy it now)\n", "◉")
+		fmt.Printf("\n      %s\n\n", display)
+		fmt.Println("  share this with whoever should reach your station. They tune in with:")
+		fmt.Printf("      rogerai use %s --freq %q\n", mdl, code)
+		fmt.Println("  the cosmetic \"MHz\" part is optional - the code after it is what matters.")
+	} else if _, _, display := sess.Band(); display != "" {
+		fmt.Printf("\n  on air on your existing private band: %s (code shown only at first creation)\n", display)
+	}
+	select {} // serve forever
+}
+
+// softPriceWarn returns a non-blocking warning when out-price is well above the live
+// per-model market median (>3x), so an operator fat-finger surfaces before going on
+// air. Returns "" when there is no signal (no market data, price 0, or within range).
+// Best-effort: a market-fetch failure is silent (never blocks sharing).
+func softPriceWarn(broker, model string, priceOut float64) string {
+	if priceOut <= 0 {
+		return ""
+	}
+	med, ok := client.MarketMedianOut(broker, model)
+	if !ok || med <= 0 {
+		return ""
+	}
+	if priceOut > 3*med {
+		return fmt.Sprintf("  ! heads up: your %.2f $/1M out is %.1fx the current market median (%.2f) for %q - double-check it's not a typo.", priceOut, priceOut/med, med, model)
+	}
+	return ""
 }
 
 // cmdUpgrade self-updates the binary to the latest GitHub release (alias of the

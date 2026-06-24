@@ -42,6 +42,11 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 		if b.isBanned(n.NodeID) {
 			continue
 		}
+		// Private bands are HIDDEN from the public market: a freq-code node is only
+		// reachable via /bands/resolve, never enumerable here.
+		if b.private[n.NodeID] {
+			continue
+		}
 		online := time.Since(b.lastSeen[n.NodeID]) < nodeTTL
 		for _, o := range n.Offers {
 			pin, pout, free, _ := o.ActivePrice(now)
@@ -108,6 +113,11 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		// Banned/ejected nodes drop out of the aggregated market signal too. metricsMu
 		// is already held here, so read b.banned directly (no re-lock via isBanned).
 		if b.banned[n.NodeID] {
+			continue
+		}
+		// Private bands are hidden from the aggregated market signal too (b.mu is held
+		// here, so b.private is safe to read directly).
+		if b.private[n.NodeID] {
 			continue
 		}
 		tps := b.tps[n.NodeID]
