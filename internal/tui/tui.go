@@ -303,7 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Don't clobber a fresh dip-under notification with the scan summary.
 		if !notified {
-			m.status = fmt.Sprintf("%d bands · %d stations on air", len(m.bands), countOnline(m.offers))
+			m.status = fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
 		}
 		return m, nil
 	case balanceMsg:
@@ -1010,6 +1010,12 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	// https://github.blog/engineering/from-pixels-to-characters-the-engineering-behind-github-copilot-clis-animated-ascii-banner/
 	f := anim(frame)
 	arcs := []int{1, 2, 3, 2}[f/2%4]
+	if quiet {
+		// Freeze to the canonical two-arc ((•)) brand beacon (brand-ascii.txt §2)
+		// rather than the collapsed single arc a frozen frame happens to land on,
+		// so a pipe / NO_COLOR sees the recognizable on-air motif.
+		arcs = 2
+	}
 	open := strings.Repeat("(", arcs)
 	clos := strings.Repeat(")", arcs)
 	// phosphor decay: the eye glows full on the breath peak, fades to a faint dot
@@ -1023,12 +1029,22 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
 }
 
-// modeName returns the current mode's short label for the indicator.
+// modeName returns the current mode's short label for the indicator, so the
+// header badge names the actual screen (not a stale BROWSE) while you are in a
+// confirm / over-limit / limits sub-screen.
 func (m model) modeName() string {
-	if m.mode == modeChat {
+	switch m.mode {
+	case modeChat:
 		return "CHANNEL"
+	case modeConnectConfirm:
+		return "CONFIRM"
+	case modeOverLimit:
+		return "OVER LIMIT"
+	case modeLimits:
+		return "LIMITS"
+	default:
+		return "BROWSE"
 	}
-	return "BROWSE"
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -1467,6 +1483,14 @@ func tintSignal(raw string, tps float64, online bool) string {
 		return stLive.Render(raw)
 	}
 	return stDim.Render(raw)
+}
+
+// plural renders "1 band" / "3 bands": a count with its noun, +s unless n == 1.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func countOnline(o []offer) int {
