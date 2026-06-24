@@ -173,7 +173,7 @@ func TestConciergeModerationBlocks(t *testing.T) {
 	defer flag.Close()
 
 	b := newConciergeBroker()
-	b.mod = moderation{url: flag.URL, client: flag.Client()}
+	b.mod = moderation{provider: "url", url: flag.URL, client: flag.Client()}
 	served := false
 	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
 	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
@@ -200,7 +200,7 @@ func TestConciergeGroqPathScreened(t *testing.T) {
 	defer flag.Close()
 
 	b := newConciergeBroker()
-	b.mod = moderation{url: flag.URL, client: flag.Client()}
+	b.mod = moderation{provider: "url", url: flag.URL, client: flag.Client()}
 	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "", false } // no free station
 	groqCalled := false
 	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { groqCalled = true; return "from groq", true }
@@ -222,7 +222,7 @@ func TestConciergeModerationClean(t *testing.T) {
 	defer clean.Close()
 
 	b := newConciergeBroker()
-	b.mod = moderation{url: clean.URL, client: clean.Client()}
+	b.mod = moderation{provider: "url", url: clean.URL, client: clean.Client()}
 	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "tuned in", true }
 	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "groq", true }
 
@@ -236,7 +236,7 @@ func TestConciergeModerationClean(t *testing.T) {
 // the concierge fails CLOSED (503) instead of serving an unscreened prompt to a model.
 func TestConciergeModerationFailClosed(t *testing.T) {
 	b := newConciergeBroker()
-	b.mod = moderation{url: "http://127.0.0.1:0", require: true, client: &http.Client{}}
+	b.mod = moderation{provider: "url", url: "http://127.0.0.1:0", require: true, client: &http.Client{}}
 	served := false
 	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
 	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }

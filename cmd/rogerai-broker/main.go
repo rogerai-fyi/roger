@@ -110,6 +110,18 @@ func main() {
 		log.Printf("store: in-memory (set DATABASE_URL for postgres)")
 	}
 
+	// Seed cap: bound total free-credit liability. Only the first ROGERAI_SEED_LIMIT
+	// distinct wallets get the starter seed; after that new wallets are created at 0.
+	// Default 1000 (limit*seed = the max free credits ever minted). <=0 disables it.
+	seedLimit := 1000
+	if v := os.Getenv("ROGERAI_SEED_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			seedLimit = n
+		}
+	}
+	db.SetSeedLimit(seedLimit)
+	log.Printf("seed: %g credits/new user, capped at %d seeded users (max %g free credits)", *seed, seedLimit, *seed*float64(seedLimit))
+
 	priv := loadBrokerKey()
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},

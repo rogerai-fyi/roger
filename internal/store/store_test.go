@@ -230,3 +230,111 @@ func TestLinkChargeWalletByCharge(t *testing.T) {
 		t.Error("empty ref must resolve ok=false")
 	}
 }
+
+// TestSeedCapGrantsUnderLimit: the first SEED_LIMIT distinct wallets get the seed via
+// SeedOnce; wallets at/after the limit get 0. Already-seeded wallets are unaffected.
+func TestSeedCapGrantsUnderLimit(t *testing.T) {
+	m := NewMem()
+	m.SetSeedLimit(3)
+	const seed = 100.0
+	// First 3 wallets: seeded.
+	for i := 0; i < 3; i++ {
+		w := "u" + string(rune('A'+i))
+		bal, seeded, _ := m.SeedOnce(w, seed)
+		if !seeded || bal != seed {
+			t.Fatalf("wallet %s under limit should be seeded %g, got bal=%g seeded=%v", w, seed, bal, seeded)
+		}
+	}
+	// 4th+ wallets: no seed (cap exhausted), wallet exists at 0.
+	for i := 3; i < 6; i++ {
+		w := "u" + string(rune('A'+i))
+		bal, seeded, _ := m.SeedOnce(w, seed)
+		if seeded || bal != 0 {
+			t.Fatalf("wallet %s at/after limit should get 0, got bal=%g seeded=%v", w, bal, seeded)
+		}
+		// And it must NOT be seeded later by BalanceOf either (cap is global).
+		if b, _ := m.BalanceOf(w, seed); b != 0 {
+			t.Fatalf("capped wallet %s must stay 0 via BalanceOf, got %g", w, b)
+		}
+	}
+	// An already-seeded wallet is never re-seeded or clawed back.
+	if b, seeded, _ := m.SeedOnce("uA", seed); b != seed || seeded {
+		t.Fatalf("re-seed of uA must be a no-op at %g, got bal=%g seeded=%v", seed, b, seeded)
+	}
+}
+
+// TestSeedCapBalanceOfPath: the auto-seed path (BalanceOf) honors the same cap.
+func TestSeedCapBalanceOfPath(t *testing.T) {
+	m := NewMem()
+	m.SetSeedLimit(2)
+	const seed = 50.0
+	if b, _ := m.BalanceOf("a", seed); b != seed {
+		t.Fatalf("a under limit -> %g, got %g", seed, b)
+	}
+	if b, _ := m.BalanceOf("b", seed); b != seed {
+		t.Fatalf("b under limit -> %g, got %g", seed, b)
+	}
+	if b, _ := m.BalanceOf("c", seed); b != 0 {
+		t.Fatalf("c at limit -> 0, got %g", b)
+	}
+	// derive-balance must match the cached balance for a capped wallet (no orphan row).
+	if d, _ := m.DeriveBalance("c"); d != 0 {
+		t.Fatalf("capped wallet c DeriveBalance should be 0, got %g", d)
+	}
+}
+
+// TestSeedCapUnlimited: limit<=0 disables the cap (every new wallet seeded).
+func TestSeedCapUnlimited(t *testing.T) {
+	m := NewMem()
+	m.SetSeedLimit(0)
+	for i := 0; i < 50; i++ {
+		w := "w" + string(rune(i))
+		if b, _, _ := m.SeedOnce(w, 10); b != 10 {
+			t.Fatalf("unlimited: wallet %d should be seeded 10, got %g", i, b)
+		}
+	}
+}
+
+// TestSeedCapAtomicNoDoubleGrant: a burst of concurrent first-seeds across MANY
+// distinct wallets must grant EXACTLY `limit` of them (no over-grant under load).
+func TestSeedCapAtomicNoDoubleGrant(t *testing.T) {
+	m := NewMem()
+	const limit = 10
+	const seed = 7.0
+	m.SetSeedLimit(limit)
+	const n = 200
+	var wg sync.WaitGroup
+	var granted int64
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			w := "wallet-" + string(rune('a'+i%26)) + "-" + itoa(i)
+			if _, seeded, _ := m.SeedOnce(w, seed); seeded {
+				atomic.AddInt64(&granted, 1)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if granted != limit {
+		t.Fatalf("expected exactly %d seeded under concurrency, got %d", limit, granted)
+	}
+	if m.seedCount != limit {
+		t.Fatalf("durable seedCount should equal limit %d, got %d", limit, m.seedCount)
+	}
+}
+
+// itoa is a tiny int->string for unique test wallet ids (avoids strconv import churn).
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

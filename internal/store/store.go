@@ -35,11 +35,21 @@ type Store interface {
 	// the wallet id): the first call posts the seed + a ledger row, later calls are
 	// no-ops. Used to grant the starter balance to a GitHub account on first login,
 	// so the credit lands once per account and is never re-applied on re-login. A
-	// wallet that already has any seed/topup is left untouched.
+	// wallet that already has any seed/topup is left untouched. Subject to the seed
+	// cap (SetSeedLimit): once the limit of distinct seeded wallets is reached, a new
+	// wallet is created at 0. `seeded` reports whether this call actually applied a
+	// non-zero credit (false on a re-seed no-op OR when the cap blocked the grant).
 	SeedOnce(wallet string, seed float64) (newBalance float64, seeded bool, err error)
 	// PeekBalance returns a wallet's balance WITHOUT seeding it (0 for an unknown
 	// wallet). Used to read an anonymous/unbound wallet that must never be seeded.
 	PeekBalance(wallet string) (float64, error)
+	// SetSeedLimit caps how many DISTINCT wallets ever receive a non-zero starter
+	// seed. After `limit` wallets have been seeded, further new wallets are created
+	// with a 0 balance (no seed), bounding total free-credit liability to
+	// limit*seedCredits. limit <= 0 disables the cap (every new wallet is seeded, the
+	// pre-cap behavior). The seeded-user count is tracked durably and incremented
+	// ATOMICALLY with each grant so the cap holds under concurrency (no over-grant).
+	SetSeedLimit(limit int)
 	// Settle atomically debits the user by cost, credits the node's owner share,
 	// and appends the lineage receipt. Returns the user's new balance.
 	Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
@@ -219,6 +229,14 @@ type Mem struct {
 	nodeAcct map[string]string // node id -> owner pubkey (TOFU)
 	charges  map[string]charge // stripe payment_intent/charge id -> checkout mapping
 	gs       *grantStore       // grant keys + per-grant usage rollups
+
+	// Seed cap: bound free-credit liability. seedLimit is the max number of distinct
+	// wallets ever seeded with non-zero starter credits (<=0 = unlimited); seedCount
+	// is how many have been seeded so far. Both are guarded by mu and the count is
+	// incremented in the same locked section that applies the seed, so a burst of
+	// concurrent first-seeds can never over-grant past the limit.
+	seedLimit int
+	seedCount int
 }
 
 // charge is a persisted checkout->charge mapping, so a later dispute (which carries
@@ -278,23 +296,54 @@ func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.
 	}
 }
 
+func (m *Mem) SetSeedLimit(limit int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seedLimit = limit
+}
+
+// grantSeedLocked applies the starter seed to a wallet at most once, enforcing the
+// seed cap atomically. Caller holds m.mu. It returns granted=true only when THIS call
+// actually credited a non-zero seed. It is a no-op (seed already applied) when the
+// "seed:<wallet>" idem key is present. When the wallet is new AND the seed cap is not
+// yet exhausted, it credits `seed`, posts the seed ledger row, and increments the
+// durable seeded-user count - all under the same lock, so concurrent first-seeds can
+// never push the count past the limit. Once the cap is hit, a new wallet is left at 0.
+func (m *Mem) grantSeedLocked(wallet string, seed float64) bool {
+	if m.idem["seed:"+wallet] {
+		return false // already seeded (here or via the other seed path)
+	}
+	if seed == 0 {
+		return false
+	}
+	if m.seedLimit > 0 && m.seedCount >= m.seedLimit {
+		return false // cap exhausted: this new wallet gets no seed
+	}
+	m.wallet[wallet] += seed
+	m.seedCount++
+	// Seed credits are a real balance, so they get a ledger row too (else the
+	// re-derivation drift check would flag every seeded wallet). The idem key also
+	// marks this wallet as seeded so neither seed path re-grants it.
+	m.appendLedgerLocked(wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0)
+	return true
+}
+
 func (m *Mem) BalanceOf(user string, seed float64) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.wallet[user]; !ok {
-		m.wallet[user] = seed
-		if seed != 0 {
-			// Seed credits are a real balance, so they get a ledger row too (else the
-			// re-derivation drift check would flag every seeded wallet).
-			m.appendLedgerLocked(user, "consumer", KindAdjustment, seed, "seed:"+user, StatePosted, "seed", 0)
-		}
+		m.wallet[user] = 0
+		m.grantSeedLocked(user, seed)
 	}
 	return m.wallet[user], nil
 }
 
 // SeedOnce grants starter credits to a wallet exactly once, keyed on the same
 // "seed:<wallet>" idem key BalanceOf uses, so the seed is applied at most once per
-// wallet whichever path touches it first.
+// wallet whichever path touches it first. The seed cap (SetSeedLimit) applies here
+// too: once the limit of distinct seeded wallets is reached, a new wallet is created
+// at 0. `seeded` reports whether THIS call observed the wallet as not-yet-seeded (so
+// a re-login is still a no-op); it does not imply the cap allowed a non-zero grant.
 func (m *Mem) SeedOnce(wallet string, seed float64) (float64, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -304,11 +353,8 @@ func (m *Mem) SeedOnce(wallet string, seed float64) (float64, bool, error) {
 	if _, ok := m.wallet[wallet]; !ok {
 		m.wallet[wallet] = 0
 	}
-	if seed != 0 {
-		m.wallet[wallet] += seed
-		m.appendLedgerLocked(wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0)
-	}
-	return m.wallet[wallet], true, nil
+	seeded := m.grantSeedLocked(wallet, seed)
+	return m.wallet[wallet], seeded, nil
 }
 
 // PeekBalance returns a wallet's balance without ever seeding it.
