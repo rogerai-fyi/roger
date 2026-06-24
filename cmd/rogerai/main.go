@@ -148,6 +148,7 @@ func tuiLimits(cfg config) *tui.LimitStore {
 
 func main() {
 	cfg := loadConfig()
+	tui.SetVersion(Version) // help/about surfaces match `rogerai version`
 	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
 	// the TUI does no network at startup; the cache refreshes in the background.
 	notice := update.CachedNotice(Version)

@@ -1001,10 +1001,24 @@ func onAirPulse(frame int) string { return pulseWith(frame, stRed) }
 func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	// arc widths 1..3..1, on a 9-cell stage; the eye sits dead center. Under quiet
 	// (NO_COLOR / pipe) anim() freezes the frame so a pipe sees a stable beacon.
-	arcs := []int{1, 2, 3, 2}[anim(frame/2)%4]
+	//
+	// Animation craft (cited for the local design record): motion is glyph
+	// substitution in a fixed monospace grid - the arcs breathe the "broadcast"
+	// ripple and the eye does a tiny phosphor-decay (full • on the bright phase,
+	// a faint · on the decay phase), the CRT-afterglow trick. Same approach as
+	// GitHub Copilot CLI's animated banner; static under NO_COLOR / non-TTY.
+	// https://github.blog/engineering/from-pixels-to-characters-the-engineering-behind-github-copilot-clis-animated-ascii-banner/
+	f := anim(frame)
+	arcs := []int{1, 2, 3, 2}[f/2%4]
 	open := strings.Repeat("(", arcs)
 	clos := strings.Repeat(")", arcs)
-	body := stLive.Render(open) + " " + eyeStyle.Render("•") + " " + stLive.Render(clos)
+	// phosphor decay: the eye glows full on the breath peak, fades to a faint dot
+	// on the trough. Frozen to the bright eye under quiet (no churn in a pipe).
+	eye := eyeStyle.Render("•")
+	if !quiet && f%4 == 0 {
+		eye = stDim.Render("·")
+	}
+	body := stLive.Render(open) + " " + eye + " " + stLive.Render(clos)
 	const stage = 9 // width of "((( • )))"
 	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
 }
@@ -1351,7 +1365,7 @@ func (m model) helpView() string {
 	cmds := [][2]string{
 		{"/search", "re-scan the band for stations"},
 		{"/connect (enter)", "tune in to the selected station"},
-		{"/chat (c)", "test the connected model in-CLI"},
+		{"/chat (c · tab)", "open the CHANNEL session with the connected model"},
 		{"/limits", "see + edit your per-model spend maxes"},
 		{"/endpoint", "show the local OpenAI endpoint + key"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
@@ -1361,12 +1375,44 @@ func (m model) helpView() string {
 		{"/help  /quit", "this · exit"},
 	}
 	var b strings.Builder
-	b.WriteString("\n" + stBrand.Render("  commands") + stDim.Render("  (a two-way radio for GPUs)\n\n"))
+	// Ping rests here, on air and standing by - an intentional home for the mascot
+	// (not just empty/error states). Body volt, the eye the one live-red glyph.
+	ping := renderPing(pingIdleFrames[anim(m.frame)%len(pingIdleFrames)], "•")
+	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
+	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
+	b.WriteString(stBrand.Render("  commands") + stDim.Render("  (a two-way radio for GPUs)") + "\n\n")
 	for _, c := range cmds {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-18s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
-	b.WriteString("\n" + stDim.Render("  press any key to go back") + "\n")
+	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /confidential /endpoint /help /quit") + "\n")
+	b.WriteString("  " + stDim.Render("modes: tab switches BROWSE ⇄ CHANNEL · m minimizes the header") + "\n")
+	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
 	return b.String()
+}
+
+// helpVersion is the client version shown in help; set by the host via SetVersion.
+var helpVersion = "v0.1.0"
+
+// SetVersion lets the host (cmd/rogerai) inject the build version so the help /
+// about surfaces match `rogerai version`.
+func SetVersion(v string) {
+	if v == "" {
+		return
+	}
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	helpVersion = v
+}
+
+// indentBlock prefixes every line of a multi-line block with pad (for placing
+// art without disturbing its internal alignment).
+func indentBlock(s, pad string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = pad + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // ---- helpers / cmds ----
