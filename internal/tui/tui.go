@@ -1281,11 +1281,17 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		}
 		sysLine("endpoint " + m.endpoint + " · key " + m.apikey + " · model " + m.connected.Model)
 		return m, nil
+	case "support":
+		// Opens the site (community + Discord); self-gated on an interactive TTY, URL
+		// printed as the fallback.
+		openURL(supportURL)
+		sysLine("support: " + supportURL + " · community + Discord on the site")
+		return m, nil
 	case "help", "h":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
 		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /confidential (/conf) · /endpoint (/ep)")
-		sysLine("/disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("/support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
 	case "disconnect", "leave", "dc":
@@ -1362,6 +1368,12 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 	case "help", "h":
 		m.mode = modeHelp
+	case "support":
+		// Opens the site (where the Discord/community link lives). openURL self-gates on
+		// an interactive TTY, so this never hijacks a browser headless; the URL is shown
+		// either way as the fallback.
+		openURL(supportURL)
+		m.status = stDim.Render("support: ") + stKey.Render(supportURL) + stDim.Render(" - community + Discord on the site")
 	case "quit", "q":
 		return m.requestQuit()
 	default:
@@ -5069,6 +5081,7 @@ func (m model) helpView() string {
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
+		{"/support", "open rogerai.fyi - community + Discord (CLI: rogerai support)"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder
@@ -5090,7 +5103,7 @@ func (m model) helpView() string {
 	for _, c := range cmds {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-22s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
-	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /disconnect /quit") + "\n")
+	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /support /disconnect /quit") + "\n")
 	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("←/→") + stDim.Render(" switch section (cycle the [0]…[?] bar) · ") +
 		stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
 		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
@@ -5099,6 +5112,12 @@ func (m model) helpView() string {
 	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
 	return b.String()
 }
+
+// supportURL is where /support (and `rogerai support`) sends people: the website,
+// which hosts the community / Discord link in its footer. Per the founder, /support
+// points at the site (not straight at Discord) so the single source of truth for
+// the community link stays the footer.
+const supportURL = "https://rogerai.fyi"
 
 // helpVersion is the client version shown in help; set by the host via SetVersion.
 var helpVersion = "v4.4.0"
