@@ -55,7 +55,10 @@
     });
   }
 
-  var path = location.pathname.replace(/\/$/, "");
+  // Strip a trailing slash AND a ".html" suffix, so this works whether the page is
+  // served at the clean path (/dashboard) or the static file (/dashboard.html) - the
+  // static host serves /dashboard.html, so matching only "/dashboard" left it blank.
+  var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
 
   if (path.endsWith("/dashboard")) {
     get("/me").then(function (me) {

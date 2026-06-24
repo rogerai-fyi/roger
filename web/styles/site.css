@@ -377,7 +377,7 @@ code, pre { font-family: var(--font-mono); }
 @keyframes pingEye { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
 /* a single transmit arc leaves the antennae on every carrier beat (the same
    "transmit" motif as the on-air ripple and blip-map rings) */
-.ping__wave { transform-box: fill-box; transform-origin: 32px 22px; }
+.ping__wave { transform-box: view-box; transform-origin: 32px 18px; }
 .ping__wave--a { animation: pingWave var(--carrier) var(--ease-out-quint) infinite; }
 .ping__wave--b { animation: pingWave var(--carrier) var(--ease-out-quint) infinite calc(var(--carrier) / 2); }
 @keyframes pingWave {
