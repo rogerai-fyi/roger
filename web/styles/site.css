@@ -305,6 +305,7 @@ code, pre { font-family: var(--font-mono); }
 /* ============================ HERO ============================= */
 .hero { position: relative; }
 .hero__inner {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; text-align: center;
   padding-top: clamp(72px, 13vh, 132px); padding-bottom: var(--s-16);
 }
@@ -342,6 +343,57 @@ code, pre { font-family: var(--font-mono); }
   font-size: var(--t-lead); color: var(--ink-500); line-height: 1.5;
 }
 .hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---------- Ping: the on-air receiver, standing by the dial -----
+   A small, quiet mascot in the hero's right margin. It idle-bobs and
+   its on-air eye pulses on the SHARED --carrier beat, so it joins the
+   page's one heartbeat instead of introducing a new rhythm. Tucked into
+   margin whitespace so it never crowds the centered hero; it folds away
+   on narrow screens. Body inherits ink via currentColor; only the eye +
+   glow are fixed live-red, matching the logo beacon. */
+.hero__ping {
+  position: absolute; z-index: 1; pointer-events: none;
+  right: clamp(8px, 4vw, 64px); bottom: clamp(8px, 6vh, 64px);
+  display: none; flex-direction: column; align-items: center; gap: 7px;
+  color: var(--ink-300);
+}
+/* only show it where there is real margin room beside the centered column */
+@media (min-width: 1160px) { .hero__ping { display: inline-flex; } }
+.ping { width: 56px; height: 63px; overflow: visible; }
+.ping__body { color: inherit; }
+/* idle bob: a slow, gentle lift. A 2x-carrier multiple keeps it phase-coherent
+   with the page's heartbeat without feeling like a metronome. */
+.ping { animation: pingBob var(--carrier-2x) var(--ease-in-out) infinite; transform-origin: 28px 60px; }
+@keyframes pingBob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+/* on-air eye glow breathes ON the carrier - the same beat as the brand beacon,
+   the hero red period and the ((•)) dot. */
+.ping__glow { transform-box: fill-box; transform-origin: center;
+  animation: pingGlow var(--carrier) var(--ease-in-out) infinite; }
+@keyframes pingGlow { 0%,100% { opacity: .22; transform: scale(1); } 50% { opacity: .55; transform: scale(1.16); } }
+/* the faceted eye dims on the carrier too, echoing heroDot/brandPulse */
+.ping__eye { transform-box: fill-box; transform-origin: center;
+  filter: drop-shadow(0 0 3px rgba(255, 59, 59, .85));
+  animation: pingEye var(--carrier) var(--ease-in-out) infinite; }
+@keyframes pingEye { 0%,100% { opacity: 1; } 50% { opacity: .7; } }
+/* a single transmit arc leaves the antennae on every carrier beat (the same
+   "transmit" motif as the on-air ripple and blip-map rings) */
+.ping__wave { transform-box: fill-box; transform-origin: 32px 22px; }
+.ping__wave--a { animation: pingWave var(--carrier) var(--ease-out-quint) infinite; }
+.ping__wave--b { animation: pingWave var(--carrier) var(--ease-out-quint) infinite calc(var(--carrier) / 2); }
+@keyframes pingWave {
+  0%   { opacity: 0;  transform: scale(.7); }
+  30%  { opacity: .5; }
+  100% { opacity: 0;  transform: scale(1.5); }
+}
+.hero__ping-tag {
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-300);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ping, .ping__glow, .ping__eye, .ping__wave { animation: none; }
+  .ping__glow { opacity: .3; }
+  .ping__wave { opacity: .3; }
+}
 
 /* ---------- THE install command -------------------------------- */
 .install { margin-top: var(--s-10); display: flex; flex-direction: column; align-items: center; gap: var(--s-3); }
@@ -778,6 +830,51 @@ code, pre { font-family: var(--font-mono); }
 }
 .toast.is-shown { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+
+/* ===================== 404 / NO CARRIER ======================= */
+/* The lost-signal page: ham-radio-manual aesthetic, Ping in its dropped pose. */
+.lost { padding-block: clamp(72px, 14vh, 160px); }
+.lost__inner {
+  max-width: 60ch; margin: 0 auto; text-align: center;
+  display: flex; flex-direction: column; align-items: center;
+}
+.lost .fig { margin-bottom: var(--s-6); }
+.lost__ping { display: inline-flex; color: var(--ink-300); margin-bottom: var(--s-8); }
+/* the dropped pose holds still - no carrier, nothing transmits */
+.ping--dropped { width: 76px; height: 86px; overflow: visible; }
+.ping--dropped .ping__body { color: var(--ink-300); }
+.ping__eye-hollow { stroke: var(--ink-400); }
+.lost__title {
+  font-size: var(--t-h1); letter-spacing: var(--tracking-h1); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug);
+  font-family: var(--font-mono);
+}
+.lost__sub { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 48ch; }
+.lost__path {
+  margin-top: var(--s-8);
+  display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 16px; border-radius: var(--r-sm);
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  max-width: 100%;
+}
+.lost__path-label { font-size: var(--t-xs); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-400); }
+.lost__path-code { color: var(--ink-900); font-size: var(--t-sm);
+  overflow-wrap: anywhere; word-break: break-all; }
+.lost__actions { margin-top: var(--s-10); display: flex; flex-wrap: wrap;
+  gap: var(--s-5); align-items: center; justify-content: center; }
+.lost__home {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 11px 20px; border-radius: var(--r-pill);
+  background: var(--white); border: 1px solid var(--hairline-2); box-shadow: var(--e-2);
+  color: var(--ink-900); font-weight: var(--weight-semi); font-size: var(--t-sm);
+  transition: box-shadow var(--d-2), border-color var(--d-2), transform var(--d-2) var(--ease-out-quint);
+}
+.lost__home:hover { box-shadow: var(--e-3); border-color: var(--volt); transform: translateY(-1px); }
+.lost__home .onair { color: var(--live); font-size: var(--t-sm); }
+.lost__alt { color: var(--volt); font-weight: var(--weight-medium); font-size: var(--t-sm); }
+.lost__alt:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) { .lost__home:hover { transform: none; } }
 
 /* the period after "home GPUs" is a live-red on-air beacon, glowing like the logo */
 .hero__dot {

@@ -27,9 +27,11 @@
   <meta property="og:url" content="https://rogerai.fyi" />
   <meta property="og:image" content="https://rogerai.fyi/logo.svg" />
 
-  <!-- favicon: the RogerAI broadcast-tower mark -->
+  <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="mask-icon" href="favicon.svg" color="#5B5BFF" />
+  <!-- home-screen / apple-touch: the friendlier Ping-face tile -->
+  <link rel="apple-touch-icon" href="ping.svg" />
   <meta name="theme-color" content="#5B5BFF" />
 
   <!-- Inter + Geist Mono via Google Fonts; degrades to system stacks offline. -->
@@ -156,6 +158,29 @@
           <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
         </div>
       </div>
+
+      <!-- Ping, the on-air receiver, standing by the dial. Idle-bobs with its
+           eye pulsing on the SHARED --carrier beat (part of the one heartbeat,
+           not a new rhythm). Sits in the hero's right margin on wide screens,
+           hidden where it would crowd. Reduced-motion = a static friendly pose. -->
+      <span class="hero__ping" aria-hidden="true">
+        <svg class="ping" viewBox="0 0 64 72" fill="currentColor" focusable="false">
+          <g class="ping__waves" fill="none" stroke="#FF3B3B" stroke-linecap="round" stroke-width="2">
+            <path class="ping__wave ping__wave--a" d="M16 22 A18 18 0 0 1 48 22" opacity="0"/>
+            <path class="ping__wave ping__wave--b" d="M11 24 A24 24 0 0 1 53 24" opacity="0"/>
+          </g>
+          <g class="ping__body">
+            <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+            <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+            <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+            <rect x="25" y="64" width="5" height="5" rx="1"/>
+            <rect x="34" y="64" width="5" height="5" rx="1"/>
+          </g>
+          <circle class="ping__glow" cx="32" cy="22" r="9" fill="#FF3B3B" opacity="0.3"/>
+          <path class="ping__eye" d="M32 14 L37 19 L38.5 22 L37 25 L32 30 L27 25 L25.5 22 L27 19 Z" fill="#FF3B3B"/>
+        </svg>
+        <span class="hero__ping-tag mono">standing by</span>
+      </span>
 
     </div>
   </section>
