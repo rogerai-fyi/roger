@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,7 +35,71 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
-	writeJSON(w, http.StatusOK, map[string]any{"user": user, "balance": bal, "logged_in": true})
+	cap := b.monthlyCapState(user, time.Now())
+	setCapHeaders(w, cap)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": user, "balance": bal, "logged_in": true,
+		// Monthly spend cap (a budget limit): the per-account ceiling + month-to-date
+		// captured spend, so `rogerai balance` + the TUI show "MTD vs cap" (0 cap =
+		// unlimited, the opt-in default).
+		"monthly_cap":   round6(cap.cap),
+		"monthly_spend": round6(cap.spend),
+	})
+}
+
+// accountLimit handles GET/PATCH /account/limit: read or set the per-account MONTHLY
+// SPEND CAP ($ ceiling per calendar month; 0 = unlimited). Per GitHub-linked wallet,
+// so it REQUIRES a signed/logged-in identity (an anonymous keypair has no wallet to
+// cap). GET returns the cap + month-to-date spend; PATCH {"monthly_cap": X} sets it
+// (0 / negative = clear to unlimited).
+func (b *broker) accountLimit(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodPatch {
+		w.Header().Set("Allow", "GET, PATCH, OPTIONS")
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	corsCreds(w, r)
+	// Read the body BEFORE resolving identity: a signed PATCH's Ed25519 signature
+	// covers the body, so the verify must see the same bytes (a GET sends none).
+	var body []byte
+	if r.Method == http.MethodPatch {
+		body, _ = io.ReadAll(io.LimitReader(r.Body, 1<<12))
+	}
+	user, ok := b.dashIdentityBody(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
+	if !walletLoggedIn(user) {
+		jsonErr(w, http.StatusUnauthorized, "log in to set a monthly spend limit - run `rogerai login` (the cap is per account)")
+		return
+	}
+	if r.Method == http.MethodPatch {
+		var req struct {
+			MonthlyCap *float64 `json:"monthly_cap"`
+		}
+		_ = json.Unmarshal(body, &req)
+		if req.MonthlyCap == nil {
+			jsonErr(w, http.StatusBadRequest, "missing monthly_cap")
+			return
+		}
+		cap := *req.MonthlyCap
+		if cap < 0 {
+			cap = 0
+		}
+		if err := b.db.SetMonthlyCap(user, cap); err != nil {
+			jsonErr(w, http.StatusInternalServerError, "store error")
+			return
+		}
+	}
+	st := b.monthlyCapState(user, time.Now())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"monthly_cap":   round6(st.cap),
+		"monthly_spend": round6(st.spend),
+	})
 }
 
 // walletLoggedIn reports whether a resolved wallet id belongs to a logged-in

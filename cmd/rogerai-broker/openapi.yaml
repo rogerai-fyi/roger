@@ -82,12 +82,69 @@ paths:
         - $ref: '#/components/parameters/User'
       responses:
         "200":
-          description: Balance
+          description: Balance (with the monthly spend cap + month-to-date spend when logged in)
           content:
             application/json:
               schema:
                 type: object
-                properties: { user: { type: string }, balance: { type: number } }
+                properties:
+                  user: { type: string }
+                  balance: { type: number }
+                  logged_in: { type: boolean }
+                  monthly_cap: { type: number, description: "monthly spend cap in $ (0 = unlimited)" }
+                  monthly_spend: { type: number, description: "captured spend so far this calendar month in $" }
+
+  /account/limit:
+    get:
+      tags: [consumer]
+      summary: Read the per-account monthly spend cap (a budget limit)
+      description: |
+        The caller's MONTHLY SPEND CAP - a max $ spend per CALENDAR month, per account.
+        Enforced server-side at the broker on every PAID consume path (use, --freq,
+        grant keys, the agent harness, in-channel chat): a request whose worst-case cost
+        would push month-to-date captured spend past the cap is rejected (402) before
+        dispatch. Free / self-use ($0) is never blocked. Requires a logged-in identity.
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
+      responses:
+        "200":
+          description: The current cap + month-to-date spend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monthly_cap: { type: number, description: "monthly spend cap in $ (0 = unlimited)" }
+                  monthly_spend: { type: number, description: "captured spend so far this calendar month in $" }
+        "401": { description: not logged in (the cap is per account) }
+    patch:
+      tags: [consumer]
+      summary: Set or clear the per-account monthly spend cap
+      description: |
+        Set the monthly spend cap in $; 0 (or a negative value) clears it back to
+        unlimited. CLI: `rogerai limit --monthly $X` (`0`/`off` clears it). Requires login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_cap: { type: number, description: "$ per calendar month (0 = unlimited)" }
+      responses:
+        "200":
+          description: The updated cap + month-to-date spend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monthly_cap: { type: number }
+                  monthly_spend: { type: number }
+        "401": { description: not logged in (the cap is per account) }
 
   /me:
     get:

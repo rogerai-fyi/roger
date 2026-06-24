@@ -192,6 +192,7 @@ func main() {
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
 	mux.HandleFunc("/auth/logout", b.authLogout)                  // web: clear the session cookie
 	mux.HandleFunc("/account", b.account)                         // web: account hub (GET profile+balances, PATCH email)
+	mux.HandleFunc("/account/limit", b.accountLimit)              // GET/PATCH the per-account monthly spend cap (budget limit)
 	mux.HandleFunc("/account/export", b.accountExport)            // GDPR/CCPA data dump
 	mux.HandleFunc("/account/delete", b.accountDelete)            // soft-delete + anonymize (retention-safe)
 	mux.HandleFunc("/billing", b.billing)                         // money-in view: balance + top-up history

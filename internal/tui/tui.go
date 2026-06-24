@@ -446,6 +446,8 @@ type model struct {
 	confidentialOnly  bool
 	balance           float64
 	haveBal           bool
+	monthlyCap        float64 // per-account monthly spend cap ($); 0 = unlimited
+	monthlySpend      float64 // month-to-date captured spend ($)
 	status            string
 	alert             *alertBox
 	// pricing UX state
@@ -671,8 +673,10 @@ type sharesDetectedMsg struct{ found []detect.Found }
 // balanceMsg carries the wallet read: the balance plus whether the broker says the
 // caller is logged in (has a real account wallet). Balance is shown only when in.
 type balanceMsg struct {
-	balance  float64
-	loggedIn bool
+	balance      float64
+	loggedIn     bool
+	monthlyCap   float64 // per-account monthly spend cap ($); 0 = unlimited
+	monthlySpend float64 // month-to-date captured spend ($)
 }
 type chatMsg struct {
 	reply, status string
@@ -849,9 +853,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loggedIn = msg.loggedIn
 		if msg.loggedIn {
 			m.balance, m.haveBal = msg.balance, true
+			m.monthlyCap, m.monthlySpend = msg.monthlyCap, msg.monthlySpend
 		} else {
 			// Anonymous: no wallet/balance to show.
 			m.balance, m.haveBal = 0, false
+			m.monthlyCap, m.monthlySpend = 0, 0
 		}
 		// One-shot: a logged-in owner can have provider earnings, so fetch the payout
 		// snapshot once (off the event loop) to drive the SHARE-view cash-out hint.
@@ -3366,10 +3372,36 @@ func (m model) overLimitView(w int) string {
 	return b.String()
 }
 
+// monthlyBudgetLine renders the per-account MONTHLY SPEND CAP (a budget limit) row
+// shown atop the spend-limits editor: month-to-date spend vs the cap, with an ember
+// "approaching"/"reached" tint near/at the cap. "no cap" when unset (the opt-in
+// default). Edited from the CLI (`rogerai limit --monthly $X`), shown here.
+func monthlyBudgetLine(m model) string {
+	label := stDim.Render("    monthly budget   ")
+	if !m.loggedInState() {
+		return label + stDim.Render("log in to set a monthly spend limit")
+	}
+	if m.monthlyCap <= 0 {
+		return label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month   ·   set: rogerai limit --monthly $X")
+	}
+	used := dollars(m.monthlySpend) + stDim.Render(" of ") + stEmber.Render(dollars(m.monthlyCap))
+	tail := ""
+	switch {
+	case m.monthlySpend >= m.monthlyCap:
+		tail = stEmber.Render("   ⚠ limit reached")
+	case m.monthlySpend >= m.monthlyCap*0.80:
+		tail = stEmber.Render(fmt.Sprintf("   ⚠ %.0f%% used", m.monthlySpend/m.monthlyCap*100))
+	}
+	return label + used + stDim.Render(" this month") + tail
+}
+
 // limitsView is the per-model spend-limits editor (3.4).
 func (m model) limitsView(w int) string {
 	var b strings.Builder
 	b.WriteString("\n" + stBrand.Render("  spend limits") + stDim.Render("    what you are willing to pay, per band") + "\n\n")
+	// Monthly budget (a per-account spend cap, enforced server-side at every paid
+	// path). Read-only here; set it with `rogerai limit --monthly $X`.
+	b.WriteString(monthlyBudgetLine(m) + "\n\n")
 	b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `rogerai config set-limit`)") + "\n")
@@ -5661,11 +5693,13 @@ func fetchBalance(broker, user string) tea.Cmd {
 		}
 		defer resp.Body.Close()
 		var b struct {
-			Balance  float64 `json:"balance"`
-			LoggedIn bool    `json:"logged_in"`
+			Balance      float64 `json:"balance"`
+			LoggedIn     bool    `json:"logged_in"`
+			MonthlyCap   float64 `json:"monthly_cap"`
+			MonthlySpend float64 `json:"monthly_spend"`
 		}
 		json.NewDecoder(resp.Body).Decode(&b)
-		return balanceMsg{balance: b.Balance, loggedIn: b.LoggedIn}
+		return balanceMsg{balance: b.Balance, loggedIn: b.LoggedIn, monthlyCap: b.MonthlyCap, monthlySpend: b.MonthlySpend}
 	}
 }
 

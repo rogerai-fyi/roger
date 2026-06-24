@@ -137,6 +137,19 @@ type Store interface {
 	// drift check: it must equal the cached wallet balance.
 	DeriveBalance(holder string) (float64, error)
 
+	// --- monthly spend cap (per-account budget limit, cap.go) --------------
+
+	// MonthlyCapOf returns a wallet's monthly spend cap in credits ($). 0 = unlimited.
+	// An un-set wallet resolves to DefaultMonthlyCap (the env default); a wallet that
+	// explicitly chose unlimited stores 0 and is not re-defaulted.
+	MonthlyCapOf(holder string) (float64, error)
+	// SetMonthlyCap durably records a wallet's monthly cap (cap<=0 = unlimited).
+	SetMonthlyCap(holder string, cap float64) error
+	// MonthSpendOf returns a wallet's captured spend within the CALENDAR month
+	// containing `now`, summed from the append-only ledger's posted spend rows
+	// (boundary-correct, drift-proof). Drives the cap enforcement + near/at notices.
+	MonthSpendOf(holder string, now time.Time) (float64, error)
+
 	// --- operator earnings lifecycle ---------------------------------------
 
 	// EarningSplitOf returns the held/reserved/payable/paid split for an operator
@@ -285,14 +298,15 @@ type NodeRecord struct {
 
 // Mem is the in-memory implementation (single-process, non-durable).
 type Mem struct {
-	mu        sync.Mutex
-	wallet    map[string]float64
-	earnings  map[string]float64
-	spend     map[string]float64
-	entries   []Entry
-	processed map[string]bool
-	owners    map[string]Owner // keyed by pubkey
-	policy    PayoutPolicy
+	mu         sync.Mutex
+	wallet     map[string]float64
+	earnings   map[string]float64
+	spend      map[string]float64
+	entries    []Entry
+	processed  map[string]bool
+	owners     map[string]Owner // keyed by pubkey
+	policy     PayoutPolicy
+	monthlyCap map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
 
 	ledger   []LedgerRow           // append-only money events
 	ledgerID int64                 // monotonic ledger id

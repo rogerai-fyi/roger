@@ -202,7 +202,18 @@ CREATE INDEX IF NOT EXISTS reports_node ON rogerai.reports (node_id);
 CREATE TABLE IF NOT EXISTS rogerai.banned_nodes (
     node_id    TEXT PRIMARY KEY,
     reason     TEXT,
-    created_at TIMESTAMPTZ DEFAULT now());`
+    created_at TIMESTAMPTZ DEFAULT now());
+-- per-account settings (the monthly spend cap = a budget limit, modeled on Groq's
+-- "set a max you'll pay per month"). monthly_cap is a $ ceiling on captured spend per
+-- CALENDAR month (0 = unlimited). One row per wallet; the cap is durable and per
+-- GitHub-linked wallet. Month-to-date is summed from the ledger (no counter to drift).
+CREATE TABLE IF NOT EXISTS rogerai.account_settings (
+    holder      TEXT PRIMARY KEY,
+    monthly_cap DOUBLE PRECISION NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMPTZ DEFAULT now());
+-- month-to-date spend is a (holder, kind=spend, ts-in-month) SUM; index the ts so the
+-- calendar-month scan stays cheap as the ledger grows.
+CREATE INDEX IF NOT EXISTS ledger_holder_kind_ts ON rogerai.ledger (holder, kind, ts);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -777,6 +788,48 @@ func (p *Postgres) DeriveBalance(holder string) (float64, error) {
 	err := p.db.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.ledger
 		WHERE holder=$1 AND state<>'reversed'
 		AND kind IN ('topup','spend','hold','hold_release','refund','chargeback','adjustment')`, holder).Scan(&sum)
+	return sum, err
+}
+
+// MonthlyCapOf returns a wallet's monthly cap ($), falling back to the env default
+// when the wallet has no stored row. 0 = unlimited. A stored 0 is an explicit
+// "unlimited" choice and is returned as-is (NOT re-defaulted from the env).
+func (p *Postgres) MonthlyCapOf(holder string) (float64, error) {
+	var cap float64
+	err := p.db.QueryRow(`SELECT monthly_cap FROM rogerai.account_settings WHERE holder=$1`, holder).Scan(&cap)
+	if err == sql.ErrNoRows {
+		return DefaultMonthlyCap(), nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return cap, nil
+}
+
+// SetMonthlyCap upserts a wallet's monthly cap (cap<0 -> 0 = unlimited).
+func (p *Postgres) SetMonthlyCap(holder string, cap float64) error {
+	if cap < 0 {
+		cap = 0
+	}
+	_, err := p.db.Exec(`INSERT INTO rogerai.account_settings(holder,monthly_cap,updated_at)
+		VALUES($1,$2,now())
+		ON CONFLICT (holder) DO UPDATE SET monthly_cap=$2, updated_at=now()`, holder, cap)
+	return err
+}
+
+// MonthSpendOf sums a wallet's captured spend ($) in the calendar month containing
+// `now`, from the posted `spend` ledger rows (the source of truth). Spend rows are
+// negative, so the month-to-date total is the negated SUM. The [start,end) ts bound
+// makes the calendar boundary exact (a previous-month row is excluded).
+func (p *Postgres) MonthSpendOf(holder string, now time.Time) (float64, error) {
+	start, end := monthRange(now)
+	var sum float64
+	err := p.db.QueryRow(`SELECT COALESCE(SUM(-amount),0) FROM rogerai.ledger
+		WHERE holder=$1 AND kind=$2 AND state<>'reversed' AND ts>=$3 AND ts<$4`,
+		holder, KindSpend, start, end).Scan(&sum)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	return sum, err
 }
 
