@@ -532,7 +532,7 @@
             <span class="man-fig">FIG. 3 - EARNINGS LIFECYCLE</span>
             <pre>serve request  &rarr;  credits your 70% share
       &darr;
-   [HELD]      held through the hold window; a rolling reserve kept back
+   [HELD]      held through the 90-day window (covers the chargeback tail)
       &darr;
   [PAYABLE]    hold cleared, no open dispute, Stripe KYC complete
       &darr;
@@ -540,23 +540,23 @@
 
             <h3>The policy</h3>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">90 days from a request's settlement before earnings become payable</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">Rolling reserve</span><span class="man-plate__v">10% of each earning, released 90 days after that earning (covers late chargebacks)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">90 days from a request's settlement before earnings become payable - the hold itself covers the late-chargeback tail, so no separate reserve is withheld</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Minimum payout</span><span class="man-plate__v">$25 - below this, transfer and reporting overhead is not worth it</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Schedule</span><span class="man-plate__v">you request; payable balances are released on a monthly batch</span></div>
               <div class="man-plate__row"><span class="man-plate__k">KYC gate</span><span class="man-plate__v">Stripe Connect onboarding (transfers capability active) before any payout</span></div>
             </div>
-            <p>One line: a 90-day minimum hold, a 10% / 90-day rolling reserve, a $25
-              minimum, monthly batched payouts, and mandatory Connect KYC before any
-              withdrawal. Earnings still accrue (to held) for an un-onboarded operator, so
-              supply is not discouraged - they are just not transferable until KYC clears.</p>
+            <p>One line: a 90-day hold, a $25 minimum, monthly batched payouts, and
+              mandatory Connect KYC before any payout. There is no separate reserve - the
+              90-day hold is the protection. Earnings still accrue (to held) for an
+              un-onboarded operator, so supply is not discouraged - they are just not
+              transferable until KYC clears.</p>
 
             <h3>Connect onboarding</h3>
             <p>Payouts use Stripe Connect Express: Stripe hosts the KYC and onboarding UI
               and pays out to your bank. Start it from the dashboard - the
-              <code>/payouts</code> page shows held (with release dates), reserved (with
-              release dates), payable, lifetime paid, your Connect status, and a Request
-              payout button once you are over the minimum. RogerAI never stores your
+              <code>/payouts</code> page shows held (with release dates), payable,
+              lifetime paid, your Connect status, and a Request payout button once you are
+              over the minimum. RogerAI never stores your
               identity documents; Stripe holds those.</p>
           </section>
 
@@ -595,38 +595,124 @@
 
           <!-- ============== §9 COMMAND REFERENCE ============== -->
           <section class="man-sec" id="s9">
-            <!-- NOTE: command surface is being reworked by the CLI UX overhaul; refresh this section after it lands -->
             <span class="man-sec__no">§9 · Command reference</span>
-            <h2>Every command</h2>
-            <p>The full top-level surface as of v0.2.1. Run any command with
-              <code>--help</code> for its flags. Run <code>rogerai</code> with no
-              arguments to open the app.</p>
+            <h2>Every command, every key</h2>
+            <p>The full surface as of v0.2.1: the top-level CLI commands with their key
+              flags, then the in-app TUI keys and slash commands grouped by context. Run
+              any command with <code>--help</code> for its flags; advanced flags hide
+              behind <code>--advanced</code>. Run <code>rogerai</code> with no arguments to
+              open the app.</p>
+
+            <h3>CLI commands</h3>
             <div class="man-table-wrap">
               <table class="man-table">
-                <caption>rogerai &lt;command&gt;</caption>
-                <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                <caption>rogerai &lt;command&gt; [flags]</caption>
+                <thead><tr><th>Command</th><th>Description &amp; key flags</th></tr></thead>
                 <tbody>
-                  <tr><td><code>rogerai</code></td><td>open the interactive app (browse, tune in, chat)</td></tr>
+                  <tr><td><code>rogerai</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
-                  <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (<code>--max-out $</code> caps spend)</td></tr>
-                  <tr><td><code>balance</code></td><td>wallet balance ($); <code>balance --topup [usd]</code> adds funds</td></tr>
+                  <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code></td></tr>
+                  <tr><td><code>balance</code></td><td>wallet balance ($). <code>balance --topup [usd]</code> (or <code>balance topup [usd]</code>) opens checkout; bare top-up is $10</td></tr>
                   <tr><td><code>topup [usd]</code></td><td>add funds, opening checkout (default $10)</td></tr>
-                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model)</td></tr>
-                  <tr><td><code>grant</code></td><td>private access keys: <code>create</code> · <code>list</code> · <code>show</code> · <code>revoke</code></td></tr>
+                  <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> / <code>--attestation</code>. With no local server it runs a guided "no model found" fallback</td></tr>
+                  <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
+                  <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>
                   <tr><td><code>account</code></td><td>who you are; <code>account login</code> / <code>account logout</code> (alias: <code>identity</code>)</td></tr>
                   <tr><td><code>login</code></td><td>link GitHub (device flow) - only needed to earn</td></tr>
                   <tr><td><code>logout</code></td><td>forget the local GitHub link</td></tr>
                   <tr><td><code>whoami</code></td><td>show your signed identity + linked GitHub</td></tr>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
-                  <tr><td><code>config</code></td><td>broker, user, spend limits (see §8)</td></tr>
-                  <tr><td><code>upgrade</code></td><td>self-update the binary (aliases: <code>update</code>, <code>self-update</code>)</td></tr>
+                  <tr><td><code>config</code></td><td>broker, user, spend limits: <code>config get/set broker|user</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
+                  <tr><td><code>upgrade</code></td><td>self-update the binary; <code>--check</code> only reports availability (aliases: <code>update</code>, <code>self-update</code>)</td></tr>
                   <tr><td><code>version</code></td><td>print the client version</td></tr>
                   <tr><td><code>ping</code></td><td>easter egg: the mascot walks the terminal</td></tr>
                   <tr><td><code>help</code></td><td>usage (aliases: <code>-h</code>, <code>--help</code>)</td></tr>
                 </tbody>
               </table>
             </div>
-            <p>Provider, grant, and config sub-commands are covered in §4, §5, and §8.</p>
+
+            <h3>In the app: keys &amp; slash commands</h3>
+            <p>The TUI has three contexts. <b>BROWSE</b> is the live band; <b>CHANNEL</b> is
+              the chat session with a connected model; <b>SHARE</b> is the provider table
+              where you flip your own models on air. <kbd>s</kbd> toggles TUNE IN
+              &harr; SHARE; <kbd>tab</kbd> peeks between BROWSE and CHANNEL without leaving.
+              Leaving a channel (<kbd>esc</kbd> / <code>/disconnect</code> / <code>/quit</code>)
+              is distinct from quitting the app - quitting is a deliberate <kbd>q</kbd> from
+              BROWSE, and while you are ON AIR it asks you to confirm going off air first.</p>
+
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>BROWSE (the band)</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> · <kbd>j</kbd> <kbd>k</kbd></td><td>move the cursor through the bands</td></tr>
+                  <tr><td><kbd>Enter</kbd> · <code>/connect</code> · <code>/tune</code></td><td>tune in to the selected band (opens the cost-confirm)</td></tr>
+                  <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into / peek at the open CHANNEL (non-destructive)</td></tr>
+                  <tr><td><kbd>s</kbd></td><td>toggle TUNE IN &harr; SHARE (the provider table)</td></tr>
+                  <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
+                  <tr><td><kbd>m</kbd></td><td>minimize the header (when connected)</td></tr>
+                  <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt to type a slash command</td></tr>
+                  <tr><td><code>/limits</code></td><td>see and edit your per-model spend maxes</td></tr>
+                  <tr><td><code>/balance</code> · <code>/topup [usd]</code></td><td>wallet balance ($) · add funds (opens checkout)</td></tr>
+                  <tr><td><code>/share [off|&lt;model&gt;]</code></td><td>open the provider table; <code>off</code> stops all, <code>&lt;model&gt;</code> flips one on air</td></tr>
+                  <tr><td><code>/login</code> · <code>/grant [create &lt;name&gt;]</code></td><td>link GitHub (to earn) · mint a free private key</td></tr>
+                  <tr><td><code>/confidential</code></td><td>toggle: route only to TEE-attested nodes</td></tr>
+                  <tr><td><code>/config</code> · <code>/help</code></td><td>show broker/user · open help</td></tr>
+                  <tr><td><kbd>q</kbd> · <code>/quit</code></td><td>quit the app (confirms first if you are ON AIR)</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="man-note">At the cost-confirm: <kbd>Enter</kbd> / <kbd>y</kbd> accepts,
+              <kbd>esc</kbd> / <kbd>n</kbd> denies (the safe default), <kbd>d</kbd> toggles
+              the detail block. If a band is over your cap, the over-limit screen lets you
+              type a new max inline (<kbd>&uarr;</kbd>/<kbd>&darr;</kbd> nudge by 0.01,
+              <kbd>Enter</kbd> save &amp; re-check, <kbd>w</kbd> wait &amp; notify,
+              <kbd>esc</kbd> deny).</p>
+
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>CHANNEL (the chat session)</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td>type + <kbd>Enter</kbd></td><td>send a turn to the connected model</td></tr>
+                  <tr><td><kbd>tab</kbd></td><td>peek at the band; the channel stays open</td></tr>
+                  <tr><td><kbd>esc</kbd> · <code>/disconnect</code> · <code>/quit</code></td><td>leave this channel and return to BROWSE (not quit the app)</td></tr>
+                  <tr><td><code>/model</code> · <code>/tune</code> · <code>/retune</code></td><td>drop back to the band to pick a new channel</td></tr>
+                  <tr><td><code>/clear</code></td><td>clear the transcript and session cost</td></tr>
+                  <tr><td><code>/system &lt;p&gt;</code></td><td>set a system prompt, prepended to each turn</td></tr>
+                  <tr><td><code>/cost</code></td><td>session cost so far + wallet balance ($)</td></tr>
+                  <tr><td><code>/confidential</code></td><td>toggle TEE-only routing</td></tr>
+                  <tr><td><code>/endpoint</code></td><td>endpoint + key + model for this channel</td></tr>
+                  <tr><td><code>/save</code> · <code>/help</code></td><td>report the in-memory transcript size · in-session help</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>SHARE (the provider table)</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> · <kbd>j</kbd> <kbd>k</kbd></td><td>move the cursor through your detected models</td></tr>
+                  <tr><td><kbd>Enter</kbd> · <kbd>a</kbd> · <kbd>space</kbd></td><td>flip the selected model ON / OFF air</td></tr>
+                  <tr><td><kbd>p</kbd> · <kbd>e</kbd></td><td>open the price + time-of-use schedule editor (login-gated - earning needs an account)</td></tr>
+                  <tr><td><kbd>r</kbd></td><td>re-detect local models (falls into the guided setup if none)</td></tr>
+                  <tr><td><kbd>esc</kbd> · <kbd>q</kbd> · <kbd>s</kbd></td><td>back to TUNE IN; on-air shares keep running in the background</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <p class="man-note">In the <b>price editor</b>: <kbd>tab</kbd> /
+              <kbd>&uarr;</kbd><kbd>&darr;</kbd> move between fields (in price, out price,
+              add-window, each window), digits edit the focused price, <kbd>a</kbd> adds a
+              time-of-use window, <kbd>d</kbd> deletes the focused window, <kbd>f</kbd>
+              flips a window FREE, <kbd>Enter</kbd> saves, <kbd>esc</kbd> cancels. In the
+              <b>guided "no model found" wizard</b>: <kbd>&uarr;</kbd><kbd>&darr;</kbd>
+              pick a tool for a start one-liner, the "Other" row takes a pasted endpoint
+              URL we verify, <kbd>r</kbd> re-scans, <kbd>esc</kbd> / <kbd>s</kbd> leaves.</p>
+
+            <p>Provider, grant, and config sub-commands are also covered in §4, §5, and §8.</p>
           </section>
 
           <!-- ============== §10 VERIFICATION ============== -->

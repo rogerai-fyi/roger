@@ -106,10 +106,13 @@ type PayoutPolicy struct {
 	Schedule  string  // "monthly" | "weekly" - informational (batched, manual request)
 }
 
-// LoadPayoutPolicy reads the policy from env with founder-approved defaults:
-// 90-day hold, 10% reserve, $25 minimum, monthly batched manual requests.
+// LoadPayoutPolicy reads the policy from env with founder-approved defaults
+// (payout policy OPTION A): a 90-day hold, NO separate rolling reserve (0), a $25
+// minimum, monthly batched manual requests. The 90-day hold already covers the
+// chargeback/dispute tail, so nothing extra is withheld past the hold; set
+// ROGERAI_PAYOUT_RESERVE to a fraction in (0,1) to re-enable a reserve slice.
 func LoadPayoutPolicy() PayoutPolicy {
-	p := PayoutPolicy{HoldDays: 90, Reserve: 0.10, MinPayout: 25, Schedule: "monthly"}
+	p := PayoutPolicy{HoldDays: 90, Reserve: 0, MinPayout: 25, Schedule: "monthly"}
 	if v := os.Getenv("ROGERAI_PAYOUT_HOLD_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			p.HoldDays = n
@@ -132,8 +135,9 @@ func LoadPayoutPolicy() PayoutPolicy {
 }
 
 // holdDuration / reserveDuration convert the policy to durations. Per the founder
-// policy both the hold and the reserve release at HoldDays (the reserve is the 10%
-// slice of the same earning, released at +90d).
+// policy (Option A) the default reserve is 0, so the whole earning releases at
+// HoldDays; if a reserve fraction is configured, that slice releases at the same
+// point (+90d).
 func (p PayoutPolicy) holdDuration() time.Duration {
 	return time.Duration(p.HoldDays) * 24 * time.Hour
 }

@@ -89,6 +89,42 @@ func TestHoldPromotionAt90d(t *testing.T) {
 	}
 }
 
+// TestOptionADefaultNoReserve: the founder-approved Option A defaults (no env set)
+// are a 90-day hold with NO separate reserve. An earning must therefore land fully
+// in held (nothing reserved), and at +90d the whole gross becomes payable - no stuck
+// reserved bucket, no withholding past the hold.
+func TestOptionADefaultNoReserve(t *testing.T) {
+	// deliberately set NO ROGERAI_PAYOUT_* env: exercise the shipped defaults.
+	p := LoadPayoutPolicy()
+	if p.Reserve != 0 {
+		t.Fatalf("default Reserve = %v, want 0 (Option A: no separate reserve)", p.Reserve)
+	}
+	if p.HoldDays != 90 || p.MinPayout != 25 || p.Schedule != "monthly" {
+		t.Fatalf("default policy = %+v, want hold 90 / min 25 / monthly", p)
+	}
+	m := NewMem()
+	m.policy = p
+	_ = m.BindNode("n", "acct1")
+	_, _ = m.BalanceOf("u", 100)
+	if ok, _ := m.Hold("u", 10); !ok {
+		t.Fatal("hold")
+	}
+	if _, err := m.Finalize("u", "n", 10, 10, 10, rec("r1")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// day 0: the whole 10 is held, nothing reserved.
+	s, _ := m.EarningSplitOf("acct1", now)
+	if !approx(s.Held, 10) || s.Reserved != 0 || s.Payable != 0 {
+		t.Errorf("day 0 split = held %v reserved %v payable %v, want 10/0/0", s.Held, s.Reserved, s.Payable)
+	}
+	// day 91: the full 10 is payable, nothing stuck in reserved.
+	s2, _ := m.EarningSplitOf("acct1", now.Add(91*24*time.Hour))
+	if s2.Held != 0 || s2.Reserved != 0 || !approx(s2.Payable, 10) {
+		t.Errorf("day 91 split = held %v reserved %v payable %v, want 0/0/10", s2.Held, s2.Reserved, s2.Payable)
+	}
+}
+
 // TestPayoutMinAndPromotion: a payout below the minimum is rejected; above it, the
 // payable lots are paid and a payout ledger row is written.
 func TestPayoutMin(t *testing.T) {
