@@ -114,8 +114,62 @@ func Check(current string) (CheckResult, error) {
 		return res, err
 	}
 	res.Latest = normalize(r.Tag)
-	res.Available = res.Latest != "" && res.Latest != res.Current
+	res.Available = isNewer(res.Current, res.Latest)
 	return res, nil
+}
+
+// isNewer reports whether latest is strictly newer than current under a simple
+// dotted-numeric comparison (e.g. 0.2.0 > 0.1.9). A dev build that is AHEAD of
+// the published release must NOT advertise a downgrade as an "update", so we
+// compare ordering rather than mere inequality. Non-numeric / unparseable parts
+// fall back to a string compare so we still notice a differing tag.
+func isNewer(current, latest string) bool {
+	if latest == "" || latest == current {
+		return false
+	}
+	cp, lp := splitVer(current), splitVer(latest)
+	n := len(cp)
+	if len(lp) > n {
+		n = len(lp)
+	}
+	for i := 0; i < n; i++ {
+		var c, l int
+		if i < len(cp) {
+			c = cp[i]
+		}
+		if i < len(lp) {
+			l = lp[i]
+		}
+		if l != c {
+			return l > c
+		}
+	}
+	// all numeric parts equal -> only "newer" if the raw tags differ (e.g. a
+	// suffix); be conservative and treat equal-numeric as not newer.
+	return false
+}
+
+// splitVer parses a dotted version into integer components; a non-numeric
+// component (and anything after it, like a -rc1 suffix) stops the parse.
+func splitVer(v string) []int {
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n := 0
+		ok := len(p) > 0
+		for _, ch := range p {
+			if ch < '0' || ch > '9' {
+				ok = false
+				break
+			}
+			n = n*10 + int(ch-'0')
+		}
+		if !ok {
+			break
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // cachePath is where the background check stores its last result.
@@ -149,8 +203,8 @@ func CachedNotice(current string) string {
 	if stale {
 		go refreshCache(cur) // fire-and-forget; result lands for the next run
 	}
-	if cf.Latest != "" && normalize(cf.Latest) != cur {
-		return CheckResult{Current: cur, Latest: normalize(cf.Latest), Available: true}.Notice()
+	if lat := normalize(cf.Latest); isNewer(cur, lat) {
+		return CheckResult{Current: cur, Latest: lat, Available: true}.Notice()
 	}
 	return ""
 }

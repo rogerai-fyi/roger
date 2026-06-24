@@ -1233,6 +1233,8 @@ func money(v float64) string { return fmt.Sprintf("%.2f", v) }
 // math is untouched.
 func dollars(v float64) string {
 	if v < 0 {
+		// Defensive: real money is never negative here (balances/costs are >= 0);
+		// a negative slipping through renders as a plain dash rather than "$-…".
 		return "-"
 	}
 	if v == 0 {

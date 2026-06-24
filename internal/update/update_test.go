@@ -19,6 +19,26 @@ func TestNoticeAndAvailability(t *testing.T) {
 	}
 }
 
+func TestIsNewer(t *testing.T) {
+	cases := []struct {
+		cur, lat string
+		want     bool
+	}{
+		{"0.1.0", "0.2.0", true},
+		{"0.1.0", "0.1.0", false},
+		{"0.1.9", "0.2.0", true},
+		{"0.2.0", "0.1.9", false}, // dev build ahead of latest must NOT advertise a downgrade
+		{"0.1.0", "", false},
+		{"1.0", "1.0.1", true},
+		{"1.2.3", "1.2.3", false},
+	}
+	for _, c := range cases {
+		if got := isNewer(c.cur, c.lat); got != c.want {
+			t.Errorf("isNewer(%q,%q)=%v, want %v", c.cur, c.lat, got, c.want)
+		}
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	if normalize("v1.2.3") != "1.2.3" || normalize(" 1.2.3 ") != "1.2.3" {
 		t.Errorf("normalize failed: %q %q", normalize("v1.2.3"), normalize(" 1.2.3 "))
