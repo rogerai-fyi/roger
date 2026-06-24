@@ -10,6 +10,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,9 +25,19 @@ import (
 // the CLI logs it to stderr. nil = no surfacing.
 type AlertFunc func(string)
 
+// ErrBrokerUnreachable marks a getJSON failure where the broker could not be reached
+// or returned a non-2xx status. Callers wrap it (errors.Is) to tell "the broker is
+// down / erroring" apart from a genuine empty/zero result (no offers, no balance) -
+// so `balance` no longer prints a misleading $0 and `search` no longer prints "no
+// offers" when the broker is actually down or 500ing.
+var ErrBrokerUnreachable = errors.New("couldn't reach the broker")
+
 // getJSON issues GET broker+path (optionally as `user`) and decodes the JSON body
-// into out. It centralizes the request/decode boilerplate the consumer commands
-// share; a decode error on a 2xx body is ignored (the caller validates fields).
+// into out. It centralizes the request/decode boilerplate the consumer commands share.
+// A transport failure OR a non-2xx status is returned wrapped in ErrBrokerUnreachable
+// (distinct from a real empty/zero body), so a broker-down / 500 never masquerades as
+// "logged out" / "$0" / "no offers". A decode error on a 2xx body is still ignored (the
+// caller validates fields).
 func getJSON(broker, path, user string, out any) error {
 	req, _ := http.NewRequest(http.MethodGet, broker+path, nil)
 	// Wallet/dashboard reads are signed so the broker serves the verified identity
@@ -38,9 +49,12 @@ func getJSON(broker, path, user string, out any) error {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%w: broker returned status %d", ErrBrokerUnreachable, resp.StatusCode)
+	}
 	_ = json.NewDecoder(resp.Body).Decode(out)
 	return nil
 }
@@ -574,6 +588,35 @@ func isYes(s string) bool {
 	return s == "y" || s == "yes"
 }
 
+// MaxAnswerTokens is the per-turn completion budget shared by the in-channel chat
+// (client.Chat) AND the [0] AGENT harness (harness.agentMaxTokens). It is deliberately
+// generous because the channel's model is often a REASONING model (e.g. gpt-oss) whose
+// hidden reasoning is billed into this same budget: at a low ceiling (256/1024) the
+// reasoning ate nearly all of it and the visible answer truncated mid-word or came back
+// EMPTY (the "list my home dir ... stopped at .gtk" bug, and the in-channel 256 truncation
+// / empty-reasoning-turn bug). 4096 leaves headroom for the reasoning AND a complete
+// answer. One const so the chat surface and the agent never drift apart again.
+const MaxAnswerTokens = 4096
+
+// TopupHint is the actionable next step appended to a 402 insufficient-balance reply so
+// the user is never dead-ended on "insufficient balance" with nowhere to go. The same
+// string is reused by the CLI chat, the TUI channel, and the agent harness so the call
+// to action stays identical everywhere.
+const TopupHint = "run `rogerai topup` (or [3] in the TUI) to add funds"
+
+// WithTopupHint appends TopupHint to a broker error message when status is 402
+// (insufficient balance). For any other status it returns msg unchanged. Centralized so
+// both the chat client and the agent harness map 402 -> the same actionable hint.
+func WithTopupHint(status int, msg string) string {
+	if status == http.StatusPaymentRequired {
+		if strings.TrimSpace(msg) == "" {
+			return "insufficient balance - " + TopupHint
+		}
+		return msg + " - " + TopupHint
+	}
+	return msg
+}
+
 // chatTimeout is generous on purpose: CPU MoE inference (gpt-oss-20b/120b) can
 // take well over a minute for a long reply, and the founder's silent-failure
 // report was on slow local inference. It must exceed the broker's own 120s
@@ -591,7 +634,7 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
 		"messages":   []map[string]string{{"role": "user", "content": prompt}},
-		"max_tokens": 256,
+		"max_tokens": MaxAnswerTokens,
 	})
 	req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -628,11 +671,16 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 		// "node timed out", "insufficient credits") so the CHANNEL view names the real
 		// cause. The relay returns 503 with a plain-text body for no-station; surface it.
 		if d.Error.Message != "" {
-			return "", "", 0, fmt.Errorf("%s", d.Error.Message)
+			// A 402 (insufficient balance) gets the actionable topup hint appended so the
+			// user is never dead-ended on "insufficient balance" with no next step.
+			return "", "", 0, fmt.Errorf("%s", WithTopupHint(resp.StatusCode, d.Error.Message))
 		}
 		if resp.StatusCode >= 400 {
 			if msg := strings.TrimSpace(string(raw)); msg != "" && len(msg) < 300 {
-				return "", "", 0, fmt.Errorf("%s (status %d)", msg, resp.StatusCode)
+				return "", "", 0, fmt.Errorf("%s (status %d)", WithTopupHint(resp.StatusCode, msg), resp.StatusCode)
+			}
+			if resp.StatusCode == http.StatusPaymentRequired {
+				return "", "", 0, fmt.Errorf("%s", WithTopupHint(resp.StatusCode, ""))
 			}
 			return "", "", 0, fmt.Errorf("the station returned status %d with no reply", resp.StatusCode)
 		}

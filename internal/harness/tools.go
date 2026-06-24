@@ -157,7 +157,7 @@ func BuiltinTools() []Tool {
 		},
 		{
 			Name:        "run_shell",
-			Description: "Run a shell command in the working directory and return its combined output. Side-effecting: the user confirms before this runs.",
+			Description: "Run a shell command in the working directory and return its combined output. Side-effecting: the user confirms before this runs. NOT sandboxed - an approved command can reach outside the working directory, so keep it minimal.",
 			Mutating:    true,
 			Params: map[string]any{
 				"type": "object",
@@ -209,9 +209,12 @@ func resolveInRoot(root, rel string) (string, error) {
 	return p, nil
 }
 
-// runShell runs cmd via /bin/sh in root, with a bounded timeout, and returns the
-// combined stdout+stderr (clipped). It is only reached AFTER the loop's y/N confirm,
-// so this never auto-runs.
+// runShell runs cmd via /bin/sh in root (c.Dir = root sets only the working directory),
+// with a bounded timeout, and returns the combined stdout+stderr (clipped). It is only
+// reached AFTER the loop's y/N confirm, so this never auto-runs. NOTE: this is NOT a
+// sandbox - c.Dir only sets the cwd; an approved command can still read/write outside
+// root (e.g. via an absolute path). The confirm gate (showing the full command) is the
+// real control here; the persona/UI copy must not imply run_shell is sandboxed.
 func runShell(root, cmd string) (string, error) {
 	if strings.TrimSpace(cmd) == "" {
 		return "", errors.New("empty command")

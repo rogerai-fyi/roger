@@ -20,15 +20,15 @@ type CostFunc func(credits float64)
 // over a minute, and a tool-use turn is a normal completion under the hood.
 const brokerTimeout = 300 * time.Second
 
-// agentMaxTokens is the per-turn completion budget for the agent. It is deliberately
-// generous (not the old 1024) because the channel's model is often a REASONING model
-// (e.g. gpt-oss) whose hidden reasoning is billed into this same budget: at 1024 the
-// reasoning ate nearly all of it and the visible answer truncated mid-word (the "list
-// my home dir ... stopped at .gtk" bug). 4096 leaves headroom for the reasoning AND a
-// complete answer. If a future relay surfaces a reasoning-effort / "exclude reasoning
-// from content" hint, lowering effort would free even more answer budget - but raising
-// the ceiling is the fix here, not a knob hunt.
-const agentMaxTokens = 4096
+// agentMaxTokens is the per-turn completion budget for the agent. It is the SAME shared
+// ceiling the in-channel chat uses (client.MaxAnswerTokens) so the two surfaces never
+// drift: deliberately generous (not the old 1024) because the channel's model is often a
+// REASONING model (e.g. gpt-oss) whose hidden reasoning is billed into this same budget,
+// and a low ceiling truncated the answer mid-word or returned it empty (the "list my home
+// dir ... stopped at .gtk" bug). If a future relay surfaces a reasoning-effort hint,
+// lowering effort would free even more answer budget - but raising the ceiling is the fix
+// here, not a knob hunt.
+const agentMaxTokens = client.MaxAnswerTokens
 
 // BrokerCompleter returns a Completer that relays one completion through the broker's
 // OpenAI-compatible endpoint (POST {broker}/v1/chat/completions), exactly like the
@@ -103,11 +103,16 @@ func parseCompletion(raw []byte, status int) (Message, error) {
 	_ = json.Unmarshal(raw, &d)
 	if len(d.Choices) == 0 {
 		if d.Error.Message != "" {
-			return Message{}, fmt.Errorf("%s", d.Error.Message)
+			// A 402 (insufficient balance) gets the shared actionable topup hint appended,
+			// mirroring client.Chat, so the agent surfaces a next step, not a dead end.
+			return Message{}, fmt.Errorf("%s", client.WithTopupHint(status, d.Error.Message))
 		}
 		if status >= 400 {
 			if msg := string(bytesTrim(raw)); msg != "" && len(msg) < 300 {
-				return Message{}, fmt.Errorf("%s (status %d)", msg, status)
+				return Message{}, fmt.Errorf("%s (status %d)", client.WithTopupHint(status, msg), status)
+			}
+			if status == http.StatusPaymentRequired {
+				return Message{}, fmt.Errorf("%s", client.WithTopupHint(status, ""))
 			}
 			return Message{}, fmt.Errorf("the station returned status %d with no reply", status)
 		}

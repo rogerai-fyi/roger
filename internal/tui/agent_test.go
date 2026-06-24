@@ -82,8 +82,11 @@ func TestAgentConfirmGate(t *testing.T) {
 		t.Fatalf("a confirm message should set a pending confirm")
 	}
 	out := stripANSI(gm.View())
-	if !strings.Contains(out, "run_shell: rm -rf /") || !strings.Contains(out, "[y/N]") {
-		t.Errorf("confirm gate should show the tool + y/N:\n%s", out)
+	if !strings.Contains(out, "run_shell") || !strings.Contains(out, "rm -rf /") || !strings.Contains(out, "[y/N]") {
+		t.Errorf("confirm gate should show the tool + the command + y/N:\n%s", out)
+	}
+	if !strings.Contains(strings.ToLower(out), "not sandboxed") {
+		t.Errorf("run_shell confirm must say it is NOT sandboxed:\n%s", out)
 	}
 	// Deny with n.
 	am, _ = gm.Update(keyMsg("n"))

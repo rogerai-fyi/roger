@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rogerai-fyi/roger/internal/client"
 )
 
 // stubCompleter returns a scripted sequence of assistant messages, one per call, so a
@@ -294,5 +296,50 @@ func TestParseCompletionToolCalls(t *testing.T) {
 	}
 	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "list_dir" {
 		t.Errorf("tool_calls not parsed from the completion: %+v", msg)
+	}
+}
+
+// TestParseCompletion402MapsToTopupHint: a broker 402 (insufficient balance) surfaces to
+// the agent with the actionable topup next step appended (shared with client.Chat).
+func TestParseCompletion402MapsToTopupHint(t *testing.T) {
+	body := `{"error":{"message":"insufficient balance - add funds"}}`
+	_, err := parseCompletion([]byte(body), http.StatusPaymentRequired)
+	if err == nil {
+		t.Fatalf("a 402 completion should be an error")
+	}
+	if !strings.Contains(err.Error(), client.TopupHint) {
+		t.Errorf("402 agent error = %q, want it to contain the shared topup hint %q", err.Error(), client.TopupHint)
+	}
+}
+
+// TestRunShellDescriptionNotSandboxed: the run_shell tool/persona copy must NOT claim it
+// is sandboxed (c.Dir only sets the cwd; an approved command can escape). The over-claim
+// was the bug - tighten the copy, keep default-DENY.
+func TestRunShellDescriptionNotSandboxed(t *testing.T) {
+	var desc string
+	for _, tl := range BuiltinTools() {
+		if tl.Name == "run_shell" {
+			desc = tl.Description
+		}
+	}
+	if desc == "" {
+		t.Fatalf("run_shell tool not found")
+	}
+	low := strings.ToLower(desc)
+	if !strings.Contains(low, "not sandboxed") {
+		t.Errorf("run_shell description must say NOT sandboxed, got %q", desc)
+	}
+	// The persona must likewise not imply run_shell is sandboxed.
+	plow := strings.ToLower(DefaultPersona)
+	if !strings.Contains(plow, "run_shell") || !strings.Contains(plow, "not sandboxed") {
+		t.Errorf("persona must note run_shell is NOT sandboxed")
+	}
+}
+
+// TestAgentMaxTokensMatchesSharedConst: the agent and the in-channel chat must share one
+// answer budget so they never drift apart.
+func TestAgentMaxTokensMatchesSharedConst(t *testing.T) {
+	if agentMaxTokens != client.MaxAnswerTokens {
+		t.Errorf("agentMaxTokens=%d must equal client.MaxAnswerTokens=%d (single shared budget)", agentMaxTokens, client.MaxAnswerTokens)
 	}
 }
