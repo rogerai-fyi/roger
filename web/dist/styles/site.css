@@ -1130,6 +1130,7 @@ table.man-table tr:hover td { background: var(--paper); }
 .footer__colophon {
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
   letter-spacing: 0.04em; padding-block: 0 var(--s-4); margin: 0;
+  text-align: right;
 }
 
 /* hero figure caption + ping, left-bound */
