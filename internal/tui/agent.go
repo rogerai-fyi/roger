@@ -325,6 +325,29 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
 		return m, nil
+	case "up":
+		// Shell-style recall on the AGENT prompt: Up walks to an OLDER sent prompt
+		// (stashing the live draft on the first Up). Distinct from the chat's history.
+		// The /model picker (which uses up/k) returns earlier, so this only fires while
+		// the prompt itself is focused; a running turn ignores edits below anyway.
+		if m.agentBusy {
+			return m, nil
+		}
+		if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
+			m.agentIn.SetValue(v)
+			m.agentIn.CursorEnd()
+		}
+		return m, nil
+	case "down":
+		// Down walks to a NEWER sent prompt; past the newest it restores the draft.
+		if m.agentBusy {
+			return m, nil
+		}
+		if v, ok := m.agentHist.next(); ok {
+			m.agentIn.SetValue(v)
+			m.agentIn.CursorEnd()
+		}
+		return m, nil
 	case "enter":
 		if m.agentBusy {
 			return m, nil
@@ -334,6 +357,9 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentIn.SetValue("")
+		// Record the sent prompt in the AGENT recall history (collapses a repeat of the
+		// previous entry, resets the Up/Down cursor). Both chat turns and /commands count.
+		m.agentHist.add(p)
 		if strings.HasPrefix(p, "/") {
 			return m.runAgentCommand(p)
 		}
