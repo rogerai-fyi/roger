@@ -20,6 +20,16 @@ type CostFunc func(credits float64)
 // over a minute, and a tool-use turn is a normal completion under the hood.
 const brokerTimeout = 300 * time.Second
 
+// agentMaxTokens is the per-turn completion budget for the agent. It is deliberately
+// generous (not the old 1024) because the channel's model is often a REASONING model
+// (e.g. gpt-oss) whose hidden reasoning is billed into this same budget: at 1024 the
+// reasoning ate nearly all of it and the visible answer truncated mid-word (the "list
+// my home dir ... stopped at .gtk" bug). 4096 leaves headroom for the reasoning AND a
+// complete answer. If a future relay surfaces a reasoning-effort / "exclude reasoning
+// from content" hint, lowering effort would free even more answer budget - but raising
+// the ceiling is the fix here, not a knob hunt.
+const agentMaxTokens = 4096
+
 // BrokerCompleter returns a Completer that relays one completion through the broker's
 // OpenAI-compatible endpoint (POST {broker}/v1/chat/completions), exactly like the
 // TUI's plain chat - but it sends the `tools` array AND parses any `tool_calls` back.
@@ -41,7 +51,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, onCost CostF
 			// Let the model choose whether to call a tool (vs forcing one); a non-tool
 			// model just ignores this field.
 			"tool_choice": "auto",
-			"max_tokens":  1024,
+			"max_tokens":  agentMaxTokens,
 		})
 		req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")

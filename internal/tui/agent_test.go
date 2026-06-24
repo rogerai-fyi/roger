@@ -111,6 +111,99 @@ func TestAgentEventRendering(t *testing.T) {
 	}
 }
 
+// TestAgentToolResultPreviewLong: a long read-only tool result renders a bounded
+// preview (the head of the listing) plus a "... +N more lines" marker under the
+// existing "ok · N bytes" summary - so the user SEES the real output even when the
+// model's prose is terse or truncated.
+func TestAgentToolResultPreviewLong(t *testing.T) {
+	var lines []string
+	for i := 0; i < 30; i++ {
+		lines = append(lines, "entry-"+strings.Repeat("x", 3)+"-line")
+	}
+	result := strings.Join(lines, "\n") + "\n"
+
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	am, _ = am.Update(keyMsg("0"))
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: result})
+	out := stripANSI(asModel(am).View())
+
+	if !strings.Contains(out, "list_dir") || !strings.Contains(out, "bytes") {
+		t.Errorf("summary line (tool + bytes) missing:\n%s", out)
+	}
+	if !strings.Contains(out, "entry-") {
+		t.Errorf("a long result should preview the head of the output:\n%s", out)
+	}
+	if !strings.Contains(out, "more line") {
+		t.Errorf("a long result should mark the elided remainder (+N more lines):\n%s", out)
+	}
+	// Only the bounded head is shown, never all 30 lines.
+	if strings.Count(out, "entry-") > previewMaxLines {
+		t.Errorf("preview should cap at %d lines, showed %d:\n%s", previewMaxLines, strings.Count(out, "entry-"), out)
+	}
+}
+
+// TestAgentToolResultPreviewShort: a short read-only result renders inline in full
+// (every line shown, no "+N more" marker).
+func TestAgentToolResultPreviewShort(t *testing.T) {
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	am, _ = am.Update(keyMsg("0"))
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "read_file", Result: "alpha\nbeta\ngamma\n"})
+	out := stripANSI(asModel(am).View())
+	for _, want := range []string{"alpha", "beta", "gamma"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a short result should preview inline (missing %q):\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "more line") {
+		t.Errorf("a short result should NOT show a +N more marker:\n%s", out)
+	}
+}
+
+// TestAgentToolResultPreviewCompact: in compact mode the result shows just the
+// summary line (tool + bytes), no inlined preview - the dense strip stays dense.
+func TestAgentToolResultPreviewCompact(t *testing.T) {
+	m := browseSeed(100)
+	m.compact = true // compact persists across Update (value-carried), only [m] toggles it
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "one\ntwo\nthree\nfour\nfive\n"})
+	gm := asModel(am)
+	if !gm.compact {
+		t.Fatalf("compact should persist across Update")
+	}
+	out := stripANSI(gm.View())
+	if !strings.Contains(out, "list_dir") || !strings.Contains(out, "bytes") {
+		t.Errorf("compact should still show the summary line:\n%s", out)
+	}
+	if strings.Contains(out, "two") || strings.Contains(out, "three") {
+		t.Errorf("compact should NOT inline the result preview:\n%s", out)
+	}
+}
+
+// TestAgentResultPreviewWidthNoColorSafe: the preview never overflows the terminal
+// width and emits no ANSI under NO_COLOR, even for very long single lines.
+func TestAgentResultPreviewWidthNoColorSafe(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	longResult := strings.Repeat("verylongtoken", 200) + "\n" + strings.Repeat("z", 4000)
+	for _, w := range []int{40, 50, 64, 80, 120} {
+		var am tea.Model = browseSeed(w)
+		am, _ = am.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		am, _ = am.Update(keyMsg("0"))
+		am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "run_shell", Result: longResult})
+		out := asModel(am).View()
+		if strings.Contains(out, "\x1b[") {
+			t.Errorf("width %d: preview emitted ANSI under NO_COLOR", w)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if vis := utf8.RuneCountInString(stripANSI(line)); vis > w {
+				t.Errorf("width %d: preview line overflows (%d cols): %q", w, vis, stripANSI(line))
+			}
+		}
+	}
+}
+
 // TestAgentNoColorNarrowSafe: AGENT renders without ANSI under NO_COLOR and never
 // overflows narrow widths, including with a pending confirm and a streamed turn.
 func TestAgentNoColorNarrowSafe(t *testing.T) {
