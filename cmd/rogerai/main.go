@@ -294,10 +294,16 @@ func main() {
 		err = client.Whoami()
 	case "topup":
 		err = cmdTopup(cfg, os.Args[2:])
-	case "use":
+	case "use", "connect", "tune":
+		// `connect`/`tune` mirror the TUI's /connect /tune so the CLI verbs and the
+		// in-app slash commands are one mental model.
 		err = cmdUse(cfg, os.Args[2:])
 	case "share":
 		err = cmdShare(cfg, os.Args[2:])
+	case "limits":
+		// Mirror the TUI's /limits (prints the spend-limits view); editing stays under
+		// `config set-limit` for the flags.
+		err = cmdConfig(append([]string{"limits"}, os.Args[2:]...))
 	case "grant":
 		err = cmdGrant(cfg, os.Args[2:])
 	case "onboard", "setup":
@@ -774,7 +780,7 @@ func usage() {
 
   rogerai                       open the app (browse, tune in, chat)
   rogerai search                list models, cheapest first
-  rogerai use <model>           local OpenAI endpoint for your bots  (--max-out $ caps spend)
+  rogerai use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   rogerai balance               your wallet balance  (balance --topup [usd] to add funds)
 
 providers (share your GPU):
