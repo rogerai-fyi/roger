@@ -232,7 +232,7 @@
               Pick a band, set margins, and the broker locks the strongest station and
               hands you a local endpoint + key. When a station fades, it re-tunes.</p>
             <pre><span class="p">$</span> rogerai use qwen3-coder-30b --max-out 0.30
-<span class="p">$</span> rogerai use waterfall --max-out 0.40 --advanced --min-tps 40 --port 4141</pre>
+<span class="p">$</span> rogerai use qwen3-coder-30b --max-out 0.40 --advanced --min-tps 40 --port 4141</pre>
             <span class="man-fig">FIG. 2 - ROUTING &amp; PORTS</span>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">Endpoint</span><span class="man-plate__v"><code>http://127.0.0.1:&lt;port&gt;/v1</code> - local, key-scoped</span></div>
@@ -259,7 +259,7 @@
               bridges <b>only that model port</b> over an outbound long-poll: no inbound
               ports, no shell, no files, no context.</p>
             <pre><span class="p">$</span> rogerai share                 <span class="c"># FREE by default, no login - auto-detects your model</span>
-<span class="p">$</span> rogerai share --model waterfall --price-out 0.30
+<span class="p">$</span> rogerai share --model qwen3-coder-30b --price-out 0.30
 <span class="p">$</span> rogerai share --upstream http://127.0.0.1:8081/v1 --model my-model</pre>
 
             <h3>Free by default, no login</h3>
