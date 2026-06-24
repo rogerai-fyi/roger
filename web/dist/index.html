@@ -118,8 +118,7 @@
 
       <!-- section group: terse single-word manual labels, in document order -->
       <div class="nav__sections">
-        <a class="nav__link" href="#market">Band</a>
-        <a class="nav__link" href="/bands.html">Bands</a>
+        <a class="nav__link" href="/models.html">Models</a>
         <a class="nav__link" href="#spec">Spec</a>
         <a class="nav__link" href="#how">Operating</a>
         <a class="nav__link" href="#monetize">Monetize</a>
@@ -185,36 +184,43 @@
         ports, no account to browse.
       </p>
 
-      <!-- ONE MOVE: the live band (FIG.1) -> tune in with the command (FIG.2).
-           A signature tuning-dial: a full-bleed instrument panel you can sweep
-           like a real radio. It snaps onto a band; the install command below
-           reads as the same gesture. -->
-    </div><!-- /.hero__inner : the dial breaks out of the document column -->
+      <!-- ONE MOVE: read the band at a glance (FIG.1) -> open the full dial on
+           the Models page -> tune in with the command (FIG.2). This is a small,
+           glanceable teaser of the band (marketing - gently animated); the real
+           interactive dial lives on /models.html, driven by live data. -->
+    </div><!-- /.hero__inner : the teaser breaks out of the document column -->
 
-    <!-- FIG.1 - the full-bleed tuner. role=slider, keyboard + pointer + touch. -->
-    <div class="tuner" data-reveal data-reveal-delay="160">
-      <span class="fig tuner__fig" aria-hidden="true">FIG. 1 - THE DIAL · LIVE BAND</span>
-      <figure class="dial" id="dial" tabindex="0" role="slider"
-              aria-label="Tuning dial. Sweep across the band; arrow keys tune station to station, Enter opens the locked station."
-              aria-valuemin="0" aria-valuenow="0" aria-valuemax="0"
-              aria-valuetext="tuning">
-        <div class="dial__top">
-          <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
-          <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
+    <!-- FIG.1 - the band teaser. A compact, glanceable selector; the full
+         interactive dial is on /models.html. -->
+    <a class="teaser" id="teaser" data-reveal data-reveal-delay="160"
+       href="/models.html" aria-label="Browse the models on the live dial">
+      <span class="fig teaser__fig" aria-hidden="true">FIG. 1 - THE BAND · AT A GLANCE</span>
+      <div class="teaser__face">
+        <div class="teaser__top">
+          <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
+          <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>87</b>/100</span>
         </div>
-        <div class="dial__face">
-          <div class="dial__svgwrap">
-            <svg id="dialSvg" aria-hidden="true"></svg>
-            <span class="dial__glass" aria-hidden="true"></span>
-            <span class="dial__pointer" aria-hidden="true"></span>
-          </div>
+
+        <ul class="teaser__list" id="teaserList" aria-hidden="true">
+          <li class="teaser__band is-locked"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">7 stn · sig 87</span></li>
+          <li class="teaser__band"><span class="teaser__bm">mixtral-8x7b</span><span class="teaser__bd">6 stn · sig 82</span></li>
+          <li class="teaser__band"><span class="teaser__bm">qwen3-72b</span><span class="teaser__bd">4 stn · sig 74</span></li>
+          <li class="teaser__band"><span class="teaser__bm">gpt-oss-120b</span><span class="teaser__bd">3 stn · sig 66</span></li>
+          <li class="teaser__band"><span class="teaser__bm">llama3.3-70b</span><span class="teaser__bd">5 stn · sig 61</span></li>
+          <li class="teaser__band"><span class="teaser__bm">gemma3-27b</span><span class="teaser__bd">4 stn · sig 57</span></li>
+          <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
+        </ul>
+
+        <div class="teaser__foot">
+          <span class="teaser__chip mono" id="teaserChip">
+            <span class="meter__k">RATE</span><b>$0.22 /1M</b>
+            <span class="meter__k">SPEED</span><b>61 t/s</b>
+            <span class="meter__k">STN</span><b>7</b>
+          </span>
+          <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
         </div>
-        <div class="dial__hint">
-          <span class="dial__chip" id="dialChip"></span>
-          <span class="dial__cue mono" id="dialCue" aria-hidden="true">drag to tune · &larr;/&rarr; bands · enter to open</span>
-        </div>
-      </figure>
-    </div>
+      </div>
+    </a>
 
     <div class="wrap hero__inner hero__inner--after">
       <div class="tunein" data-reveal data-reveal-delay="200">
@@ -410,7 +416,7 @@
           live from <span class="ember">broker.rogerai.fyi/market</span> · prices in $ / 1M tokens
         </p>
         <p class="market__tune mono">
-          <a href="/bands.html">tune the dial - browse every band &amp; station &rarr;</a>
+          <a href="/models.html">tune the dial - browse every model &amp; station &rarr;</a>
         </p>
       </div>
 
@@ -629,8 +635,7 @@
     <nav class="footer__links" aria-label="Footer">
       <div class="footer__group">
         <small class="footer__heading">Product</small>
-        <a href="#market">Band</a>
-        <a href="/bands.html">Bands</a>
+        <a href="/models.html">Models</a>
         <a href="#spec">Spec</a>
         <a href="#how">Operating</a>
         <a href="#monetize">Monetize</a>
@@ -698,7 +703,7 @@
 
 
   <script src="js/radiomap.js" defer></script>
-  <script src="js/dial.js" defer></script>
+  <script src="js/teaser.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/market.js" defer></script>
   <script src="js/site.js" defer></script>

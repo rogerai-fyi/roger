@@ -16,8 +16,8 @@
       "off air, tune in via the CLI" line if /concierge is unreachable -
       never a broken state. All chat wiring is LAZY (first open only).
 
-   Note: #pingTag is owned by dial.js (it writes "on air"/"standing by" from
-   live market state); this file never touches #pingTag. The rotating idle
+   Note: #pingTag is owned by teaser.js on the homepage (it writes "on air"
+   from the band teaser); this file never touches #pingTag. The rotating idle
    phrase lives on a separate #pingPhrase element so the two never fight.
    ===================================================================== */
 (function () {
