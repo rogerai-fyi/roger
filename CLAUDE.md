@@ -47,9 +47,10 @@ node serves + signs receipt -> broker verifies + co-signs -> capture cost (Final
 ## Versioning
 
 `const Version` in `cmd/rogerai/main.go` AND `helpVersion` in `internal/tui/tui.go` - bump BOTH.
-**Push-verify gotcha:** the tag-time bump keeps losing the push race (v4.1.0, v4.2.3, v4.2.4, and
-v4.3.0 all shipped with the source consts trailing the tag - at the v4.3.0 tag they still read
-`4.2.2`). After cutting a release, re-fetch and confirm the bump actually landed on `origin/main`.
+**Push-verify step (works - keep doing it):** the tag-time bump CAN lose the push race if you tag
+before the bump commit lands. Verified 2026-06-24: tags v4.2.2..v4.3.0 all carry the correct
+`Version`/`helpVersion` - the verify-by-refetch step is what keeps them in sync. After cutting,
+re-fetch and confirm the bump landed on `origin/main` BEFORE you `git tag`.
 Beware the grep trap: a `git log` / `branch -r` line reading `main ->` (a remote symref) is NOT
 `HEAD -> main` (your tip pushed) - match the wrong one and a failed push looks like a success.
 
