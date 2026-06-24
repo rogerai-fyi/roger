@@ -10,9 +10,9 @@
      glyph kit ▁▂▃▄▅▆▇█ (signal), ◆ gold lineage, ●/○ online/offline,
      ((•)) on-air pulse, same hues (volt/live/ember/gold), $/1M money.
 
-   Robustness:
-     - degrades gracefully when /discover is empty or unreachable
-       (renders a representative demo band, clearly labelled).
+   Robustness (REAL-DATA-ONLY, like the Models page):
+     - when /market + /discover are empty or unreachable, shows an honest
+       "the band is quiet" empty state - never a fabricated demo band.
      - rAF for the bar shimmer; pauses offscreen + when tab hidden.
      - honors prefers-reduced-motion (static bars, no shimmer, no poll).
    ===================================================================== */
@@ -155,26 +155,20 @@
       .sort(function (a, b) { return b.signal - a.signal; });
   }
 
-  /* ---------- demo band (graceful fallback) --------------------- */
-  // A representative, plausible band shown when no providers are on air
-  // yet (or the broker is unreachable). Clearly labelled as a preview.
-  function demoBand() {
-    var seed = [
-      { model: "qwen3-coder-30b", providers: 6, tps: 58, price: 0.22, verified: true },
-      { model: "qwen3-72b",       providers: 4, tps: 71, price: 0.38, verified: true },
-      { model: "gpt-oss-120b",    providers: 3, tps: 63, price: 0.55, verified: true },
-      { model: "llama3.3-70b",    providers: 5, tps: 44, price: 0.31, verified: false },
-      { model: "deepseek-v3",     providers: 2, tps: 55, price: 0.61, verified: false },
-      { model: "mistral-large",   providers: 0, tps: 0,  price: 0.49, verified: false }
-    ];
-    return seed.map(function (s) {
-      return {
-        model: s.model, providers: s.providers, total: s.providers,
-        tps: s.tps, price: s.price, verified: s.verified, live: s.providers > 0,
-        signal: s.providers > 0 ? computeSignal(s.providers, s.tps) : 0,
-        quality: s.providers > 0 ? computeQuality(s.providers, s.tps) : 0
-      };
-    }).sort(function (a, b) { return b.signal - a.signal; });
+  /* ---------- honest empty state -------------------------------- */
+  // Real-data-only, like the Models page: when no station is on air (or the
+  // broker is unreachable) show an honest "the band is quiet" state - never
+  // fabricated station rows. No station, no signal.
+  function paintQuiet() {
+    stopShimmer();
+    rendered = [];
+    listEl.innerHTML =
+      '<li class="mkt-quiet">' +
+        '<span class="mkt-quiet__txt">The band is quiet right now - no stations on air yet. ' +
+          'Put a GPU on air with <code class="mono">rogerai share</code>, or ' +
+          '<a href="models.html">sweep the dial &rarr;</a>' +
+        '</span>' +
+      '</li>';
   }
 
   /* ---------- render -------------------------------------------- */
@@ -278,7 +272,7 @@
     var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
 
     // authoritative /market first (per-band signal 0-100); /discover is the
-    // aggregation fallback; a labelled demo band is the last resort.
+    // aggregation fallback; an honest "quiet" empty state is the last resort.
     fetch(MARKET, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
       .then(function (data) {
@@ -307,20 +301,19 @@
               setStatus(nOn + " band" + (nOn === 1 ? "" : "s") + " on air · from /discover", "live");
               setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
             } else {
-              paint(demoBand(), true);
-              setStatus("the band is quiet right now - a preview of how it looks on air", "demo");
-              setFoot('broker reachable · <span class="ember">no stations on air yet</span> · showing a representative band');
+              // broker reachable but empty: honest quiet state, no fake rows
+              paintQuiet();
+              setStatus("the band is quiet right now - no stations on air yet", "demo");
+              setFoot('broker reachable · <span class="ember">no stations on air yet</span> · this is a preview, not a live band');
             }
-            startShimmer();
           });
       })
       .catch(function () {
         clearTimeout(to);
-        // unreachable -> still show a labelled demo band
-        paint(demoBand(), true);
-        setStatus("preview band - couldn't reach the broker just now", "off");
-        setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · showing a representative band');
-        startShimmer();
+        // unreachable -> honest quiet state, never a fabricated band
+        paintQuiet();
+        setStatus("couldn't reach the broker just now", "off");
+        setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
       })
       .then(function () { inflight = false; });
   }

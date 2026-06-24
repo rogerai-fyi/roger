@@ -13,6 +13,12 @@
      pages load the chrome plus auth.css for the card. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Mark JS as available BEFORE first paint. The reveal primitive only hides
+       content under `html.js [data-reveal]` (see site.css), so with JS off this
+       class never lands and the hero headline + install command render fully.
+       The <noscript> below is the belt-and-braces fallback for the same case. -->
+  <script>document.documentElement.classList.add("js");</script>
+  <noscript><style>[data-reveal]{opacity:1 !important;transform:none !important;}</style></noscript>
   <title>Security - RogerAI</title>
 
   <meta name="color-scheme" content="light dark" />

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- RogerAI social card. On-brand: warm-paper ground, ink wordmark, the
+       single red beacon. Source for og.png (rasterized 1200x630). -->
+  <defs>
+    <style>
+      .ink  { fill: #15140F; }
+      .mute { fill: #6b6a63; }
+      .live { fill: #E0231C; }
+      .word { font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif; font-weight: 700; }
+      .tag  { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-weight: 500; }
+      .eye  { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-weight: 600; }
+    </style>
+  </defs>
+
+  <!-- paper ground -->
+  <rect width="1200" height="630" fill="#FBFBFA"/>
+
+  <!-- top + bottom hairlines (the document spine motif) -->
+  <rect x="0" y="0"   width="1200" height="6" class="ink"/>
+  <rect x="80" y="120" width="1040" height="1" class="mute" opacity="0.4"/>
+  <rect x="80" y="520" width="1040" height="1" class="mute" opacity="0.4"/>
+
+  <!-- running head -->
+  <text x="80" y="92" class="tag" font-size="26" letter-spacing="4" fill="#6b6a63">FIG. 1 - RADIO STATION</text>
+  <text x="1120" y="92" class="tag" font-size="26" letter-spacing="2" text-anchor="end" fill="#6b6a63">rogerai.fyi</text>
+
+  <!-- the beacon eye  (( o ))  - the on-air pulse, red center -->
+  <g transform="translate(160,258)">
+    <text x="0" y="40" class="eye" font-size="120" fill="#15140F">((</text>
+    <circle cx="150" cy="0" r="34" class="live"/>
+    <circle cx="150" cy="0" r="58" fill="none" stroke="#E0231C" stroke-width="3" opacity="0.45"/>
+    <circle cx="150" cy="0" r="84" fill="none" stroke="#E0231C" stroke-width="2" opacity="0.2"/>
+    <text x="222" y="40" class="eye" font-size="120" fill="#15140F">))</text>
+  </g>
+
+  <!-- wordmark -->
+  <text x="160" y="448" class="word" font-size="124" fill="#15140F">RogerAI</text>
+
+  <!-- tagline -->
+  <text x="166" y="500" class="tag" font-size="32" letter-spacing="1" fill="#6b6a63">a two-way radio for GPUs</text>
+</svg>
