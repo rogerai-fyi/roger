@@ -6,8 +6,10 @@
    current preset lit red. Transport controls (play / pause / replay) and a
    tuning-bar progress readout, all radio/tape-deck styled.
 
-     rogerai  - an animated walk of the bare interactive TUI: the preset bar,
-                tuning in, browsing the band, opening a channel.
+     rogerai  - a fuller walk of the bare interactive TUI: boot + the preset
+                bar (incl [0] AGENT), tuning in + browsing the band, opening a
+                channel + chatting, a glimpse of compact `m` mode, and a short
+                agent-mode beat (a dj.md harness tool turn: tool call + result).
      search   - the band listing for a model, with inline signal bars.
      use      - staged scanning -> locking -> handshake -> CHANNEL OPEN +
                 endpoint plate.
@@ -138,26 +140,92 @@
 
   /* ---- the four demos ------------------------------------------------ */
   var DEMOS = {
-    // bare `rogerai` - a walk of the interactive TUI
+    // bare `rogerai` - a fuller walk of the interactive TUI: boot + preset
+    // bar (incl [0] AGENT), tune the band, open a channel + chat, a glimpse of
+    // compact `m` mode, then a short agent-mode beat (a dj.md tool turn).
     rogerai: {
       label: "rogerai", title: "rogerai - the dial",
       build: function () {
         return compile(function (c) {
+          // --- boot / carrier ---
           c.type([], "rogerai", AFTER_TYPE);
           c.show([
             PROMPT + head("rogerai"), "",
             dim("  ((•)) RogerAI   the two-way radio for GPUs   ") + dim("[ tuning in… ]")
           ], STEP);
-          c.show([
+          var deck = [
             PROMPT + head("rogerai"), "",
             dim("  ((•)) RogerAI   ") + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
-            dim("  presets   ") + head("[ search ]") + dim("  [ use ]  [ share ]  [ balance ]")
-          ], STAGE);
+            dim("  presets   ") + head("[0] AGENT") + dim("  [1] search  [2] use  [3] share  [4] balance"),
+            dim("            ") + dim("dial a band · ◉ on  ○ off  ◆ lineage-verified")
+          ];
+          c.show(deck, STAGE);
+
+          // --- tune in: browse the band, signal bars fill in ---
           c.show(bandHead("browse the band").concat(stations.slice(0, 2).map(stationRow)), STEP);
+          c.show(bandHead("browse the band").concat(stations.slice(0, 3).map(stationRow)), STEP);
           c.show(bandHead("browse the band").concat(stations.map(stationRow)).concat([RULE]), STAGE);
+
+          // --- open a channel on the strongest station ---
           c.show([
             dim("  band ") + head(BAND) + dim("   tuning in to ") + head("@nightowl") + dim("…"), ""
-          ].concat(endpointPlate("@nightowl")), END_HOLD);
+          ].concat(endpointPlate("@nightowl")), STAGE);
+
+          // --- chat over the open channel ---
+          var chatHead = [
+            ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via @nightowl") + "   " + gold("◆ verified"),
+            RULE
+          ];
+          c.type(chatHead, "summarize this repo in one line", AFTER_TYPE);
+          c.show(chatHead.concat([
+            PROMPT + head("summarize this repo in one line"), "",
+            dim("  ((•)) ") + live("◉ receiving") + dim("  @nightowl · 58 t/s") + CURSOR
+          ]), STEP);
+          c.show(chatHead.concat([
+            PROMPT + head("summarize this repo in one line"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  @nightowl"), "",
+            "  A peer-to-peer marketplace + CLI to rent home-GPU LLMs by the token.", "",
+            dim("  ◆ receipt co-signed · ") + money("47 tok · $0.000014") + dim(" · 70% to @nightowl")
+          ]), STAGE);
+
+          // --- glimpse of compact `m` windowshade mode ---
+          c.show([
+            dim("  press ") + head("m") + dim("  · windowshade -> compact"), "",
+            ok("◉") + " " + head(BAND) + dim("  @nightowl ") + live("▆▆▆▆▆▅·") + dim("  58 t/s  ") + money("0.22 $/M") + dim("  ◆"),
+            dim("  ▸ ") + money("$42.18") + dim("  ·  3 stations on band  ·  calm mode")
+          ], STAGE);
+
+          // --- agent-mode beat: [0] AGENT, a dj.md tool turn ---
+          var agentHead = [
+            head("  [0] AGENT") + dim("  ·  harness ") + head("dj.md") + dim("  ·  band ") + head(BAND) + "   " + gold("◆ verified"),
+            RULE
+          ];
+          c.type(agentHead, "/agent how many Go files in cmd/ ?", AFTER_TYPE);
+          c.show(agentHead.concat([
+            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
+            dim("  ((•)) ") + live("◉ thinking") + dim("  routing to band…") + CURSOR
+          ]), STEP);
+          c.show(agentHead.concat([
+            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  tool call"), "",
+            dim("  ┌ ") + gold("◆ tool") + dim(" ─ run ─────────────────────────────────────────┐"),
+            dim("  │ ") + head("$ ") + "find cmd -name '*.go' | wc -l" + dim("                          │"),
+            dim("  └────────────────────────────────────────────────────────────┘")
+          ]), STAGE);
+          c.show(agentHead.concat([
+            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  tool result"), "",
+            dim("  ┌ ") + gold("◆ tool") + dim(" ─ run ─────────────────────────────────────────┐"),
+            dim("  │ ") + head("$ ") + "find cmd -name '*.go' | wc -l" + dim("                          │"),
+            dim("  │ ") + ok("9") + dim("                                                            │"),
+            dim("  └────────────────────────────────────────────────────────────┘")
+          ]), STEP);
+          c.show(agentHead.concat([
+            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  @nightowl"), "",
+            "  9 Go files under cmd/ - one per binary (broker, cli, sidecar).", "",
+            dim("  ◆ receipt co-signed · ") + money("1 tool · 88 tok · $0.000026") + dim(" · ") + live("roger that.")
+          ]), END_HOLD);
         });
       }
     },
@@ -313,8 +381,11 @@
     btnPlay.setAttribute("aria-pressed", on ? "true" : "false");
   }
 
-  function select(name, autoplay) {
+  function select(name, mode) {
     if (!DEMOS[name]) return;
+    // mode: "force" = deliberate preset switch -> reset + play right away;
+    //       "auto"  = first scroll-into-view kick (respects hover/visibility);
+    //       falsy   = passive load (paused on frame 0).
     current = name;
     buildFrames(name);
     if (titleEl) titleEl.textContent = DEMOS[name].title;
@@ -327,8 +398,14 @@
       }
     }
     if (REDUCED) { renderFinal(); return; }
-    if (autoplay && visible && !hovered) start();
-    else { pause(); showFrame(0); setBar(0); }
+    if (mode === "force") {
+      // a deliberate switch means "show me this one now" - the cursor is by
+      // definition over the panel, so ignore the hover-pause and play at once.
+      hovered = false; visible = true;
+      start();
+    } else if (mode === "auto" && visible && !hovered) {
+      start();
+    } else { pause(); showFrame(0); setBar(0); }
   }
 
   /* ---- one shared rAF: advances ONLY the tuning-bar fill ------------- */
@@ -347,7 +424,7 @@
   if (presetBar) {
     presetBar.addEventListener("click", function (e) {
       var btn = e.target.closest("[data-demo]");
-      if (btn) select(btn.getAttribute("data-demo"), true);
+      if (btn) select(btn.getAttribute("data-demo"), "force");
     });
   }
   if (btnPlay) btnPlay.addEventListener("click", function () { if (playing) pause(); else resume(); });
@@ -367,7 +444,7 @@
   function activate() {
     visible = true;
     if (REDUCED) { renderFinal(); return; }
-    if (!kicked) { kicked = true; select(current, true); }
+    if (!kicked) { kicked = true; select(current, "auto"); }
     else if (!hovered) resume();
   }
   if ("IntersectionObserver" in window) {
