@@ -162,8 +162,10 @@ func TestLoginDevicePanelRenders(t *testing.T) {
 	}
 }
 
-// TestHeaderShowsLoginState: the header shows ◆ @username when logged in (with the
+// TestHeaderShowsLoginState: the header shows ✓ @username when logged in (with the
 // resolved login name, not blank) and the logged-out hint when anonymous (fix #4).
+// The identity callsign is the lineage/verified-operator ✓ - NOT the confidential ◆,
+// which is reserved for TEE-attested nodes.
 func TestHeaderShowsLoginState(t *testing.T) {
 	in := New("http://broker.local", "tester")
 	in.width, in.height = 100, 30
@@ -172,10 +174,14 @@ func TestHeaderShowsLoginState(t *testing.T) {
 	lm, _ = lm.Update(balanceMsg{balance: 12.5, loggedIn: true})
 	v := stripANSI(lm.View())
 	if !strings.Contains(v, "@octocat") {
-		t.Errorf("logged-in header should show ◆ @octocat (resolved name):\n%s", v)
+		t.Errorf("logged-in header should show %s @octocat (resolved name):\n%s", glyphLineage, v)
 	}
-	if !strings.Contains(v, "◆") { // the ◆ diamond
-		t.Errorf("logged-in header should carry the ◆ callsign mark:\n%s", v)
+	if !strings.Contains(v, glyphLineage) { // the ✓ verified-operator mark
+		t.Errorf("logged-in header should carry the %s verified-operator callsign mark:\n%s", glyphLineage, v)
+	}
+	// The identity mark must NOT be the confidential ◆ (no TEE node is involved here).
+	if strings.Contains(v, glyphConf) {
+		t.Errorf("logged-in identity must not use the confidential ◆ mark:\n%s", v)
 	}
 
 	out := New("http://broker.local", "tester")

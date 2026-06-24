@@ -44,7 +44,9 @@ type broker struct {
 	tunnels      map[string]*nodeTunnel
 	lastSeen     map[string]time.Time
 	confidential map[string]bool
-	tps          map[string]float64 // EWMA output tokens/sec per node (measured)
+	attestedAt   map[string]time.Time // when each node last passed TEE attestation (for re-attest lapse)
+	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
+	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
 	metricsMu    sync.Mutex            // guards the per-node market metrics below
 	lastPersist  map[string]time.Time  // last time a node's last_seen was flushed to the store (throttle)
@@ -127,6 +129,7 @@ func main() {
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
+		attestedAt: map[string]time.Time{}, attest: loadAttestRegistry(),
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
@@ -153,6 +156,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nodes/register", b.register)
+	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
 	mux.HandleFunc("/nodes/heartbeat", b.heartbeat)
 	mux.HandleFunc("/agent/poll", b.agentPoll)     // node dials out, long-polls for jobs
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
@@ -191,25 +195,10 @@ func main() {
 	if b.probe.enabled() {
 		go b.proberLoop()
 	}
+	go b.reattestSweep() // drop verified-confidential status that has lapsed its re-attest cadence
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
 	log.Fatal(http.ListenAndServe(*addr, mux))
-}
-
-// verifyAttestation is a STUB. Real TEE remote-attestation verification (NVIDIA
-// Confidential Computing / AMD SEV-SNP / Intel TDX quote validation) is the deep
-// follow-up. For now a node is treated as confidential only if it presents a
-// non-trivial attestation - enough to wire the badge + route filter end-to-end,
-// NOT yet a cryptographic guarantee. See PRIVACY.md.
-func verifyAttestation(att string) bool {
-	// Reject the obvious dev placeholder so the confidential badge isn't trivially
-	// claimable; require a non-trivial blob. This is NOT yet real verification -
-	// NVIDIA-CC/SEV-SNP/TDX quote validation is the follow-up before the badge is a
-	// cryptographic guarantee (see PRIVACY.md).
-	if att == "dev-placeholder-attestation" {
-		return false
-	}
-	return len(att) >= 64
 }
 
 // lockedPrice returns the price to BILL for this user+node+model. The first time

@@ -17,6 +17,7 @@ func newTrustBroker() *broker {
 		tunnels:      map[string]*nodeTunnel{},
 		lastSeen:     map[string]time.Time{},
 		confidential: map[string]bool{},
+		attestedAt:   map[string]time.Time{},
 		tps:          map[string]float64{},
 		inflight:     map[string]int{},
 		success:      map[string]float64{},

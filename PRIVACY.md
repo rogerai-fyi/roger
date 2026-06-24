@@ -24,12 +24,25 @@ open tier economically/legally hostile to logging, and (3) offer a tier where th
    request it must run.
 
 ## The real guarantee for sensitive work: the Confidential tier
-Providers can run inference inside a **TEE / confidential VM** - NVIDIA Confidential Computing
-(Hopper/Blackwell), AMD SEV-SNP, Intel TDX - where GPU/host memory is encrypted and **the
-machine's owner cannot read it.** The node presents a **remote attestation** the broker
-verifies before listing it as `confidential ◆`. Privacy-sensitive users (and bots handling
-PII/tax/financial data) set a filter to **route only to attested confidential nodes.** This is
-the cryptographic answer to "the owner could spy," and a real product differentiator.
+Providers can run inference inside a **TEE / confidential VM** where host memory is encrypted and
+**the machine's owner cannot read it.** The node generates a **hardware remote-attestation quote**
+that the broker **cryptographically verifies** before listing it as `confidential ◆`. Verification
+has three gates, ALL of which must pass: (1) the quote's signature chains to the silicon vendor's
+root, (2) the quote's `report_data` binds the node's key to a fresh broker-issued nonce (so a quote
+cannot be replayed by another node or reused once stale), and (3) the launch measurement is on a
+pinned allowlist of approved RogerAI serving stacks. The broker re-checks attestation on a cadence
+and drops the badge if it lapses. **Implemented today for AMD SEV-SNP** (via
+github.com/google/go-sev-guest); Intel TDX and NVIDIA Confidential Computing GPU attestation are
+pluggable backends on the same interface. A node with no TEE produces no quote, makes no claim, and
+is plainly "standard" - the `◆` is never granted without a verified quote. Privacy-sensitive users
+(and bots handling PII/tax/financial data) set a filter to **route only to verified confidential
+nodes.** This is the cryptographic answer to "the owner could spy."
+
+Honest status: the SEV-SNP verification pipeline is wired and unit-tested against synthetic signed
+quotes (valid quote verifies; forged signature, replayed/rebound quote, non-allowlisted measurement,
+and lapsed re-attestation are all rejected). It still needs validation against real SEV-SNP hardware
+and an independent security review before it is leaned on for high-stakes secrets, and the
+measurement allowlist must be populated with the real, reproducibly-built RogerAI stack measurements.
 
 ## The open tier: deterrence, not magic
 The cheapest providers run on ordinary GPUs where the host *technically could* log. We make that
@@ -47,7 +60,8 @@ In the CLI/criteria you choose your floor:
 - **Private** - route only to your own nodes or a trust-listed friend's; or use the local tier.
 
 ## Roadmap
-- Attestation verification + `confidential ◆` badge and a `--confidential` route filter.
+- Validate the SEV-SNP attestation pipeline on real confidential-VM hardware + an external security review.
+- Additional TEE backends on the same verifier interface: Intel TDX, NVIDIA Confidential Computing GPU attestation.
 - Per-request `no-store` flag echoed into the signed receipt (auditable promise).
 - Canary-prompt auditing service + automated slashing.
 - Optional client→enclave encryption envelope for confidential nodes (broker stays content-blind).

@@ -59,13 +59,57 @@ func TestStagedConnectSequence(t *testing.T) {
 			t.Errorf("stage %d missing the staged steps:\n%s", stage, out)
 		}
 	}
-	// The fully-resolved finale: CHANNEL OPEN + the endpoint block + roger that.
+	// The fully-resolved finale: CHANNEL OPEN + the endpoint block + roger that. The
+	// offer is confidential here, so the finale carries the TEE "confidential" mark
+	// (◆) - NOT a generic "verified" word.
 	mm.connectStage = connectStageDone
 	out := stripANSI(mm.connectingView(100))
-	for _, want := range []string{"CHANNEL OPEN", "verified", "BASE URL", "API KEY", "MODEL", "http://127.0.0.1:4141/v1", "roger-local", "gpt-oss-20b", "roger that."} {
+	for _, want := range []string{"CHANNEL OPEN", "confidential", "BASE URL", "API KEY", "MODEL", "http://127.0.0.1:4141/v1", "roger-local", "gpt-oss-20b", "roger that."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("connect finale missing %q:\n%s", want, out)
 		}
+	}
+
+	// A NON-confidential channel must NOT claim "confidential": it carries the lineage
+	// mark instead, proving the ◆ badge is reserved for the real TEE tier.
+	mm.connected = &offer{NodeID: "plain-home", Model: "gpt-oss-20b", PriceOut: 0.30, Online: true, TPS: 62, Confidential: false}
+	out2 := stripANSI(mm.connectingView(100))
+	if strings.Contains(out2, "confidential") {
+		t.Errorf("a standard (non-TEE) channel must not show 'confidential':\n%s", out2)
+	}
+	if !strings.Contains(out2, "lineage") {
+		t.Errorf("a standard channel should carry the lineage mark:\n%s", out2)
+	}
+}
+
+// TestChannelGlyphHonesty: the confidential ◆ is shown ONLY for a TEE-attested
+// (Confidential) channel; a standard channel carries the lineage ✓ instead. This is
+// the load-bearing badge disambiguation - ◆ must never appear for a non-TEE node.
+func TestChannelGlyphHonesty(t *testing.T) {
+	conf := &offer{NodeID: "tee", Confidential: true}
+	std := &offer{NodeID: "plain", Confidential: false}
+	if g := channelGlyph(conf); g != glyphConf {
+		t.Errorf("confidential channel glyph = %q, want %q (◆)", g, glyphConf)
+	}
+	if g := channelGlyph(std); g != glyphLineage {
+		t.Errorf("standard channel glyph = %q, want %q (✓)", g, glyphLineage)
+	}
+	if g := channelGlyph(nil); g != glyphLineage {
+		t.Errorf("nil channel glyph = %q, want %q (✓)", g, glyphLineage)
+	}
+	if glyphConf == glyphLineage {
+		t.Fatal("confidential and lineage marks must be DISTINCT glyphs")
+	}
+	// The endpoint panel surfaces the confidential mark only for a confidential channel.
+	m := New("http://broker.local", "tester")
+	m.width = 100
+	m.connected = std
+	if strings.Contains(stripANSI(m.endpointPanel(100)), "confidential") {
+		t.Error("endpoint panel claimed 'confidential' for a standard channel")
+	}
+	m.connected = conf
+	if !strings.Contains(stripANSI(m.endpointPanel(100)), "confidential") {
+		t.Error("endpoint panel missing 'confidential' for a TEE channel")
 	}
 }
 

@@ -181,16 +181,34 @@ var (
 //
 //	glyphOnAir  ◉  on air / online / a live carrier
 //	glyphOffAir ○  off air / offline / over-margin
-//	glyphVerify ◆  lineage-verified (rendered in the one red as a glint)
+//	glyphConf   ◆  TEE-verified CONFIDENTIAL ONLY - a node that passed real hardware
+//	               remote attestation (SEV-SNP quote: signature chain + nonce binding +
+//	               allowlisted measurement). NEVER shown for a non-attested node.
+//	glyphLineage ✓ signed-lineage / GitHub-verified-operator glint - the IDENTITY mark
+//	               on every co-signed channel + on login. Distinct from ◆: lineage
+//	               receipts are on ALL channels; ◆ is only the confidential tier.
 //	signalGlyphs ▁▂▃▄▅▆▇█  the signal-strength tower
 //
 // These degrade to plain runes under NO_COLOR (lipgloss strips the color, the
 // glyph itself is still a recognizable Unicode mark) and stay fixed-width.
 const (
-	glyphOnAir  = "◉"
-	glyphOffAir = "○"
-	glyphVerify = "◆"
+	glyphOnAir   = "◉"
+	glyphOffAir  = "○"
+	glyphConf    = "◆" // TEE-verified confidential ONLY
+	glyphLineage = "✓" // signed-lineage / verified-operator (identity, not confidential)
+	// glyphVerify is retained as an alias for the confidential diamond so existing
+	// references keep compiling; new code should use glyphConf or glyphLineage by intent.
+	glyphVerify = glyphConf
 )
+
+// channelGlyph picks the honest mark for a held channel: the confidential ◆ ONLY when
+// the connected node passed real TEE attestation, otherwise the lineage/identity ✓.
+func channelGlyph(o *offer) string {
+	if o != nil && o.Confidential {
+		return glyphConf
+	}
+	return glyphLineage
+}
 
 // selCarat is the NO_COLOR / non-TTY selection marker: a bold `>` the eye still
 // catches when the reverse-video background is stripped. A space keeps unselected
@@ -844,7 +862,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeLogin {
 			m.mode = m.loginReturn
 		}
-		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - wallet ready, you can now earn as a provider")
+		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready, you can now earn as a provider")
 		// Refresh the wallet so the header flips to @login · $balance right away, and
 		// (re)fetch the payout snapshot now that there is a signing identity to read it.
 		m.payoutFetched = true
@@ -871,7 +889,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
 		return m, nil
 	case grantMsg:
-		m.status = stLive.Render("◆ grant created - secret (shown once): ") + stKey.Render(msg.secret)
+		m.status = stLive.Render(glyphLineage+" grant created - secret (shown once): ") + stKey.Render(msg.secret)
 		return m, nil
 	case grantListMsg:
 		m.grantList = []GrantRow(msg)
@@ -1171,7 +1189,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.connected != nil && m.cursorOnConnected() {
 				m.mode = modeChat
 				m.chatIn.Focus()
-				m.status = stGold.Render(glyphVerify+" ") + stLive.Render("back on channel ") + m.connected.NodeID
+				m.status = stGold.Render(channelGlyph(m.connected)+" ") + stLive.Render("back on channel ") + m.connected.NodeID
 				return m, textinput.Blink
 			}
 			return m.connect()
@@ -2122,7 +2140,7 @@ func (m model) loginView(w int) string {
 			who = "your account"
 		}
 		body := stKey.Render("ACCOUNT") + "\n\n" +
-			stGold.Render("  "+glyphVerify+" ") + stDim.Render("logged in as ") + stSelText.Render(who)
+			stGold.Render("  "+glyphLineage+" ") + stDim.Render("logged in as ") + stSelText.Render(who)
 		if m.haveBal {
 			body += stDim.Render(" · ") + stEmber.Render(dollars(m.balance))
 		}
@@ -2354,7 +2372,7 @@ func (m model) finishConnect() (tea.Model, tea.Cmd) {
 	if len(m.transcript) == 0 {
 		m.transcript = append(m.transcript, stDim.Render("◂ ")+stLive.Render("roger that")+stDim.Render(" - channel open. type to talk, /help for in-session commands."))
 	}
-	m.status = stGold.Render(glyphVerify+" ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
+	m.status = stGold.Render(channelGlyph(o)+" ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
 	return m, textinput.Blink
 }
 
@@ -2988,7 +3006,7 @@ func (m model) connectingView(w int) string {
 	if narrow {
 		triplet = ""
 	}
-	hsTriplet := stGold.Render(glyphVerify) + stDim.Render(triplet)
+	hsTriplet := stGold.Render(glyphLineage) + stDim.Render(triplet)
 	switch hs {
 	case 0:
 		b.WriteString("  " + stDim.Render(glyphOffAir+" lineage handshake") + "\n")
@@ -3001,7 +3019,11 @@ func (m model) connectingView(w int) string {
 	if st >= connectStageDone {
 		open := "  " + stRed.Render(glyphOnAir) + " " + stBrand.Render("CHANNEL OPEN") + "  " + stKey.Render(o.Model)
 		if !narrow {
-			open += stDim.Render(" via @") + stSelText.Render(o.NodeID) + "  " + stGold.Render(glyphVerify+" verified")
+			mark := stGold.Render(glyphLineage + " lineage")
+			if o != nil && o.Confidential {
+				mark = stGold.Render(glyphConf + " confidential")
+			}
+			open += stDim.Render(" via @") + stSelText.Render(o.NodeID) + "  " + mark
 		}
 		b.WriteString(open + "\n")
 		// The clean endpoint plate + the drop-in line (a shorter line when narrow).
@@ -3281,7 +3303,7 @@ func (m model) compactHeader(w int) string {
 	if m.connected != nil {
 		// Channel context: the load-bearing "what am I on + price + balance".
 		o := m.connected
-		mid = stGold.Render(glyphVerify) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
+		mid = stGold.Render(channelGlyph(o)) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
 			sep + stKey.Render(o.Model) +
 			sep + stEmber.Render(dollars(o.PriceOut)+"/1M")
 	} else {
@@ -3303,12 +3325,12 @@ func (m model) compactHeader(w int) string {
 	}
 
 	// The account tag carries the wallet, the other load-bearing bit. The compact form
-	// is terse - ◆ @login · $bal collapses to just $bal (or /login when anonymous) - so
+	// is terse - ✓ @login · $bal collapses to just $bal (or /login when anonymous) - so
 	// the dense strip stays short and the m:expand hint never gets crowded out.
 	acct := m.accountTag(true)
 	if m.loggedInState() && m.ghLogin != "" {
 		// Logged in: keep the callsign + balance (the identity is worth the few cols).
-		acct = stGold.Render(glyphVerify) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
+		acct = stGold.Render(glyphLineage) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
 		if m.haveBal {
 			acct += stDim.Render(" ") + stEmber.Render(dollars(m.balance))
 		}
@@ -3385,7 +3407,7 @@ func (m model) header(w int) string {
 	// channel + model + out-price + balance + a tiny live signal.
 	if m.connected != nil && (m.minimized || m.mode == modeChat) {
 		o := m.connected
-		bar := stGold.Render("◆") + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
+		bar := stGold.Render(channelGlyph(o)) + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
 			stDim.Render(" · ") + m.accountTag(true) +
@@ -3434,7 +3456,7 @@ func (m model) header(w int) string {
 		if m.narrow() {
 			hint = ""
 		}
-		state = stGold.Render("  "+glyphVerify+" ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
+		state = stGold.Render("  "+channelGlyph(m.connected)+" ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render(" · ") + m.accountTag(true) + hint
 	} else {
@@ -3571,7 +3593,7 @@ func (m model) balDollars() string {
 func (m model) loggedInState() bool { return m.loggedIn || m.ghLogin != "" }
 
 // accountTag renders the header/footer account lockup: logged in shows
-// "◆ @login · $balance"; anonymous shows a calm, steady "not logged in · /login to
+// "✓ @login · $balance"; anonymous shows a calm, steady "not logged in · /login to
 // use your wallet" prompt (no balance number is ever shown when anonymous). When
 // `compact` is set it drops to a terser form for the thin bar / narrow widths.
 func (m model) accountTag(compact bool) string {
@@ -3584,13 +3606,13 @@ func (m model) accountTag(compact bool) string {
 	// Compact (thin bar / narrow footer): just the balance ($), the load-bearing bit.
 	if compact {
 		if !m.haveBal {
-			return stGold.Render("◆")
+			return stGold.Render(glyphLineage)
 		}
 		return stEmber.Render(dollars(m.balance))
 	}
-	who := stGold.Render("◆") + stDim.Render(" logged in")
+	who := stGold.Render(glyphLineage) + stDim.Render(" logged in")
 	if m.ghLogin != "" {
-		who = stGold.Render("◆") + stDim.Render(" @") + stSelText.Render(m.ghLogin)
+		who = stGold.Render(glyphLineage) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
 	}
 	if !m.haveBal {
 		return who
@@ -4009,8 +4031,9 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 }
 
 // bandBadge renders the right-hand flag cell: a lit "◉ connected" marker for the
-// open channel's band, the gold ◆ lineage call-sign (with the verified hop count),
-// a live FREE tag, and the ember above-limit warning.
+// open channel's band, the gold "◆ N" count of TEE-verified confidential stations on
+// the band (bd.lineage is the confidential count from /discover), a live FREE tag, and
+// the ember above-limit warning.
 func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
 	if connected {
@@ -4198,12 +4221,12 @@ func (m model) chatView(w int) string {
 	// single terse status (callsign · model · cost), dropping the prose label.
 	if m.compact {
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("CHAN") +
-			stDim.Render("  ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+			stDim.Render("  ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(m.sessCost)) + sys
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
-			stDim.Render("   ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+			stDim.Render("   ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
 	}
 	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂). COMPACT
@@ -4363,7 +4386,7 @@ func transmitLine(frame, elapsedSec int) string {
 func (m model) endpointPanel(w int) string {
 	lineage := stDim.Render("·")
 	if m.connected != nil && m.connected.Confidential {
-		lineage = stGold.Render(glyphVerify + " verified")
+		lineage = stGold.Render(glyphConf + " confidential (TEE-verified)")
 	}
 	head := stRed.Render(glyphOnAir+" ") + stLive.Render("channel open") + "  " +
 		stDim.Render("point your bots here") + "  " + lineage

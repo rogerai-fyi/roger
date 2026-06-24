@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
 	"strconv"
@@ -107,10 +108,24 @@ type NodeRegistration struct {
 	HW          string       `json:"hw"`
 	Offers      []ModelOffer `json:"offers"`
 	// Confidential: node claims it runs inference in a TEE/confidential VM where
-	// the owner cannot read memory; Attestation is the (to-be-verified) quote. The
-	// broker only surfaces `confidential ◆` after verifying the attestation.
-	Confidential bool   `json:"confidential,omitempty"`
-	Attestation  string `json:"attestation,omitempty"`
+	// the owner cannot read memory; Attestation is the (to-be-verified) hardware
+	// quote. The broker only surfaces `confidential ◆` after CRYPTOGRAPHICALLY
+	// verifying the attestation (signature chain to the silicon vendor root, an
+	// allowlisted launch measurement, and a fresh nonce binding - see AttestNonce).
+	Confidential bool `json:"confidential,omitempty"`
+	// Attestation is a base64-encoded TEE quote. For AMD SEV-SNP it is the raw
+	// extended attestation report (ATTESTATION_REPORT followed by its VCEK cert
+	// table), as returned by the guest /dev/sev-guest device. Empty when the node
+	// is not on TEE hardware (an honest node sends NO quote and gets NO badge).
+	Attestation string `json:"attestation,omitempty"`
+	// AttestKind names the TEE backend that produced Attestation ("sev-snp", later
+	// "tdx" / "nvidia-cc"). Lets the broker route to the right verifier.
+	AttestKind string `json:"attest_kind,omitempty"`
+	// AttestNonce is the broker-issued challenge nonce (hex) this quote was bound
+	// to: the quote's report_data MUST equal AttestationReportData(PubKey, nonce),
+	// which binds the quote to THIS node's key AND to a fresh broker challenge so a
+	// quote cannot be replayed by another node or reused after it goes stale.
+	AttestNonce string `json:"attest_nonce,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.
@@ -144,6 +159,38 @@ func (r NodeRegistration) VerifyRegistration() bool {
 		return false
 	}
 	return ed25519.Verify(ed25519.PublicKey(pub), r.regSigningBytes(), sig)
+}
+
+// AttestChallenge is what POST /nodes/challenge returns: a single-use nonce the
+// node must bind its TEE quote to (via the quote's report_data) plus when it
+// expires. Binding to a broker-issued, short-lived nonce is what stops a quote
+// from being replayed by a different node or reused after it goes stale.
+type AttestChallenge struct {
+	Nonce   string `json:"nonce"`   // hex; the node folds this into report_data
+	Expires int64  `json:"expires"` // unix seconds; the broker rejects a quote after this
+}
+
+// AttestationReportData computes the 64-byte report_data a TEE quote MUST carry
+// to be accepted: SHA-512 over the node's Ed25519 public key bytes followed by
+// the broker's challenge nonce bytes. SHA-512 is used because SEV-SNP report_data
+// is exactly 64 bytes. Binding the pubkey makes a quote useless to any OTHER node
+// (it cannot forge this node's key), and binding the broker nonce makes it useless
+// to replay (the nonce is single-use and short-lived). pubHex/nonceHex are the
+// hex encodings carried on the wire; a decode error yields a nil (never-matching)
+// result so a malformed input simply fails verification.
+func AttestationReportData(pubHex, nonceHex string) []byte {
+	pub, err := hex.DecodeString(pubHex)
+	if err != nil {
+		return nil
+	}
+	nonce, err := hex.DecodeString(nonceHex)
+	if err != nil {
+		return nil
+	}
+	h := sha512.New()
+	h.Write(pub)
+	h.Write(nonce)
+	return h.Sum(nil) // 64 bytes
 }
 
 // UsageReceipt is the per-request lineage record. It is hash-chained (PrevHash)

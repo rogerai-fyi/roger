@@ -495,7 +495,19 @@ paths:
       responses:
         "200": { description: ok }
         "401": { description: invalid signature, or priced offer without a signed owner request }
-        "403": { description: priced offer but the signing key is not a GitHub-linked owner }
+        "403": { description: priced offer but the signing key is not a GitHub-linked owner, OR (TEE-require mode) a confidential claim that failed attestation }
+
+  /nodes/challenge:
+    post:
+      tags: [provider]
+      summary: Get a single-use TEE attestation nonce
+      description: |
+        Confidential-tier handshake. Returns a short-lived, single-use nonce. The node
+        must produce a TEE quote whose report_data == hash(pub_key || nonce) and send it
+        in the following /nodes/register, which binds the quote to this node's key and a
+        fresh challenge (anti-replay).
+      responses:
+        "200": { description: a fresh challenge, content: { application/json: { schema: { $ref: '#/components/schemas/AttestChallenge' } } } }
 
   /nodes/heartbeat:
     post:
@@ -646,8 +658,16 @@ components:
         region: { type: string }
         hw: { type: string }
         offers: { type: array, items: { $ref: '#/components/schemas/ModelOffer' } }
-        confidential: { type: boolean }
-        attestation: { type: string, description: TEE attestation blob (verified before the confidential badge) }
+        confidential: { type: boolean, description: "Node claims the confidential tier. Honored only after the attestation quote verifies." }
+        attestation: { type: string, description: "base64 TEE quote (SEV-SNP raw extended report). Verified for signature chain, nonce binding, and allowlisted measurement before the confidential badge is granted." }
+        attest_kind: { type: string, description: "TEE backend that produced the quote (e.g. sev-snp)." }
+        attest_nonce: { type: string, description: "The /nodes/challenge nonce this quote is bound to (report_data = hash(pub_key || nonce))." }
+    AttestChallenge:
+      type: object
+      description: "A single-use, short-lived nonce the node binds its TEE quote to (anti-replay)."
+      properties:
+        nonce: { type: string, description: hex challenge nonce }
+        expires: { type: integer, format: int64, description: unix seconds after which the nonce is rejected }
     UsageReceipt:
       type: object
       description: Hash-chained, node-signed + broker-counter-signed per-request record.
