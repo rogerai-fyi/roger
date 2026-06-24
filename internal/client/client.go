@@ -496,9 +496,19 @@ func isYes(s string) bool {
 	return s == "y" || s == "yes"
 }
 
+// chatTimeout is generous on purpose: CPU MoE inference (gpt-oss-20b/120b) can
+// take well over a minute for a long reply, and the founder's silent-failure
+// report was on slow local inference. It must exceed the broker's own 120s
+// resCh wait so the broker's "node timed out" message wins the race instead of
+// the client's transport timeout (which would surface as an opaque dial error).
+const chatTimeout = 300 * time.Second
+
 // Chat sends one message through the broker and returns the reply, a status
 // line (provider · cost), and the parsed per-reply cost in credits (1 cr = $1).
-// Used by the TUI's in-CLI test chat / session.
+// Used by the TUI's in-CHANNEL chat / session. Every failure path returns a
+// clear, human-readable error so the TUI never shows a blank no-response: a
+// missing station, a slow-inference timeout, the broker's own error body, or a
+// transport drop are all surfaced verbatim instead of as an empty turn.
 func Chat(broker, user, model, prompt string, confidential bool) (reply, status string, costCr float64, err error) {
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
@@ -512,9 +522,14 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	if confidential {
 		req.Header.Set("X-Roger-Confidential", "1")
 	}
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: chatTimeout}).Do(req)
 	if err != nil {
-		return "", "", 0, err
+		// A transport timeout/drop: name it plainly (the bare net error reads as
+		// noise). The deadline is chatTimeout; anything slower is a stuck station.
+		if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+			return "", "", 0, fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", chatTimeout)
+		}
+		return "", "", 0, fmt.Errorf("could not reach the broker: %v", err)
 	}
 	defer resp.Body.Close()
 	var d struct {
@@ -528,12 +543,22 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	json.NewDecoder(resp.Body).Decode(&d)
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = json.Unmarshal(raw, &d)
 	if len(d.Choices) == 0 {
+		// Prefer the broker/provider's own error text (e.g. "no node offers <model>",
+		// "node timed out", "insufficient credits") so the CHANNEL view names the real
+		// cause. The relay returns 503 with a plain-text body for no-station; surface it.
 		if d.Error.Message != "" {
 			return "", "", 0, fmt.Errorf("%s", d.Error.Message)
 		}
-		return "", "", 0, fmt.Errorf("no response (status %d)", resp.StatusCode)
+		if resp.StatusCode >= 400 {
+			if msg := strings.TrimSpace(string(raw)); msg != "" && len(msg) < 300 {
+				return "", "", 0, fmt.Errorf("%s (status %d)", msg, resp.StatusCode)
+			}
+			return "", "", 0, fmt.Errorf("the station returned status %d with no reply", resp.StatusCode)
+		}
+		return "", "", 0, fmt.Errorf("the station sent an empty response (status %d)", resp.StatusCode)
 	}
 	reply = d.Choices[0].Message.Content
 	if reply == "" {
