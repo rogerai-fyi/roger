@@ -147,7 +147,36 @@
       label: "rogerai", title: "rogerai - the dial",
       build: function () {
         return compile(function (c) {
-          // --- boot / carrier ---
+          // --- LEAD WITH THE PROVIDER SIDE: this is the differentiator ---
+          // entering the CLI as a station owner: your GPU as a station, the
+          // model detected, going ◉ ON AIR, a served request + an earnings tick.
+          var shareCmd = "rogerai share " + BAND + " --rate " + MAX_PRICE;
+          c.type([], shareCmd, AFTER_TYPE);
+          var shBase = [PROMPT + head(shareCmd), ""];
+          var shSteps = [
+            ok("  ◉") + " your GPU         " + head("RTX PRO 4500") + dim(" · 32 GB · 127.0.0.1:8000") + "  " + ok("ok"),
+            ok("  ◉") + " models detected  " + head(BAND) + dim(" · ") + dim("vLLM backend") + "  " + ok("ok"),
+            ok("  ◉") + " call-sign        " + head("@you") + " " + gold("◆") + dim(" · rate ") + money(MAX_PRICE + " $/M out") + "  " + ok("ok")
+          ];
+          for (var si = 0; si < shSteps.length; si++) c.show(shBase.concat(shSteps.slice(0, si + 1)), STEP);
+          var shOnAir = shBase.concat(shSteps, ["",
+            ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
+              dim(" · ") + live("station live") + dim(" · your GPU is a station now")
+          ]);
+          c.show(shOnAir, STAGE);
+          c.show(shOnAir.concat(["",
+            dim("  ┌ live ──────────────────────────────────────────────────────┐"),
+            dim("  │ ") + ok("◉ on air ") + gold("◆") + dim(" │ ") + head("@you    ") +
+              dim(" │ ") + live("incoming request from @ssh-bot…") + dim("            │"),
+            dim("  └────────────────────────────────────────────────────────────┘")
+          ]), STAGE);
+          c.show(shOnAir.concat(["",
+            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money(MAX_PRICE + " $/M") +
+              dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"),
+            dim("  balance ") + money("$42.18") + dim("  ·  your GPU is paying rent. ") + live("roger that.")
+          ]), END_HOLD);
+
+          // --- now the other side: boot / carrier (tune in as a consumer) ---
           c.type([], "rogerai", AFTER_TYPE);
           c.show([
             PROMPT + head("rogerai"), "",
@@ -306,6 +335,15 @@
   };
 
   /* ---- engine -------------------------------------------------------- */
+  // playlist order: when a demo finishes we auto-advance to the next preset
+  // and play it (rogerai -> search -> use -> share -> back to rogerai).
+  var ORDER = ["rogerai", "search", "use", "share"];
+  var NEXT_HOLD = 1500;         // ms to show the "NEXT:" indicator before switching
+  function nextOf(name) {
+    var i = ORDER.indexOf(name);
+    return ORDER[(i + 1) % ORDER.length];
+  }
+
   var current = "rogerai";
   var frames = [];
   var idx = 0;
@@ -342,8 +380,16 @@
   function advance() {
     if (!playing) return;
     if (idx >= frames.length - 1) {
+      // end of demo: show a brief "NEXT:" indicator, then auto-advance to the
+      // next preset and play it (a continuous playlist). Pausing halts this.
       elapsed = total; setBar(1);
-      timer = setTimeout(function () { if (playing) start(); }, 900); // gentle loop
+      var nxt = nextOf(current);
+      flush(frames[frames.length - 1].lines.concat([
+        "",
+        dim("  ▸ ") + live("NEXT") + dim("  ") + head(DEMOS[nxt].label) +
+          dim("  ·  " + (nxt === "rogerai" ? "looping the dial…" : "auto-advancing…"))
+      ]));
+      timer = setTimeout(function () { if (playing) select(nxt, "auto"); }, NEXT_HOLD);
       return;
     }
     elapsed += frames[idx].hold;
