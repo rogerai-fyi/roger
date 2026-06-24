@@ -249,6 +249,20 @@
               <code>rogerai balance</code>, and it ticks down live as you generate.</p>
           </section>
 
+            <h3>Resilient by design: transparent re-routing</h3>
+            <p>You tune to a <b>band</b> (a model), not to one station. The broker hands
+              you the best available station for that model, and the client wraps every
+              request in a <b>bounded failover loop</b>: if a station times out, drops the
+              connection, or returns a 5xx mid-stream, RogerAI automatically re-routes to
+              another station serving the same model - a few attempts with exponential
+              backoff (200ms, capped at 2s), each picking the next fast-and-cheap station.
+              A 4xx (your own bad request) is never retried - that is not the station's
+              fault. Your local OpenAI endpoint stays fixed throughout, so your bots and
+              tools see one stable endpoint and never notice a station went off air. If
+              every station on the band is exhausted you get one clear error, not a silent
+              hang.</p>
+
+
           <!-- ============== §4 GO ON AIR ============== -->
           <section class="man-sec" id="s4">
             <span class="man-sec__no">§4 · Go on air (provide)</span>

@@ -55,6 +55,8 @@
     if (acct.github_login) {
       var img = document.createElement("img");
       img.className = "acctmenu__avatar";
+      img.crossOrigin = "anonymous";   // fetch the avatar WITHOUT credentials so GitHub cookies are not sent cross-site (silences the console cookie-rejected warnings)
+      img.referrerPolicy = "no-referrer";
       img.src = "https://github.com/" + encodeURIComponent(acct.github_login) + ".png?size=48";
       img.width = 24; img.height = 24;
       img.alt = "";
