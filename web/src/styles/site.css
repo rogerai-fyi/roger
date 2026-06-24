@@ -1367,28 +1367,12 @@ table.man-table tr:hover td { background: var(--paper); }
 .hero__ping-tag { color: var(--ink-500); }
 
 /* =====================================================================
-   FIG.1 - THE DIAL: a full-bleed radio tuner you can sweep. Monochrome +
-   the one red beacon (needle / lock glints). Flat hairline instrument
-   plate; graduated SVG ticks; fixed center needle; glass scanline vignette;
-   a signal meter that reacts to the tuned band. JS-hydrated; works static.
+   THE DIAL: a full-bleed radio tuner you can sweep. Monochrome + the one
+   red beacon (needle / lock glints). Flat hairline instrument plate;
+   graduated SVG ticks; fixed center needle; glass scanline vignette; a
+   signal meter that reacts to the tuned band. JS-hydrated; works static.
+   The dial lives on /models.html (see .dialwrap for its full-bleed shell).
    ===================================================================== */
-
-/* full-bleed breakout: the instrument spans the whole viewport while the
-   rest of the hero stays in the document column. The hero text block above
-   and the FIG.2 block below sit in their own .wrap; this band is between. */
-.tuner {
-  --lock: 0;            /* 0..1 how locked onto a detent (JS) */
-  --sig: 0.4;           /* 0..1 tuned band signal (JS) */
-  width: 100vw; max-width: 100vw;
-  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
-  margin-top: var(--s-8); margin-bottom: var(--s-8);
-  padding-inline: var(--gutter);
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  background:
-    linear-gradient(var(--paper-2), var(--paper-2)) padding-box;
-}
-.tuner__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }
 
 /* the instrument plate, centered in the wide band but allowed to breathe */
 .dial {
@@ -1506,15 +1490,73 @@ table.man-table tr:hover td { background: var(--paper); }
 }
 
 /* =====================================================================
-   /bands - the live station directory: scanner centerpiece, directory
-   table, and the QSL detail card. Same monochrome + one-red foundation;
-   flat hairline plates; mono for all machine truth.
+   /models - the live model directory: the interactive dial centerpiece
+   (see THE DIAL above + .dialwrap below), the directory table, and the QSL
+   detail card. Same monochrome + one-red foundation; flat hairline plates;
+   mono for all machine truth.
    ===================================================================== */
 
-/* the small homepage entry into /bands (single, non-disruptive link) */
+/* the small homepage entry into /models (single, non-disruptive link) */
 .market__tune { margin-top: var(--s-3); font-size: var(--t-xs); }
 .market__tune a { color: var(--ink-500); border-bottom: 1px solid transparent; }
 .market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
+
+/* =====================================================================
+   FIG.1 (homepage) - the BAND TEASER. A compact, glanceable band selector
+   that links into /models.html (where the full interactive dial lives).
+   Marketing surface: gently animated, representative data. Whole thing is
+   one <a>. Flat hairline plate, monochrome + the one red lock line.
+   ===================================================================== */
+.teaser {
+  display: block; max-width: 720px; margin: var(--s-8) auto;
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  background: var(--paper); text-decoration: none; color: inherit;
+  transition: border-color var(--d-2), box-shadow var(--d-2);
+}
+.teaser:hover { border-color: var(--ink-400); }
+.teaser:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
+.teaser__fig { display: block; padding: var(--s-3) var(--s-4) 0; }
+.teaser__face { padding: var(--s-2) 0 0; }
+.teaser__top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
+}
+.teaser__locked { font-size: 0.82rem; color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; transition: color var(--d-2); }
+.teaser__locked b { color: var(--live); font-weight: var(--weight-semi); }
+.teaser__sig { font-size: 0.74rem; color: var(--ink-500); white-space: nowrap;
+  font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__sig b { color: var(--live); font-weight: var(--weight-semi); }
+
+.teaser__list { list-style: none; margin: 0; padding: var(--s-2) 0; }
+.teaser__band {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
+  padding: 7px var(--s-4); font-family: var(--font-mono); font-size: 0.78rem;
+  color: var(--ink-500); border-left: 2px solid transparent;
+  transition: color var(--d-2), background var(--d-2), border-color var(--d-2);
+}
+.teaser__band .teaser__bm { color: var(--ink-700); letter-spacing: -0.01em; }
+.teaser__band .teaser__bd { color: var(--ink-400); font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__band--idle { opacity: .6; }
+.teaser__band--idle .teaser__bd { font-style: italic; }
+.teaser__band.is-locked {
+  background: var(--live-tint); border-left-color: var(--live);
+}
+.teaser__band.is-locked .teaser__bm { color: var(--ink-900); font-weight: var(--weight-semi); }
+.teaser__band.is-locked .teaser__bd { color: var(--live); }
+
+.teaser__foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--s-3) var(--s-4); padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--hairline); font-family: var(--font-mono); font-size: 0.72rem;
+}
+.teaser__chip { display: inline-flex; gap: var(--s-3); align-items: center; color: var(--ink-500);
+  font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.teaser__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.teaser__open { color: var(--ink-700); border-bottom: 1px solid transparent; transition: color var(--d-2), border-color var(--d-2); }
+.teaser:hover .teaser__open { color: var(--live); border-bottom-color: var(--live); }
+@media (max-width: 480px) { .teaser__open { display: none; } }
 
 /* ---------- bands hero ----------------------------------------- */
 .bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
@@ -1593,6 +1635,25 @@ table.man-table tr:hover td { background: var(--paper); }
 .scanner__open { margin-left: auto; color: var(--ink-700); border-bottom: 1px solid transparent; }
 .scanner__open:hover { color: var(--live); border-bottom-color: var(--live); }
 
+/* ---------- the full-bleed interactive dial (Models centerpiece) ----
+   The exploration tuner moved off the homepage onto /models.html. Same
+   instrument plate as the old homepage FIG.1; full-bleed band between the
+   hero text and the directory. Idle / offline-seen labels read dimmed. */
+.dialwrap {
+  --lock: 0; --sig: 0.4;
+  width: 100vw; max-width: 100vw;
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  margin-top: var(--s-8); margin-bottom: 0;
+  padding-inline: var(--gutter);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(var(--paper-2), var(--paper-2)) padding-box;
+}
+.dialwrap__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }
+.dialwrap .dial { margin: 0 auto var(--s-6); max-width: 1180px; }
+@media (max-width: 880px) { .dialwrap .dial { max-width: none; } }
+.dial__lbl--idle { opacity: .4; }
+
 /* ---------- tuner: search + filters ---------------------------- */
 .tuner { margin: 0 0 var(--s-6); display: flex; flex-direction: column; gap: var(--s-4); }
 .tuner__search {
@@ -1643,6 +1704,15 @@ table.man-table tr:hover td { background: var(--paper); }
 .bands-panel__status.is-live { color: var(--ink-900); }
 .bands-panel__status.is-off { color: var(--ink-400); }
 .bands-panel__empty { padding: var(--s-6) var(--s-4); color: var(--ink-400); }
+.bands-panel__status.is-quiet { color: var(--ink-400); }
+
+/* honest empty state: nothing real on air. No fake bands - just the truth
+   and the one command that fixes it. */
+.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
+.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
+.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
+.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.bands-panel__quiet-sub .inline { color: var(--ink-900); }
 
 .band-row, .band-row--head {
   display: grid;
@@ -1676,6 +1746,10 @@ table.man-table tr:hover td { background: var(--paper); }
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--free { color: var(--live); border-color: var(--live); }
+.band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
+/* previously-seen, now-offline rows: real history, dimmed (never invented) */
+.band-row--seen { opacity: .5; }
+.band-row--seen:hover { opacity: .7; }
 
 .band-cell--sig .sig { font-family: var(--font-mono); letter-spacing: 1px; line-height: 1; }
 .band-signum { display: inline-block; min-width: 22px; margin-left: var(--s-2); font-size: var(--t-xs); color: var(--ink-400); }
