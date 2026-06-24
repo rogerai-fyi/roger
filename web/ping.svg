@@ -12,6 +12,6 @@
     <rect x="13" y="27" width="2.6" height="2.6" rx=".6" />
     <rect x="16.4" y="27" width="2.6" height="2.6" rx=".6" />
   </g>
-  <!-- the on-air eye: faceted live-red pip, matching the beacon -->
-  <path d="M16 6.5 L18.8 9.3 L19.7 12 L18.8 14.7 L16 17.5 L13.2 14.7 L12.3 12 L13.2 9.3 Z" fill="#FF3B3B" />
+  <!-- the on-air eye: the live-red CIRCLE beacon, matching the logo/favicon mark -->
+  <circle cx="16" cy="12" r="3" fill="#FF3B3B" />
 </svg>
