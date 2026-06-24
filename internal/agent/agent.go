@@ -62,6 +62,119 @@ type Session struct {
 	servedToks    atomic.Int64
 	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
 	stop          chan struct{}
+	rereg         *reregistrar // shared self-healing re-register coordinator
+}
+
+// reregistrar is the node's self-healing coordinator. The broker is in-memory:
+// a redeploy/restart wipes its node registry, after which every poll/heartbeat
+// gets 404 "unknown node" (or 401/403 once the token no longer matches). This
+// holds the CURRENT bridge token (refreshed on every re-register, since each
+// register issues a new one) behind a mutex so all pollers + the heartbeat read
+// the live token each iteration, and single-flights the re-register so N
+// concurrent workers hitting 404 cause exactly ONE re-register, not N.
+type reregistrar struct {
+	broker string
+	reg    protocol.NodeRegistration
+	priv   ed25519.PrivateKey
+
+	mu    sync.Mutex
+	cond  *sync.Cond
+	token string // the live bridge token (workers read this every iteration)
+	gen   uint64 // bumped on every successful re-register
+	busy  bool   // a re-register is in flight (single-flight gate)
+}
+
+func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.PrivateKey) *reregistrar {
+	rr := &reregistrar{broker: broker, reg: reg, priv: priv, token: reg.BridgeToken}
+	rr.cond = sync.NewCond(&rr.mu)
+	return rr
+}
+
+// curToken returns the live bridge token plus the generation it belongs to
+// (workers call this every iteration so a refreshed token after a re-register is
+// picked up immediately; the generation is passed back into recover so the
+// single-flight gate knows which re-register a 404 is reacting to).
+func (rr *reregistrar) curToken() (string, uint64) {
+	rr.mu.Lock()
+	defer rr.mu.Unlock()
+	return rr.token, rr.gen
+}
+
+// recover re-registers the node after the broker forgot it (404/401/403). It is
+// single-flight: the first caller for a given generation performs the
+// re-register (with bounded backoff against a still-down broker) while later
+// callers that observed the SAME generation block until it completes, then
+// return without re-registering again. seenGen is the generation the caller last
+// observed via curToken; if the generation has already advanced, another worker
+// already recovered and we return immediately so the caller picks up the fresh
+// token on its next iteration. Respects stop.
+func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
+	rr.mu.Lock()
+	// Someone already re-registered past the generation we last saw - a fresh
+	// token is already available; just let the caller re-read it.
+	if rr.gen != seenGen {
+		rr.mu.Unlock()
+		return
+	}
+	if rr.busy {
+		// A re-register is in flight for this generation; wait for it and ride it.
+		for rr.busy && rr.gen == seenGen {
+			rr.cond.Wait()
+		}
+		rr.mu.Unlock()
+		return
+	}
+	rr.busy = true
+	rr.mu.Unlock()
+
+	// Re-register with the SAME reg (idempotent on the broker; re-sends the same
+	// offers/HW so the node reappears identically in /market + /discover). The
+	// only mutated fields are a fresh anti-replay timestamp + signature and a
+	// fresh bridge token, so the broker's tunnel adopts the token we will now use.
+	backoff := []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
+	attempt := 0
+	for {
+		select {
+		case <-stop:
+			rr.finishBusy()
+			return
+		default:
+		}
+		newTok := randHex(16)
+		reg := rr.reg
+		reg.BridgeToken = newTok
+		reg.TS = time.Now().Unix()
+		reg.SignRegistration(rr.priv)
+		if err := register(rr.broker, reg); err == nil {
+			rr.mu.Lock()
+			rr.token = newTok
+			rr.gen++
+			rr.busy = false
+			rr.cond.Broadcast()
+			rr.mu.Unlock()
+			log.Printf("broker restarted - re-registered node %s", rr.reg.NodeID)
+			return
+		}
+		d := backoff[attempt]
+		if attempt < len(backoff)-1 {
+			attempt++
+		}
+		select {
+		case <-stop:
+			rr.finishBusy()
+			return
+		case <-time.After(d):
+		}
+	}
+}
+
+// finishBusy clears the single-flight gate without advancing the generation
+// (used on the stop path so a blocked waiter is released cleanly).
+func (rr *reregistrar) finishBusy() {
+	rr.mu.Lock()
+	rr.busy = false
+	rr.cond.Broadcast()
+	rr.mu.Unlock()
 }
 
 // Served returns the request + completion-token counts served so far.
@@ -136,40 +249,56 @@ func Start(cfg Config) (*Session, error) {
 	if err := register(cfg.Broker, reg); err != nil {
 		return nil, fmt.Errorf("register with %s: %w", cfg.Broker, err)
 	}
-	sess := &Session{cfg: cfg, stop: make(chan struct{})}
-	go heartbeatUntil(cfg.Broker, cfg.NodeID, token, sess.stop)
+	// Self-healing: the reregistrar holds the live token and re-registers (with the
+	// same reg, idempotently) when the in-memory broker forgets the node after a
+	// restart. All pollers + the heartbeat read its token each iteration.
+	rereg := newReregistrar(cfg.Broker, reg, priv)
+	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg}
+	go heartbeatUntil(cfg.Broker, cfg.NodeID, rereg, sess.stop)
 
 	log.Printf("sharing: node=%s broker=%s upstream=%s model=%s ($%.2f/$%.2f per 1M) pollers=%d",
 		cfg.NodeID, cfg.Broker, cfg.Upstream, cfg.Model, cfg.PriceIn, cfg.PriceOut, cfg.Parallel)
 
 	for i := 0; i < cfg.Parallel; i++ {
-		go pollLoop(cfg, token, offer, priv, sess)
+		go pollLoop(cfg, offer, priv, sess)
 	}
 	return sess, nil
 }
 
 // pollLoop: one outbound long-poll worker. Pulls a job, serves it, posts result.
-func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.PrivateKey, sess *Session) {
+// It reads the live token from the session's reregistrar each iteration, and on a
+// 404 (broker forgot the node after a restart) or 401/403 (stale token) routes to
+// a single-flight re-register instead of the silent retry, so the share heals
+// itself rather than polling a dead registration forever.
+func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, sess *Session) {
 	poll := &http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
 	up := &http.Client{Timeout: 120 * time.Second}
 	pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
 	for {
-		if sess != nil {
-			select {
-			case <-sess.stop:
-				return // /share went off air
-			default:
-			}
+		select {
+		case <-sess.stop:
+			return // /share went off air
+		default:
 		}
+		token, gen := sess.rereg.curToken()
 		req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := poll.Do(req)
 		if err != nil {
+			// Transient network error: keep the existing short retry (the broker may
+			// just be momentarily unreachable, not have forgotten us).
 			time.Sleep(2 * time.Second)
 			continue
 		}
 		if resp.StatusCode == http.StatusNoContent {
 			resp.Body.Close() // long-poll timed out with no work - re-poll immediately
+			continue
+		}
+		if brokerForgot(resp.StatusCode) {
+			resp.Body.Close()
+			// The broker has no record of this node (restart) or our token no longer
+			// matches - re-register (single-flight across all pollers) and resume.
+			sess.rereg.recover(gen, sess.stop)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
@@ -191,6 +320,16 @@ func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.
 	}
 }
 
+// brokerForgot reports whether a node-facing status means the broker no longer
+// knows this node: 404 (registry wiped by a restart, "unknown node") or 401/403
+// (the token the broker has on file no longer matches ours). Both are healed by
+// re-registering, not by the silent retry.
+func brokerForgot(status int) bool {
+	return status == http.StatusNotFound ||
+		status == http.StatusUnauthorized ||
+		status == http.StatusForbidden
+}
+
 // recordIf folds a served receipt into the session counters (no-op without a session).
 func recordIf(sess *Session, rec protocol.UsageReceipt) {
 	if sess != nil && rec.RequestID != "" {
@@ -198,10 +337,13 @@ func recordIf(sess *Session, rec protocol.UsageReceipt) {
 	}
 }
 
-// heartbeatUntil heartbeats every 10s until stop is closed. The node's BridgeToken
-// is sent as a Bearer so the broker can authenticate the heartbeat (an unsigned or
-// forged node_id is rejected).
-func heartbeatUntil(broker, nodeID, token string, stop <-chan struct{}) {
+// heartbeatUntil heartbeats every 10s until stop is closed. The live BridgeToken
+// (from the reregistrar, refreshed on every re-register) is sent as a Bearer so
+// the broker can authenticate the heartbeat (an unsigned or forged node_id is
+// rejected). Like the pollers, a 404 (or 401/403) means the broker forgot the
+// node after a restart, so the heartbeat also triggers a single-flight
+// re-register instead of silently failing forever.
+func heartbeatUntil(broker, nodeID string, rereg *reregistrar, stop <-chan struct{}) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
 	for {
@@ -209,6 +351,7 @@ func heartbeatUntil(broker, nodeID, token string, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-t.C:
+			token, gen := rereg.curToken()
 			b, _ := json.Marshal(map[string]string{"node_id": nodeID})
 			req, err := http.NewRequest(http.MethodPost, broker+"/nodes/heartbeat", bytes.NewReader(b))
 			if err != nil {
@@ -216,8 +359,14 @@ func heartbeatUntil(broker, nodeID, token string, stop <-chan struct{}) {
 			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+token)
-			if resp, err := http.DefaultClient.Do(req); err == nil {
-				resp.Body.Close()
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				continue // transient; the pollers also retry/heal
+			}
+			status := resp.StatusCode
+			resp.Body.Close()
+			if brokerForgot(status) {
+				rereg.recover(gen, stop)
 			}
 		}
 	}
