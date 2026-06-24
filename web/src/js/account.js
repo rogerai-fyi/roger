@@ -61,7 +61,7 @@
   function wireLogout() {
     on("logout", "click", function () {
       fetch(BROKER + "/auth/logout", { method: "POST", credentials: "include" })
-        .then(function () { location.replace("/login"); });
+        .then(function () { location.replace("/login.html"); });
     });
   }
 
@@ -73,7 +73,7 @@
 
   if (path.endsWith("/account")) {
     get("/account").then(function (a) {
-      if (!a) { location.replace("/login"); return; }
+      if (!a) { location.replace("/login.html"); return; }
       text("who", "@" + (a.github_login || "you"));
       text("handle", "@" + (a.github_login || "you"));
       text("balance", cr(a.balance));
@@ -103,7 +103,7 @@
       on("del", "click", function () {
         if (!confirm("Delete your account? Identity is anonymized; financial records are retained de-identified.")) return;
         fetch(BROKER + "/account/delete", { method: "POST", credentials: "include" }).then(function (r) {
-          if (r.ok) { location.replace("/login"); return; }
+          if (r.ok) { location.replace("/login.html"); return; }
           r.json().then(function (e) {
             text("delMsg", " " + ((e && e.error && e.error.message) || "could not delete"));
           });
@@ -112,7 +112,7 @@
     });
   } else if (path.endsWith("/billing")) {
     get("/billing").then(function (d) {
-      if (!d) { location.replace("/login"); return; }
+      if (!d) { location.replace("/login.html"); return; }
       text("balance", cr(d.balance));
       text("derived", cr(d.derived));
       if (d.checkout_ready) {
@@ -187,7 +187,7 @@
   } else if (path.endsWith("/usage")) {
     var group = qs.get("group") === "day" ? "day" : "model";
     get("/usage?group=" + group).then(function (d) {
-      if (!d) { location.replace("/login"); return; }
+      if (!d) { location.replace("/login.html"); return; }
       text("spend", cr(d.spend));
       fill("buckets", "bucketsEmpty", d.buckets, function (bkt) {
         return li(bkt.key + " (" + bkt.count + ")", cr(bkt.cost));
@@ -200,10 +200,9 @@
     });
   } else if (path.endsWith("/payouts")) {
     get("/account").then(function (a) {
-      if (!a) { location.replace("/login"); return; }
+      if (!a) { location.replace("/login.html"); return; }
       var e = a.earnings || {};
       text("held", cr(e.held || 0));
-      text("reserved", cr(e.reserved || 0));
       text("payable", cr(e.payable || 0));
       text("paid", cr(e.paid || 0));
       if (e.next_release) text("releaseNote", "Next release: " + when(e.next_release));

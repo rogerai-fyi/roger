@@ -864,7 +864,10 @@ code, pre { font-family: var(--font-mono); }
 .footer__brand { display: inline-flex; align-items: center; gap: 10px; font-weight: var(--weight-semi); color: var(--ink-900); }
 .footer__brand .brand__logo { width: 24px; height: 24px; color: var(--volt); }
 .footer__brand b { color: var(--volt); }
-.footer__links { display: flex; gap: var(--s-6); flex-wrap: wrap; }
+.footer__links { display: flex; gap: var(--s-8); flex-wrap: wrap; align-items: flex-start; }
+.footer__group { display: flex; flex-direction: column; gap: 6px; }
+.footer__heading { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-400); font-weight: var(--weight-semi); margin-bottom: 2px; }
 .footer__links a { font-size: var(--t-sm); color: var(--ink-500); transition: color var(--d-2); }
 .footer__links a:hover { color: var(--volt); }
 .footer__bar { border-top: 1px solid var(--hairline); padding-block: var(--s-5);

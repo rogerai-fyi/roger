@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Privacy - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card">
+    <h1>Privacy</h1>
+    <p class="sub">What we collect, why, and how to get it out or wipe it. Written plainly.</p>
+
+    <section class="panel">
+      <h2>Who we are</h2>
+      <p>RogerAI is the platform behind rogerai.fyi and the broker at broker.rogerai.fyi. It
+        routes prompts to self-hosted nodes and settles pay-per-token between consumers and
+        node operators. This page covers the data the platform itself handles. Stripe (our
+        payments provider) and GitHub (our login provider) handle data under their own
+        policies, linked below.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Account and identity</h2>
+      <p>You sign in with GitHub OAuth. From GitHub we receive and store your numeric GitHub
+        user id and your login (handle), and - only if you choose to save one - a contact
+        email. We do not receive or store your GitHub password. Your avatar is loaded
+        directly from GitHub's public avatar CDN by your numeric id; we do not copy or host
+        it.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Payments and payouts</h2>
+      <p>Stripe is the payments provider and money transmitter. Top-ups run through Stripe
+        Checkout and payouts through Stripe Connect. We never see, store, or process your
+        card number, bank details, or KYC identity documents - Stripe holds all of that. On
+        our side we keep only a wallet balance, a ledger of top-ups and spend, accrued
+        earnings, and the Stripe account/reference ids needed to reconcile a payment.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Usage and lineage</h2>
+      <p>When you send a request we record what is needed to bill it and to settle the
+        operator: the model or node used, token counts, cost, and a timestamp. Settled
+        requests produce a lineage receipt - a signed record of which node served which
+        request - so both sides can audit the ledger. We do not sell your data or use prompt
+        contents to train models.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Cookies</h2>
+      <p>We use a single cookie: a signed, http-only session cookie set by the broker after
+        you log in. It is not readable by JavaScript and no access tokens are ever exposed to
+        the page. We do not use advertising or third-party tracking cookies. Your browser may
+        send GitHub's own cookies when loading your avatar from GitHub's CDN; that is GitHub's
+        cookie, not ours.</p>
+    </section>
+
+    <section class="panel">
+      <h2>What we log</h2>
+      <p>Operationally we keep request and billing records (above), plus standard server logs
+        needed to run and secure the service - for example error traces and abuse/fraud
+        signals. We retain de-identified financial records for the legal retention window
+        (tax and anti-money-laundering rules) even after an account is deleted.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Your data: export and delete</h2>
+      <p>You control your data from the <a href="/account.html">Account</a> page.</p>
+      <p><b>Export.</b> "Export my data" calls <code>POST /account/export</code> and downloads
+        a JSON copy of the account data we hold for you.</p>
+      <p><b>Delete.</b> "Delete account" calls <code>POST /account/delete</code>. It anonymizes
+        your identity (your GitHub id, login, and email are removed or scrambled) while
+        retaining de-identified financial records for the legal window described above. The
+        action cannot be undone.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Third parties</h2>
+      <p>The processors we rely on: <b>GitHub</b> (login and avatars),
+        <b>Stripe</b> (payments, payouts, KYC), and our hosting provider (serving the site and
+        broker). Each handles your data under its own privacy policy.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Contact</h2>
+      <p>Questions, an export problem, or a data request: email
+        <a href="mailto:privacy@rogerai.fyi">privacy@rogerai.fyi</a>. For security issues see
+        the <a href="/security.html">Security</a> page.</p>
+    </section>
+
+    <p class="fine"><a href="/account.html">Account</a> - <a href="/tos.html">Terms</a> - <a href="/security.html">Security</a></p>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+</body>
+</html>

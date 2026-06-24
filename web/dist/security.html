@@ -13,7 +13,7 @@
      pages load the chrome plus auth.css for the card. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Payouts - RogerAI</title>
+  <title>Security - RogerAI</title>
 
   <meta name="color-scheme" content="light dark" />
 
@@ -115,41 +115,36 @@
 </header>
 
   <div class="authwrap">
-  <main class="card" id="card" hidden>
-    <h1>Payouts</h1>
-    <p class="sub">Your earnings and withdrawals.</p>
+  <main class="card">
+    <h1>Security</h1>
+    <p class="sub">How the platform is built to fail safe, and how to report a problem.</p>
 
     <section class="panel">
-      <h2>Earnings</h2>
-      <dl class="stats">
-        <div><dt>Held</dt><dd id="held">-</dd></div>
-        <div><dt>Payable</dt><dd id="payable">-</dd></div>
-      </dl>
-      <dl class="stats" style="margin-top:8px">
-        <div><dt>Lifetime paid</dt><dd id="paid">-</dd></div>
-      </dl>
-      <p class="fine">Earnings round to whole cents and need a $25.00 minimum payable before cashout.</p>
-      <p class="fine" id="releaseNote"></p>
+      <h2>Our posture</h2>
+      <p>Nodes reach the broker over an <b>outbound-only</b> tunnel - an operator's machine
+        opens the connection out, so there are <b>no inbound ports</b> to expose on a home
+        network. Work is pulled, never pushed in.</p>
+      <p>Every settled request carries an <b>Ed25519-signed lineage receipt</b>, so which node
+        served which request can be verified and cannot be forged.</p>
+      <p>The browser talks to the broker over <b>credentialed CORS</b> against an allow-listed
+        origin; the session lives in a signed, http-only cookie and no access tokens ever
+        touch page JavaScript.</p>
+      <p><b>Stripe</b> holds all PCI card data and all KYC identity documents. We never store
+        card numbers, bank details, or identity documents on our side.</p>
     </section>
 
     <section class="panel">
-      <h2>Get paid</h2>
-      <p class="fine">Earnings are held for 90 days, which covers the late-dispute tail - there
-        is no separate reserve. You must finish Stripe Connect onboarding (KYC) before any withdrawal.</p>
-      <p>Payout status: <b id="connect">-</b></p>
-      <button id="onboard" class="ghost">Set up payouts (Stripe)</button>
-      <button id="request" class="ghost" hidden>Request payout</button>
-      <p class="fine" id="payMsg"></p>
+      <h2>Report a vulnerability</h2>
+      <p>Please report security issues <b>privately</b> - do not open a public issue or PR.</p>
+      <p>Preferred: GitHub private vulnerability reporting on the repo
+        (<a href="https://github.com/rogerai-fyi/roger/security">Security &rarr; Report a
+        vulnerability</a>). Or email <a href="mailto:security@rogerai.fyi">security@rogerai.fyi</a>.</p>
+      <p>We aim to acknowledge within 72 hours. Please include reproduction steps and impact;
+        we will coordinate a fix and a disclosure timeline with you. Full policy:
+        <a href="https://github.com/rogerai-fyi/roger/blob/main/SECURITY.md">SECURITY.md</a>.</p>
     </section>
 
-    <section class="panel">
-      <h2>Payout history</h2>
-      <ul class="recent" id="payouts"></ul>
-      <p class="fine" id="payoutsEmpty" hidden>No payouts yet.</p>
-    </section>
-
-    <p class="fine"><a href="/account.html">Account</a> - <a href="/console.html">Console</a> - <a href="/tos.html">Terms</a></p>
-    <button id="logout" class="ghost">Sign out</button>
+    <p class="fine"><a href="/privacy.html">Privacy</a> - <a href="/tos.html">Terms</a> - <a href="/account.html">Account</a></p>
   </main>
   </div>
   <!-- The ONE shared footer, on every page. Brand (shared mark) + links + status,
@@ -244,7 +239,6 @@
 <!-- toast for copy confirmation (shared with the install boxes) -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/account.js"></script>
   <script src="js/site.js"></script>
   <script src="js/session.js"></script>
 </body>

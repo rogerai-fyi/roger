@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Security - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card">
+    <h1>Security</h1>
+    <p class="sub">How the platform is built to fail safe, and how to report a problem.</p>
+
+    <section class="panel">
+      <h2>Our posture</h2>
+      <p>Nodes reach the broker over an <b>outbound-only</b> tunnel - an operator's machine
+        opens the connection out, so there are <b>no inbound ports</b> to expose on a home
+        network. Work is pulled, never pushed in.</p>
+      <p>Every settled request carries an <b>Ed25519-signed lineage receipt</b>, so which node
+        served which request can be verified and cannot be forged.</p>
+      <p>The browser talks to the broker over <b>credentialed CORS</b> against an allow-listed
+        origin; the session lives in a signed, http-only cookie and no access tokens ever
+        touch page JavaScript.</p>
+      <p><b>Stripe</b> holds all PCI card data and all KYC identity documents. We never store
+        card numbers, bank details, or identity documents on our side.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Report a vulnerability</h2>
+      <p>Please report security issues <b>privately</b> - do not open a public issue or PR.</p>
+      <p>Preferred: GitHub private vulnerability reporting on the repo
+        (<a href="https://github.com/rogerai-fyi/roger/security">Security &rarr; Report a
+        vulnerability</a>). Or email <a href="mailto:security@rogerai.fyi">security@rogerai.fyi</a>.</p>
+      <p>We aim to acknowledge within 72 hours. Please include reproduction steps and impact;
+        we will coordinate a fix and a disclosure timeline with you. Full policy:
+        <a href="https://github.com/rogerai-fyi/roger/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+    </section>
+
+    <p class="fine"><a href="/privacy.html">Privacy</a> - <a href="/tos.html">Terms</a> - <a href="/account.html">Account</a></p>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+</body>
+</html>

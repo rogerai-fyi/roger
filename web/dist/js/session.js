@@ -52,17 +52,23 @@
     btn.setAttribute("aria-expanded", "false");
     btn.setAttribute("aria-label", "Account menu for @" + login);
 
-    if (acct.github_login) {
+    if (acct.github_login || acct.github_id) {
       var img = document.createElement("img");
       img.className = "acctmenu__avatar";
-      img.crossOrigin = "anonymous";   // fetch the avatar WITHOUT credentials so GitHub cookies are not sent cross-site (silences the console cookie-rejected warnings)
+      // No crossOrigin: github.com/<login>.png 302-redirects to a CDN with no CORS
+      // headers, so a CORS-mode request is blocked. Plain (no-cors) <img> loads fine.
+      // Prefer the CDN URL keyed by numeric id (no cookie warning, no redirect); fall
+      // back to github.com/<login>.png when github_id is missing.
       img.referrerPolicy = "no-referrer";
-      img.src = "https://github.com/" + encodeURIComponent(acct.github_login) + ".png?size=48";
+      if (acct.github_id) {
+        img.src = "https://avatars.githubusercontent.com/u/" + encodeURIComponent(acct.github_id) + "?s=48&v=4";
+      } else {
+        img.src = "https://github.com/" + encodeURIComponent(acct.github_login) + ".png?size=48";
+      }
       img.width = 24; img.height = 24;
       img.alt = "";
       img.setAttribute("aria-hidden", "true");
       img.setAttribute("loading", "lazy");
-      img.referrerPolicy = "no-referrer";
       btn.appendChild(img);
     }
     var handle = document.createElement("span");
@@ -83,7 +89,10 @@
 
     [
       { label: "Dashboard", href: "/dashboard.html" },
+      { label: "Console", href: "/console.html" },
+      { label: "Usage", href: "/usage.html" },
       { label: "Billing", href: "/billing.html" },
+      { label: "Payouts", href: "/payouts.html" },
       { label: "Account", href: "/account.html" }
     ].forEach(function (item) {
       var a = document.createElement("a");
