@@ -65,6 +65,7 @@ type broker struct {
 	payoutLocks  sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
 	rl           *rateLimiter
 	grantRL      *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
+	concierge    *concierge    // "Ping" homepage chatbot (public LLM surface)
 	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
 	probe        probeConfig   // active canary + latency probe
 }
@@ -125,6 +126,11 @@ func main() {
 	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
 	b.recount = loadRecount()
 	b.probe = loadProbe()
+	b.concierge = loadConcierge()
+	// Bind the concierge's serving paths to this broker (dogfood a free station,
+	// then Groq). Stored as fields so tests can stub each branch independently.
+	b.concierge.dogfoodFn = b.dogfoodRelay
+	b.concierge.groqFn = b.groqCall
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)
 
 	mux := http.NewServeMux()
@@ -156,6 +162,7 @@ func main() {
 	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/v1/chat/completions", b.relay)
+	mux.HandleFunc("/concierge", b.conciergeHandler) // "Ping" homepage chatbot (public)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
