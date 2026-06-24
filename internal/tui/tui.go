@@ -459,6 +459,7 @@ type model struct {
 	agentIn             textinput.Model
 	agentLines          []string      // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
 	agentBusy           bool          // a turn is in flight (drives the working line)
+	agentTurnState      agentPose     // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
 	agentStart          time.Time     // when the in-flight turn began (elapsed readout)
 	agentPendingConfirm *agentConfirm // non-nil while a mutating tool awaits y/N
 	agentCost           float64       // running AGENT session cost in dollars
@@ -761,8 +762,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The same actionable surface the AGENT uses: a tight short cause + a [1] tune
 		// in / [2] share next step, INLINE in the transcript (not just the footer) so a
 		// 5xx / timeout / no-station is never a dead end.
-		m.transcript = append(m.transcript, failureHint(string(msg), m.narrow())...)
-		m.status = stEmber.Render("! " + shortFailure(string(msg)))
+		chatModel := ""
+		if m.connected != nil {
+			chatModel = m.connected.Model
+		}
+		m.transcript = append(m.transcript, failureHint(string(msg), chatModel, m.narrow())...)
+		m.status = stEmber.Render("! " + shortFailure(string(msg), chatModel))
 		return m, nil
 	case errMsg:
 		m.relaying = false
@@ -837,6 +842,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case agentDoneMsg:
 		m.agentBusy = false
+		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
 		m.status = stDim.Render("AGENT ready - ask it to do something")
 		return m, fetchBalance(m.broker, m.user)
 	case tea.KeyMsg:
@@ -921,7 +927,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// through to the real request + its inline error.)
 			if !m.bandOnAir(m.connected.Model) {
 				m.transcript = append(m.transcript,
-					stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.connected.Model+" right now"),
+					stRed.Render("✕ ")+stEmber.Render(noStationServing(m.connected.Model)),
 					hintTuneOrShare(m.narrow()))
 				return m, nil
 			}
@@ -2109,7 +2115,7 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 		// /discover): Enter re-scans the band to find it back on air, rather than a
 		// dead-end - the natural "bring it back" action so a recent station is always
 		// re-tunable from here.
-		m.status = stDim.Render("no station on air for ") + stKey.Render(bd.model) + stDim.Render(" right now - re-scanning the band…")
+		m.status = stEmber.Render(noStationServing(bd.model)) + stDim.Render(" - re-scanning the band…")
 		m.scanErr, m.scanned = false, false
 		return m, fetchOffers(m.broker)
 	}
@@ -3630,7 +3636,7 @@ func (m model) browseView(w int) string {
 			case loading:
 				return "  " + m.transmitLineFor(0) + stDim.Render("  scanning the band…") + "\n"
 			default:
-				return "  " + stDim.Render("(•) no stations on air right now · r to re-scan") + "\n"
+				return "  " + stDim.Render("(•) no stations on air - press [2] to share a model and put one up · r to re-scan") + "\n"
 			}
 		}
 		// Three empty cases, all filled with Ping in the dead space (never over
@@ -3644,7 +3650,7 @@ func (m model) browseView(w int) string {
 		case loading:
 			return "\n  " + m.transmitLineFor(0) + "\n  " + stDim.Render("scanning the band…") + "\n"
 		default:
-			return "\n" + pingPose(pingIdle, m.frame, w, idleHint(m.frame)) + "\n"
+			return "\n" + pingPose(pingIdle, m.frame, w, idleHintFor(m.frame, m.narrow())) + "\n"
 		}
 	}
 	var b strings.Builder
@@ -3732,7 +3738,11 @@ func (m model) browseView(w int) string {
 		bd := vis[i]
 		sel := i == cur
 		connected := connModel != "" && bd.model == connModel
-		stationsLbl := "-"
+		// An offline band (no station on air - incl. a sticky recent band whose node aged
+		// out of /discover) reads "offline" in the on-air column, not a bare "-", so it is
+		// obvious you cannot connect to it until a station is up. The status line + the
+		// connect attempt carry the fuller "no station is serving <model> right now".
+		stationsLbl := "offline"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
 		}
@@ -4111,10 +4121,20 @@ func (m model) chatView(w int) string {
 // reads as a DJ scanning the band, not a blank screen. They cycle the two-way-radio
 // affordances (tune in / go on air / config) the preset bar also exposes.
 var idleHints = []string{
-	"No stations on air right now…",
-	"Press [2] to go on air and share your GPU",
-	"Press [1] to tune in",
-	"Press [3] for config",
+	"no stations on air - press [2] to share a model and put one up",
+	"the band is quiet - [2] go on air and share your GPU",
+	"press [2] to put a model up, or [1] to tune in",
+	"reading the band… nothing on air yet",
+}
+
+// idleHintsNarrow is the slim-terminal rotation: the same standing-by-with-a-share-move
+// voice, trimmed so it never overflows a ~40-col width (the empty-band caption is not
+// width-clamped, so the hints themselves stay short).
+var idleHintsNarrow = []string{
+	"no stations on air - [2] to share",
+	"band is quiet - [2] go on air",
+	"[2] share a model · [1] tune in",
+	"reading the band…",
 }
 
 // idleHint returns the empty-band hint for a frame, advancing every ~4.5s (28
@@ -4125,6 +4145,20 @@ func idleHint(frame int) string {
 		return idleHints[0]
 	}
 	return idleHints[(frame/28)%len(idleHints)]
+}
+
+// idleHintFor is the width-aware empty-band hint: the slim rotation on a narrow
+// terminal (the caption isn't width-clamped, so the strings must fit), the full one
+// otherwise. quiet freezes to the first phase so a pipe sees a stable line.
+func idleHintFor(frame int, narrow bool) string {
+	hints := idleHints
+	if narrow {
+		hints = idleHintsNarrow
+	}
+	if quiet {
+		return hints[0]
+	}
+	return hints[(frame/28)%len(hints)]
 }
 
 // workingPhrases is the rotating radio voice of the working spinner - one coherent

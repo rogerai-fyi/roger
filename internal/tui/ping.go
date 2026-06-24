@@ -86,6 +86,21 @@ var pingScanFrames = []pingFrame{
 	{[5]string{"((  •  )) ", " \\(   )/  ", "   │ R │  ", "   ╰───╯  ", "    ▔ ▔   "}}, // lean left
 }
 
+// look-around / scan-eye: the eye darts left then right (• slides inside the head)
+// while the body holds still - a "reading the band" glance, distinct from the antenna
+// head-tilt scan above. A couple of poses with the eye off-center.
+var pingLookFrames = []pingFrame{
+	{[5]string{"(( •   ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // eye left
+	{[5]string{"((   • ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // eye right
+}
+
+// adjust-headset: a beat where an arm reaches up to the cans and settles them - the
+// operator nudging the headset between transmissions. Two poses (reach up, settle).
+var pingHeadsetFrames = []pingFrame{
+	{[5]string{"((  •  ))", " \\(   )∩ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // hand to the cans
+	{[5]string{"((  •  ))", " ∩(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}},  // settle the other side
+}
+
 // blink is a single flash spliced into idle: the eye closes to a dash.
 var pingBlinkFrame = pingFrame{[5]string{"((  -  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}
 
@@ -170,13 +185,20 @@ func idleScene(f int) (pingFrame, string) {
 	}
 
 	switch {
-	case roll < 18 && local < len(pingWaveFrames)*2:
+	case roll < 16 && local < len(pingWaveFrames)*2:
 		// Wave: play the 3-pose wave once (held 2 frames each) early in the window.
 		return pingWaveFrames[(local/2)%len(pingWaveFrames)], "•"
-	case roll < 34 && local < len(pingScanFrames)*4:
+	case roll < 30 && local < len(pingScanFrames)*4:
 		// Head-tilt scan: lean left/right slowly (4 frames per lean).
 		return pingScanFrames[(local/4)%len(pingScanFrames)], "•"
-	case roll < 44:
+	case roll < 44 && local < len(pingLookFrames)*4:
+		// Look-around: the eye darts left then right (the eye glyph itself is offset in
+		// these frames, so tintEyeLine recolors it wherever it lands).
+		return pingLookFrames[(local/4)%len(pingLookFrames)], "•"
+	case roll < 56 && local < len(pingHeadsetFrames)*3:
+		// Adjust-headset: an arm reaches up to the cans and settles them (3 frames each).
+		return pingHeadsetFrames[(local/3)%len(pingHeadsetFrames)], "•"
+	case roll < 66:
 		// A small on-air transmit pulse: borrow the first two tx poses for a wink of
 		// broadcast, then settle back to the bob for the rest of the window.
 		if local < 4 {
@@ -226,4 +248,152 @@ func pingPose(state pingState, frame, w int, line string) string {
 		return block + "\n\n" + caption
 	}
 	return block
+}
+
+// --- the reactive agent-corner Ping ---
+//
+// In [0] AGENT, while a model is active, a small Ping sits in the top corner and
+// REACTS to the turn state the harness loop already emits. It is the headline feature:
+// a live operator at the desk who stands by, scans while the model thinks, rides the
+// signal while the answer streams, and works the dial while a tool runs. It is compact
+// (a 3-line head + a status word), never crowds the transcript, and collapses to a
+// single status line on a narrow terminal. Hidden entirely when no model is active.
+
+// agentPose is the turn state the corner Ping reacts to. It is derived from the harness
+// event stream (see model.agentPose / onAgentEvent), NOT a second clock.
+type agentPose int
+
+const (
+	poseWaiting   agentPose = iota // no turn in flight: gentle bob + occasional blink, "standing by"
+	poseThinking                   // turn sent, no tokens yet: scanning eye / a tuning pulse
+	poseStreaming                  // answer streaming back: signal waves animate, "on air"
+	poseTool                       // a tool is running: "working the dial"
+)
+
+// cornerHead is the compact 3-line Ping head used in the agent corner (the full body
+// would eat too many rows beside a transcript). Just the antennae+eye, the headset
+// band, and the chin - enough to read as Ping, small enough to tuck in a corner.
+type cornerHead struct {
+	lines [3]string
+}
+
+// cornerWaiting bobs gently (the head rises a touch and settles) with an occasional
+// blink, so an idle agent reads as "standing by", not frozen.
+var cornerWaitFrames = []cornerHead{
+	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}},
+	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}},
+	{[3]string{"(( • ))", " (   ) ", "  ╰─╯  "}}, // tiny settle
+}
+
+// cornerBlink: the eye closes to a dash, spliced into the waiting bob now and then.
+var cornerBlinkFrame = cornerHead{[3]string{"(( - ))", " \\( )/ ", "  ╰─╯  "}}
+
+// cornerThink: the eye darts (scanning the band for an answer) - it slides left/right
+// inside the head. A "reading the band" glance while the model thinks.
+var cornerThinkFrames = []cornerHead{
+	{[3]string{"((• ))", " \\( )/ ", "  ╰─╯  "}},  // eye left
+	{[3]string{"(( •))", " \\( )/ ", "  ╰─╯  "}},  // eye right
+	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // center
+}
+
+// cornerStream: the carrier arcs grow and the eye swells - receiving / on air. The
+// answer is coming over the wire, so the signal animates outward.
+var cornerStreamFrames = []cornerHead{
+	{[3]string{" ( • )  ", " \\( )/ ", "  ╰─╯   "}},
+	{[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
+	{[3]string{"((( O )))", "  \\( )/  ", "   ╰─╯   "}},
+	{[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
+}
+
+// cornerTool: "working the dial" - an arm reaches across to the tuner (∩) and back,
+// the operator turning a knob while the tool runs.
+var cornerToolFrames = []cornerHead{
+	{[3]string{"(( • ))", " \\( )∩ ", "  ╰─╯  "}},
+	{[3]string{"(( • ))", " ∩( )/ ", "  ╰─╯  "}},
+}
+
+// cornerEye returns the live-red eye glyph for a corner frame ("•", "O", "-").
+func cornerEyeFor(state agentPose, f int) string {
+	switch state {
+	case poseStreaming:
+		if f%len(cornerStreamFrames) == 0 {
+			return "•"
+		}
+		return "O"
+	default:
+		return "•"
+	}
+}
+
+// cornerWords is the short status word shown beside the corner Ping, rotated per state
+// so a long turn reads as a live broadcast rather than a single frozen label. Each
+// state has a couple of synonyms; quiet freezes to the first.
+var cornerWords = map[agentPose][]string{
+	poseWaiting:   {"standing by", "go ahead", "squelch open"},
+	poseThinking:  {"tuning…", "thinking…", "reading the band"},
+	poseStreaming: {"on air", "receiving", "transmitting"},
+	poseTool:      {"working the dial", "on the tools"},
+}
+
+// cornerWord picks the status word for a pose + frame (advancing ~every 1.3s). quiet
+// freezes to the first so a pipe sees a stable label.
+func cornerWord(state agentPose, frame int) string {
+	ws := cornerWords[state]
+	if len(ws) == 0 {
+		return ""
+	}
+	if quiet {
+		return ws[0]
+	}
+	return ws[(frame/8)%len(ws)]
+}
+
+// cornerFrameFor selects the corner-Ping head + eye for a state on a given frame. It
+// runs each state's own little cycle off the shared frame counter, with the waiting bob
+// splicing in a desynchronized blink so it never looks like a metronome. quiet freezes
+// to the canonical standing-by head.
+func cornerFrameFor(state agentPose, frame int) (cornerHead, string) {
+	if quiet {
+		return cornerWaitFrames[0], "•"
+	}
+	f := frame
+	switch state {
+	case poseThinking:
+		return cornerThinkFrames[(f/2)%len(cornerThinkFrames)], "•"
+	case poseStreaming:
+		i := f % len(cornerStreamFrames)
+		return cornerStreamFrames[i], cornerEyeFor(state, f)
+	case poseTool:
+		return cornerToolFrames[(f/3)%len(cornerToolFrames)], "•"
+	default: // poseWaiting: gentle bob + a desynchronized blink
+		if f%17 == int(pingHash(f/17)%14) {
+			return cornerBlinkFrame, "-"
+		}
+		return cornerWaitFrames[(f/4)%len(cornerWaitFrames)], "•"
+	}
+}
+
+// agentCornerPing renders the reactive corner Ping as a SLICE of transcript-ready lines
+// (the caller width-clamps each). With a model active it returns a compact block: the
+// 3-line Ping head with its status word beside the top line. On a narrow terminal (or
+// compact / quiet reduced-motion) it collapses to a single status line `(( • )) word`
+// so it never crowds a slim view. It returns nil when there is no active model (the
+// caller hides it entirely). frame drives the animation off the shared tick.
+func agentCornerPing(state agentPose, frame int, narrow, compact bool) []string {
+	word := cornerWord(state, frame)
+	// Narrow / compact / quiet: one clean status line, no multi-row art.
+	if narrow || compact {
+		eye := stPingEye.Render("•")
+		return []string{stPingDim.Render("((") + " " + eye + " " + stPingDim.Render("))") + "  " + stPingDim.Render(word)}
+	}
+	head, eye := cornerFrameFor(state, frame)
+	out := make([]string, 0, 3)
+	for i, ln := range head.lines {
+		line := tintEyeLine(ln, eye)
+		if i == 0 {
+			line += "   " + stPingDim.Render(word)
+		}
+		out = append(out, line)
+	}
+	return out
 }
