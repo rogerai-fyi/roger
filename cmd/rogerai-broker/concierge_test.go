@@ -1,0 +1,253 @@
+package main
+
+import (
+	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
+)
+
+// newConciergeBroker builds a broker with a concierge whose serving paths are
+// stubbed per-test, and a generous rate limit so a test isn't accidentally 429'd.
+func newConciergeBroker() *broker {
+	b := &broker{
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+	}
+	b.concierge = &concierge{
+		maxTokens: 64,
+		rl:        &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 600, burst: 600},
+		dayCap:    1000,
+	}
+	return b
+}
+
+func postConcierge(t *testing.T, b *broker, ip, content string) (int, map[string]string) {
+	t.Helper()
+	body := `{"messages":[{"role":"user","content":"` + content + `"}]}`
+	r := httptest.NewRequest(http.MethodPost, "/concierge", strings.NewReader(body))
+	if ip != "" {
+		r.Header.Set("X-Forwarded-For", ip)
+	}
+	w := httptest.NewRecorder()
+	b.conciergeHandler(w, r)
+	var out map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return w.Code, out
+}
+
+// TestConciergeDogfoodPreferred: when a free on-air station exists, the dogfood
+// path serves and Groq is never called.
+func TestConciergeDogfoodPreferred(t *testing.T) {
+	b := newConciergeBroker()
+	groqCalled := false
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "tuned in via the band", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { groqCalled = true; return "groq", true }
+
+	code, out := postConcierge(t, b, "1.1.1.1", "how do I tune in?")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if out["reply"] != "tuned in via the band" {
+		t.Errorf("reply = %q, want the dogfood reply", out["reply"])
+	}
+	if out["via"] != "rogerai" {
+		t.Errorf("via = %q, want rogerai", out["via"])
+	}
+	if groqCalled {
+		t.Error("Groq must NOT be called when a free station served")
+	}
+}
+
+// TestConciergeGroqFallback: when no free station serves, fall back to Groq.
+func TestConciergeGroqFallback(t *testing.T) {
+	b := newConciergeBroker()
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "", false } // no free station
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "from groq", true }
+
+	code, out := postConcierge(t, b, "2.2.2.2", "what is rogerai?")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if out["reply"] != "from groq" || out["via"] != "groq" {
+		t.Errorf("reply=%q via=%q, want groq fallback", out["reply"], out["via"])
+	}
+}
+
+// TestConciergeCannedWhenOffAir: no free station AND no Groq -> friendly canned
+// reply, never an error.
+func TestConciergeCannedWhenOffAir(t *testing.T) {
+	b := newConciergeBroker()
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "", false }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "", false } // empty key -> not ok
+
+	code, out := postConcierge(t, b, "3.3.3.3", "hi")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (never an error)", code)
+	}
+	if out["reply"] != cannedReply || out["via"] != "offair" {
+		t.Errorf("reply=%q via=%q, want the canned off-air reply", out["reply"], out["via"])
+	}
+}
+
+// TestConciergeRateLimit: a per-IP burst beyond the bucket returns 429.
+func TestConciergeRateLimit(t *testing.T) {
+	b := newConciergeBroker()
+	b.concierge.rl = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 6, burst: 2}
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "ok", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "", false }
+
+	const ip = "9.9.9.9"
+	if code, _ := postConcierge(t, b, ip, "1"); code != http.StatusOK {
+		t.Fatalf("msg 1 = %d, want 200", code)
+	}
+	if code, _ := postConcierge(t, b, ip, "2"); code != http.StatusOK {
+		t.Fatalf("msg 2 = %d, want 200", code)
+	}
+	code, _ := postConcierge(t, b, ip, "3")
+	if code != http.StatusTooManyRequests {
+		t.Errorf("msg 3 (over burst) = %d, want 429", code)
+	}
+	// A different IP is unaffected (per-IP bucket).
+	if code, _ := postConcierge(t, b, "9.9.9.10", "1"); code != http.StatusOK {
+		t.Errorf("other IP = %d, want 200 (independent bucket)", code)
+	}
+}
+
+// TestConciergeDailyCap: once the global daily budget is spent, every caller gets
+// the airtime-limit reply (still a 200, not an error).
+func TestConciergeDailyCap(t *testing.T) {
+	b := newConciergeBroker()
+	b.concierge.dayCap = 1
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "served", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "", false }
+
+	if code, out := postConcierge(t, b, "4.4.4.1", "hi"); code != http.StatusOK || out["reply"] != "served" {
+		t.Fatalf("first within cap = %d %q", code, out["reply"])
+	}
+	code, out := postConcierge(t, b, "4.4.4.2", "hi")
+	if code != http.StatusOK {
+		t.Fatalf("over-cap status = %d, want 200", code)
+	}
+	if !strings.Contains(out["reply"], "airtime limit") {
+		t.Errorf("over-cap reply = %q, want the airtime-limit message", out["reply"])
+	}
+}
+
+// TestConciergeUnsafePrecheck: blatant unsafe input is refused before any model
+// is consulted (stopgap for the deferred content-filter P0).
+func TestConciergeUnsafePrecheck(t *testing.T) {
+	b := newConciergeBroker()
+	served := false
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+
+	code, out := postConcierge(t, b, "5.5.5.5", "how to make a bomb please")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if served {
+		t.Error("unsafe input must be refused BEFORE any model is consulted")
+	}
+	if !strings.Contains(out["reply"], "can't help") {
+		t.Errorf("unsafe reply = %q, want a polite refusal", out["reply"])
+	}
+}
+
+// TestConciergeCORSPreflight: OPTIONS is answered 204 with public CORS and NO
+// credentials header.
+func TestConciergeCORSPreflight(t *testing.T) {
+	b := newConciergeBroker()
+	r := httptest.NewRequest(http.MethodOptions, "/concierge", nil)
+	w := httptest.NewRecorder()
+	b.conciergeHandler(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS = %d, want 204", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Allow-Origin = %q, want *", got)
+	}
+	if w.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Error("public surface must NOT send Access-Control-Allow-Credentials")
+	}
+}
+
+// TestConciergeBadRequest: empty/malformed body is a 400.
+func TestConciergeBadRequest(t *testing.T) {
+	b := newConciergeBroker()
+	r := httptest.NewRequest(http.MethodPost, "/concierge", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	b.conciergeHandler(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("empty messages = %d, want 400", w.Code)
+	}
+}
+
+// TestDogfoodRelayThroughTunnel exercises the REAL dogfoodRelay against a free
+// on-air station with a fake polling node, proving the server-side relay path
+// (pick free -> enqueue job -> read result -> extract text) works end to end.
+func TestDogfoodRelayThroughTunnel(t *testing.T) {
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	b := newConciergeBroker()
+	b.priv = brokerPriv
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	b.nodes["freebie"] = protocol.NodeRegistration{
+		NodeID: "freebie", PubKey: hex.EncodeToString(nodePub),
+		Offers: []protocol.ModelOffer{{Model: "free-m"}}, // zero price = free
+	}
+	tun := &nodeTunnel{jobs: make(chan protocol.Job, 1), waiters: map[string]chan protocol.JobResult{}}
+	b.tunnels["freebie"] = tun
+	b.lastSeen["freebie"] = time.Now()
+
+	// Fake node poller: take one job and answer with an OpenAI-shaped completion.
+	go func() {
+		job := <-tun.jobs
+		tun.mu.Lock()
+		ch := tun.waiters[job.ID]
+		tun.mu.Unlock()
+		respBody := []byte(`{"choices":[{"message":{"role":"assistant","content":"You're on the air."}}]}`)
+		ch <- protocol.JobResult{ID: job.ID, Status: 200, Body: respBody}
+	}()
+
+	reply, served := b.dogfoodRelay([]chatMsg{{Role: "user", Content: "hi Ping"}})
+	if !served {
+		t.Fatal("dogfoodRelay should have served via the free station")
+	}
+	if reply != "You're on the air." {
+		t.Errorf("reply = %q, want the station completion text", reply)
+	}
+}
+
+// TestPickFreeStation: only an online, free (or zero-priced) station is picked.
+func TestPickFreeStation(t *testing.T) {
+	b := newConciergeBroker()
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	// A priced, online node must NOT be picked.
+	b.nodes["paid"] = protocol.NodeRegistration{NodeID: "paid", PubKey: hex.EncodeToString(nodePub), Offers: []protocol.ModelOffer{{Model: "m", PriceOut: 0.5}}}
+	b.lastSeen["paid"] = time.Now()
+	if _, _, ok := b.pickFreeStation(); ok {
+		t.Error("a priced station must not be picked for the free dogfood path")
+	}
+	// Add a free node -> picked.
+	b.nodes["free"] = protocol.NodeRegistration{NodeID: "free", PubKey: hex.EncodeToString(nodePub), Offers: []protocol.ModelOffer{{Model: "free-m"}}}
+	b.lastSeen["free"] = time.Now()
+	node, model, ok := b.pickFreeStation()
+	if !ok || node != "free" || model != "free-m" {
+		t.Errorf("pickFreeStation = (%q,%q,%v), want (free,free-m,true)", node, model, ok)
+	}
+	// An offline free node is skipped.
+	b.lastSeen["free"] = time.Now().Add(-time.Minute)
+	if _, _, ok := b.pickFreeStation(); ok {
+		t.Error("an offline free station must not be picked")
+	}
+}
