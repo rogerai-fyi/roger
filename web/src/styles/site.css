@@ -430,7 +430,7 @@ code, pre { font-family: var(--font-mono); }
    glow are fixed live-red, matching the logo beacon. */
 .hero__ping {
   z-index: 1; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  display: flex; flex-direction: row; align-items: center; gap: 12px;
   margin: clamp(20px, 3.5vh, 34px) auto 0;
   color: var(--ink-300);
 }
@@ -480,22 +480,54 @@ code, pre { font-family: var(--font-mono); }
   appearance: none; background: none; border: 0; padding: 0; margin: 0;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   color: inherit; cursor: pointer; pointer-events: auto;
-  border-radius: var(--r-md);
+  border-radius: var(--r-md); flex-shrink: 0;
   transition: filter var(--d-2) var(--ease-out-quint);
 }
 .hero__ping-trigger:hover { filter: drop-shadow(0 0 6px var(--live-glow)); }
 .hero__ping-trigger:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; }
-/* the rotating idle phrase (separate from #pingTag, which dial.js owns) */
-.hero__ping-phrase {
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase;
-  color: var(--ink-400); min-height: 1em;
+
+/* ---------- the ALWAYS-ON scrolling LED banner, beside the mascot ----
+   A small marquee window framed like a station's now-playing display.
+   Idle: flavor phrases roll. On a reply: the reply scrolls across. It is
+   part of the mascot (not the popup) and clicking it opens the chat. It
+   carries NO status words - #pingTag is the single status. */
+.pingband {
+  appearance: none; cursor: pointer; pointer-events: auto; flex-shrink: 1;
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: clamp(150px, 22vw, 260px);
+  padding: 6px 10px; margin: 0;
+  background: var(--paper-2); color: var(--ink-700);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  text-align: left;
+  transition: border-color var(--d-2), filter var(--d-2);
 }
-.hero__ping.is-open .hero__ping-phrase { color: var(--live); }
+.pingband:hover { border-color: var(--live); }
+.pingband:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* a tiny LED grille dot, echoing the on-air beacon */
+.pingband__grille {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--live); box-shadow: 0 0 5px var(--live-glow);
+  animation: pingLed var(--carrier) var(--ease-in-out) infinite;
+}
+.pingband__window {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; position: relative;
+}
+.pingband__text {
+  display: inline-block; font-size: var(--t-xs); letter-spacing: -.01em;
+  color: var(--ink-700); will-change: transform;
+}
+/* the reply/phrase scrolls right-to-left once, then rests (the LED roll) */
+.pingband.is-rolling .pingband__text { animation: pingRoll 9s linear 1; }
+@keyframes pingRoll { from { transform: translateX(100%); } to { transform: translateX(-110%); } }
 
 /* the deck panel */
 .pingdeck {
   position: absolute; top: calc(100% + 12px); left: 50%; transform: translateX(-50%);
   z-index: var(--z-overlay);
+  /* .hero__ping sets pointer-events:none (so the mascot never blocks the hero);
+     the popup is interactive, so it MUST opt back in or clicks fall through to
+     the page beneath it (the "input only reachable by Tab" bug). */
+  pointer-events: auto;
   width: min(340px, 86vw);
   background: var(--white);
   border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
@@ -504,18 +536,27 @@ code, pre { font-family: var(--font-mono); }
   text-align: left;
 }
 .pingdeck[hidden] { display: none; }
-/* a quiet open reveal */
-.hero__ping.is-open .pingdeck { animation: pingDeckIn var(--d-3) var(--ease-out-quint); }
+/* .hero__ping carries z-index:1 (a stacking context to sit over the dial), which
+   would otherwise trap the open popup BELOW later page sections. While open, lift
+   the dock's whole context above the page so the popup paints on top + stays
+   clickable. */
+.hero__ping.is-open { z-index: var(--z-overlay); }
+/* dragged: switch to viewport-fixed positioning driven by JS left/top */
+.pingdeck.is-dragged { position: fixed; }
+/* a quiet open reveal (skip it once dragged so it doesn't fight the JS pos) */
+.hero__ping.is-open .pingdeck:not(.is-dragged) { animation: pingDeckIn var(--d-3) var(--ease-out-quint); }
 @keyframes pingDeckIn { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
 .pingdeck__head {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; border-bottom: 1px solid var(--hairline);
   background: var(--paper-2);
+  cursor: grab; touch-action: none; user-select: none;
 }
+.pingdeck__head.is-grabbing { cursor: grabbing; }
 .pingdeck__onair {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400);
+  display: inline-flex; align-items: center; gap: 6px; flex: 1;
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-500);
 }
 .pingdeck__led {
   width: 7px; height: 7px; border-radius: 50%; background: var(--ink-300);
@@ -523,40 +564,37 @@ code, pre { font-family: var(--font-mono); }
 }
 .pingdeck[data-ping-state="onair"] .pingdeck__led,
 .pingdeck[data-ping-state="transmit"] .pingdeck__led { background: var(--live); box-shadow: 0 0 6px var(--live-glow); }
-.pingdeck[data-ping-state="onair"] .pingdeck__onair,
-.pingdeck[data-ping-state="transmit"] .pingdeck__onair { color: var(--live); }
 .pingdeck[data-ping-state="transmit"] .pingdeck__led { animation: pingLed var(--carrier) var(--ease-in-out) infinite; }
 @keyframes pingLed { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-.pingdeck__title { flex: 1; font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-500); }
+/* the drag grip affordance (decorative) */
+.pingdeck__grip { color: var(--ink-300); letter-spacing: 2px; font-size: var(--t-micro); pointer-events: none; }
 .pingdeck__close {
   appearance: none; background: none; border: 0; padding: 4px; margin: -4px -2px -4px 0;
   color: var(--ink-400); cursor: pointer; border-radius: var(--r-sm); display: inline-flex;
+  pointer-events: auto;
 }
 .pingdeck__close:hover { color: var(--ink-900); }
 .pingdeck__close:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
 
-/* the deck: twin reels + a now-playing ticker */
+/* the deck: twin reels (spin while transmitting) + a static caption.
+   This whole strip is DECORATION - pointer-events: none so a click lands on
+   the input below it, not on the reels/caption. */
 .pingdeck__deck {
   display: flex; align-items: center; gap: 10px;
   padding: 12px; border-bottom: 1px solid var(--hairline);
   color: var(--ink-400); background: var(--paper);
+  pointer-events: none;
 }
-.pingdeck__reel { width: 40px; height: 40px; flex-shrink: 0; color: var(--ink-300); }
+.pingdeck__reel { width: 40px; height: 40px; flex-shrink: 0; color: var(--ink-300); pointer-events: none; }
 .pingdeck[data-ping-state="transmit"] .pingdeck__reel { animation: pingSpin 1.6s linear infinite; }
 .pingdeck__reel--r { animation-direction: reverse; }
 @keyframes pingSpin { to { transform: rotate(360deg); } }
-/* the "now playing" ticker window: a reply scrolls through once, then rests */
-.pingdeck__ticker {
-  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap;
-  border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
-  padding: 5px 0; position: relative;
+.pingdeck__deckline {
+  flex: 1; min-width: 0; text-align: center; pointer-events: none;
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-300); line-height: 1.4;
 }
-.pingdeck__ticker-text {
-  display: inline-block; font-family: var(--font-mono); font-size: var(--t-xs);
-  letter-spacing: -.01em; color: var(--ink-700); padding-left: 0;
-}
-.pingdeck__ticker.is-rolling .pingdeck__ticker-text { animation: pingRoll 7s linear 1; }
-@keyframes pingRoll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live); }
 
 /* the chat log */
 .pingdeck__log {
@@ -597,17 +635,26 @@ code, pre { font-family: var(--font-mono); }
   .hero__ping.is-open .pingdeck { animation: none; }
   .pingdeck__reel, .pingdeck[data-ping-state] .pingdeck__reel,
   .pingdeck[data-ping-state] .pingdeck__led { animation: none; }
-  .pingdeck__ticker.is-rolling .pingdeck__ticker-text { animation: none; }
+  /* the always-on banner: no marquee roll, no grille pulse - just show the
+     latest text (truncated with an ellipsis so it stays readable). */
+  .pingband.is-rolling .pingband__text { animation: none; }
+  .pingband__text { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .pingband__grille { animation: none; }
 }
 
 /* Narrow screens: the dock folds (Ping hides), so the deck never crowds the
    hero. On the smallest widths the open deck pins near the bottom, fixed, so
    it can't cover the headline. */
 @media (max-width: 640px) {
-  .pingdeck {
-    position: fixed; top: auto; bottom: 16px; left: 50%;
+  /* the popup pins near the bottom (fixed) so it never covers the headline.
+     The .is-dragged class lets JS reposition it; an undragged open popup uses
+     this safe default. */
+  .pingdeck:not(.is-dragged) {
+    position: fixed; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%);
     width: min(360px, 92vw);
   }
+  /* keep the always-on banner from crowding the hero on narrow widths */
+  .pingband { max-width: min(58vw, 240px); }
 }
 
 /* ---------- THE install command (the hero object) -------------- */
