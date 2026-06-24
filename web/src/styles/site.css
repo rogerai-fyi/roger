@@ -407,14 +407,12 @@ code, pre { font-family: var(--font-mono); }
    on narrow screens. Body inherits ink via currentColor; only the eye +
    glow are fixed live-red, matching the logo beacon. */
 .hero__ping {
-  position: absolute; z-index: 1; pointer-events: none;
-  right: clamp(8px, 4vw, 64px); bottom: clamp(8px, 6vh, 64px);
-  display: none; flex-direction: column; align-items: center; gap: 7px;
+  z-index: 1; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin: clamp(20px, 3.5vh, 34px) auto 0;
   color: var(--ink-300);
 }
-/* only show it where there is real margin room beside the centered column */
-@media (min-width: 1160px) { .hero__ping { display: inline-flex; } }
-.ping { width: 56px; height: 63px; overflow: visible; }
+.ping { width: 64px; height: 72px; overflow: visible; }
 .ping__body { color: inherit; }
 /* idle bob: a slow, gentle lift. A 2x-carrier multiple keeps it phase-coherent
    with the page's heartbeat without feeling like a metronome. */
