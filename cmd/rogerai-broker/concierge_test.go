@@ -163,6 +163,106 @@ func TestConciergeUnsafePrecheck(t *testing.T) {
 	}
 }
 
+// TestConciergeModerationBlocks: when the screen flags the user input, the concierge
+// REJECTS with a 4xx and never consults a model - covering BOTH the dogfood relay and
+// the Groq fallback in one pre-dispatch check.
+func TestConciergeModerationBlocks(t *testing.T) {
+	flag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true}]}`))
+	}))
+	defer flag.Close()
+
+	b := newConciergeBroker()
+	b.mod = moderation{url: flag.URL, client: flag.Client()}
+	served := false
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+
+	code, out := postConcierge(t, b, "6.6.6.1", "some flagged content")
+	if code != http.StatusUnavailableForLegalReasons {
+		t.Fatalf("flagged concierge input = %d, want 451", code)
+	}
+	if served {
+		t.Error("flagged input must NOT reach the dogfood relay OR the Groq fallback")
+	}
+	if out["reply"] != "" {
+		t.Errorf("flagged input should not produce a reply, got %q", out["reply"])
+	}
+}
+
+// TestConciergeGroqPathScreened proves the Groq fallback is screened: with NO free
+// station (so dogfood misses and Groq would serve), flagged input is rejected before
+// groqFn is ever called - regression for the old Groq-bypass.
+func TestConciergeGroqPathScreened(t *testing.T) {
+	flag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true}]}`))
+	}))
+	defer flag.Close()
+
+	b := newConciergeBroker()
+	b.mod = moderation{url: flag.URL, client: flag.Client()}
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "", false } // no free station
+	groqCalled := false
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { groqCalled = true; return "from groq", true }
+
+	code, _ := postConcierge(t, b, "6.6.6.2", "flagged groq-bound content")
+	if code != http.StatusUnavailableForLegalReasons {
+		t.Fatalf("flagged (groq path) = %d, want 451", code)
+	}
+	if groqCalled {
+		t.Error("Groq fallback must be screened: groqFn called on flagged input (the old bypass)")
+	}
+}
+
+// TestConciergeModerationClean: clean input passes the screen and is served normally.
+func TestConciergeModerationClean(t *testing.T) {
+	clean := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"flagged":false}]}`))
+	}))
+	defer clean.Close()
+
+	b := newConciergeBroker()
+	b.mod = moderation{url: clean.URL, client: clean.Client()}
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "tuned in", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "groq", true }
+
+	code, out := postConcierge(t, b, "6.6.6.3", "how do I tune in?")
+	if code != http.StatusOK || out["reply"] != "tuned in" {
+		t.Errorf("clean concierge input = %d %q, want 200 + the dogfood reply", code, out["reply"])
+	}
+}
+
+// TestConciergeModerationFailClosed: with REQUIRE_MODERATION=1 and the screen down,
+// the concierge fails CLOSED (503) instead of serving an unscreened prompt to a model.
+func TestConciergeModerationFailClosed(t *testing.T) {
+	b := newConciergeBroker()
+	b.mod = moderation{url: "http://127.0.0.1:0", require: true, client: &http.Client{}}
+	served := false
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { served = true; return "x", true }
+
+	code, _ := postConcierge(t, b, "6.6.6.4", "hi")
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("require+down concierge = %d, want 503 (fail closed)", code)
+	}
+	if served {
+		t.Error("fail-closed must not dispatch to any model")
+	}
+}
+
+// TestConciergeModerationInert: with MODERATION_URL unset (zero-value mod), the screen
+// is inert - the concierge serves normally.
+func TestConciergeModerationInert(t *testing.T) {
+	b := newConciergeBroker() // b.mod is the zero value = disabled
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { return "served", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "", false }
+
+	code, out := postConcierge(t, b, "6.6.6.5", "hi")
+	if code != http.StatusOK || out["reply"] != "served" {
+		t.Errorf("inert screen = %d %q, want 200 + served", code, out["reply"])
+	}
+}
+
 // TestConciergeCORSPreflight: OPTIONS is answered 204 with public CORS and NO
 // credentials header.
 func TestConciergeCORSPreflight(t *testing.T) {

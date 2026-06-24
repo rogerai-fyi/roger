@@ -262,6 +262,51 @@ func TestRelayAnonPaidRejected(t *testing.T) {
 	}
 }
 
+// TestRelayModerationBlocks verifies the relay's pre-dispatch screen: a flagged
+// prompt is rejected with 451 BEFORE node pick/dispatch (no provider ever sees it).
+// A clean prompt passes the screen (and continues to the normal pick/serve path).
+func TestRelayModerationBlocks(t *testing.T) {
+	flag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true}]}`))
+	}))
+	defer flag.Close()
+
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	b := &broker{
+		priv:         brokerPriv,
+		db:           store.NewMem(),
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+		inflight:     map[string]int{},
+		success:      map[string]float64{},
+		trust:        map[string]trustState{},
+		streams:      map[string]*streamSink{},
+		quotes:       map[string]priceQuote{},
+		pubOfUser:    map[string]string{},
+		seedFunds:    100,
+		lockWin:      time.Hour,
+		rl:           loadRateLimiter(),
+		mod:          moderation{url: flag.URL, client: flag.Client()},
+	}
+	// A free, online model so the request would otherwise pass the spend gate.
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	b.nodes["free"] = protocol.NodeRegistration{NodeID: "free", PubKey: hex.EncodeToString(nodePub), Offers: []protocol.ModelOffer{{Model: "free-m"}}}
+	b.lastSeen["free"] = time.Now()
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	body := []byte(`{"model":"free-m","messages":[{"role":"user","content":"flagged"}],"max_tokens":8}`)
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.relay(w, r)
+	if w.Code != http.StatusUnavailableForLegalReasons {
+		t.Errorf("flagged relay = %d, want 451 (blocked before dispatch)", w.Code)
+	}
+}
+
 func TestLockedPrice(t *testing.T) {
 	b := &broker{quotes: map[string]priceQuote{}, lockWin: time.Hour}
 

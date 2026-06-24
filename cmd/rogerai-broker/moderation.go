@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -61,6 +63,12 @@ func (m moderation) screen(text string) (status int, msg string) {
 		}
 		return 0, ""
 	}
+	// Empty input has nothing to screen - short-circuit ALLOW and skip the network
+	// round-trip (this is on the hot dispatch path). A no-text request is handled by
+	// the dispatch logic, not by the content policy.
+	if strings.TrimSpace(text) == "" {
+		return 0, ""
+	}
 	body, _ := json.Marshal(map[string]string{"input": text})
 	resp, err := m.client.Post(m.url, "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -77,25 +85,49 @@ func (m moderation) screen(text string) (status int, msg string) {
 		}
 		return 0, ""
 	}
-	// Accept the OpenAI Moderation shape {"results":[{"flagged":bool}]} and a simpler
-	// adapter shape {"flagged":bool} (e.g. a Llama Guard wrapper).
+	// Accept the OpenAI Moderation shape {"results":[{"flagged":bool,"categories":{...}}]}
+	// and a simpler adapter shape {"flagged":bool} (e.g. a Llama Guard wrapper). The
+	// per-category map (true = matched) is parsed only to log WHY something was blocked;
+	// the block decision is the boolean flagged.
 	var out struct {
-		Flagged bool `json:"flagged"`
-		Results []struct {
-			Flagged bool `json:"flagged"`
+		Flagged    bool            `json:"flagged"`
+		Categories map[string]bool `json:"categories"`
+		Results    []struct {
+			Flagged    bool            `json:"flagged"`
+			Categories map[string]bool `json:"categories"`
 		} `json:"results"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	flagged := out.Flagged
+	cats := out.Categories
 	for _, r := range out.Results {
 		if r.Flagged {
 			flagged = true
+			if r.Categories != nil {
+				cats = r.Categories
+			}
 		}
 	}
 	if flagged {
+		if hit := flaggedCategories(cats); hit != "" {
+			log.Printf("MODERATION: blocked (categories: %s)", hit)
+		}
 		return http.StatusUnavailableForLegalReasons, "request blocked by the content policy"
 	}
 	return 0, ""
+}
+
+// flaggedCategories renders the matched policy categories (value true) as a sorted,
+// comma-separated string for the block log. Returns "" when none are reported.
+func flaggedCategories(cats map[string]bool) string {
+	var hit []string
+	for name, matched := range cats {
+		if matched {
+			hit = append(hit, name)
+		}
+	}
+	sort.Strings(hit)
+	return strings.Join(hit, ", ")
 }
 
 // promptText pulls the user-visible text from an OpenAI chat-completions body for

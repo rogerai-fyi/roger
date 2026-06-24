@@ -53,3 +53,35 @@ func TestModerationScreen(t *testing.T) {
 		t.Errorf("unreachable+not-required should fail open, got %d", st)
 	}
 }
+
+// TestModerationEmptyInputShortCircuits: a configured screen does NOT hit the network
+// for empty/whitespace input - it allows without calling the endpoint.
+func TestModerationEmptyInputShortCircuits(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true}]}`))
+	}))
+	defer srv.Close()
+	m := moderation{url: srv.URL, client: srv.Client()}
+	for _, in := range []string{"", "   ", "\n\t "} {
+		if st, _ := m.screen(in); st != 0 {
+			t.Errorf("empty input %q should allow, got %d", in, st)
+		}
+	}
+	if called {
+		t.Error("empty input must not call the moderation endpoint (short-circuit)")
+	}
+}
+
+// TestModerationCategoriesShape: the OpenAI categories map is parsed alongside flagged
+// (used for the block log) and a flag still rejects with 451.
+func TestModerationCategoriesShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true,"categories":{"sexual/minors":true,"violence":false}}]}`))
+	}))
+	defer srv.Close()
+	if st, _ := (moderation{url: srv.URL, client: srv.Client()}).screen("bad"); st != http.StatusUnavailableForLegalReasons {
+		t.Errorf("flagged-with-categories should 451, got %d", st)
+	}
+}
