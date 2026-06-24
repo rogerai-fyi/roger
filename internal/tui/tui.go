@@ -374,11 +374,19 @@ type model struct {
 	frame         int
 	mode          mode
 	cmd           textinput.Model
-	chatIn        textinput.Model
-	transcript    []string
-	connected     *offer
-	endpoint      string
-	apikey        string
+	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
+	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
+	cmdHist *inputHistory
+	chatIn  textinput.Model
+	// chatHist is the CHANNEL chat input's shell-style recall buffer (Up = older sent
+	// message, Down = newer; Down past the newest restores the in-progress draft). It
+	// persists to <config>/rogerai/history-chat, distinct from the agent's history. See
+	// history.go.
+	chatHist   *inputHistory
+	transcript []string
+	connected  *offer
+	endpoint   string
+	apikey     string
 	// lastConnected is the band we most recently TUNED IN to (a "sticky" recent
 	// station). It is kept across band re-scans so a band you connected to never
 	// vanishes from the browse list when its node ages out of /discover - it stays as
@@ -455,8 +463,12 @@ type model struct {
 	// answer). agentBusy is true while a turn runs in the background goroutine; the
 	// confirm sub-state (agentPendingConfirm) pauses the turn for a y/N on a mutating
 	// tool. agentCost is the running session cost. See agent.go for the wiring.
-	agent               *agentRuntime // nil until first entered; built lazily
-	agentIn             textinput.Model
+	agent   *agentRuntime // nil until first entered; built lazily
+	agentIn textinput.Model
+	// agentHist is the [0] AGENT prompt's shell-style recall buffer, separate from the
+	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
+	// draft). It persists to <config>/rogerai/history-agent. See history.go.
+	agentHist           *inputHistory
 	agentLines          []string      // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
 	agentBusy           bool          // a turn is in flight (drives the working line)
 	agentTurnState      agentPose     // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
@@ -657,7 +669,11 @@ func newBase(broker, user string, limits *LimitStore) model {
 	fi := textinput.New()
 	fi.Prompt = ""
 	fi.Placeholder = "type to filter bands by name"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
+	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi,
+		// Per-surface input history (distinct files; load tolerates a missing/corrupt file).
+		cmdHist:  newInputHistory("history-command"),
+		chatHist: newInputHistory("history-chat"), agentHist: newInputHistory("history-agent"),
+		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
 }
 
 func (m model) Init() tea.Cmd {
@@ -879,10 +895,25 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeCommand:
 		switch k.String() {
+		case "up":
+			// Recall a prior run command (Up = older), stashing the in-progress line.
+			if v, ok := m.cmdHist.prev(m.cmd.Value()); ok {
+				m.cmd.SetValue(v)
+				m.cmd.CursorEnd()
+			}
+			return m, nil
+		case "down":
+			// Newer command; past the newest restores the stashed in-progress line.
+			if v, ok := m.cmdHist.next(); ok {
+				m.cmd.SetValue(v)
+				m.cmd.CursorEnd()
+			}
+			return m, nil
 		case "enter":
 			cmd := strings.TrimSpace(m.cmd.Value())
 			m.cmd.SetValue("")
 			m.mode = modeBrowse
+			m.cmdHist.add(cmd) // record the run command (empties filtered, dups collapsed)
 			return m.run(cmd)
 		case "esc":
 			m.cmd.SetValue("")
@@ -906,12 +937,34 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatIn.Blur()
 			m.status = stDim.Render("peeking at the band - the channel stays open · tab/c to return · esc here disconnects")
 			return m, nil
+		case "up":
+			// Shell-style recall: Up walks to an OLDER sent message (stashing the live
+			// draft on the first Up). Guarded to modeChat (the input is focused here), so
+			// it never fires from BROWSE where up/down move the band cursor. No history =>
+			// the keypress is swallowed (the single-line input has no up action anyway).
+			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
+				m.chatIn.SetValue(v)
+				m.chatIn.CursorEnd()
+			}
+			return m, nil
+		case "down":
+			// Down walks to a NEWER sent message; past the newest it restores the stashed
+			// draft. A no-op when not navigating (already at the live draft).
+			if v, ok := m.chatHist.next(); ok {
+				m.chatIn.SetValue(v)
+				m.chatIn.CursorEnd()
+			}
+			return m, nil
 		case "enter":
 			p := strings.TrimSpace(m.chatIn.Value())
 			if p == "" || m.connected == nil {
 				return m, nil
 			}
 			m.chatIn.SetValue("")
+			// Record the sent line in the recall history (raw text, not the sysPrompt-
+			// prefixed turn). Empty sends are filtered above; add() also collapses a repeat
+			// of the previous entry and resets the Up/Down cursor to the bottom.
+			m.chatHist.add(p)
 			// A leading / in-session is a slash command, not a chat turn.
 			if strings.HasPrefix(p, "/") {
 				return m.runSession(p)
