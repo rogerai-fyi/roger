@@ -82,6 +82,14 @@ type broker struct {
 	// report threshold that auto-bans (0 disables auto-eject).
 	banned        map[string]bool
 	reportEjectAt int
+
+	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
+	// on-air nodes a single owner account may have live (within nodeTTL) across all of
+	// their machines. Enforced at register (the (limit+1)th owner-bound node is
+	// rejected) so one account can't overwhelm the broker. An idempotent re-register of
+	// an existing node never counts as a new one. 0 disables the cap. Env
+	// ROGERAI_MAX_NODES_PER_OWNER (default 20).
+	maxNodesPerOwner int
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -153,8 +161,9 @@ func main() {
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
-		banned:        map[string]bool{},
-		reportEjectAt: reportEjectThreshold(),
+		banned:           map[string]bool{},
+		reportEjectAt:    reportEjectThreshold(),
+		maxNodesPerOwner: maxNodesPerOwnerLimit(),
 	}
 	b.rehydrateBans()
 	// Re-hydrate the in-memory node registry from the store so a restart/redeploy

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -81,6 +82,33 @@ func TestRegisterStatus(t *testing.T) {
 			t.Errorf("register should succeed on 200, got %v", err)
 		}
 	})
+	t.Run("429 hard cap surfaces the broker reason", func(t *testing.T) {
+		// The broker's per-owner on-air cap replies 429 with its JSON-wrapped message; the
+		// share UX must see the reason verbatim (not a bare "status 429") so the operator
+		// knows to take a band off air.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"station limit reached: 20 bands on air for this account - take one off air"}}`))
+		}))
+		defer srv.Close()
+		_, err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"})
+		if err == nil {
+			t.Fatal("a 429 hard-cap reject should be an error")
+		}
+		if !strings.Contains(err.Error(), "station limit reached") || !strings.Contains(err.Error(), "take one off air") {
+			t.Errorf("429 reject should surface the broker reason, got %v", err)
+		}
+	})
+}
+
+func TestBrokerErrMsg(t *testing.T) {
+	if got := brokerErrMsg([]byte(`{"error":{"message":"nope"}}`)); got != "nope" {
+		t.Errorf("brokerErrMsg = %q, want nope", got)
+	}
+	// Non-enveloped body falls back to the raw bytes.
+	if got := brokerErrMsg([]byte(`plain text`)); got != "plain text" {
+		t.Errorf("brokerErrMsg fallback = %q, want plain text", got)
+	}
 }
 
 func TestParseUsage(t *testing.T) {

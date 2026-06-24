@@ -655,8 +655,15 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
 		// Surface a broker rejection instead of silently "succeeding" - otherwise
 		// the node would start poll loops against a registration that didn't take.
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-			return registerResult{}, fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
+		// Surface the broker's reason verbatim for the rejections a user can ACT on: a
+		// 403/401 owner-auth failure, AND a 429 hard per-owner on-air cap ("station limit
+		// reached: ... take one off air"). The share UX shows this message so the operator
+		// knows to free a slot rather than seeing a bare "status 429".
+		if msg = bytes.TrimSpace(msg); len(msg) > 0 &&
+			(resp.StatusCode == http.StatusForbidden ||
+				resp.StatusCode == http.StatusUnauthorized ||
+				resp.StatusCode == http.StatusTooManyRequests) {
+			return registerResult{}, fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, brokerErrMsg(msg))
 		}
 		return registerResult{}, fmt.Errorf("broker returned status %d", resp.StatusCode)
 	}
@@ -664,6 +671,22 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&rr)
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)
 	return rr, nil
+}
+
+// brokerErrMsg extracts the human-readable reason from a broker error body. The
+// broker replies {"error":{"message":"..."}} (jsonErr); we surface just the message
+// so the share UX shows e.g. "station limit reached: ... take one off air" rather than
+// the raw JSON envelope. Falls back to the raw bytes when it is not that shape.
+func brokerErrMsg(body []byte) string {
+	var e struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &e) == nil && e.Error.Message != "" {
+		return e.Error.Message
+	}
+	return string(body)
 }
 
 func loadOrCreateKey() ed25519.PrivateKey {
