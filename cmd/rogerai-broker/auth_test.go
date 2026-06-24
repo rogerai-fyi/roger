@@ -111,7 +111,7 @@ func TestSessionRoundTrip(t *testing.T) {
 // a valid session cookie.
 func TestAccountEndpoint(t *testing.T) {
 	_, priv, _ := ed25519.GenerateKey(nil)
-	b := &broker{priv: priv}
+	b := &broker{priv: priv, db: store.NewMem()}
 
 	// No cookie → 401.
 	w := httptest.NewRecorder()

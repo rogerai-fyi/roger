@@ -268,30 +268,92 @@ func randState() string {
 	return hex.EncodeToString(b)
 }
 
-// account handles GET /account: returns the web session owner (from the signed
-// session cookie) so the minimal web dashboard can show who is logged in and
-// route logged-out visitors to /login. 401 when there is no valid session.
+// account handles /account: the account hub (ACCOUNT-PAYOUTS-DESIGN section 2).
+//
+//	GET   - profile (handle, email, github, payout status) + balances
+//	PATCH - update the contact email
+//
+// Backed by the signed session cookie; 401 when there is no valid session.
 func (b *broker) account(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodOptions {
-		corsCreds(w, r)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if !allow(w, r, http.MethodGet) {
+	if corsCredsPreflight(w, r) {
 		return
 	}
 	corsCreds(w, r)
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" {
+	login, gid, wallet, ok := b.sessionOwner(r)
+	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "not logged in")
 		return
 	}
-	login, gid, ok := b.verifySession(c.Value)
-	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "session expired")
+	switch r.Method {
+	case http.MethodGet:
+		b.accountGet(w, r, login, gid, wallet)
+	case http.MethodPatch:
+		b.accountPatch(w, r, login, gid, wallet)
+	default:
+		w.Header().Set("Allow", "GET, PATCH")
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// sessionOwner resolves the logged-in browser identity (login, github id, the
+// github-scoped consumer wallet id). ok=false when there is no valid session.
+func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet string, ok bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || c.Value == "" {
+		return "", 0, "", false
+	}
+	login, gid, vok := b.verifySession(c.Value)
+	if !vok {
+		return "", 0, "", false
+	}
+	return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true
+}
+
+func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
+	bal, _ := b.db.BalanceOf(wallet, b.seedFunds)
+	out := map[string]any{
+		"github_login": login,
+		"github_id":    gid,
+		"balance":      round6(bal),
+		"connect":      map[string]any{"status": "none"},
+	}
+	// Enrich from the owner record if this login is a bound operator account.
+	if o, ok, _ := b.db.OwnerByLogin(login); ok {
+		out["email"] = o.Email
+		out["created_at"] = o.CreatedAt
+		status := o.ConnectStatus
+		if status == "" {
+			status = "none"
+		}
+		out["connect"] = map[string]any{"status": status, "id": o.ConnectID}
+		// Operator earnings split, keyed by the owner pubkey (the account id).
+		if split, err := b.db.EarningSplitOf(o.Pubkey, time.Now()); err == nil {
+			out["earnings"] = split
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	var req struct {
+		Email string `json:"email"`
+	}
+	_ = json.Unmarshal(body, &req)
+	if req.Email != "" && !strings.Contains(req.Email, "@") {
+		jsonErr(w, http.StatusBadRequest, "invalid email")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"github_login": login, "github_id": gid})
+	o, ok, err := b.db.UpdateAccount(login, req.Email)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !ok {
+		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `rogerai login` on a node first)")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": o.Email})
 }
 
 // authLogout handles POST /auth/logout: clears the web session cookie.

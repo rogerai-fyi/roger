@@ -142,14 +142,37 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				ID                string `json:"id"`
 				ClientReferenceID string `json:"client_reference_id"`
 				AmountTotal       int    `json:"amount_total"`
+				Amount            int    `json:"amount"` // dispute objects carry `amount`
 				Metadata          struct {
-					User    string `json:"user"`
-					Credits string `json:"credits"`
+					User      string `json:"user"`
+					Credits   string `json:"credits"`
+					RequestID string `json:"request_id"`
 				} `json:"metadata"`
 			} `json:"object"`
 		} `json:"data"`
 	}
 	_ = json.Unmarshal(payload, &evt)
+	// Platform-liable dispute (ACCOUNT-PAYOUTS-DESIGN section 6.4): a consumer
+	// chargeback against a funding charge -> chargeback ledger row + clawback of any
+	// still-held/reserved operator earnings derived from the disputed request.
+	if evt.Type == "charge.dispute.created" {
+		o := evt.Data.Object
+		user := o.Metadata.User
+		if user == "" {
+			user = o.ClientReferenceID
+		}
+		amount := float64(o.Amount) / 100 / b.bill.creditUSD
+		if user != "" && amount > 0 {
+			clawed, err := b.db.Chargeback(o.ID, user, o.Metadata.RequestID, amount, time.Now())
+			if err != nil {
+				jsonErr(w, http.StatusInternalServerError, "store error")
+				return
+			}
+			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from operators)", o.ID, user, amount, clawed)
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+		return
+	}
 	if evt.Type == "checkout.session.completed" {
 		o := evt.Data.Object
 		user := o.Metadata.User

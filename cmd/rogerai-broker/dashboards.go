@@ -84,10 +84,18 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 	online := time.Since(b.lastSeen[node]) < 35*time.Second
 	b.mu.Unlock()
 	login, _, _ := b.webSession(r)
+	// Earnings lifecycle split (held -> reserved -> payable -> paid) for this node,
+	// promoting any lots whose hold has cleared as of now (sweep-on-read).
+	split, _ := b.db.EarningSplitOfNode(node, time.Now())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"node":         node,
 		"online":       online,
-		"earnings":     round6(accrued),
+		"earnings":     round6(accrued), // legacy accrued counter (unchanged)
+		"held":         round6(split.Held),
+		"reserved":     round6(split.Reserved),
+		"payable":      round6(split.Payable),
+		"paid":         round6(split.Paid),
+		"next_release": split.NextRelease,
 		"recent":       recent,
 		"github_login": login, // "" unless read by a logged-in browser
 	})

@@ -78,11 +78,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusUnauthorized, "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)")
 			return
 		}
-		if _, ok := b.requireOwner(r); !ok {
+		owner, ok := b.requireOwner(r)
+		if !ok {
 			jsonErr(w, http.StatusForbidden, "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`")
 			return
 		}
 		_ = uid
+		// Attribute this node's future earnings to the owner account (TOFU: the first
+		// account to register a node id owns it), so earning lots + payouts resolve.
+		_ = b.db.BindNode(reg.NodeID, owner.Pubkey)
 	}
 	b.mu.Lock()
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;

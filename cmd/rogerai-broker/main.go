@@ -60,6 +60,7 @@ type broker struct {
 	seedFunds    float64
 	lockWin      time.Duration
 	bill         billing
+	conn         connect
 	mod          moderation
 	rl           *rateLimiter
 	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
@@ -116,6 +117,7 @@ func main() {
 		priv: priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 	}
 	b.bill = loadBilling()
+	b.conn = loadConnect()
 	b.mod = loadModeration()
 	b.rl = loadRateLimiter()
 	b.recount = loadRecount()
@@ -137,9 +139,17 @@ func main() {
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)       // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
 	mux.HandleFunc("/auth/logout", b.authLogout)                  // web: clear the session cookie
-	mux.HandleFunc("/account", b.account)                         // web: who is logged in (session cookie)
+	mux.HandleFunc("/account", b.account)                         // web: account hub (GET profile+balances, PATCH email)
+	mux.HandleFunc("/account/export", b.accountExport)            // GDPR/CCPA data dump
+	mux.HandleFunc("/account/delete", b.accountDelete)            // soft-delete + anonymize (retention-safe)
+	mux.HandleFunc("/billing", b.billing)                         // money-in view: balance + top-up history
 	mux.HandleFunc("/billing/checkout", b.checkout)               // Stripe top-up -> credits
-	mux.HandleFunc("/billing/webhook", b.webhook)                 // Stripe payment webhook
+	mux.HandleFunc("/billing/webhook", b.webhook)                 // Stripe payment + dispute webhook
+	mux.HandleFunc("/usage", b.usage)                             // consumer spend by model|day
+	mux.HandleFunc("/connect/onboard", b.connectOnboard)          // Stripe Connect Express onboarding link
+	mux.HandleFunc("/connect/status", b.connectStatus)            // Connect capability status (KYC gate)
+	mux.HandleFunc("/payouts/request", b.payoutsRequest)          // request a payout (KYC + min gated)
+	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
