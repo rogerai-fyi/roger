@@ -387,20 +387,38 @@ type model struct {
 	status            string
 	alert             *alertBox
 	// pricing UX state
-	limits     *LimitStore
-	bands      []band // offers grouped by model (the band list, 3.1)
-	q          quote  // the in-flight connect quote (confirm / over-limit)
-	editBuf    string // inline numeric edit buffer (over-limit + limits edit)
-	editField  int    // which field is focused in the limits editor (0=out,1=tps)
-	limCursor  int    // cursor in the limits view
-	limModels  []string
-	watching   string    // band we are "wait & notify" watching (stub label)
-	showDetail bool      // [d] expands the connect-confirm screen; default off (simple)
-	relaying   bool      // a chat request is in flight (drives Ping's transmit line)
-	relayStart time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
-	scanErr    bool      // last band scan failed (broker unreachable) -> Ping "...static"
-	scanned    bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
-	minimized  bool      // header toggle: thin one-line bar vs the full lockup
+	limits *LimitStore
+	bands  []band // offers grouped by model (the band list, 3.1)
+	// SCALE: the band browser is built for hundreds/thousands of stations, so the
+	// list is FILTERED + SORTED into a derived view (visibleBands) and only the
+	// VISIBLE window is rendered each frame (virtualized). m.cursor indexes the
+	// VISIBLE set, never the raw m.bands. browseTop is the index of the first row
+	// drawn in the window (it scrolls to keep the cursor in view). See visibleBands,
+	// windowFor, and browseView. NOTE: the broker /discover returns the FULL on-air
+	// set (no broker-side pagination) - client windowing + filter covers realistic
+	// scale now; broker-side pagination + load-on-scroll is the next step IF on-air
+	// counts ever exceed a few hundred. See fetchOffers.
+	filterMode    bool            // the live filter input line is open (f)
+	filterIn      textinput.Model // the live name filter buffer
+	filterApplied string          // the applied name substring (kept after enter; lowercased compare)
+	sortMode      int             // band sort cycle (see sort* consts) - mirrors the /bands web page
+	fFree         bool            // toggle: only bands with a FREE-now station
+	fConf         bool            // toggle: only confidential / verified (lineage) bands
+	fOn           bool            // toggle: only bands with a station on air
+	browseTop     int             // first visible row index in the virtualized window
+	loadedOnce    bool            // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
+	q             quote           // the in-flight connect quote (confirm / over-limit)
+	editBuf       string          // inline numeric edit buffer (over-limit + limits edit)
+	editField     int             // which field is focused in the limits editor (0=out,1=tps)
+	limCursor     int             // cursor in the limits view
+	limModels     []string
+	watching      string    // band we are "wait & notify" watching (stub label)
+	showDetail    bool      // [d] expands the connect-confirm screen; default off (simple)
+	relaying      bool      // a chat request is in flight (drives Ping's transmit line)
+	relayStart    time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
+	scanErr       bool      // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned       bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	minimized     bool      // header toggle: thin one-line bar vs the full lockup
 	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
 	// animation-free alternate view toggled by [m] in every non-text-entry context.
 	// When set the header drops to one strip, all motion freezes (carrier beat, Ping,
@@ -591,7 +609,10 @@ func newBase(broker, user string, limits *LimitStore) model {
 	ag := textinput.New()
 	ag.Prompt = ""
 	ag.Placeholder = "ask the agent to do something"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
+	fi := textinput.New()
+	fi.Prompt = ""
+	fi.Placeholder = "type to filter bands by name"
+	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
 }
 
 func (m model) Init() tea.Cmd {
@@ -635,11 +656,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case offersMsg:
 		m.offers = []offer(msg)
 		m.scanErr = false
-		m.scanned = true // a scan returned (even empty) -> stop showing the loading pose
+		m.scanned = true    // a scan returned (even empty) -> stop showing the loading pose
+		m.loadedOnce = true // the first scan has come back: never re-enter the initial loading pose
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
-		if m.cursor >= len(m.bands) {
-			m.cursor = 0
-		}
+		// Clamp the cursor + window into the FILTERED view (the list the user actually
+		// navigates), so a re-scan that shrinks the matches never strands the cursor.
+		m.clampBrowse()
 		// "wait & notify" stub: if a watched band has dipped under the limit, say so.
 		notified := false
 		if m.watching != "" {
@@ -883,6 +905,38 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeAgent:
 		return m.onAgentKey(k)
 	default: // browse
+		// FILTER ENTRY owns every key while open: typing edits the live name filter, esc
+		// clears + closes, enter keeps it applied and returns to the list. Handled BEFORE
+		// presetForKey + the browse keys so f, m, l, 0, etc. are NEVER stolen mid-filter
+		// (the founder's "guard f so it isn't stolen elsewhere"). The filter is also never
+		// reachable from the command palette / chat / editors, which own their own keys
+		// and don't fall through to this browse default.
+		if m.filterMode {
+			switch k.String() {
+			case "esc":
+				// esc clears + closes the filter (back to the full list).
+				m.filterMode = false
+				m.filterIn.Blur()
+				m.filterIn.SetValue("")
+				m.filterApplied = ""
+				m.clampBrowse()
+				m.status = stDim.Render("filter cleared")
+				return m, nil
+			case "enter":
+				// enter keeps the filter applied and returns to the list (cursor navigable).
+				m.filterMode = false
+				m.filterIn.Blur()
+				m.filterApplied = strings.TrimSpace(m.filterIn.Value())
+				m.clampBrowse()
+				return m, nil
+			}
+			// Any other key edits the buffer; the filter applies LIVE as you type.
+			var c tea.Cmd
+			m.filterIn, c = m.filterIn.Update(k)
+			m.filterApplied = strings.TrimSpace(m.filterIn.Value())
+			m.clampBrowse()
+			return m, c
+		}
 		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
 		// first so the always-visible top bar's buttons jump straight to their mode.
 		if nm, cmd, ok := m.presetForKey(k.String()); ok {
@@ -895,14 +949,47 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeCommand
 			m.cmd.Focus()
 			return m, textinput.Blink
+		case "f":
+			// f opens the live name filter (the headline scale fix). It seeds from any
+			// already-applied filter so f re-opens to edit, not to clear.
+			m.filterMode = true
+			m.filterIn.SetValue(m.filterApplied)
+			m.filterIn.CursorEnd()
+			m.filterIn.Focus()
+			return m, textinput.Blink
+		case "S":
+			// S cycles the sort dial (strongest / cheapest / fastest / most-stations),
+			// mirroring the /bands web page so CLI + web match. Re-sorting can move the
+			// selected band, so re-clamp the window.
+			m.sortMode = (m.sortMode + 1) % sortCount
+			m.clampBrowse()
+			m.status = stDim.Render("sort: " + sortLabel(m.sortMode))
+			return m, nil
+		case "F":
+			// quick toggle: only bands with a FREE-now station.
+			m.fFree = !m.fFree
+			m.clampBrowse()
+			return m, nil
+		case "C":
+			// quick toggle: only confidential / verified (lineage) bands.
+			m.fConf = !m.fConf
+			m.clampBrowse()
+			return m, nil
+		case "O":
+			// quick toggle: only bands with a station on air.
+			m.fOn = !m.fOn
+			m.clampBrowse()
+			return m, nil
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			m.scrollBrowse()
 		case "down", "j":
-			if m.cursor < len(m.bands)-1 { // browse list is the bands (grouped), not raw offers
+			if m.cursor < len(m.visibleBands())-1 { // navigate the FILTERED + SORTED view
 				m.cursor++
 			}
+			m.scrollBrowse()
 		case "enter":
 			// Enter on the band you are ALREADY connected to jumps straight into the open
 			// channel (no re-tune, no staged sequence) - the connected row is a toggle:
@@ -1778,10 +1865,10 @@ func (m model) doGrant(args []string) (tea.Model, tea.Cmd) {
 // cost-confirmation screen (or the over-limit screen if the cheapest station is
 // above the user's max). The proxy is only bound on accept (openChannel).
 func (m model) connect() (tea.Model, tea.Cmd) {
-	if len(m.bands) == 0 || m.cursor >= len(m.bands) {
+	bd, ok := m.selectedBand() // the cursor against the filtered + sorted view
+	if !ok {
 		return m, nil
 	}
-	bd := m.bands[m.cursor]
 	if !bd.online || bd.cheapest == nil {
 		// An offline band (incl. the sticky recent station whose node aged out of
 		// /discover): Enter re-scans the band to find it back on air, rather than a
@@ -2970,12 +3057,67 @@ func (m model) connectedModel() string {
 	return m.connected.Model
 }
 
+// selectedBand resolves the cursor against the FILTERED + SORTED view (the same
+// list the browse window renders + navigates), returning the band under the cursor.
+// Every band action (connect, cursorOnConnected) goes through this so the cursor
+// never desyncs from what the user sees when a filter / sort is applied. ok is
+// false when the visible list is empty.
+func (m model) selectedBand() (band, bool) {
+	vis := m.visibleBands()
+	if len(vis) == 0 {
+		return band{}, false
+	}
+	i := m.cursor
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(vis) {
+		i = len(vis) - 1
+	}
+	return vis[i], true
+}
+
+// clampBrowse keeps m.cursor + m.browseTop valid against the current FILTERED view.
+// Called after anything that can change the visible-set size (a re-scan, a filter
+// edit, a toggle, a sort) so the cursor never points past the list and the window
+// never strands rows. Pointer receiver: it mutates the model in place.
+func (m *model) clampBrowse() {
+	n := len(m.visibleBands())
+	if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.browseTop > m.cursor {
+		m.browseTop = m.cursor
+	}
+	if m.browseTop < 0 {
+		m.browseTop = 0
+	}
+}
+
+// scrollBrowse clamps the cursor and then scrolls the virtualized window so the
+// cursor stays visible (used on every up/down nav). It persists browseTop so the
+// remembered scroll position survives between frames; browseView recomputes the
+// same window each render, so the view stays correct even without this, but
+// storing it keeps the "remembered top" honest when the cursor jumps via a re-scan.
+func (m *model) scrollBrowse() {
+	m.clampBrowse()
+	rows := m.browseRows()
+	m.browseTop, _ = windowFor(m.browseTop, m.cursor, rows, len(m.visibleBands()))
+}
+
 // cursorOnConnected reports whether the browse cursor is on the band we are
 // currently connected to (used so Enter toggles into the open channel rather than
 // re-running the connect flow).
 func (m model) cursorOnConnected() bool {
 	cm := m.connectedModel()
-	return cm != "" && m.cursor >= 0 && m.cursor < len(m.bands) && m.bands[m.cursor].model == cm
+	if cm == "" {
+		return false
+	}
+	bd, ok := m.selectedBand()
+	return ok && bd.model == cm
 }
 
 func (m model) bandOnAir(model string) bool {
@@ -3046,44 +3188,225 @@ func (m model) accountTag(compact bool) string {
 	return who + stDim.Render(" · ") + stEmber.Render(dollars(m.balance))
 }
 
+// Band sort cycle - mirrors the /bands web page's sort <select> so the CLI and
+// the web read the same dial (strongest signal / cheapest / fastest / most
+// stations). sortSignal is the default (live-first, then strongest signal).
+const (
+	sortSignal   = iota // strongest signal (live first, then signal desc) - the default
+	sortCheapest        // cheapest $/1M out (ascending)
+	sortFastest         // fastest measured tok/s (descending)
+	sortStations        // most stations on air (descending)
+	sortCount           // number of sort modes (for the S cycle)
+)
+
+// sortLabel is the short word shown in the footer / filter line for a sort mode.
+func sortLabel(mode int) string {
+	switch mode {
+	case sortCheapest:
+		return "cheapest"
+	case sortFastest:
+		return "fastest"
+	case sortStations:
+		return "most-stations"
+	default:
+		return "strongest"
+	}
+}
+
+// bandSignal is the same 0-ish proxy the signal tower uses (cheapest station's
+// measured tok/s), so the "strongest signal" sort orders by what the meter shows.
+func bandSignal(b band) float64 {
+	if b.cheapest != nil {
+		return b.cheapest.TPS
+	}
+	return 0
+}
+
+// visibleBands is the DERIVED browse list: m.bands run through the active name
+// filter + quick toggles (free-now / confidential / on-air) and the sort cycle.
+// The cursor + the virtualized window both index THIS slice, never the raw
+// m.bands, so filtering and scaling never desync from navigation. It mirrors the
+// /bands web page's applyFilters (same predicates + sort keys) so CLI and web
+// match. Cheap to recompute each frame (a filter + a stable sort over the grouped
+// bands, not the raw offers); at thousands of bands this is the only full pass and
+// it is O(n log n) once, while RENDER stays O(window).
+func (m model) visibleBands() []band {
+	q := strings.ToLower(strings.TrimSpace(m.filterApplied))
+	out := make([]band, 0, len(m.bands))
+	for _, b := range m.bands {
+		if q != "" && !strings.Contains(strings.ToLower(b.model), q) {
+			continue
+		}
+		if m.fFree && !b.free {
+			continue
+		}
+		if m.fConf && b.lineage == 0 { // confidential == lineage in /discover
+			continue
+		}
+		if m.fOn && !b.online {
+			continue
+		}
+		out = append(out, b)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch m.sortMode {
+		case sortCheapest:
+			// offline bands (no live price) sort last; then cheapest out-price first.
+			if a.online != b.online {
+				return a.online
+			}
+			return a.minOut < b.minOut
+		case sortFastest:
+			return bandSignal(a) > bandSignal(b)
+		case sortStations:
+			return a.stations > b.stations
+		default: // sortSignal: live first, then strongest signal
+			if a.online != b.online {
+				return a.online
+			}
+			return bandSignal(a) > bandSignal(b)
+		}
+	})
+	return out
+}
+
+// filtersActive reports whether any name filter or quick toggle is narrowing the
+// list (used to show the "filter: ... (n/total)" line + the clear hint).
+func (m model) filtersActive() bool {
+	return strings.TrimSpace(m.filterApplied) != "" || m.fFree || m.fConf || m.fOn
+}
+
+// browseRows is how many band rows the virtualized window may draw at the current
+// terminal height. It reserves the fixed chrome (preset bar, header, section tab +
+// column header, prompt, footer, any endpoint/on-air panel) so the window scrolls
+// instead of pushing the footer off-screen on a short terminal. Floored so a tiny
+// terminal still shows a few rows + the position indicator.
+func (m model) browseRows() int {
+	h := m.height
+	if h <= 0 {
+		h = 30 // unsized first frame: a sensible default window
+	}
+	// Fixed chrome above/below the list: preset bar (~2) + header (~1) + section tab
+	// (1) + column header (1) + filter line when open (1) + prompt (1) + footer
+	// (2-3) + the two "more" hint lines + the position line. Compact trims the header.
+	chrome := 12
+	if m.compact {
+		chrome = 9
+	}
+	if m.filterMode || m.filtersActive() {
+		chrome++
+	}
+	if m.connected != nil {
+		chrome += 4 // the endpoint panel rides under the list
+	}
+	if m.onAir && m.share != nil {
+		chrome += 4 // the ON AIR panel too
+	}
+	rows := h - chrome
+	if rows < 3 {
+		rows = 3
+	}
+	return rows
+}
+
+// windowFor computes the virtualized slice [top, end) over a list of length n,
+// given the cursor and how many rows fit. It scrolls the window so the cursor is
+// always visible (clamped at both edges), starting from the caller's current top.
+// Returns the new top and the exclusive end. Correct with the cursor at 0, at n-1,
+// with a window larger than the list (whole list, no scroll), and with n == 0.
+func windowFor(top, cursor, rows, n int) (int, int) {
+	if rows < 1 {
+		rows = 1
+	}
+	if n <= rows {
+		return 0, n // everything fits: no scroll
+	}
+	if cursor < top {
+		top = cursor // scrolled above the window: pull the top up to the cursor
+	}
+	if cursor >= top+rows {
+		top = cursor - rows + 1 // below the window: pull the top down
+	}
+	if top > n-rows {
+		top = n - rows // never leave a blank tail
+	}
+	if top < 0 {
+		top = 0
+	}
+	return top, top + rows
+}
+
 func (m model) browseView(w int) string {
 	if len(m.bands) == 0 {
+		// ASYNC LOADING: the initial /discover (and any r re-scan) runs off the Bubble
+		// Tea event loop, so until the first offers land we show the SAME ((•)) scanning
+		// indicator the SHARE provider table uses - a clear "scanning the band…" pose, not
+		// a frozen empty list. loadedOnce flips true on the first offersMsg; scanned tracks
+		// every scan so a manual r re-scan (which resets scanned) shows it again too.
+		loading := !m.scanned && !m.scanErr
 		// COMPACT: no Ping art (it animates and eats rows) - a single static status
 		// line in the calm windowshade voice.
 		if m.compact {
 			switch {
 			case m.scanErr:
 				return "  " + stEmber.Render("(○) ...static") + stDim.Render(" - broker off air · r to retune") + "\n"
-			case !m.scanned:
-				return "  " + stDim.Render("(•) tuning in - reaching for stations on air") + "\n"
+			case loading:
+				return "  " + m.transmitLineFor(0) + stDim.Render("  scanning the band…") + "\n"
 			default:
 				return "  " + stDim.Render("(•) no stations on air right now · r to re-scan") + "\n"
 			}
 		}
 		// Three empty cases, all filled with Ping in the dead space (never over
 		// real content): the broker dropped -> Ping "...static"; still scanning
-		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle
-		// with a rotating "scanning the band" hint so the empty band feels like a DJ
-		// working the dial, not dead space.
+		// (no fetch back yet) -> the ((•)) scanning indicator (mirrors SHARE); scanned
+		// but quiet -> Ping idle with a rotating "scanning the band" hint so the empty
+		// band feels like a DJ working the dial, not dead space.
 		switch {
 		case m.scanErr:
 			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air - press r to retune") + "\n"
-		case !m.scanned:
-			return "\n" + pingPose(pingTx, m.frame, w, "tuning in… reaching for stations on air") + "\n"
+		case loading:
+			return "\n  " + m.transmitLineFor(0) + "\n  " + stDim.Render("scanning the band…") + "\n"
 		default:
 			return "\n" + pingPose(pingIdle, m.frame, w, idleHint(m.frame)) + "\n"
 		}
 	}
 	var b strings.Builder
+	// SCALE: render the FILTERED + SORTED view, not raw m.bands, and only the visible
+	// window of it (virtualized). vis is the derived list the cursor + window index.
+	vis := m.visibleBands()
+	total := len(m.bands)
+	matched := len(vis)
 	// Section heading, manual-style: a thin tab + a count, like the web's §-markers.
 	// COMPACT drops the prose count to a terse "N" and (below) the column-header row,
-	// so more bands fit per screen - the windowshade density.
+	// so more bands fit per screen - the windowshade density. The sort label rides in
+	// the heading so the active dial (strongest / cheapest / fastest / most-stations)
+	// is always visible (S cycles it; mirrors the /bands web page).
+	sortTag := stDim.Render(" · sort " + sortLabel(m.sortMode))
+	if m.narrow() {
+		// Narrow: drop the sort tag from the heading (it would overflow the slim width);
+		// the footer still teaches S, and the filter line carries the active state.
+		sortTag = ""
+	}
 	if m.compact {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("BAND") +
-			stDim.Render(fmt.Sprintf("  %d", len(m.bands))) + "\n")
+			stDim.Render(fmt.Sprintf("  %d", matched)) + sortTag + "\n")
 	} else {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
-			stDim.Render(fmt.Sprintf("   %d models on air", len(m.bands))) + "\n")
+			stDim.Render(fmt.Sprintf("   %d models on air", total)) + sortTag + "\n")
+	}
+	// FILTER line: shown while the live filter input is open (f) OR when a filter /
+	// toggle is applied. It carries the active name filter, the quick toggles, and the
+	// match count (e.g. "filter: qwen  (3/240)") so it's always clear what is narrowing
+	// the list. esc clears + closes, enter keeps it applied and returns to the list.
+	if m.filterMode || m.filtersActive() {
+		b.WriteString(m.filterLine(matched, total) + "\n")
+	}
+	// No band matches the active filter / toggles: a clear note (not a blank list),
+	// with the keys to widen back out. Mirrors the /bands web page's empty state.
+	if matched == 0 {
+		return b.String() + "  " + stEmber.Render("no bands match") +
+			stDim.Render(" - esc clears the filter, S re-sorts, the toggles widen it") + "\n"
 	}
 	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
@@ -3109,8 +3432,29 @@ func (m model) browseView(w int) string {
 		tableW = 20
 	}
 	connModel := m.connectedModel()
-	for i, bd := range m.bands {
-		sel := i == m.cursor
+	// VIRTUALIZE: render only the window of rows that fit the terminal height. The
+	// cursor is clamped into vis, the window scrolls to keep it in view, and a
+	// position indicator (e.g. "12-24 of 340") + top/bottom "more" hints orient the
+	// user. We deliberately iterate ONLY [top:end), never the whole list, so the
+	// frame cost is O(window) at thousands of bands. browseTop is recomputed each
+	// frame from the (already-clamped) cursor, so it stays correct at both edges,
+	// with a filter applied (window over the filtered set), and for the sticky band.
+	cur := m.cursor
+	if cur >= matched {
+		cur = matched - 1
+	}
+	if cur < 0 {
+		cur = 0
+	}
+	rows := m.browseRows()
+	top, end := windowFor(m.browseTop, cur, rows, matched)
+	// Top "more" hint: rows scrolled off above.
+	if top > 0 {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("↑ %d more above", top)) + "\n")
+	}
+	for i := top; i < end; i++ {
+		bd := vis[i]
+		sel := i == cur
 		connected := connModel != "" && bd.model == connModel
 		stationsLbl := "-"
 		if bd.online {
@@ -3180,7 +3524,50 @@ func (m model) browseView(w int) string {
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
 			statCell + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
 	}
+	// Bottom "more" hint: rows scrolled off below.
+	if end < matched {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("↓ %d more below", matched-end)) + "\n")
+	}
+	// Position indicator: which slice of the (filtered) list is on screen, e.g.
+	// "12-24 of 340". Only shown when the list does not all fit (windowing is live),
+	// so a short list stays uncluttered.
+	if matched > rows {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("%d-%d of %d", top+1, end, matched)) + "\n")
+	}
 	return b.String()
+}
+
+// filterLine renders the active filter strip under the band heading: the live
+// name-filter input (while open), the applied substring + match count (e.g.
+// "filter: qwen  (3/240)"), and the lit quick toggles (free / conf / on-air). It
+// is the band browser's mirror of the /bands web tuner chips so the CLI + web
+// narrow the same way. matched/total drive the "(n/total)" count.
+func (m model) filterLine(matched, total int) string {
+	var parts []string
+	if m.filterMode {
+		// The live input: typing filters as you go. The label + the textinput View()
+		// (cursor + echoed text) so it is obvious WHERE the filter text lands.
+		parts = append(parts, stKey.Render("filter ▸ ")+m.filterIn.View())
+	} else if q := strings.TrimSpace(m.filterApplied); q != "" {
+		parts = append(parts, stDim.Render("filter: ")+stKey.Render(q))
+	}
+	// Lit quick toggles (only the on ones, to stay tight).
+	var toggles []string
+	if m.fFree {
+		toggles = append(toggles, stLive.Render("free-now"))
+	}
+	if m.fConf {
+		toggles = append(toggles, stGold.Render("conf"))
+	}
+	if m.fOn {
+		toggles = append(toggles, stRed.Render("on-air"))
+	}
+	if len(toggles) > 0 {
+		parts = append(parts, stDim.Render("["+strings.Join(toggles, " ")+"]"))
+	}
+	// The match count, always, so it is clear how much the filter narrowed the list.
+	parts = append(parts, stDim.Render(fmt.Sprintf("(%d/%d)", matched, total)))
+	return "  " + strings.Join(parts, "  ")
 }
 
 // plainBandBadge is bandBadge without color, for the reverse-video selected row
@@ -4061,19 +4448,25 @@ func (m model) footer(w int) string {
 		} else {
 			left = stDim.Render("type to talk  ·  esc disconnect  ·  tab peek at the band  ·  /quit leaves channel  ·  ⌃c quit app")
 		}
+	} else if m.filterMode {
+		// FILTER ENTRY: teach the live-filter keys (type / esc / enter), not the browse keys.
+		if m.narrow() {
+			left = stDim.Render("type to filter · esc clear · ⏎ apply")
+		} else {
+			left = stDim.Render("type to filter the band by name  ·  esc clears + closes  ·  ⏎ keeps it applied")
+		}
 	} else if m.narrow() {
 		discKey := ""
 		if m.connected != nil {
-			discKey = " · d disc"
+			discKey = " · d"
 		}
-		left = stDim.Render("↑↓ · ⏎ tune in" + discKey + " · s · m · / · ? · q")
+		left = stDim.Render("↑↓ ⏎" + discKey + " · f filter · S sort · s · / · ?")
+	} else if m.connected != nil {
+		// Connected: lead with the channel + disconnect hints (load-bearing here); the
+		// filter/sort keys still ride along but the toggles drop to keep the line tight.
+		left = stDim.Render("↑↓ pick · enter tune in · d disconnect · tab/c channel · f filter · S sort · s share")
 	} else {
-		chatKey, discKey := "", ""
-		if m.connected != nil {
-			chatKey = " · tab/c channel"
-			discKey = " · d disconnect"
-		}
-		left = stDim.Render("↑↓ pick · enter tune in" + discKey + chatKey + " · s share · m compact · / cmd · ? help · q quit")
+		left = stDim.Render("↑↓ pick · enter tune in · f filter · S sort · F/C/O · s share · m · / · ? · q")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -4112,6 +4505,8 @@ func (m model) helpView() string {
 	start := [][2]string{
 		{"0", "AGENT: a small tool-capable agent (dj.md persona) - reads files, runs commands (you confirm)"},
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
+		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
+		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
 		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
@@ -4333,6 +4728,13 @@ func slowTick() tea.Cmd {
 	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
+// fetchOffers pulls the FULL on-air set from the broker /discover (the broker does
+// NOT paginate - one response carries every live offer). The TUI scales this with
+// CLIENT-SIDE windowing (browseView renders only the visible window) + name/sort/
+// toggle filters (visibleBands), which covers realistic scale. NEXT STEP, if on-air
+// counts ever exceed a few hundred: add broker-side pagination + load-on-scroll
+// here (a cursor/offset on /discover, fetching the next page as the window nears the
+// bottom) so the client never holds the whole list in memory.
 func fetchOffers(broker string) tea.Cmd {
 	return func() tea.Msg {
 		resp, err := http.Get(broker + "/discover")
