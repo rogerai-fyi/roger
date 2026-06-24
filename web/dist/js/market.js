@@ -30,6 +30,7 @@
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var BROKER = "https://broker.rogerai.fyi";
+  var MARKET = BROKER + "/market";
   var DISCOVER = BROKER + "/discover";
   var POLL_MS = 30000;             // re-tune the band every 30s
   var BARGLYPH = "▁▂▃▄▅▆▇█";       // signal tower glyphs (8 levels)
@@ -128,6 +129,30 @@
         live: online > 0
       };
     }).sort(function (a, b) { return b.signal - a.signal; });
+  }
+
+  /* ---------- map the authoritative /market band shape ---------- */
+  // /market is per-band: { model/band, providers, in_flight, min_price,
+  // best_tps, quality, success_rate, signal 0-100 }. Prefer it; the local
+  // signal math is only a fallback for /discover.
+  function fromMarket(rows) {
+    return rows.map(function (m) {
+      var providers = +m.providers || 0;
+      var live = providers > 0;
+      var sig = m.signal != null ? Math.max(0, Math.min(1, (+m.signal) / 100)) : 0;
+      var q = m.quality != null ? Math.max(0, Math.min(1, +m.quality > 1 ? (+m.quality) / 100 : +m.quality)) : 0;
+      if (!q && m.success_rate != null) q = Math.max(0, Math.min(1, +m.success_rate > 1 ? (+m.success_rate) / 100 : +m.success_rate));
+      var tps = +(m.best_tps || m.tps) || 0;
+      var price = m.min_price != null ? +m.min_price : (m.price_out != null ? +m.price_out : 0);
+      return {
+        model: m.model || m.band || "unknown",
+        providers: providers, total: providers, tps: tps, price: price,
+        signal: live ? (sig || computeSignal(providers, tps || 30)) : 0,
+        quality: live ? (q || computeQuality(providers, tps || 30)) : 0,
+        verified: !!(m.confidential || m.verified), live: live
+      };
+    }).filter(function (c) { return c.model && c.model !== "unknown"; })
+      .sort(function (a, b) { return b.signal - a.signal; });
   }
 
   /* ---------- demo band (graceful fallback) --------------------- */
@@ -252,31 +277,46 @@
     var ctrl = ("AbortController" in window) ? new AbortController() : null;
     var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
 
-    fetch(DISCOVER, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+    // authoritative /market first (per-band signal 0-100); /discover is the
+    // aggregation fallback; a labelled demo band is the last resort.
+    fetch(MARKET, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
       .then(function (data) {
-        clearTimeout(to);
-        var offers = (data && Array.isArray(data.offers)) ? data.offers : [];
-        var live = offers.length ? offers.filter(function (o) { return o && o.online !== false; }).length : 0;
-
-        if (offers.length > 0 && live > 0) {
-          var channels = aggregate(offers);
+        var rows = (data && Array.isArray(data.market)) ? data.market : [];
+        var channels = fromMarket(rows);
+        var nOnline = channels.filter(function (c) { return c.live; }).length;
+        if (channels.length && nOnline > 0) {
+          clearTimeout(to);
           paint(channels, true);
-          var nOnline = channels.filter(function (c) { return c.live; }).length;
-          setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · " +
-                    live + " station" + (live === 1 ? "" : "s") + " live", "live");
-          setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
-        } else {
-          // broker reachable but nobody is broadcasting yet -> demo band
-          paint(demoBand(), true);
-          setStatus("the band is quiet right now - a preview of how it looks on air", "demo");
-          setFoot('broker reachable · <span class="ember">no stations on air yet</span> · showing a representative band');
+          setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · live from /market", "live");
+          setFoot('live from <span class="ember">broker.rogerai.fyi/market</span> · signal 0-100 · prices in $ / 1M · auto-refresh 30s');
+          startShimmer();
+          return;
         }
-        startShimmer();
+        // /market empty -> try /discover aggregation
+        return fetch(DISCOVER, { cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            clearTimeout(to);
+            var offers = (d && Array.isArray(d.offers)) ? d.offers : [];
+            var live = offers.length ? offers.filter(function (o) { return o && o.online !== false; }).length : 0;
+            if (offers.length > 0 && live > 0) {
+              var ch = aggregate(offers);
+              paint(ch, true);
+              var nOn = ch.filter(function (c) { return c.live; }).length;
+              setStatus(nOn + " band" + (nOn === 1 ? "" : "s") + " on air · from /discover", "live");
+              setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
+            } else {
+              paint(demoBand(), true);
+              setStatus("the band is quiet right now - a preview of how it looks on air", "demo");
+              setFoot('broker reachable · <span class="ember">no stations on air yet</span> · showing a representative band');
+            }
+            startShimmer();
+          });
       })
       .catch(function () {
         clearTimeout(to);
-        // unreachable -> still show a beautiful, labelled demo band
+        // unreachable -> still show a labelled demo band
         paint(demoBand(), true);
         setStatus("preview band - couldn't reach the broker just now", "off");
         setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · showing a representative band');

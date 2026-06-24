@@ -1,88 +1,99 @@
 /* =====================================================================
    RogerAI - Design Tokens
-   "White room, neon wiring." Color is a SIGNAL, not a surface.
+   "The Live Operating Manual." ~95% warm monochrome + EXACTLY ONE accent:
+   the red on-air beacon. Color is a SIGNAL, never a surface.
+
+   Type: Space Grotesk (display + prose/UI) + JetBrains Mono (all machine
+   truth: numbers, labels, callsigns, commands, endpoints).
+
+   Token NAMES are kept stable so every page inherits the new foundation
+   without edits. The legacy accent names now resolve into the monochrome
+   + one-red system:
+     --volt  -> ink (was indigo "brand/primary"; brand is now ink + red glints)
+     --live  -> THE red beacon (on air / live data / primary action / focus)
+     --ember -> ink (money is expressed in mono weight, not hue)
+     --gold  -> ink (lineage ◆ is sober ink, not festive gold)
    Every value here is the single source of truth. Do not hardcode.
    ===================================================================== */
 
 :root {
-  /* ---- SURFACE: ~85% white / near-white. ------------------------- */
-  --white:        #FFFFFF;
-  --paper:        #FCFCFD; /* default page background */
-  --paper-2:      #F7F8FA; /* subtle raised panels */
-  --paper-3:      #F1F2F6; /* deepest neutral fill */
-  --hairline:     #ECEDF1; /* the ONLY divider color */
-  --hairline-2:   #E2E4EB; /* slightly stronger hairline */
+  /* ---- SURFACE: warm paper (~95% monochrome ground). ------------- */
+  --white:        #FFFFFF; /* the only "raised" surface (rare) */
+  --paper:        #FBFBFA; /* default page background - warm off-white */
+  --paper-2:      #F4F4F2; /* banded sections / bars */
+  --paper-3:      #EDEDEA; /* deepest neutral fill */
+  --hairline:     #E6E5E1; /* the ONLY divider color */
+  --hairline-2:   #D8D7D2; /* stronger rule (plate top/bottom) */
 
-  /* ---- INK: near-black. Pure #000 is BANNED. --------------------- */
-  --ink-900:      #0B0D12; /* headlines, primary text */
-  --ink-700:      #2A2E38; /* body text */
-  --ink-500:      #5A6072; /* secondary text */
-  --ink-400:      #868C9B; /* tertiary / captions */
-  --ink-300:      #AEB3C0; /* disabled, placeholder */
+  /* ---- INK: warm near-black. Pure #000 is BANNED. --------------- */
+  --ink-900:      #15140F; /* headlines, primary text */
+  --ink-700:      #33312B; /* body text */
+  --ink-500:      #6B685F; /* secondary text */
+  --ink-400:      #9A968B; /* tertiary / captions / labels */
+  --ink-300:      #C4C0B5; /* disabled / off-bars */
 
-  /* ---- ACCENTS: 4 signals, each with ONE fixed job. -------------- */
-  --volt:         #5B5BFF; /* BRAND / you / primary action */
-  --live:         #00C781; /* availability / health / online */
-  --ember:        #FF8A3D; /* money / cost / GPU heat */
-  --pulse:        #FF3D8B; /* live data / hero only */
-  --gold:         #E8B339; /* lineage call-sign ◆ - verified provenance */
+  /* ---- THE SIGNAL: one red beacon. -------------------------------
+     This is the whole accent budget. It appears only as small glints:
+     the on-air dot, focus rings, the on-air underline, a §-marker rule,
+     install-box hover, the live-market dot. */
+  --live:         #E0231C; /* on air / live / primary action / focus */
+  --live-tint:    #FBE7E5; /* the only red fill (behind a dot / on hover) */
+  --live-glow:    rgba(224, 35, 28, 0.26);
+  --live-wash:    rgba(224, 35, 28, 0.10);
 
-  /* tints (for fills behind icons, never large surfaces) */
-  --volt-tint:    #EEEEFF;
-  --live-tint:    #E2F8F0;
-  --ember-tint:   #FFF0E6;
-  --pulse-tint:   #FFE8F1;
+  /* ---- LEGACY ACCENT ALIASES -> collapse into mono + one red. ----
+     Kept so the other pages render acceptably with no body edits. */
+  --volt:         var(--ink-900); /* brand/primary -> ink (outline buttons) */
+  --ember:        var(--ink-900); /* money -> mono ink + weight */
+  --pulse:        var(--live);    /* live data -> the one red */
+  --gold:         var(--ink-700); /* lineage ◆ -> sober ink */
 
-  /* glows (used sparingly, hero + live dots) */
-  --volt-glow:    rgba(91, 91, 255, 0.22);
-  --live-glow:    rgba(0, 199, 129, 0.30);
-  --ember-glow:   rgba(255, 138, 61, 0.26);
-  --pulse-glow:   rgba(255, 61, 139, 0.28);
-  /* extra-soft ambient wash for the reduced-motion background fallback */
-  --live-wash:    rgba(0, 199, 129, 0.12);
+  --volt-tint:    var(--paper-2);
+  --ember-tint:   var(--paper-2);
+  --pulse-tint:   var(--live-tint);
+  --volt-glow:    var(--live-glow);
+  --ember-glow:   var(--live-glow);
+  --pulse-glow:   var(--live-glow);
+  --gold-tint:    var(--paper-2);
 
-  /* frosted-glass backings (nav, hero pill, band) - theme aware */
-  --glass:        rgba(255, 255, 255, 0.72);
-  --glass-soft:   rgba(255, 255, 255, 0.55);
-  --gold-tint:    #FBF1D6; /* fill behind the gold lineage icon */
+  /* frosted-glass backings (nav) - theme aware */
+  --glass:        rgba(251, 251, 250, 0.82);
+  --glass-soft:   rgba(251, 251, 250, 0.55);
 
   /* ---- TYPE -------------------------------------------------------- */
-  --font-ui:   "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "Geist Mono", "JetBrains Mono", "SFMono-Regular", ui-monospace, "Menlo", monospace;
+  --font-ui:   "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, "Menlo", monospace;
 
-  /* Type scale - fluid (clamp: mobile floor → desktop cap), 1.20 modular.
-     min @ ~360px; caps in the ~800-1000px range, holds steady on desktop.
-     rem on 16px root. */
-  --t-display: clamp(2.5rem, 1.30rem + 5.9vw, 4.25rem); /* hero */
-  --t-h1:      clamp(2.05rem, 1.45rem + 2.6vw, 2.75rem);
-  --t-h2:      clamp(1.6rem, 1.22rem + 1.7vw, 2rem);
-  --t-h3:      clamp(1.25rem, 1.16rem + 0.4vw, 1.375rem);
-  --t-lead:    clamp(1.0625rem, 1.0rem + 0.3vw, 1.1875rem); /* lead paragraph */
+  /* Type scale - fluid (clamp: mobile floor -> desktop cap). rem on 16px root. */
+  --t-display: clamp(2.4rem, 1.20rem + 4.6vw, 4rem);   /* hero */
+  --t-h1:      clamp(2rem, 1.45rem + 2.2vw, 2.5rem);
+  --t-h2:      clamp(1.6rem, 1.22rem + 1.4vw, 1.9rem);
+  --t-h3:      clamp(1.2rem, 1.12rem + 0.4vw, 1.3rem);
+  --t-lead:    clamp(1.0625rem, 1.0rem + 0.3vw, 1.18rem); /* lead paragraph */
   --t-body:    1rem;
   --t-sm:      0.875rem;
   --t-xs:      0.75rem;
   --t-micro:   0.6875rem; /* labels / eyebrows */
 
   --lh-tight:  1.04;
-  --lh-snug:   1.14;
+  --lh-snug:   1.12;
   --lh-body:   1.55;
 
-  /* Heading tracking is on a system: bigger type, tighter set. One value
-     per level so every h2 across the document optically matches. */
-  --tracking-display: -0.038em; /* hero */
-  --tracking-h1:      -0.03em;
-  --tracking-h2:      -0.025em;
-  --tracking-h3:      -0.012em;
-  --tracking-tight:   -0.022em; /* generic snug body/labels */
+  /* Heading tracking: bigger type = tighter set; uppercase labels open. */
+  --tracking-display: -0.02em;  /* hero */
+  --tracking-h1:      -0.018em;
+  --tracking-h2:      -0.015em;
+  --tracking-h3:      -0.01em;
+  --tracking-tight:   -0.012em;
   --tracking-flat:    0em;
-  --tracking-label:   0.14em;   /* uppercase eyebrows */
+  --tracking-label:   0.14em;   /* uppercase eyebrows / mono labels */
 
   --weight-regular: 400;
   --weight-medium:  500;
   --weight-semi:    600;
   --weight-bold:    700;
 
-  /* ---- SPACING: 4px base unit ------------------------------------- */
+  /* ---- SPACING: 4px base, 8px rhythm ------------------------------ */
   --s-1:  4px;
   --s-2:  8px;
   --s-3:  12px;
@@ -98,57 +109,48 @@
   --s-32: 128px;
   --s-40: 160px;
 
-  --gutter: clamp(20px, 5vw, 64px);
-  --maxw:   1200px;
+  --gutter: clamp(20px, 5vw, 56px);
+  --maxw:   1080px;          /* document feel (down from 1200) */
 
-  /* fluid section rhythm - generous on desktop, breathable on mobile */
-  --section-y:  clamp(64px, 9vw, 128px);
-  --section-y2: clamp(48px, 7vw, 96px);
-  --head-gap:   clamp(40px, 6vw, 64px); /* section head → content */
+  /* tighter, document-style section rhythm (cap toward 96px) */
+  --section-y:  clamp(56px, 8vw, 96px);
+  --section-y2: clamp(48px, 7vw, 88px);
+  --head-gap:   clamp(32px, 5vw, 56px); /* section head -> content */
 
-  /* ---- RADII ------------------------------------------------------- */
-  --r-xs:   6px;
-  --r-sm:   10px;
-  --r-md:   14px;
-  --r-lg:   20px;
-  --r-xl:   28px;
+  /* ---- RADII: square-ish; no big rounded cards on the homepage ---- */
+  --r-xs:   2px;
+  --r-sm:   3px;
+  --r-md:   4px;
+  --r-lg:   6px;
+  --r-xl:   8px;
   --r-pill: 999px;
 
-  /* ---- ELEVATION: soft, neutral, almost weightless ---------------- */
+  /* ---- ELEVATION: flat. Hairlines do the work. -------------------
+     Depth is communicated by rules + spacing, not shadows. Only the
+     terminal demo keeps a real soft shadow (--e-3). The faint --e-1/--e-2
+     remain for legacy account/auth cards so they don't read broken. */
   --e-0: none;
-  --e-1: 0 1px 2px rgba(11,13,18,0.04), 0 1px 1px rgba(11,13,18,0.03);
-  --e-2: 0 2px 8px rgba(11,13,18,0.05), 0 1px 2px rgba(11,13,18,0.04);
-  --e-3: 0 8px 28px rgba(11,13,18,0.08), 0 2px 6px rgba(11,13,18,0.05);
-  --e-4: 0 18px 48px rgba(11,13,18,0.12), 0 4px 12px rgba(11,13,18,0.06);
-  --e-glass: 0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 30px rgba(11,13,18,0.06);
+  --e-1: none;
+  --e-2: 0 1px 2px rgba(21,20,15,0.04);
+  --e-3: 0 2px 8px rgba(21,20,15,0.06), 0 1px 2px rgba(21,20,15,0.05);
+  --e-4: 0 8px 28px rgba(21,20,15,0.10), 0 2px 6px rgba(21,20,15,0.06);
+  --e-glass: 0 1px 0 rgba(255,255,255,0.5) inset;
 
   /* ---- MOTION ------------------------------------------------------ */
-  /* easing */
-  --ease-out-quint: cubic-bezier(.22, 1, .36, 1);   /* primary reveal / lift */
+  --ease-out-quint: cubic-bezier(.22, 1, .36, 1);
   --ease-out-expo:  cubic-bezier(.16, 1, .3, 1);
   --ease-in-out:    cubic-bezier(.65, 0, .35, 1);
   --ease-standard:  cubic-bezier(.4, 0, .2, 1);
-  /* Spring notes (for JS / Framer Motion port):
-     - UI micro (hover, dots):   stiffness 420, damping 32, mass 1
-     - Magnetic CTA:             stiffness 260, damping 22, mass 1
-     - Number-roll settle:       stiffness 180, damping 26, mass 1
-     - Reveal (translate+fade):  use --ease-out-quint, 560ms, no spring */
 
-  /* durations */
-  --d-1: 120ms;  /* taps, dot pulse step */
-  --d-2: 200ms;  /* hover */
-  --d-3: 320ms;  /* small reveal */
-  --d-4: 560ms;  /* scroll reveal */
-  --d-5: 820ms;  /* hero choreography */
+  --d-1: 120ms;
+  --d-2: 200ms;
+  --d-3: 320ms;
+  --d-4: 560ms;
+  --d-5: 820ms;
 
-  /* ---- CARRIER ----------------------------------------------------
-     One shared "transmit" rhythm the whole instrument breathes on, so
-     the on-air dot, hero beacon, brand pulse, radar and beam all read
-     as the SAME carrier wave rather than unrelated loops. Multiples of
-     the carrier keep ambient motion phase-coherent (the page "ticks").
-     2.2s base = the founder-approved on-air/beacon beat. */
-  --carrier:    2.2s;   /* the on-air carrier period */
-  --carrier-2x: 4.4s;   /* radar sweep / slow ambient (one octave down) */
+  /* ---- CARRIER: one shared transmit rhythm the whole page breathes on. */
+  --carrier:    2.2s;
+  --carrier-2x: 4.4s;
 
   /* z layers */
   --z-base:   0;
@@ -158,60 +160,49 @@
 }
 
 /* =====================================================================
-   DARK THEME - "white room, neon wiring" inverted to an ink room.
-   Driven entirely by [data-theme="dark"] on <html>. Only the surface,
-   ink, tint/glow, and elevation tokens flip; the type/space/motion
-   scales are shared. Accents keep the SAME identity (volt/live/ember/
-   gold) but are lifted a touch for AA contrast on the ink base.
+   DARK THEME - "the ink room" (warm ink, not blue-black).
+   Driven by [data-theme="dark"] on <html>. Same single-accent discipline.
    ===================================================================== */
 :root[data-theme="dark"] {
-  /* ---- SURFACE: layered ink. The base is #0B0D12 from DESIGN.md. --- */
-  --white:        #161922; /* "raised to white" - cards/panels sit here */
-  --paper:        #0B0D12; /* default page background (the ink base) */
-  --paper-2:      #12151D; /* subtle raised panels / bars */
-  --paper-3:      #1B1F2A; /* deepest neutral fill */
-  --hairline:     #232734; /* the ONLY divider color */
-  --hairline-2:   #2D3242; /* slightly stronger hairline */
+  --white:        #1C1A14; /* raised surface */
+  --paper:        #0E0D0B; /* warm ink ground */
+  --paper-2:      #16140F; /* bands / bars */
+  --paper-3:      #1F1C16; /* deepest neutral fill */
+  --hairline:     #2A2720; /* the ONLY divider */
+  --hairline-2:   #38342B; /* stronger rule */
 
-  /* ---- INK becomes LIGHT: near-white text on ink. ----------------- */
-  --ink-900:      #F4F6FB; /* headlines, primary text */
-  --ink-700:      #D2D7E3; /* body text */
-  --ink-500:      #99A0B2; /* secondary text (AA on paper) */
-  --ink-400:      #79808F; /* tertiary / captions */
-  --ink-300:      #565C6B; /* disabled, placeholder, off bars */
+  --ink-900:      #F3F1EA; /* headlines */
+  --ink-700:      #D7D3C8; /* body */
+  --ink-500:      #9A968B; /* secondary */
+  --ink-400:      #7A766B; /* tertiary / captions */
+  --ink-300:      #555148; /* disabled / off bars */
 
-  /* ---- ACCENTS: same signals, lifted for contrast on ink. -------- */
-  --volt:         #8A8AFF; /* brand / you / primary action */
-  --live:         #2BE0A0; /* availability / health / online */
-  --ember:        #FFA866; /* money / cost / GPU heat */
-  --pulse:        #FF5FA0; /* live data / hero only */
-  --gold:         #F2C45A; /* lineage call-sign - verified provenance */
+  --live:         #FF4438; /* beacon, lifted for AA on ink */
+  --live-tint:    rgba(255, 68, 56, 0.16);
+  --live-glow:    rgba(255, 68, 56, 0.32);
+  --live-wash:    rgba(255, 68, 56, 0.14);
 
-  /* tints (low-alpha fills behind icons, never large surfaces) */
-  --volt-tint:    rgba(138,138,255,0.16);
-  --live-tint:    rgba(43,224,160,0.16);
-  --ember-tint:   rgba(255,168,102,0.16);
-  --pulse-tint:   rgba(255,95,160,0.16);
+  --volt:         var(--ink-900);
+  --ember:        var(--ink-900);
+  --pulse:        var(--live);
+  --gold:         var(--ink-700);
+  --volt-tint:    var(--paper-2);
+  --ember-tint:   var(--paper-2);
+  --pulse-tint:   var(--live-tint);
+  --volt-glow:    var(--live-glow);
+  --ember-glow:   var(--live-glow);
+  --pulse-glow:   var(--live-glow);
+  --gold-tint:    var(--paper-2);
 
-  /* glows (used sparingly, hero + live dots) - a touch stronger on ink */
-  --volt-glow:    rgba(138,138,255,0.30);
-  --live-glow:    rgba(43,224,160,0.34);
-  --ember-glow:   rgba(255,168,102,0.30);
-  --pulse-glow:   rgba(255,95,160,0.32);
-  --live-wash:    rgba(43,224,160,0.14);
-
-  /* ---- ELEVATION: shadows go deeper; add a faint top-light inset. -- */
   --e-0: none;
-  --e-1: 0 1px 2px rgba(0,0,0,0.40), 0 1px 1px rgba(0,0,0,0.30);
-  --e-2: 0 2px 10px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.35);
-  --e-3: 0 10px 34px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.40);
-  --e-4: 0 22px 56px rgba(0,0,0,0.62), 0 6px 16px rgba(0,0,0,0.45);
-  --e-glass: 0 1px 0 rgba(255,255,255,0.05) inset, 0 10px 34px rgba(0,0,0,0.50);
+  --e-1: none;
+  --e-2: 0 1px 2px rgba(0,0,0,0.40);
+  --e-3: 0 10px 34px rgba(0,0,0,0.50), 0 2px 8px rgba(0,0,0,0.40);
+  --e-4: 0 18px 48px rgba(0,0,0,0.58), 0 4px 12px rgba(0,0,0,0.42);
+  --e-glass: 0 1px 0 rgba(255,255,255,0.04) inset;
 
-  /* frosted-glass backings tuned for ink */
-  --glass:        rgba(13, 16, 23, 0.72);
-  --glass-soft:   rgba(13, 16, 23, 0.50);
-  --gold-tint:    rgba(242, 196, 90, 0.14);
+  --glass:        rgba(14, 13, 11, 0.82);
+  --glass-soft:   rgba(14, 13, 11, 0.55);
 
   color-scheme: dark;
 }

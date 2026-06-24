@@ -3,7 +3,7 @@
 <head>
   <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" theme=inline css=site og=1 -->
 </head>
-<body>
+<body data-onair="idle">
 
   <!-- ===== blip-map background: stations on air across a faint grid ===== -->
   <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
@@ -31,17 +31,33 @@
       </span>
 
       <h1 class="hero__title" data-reveal data-reveal-delay="60">
-        Tune in to the world's<br /><span class="hero__op">home GPUs</span><span class="hero__dot" aria-hidden="true"></span>
+        Tune in to the world's<br /><span class="hero__op">home GPUs</span>.
       </h1>
 
       <p class="hero__sub" data-reveal data-reveal-delay="120">
         Operators put their self-hosted models <b>on air</b> - ham radio,
-        for LLMs. You <b>tune in</b> and pay per token on the CLI.
+        for LLMs. You <b>tune in</b> and pay per token on the CLI. No inbound
+        ports, no account to browse.
       </p>
 
-      <!-- THE primary CTA: the install command -->
-      <div class="install" data-reveal data-reveal-delay="180">
-        <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
+      <!-- SIGNATURE: the tuning dial, locked on the strongest live band -->
+      <div class="install" data-reveal data-reveal-delay="160" style="margin-top:var(--s-8)">
+        <span class="fig" aria-hidden="true">FIG. 1 - THE DIAL · LIVE BAND</span>
+        <figure class="dial" style="margin:0">
+          <div class="dial__top">
+            <span class="dial__locked" id="dialLocked">LOCKED · <b>tuning&hellip;</b></span>
+            <span class="dial__sig" id="dialSig">SIGNAL <b>--</b>/100</span>
+          </div>
+          <div class="dial__svgwrap">
+            <svg id="dialSvg" role="img" aria-label="Tuning dial locked on the strongest live band"></svg>
+          </div>
+          <div class="dial__hint"><span class="dial__chip" id="dialChip"></span></div>
+        </figure>
+      </div>
+
+      <!-- THE hero object: the install command -->
+      <div class="install" data-reveal data-reveal-delay="200">
+        <span class="fig" aria-hidden="true">FIG. 2 - TUNE IN</span>
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
           <span class="install__prompt" aria-hidden="true">$</span>
@@ -62,13 +78,10 @@
         </div>
       </div>
 
-      <!-- Ping, the on-air receiver, standing by the dial. Idle-bobs with its
-           eye pulsing on the SHARED --carrier beat (part of the one heartbeat,
-           not a new rhythm). Sits in the hero's right margin on wide screens,
-           hidden where it would crowd. Reduced-motion = a static friendly pose. -->
+      <!-- Ping, the operator persona: standing by / on air, driven by live state. -->
       <span class="hero__ping" aria-hidden="true">
         <svg class="ping" viewBox="0 0 64 72" fill="currentColor" focusable="false">
-          <g class="ping__waves" fill="none" stroke="#FF3B3B" stroke-linecap="round" stroke-width="2">
+          <g class="ping__waves" fill="none" stroke="var(--live)" stroke-linecap="round" stroke-width="2">
             <path class="ping__wave ping__wave--a" d="M22 12 A11 11 0 0 1 42 12" opacity="0"/>
             <path class="ping__wave ping__wave--b" d="M16 11 A16 16 0 0 1 48 11" opacity="0"/>
           </g>
@@ -79,10 +92,10 @@
             <rect x="25" y="64" width="5" height="5" rx="1"/>
             <rect x="34" y="64" width="5" height="5" rx="1"/>
           </g>
-          <circle class="ping__glow" cx="32" cy="18" r="9" fill="#FF3B3B" opacity="0.3"/>
-          <circle class="ping__eye" cx="32" cy="18" r="5" fill="#FF3B3B"/>
+          <circle class="ping__glow" cx="32" cy="18" r="9" fill="var(--live)" opacity="0.3"/>
+          <circle class="ping__eye" cx="32" cy="18" r="5" fill="var(--live)"/>
         </svg>
-        <span class="hero__ping-tag mono">standing by</span>
+        <span class="hero__ping-tag mono" id="pingTag">standing by</span>
       </span>
 
     </div>
@@ -100,9 +113,9 @@
           tool that speaks OpenAI.</p>
       </div>
 
-      <span class="fig fig--center" aria-hidden="true">FIG. 2 - THE DIAL · TUNE-IN REPLAY</span>
+      <span class="fig" aria-hidden="true">FIG. 3 - THE DIAL · TUNE-IN + GO-ON-AIR REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="A replay of the RogerAI terminal: picking a band with margins, locking the strongest station, auto re-tuning when a station fades, and receiving a local OpenAI-compatible endpoint and key.">
+           aria-label="A replay of the RogerAI terminal: searching a band, reading the stations serving it, tuning in with margins to get a local OpenAI-compatible endpoint and key, then sharing your own GPU on air and watching it serve a request and earn.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="term__title">rogerai - the dial</span>
@@ -113,52 +126,26 @@
     </div>
   </section>
 
-  <!-- ===================== LIVE SIGNAL TOWER / MARKET ===================== -->
+  <!-- ===================== LIVE SIGNAL FIELD / MARKET ===================== -->
   <section class="market" id="market">
     <div class="wrap">
       <div class="market__head" data-reveal>
         <span class="sectionno">§2 / THE BAND · LIVE</span>
-        <!-- signal-sweep radar: a small instrument, FIG.-labelled -->
-        <span class="radar" aria-hidden="true">
-          <svg class="radar__svg" viewBox="0 0 64 64" fill="none">
-            <circle class="radar__ring" cx="32" cy="32" r="27" />
-            <circle class="radar__ring" cx="32" cy="32" r="18" />
-            <circle class="radar__ring" cx="32" cy="32" r="9" />
-            <line class="radar__cross" x1="32" y1="5" x2="32" y2="59" />
-            <line class="radar__cross" x1="5" y1="32" x2="59" y2="32" />
-            <g class="radar__sweep">
-              <path d="M32 32 L32 5 A27 27 0 0 1 55.4 18.5 Z" fill="url(#radarGrad)" />
-            </g>
-            <circle class="radar__blip radar__blip--1" cx="44" cy="22" r="2" />
-            <circle class="radar__blip radar__blip--2" cx="22" cy="42" r="2" />
-            <circle class="radar__blip radar__blip--3" cx="40" cy="44" r="1.6" />
-            <defs>
-              <linearGradient id="radarGrad" x1="32" y1="32" x2="32" y2="5"
-                              gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="var(--live)" stop-opacity="0" />
-                <stop offset="1" stop-color="var(--live)" stop-opacity="0.28" />
-              </linearGradient>
-            </defs>
-          </svg>
-        </span>
         <h2>Read the band.</h2>
         <p>Every model is a band; every station is a home GPU serving it.
           <b>More stations&nbsp;=&nbsp;stronger signal</b>, faster tokens, more choice.
-          Owners set their own prices, not us. As a band fills or empties, a station's
-          price can drift up or down. Open market, live.</p>
+          Operators set their own rates. As a band fills or empties, prices
+          drift. Open market, live.</p>
       </div>
 
       <div class="market__panel" data-reveal data-reveal-delay="80">
-        <!-- top status line: the on-air pulse + live broker status -->
+        <!-- top status line: the reactive on-air beacon + live broker status -->
         <div class="market__bar">
           <span class="market__status" id="marketStatus">
-            <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+            <span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span>
             <span id="marketStatusText">tuning in to the broker…</span>
           </span>
           <span class="market__meta">
-            <span class="market__legend" aria-hidden="true">
-              <i class="market__legbar"></i> signal&nbsp;·&nbsp;stations on air
-            </span>
             <button class="market__refresh" id="marketRefresh" type="button"
                     aria-label="Refresh the live band">refresh</button>
           </span>
@@ -182,56 +169,34 @@
         </ul>
 
         <p class="market__foot mono" id="marketFoot">
-          live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens
+          live from <span class="ember">broker.rogerai.fyi/market</span> · prices in $ / 1M tokens
         </p>
       </div>
 
-      <!-- money: what a token costs + wallet, glanceable -->
-      <div class="money" data-reveal data-reveal-delay="140" aria-label="What it costs">
-        <div class="money__card">
-          <span class="money__label">a million tokens, typically</span>
-          <b class="money__big mono ember">$0.18 - $0.55</b>
-          <span class="money__sub">in &amp; out · set by each station · ~150-400 chat replies</span>
-        </div>
-        <div class="money__card">
-          <span class="money__label">your wallet</span>
-          <b class="money__big mono">$42.17</b>
-          <span class="money__sub">wallet balance · debited per token</span>
-        </div>
-        <div class="money__card">
-          <span class="money__label">a typical reply costs</span>
-          <b class="money__big mono ember">$0.0001</b>
-          <span class="money__sub">24 tokens out @ 0.22 $/M · you watch it tick, live</span>
-        </div>
+      <!-- the money meter line (replaces the 3 cards) -->
+      <div class="meter" aria-label="What it costs">
+        <span><span class="meter__k">RATE</span><b>$0.18 - $0.55</b> / 1M tok</span>
+        <span><span class="meter__k">REPLY</span><b>~$0.0001</b> / 24 tok out</span>
+        <span><span class="meter__k">WALLET</span><b>debited live</b>, per token</span>
       </div>
     </div>
   </section>
   </main>
 
-  <!-- ===================== WHAT IT IS ===================== -->
+  <!-- ===================== THE TUNE ===================== -->
   <section class="section band" id="what">
     <div class="wrap">
       <div class="section__head" data-reveal>
         <span class="sectionno">§3 / THE TUNE</span>
         <h2>Home GPUs, on the air.</h2>
-        <p>Powerful open models sit idle on home GPUs everywhere. RogerAI opens that silicon
-          as one shared band: an operator puts a model on the air at a price they set, you
-          tune in and pay per token, and every token is lineage-tracked. Fair, private, and
+        <p>An operator puts a model on the air at a price they set; you tune in and
+          pay per token; every token is lineage-tracked. Fair, private, and
           dead-simple from either side.</p>
       </div>
 
       <div class="twoway" data-reveal data-reveal-delay="80">
         <article class="twoway__side">
-          <div class="twoway__tag twoway__tag--air">
-            <!-- share: antenna emitting outward -->
-            <svg class="twoway__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                 stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-              <line x1="8" y1="8" x2="8" y2="13" />
-              <circle cx="8" cy="6" r="1.4" fill="currentColor" stroke="none" />
-              <path d="M4.8 9.2a4.5 4.5 0 0 1 0-6.4M11.2 2.8a4.5 4.5 0 0 1 0 6.4" />
-            </svg>
-            go on air
-          </div>
+          <div class="twoway__tag twoway__tag--air">go on air</div>
           <h3>Share a model</h3>
           <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama, LM Studio). Set a call-sign,
             a rate, and your hours. Flip the switch. You are on air.</p>
@@ -243,16 +208,7 @@
         </div>
 
         <article class="twoway__side">
-          <div class="twoway__tag twoway__tag--tune">
-            <!-- tune in: receiver dish catching a signal -->
-            <svg class="twoway__ico" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-                 stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-              <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
-              <path d="M5 8a3 3 0 0 1 3-3M3 8a5 5 0 0 1 5-5" />
-              <path d="M11 8a3 3 0 0 1-3 3M13 8a5 5 0 0 1-5 5" />
-            </svg>
-            tune in
-          </div>
+          <div class="twoway__tag twoway__tag--tune">tune in</div>
           <h3>Use a model</h3>
           <p>Pick a band, set your margins (max price, min speed). RogerAI locks the strongest
             station and hands you a local OpenAI endpoint + key. When one fades, it re-tunes.</p>
@@ -323,23 +279,23 @@
       <div class="opnotes" data-reveal data-reveal-delay="60">
         <article class="opnote">
           <span class="opnote__no" aria-hidden="true">01</span>
-          <h3>Lock and hold</h3>
-          <p>Tune with margins. The radio locks the strongest station and re-tunes when one fades.</p>
+          <div><h3>Lock and hold</h3>
+          <p>Tune with margins. The radio locks the strongest station and re-tunes when one fades.</p></div>
         </article>
         <article class="opnote">
           <span class="opnote__no" aria-hidden="true">02</span>
-          <h3>Sign every token <span class="cs">&#9670;</span></h3>
-          <p>A gold call-sign co-signs each token's lineage. ed25519, verifiable.</p>
+          <div><h3>Sign every token <span class="cs">&#9670;</span></h3>
+          <p>A call-sign co-signs each token's lineage. ed25519, verifiable.</p></div>
         </article>
         <article class="opnote">
           <span class="opnote__no" aria-hidden="true">03</span>
-          <h3>Set your own rate</h3>
-          <p>Per-token rates per model, free hours, time-of-use, usage caps. You decide.</p>
+          <div><h3>Set your own rate</h3>
+          <p>Per-token rates per model, free hours, time-of-use, usage caps. You decide.</p></div>
         </article>
         <article class="opnote">
           <span class="opnote__no" aria-hidden="true">04</span>
-          <h3>Only the model</h3>
-          <p>RogerAI bridges the LLM endpoint, nothing else. No shell, files, or context. The confidential tier seals the payload.</p>
+          <div><h3>Only the model</h3>
+          <p>RogerAI bridges the LLM endpoint, nothing else. No shell, files, or context. The confidential tier seals the payload.</p></div>
         </article>
       </div>
     </div>
@@ -354,26 +310,26 @@
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
           stations broadcast for the love of the band.</p>
         <ul class="checks">
-          <li><span class="tick">&#10003;</span> Per-input and per-output pricing, per model</li>
-          <li><span class="tick">&#10003;</span> Time-of-use windows and usage caps you control</li>
-          <li><span class="tick">&#10003;</span> Provably fair metering, no under-reporting, no over-charging</li>
-          <li><span class="tick">&#10003;</span> 70/30 split in the operator's favor</li>
+          <li><span class="tick">+</span> Per-input and per-output pricing, per model</li>
+          <li><span class="tick">+</span> Time-of-use windows and usage caps you control</li>
+          <li><span class="tick">+</span> Provably fair metering, no under-reporting, no over-charging</li>
+          <li><span class="tick">+</span> 70/30 split in the operator's favor</li>
         </ul>
       </div>
 
-      <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example earnings panel">
-        <span class="fig" aria-hidden="true">FIG. 3 - OPERATOR PANEL</span>
+      <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example operator panel">
+        <span class="fig" aria-hidden="true">FIG. 4 - OPERATOR PANEL</span>
         <div class="earn__head">
           <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
           <span class="earn__onair"><span class="dot"></span> ON AIR</span>
         </div>
         <div class="earn__row"><span>model</span><b class="mono">qwen3-coder-30b</b></div>
-        <div class="earn__row"><span>rate · out</span><b class="mono ember">$0.30 / 1M</b></div>
-        <div class="earn__row"><span>rate · in</span><b class="mono ember">$0.18 / 1M</b></div>
+        <div class="earn__row"><span>rate · out</span><b class="mono">$0.30 / 1M</b></div>
+        <div class="earn__row"><span>rate · in</span><b class="mono">$0.18 / 1M</b></div>
         <div class="earn__spark">
           <span class="earn__label">est. / day</span>
           <span class="earn__bars" aria-hidden="true"></span>
-          <b class="mono ember earn__amt">$1.10 - $3.40</b>
+          <b class="mono earn__amt">$1.10 - $3.40</b>
         </div>
         <div class="earn__foot mono">you'll appear in the band within ~10s</div>
       </aside>
@@ -407,6 +363,7 @@
   <!-- include: footer.html anchors= -->
 
   <script src="js/radiomap.js" defer></script>
+  <script src="js/dial.js" defer></script>
   <script src="js/terminal.js" defer></script>
   <script src="js/market.js" defer></script>
   <script src="js/site.js" defer></script>
