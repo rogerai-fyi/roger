@@ -41,7 +41,7 @@ type connect struct {
 
 func loadConnect() connect {
 	c := connect{
-		secretKey:  os.Getenv("STRIPE_SECRET_KEY"), // Connect reuses the platform secret key
+		secretKey:  stripeSecretKey(), // Connect reuses the platform secret key (prod-aware)
 		refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fyi/payouts?onboard=refresh"),
 		returnURL:  envOr("STRIPE_CONNECT_RETURN_URL", "https://rogerai.fyi/payouts?onboard=done"),
 		policy:     store.LoadPayoutPolicy(),
