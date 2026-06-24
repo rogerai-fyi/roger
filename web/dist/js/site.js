@@ -153,7 +153,11 @@
     var btn = document.getElementById(id);
     if (!btn) return;
     btn.addEventListener("click", function () {
-      copy(INSTALL_CMD).then(function () {
+      // Copy the command currently displayed, not a hardcoded constant, so the
+      // Windows PowerShell swap (below) always copies the right one.
+      var code = btn.querySelector(".install__code");
+      var text = code ? code.textContent.trim() : INSTALL_CMD;
+      copy(text).then(function () {
         btn.classList.add("is-copied");
         showToast("Copied to clipboard");
         setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
@@ -186,15 +190,53 @@
     });
   });
 
-  /* ---- OS hint --------------------------------------------------- */
-  var note = document.getElementById("installNote");
-  if (note) {
+  /* ---- OS detection: upgrade Windows visitors to the PowerShell command --
+     Progressive enhancement: the static HTML default is the POSIX curl
+     one-liner (correct for the no-JS / non-Windows majority). On Windows we
+     swap the primary command (both boxes + the copy target) to the PowerShell
+     one-liner and flip the helper note. mac/linux detection is kept for the
+     note copy only. */
+  var WIN_CMD = "irm https://rogerai.fyi/install.ps1 | iex";
+
+  function detectOS() {
+    // Prefer the modern, high-entropy hint (Edge/Chromium support it).
+    var uaData = navigator.userAgentData;
+    if (uaData && uaData.platform) {
+      var plat = uaData.platform;
+      if (/Windows/i.test(plat)) return "Windows";
+      if (/macOS/i.test(plat)) return "macOS";
+      if (/Linux|Chrome OS/i.test(plat)) return "Linux";
+    }
+    // Fall back to the legacy navigator.platform / userAgent strings.
     var p = (navigator.platform || "") + " " + (navigator.userAgent || "");
-    var os = /Mac/i.test(p) ? "macOS" : /Win/i.test(p) ? "Windows" : /Linux|X11/i.test(p) ? "Linux" : null;
-    if (os === "Windows") {
-      note.innerHTML = 'On Windows? Use WSL, or <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases" style="display:inline">grab the .exe →</a>';
-    } else if (os) {
-      note.textContent = "Detected " + os + " · also runs on macOS, Linux & Windows";
+    if (/Win(dows NT|32|64|dows)/i.test(p) || /\bWin\b/i.test(p)) return "Windows";
+    if (/Mac/i.test(p)) return "macOS";
+    if (/Linux|X11/i.test(p)) return "Linux";
+    return null;
+  }
+
+  var os = detectOS();
+  if (os === "Windows") {
+    // Swap the primary install command in BOTH boxes to PowerShell. The copy
+    // handler reads .install__code at click time, so the copy target follows.
+    ["installCmd", "installCmd2"].forEach(function (id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      var code = btn.querySelector(".install__code");
+      if (code) code.textContent = WIN_CMD;
+    });
+    // Flip the note to point macOS / Linux users at the curl one-liner.
+    var note = document.getElementById("installNote");
+    if (note) {
+      note.textContent = "Windows (PowerShell) · no account needed to browse";
+    }
+    var noteWin = document.getElementById("installNoteWin");
+    if (noteWin) {
+      noteWin.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fyi/install.sh | sh</code>';
+    }
+    var noteWin2 = document.getElementById("installNoteWin2");
+    if (noteWin2) {
+      noteWin2.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fyi/install.sh | sh</code>';
     }
   }
 
