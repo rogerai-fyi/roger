@@ -20,10 +20,21 @@
   function show(id) { var el = document.getElementById(id); if (el) el.hidden = false; }
   function hide(id) { var el = document.getElementById(id); if (el) el.hidden = true; }
 
-  // credits as a compact, human number (the wallet/earnings unit is "cr").
+  // Money in dollars (1 credit = $1; a display relabel only - the broker ledger
+  // math is unchanged). Groq-style adaptive precision: >= 1c shows 2dp ($12.34),
+  // tiny per-token/per-reply costs keep enough significant digits to never read
+  // as $0.00 (e.g. $0.000123).
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
-    return (Math.round(n * 1e4) / 1e4) + " cr";
+    if (n === 0) return "$0.00";
+    var s = n < 0 ? "-" : "";
+    var a = Math.abs(n);
+    if (a >= 0.01) return s + "$" + a.toFixed(2);
+    // sub-cent: ~3 significant figures, plain decimal, trailing zeros stripped.
+    var p = a.toPrecision(3);
+    if (/e/i.test(p)) p = a.toFixed(20).replace(/0+$/, "");
+    else p = p.replace(/0+$/, "").replace(/\.$/, "");
+    return s + "$" + p;
   }
 
   // render a short recent list; each entry has model + cost + a timestamp.

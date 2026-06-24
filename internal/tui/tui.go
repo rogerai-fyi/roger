@@ -875,7 +875,7 @@ func (m model) confirmView(w int) string {
 		cap = stDim.Render("   ·   ") + stLive.Render("under your "+money(q.limit.MaxOut)+" cap")
 	}
 	b.WriteString("    " + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out") + cap +
-		stDim.Render(fmt.Sprintf("   ·   ~%.6f cr / reply", q.estReply)) + "\n")
+		stDim.Render("   ·   ~"+dollars(q.estReply)+" / reply") + "\n")
 
 	// Everything else is behind [d] - keep the default screen simple.
 	if m.showDetail {
@@ -889,7 +889,7 @@ func (m model) confirmView(w int) string {
 			if q.estReply > 0 {
 				reps = m.balance / q.estReply
 			}
-			b.WriteString(stDim.Render(fmt.Sprintf("    balance      %.4f cr   (~%.0f replies)", m.balance, reps)) + "\n")
+			b.WriteString(stDim.Render(fmt.Sprintf("    balance      %s   (~%.0f replies)", dollars(m.balance), reps)) + "\n")
 		}
 		b.WriteString(stDim.Render("    locked       each reply price-locks at send; a hold pre-auths the session") + "\n")
 	}
@@ -914,7 +914,7 @@ func (m model) overLimitView(w int) string {
 	b.WriteString("\n" + stEmber.Render("  ⚠ the band is above your limit") + "       " + stSelText.Render(bd.model) + "\n\n")
 	b.WriteString(stDim.Render("    cheapest on air   ") + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out   @"+st.NodeID+"  "+st.Region+"  ") + tpsCell(st.TPS, st.Online) + "\n")
 	b.WriteString(stDim.Render("    your max          ") + stEmber.Render(money(q.limit.MaxOut)) + stDim.Render(" $/1M out") + "\n")
-	b.WriteString(stDim.Render(fmt.Sprintf("    gap               +%.2f  (%.0f%% over)   you would pay %.6f cr / reply", gap, pct, bd.minOut*float64(q.typical)/1e6)) + "\n\n")
+	b.WriteString(stDim.Render(fmt.Sprintf("    gap               +%.2f  (%.0f%% over)   you would pay ", gap, pct)+dollars(bd.minOut*float64(q.typical)/1e6)+" / reply") + "\n\n")
 	// the inline edit row
 	editShown := m.editBuf
 	hint := stDim.Render("min " + money(bd.minOut))
@@ -1227,12 +1227,13 @@ func dollars(v float64) string {
 	if v >= 0.01 {
 		return "$" + fmt.Sprintf("%.2f", v)
 	}
-	// sub-cent: show ~3 significant figures so a real cost never reads as $0.00.
-	prec := 4
-	for x := v; x < 0.1 && prec < 9; x *= 10 {
-		prec++
+	// sub-cent: ~3 significant figures, in plain decimal (no exponent, no trailing
+	// zeros) so a real cost never reads as $0.00 (e.g. $0.000123).
+	s := strconv.FormatFloat(v, 'g', 3, 64)
+	if strings.ContainsAny(s, "eE") {
+		// FormatFloat may pick scientific notation for very small values; expand it.
+		s = strconv.FormatFloat(v, 'f', -1, 64)
 	}
-	s := strconv.FormatFloat(v, 'f', prec, 64)
 	return "$" + s
 }
 
@@ -1356,7 +1357,7 @@ func (m model) helpView() string {
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/config", "broker + identity (federation: switch brokers)"},
 		{"/share", "go on air - share your own local model"},
-		{"/balance", "wallet credits"},
+		{"/balance", "wallet balance ($)"},
 		{"/help  /quit", "this · exit"},
 	}
 	var b strings.Builder

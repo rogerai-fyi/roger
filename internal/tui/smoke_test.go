@@ -62,7 +62,7 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 	// select + connect (enter) -> confirmation screen, NOT yet bound
 	cm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	cv := cm.View()
-	if !strings.Contains(cv, "open channel") || !strings.Contains(cv, "cr / reply") {
+	if !strings.Contains(cv, "open channel") || !strings.Contains(cv, "/ reply") {
 		t.Errorf("confirm screen not shown:\n%s", cv)
 	}
 	if strings.Contains(cv, "127.0.0.1:") {
@@ -102,6 +102,27 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 	hm, _ := New("x", "y").run("help")
 	if !strings.Contains(hm.View(), "commands") {
 		t.Error("help view not shown")
+	}
+}
+
+// TestDollarsAdaptivePrecision: balances at 2dp, tiny costs keep significant
+// digits and never collapse to $0.00.
+func TestDollarsAdaptivePrecision(t *testing.T) {
+	cases := map[float64]string{
+		0:         "$0.00",
+		12.34:     "$12.34",
+		0.01:      "$0.01",
+		0.000123:  "$0.000123",
+		0.0000005: "$0.0000005",
+	}
+	for in, want := range cases {
+		if got := dollars(in); got != want {
+			t.Errorf("dollars(%v) = %q, want %q", in, got, want)
+		}
+	}
+	// a real sub-cent cost must never read as $0.00
+	if dollars(0.0004) == "$0.00" {
+		t.Error("sub-cent cost collapsed to $0.00")
 	}
 }
 

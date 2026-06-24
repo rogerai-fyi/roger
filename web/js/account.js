@@ -18,9 +18,20 @@
   function hide(id) { var el = document.getElementById(id); if (el) el.hidden = true; }
   function on(id, ev, fn) { var el = document.getElementById(id); if (el) el.addEventListener(ev, fn); }
 
+  // Money in dollars (1 credit = $1; display relabel only - ledger math unchanged).
+  // Adaptive precision: >= 1c at 2dp; sub-cent costs keep significant digits so a
+  // real cost never reads as $0.00.
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
-    return (Math.round(n * 1e4) / 1e4) + " cr";
+    if (n === 0) return "$0.00";
+    var s = n < 0 ? "-" : "";
+    var a = Math.abs(n);
+    if (a >= 0.01) return s + "$" + a.toFixed(2);
+    // sub-cent: ~3 significant figures, plain decimal, trailing zeros stripped.
+    var p = a.toPrecision(3);
+    if (/e/i.test(p)) p = a.toFixed(20).replace(/0+$/, "");
+    else p = p.replace(/0+$/, "").replace(/\.$/, "");
+    return s + "$" + p;
   }
   function when(ts) {
     if (!ts) return "";
