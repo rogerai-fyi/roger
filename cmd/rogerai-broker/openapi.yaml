@@ -526,6 +526,77 @@ paths:
                   ledger: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
         "403": { description: no operator account for this login }
 
+  /metrics/provider:
+    get:
+      tags: [payouts]
+      summary: Per-model PROVIDER metrics (what the caller's node(s) served)
+      description: |
+        The caller's per-model serve breakdown over a trailing UTC window: for each
+        model+node the caller's node(s) served, the request + token counts, a
+        free-vs-paid split (free = a request with no owner earnings: a free model, a
+        self-use serve, or a free window), and the owner's earnings (the 70% net
+        share). Plus summed `totals` and the echoed `period_days`. Receipt-derived
+        (the source of truth), so it never drifts from the earnings it rolls up.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - the SAME dual-auth as the
+        payout endpoints. Returns ONLY the caller's own data. 401 when neither is
+        present/valid (an unbound keypair has no operator account -> 401).
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-model provider breakdown + totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProviderModelMetric' }
+                  totals: { $ref: '#/components/schemas/ProviderTotals' }
+                  period_days: { type: integer }
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
+  /metrics/usage:
+    get:
+      tags: [account]
+      summary: Per-model CONSUMER metrics (what the caller consumed)
+      description: |
+        The caller's per-model consume breakdown over a trailing UTC window: for each
+        model the caller used, the request + token counts, a free-vs-paid split (free =
+        a $0 request: a free model, a free window, or self-use), and total spend. Plus
+        summed `totals` and the echoed `period_days`. Receipt-derived, so it never
+        drifts from the spend it rolls up.
+
+        Auth: a logged-in web session cookie OR a signed request (the `signedUser`
+        scheme). Login is REQUIRED (own data only): an anonymous / unbound keypair has
+        no wallet and is rejected 401.
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-model usage breakdown + totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logged_in: { type: boolean }
+                  models:
+                    type: array
+                    items: { $ref: '#/components/schemas/UsageModelMetric' }
+                  totals: { $ref: '#/components/schemas/UsageTotals' }
+                  period_days: { type: integer }
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
   /auth/logout:
     post:
       tags: [auth]
@@ -815,3 +886,50 @@ components:
         stripe_transfer_id: { type: string }
         state: { type: string, description: "pending|paid|reversed|failed" }
         created_at: { type: integer }
+    ProviderModelMetric:
+      type: object
+      description: One (model,node) row of the per-model PROVIDER metrics (GET /metrics/provider).
+      properties:
+        model: { type: string }
+        node_id: { type: string, description: the caller's node that served this model }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer, description: requests that earned the owner $0 (free model/window/self-use) }
+        paid_requests: { type: integer, description: requests with a positive owner share }
+        free_tokens: { type: integer, description: prompt+completion tokens on free requests }
+        paid_tokens: { type: integer, description: prompt+completion tokens on paid requests }
+        earnings_usd: { type: number, description: the owner's 70% net share (credits; $ at credit_usd=1) }
+    ProviderTotals:
+      type: object
+      description: Summed totals across the ProviderModelMetric rows.
+      properties:
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer }
+        paid_requests: { type: integer }
+        free_tokens: { type: integer }
+        paid_tokens: { type: integer }
+        earnings_usd: { type: number }
+    UsageModelMetric:
+      type: object
+      description: One model row of the per-model CONSUMER metrics (GET /metrics/usage).
+      properties:
+        model: { type: string }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer, description: $0 requests (free model/window/self-use) }
+        paid_requests: { type: integer, description: requests with a positive charge }
+        spend_usd: { type: number, description: credits the caller spent on this model ($ at credit_usd=1) }
+    UsageTotals:
+      type: object
+      description: Summed totals across the UsageModelMetric rows.
+      properties:
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer }
+        paid_requests: { type: integer }
+        spend_usd: { type: number }
