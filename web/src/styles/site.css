@@ -389,7 +389,7 @@ code, pre { font-family: var(--font-mono); }
   background-image: linear-gradient(100deg, var(--volt) 8%, #B14BFF 92%);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
-  border-bottom: 3px solid #FF3B3B;
+  border-bottom: 3px solid #FF3B3B; padding-right: 0.12em;
   padding-bottom: 3px;
   filter: drop-shadow(0 2px 5px rgba(255, 59, 59, .28));
 }
@@ -972,8 +972,9 @@ code, pre { font-family: var(--font-mono); }
 
 /* the period after "home GPUs" is a live-red on-air beacon, glowing like the logo */
 .hero__dot {
-  color: #FF3B3B; -webkit-text-fill-color: #FF3B3B;
-  text-shadow: 0 0 9px rgba(255, 59, 59, .75);
+  display: inline-block; width: 0.16em; height: 0.16em; border-radius: 50%;
+  background: #FF3B3B; vertical-align: -0.13em; margin-left: 0.01em;
+  box-shadow: 0 0 13px 2px rgba(255, 59, 59, .72);
   animation: heroDot var(--carrier) var(--ease-in-out) infinite;
 }
 @keyframes heroDot { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
