@@ -259,7 +259,7 @@
         var offers = (data && Array.isArray(data.offers)) ? data.offers : [];
         var live = offers.length ? offers.filter(function (o) { return o && o.online !== false; }).length : 0;
 
-        if (offers.length > 0) {
+        if (offers.length > 0 && live > 0) {
           var channels = aggregate(offers);
           paint(channels, true);
           var nOnline = channels.filter(function (c) { return c.live; }).length;
