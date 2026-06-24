@@ -75,7 +75,7 @@ code, pre { font-family: var(--font-mono); }
 
 /* running head: this page is one bound document. Hidden on narrow screens. */
 .rail {
-  position: fixed; left: 0; top: 0; bottom: 0; width: clamp(36px, 4.5vw, 64px);
+  position: fixed; left: 0; top: 0; bottom: 0; width: clamp(56px, 9vw, 132px);
   display: none; z-index: calc(var(--z-nav) - 1); pointer-events: none;
   border-right: 1px solid var(--hairline);
 }
