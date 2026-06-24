@@ -31,6 +31,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/detect"
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -192,16 +193,28 @@ var (
 //	signalGlyphs ▁▂▃▄▅▆▇█  the signal-strength tower
 //
 // These degrade to plain runes under NO_COLOR (lipgloss strips the color, the
-// glyph itself is still a recognizable Unicode mark) and stay fixed-width.
-const (
-	glyphOnAir   = "◉"
-	glyphOffAir  = "○"
-	glyphConf    = "◆" // TEE-verified confidential ONLY
-	glyphLineage = "✓" // signed-lineage / verified-operator (identity, not confidential)
+// glyph itself is still a recognizable Unicode mark) and stay fixed-width. They are
+// vars (not consts) because the actual mark is chosen ONCE at startup by
+// glyphs.Current(): the rich Unicode set on capable terminals (the default - no
+// regression for mac/linux/Windows-Terminal), or an ASCII fallback on a legacy
+// Windows console / under ROGERAI_ASCII=1 / NO_UNICODE. See internal/glyphs.
+var (
+	glyphOnAir   = glyphs.Current().OnAir
+	glyphOffAir  = glyphs.Current().OffAir
+	glyphConf    = glyphs.Current().Verify  // TEE-verified confidential ONLY
+	glyphLineage = glyphs.Current().Lineage // signed-lineage / verified-operator (identity, not confidential)
 	// glyphVerify is retained as an alias for the confidential diamond so existing
 	// references keep compiling; new code should use glyphConf or glyphLineage by intent.
 	glyphVerify = glyphConf
 )
+
+// beaconPulse is the breathing "(( • ))" Ping beacon string, folded to ASCII
+// ("((*))") on a legacy Windows console. Centralized so the one motif has one source.
+func beaconPulse() string { return glyphs.Current().Beacon }
+
+// beaconDot is the compact one-glyph "(•)" beacon, folded to "(*)" on a legacy
+// Windows console (the bullet is the rune that garbles).
+func beaconDot() string { return glyphs.Fold("(•)") }
 
 // channelGlyph picks the honest mark for a held channel: the confidential ◆ ONLY when
 // the connected node passed real TEE attestation, otherwise the lineage/identity ✓.
@@ -2331,7 +2344,7 @@ func (m model) onLoginKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // NO_COLOR / narrow safe (it wraps no fixed-width art; the bordered plate degrades
 // to plain text when color is stripped).
 func (m model) loginView(w int) string {
-	pulse := "(( • ))"
+	pulse := beaconPulse()
 
 	// IN FLIGHT: the device flow started - the tidy left-aligned panel (#2/#3).
 	if m.loginWaiting && m.loginDevice.UserCode != "" {
@@ -3561,7 +3574,7 @@ func (m model) modeName() string {
 //	browsing: (•) ROGER·AI · TUNE IN · 3 on air · ◆ @bownux $42.17   m:expand
 //	on air:   (•) ROGER·AI · ◆ on @nyx · gpt-oss-20b · $0.30/1M · $42.17   m:expand
 func (m model) compactHeader(w int) string {
-	dot := stRed.Render("(•)")
+	dot := stRed.Render(beaconDot())
 	brand := stBrand.Render("ROGER") + stTag.Render("·AI")
 	sep := stDim.Render(" · ")
 	hint := stDim.Render("m:expand")
@@ -4049,11 +4062,11 @@ func (m model) browseView(w int) string {
 		if m.compact {
 			switch {
 			case m.scanErr:
-				return "  " + stEmber.Render("(○) ...static") + stDim.Render(" - broker off air · r to retune") + "\n"
+				return "  " + stEmber.Render(glyphs.Fold("(○) ...static")) + stDim.Render(" - broker off air · r to retune") + "\n"
 			case loading:
 				return "  " + m.transmitLineFor(0) + stDim.Render("  scanning the band…") + "\n"
 			default:
-				return "  " + stDim.Render("(•) no stations on air - press [2] to share a model and put one up · r to re-scan") + "\n"
+				return "  " + stDim.Render(beaconDot()+" no stations on air - press [2] to share a model and put one up · r to re-scan") + "\n"
 			}
 		}
 		// Three empty cases, all filled with Ping in the dead space (never over
@@ -4632,7 +4645,7 @@ func workingSpinner(frame int) string {
 // (no pulsing carrier rings) next to a fixed phrase, so an in-flight request reads as
 // "we're on it" without any motion - the reduced-motion form of workingSpinner.
 func staticSpinner() string {
-	return stPingEye.Render("(•)") + " " + stLive.Render(workingPhrases[0])
+	return stPingEye.Render(beaconDot()) + " " + stLive.Render(workingPhrases[0])
 }
 
 // transmitLineFor is transmitLine but honors compact: a static spinner under compact
@@ -5460,10 +5473,19 @@ func indentBlock(s, pad string) string {
 // count as the optional 4th arg; the per-station header bar passes none (no boost).
 // Offline or unmeasured shows a flat low signal. The shimmer rides m.frame (the one
 // carrier beat) so the bars breathe with the beacon; quiet freezes the frame.
+// signalRamp returns the 8-level signal-tower ramp (low -> high) for the resolved
+// glyph set: the Unicode ▁..█ on capable terminals, an ASCII .:-=+*#@ fallback on a
+// legacy Windows console. signalPeak indexes into either ramp identically.
+func signalRamp() []rune { return glyphs.Current().Signal }
+
+// signalFlat is the 5-cell "no signal" tower (offline / unmeasured) for the resolved
+// glyph set.
+func signalFlat() string { return glyphs.Current().SigOff }
+
 func signalBarsRaw(frame int, tps float64, online bool, stations ...int) string {
-	glyphs := []rune("▁▂▃▄▅▆▇█")
+	set := signalRamp()
 	if !online {
-		return "▁▁▁▁▁"
+		return signalFlat()
 	}
 	base := 0
 	switch {
@@ -5481,7 +5503,7 @@ func signalBarsRaw(frame int, tps float64, online bool, stations ...int) string 
 		base = 1
 	}
 	if base == 0 {
-		return "▁▁▁▁▁" // online but not yet measured
+		return signalFlat() // online but not yet measured
 	}
 	// More stations on the band -> a stronger carrier: +1 notch per extra station
 	// beyond the first, capped at +2 so a single fast node and a crowded band stay
@@ -5500,10 +5522,10 @@ func signalBarsRaw(frame int, tps float64, online bool, stations ...int) string 
 		if lvl < 0 {
 			lvl = 0
 		}
-		if lvl >= len(glyphs) {
-			lvl = len(glyphs) - 1
+		if lvl >= len(set) {
+			lvl = len(set) - 1
 		}
-		sb.WriteRune(glyphs[lvl])
+		sb.WriteRune(set[lvl])
 	}
 	return sb.String()
 }
@@ -5524,7 +5546,7 @@ func tintSignal(raw string, tps float64, online bool) string {
 	if !(online && tps > 0) {
 		return stDim.Render(raw)
 	}
-	ramp := []rune("▁▂▃▄▅▆▇█")
+	ramp := signalRamp()
 	lvlOf := func(r rune) int {
 		for i, g := range ramp {
 			if g == r {

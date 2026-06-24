@@ -891,7 +891,7 @@ func shortPath(p string) string {
 	}
 	segs := strings.Split(p, string(filepath.Separator))
 	if len(segs) >= 2 {
-		return ".../" + strings.Join(segs[len(segs)-2:], "/")
+		return "..." + string(filepath.Separator) + strings.Join(segs[len(segs)-2:], string(filepath.Separator))
 	}
 	return p[len(p)-max:]
 }

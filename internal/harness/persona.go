@@ -85,7 +85,9 @@ func PersonaPath() string {
 
 // LoadPersona returns the agent's system prompt. It reads dj.md from path; if the
 // file is absent it WRITES the shipped DefaultPersona there (best-effort, 0600 under
-// a 0700 dir) and returns it, so the first run seeds an editable persona on disk. A
+// a 0700 dir; note these POSIX modes do not enforce on Windows - NTFS ignores the mode
+// bits, and the user-profile location plus ACL inheritance covers the scoping there)
+// and returns it, so the first run seeds an editable persona on disk. A
 // present-but-empty file falls back to the default text without overwriting it (the
 // user may be mid-edit). Any read/write error degrades gracefully to the in-memory
 // default - the agent always has a working persona.

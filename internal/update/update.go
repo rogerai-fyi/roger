@@ -281,11 +281,62 @@ func Upgrade(current string, w io.Writer) error {
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, self); err != nil {
+	if err := replaceSelf(self, tmpName); err != nil {
 		return fmt.Errorf("atomic replace failed: %w", err)
 	}
 	fmt.Fprintf(w, "done. rogerai is now v%s.\n", lat)
 	return nil
+}
+
+// sidecarSuffix is the extension appended to the running binary when it must be
+// renamed aside before the new one can take its place (the Windows lock dance).
+const sidecarSuffix = ".old"
+
+// replaceSelf swaps the freshly-downloaded tmp binary into place at self.
+//
+// On Unix os.Rename over the running binary is atomic and the old inode lives on
+// until every open fd closes, so a single rename is correct.
+//
+// On Windows a running .exe is locked: you cannot rename or delete over it, but
+// you CAN rename the running image itself. So we rename self -> self.old first
+// (this succeeds even while running), then move the new binary into self. The
+// stale self.old is best-effort removed here and again at startup (CleanupOld) -
+// it cannot be deleted while this process holds it open, hence the next-launch
+// sweep. This mirrors what install.ps1 already does.
+func replaceSelf(self, tmpName string) error {
+	if runtime.GOOS != "windows" {
+		return os.Rename(tmpName, self)
+	}
+	old := self + sidecarSuffix
+	_ = os.Remove(old) // clear any stale sidecar from a prior upgrade
+	if err := os.Rename(self, old); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, self); err != nil {
+		// Roll back so the running binary still resolves on the next launch.
+		_ = os.Rename(old, self)
+		return err
+	}
+	_ = os.Remove(old) // usually fails while we're still running; CleanupOld retries
+	return nil
+}
+
+// CleanupOld best-effort deletes the renamed-aside binary left by a prior Windows
+// self-update (self.old), which could not be removed while that process was still
+// running. A no-op on non-Windows and when no sidecar exists. Call once at startup;
+// errors are ignored (the file may legitimately still be locked or already gone).
+func CleanupOld() {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil && resolved != "" {
+		self = resolved
+	}
+	_ = os.Remove(self + sidecarSuffix)
 }
 
 // downloadTo streams url into f and returns the hex sha256 of the bytes written.

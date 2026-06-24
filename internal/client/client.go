@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
 // AlertFunc receives a human-readable line when the proxy can't recover (no
@@ -111,13 +113,16 @@ func Search(broker string) error {
 	return nil
 }
 
-// Shared CLI iconography, kept in lock-step with the TUI's glyphs (internal/tui):
-// ◉ on air / ○ off air / ◆ verified. The CLI prints plain text (no color), so the
-// glyphs alone carry the meaning under NO_COLOR / a pipe.
-const (
-	glyphOnAir  = "◉"
-	glyphOffAir = "○"
-	glyphVerify = "◆"
+// Shared CLI iconography, kept in lock-step with the TUI's glyphs - BOTH route through
+// internal/glyphs (one set, one chooser): ◉ on air / ○ off air / ◆ verified on capable
+// terminals, or the ASCII fallback ((o)/( )/<>) on a legacy Windows console (or under
+// ROGERAI_ASCII=1 / NO_UNICODE). They are vars (not consts) because the mark is chosen
+// once at startup. The CLI prints plain text (no color), so the glyph alone carries the
+// meaning under NO_COLOR / a pipe.
+var (
+	glyphOnAir  = glyphs.Current().OnAir
+	glyphOffAir = glyphs.Current().OffAir
+	glyphVerify = glyphs.Current().Verify
 )
 
 // signalTower renders a 5-cell ▁▂▃▄▅▆▇█ signal bar driven by tok/s, mirroring the
@@ -125,9 +130,9 @@ const (
 // a flat low tower. No color - the glyph heights carry the reading in a pipe.
 func signalTower(tps float64, online bool) string {
 	if !online {
-		return "▁▁▁▁▁"
+		return glyphs.Current().SigOff
 	}
-	glyphs := []rune("▁▂▃▄▅▆▇█")
+	ramp := glyphs.Current().Signal
 	base := 0
 	switch {
 	case tps >= 600:
@@ -144,7 +149,7 @@ func signalTower(tps float64, online bool) string {
 		base = 1
 	}
 	if base == 0 {
-		return "▁▁▁▁▁"
+		return glyphs.Current().SigOff
 	}
 	var b strings.Builder
 	for i := 0; i < 5; i++ {
@@ -152,7 +157,7 @@ func signalTower(tps float64, online bool) string {
 		if lvl < 0 {
 			lvl = 0
 		}
-		b.WriteRune(glyphs[lvl])
+		b.WriteRune(ramp[lvl])
 	}
 	return b.String()
 }

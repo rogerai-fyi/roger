@@ -168,7 +168,9 @@ func (h *inputHistory) next() (string, bool) {
 // creating the rogerai config dir + file if missing. It is best-effort: any error
 // (no config dir, unwritable path) is swallowed so a failed write never breaks the
 // session. The dir is 0700 and the file 0600, matching the persona/user-key layout
-// (the file can hold what the user typed, so keep it private).
+// (the file can hold what the user typed, so keep it private). Note: these POSIX
+// modes do not enforce on Windows (NTFS ignores the mode bits); there the user-profile
+// location (%USERPROFILE%/.config) plus default ACL inheritance provides the scoping.
 func (h *inputHistory) persist() {
 	if h.path == "" {
 		return

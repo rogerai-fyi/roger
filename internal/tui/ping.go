@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
 // pingState selects which animation Ping plays.
@@ -127,12 +128,16 @@ var pingWalkFrames = []pingFrame{
 // Under quiet, lipgloss strips color and we return plain ASCII. eyeGlyph is the
 // run that should be red (e.g. "•", "O", "-", "○"); empty means "no live eye".
 func renderPing(f pingFrame, eyeGlyph string) string {
+	// On a legacy Windows console the box-drawing + bullet runes garble; fold the
+	// whole frame (and the eye glyph, so the red-tint index search still matches) to
+	// ASCII stand-ins. A no-op on capable terminals - the art is unchanged there.
+	eyeGlyph = glyphs.Fold(eyeGlyph)
 	var b strings.Builder
 	for i, line := range f.lines {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(tintEyeLine(line, eyeGlyph))
+		b.WriteString(tintEyeLine(glyphs.Fold(line), eyeGlyph))
 	}
 	return b.String()
 }

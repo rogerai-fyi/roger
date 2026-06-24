@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -209,19 +208,20 @@ func resolveInRoot(root, rel string) (string, error) {
 	return p, nil
 }
 
-// runShell runs cmd via /bin/sh in root (c.Dir = root sets only the working directory),
-// with a bounded timeout, and returns the combined stdout+stderr (clipped). It is only
-// reached AFTER the loop's y/N confirm, so this never auto-runs. NOTE: this is NOT a
-// sandbox - c.Dir only sets the cwd; an approved command can still read/write outside
-// root (e.g. via an absolute path). The confirm gate (showing the full command) is the
-// real control here; the persona/UI copy must not imply run_shell is sandboxed.
+// runShell runs cmd via the platform shell in root (c.Dir = root sets only the working
+// directory), with a bounded timeout, and returns the combined stdout+stderr (clipped).
+// It is only reached AFTER the loop's y/N confirm, so this never auto-runs. NOTE: this is
+// NOT a sandbox - c.Dir only sets the cwd; an approved command can still read/write outside
+// root (e.g. via an absolute path). The confirm gate (showing the literal user command,
+// not this internal shell wrapper) is the real control here; the persona/UI copy must not
+// imply run_shell is sandboxed.
 func runShell(root, cmd string) (string, error) {
 	if strings.TrimSpace(cmd) == "" {
 		return "", errors.New("empty command")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), shellTimeout)
 	defer cancel()
-	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
+	c := shellCommand(ctx, cmd)
 	c.Dir = root
 	out, err := c.CombinedOutput()
 	res := clip(string(out))
