@@ -55,13 +55,33 @@ type pingFrame struct {
 
 // --- frame banks (from MASCOT.md) ---
 
-// idle: a 2-frame breathe with a folded-in 3-frame wave, so Ping bobs quietly
-// and waves now and then while it stands by.
+// idle: a longer, EASED breathe cycle. Rather than a hard 2-frame toggle (which
+// reads as a metronome), the bob holds at each extreme and passes smoothly through
+// the middle, so the body rises and settles like a slow breath. Frames: rest, ease
+// up, peak (body widened), ease down, rest - a 5-pose loop the desync layer below
+// stretches and offsets so it never lands on a beat.
 var pingIdleFrames = []pingFrame{
-	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}},
-	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╭───╮  ", "  ╰───╯  "}}, // in-breath: body widens
-	{[5]string{"((  • ))/", " \\(   )  ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // wave up
-	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // wave down / rest
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // rest (low)
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "  ▔   ▔  "}}, // ease up (feet settle)
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╭───╮  ", "  ╰───╯  "}}, // peak in-breath (body widens)
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "  ▔   ▔  "}}, // ease down
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // rest (low)
+}
+
+// wave: a folded-in 3-pose wave Ping plays occasionally (an arm lifts and drops).
+// It is spliced in on a desynchronized phase so it reads as a spontaneous greeting,
+// not a clockwork tic.
+var pingWaveFrames = []pingFrame{
+	{[5]string{"((  • ))/", " \\(   )  ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}},  // arm up
+	{[5]string{"((  • ))\\", " \\(   )  ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}}, // arm over
+	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "   ▔ ▔   "}},  // arm down / rest
+}
+
+// scan: a head-tilt "scanning the band" pose - the antennae lean as Ping sweeps the
+// dial for a station, a couple of poses that lean left then right.
+var pingScanFrames = []pingFrame{
+	{[5]string{" ((  •  ))", "  \\(   )/ ", "  │ R │   ", "  ╰───╯   ", "   ▔ ▔    "}}, // lean right
+	{[5]string{"((  •  )) ", " \\(   )/  ", "   │ R │  ", "   ╰───╯  ", "    ▔ ▔   "}}, // lean left
 }
 
 // blink is a single flash spliced into idle: the eye closes to a dash.
@@ -115,6 +135,62 @@ func tintEyeLine(line, eyeGlyph string) string {
 	return stPingBody.Render(pre) + stPingEye.Render(eyeGlyph) + stPingBody.Render(post)
 }
 
+// pingHash is a tiny deterministic hash of an integer (a SplitMix-style finalizer),
+// used to derive desynchronized, non-periodic timing for the idle repertoire from
+// the frame counter. It is fully deterministic (same frame -> same value) so tests
+// stay reproducible, while reading as "random" across frames so the mascot never
+// looks like a metronome.
+func pingHash(x int) uint32 {
+	z := uint32(x)*2654435761 + 0x9e3779b9
+	z ^= z >> 15
+	z *= 0x85ebca6b
+	z ^= z >> 13
+	return z
+}
+
+// idleScene selects which idle pose Ping plays on a given frame. It runs a slow,
+// EASED bob as the baseline and, on desynchronized windows derived from pingHash,
+// splices in a blink, a wave, a head-tilt scan, or a small transmit pulse - each on
+// its own cadence so the cycles never align into a repetitive beat. The pose phase
+// is itself stretched (frame/3) so the breathe is smooth, not snappy.
+func idleScene(f int) (pingFrame, string) {
+	// Which "act" we are in is chosen per ~20-frame (~3.2s) window, so an act holds
+	// long enough to read. The window index is hashed so consecutive windows differ
+	// unpredictably (a wave isn't always followed by a scan).
+	win := f / 20
+	roll := pingHash(win) % 100
+	local := f % 20 // position within the window
+
+	// A blink is a brief 1-frame flash that can land in any window, on a phase the
+	// hash scatters so it never blinks on the same beat twice.
+	if local == int(pingHash(win*7)%18) {
+		return pingBlinkFrame, "-"
+	}
+
+	switch {
+	case roll < 18 && local < len(pingWaveFrames)*2:
+		// Wave: play the 3-pose wave once (held 2 frames each) early in the window.
+		return pingWaveFrames[(local/2)%len(pingWaveFrames)], "•"
+	case roll < 34 && local < len(pingScanFrames)*4:
+		// Head-tilt scan: lean left/right slowly (4 frames per lean).
+		return pingScanFrames[(local/4)%len(pingScanFrames)], "•"
+	case roll < 44:
+		// A small on-air transmit pulse: borrow the first two tx poses for a wink of
+		// broadcast, then settle back to the bob for the rest of the window.
+		if local < 4 {
+			eye := "O"
+			if local < 2 {
+				eye = "•"
+			}
+			return pingTxFrames[local/2], eye
+		}
+	}
+	// Baseline: the eased bob, phase-stretched (frame/3) and window-offset so two
+	// idle stretches never bob in lockstep.
+	idx := ((f / 3) + int(pingHash(win)%uint32(len(pingIdleFrames)))) % len(pingIdleFrames)
+	return pingIdleFrames[idx], "•"
+}
+
 // pingPose returns the current Ping art for a state, advanced by frame. It is
 // centered to width w so it sits in the dead space without shifting content.
 // A short radio line is printed beneath, dim. quiet freezes to one pose.
@@ -133,13 +209,12 @@ func pingPose(state pingState, frame, w int, line string) string {
 	case pingStatic:
 		pf = pingStaticFrame
 		eye = "○"
-	default: // idle, with a blink spliced in on one phase of the cycle
-		if !quiet && f%7 == 3 {
-			pf = pingBlinkFrame
-			eye = "-"
+	default: // idle: the desynchronized repertoire (bob / blink / wave / scan / pulse)
+		if quiet {
+			// Frozen pose for a pipe / NO_COLOR: the canonical standing-by frame.
+			pf, eye = pingIdleFrames[0], "•"
 		} else {
-			pf = pingIdleFrames[f%len(pingIdleFrames)]
-			eye = "•"
+			pf, eye = idleScene(f)
 		}
 	}
 	art := renderPing(pf, eye)

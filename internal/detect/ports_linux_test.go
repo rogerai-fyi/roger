@@ -3,8 +3,10 @@
 package detect
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -87,5 +89,50 @@ func TestListeningPortsProcFixture(t *testing.T) {
 		if !want[p] {
 			t.Errorf("unexpected port %d (LAN / non-listening must be skipped)", p)
 		}
+	}
+}
+
+// TestListeningPortsCapKeepsLLMPort is the :8081 (qwen3-vl-8b) miss regression: on a
+// busy host with MORE than maxEnumPorts loopback listeners, the enumerator used to
+// cap DURING the /proc scan in hash-bucket order, so a real LLM port could be dropped
+// purely by where it landed. The fix collects ALL local ports first, sorts ascending,
+// then caps - so the lower, human-chosen LLM ports (8000-8090, 11434, ...) survive
+// regardless of /proc ordering. We synthesize >maxEnumPorts listeners with the LLM
+// port (8081) emitted LATE (high /proc position) and a swarm of high ephemeral ports
+// emitted EARLY, then assert 8081 still survives the cap.
+func TestListeningPortsCapKeepsLLMPort(t *testing.T) {
+	dir := t.TempDir()
+	var sb []byte
+	sb = append(sb, "  sl  local_address rem_address   st\n"...)
+	row := func(port int) string {
+		// 0100007F = 127.0.0.1 (little-endian); port as 4-hex-digit big-endian.
+		return fmt.Sprintf("   0: 0100007F:%04X 00000000:0000 0A 00000000:00000000\n", port)
+	}
+	// EARLY (top of /proc): a swarm of high ephemeral ports, more than the cap, so a
+	// naive scan-order cap would fill up on these before ever reaching 8081.
+	for p := 50000; p < 50000+maxEnumPorts+20; p++ {
+		sb = append(sb, row(p)...)
+	}
+	// LATE (bottom of /proc): the real LLM listener on :8081.
+	sb = append(sb, row(8081)...)
+
+	p4 := filepath.Join(dir, "tcp")
+	if err := os.WriteFile(p4, sb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := procTCPPaths
+	procTCPPaths = []string{p4}
+	defer func() { procTCPPaths = old }()
+
+	got := listeningPorts()
+	if len(got) > maxEnumPorts {
+		t.Fatalf("enumerator must cap at %d, got %d", maxEnumPorts, len(got))
+	}
+	has := func(p int) bool { i := sort.SearchInts(got, p); return i < len(got) && got[i] == p }
+	if !sort.IntsAreSorted(got) {
+		t.Errorf("ports should be returned sorted ascending for a stable cap: %v", got)
+	}
+	if !has(8081) {
+		t.Errorf("the low, human-chosen LLM port 8081 must survive the cap on a busy host; got %v", got)
 	}
 }

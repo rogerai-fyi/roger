@@ -382,10 +382,14 @@ type Pricing struct {
 }
 
 // shareRow is one model in the k9s-style provider table: a locally-detected model
-// plus its share status. Live metrics are read off the session when on air.
+// plus its share status. Live metrics are read off the session when on air. Each
+// row carries its OWN upstream (the detected server's chat URL) so a multi-endpoint
+// box (e.g. :8060 gpt-oss-20b + :8080 gpt-oss-120b + :8081 qwen3-vl-8b) shares each
+// model against the server that actually serves it - not a single shared upstream.
 type shareRow struct {
-	model string
-	ctx   int
+	model    string
+	ctx      int
+	upstream string // the normalized chat-completions URL backing THIS row's model
 }
 
 // ---- messages ----
@@ -658,6 +662,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.chatIn, c = m.chatIn.Update(k)
 		return m, c
 	case modeHelp:
+		// A preset key jumps straight to its mode; any other key returns to browse.
+		if k.String() != "?" {
+			if nm, cmd, ok := m.presetForKey(k.String()); ok {
+				return nm, cmd
+			}
+		}
 		m.mode = modeBrowse
 		return m, nil
 	case modeConnectConfirm:
@@ -683,6 +693,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeShareSetup:
 		return m.onShareSetupKey(k)
 	default: // browse
+		// The preset bank: 1 TUNE IN · 2 SHARE · 3 CONFIG · L LOGIN · ? HELP. Handled
+		// first so the always-visible top bar's buttons jump straight to their mode.
+		if nm, cmd, ok := m.presetForKey(k.String()); ok {
+			return nm, cmd
+		}
 		switch k.String() {
 		case "q":
 			return m.requestQuit()
@@ -907,28 +922,36 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// loadShareRows builds the provider table from detected servers: one row per
-// served model id (de-duplicated), remembering the upstream chat URL to back the
-// shares. The first reachable server is used as the upstream (the share path is
-// in-process; multi-server fan-out is deferred).
+// loadShareRows builds the provider table by FLATTENING every detected server x
+// its served models into one row list (de-duplicated by model id), with EACH row
+// carrying its own upstream chat URL. On a multi-endpoint box this lists all real
+// local models - e.g. :8060 gpt-oss-20b, :8080 gpt-oss-120b, :8081 qwen3-vl-8b, and
+// a shim's many models on :8788 - not just the first server's. The first detected
+// server's chat URL is kept as m.shareUp for back-compat (the headline default),
+// but on-air uses each row's own upstream so a model goes live against the server
+// that actually serves it. The first server's models keep priority on a dup id.
 func (m *model) loadShareRows(found []detect.Found) {
 	if m.shares == nil {
 		m.shares = map[string]*agent.Session{}
 	}
-	pick := found[0]
-	m.shareUp = normalizeUpstream(pick.Chat)
+	if len(found) > 0 {
+		m.shareUp = normalizeUpstream(found[0].Chat)
+	}
 	seen := map[string]bool{}
-	rows := make([]shareRow, 0, len(pick.Models))
-	for _, mdl := range pick.Models {
-		if mdl == "" || seen[mdl] {
-			continue
+	rows := make([]shareRow, 0)
+	for _, srv := range found {
+		up := normalizeUpstream(srv.Chat)
+		for _, mdl := range srv.Models {
+			if mdl == "" || seen[mdl] {
+				continue
+			}
+			seen[mdl] = true
+			ctxLen := srv.Ctx[mdl]
+			if ctxLen <= 0 {
+				ctxLen = 32768
+			}
+			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, upstream: up})
 		}
-		seen[mdl] = true
-		ctxLen := pick.Ctx[mdl]
-		if ctxLen <= 0 {
-			ctxLen = 32768
-		}
-		rows = append(rows, shareRow{model: mdl, ctx: ctxLen})
 	}
 	// Put the saved onboarding model first so the obvious default is at the cursor.
 	if def := m.hooks.ShareModel; def != "" {
@@ -976,8 +999,15 @@ func (m *model) toggleShareAt(i int) {
 		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render(" (free sharing works without an account)")
 		return
 	}
+	// Each row goes on air against the server that actually serves it (its own
+	// upstream), falling back to the headline shareUp for a row that predates the
+	// per-row upstream (e.g. a legacy/synthetic row).
+	up := row.upstream
+	if up == "" {
+		up = m.shareUp
+	}
 	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: m.shareUp, NodeID: node,
+		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
 		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, Parallel: 4,
 		Schedule: schedToProtocol(p.Windows),
@@ -1052,6 +1082,14 @@ func (m *model) quitNow() (tea.Model, tea.Cmd) {
 // opens the per-model price + schedule editor (login-gated), r re-detects, esc/q
 // leaves (shares keep running in the background), s returns to TUNE IN.
 func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Preset bank: 1 TUNE IN · 3 CONFIG · L LOGIN · ? HELP jump straight out of the
+	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
+	// through to the table keys below; `a`/`enter` toggle on-air as before.)
+	if k.String() != "2" {
+		if nm, cmd, ok := m.presetForKey(k.String()); ok {
+			return nm, cmd
+		}
+	}
 	switch k.String() {
 	case "esc", "q", "s":
 		m.mode = modeBrowse
@@ -1110,6 +1148,13 @@ var setupOptions = []struct{ key, label, oneLiner string }{
 // a URL input we verify on enter. esc/s leaves.
 func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pasting := m.setupCursor == len(setupOptions)-1
+	// Preset bank jumps - but NOT while pasting a URL (those keystrokes are the URL),
+	// and not for `2`/SHARE which is the current section.
+	if !pasting && k.String() != "2" {
+		if nm, cmd, ok := m.presetForKey(k.String()); ok {
+			return nm, cmd
+		}
+	}
 	switch k.String() {
 	case "esc", "s":
 		m.mode = modeBrowse
@@ -1654,6 +1699,13 @@ func (m *model) enterLimits() {
 func (m *model) onLimitsKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	editing := m.editField >= 0
 	if !editing {
+		// Preset bank jumps (only when NOT editing a numeric field, so a typed digit in
+		// the editor is never stolen). 3 CONFIG is the current screen -> no-op.
+		if k.String() != "3" {
+			if nm, cmd, ok := m.presetForKey(k.String()); ok {
+				return nm, cmd
+			}
+		}
 		switch k.String() {
 		case "esc", "q":
 			m.mode = modeBrowse
@@ -1780,10 +1832,112 @@ func (m model) effWidth() int {
 // so the boundary is inclusive: width <= 64 reflows.
 func (m model) narrow() bool { return m.width != 0 && m.width <= narrowCols }
 
+// presetKey is one button on the always-visible preset-station bar: a radio
+// preset that lights up when its mode is active and jumps to it when pressed.
+type presetKey struct {
+	key, label string
+	active     bool
+}
+
+// presetButtons returns the preset bank for the current mode, with exactly one
+// preset lit (the section/screen the user is in). TUNE IN covers browse/command/
+// chat/connect; SHARE covers the provider table / editor / setup; CONFIG maps to
+// the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
+// actions (lit only while their screen shows).
+func (m model) presetButtons() []presetKey {
+	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp
+	return []presetKey{
+		{"1", "TUNE IN", tuneActive},
+		{"2", "SHARE", m.inShareSection()},
+		{"3", "CONFIG", m.mode == modeLimits},
+		{"L", "LOGIN", false},
+		{"?", "HELP", m.mode == modeHelp},
+	}
+}
+
+// stPreset / stPresetOn render a preset button: a lit (current) preset is a
+// pressed, reverse-video red glint (like a depressed station button); the rest are
+// dim. Under NO_COLOR the reverse-video is stripped and a leading dot marks the lit
+// preset so the active mode is still unmistakable.
+var (
+	stPreset   = lipgloss.NewStyle().Foreground(cMist)
+	stPresetOn = lipgloss.NewStyle().Foreground(cInk).Background(cRed).Bold(true)
+)
+
+// presetBar renders the always-visible "preset bank" of radio-station buttons:
+// [1] TUNE IN  [2] SHARE  [3] CONFIG  [L] LOGIN  [?] HELP, with the CURRENT mode
+// lit like a pressed preset. It replaces the buried single "s share" hint and makes
+// the two modes unmistakable. Compact + NO_COLOR-safe: under a narrow width it drops
+// to just key glyphs ([1][2][3][L][?]) so it never overflows.
+func (m model) presetBar(w int) string {
+	btns := m.presetButtons()
+	narrow := m.narrow()
+	parts := make([]string, 0, len(btns))
+	for _, b := range btns {
+		var cell string
+		if narrow {
+			// Narrow: just the key, lit preset reverse-video (or `>key` under NO_COLOR).
+			if b.active {
+				cell = stPresetOn.Render(" " + b.key + " ")
+			} else {
+				cell = stPreset.Render("[" + b.key + "]")
+			}
+		} else {
+			label := "[" + b.key + "] " + b.label
+			if b.active {
+				// A leading dot survives NO_COLOR (where the bg glint is stripped) so the
+				// lit preset reads as pressed even with no color.
+				cell = stPresetOn.Render(" •" + label + " ")
+			} else {
+				cell = stPreset.Render(" " + label + " ")
+			}
+		}
+		parts = append(parts, cell)
+	}
+	bar := strings.Join(parts, stPreset.Render(" "))
+	return "  " + bar
+}
+
+// presetForKey maps a top-level key press to its preset action, returning the new
+// model + cmd and true when the key was a preset jump (so onKey can short-circuit).
+// It is the keyboard half of the preset bank: 1 -> TUNE IN, 2 -> SHARE, 3 -> CONFIG
+// (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
+// (browse / a SHARE sub-screen / limits / help) so it never steals a typed digit in
+// the command palette, the chat input, or a numeric price/limit editor.
+func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
+	switch key {
+	case "1":
+		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
+		// channel stays open (tab/c returns to it).
+		if m.inShareSection() || m.mode == modeLimits {
+			m.mode = modeBrowse
+			m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
+		}
+		return m, nil, true
+	case "2":
+		// SHARE: open the provider table (or the guided fallback). doShare returns the
+		// (model, cmd) so we surface it as-is.
+		nm, cmd := m.doShare(nil)
+		return nm, cmd, true
+	case "3":
+		// CONFIG: the in-TUI per-model spend-limits screen.
+		m.enterLimits()
+		return m, nil, true
+	case "l", "L":
+		nm, cmd := m.doLogin()
+		return nm, cmd, true
+	case "?":
+		m.mode = modeHelp
+		return m, nil, true
+	}
+	return m, nil, false
+}
+
 // ---- view ----
 func (m model) View() string {
 	w := m.effWidth()
 	var b strings.Builder
+	b.WriteString(m.presetBar(w) + "\n")
 	b.WriteString(m.header(w) + "\n")
 	switch m.mode {
 	case modeHelp:
@@ -2262,14 +2416,16 @@ func (m model) browseView(w int) string {
 	if len(m.bands) == 0 {
 		// Three empty cases, all filled with Ping in the dead space (never over
 		// real content): the broker dropped -> Ping "...static"; still scanning
-		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle.
+		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle
+		// with a rotating "scanning the band" hint so the empty band feels like a DJ
+		// working the dial, not dead space.
 		switch {
 		case m.scanErr:
 			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air - press r to retune") + "\n"
 		case !m.scanned:
 			return "\n" + pingPose(pingTx, m.frame, w, "tuning in… reaching for stations on air") + "\n"
 		default:
-			return "\n" + pingPose(pingIdle, m.frame, w, "the band is quiet - go ahead, press r to listen again…") + "\n"
+			return "\n" + pingPose(pingIdle, m.frame, w, idleHint(m.frame)) + "\n"
 		}
 	}
 	var b strings.Builder
@@ -2537,16 +2693,69 @@ func (m model) chatView(w int) string {
 	return b.String()
 }
 
-// transmitLine is Ping's inline relay indicator: the on-air motif breathing with
-// a short radio caption + an elapsed-seconds readout. Single line, so it never
-// obstructs the chat transcript. The elapsed counter reassures on slow inference
-// (CPU MoE replies can take a minute) that the request is alive, not hung.
-func transmitLine(frame, elapsedSec int) string {
-	caption := "relaying… ping carries your tokens to the station"
-	if elapsedSec >= 2 {
-		caption = fmt.Sprintf("relaying… %ds  (slow stations can take a minute - holding the channel)", elapsedSec)
+// idleHints rotate in the empty-band ("no stations on air") view so the dead space
+// reads as a DJ scanning the band, not a blank screen. They cycle the two-way-radio
+// affordances (tune in / go on air / config) the preset bar also exposes.
+var idleHints = []string{
+	"No stations on air right now…",
+	"Press [2] to go on air and share your GPU",
+	"Press [1] to tune in",
+	"Press [3] for config",
+}
+
+// idleHint returns the empty-band hint for a frame, advancing every ~4.5s (28
+// frames at the 160ms tick) so each line reads before the next. quiet (NO_COLOR /
+// non-TTY) freezes to the first hint so a pipe sees one stable line.
+func idleHint(frame int) string {
+	if quiet {
+		return idleHints[0]
 	}
-	return pulseWith(frame, stPingEye) + " " + stLive.Render("◂ ") + stDim.Render(caption)
+	return idleHints[(frame/28)%len(idleHints)]
+}
+
+// workingPhrases is the rotating radio voice of the working spinner - one coherent
+// DJ persona (the same one the future dj.md will use). While a request is in flight
+// the beacon pulses and the phrase advances, so the wait reads as a live broadcast
+// being tuned, not a frozen hang.
+var workingPhrases = []string{
+	"Tuning in…",
+	"Modulating…",
+	"Carrier locked…",
+	"Working the dial…",
+	"Receiving…",
+	"Squelch open…",
+	"Riding the airwaves…",
+}
+
+// workingPhrase returns the radio phrase for a frame: it advances roughly every
+// ~1.3s (8 frames at the 160ms tick) so the words read, not flicker. Under quiet
+// (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable line.
+func workingPhrase(frame int) string {
+	if quiet {
+		return workingPhrases[0]
+	}
+	return workingPhrases[(frame/8)%len(workingPhrases)]
+}
+
+// workingSpinner is our answer to Claude Code's ✻ working spinner, in RogerAI's own
+// radio idiom: the animated on-air beacon ((•)) (pulsing carrier rings, via
+// pulseWith) next to a rotating radio phrase. It is the one coherent "we're on it"
+// motif for any in-flight request/turn. quiet freezes both the rings and the phrase.
+func workingSpinner(frame int) string {
+	return pulseWith(frame, stPingEye) + " " + stLive.Render(workingPhrase(frame))
+}
+
+// transmitLine is Ping's inline relay indicator: the working spinner (on-air beacon
+// + rotating radio phrase) plus an elapsed-seconds readout once a reply is slow.
+// Single line, so it never obstructs the chat transcript. The elapsed counter
+// reassures on slow inference (CPU MoE replies can take a minute) that the request
+// is alive, not hung.
+func transmitLine(frame, elapsedSec int) string {
+	line := workingSpinner(frame)
+	if elapsedSec >= 2 {
+		line += stDim.Render(fmt.Sprintf("  %ds  (slow stations can take a minute - holding the channel)", elapsedSec))
+	}
+	return line
 }
 
 func (m model) endpointPanel(w int) string {

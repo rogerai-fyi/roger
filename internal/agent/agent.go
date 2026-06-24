@@ -74,10 +74,13 @@ func (s *Session) Earnings() float64 {
 	return float64(s.earningsMicro.Load()) / 1e6
 }
 
-// Model / Price / Node surface the session's offer for the panel.
+// Model / Price / Node / Upstream surface the session's offer for the panel and for
+// callers (e.g. the TUI's multi-endpoint SHARE table) that need to confirm which
+// local server a model is being served from.
 func (s *Session) Model() string            { return s.cfg.Model }
 func (s *Session) Price() (in, out float64) { return s.cfg.PriceIn, s.cfg.PriceOut }
 func (s *Session) Node() string             { return s.cfg.NodeID }
+func (s *Session) Upstream() string         { return s.cfg.Upstream }
 
 // Stop ends the session's poll loops (best-effort; the process can also just exit).
 func (s *Session) Stop() {

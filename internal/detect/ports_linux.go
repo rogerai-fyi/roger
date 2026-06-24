@@ -5,6 +5,7 @@ package detect
 import (
 	"encoding/hex"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -20,7 +21,7 @@ var procTCPPaths = []string{"/proc/net/tcp", "/proc/net/tcp6"}
 
 func listeningPorts() []int {
 	seen := map[int]bool{}
-	var out []int
+	var all []int
 	for _, path := range procTCPPaths {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -51,14 +52,22 @@ func listeningPorts() []int {
 			}
 			if !seen[int(p)] {
 				seen[int(p)] = true
-				out = append(out, int(p))
-				if len(out) >= maxEnumPorts {
-					return out
-				}
+				all = append(all, int(p))
 			}
 		}
 	}
-	return out
+	// Collect ALL local listeners FIRST, then bound deterministically. The earlier
+	// implementation capped during the scan in /proc hash-bucket order (tcp before
+	// tcp6), so on a busy host (>maxEnumPorts open ports) a real model port could be
+	// dropped purely by where it landed in that order - the :8081 (qwen3-vl) miss.
+	// Sorting ascending before the cap keeps the bound stable and biases toward the
+	// lower, human-chosen LLM ports (8000-8090, 11434, 1234, ...) over the high
+	// ephemeral churn, so a model server survives the cap regardless of scan order.
+	sort.Ints(all)
+	if len(all) > maxEnumPorts {
+		all = all[:maxEnumPorts]
+	}
+	return all
 }
 
 // localOrWildcardHex reports whether a /proc/net local-address hex IP is loopback
