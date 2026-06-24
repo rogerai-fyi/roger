@@ -41,10 +41,14 @@ func TestChatFailureIsInline(t *testing.T) {
 	mm.mode = modeChat
 	var m tea.Model = mm
 
-	// A failure surfaces inline in the transcript, red ✕, with the broker's reason.
-	m, _ = m.Update(chatErrMsg("no node offers gpt-oss-20b"))
-	if v := m.View(); !strings.Contains(v, "✕") || !strings.Contains(v, "no node offers gpt-oss-20b") {
-		t.Errorf("chat failure not surfaced inline in the transcript:\n%s", v)
+	// A failure surfaces inline in the transcript, red ✕, with a concise cause AND the
+	// actionable [1] tune in / [2] share next step (not a bare status / dead end).
+	m, _ = m.Update(chatErrMsg("the station returned status 504 with no reply"))
+	if v := m.View(); !strings.Contains(v, "✕") || !strings.Contains(v, "(504)") {
+		t.Errorf("chat failure not surfaced inline with a concise cause:\n%s", v)
+	}
+	if v := m.View(); !strings.Contains(v, "[1]") || !strings.Contains(v, "[2]") {
+		t.Errorf("chat failure should carry the actionable [1]/[2] hint:\n%s", v)
 	}
 
 	// An empty reply (no error) shows a clear "(no text)" note, never a blank arrow.

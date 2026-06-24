@@ -143,6 +143,70 @@ func TestAgentNoColorNarrowSafe(t *testing.T) {
 	}
 }
 
+// TestAgentErrorRendersActionableHint: a failed turn renders the concise cause + the
+// actionable [1]/[2] next step (not a bare "status 504 with no reply" dead end).
+func TestAgentErrorRendersActionableHint(t *testing.T) {
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(keyMsg("0"))
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventError, Text: "the station returned status 504 with no reply"})
+	out := stripANSI(asModel(am).View())
+	if !strings.Contains(out, "(504)") {
+		t.Errorf("agent error should carry the concise cause + status:\n%s", out)
+	}
+	if !strings.Contains(out, "[1]") || !strings.Contains(out, "[2]") {
+		t.Errorf("agent error should carry the actionable [1]/[2] hint:\n%s", out)
+	}
+	if strings.Contains(out, "with no reply") {
+		t.Errorf("agent error should NOT show the bare status string:\n%s", out)
+	}
+}
+
+// TestEnterAgentNoModelTunedIn: entering AGENT with nothing tuned in shows the up-front
+// "no model tuned in" + [1]/[2] hint, names the gap in the heading (not a stale default
+// model), and does not crash.
+func TestEnterAgentNoModelTunedIn(t *testing.T) {
+	m := browseSeed(100) // browseSeed leaves connected == nil (nothing tuned in)
+	if m.connected != nil {
+		t.Fatalf("browseSeed should leave nothing tuned in")
+	}
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	gm := asModel(am)
+	if gm.agent == nil {
+		t.Fatalf("entering AGENT should build the runtime")
+	}
+	if gm.agent.model != "" {
+		t.Errorf("with nothing tuned in the agent model must be empty, got %q", gm.agent.model)
+	}
+	out := stripANSI(gm.View())
+	if !strings.Contains(out, "no model tuned in") {
+		t.Errorf("AGENT with nothing tuned in should show the up-front hint:\n%s", out)
+	}
+	if !strings.Contains(out, "[1]") || !strings.Contains(out, "[2]") {
+		t.Errorf("AGENT no-model state should carry the [1]/[2] hint:\n%s", out)
+	}
+	if strings.Contains(out, "gpt-oss-20b") {
+		t.Errorf("AGENT must NOT fall back to a stale default model:\n%s", out)
+	}
+}
+
+// TestAgentUsesTunedInModel: when a channel is tuned in, the agent runs on THAT model,
+// and the heading names it.
+func TestAgentUsesTunedInModel(t *testing.T) {
+	m := browseSeed(100)
+	m.connected = &offer{NodeID: "nyx-home", Model: "qwen3-coder-30b", Online: true}
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	gm := asModel(am)
+	if gm.agent.model != "qwen3-coder-30b" {
+		t.Errorf("agent should run on the tuned-in model, got %q", gm.agent.model)
+	}
+	out := stripANSI(gm.View())
+	if !strings.Contains(out, "qwen3-coder-30b") {
+		t.Errorf("AGENT heading should name the tuned-in model:\n%s", out)
+	}
+}
+
 // firstLineContaining returns the first line of s that contains sub ("" if none).
 func firstLineContaining(s, sub string) string {
 	for _, line := range strings.Split(s, "\n") {
