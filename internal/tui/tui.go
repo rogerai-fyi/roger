@@ -692,8 +692,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// lands IN the CHANNEL transcript (red, inline) - not just the footer - so the
 		// user always sees an outcome right where they were typing.
 		m.relaying = false
-		m.transcript = append(m.transcript, stRed.Render("✕ ")+stEmber.Render(string(msg)))
-		m.status = stEmber.Render("! " + string(msg))
+		// The same actionable surface the AGENT uses: a tight short cause + a [1] tune
+		// in / [2] share next step, INLINE in the transcript (not just the footer) so a
+		// 5xx / timeout / no-station is never a dead end.
+		m.transcript = append(m.transcript, failureHint(string(msg), m.narrow())...)
+		m.status = stEmber.Render("! " + shortFailure(string(msg)))
 		return m, nil
 	case errMsg:
 		m.relaying = false
@@ -823,7 +826,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// with a 503 the user might never see. (Best-effort: a stale scan still falls
 			// through to the real request + its inline error.)
 			if !m.bandOnAir(m.connected.Model) {
-				m.transcript = append(m.transcript, stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.connected.Model+" right now - press r in BROWSE to re-scan, or /share to put one up"))
+				m.transcript = append(m.transcript,
+					stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.connected.Model+" right now"),
+					hintTuneOrShare(m.narrow()))
 				return m, nil
 			}
 			m.relaying = true
