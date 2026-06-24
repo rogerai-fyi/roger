@@ -1,46 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RogerAI - a two-way radio for GPUs</title>
-  <meta name="description" content="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" />
-  <meta name="color-scheme" content="light dark" />
-
-  <!-- No-flash theme: set data-theme BEFORE first paint. Saved choice wins,
-       else the OS preference. Kept tiny and synchronous on purpose.
-       Its sha256 is allow-listed in _headers (script-src) for the CSP. -->
-  <script>
-    (function () {
-      try {
-        var saved = localStorage.getItem("roger-theme");
-        var dark = saved ? saved === "dark"
-          : window.matchMedia("(prefers-color-scheme: dark)").matches;
-        if (dark) document.documentElement.setAttribute("data-theme", "dark");
-      } catch (e) {}
-    })();
-  </script>
-
-  <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
-  <meta property="og:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://rogerai.fyi" />
-  <meta property="og:image" content="https://rogerai.fyi/logo.svg" />
-
-  <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->
-  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-  <link rel="mask-icon" href="favicon.svg" color="#5B5BFF" />
-  <!-- home-screen / apple-touch: the friendlier Ping-face tile -->
-  <link rel="apple-touch-icon" href="ping.svg" />
-  <meta name="theme-color" content="#5B5BFF" />
-
-  <!-- Inter + Geist Mono via Google Fonts; degrades to system stacks offline. -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-
-  <link rel="stylesheet" href="styles/tokens.css" />
-  <link rel="stylesheet" href="styles/site.css" />
+  <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" theme=inline css=site og=1 -->
 </head>
 <body>
 
@@ -55,65 +16,7 @@
   </div>
 
   <!-- ============================ NAV ============================ -->
-  <header class="nav" id="nav">
-    <div class="wrap nav__inner">
-      <a class="brand" href="#top" aria-label="RogerAI home">
-        <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
-          <!-- the ((on air)) monogram: two solid brackets around the pulse -->
-          <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
-          <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
-          <circle class="brand__pulse" cx="16" cy="16" r="5" />
-        </svg>
-        <span class="brand__name">Roger<b>AI</b></span>
-      </a>
-      <!-- mobile: open/close the collapsed menu -->
-      <button class="nav__burger" id="navBurger" type="button"
-              aria-label="Open menu" aria-expanded="false" aria-controls="navMenu">
-        <span class="nav__burger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
-      </button>
-
-      <nav class="nav__menu" id="navMenu" aria-label="Primary">
-        <!-- section group: terse single-word manual labels, in document order -->
-        <div class="nav__sections">
-          <a class="nav__link" href="#market">Band</a>
-          <a class="nav__link" href="#spec">Spec</a>
-          <a class="nav__link" href="#how">Operating</a>
-          <a class="nav__link" href="#monetize">Monetize</a>
-        </div>
-
-        <span class="nav__divider" aria-hidden="true"></span>
-
-        <!-- utility cluster: account, source, theme -->
-        <div class="nav__utils">
-          <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
-          <a class="nav__link nav__util nav__link--ghost" href="https://github.com/rogerai-fyi/roger">GitHub</a>
-          <button class="theme-toggle" id="themeToggle" type="button"
-                  aria-label="Switch to dark theme" aria-pressed="false">
-            <!-- moon: shown in light mode (click switches to dark) -->
-            <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
-            </svg>
-            <!-- sun: shown in dark mode (click switches to light) -->
-            <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4.2" />
-              <g class="theme-toggle__rays">
-                <line x1="12" y1="2.5" x2="12" y2="5" />
-                <line x1="12" y1="19" x2="12" y2="21.5" />
-                <line x1="2.5" y1="12" x2="5" y2="12" />
-                <line x1="19" y1="12" x2="21.5" y2="12" />
-                <line x1="5.3" y1="5.3" x2="7" y2="7" />
-                <line x1="17" y1="17" x2="18.7" y2="18.7" />
-                <line x1="5.3" y1="18.7" x2="7" y2="17" />
-                <line x1="17" y1="7" x2="18.7" y2="5.3" />
-              </g>
-            </svg>
-          </button>
-        </div>
-      </nav>
-    </div>
-  </header>
+  <!-- include: nav.html variant=marketing home=#top anchors= -->
 
   <!-- ============================ HERO ============================ -->
   <main id="top">
@@ -293,7 +196,7 @@
         <div class="money__card">
           <span class="money__label">your wallet</span>
           <b class="money__big mono">$42.17</b>
-          <span class="money__sub">prepaid credit · debited per token</span>
+          <span class="money__sub">wallet balance · debited per token</span>
         </div>
         <div class="money__card">
           <span class="money__label">a typical reply costs</span>
@@ -387,7 +290,7 @@
         </div>
         <div class="spec__row">
           <dt>Settlement</dt>
-          <dd>Prepaid credit <span class="spec__note">debited live, per token</span></dd>
+          <dd>Wallet balance <span class="spec__note">debited live, per token</span></dd>
         </div>
         <div class="spec__row">
           <dt>Lineage</dt>
@@ -501,37 +404,7 @@
   </section>
 
   <!-- ============================ FOOTER ============================ -->
-  <footer class="footer">
-    <div class="wrap footer__inner">
-      <div class="footer__brand">
-        <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
-          <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
-          <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
-          <circle class="brand__pulse" cx="16" cy="16" r="5" />
-        </svg>
-        <span class="brand__name">Roger<b>AI</b></span>
-      </div>
-      <nav class="footer__links">
-        <a href="#market">Band</a>
-        <a href="#spec">Spec</a>
-        <a href="#how">Operating</a>
-        <a href="#monetize">Monetize</a>
-        <a href="/login.html">Log in</a>
-        <a href="https://github.com/rogerai-fyi/roger">GitHub</a>
-        <a href="https://github.com/rogerai-fyi/roger/releases">Releases</a>
-      </nav>
-    </div>
-    <div class="wrap footer__bar">
-      <small>&copy; 2026 RogerAI · built on real machines</small>
-      <span class="footer__status">
-        <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
-        the band is open · roger that
-      </span>
-    </div>
-  </footer>
-
-  <!-- toast for copy confirmation -->
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <!-- include: footer.html anchors= -->
 
   <script src="js/radiomap.js" defer></script>
   <script src="js/terminal.js" defer></script>
