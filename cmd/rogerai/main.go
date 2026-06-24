@@ -178,19 +178,19 @@ func main() {
 	// banner to stderr so scripted stdout stays clean.
 	if notice != "" {
 		switch os.Args[1] {
-		case "tui", "upgrade", "update", "self-update", "ping", "version":
+		case "upgrade", "update", "self-update", "ping", "version":
 		default:
 			fmt.Fprintln(os.Stderr, notice)
 		}
 	}
 	var err error
 	switch os.Args[1] {
-	case "tui":
-		err = tui.RunWithNotice(cfg.Broker, cfg.User, tuiLimits(cfg), notice)
 	case "search", "discover", "models":
 		err = client.Search(cfg.Broker)
 	case "balance":
-		err = client.Balance(cfg.Broker, cfg.User)
+		err = cmdBalance(cfg, os.Args[2:])
+	case "account", "identity":
+		err = cmdAccount(cfg, os.Args[2:])
 	case "login":
 		err = client.Login(cfg.Broker, gitHubClientID())
 	case "logout":
@@ -231,29 +231,32 @@ func main() {
 
 func cmdUse(cfg config, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rogerai use <model> [--port N] [--confidential] [--max-in P] [--max-out P] [--min-tps N] [--yes]")
+		return fmt.Errorf("usage: rogerai use <model> [--max-out $] [--advanced]")
 	}
 	// The model is the first positional; flags follow it. (Go's flag package stops
 	// at the first non-flag arg, so we pull the model out before parsing.)
 	model := args[0]
 	fs := flag.NewFlagSet("use", flag.ExitOnError)
-	port := fs.Int("port", 4141, "local endpoint port")
-	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
-	// --max-in is the new name; --max-price is its backward-compatible alias.
-	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
-	maxPrice := fs.Float64("max-price", -1, "alias of --max-in ($/1M input price)")
+	// The headline cap, in everyone's face.
 	maxOut := fs.Float64("max-out", -1, "cap: skip stations above this $/1M OUTPUT price (the headline cap); 0 = no cap")
+	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
+	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
+	// --max-price alias entirely).
+	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes)")
+	port := fs.Int("port", 0, "local endpoint port (0 = auto-pick a free one)")
+	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
+	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
 	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
 	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
 	fs.Parse(args[1:])
+	if *advanced {
+		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes")
+	}
 	// Start from the resolved per-model limit (or Default), then let flags override
 	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
 	lim, typical := cfg.resolve(model)
 	if *maxIn >= 0 {
 		lim.MaxIn = *maxIn
-	}
-	if *maxPrice >= 0 { // alias; an explicit --max-price overrides --max-in
-		lim.MaxIn = *maxPrice
 	}
 	if *maxOut >= 0 {
 		lim.MaxOut = *maxOut
@@ -261,8 +264,12 @@ func cmdUse(cfg config, args []string) error {
 	if *minTPS >= 0 {
 		lim.MinTPS = *minTPS
 	}
+	useport := *port
+	if useport == 0 {
+		useport = freePort(4141) // auto-pick + the endpoint line prints the chosen port
+	}
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
-		Port: *port, Confidential: *confidential,
+		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
 		TypicalOut: typical, Yes: *yes,
 	})
@@ -293,7 +300,11 @@ func cmdShare(cfg config, args []string) error {
 	attestation := fs.String("attestation", "", "TEE attestation blob (dev placeholder if --confidential without it)")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
 	fs.Parse(args)
+	if *advanced {
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --attestation --free-window --schedule")
+	}
 
 	up := *upstream
 	mdl := *model
@@ -416,6 +427,53 @@ func cmdTopup(cfg config, args []string) error {
 		}
 	}
 	return client.Topup(cfg.Broker, cfg.User, usd)
+}
+
+// cmdBalance is the one money verb (C4): `balance` shows credits; `balance --topup
+// [usd]` (or `balance topup [usd]`) opens checkout. Folds the old top-level `topup`
+// into balance so a user has one noun for money.
+func cmdBalance(cfg config, args []string) error {
+	fs := flag.NewFlagSet("balance", flag.ExitOnError)
+	topup := fs.Float64("topup", -1, "buy this many $ of credits (opens checkout); bare --topup uses $10")
+	fs.Parse(args)
+	// Allow `rogerai balance topup [usd]` too (positional spelling).
+	rest := fs.Args()
+	if len(rest) > 0 && rest[0] == "topup" {
+		usd := 10.0
+		if len(rest) > 1 {
+			if f, e := strconv.ParseFloat(rest[1], 64); e == nil {
+				usd = f
+			}
+		}
+		return client.Topup(cfg.Broker, cfg.User, usd)
+	}
+	if *topup >= 0 {
+		usd := *topup
+		if usd == 0 {
+			usd = 10
+		}
+		return client.Topup(cfg.Broker, cfg.User, usd)
+	}
+	return client.Balance(cfg.Broker, cfg.User)
+}
+
+// cmdAccount is the one identity verb (C4): bare prints who you are (whoami);
+// `account login` / `account logout` manage the GitHub link. Old top-level
+// login/logout/whoami stay as hidden aliases.
+func cmdAccount(cfg config, args []string) error {
+	if len(args) == 0 {
+		return client.Whoami()
+	}
+	switch args[0] {
+	case "login":
+		return client.Login(cfg.Broker, gitHubClientID())
+	case "logout":
+		return client.Logout()
+	case "whoami", "show":
+		return client.Whoami()
+	default:
+		return fmt.Errorf("usage: rogerai account [login|logout]")
+	}
 }
 
 func cmdConfig(args []string) error {
@@ -594,23 +652,26 @@ func normalizeUpstream(u string) string {
 }
 
 func usage() {
-	fmt.Printf(`rogerai - crowd-sourced LLM marketplace client
+	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
-  rogerai search                     discover models (cheapest first)
-  rogerai use <model> [--max-out P] [--max-in P] [--min-tps N] [--yes]   local OpenAI endpoint; set your spend limits
-  rogerai balance                    wallet credits
-  rogerai topup [usd]                buy credits (opens a checkout link)
-  rogerai login                      link a GitHub account (only needed to monetize)
-  rogerai logout                     forget the local GitHub link
-  rogerai whoami                     show your signed identity + linked GitHub
-  rogerai share [flags]              share your local model (auto-detects it)
-  rogerai config set broker <url>    switch brokers
-  rogerai config limits              show your per-model spend limits
-  rogerai config set-limit <model> --max-out P [--max-in P] [--min-tps N]
-  rogerai config clear-limit <model>
-  rogerai ping                       say hi to Ping (mascot walks the terminal)
-  rogerai upgrade                    self-update to the latest release (alias: update)
-  rogerai version
+  rogerai                       open the app (browse, tune in, chat)
+  rogerai search                list models, cheapest first
+  rogerai use <model>           local OpenAI endpoint for your bots  (--max-out $ caps spend)
+  rogerai balance               wallet credits  (balance --topup [usd] to add funds)
+
+providers (share your GPU):
+  rogerai share                 go on air - FREE by default, no login (auto-detects your model)
+  rogerai login                 link GitHub - only needed to EARN
+  rogerai grant create --name my-bots   a free private key for your bots/family
+
+more:
+  rogerai account               who you are (login / logout)
+  rogerai onboard               re-run the first-run setup
+  rogerai config ...            broker, spend limits (rogerai config --help)
+  rogerai upgrade · version · ping
+
+advanced flags live behind --advanced (e.g. rogerai use <model> --advanced,
+rogerai share --advanced, rogerai grant create --advanced).
 
 env: ROGER_BROKER, ROGER_USER override config (%s)
 `, configPath())
