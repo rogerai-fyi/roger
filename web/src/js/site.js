@@ -99,6 +99,15 @@
 
   /* ---- reveal on scroll ------------------------------------------ */
   var reveals = document.querySelectorAll("[data-reveal]");
+  // Reveal anything already in view on first paint, synchronously and without
+  // the per-element delay, so the hero + install command never flash blank
+  // while we wait for a scroll/observer callback (the html.js rule hid them).
+  function isInViewport(el) {
+    var r = el.getBoundingClientRect();
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+  }
   if ("IntersectionObserver" in window) {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
@@ -109,7 +118,10 @@
         io.unobserve(el);
       });
     }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
-    reveals.forEach(function (el) { io.observe(el); });
+    reveals.forEach(function (el) {
+      if (isInViewport(el)) { el.classList.add("is-revealed"); return; }
+      io.observe(el);
+    });
   } else {
     reveals.forEach(function (el) { el.classList.add("is-revealed"); });
   }

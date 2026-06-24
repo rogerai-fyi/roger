@@ -10,6 +10,12 @@
      pages load the chrome plus auth.css for the card. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Mark JS as available BEFORE first paint. The reveal primitive only hides
+       content under `html.js [data-reveal]` (see site.css), so with JS off this
+       class never lands and the hero headline + install command render fully.
+       The <noscript> below is the belt-and-braces fallback for the same case. -->
+  <script>document.documentElement.classList.add("js");</script>
+  <noscript><style>[data-reveal]{opacity:1 !important;transform:none !important;}</style></noscript>
   <title>{{title}}</title>
 {{#if desc}}
   <meta name="description" content="{{desc}}" />
@@ -41,11 +47,22 @@
 {{/if}}
 {{#if og=1}}
 
+  <link rel="canonical" href="https://rogerai.fyi/" />
   <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
   <meta property="og:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://rogerai.fyi" />
-  <meta property="og:image" content="https://rogerai.fyi/logo.svg" />
+  <meta property="og:url" content="https://rogerai.fyi/" />
+  <meta property="og:site_name" content="RogerAI" />
+  <!-- Scrapers do not rasterize SVG; point the social card at a real 1200x630 PNG. -->
+  <meta property="og:image" content="https://rogerai.fyi/og.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="RogerAI - a two-way radio for GPUs" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="RogerAI - a two-way radio for GPUs" />
+  <meta name="twitter:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
+  <meta name="twitter:image" content="https://rogerai.fyi/og.png" />
 {{/if}}
 
   <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->

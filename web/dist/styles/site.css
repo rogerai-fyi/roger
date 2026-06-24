@@ -106,13 +106,17 @@ code, pre { font-family: var(--font-mono); }
 }
 
 /* ---------- reveal primitive ------------------------------------ */
-[data-reveal] {
+/* Only HIDE when JS is present to bring it back: head.html adds `html.js`
+   before first paint, so with JS off (or a <noscript>) nothing is hidden and
+   the hero headline + install command render fully. site.js also reveals any
+   already-intersecting node synchronously so above-the-fold never flashes. */
+html.js [data-reveal] {
   opacity: 0; transform: translateY(16px);
   transition: opacity var(--d-4) var(--ease-out-quint), transform var(--d-4) var(--ease-out-quint);
 }
 [data-reveal].is-revealed { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  html.js [data-reveal] { opacity: 1; transform: none; transition: none; }
 }
 
 /* ---------- live dot -------------------------------------------- */
@@ -1072,6 +1076,16 @@ code, pre { font-family: var(--font-mono); }
 .mkt-row--idle { animation-name: mktInIdle; }
 @keyframes mktInIdle { to { opacity: .62; transform: none; } }
 
+/* honest empty state: no station on air -> no fabricated rows */
+.mkt-quiet {
+  display: block; padding: var(--s-6) var(--s-4); text-align: center;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.mkt-quiet__txt { display: inline-block; max-width: 48ch; }
+.mkt-quiet code { color: var(--ink-900); }
+.mkt-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
+.mkt-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }
+
 .mkt-cell { min-width: 0; }
 .mkt-cell--speed, .mkt-cell--quality, .mkt-cell--price { text-align: right; }
 .mkt-row--head .mkt-cell--speed, .mkt-row--head .mkt-cell--quality,
@@ -1682,70 +1696,6 @@ table.man-table tr:hover td { background: var(--paper); }
 }
 .bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
 
-/* ---------- the scanner (3D band-scanner centerpiece) ---------- */
-.scanner { margin: var(--s-10) 0 0; width: 100%; max-width: 760px; }
-.scanner .fig { display: block; margin-bottom: var(--s-2); }
-.scanner__face {
-  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
-  background: var(--paper-2);
-}
-.scanner__top {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
-  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
-  font-family: var(--font-mono);
-}
-.scanner__locked { font-size: 0.8rem; color: var(--ink-900); }
-.scanner__locked b { font-weight: var(--weight-semi); }
-.scanner__sig { font-size: 0.72rem; color: var(--ink-500); }
-.scanner__sig b { color: var(--live); font-weight: var(--weight-semi); }
-
-/* the 3D stage: perspective + parallax depth planes behind the strip */
-.scanner__stage {
-  position: relative; height: 150px; overflow: hidden;
-  perspective: 720px;
-  --sway: 0px; --tiltX: 0deg; --tiltY: 0deg;
-}
-.scanner__depth { position: absolute; inset: 0; pointer-events: none; }
-.scanner__plane {
-  position: absolute; left: -20%; right: -20%; height: 1px;
-  background: var(--hairline-2); will-change: transform;
-}
-.scanner__plane--far { top: 30%; opacity: .4;
-  background: repeating-linear-gradient(90deg, var(--hairline-2) 0 1px, transparent 1px 48px); height: 60%; opacity: .18; }
-.scanner__plane--mid { top: 55%; opacity: .5;
-  background: repeating-linear-gradient(90deg, var(--hairline) 0 1px, transparent 1px 26px); height: 40%; opacity: .3; }
-.scanner__viewport {
-  position: absolute; inset: 0; display: flex; align-items: center;
-  transform: rotateX(var(--tiltX)) rotateY(var(--tiltY)) translateX(var(--sway));
-  transform-style: preserve-3d; transition: transform .25s var(--ease-out-quint);
-}
-.scanner__svg { display: block; width: 100%; height: 120px; }
-.scanner__needle {
-  position: absolute; left: 50%; top: 8px; bottom: 30px; width: 2px;
-  background: var(--live); transform: translateX(-50%);
-  box-shadow: 0 0 0 2px var(--live-tint);
-}
-.scanner__needle::before {
-  content: ""; position: absolute; left: 50%; top: -6px; width: 9px; height: 9px;
-  border-radius: 50%; background: var(--live); transform: translateX(-50%);
-}
-[data-onair="live"] .scanner__needle::before {
-  animation: onairBeat var(--carrier) var(--ease-in-out) infinite;
-}
-.scanner__glass {
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(90deg, var(--paper-2) 0%, transparent 14%, transparent 86%, var(--paper-2) 100%);
-}
-.scanner__readout {
-  display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-5); align-items: center;
-  padding: var(--s-3) var(--s-4); border-top: 1px solid var(--hairline);
-  font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-500);
-}
-.scanner__readout b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.scanner__k { color: var(--ink-400); letter-spacing: 0.1em; margin-right: 4px; text-transform: uppercase; }
-.scanner__open { margin-left: auto; color: var(--ink-700); border-bottom: 1px solid transparent; }
-.scanner__open:hover { color: var(--live); border-bottom-color: var(--live); }
-
 /* ---------- the full-bleed interactive dial (Models centerpiece) ----
    The exploration tuner moved off the homepage onto /models.html. Same
    instrument plate as the old homepage FIG.1; full-bleed band between the
@@ -1961,7 +1911,7 @@ table.man-table tr:hover td { background: var(--paper); }
 
 /* ---------- responsive ----------------------------------------- */
 @media (max-width: 860px) {
-  .scanner, .bands-hero__inner { max-width: none; }
+  .bands-hero__inner { max-width: none; }
   .qsl__grid { grid-template-columns: 1fr; }
   .qsl__col--log { border-right: 0; border-bottom: 1px solid var(--hairline); }
   /* the directory drops to a compact two-column flow on small screens */
@@ -1980,7 +1930,3 @@ table.man-table tr:hover td { background: var(--paper); }
   .qsl-cs { grid-area: cs; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .scanner__viewport { transition: none; }
-  .scanner__needle::before, [data-onair="live"] .scanner__needle::before { animation: none; }
-}
