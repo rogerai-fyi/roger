@@ -203,6 +203,8 @@ func main() {
 	mux.HandleFunc("/connect/status", b.connectStatus)            // Connect capability status (KYC gate)
 	mux.HandleFunc("/payouts/request", b.payoutsRequest)          // request a payout (KYC + min gated)
 	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
+	mux.HandleFunc("/metrics/provider", b.metricsProvider)        // per-model SERVE metrics (free/paid + earnings)
+	mux.HandleFunc("/metrics/usage", b.metricsUsage)              // per-model CONSUME metrics (free/paid + spend)
 	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/bands", b.bands)                             // owner private bands: list + revoke by id

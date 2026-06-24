@@ -150,6 +150,19 @@ type Store interface {
 	// (boundary-correct, drift-proof). Drives the cap enforcement + near/at notices.
 	MonthSpendOf(holder string, now time.Time) (float64, error)
 
+	// --- per-model metrics (metrics.go) ------------------------------------
+
+	// ProviderMetrics returns the per-(model,node) breakdown of what the account's
+	// node(s) SERVED over the trailing [since,until) unix window: requests, tokens
+	// in/out, a free-vs-paid split (free = no owner earnings on the request), and the
+	// owner's earnings (the 70% net share). accountID is the owner pubkey; only nodes
+	// bound to that account are counted. Receipt-derived (no drift from earnings).
+	ProviderMetrics(accountID string, since, until int64) ([]ProviderModelMetric, error)
+	// UsageMetrics returns the per-model breakdown of what the wallet CONSUMED over the
+	// trailing [since,until) unix window: requests, tokens in/out, a free-vs-paid split
+	// (free = a $0 request), and total spend. Receipt-derived (no drift from spend).
+	UsageMetrics(wallet string, since, until int64) ([]UsageModelMetric, error)
+
 	// --- operator earnings lifecycle ---------------------------------------
 
 	// EarningSplitOf returns the held/reserved/payable/paid split for an operator

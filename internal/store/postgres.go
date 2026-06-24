@@ -213,7 +213,12 @@ CREATE TABLE IF NOT EXISTS rogerai.account_settings (
     updated_at  TIMESTAMPTZ DEFAULT now());
 -- month-to-date spend is a (holder, kind=spend, ts-in-month) SUM; index the ts so the
 -- calendar-month scan stays cheap as the ledger grows.
-CREATE INDEX IF NOT EXISTS ledger_holder_kind_ts ON rogerai.ledger (holder, kind, ts);`
+CREATE INDEX IF NOT EXISTS ledger_holder_kind_ts ON rogerai.ledger (holder, kind, ts);
+-- per-model metrics (metrics.go): the provider rollup scans a node's receipts in the
+-- trailing window then GROUPs BY (model,node); index (node, ts, model) so the windowed
+-- node scan is range-bounded and the group key is covered. The consumer rollup reuses
+-- receipts_usr_ts (usr, ts DESC).
+CREATE INDEX IF NOT EXISTS receipts_node_ts_model ON rogerai.receipts (node, ts, model);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
