@@ -245,6 +245,61 @@ code, pre { font-family: var(--font-mono); }
 }
 .nav__link--ghost:hover { border-color: var(--volt); color: var(--volt); }
 
+/* ---------- account menu (logged-in nav swap, js/session.js) ----
+   Replaces the "Log in" link when a session is present: a compact pill with the
+   GitHub avatar + @handle that opens a small dropdown. On-brand (volt/ink, the
+   manual aesthetic), accessible (real button + aria-expanded), reduced-motion
+   safe. Built by session.js, styled here so the CSP stays inline-script-free. */
+.acctmenu { position: relative; display: inline-flex; }
+.acctmenu__btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px 4px 4px; min-height: 40px;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-pill);
+  background: var(--white); box-shadow: var(--e-1); color: var(--ink-900);
+  font: inherit; font-size: var(--t-sm); cursor: pointer;
+  transition: border-color var(--d-2), color var(--d-2), box-shadow var(--d-2);
+}
+.acctmenu__btn:hover { border-color: var(--volt); color: var(--volt); }
+.acctmenu__btn:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.acctmenu__avatar {
+  width: 24px; height: 24px; border-radius: 50%; display: block;
+  background: var(--paper-3); object-fit: cover; flex-shrink: 0;
+}
+.acctmenu__handle { font-family: var(--font-mono); letter-spacing: -.01em; }
+.acctmenu__caret {
+  width: 7px; height: 7px; flex-shrink: 0; margin-left: 1px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  transition: transform var(--d-2) var(--ease-out-quint);
+}
+.acctmenu.is-open .acctmenu__caret { transform: translateY(1px) rotate(225deg); }
+.acctmenu__panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: var(--z-overlay);
+  min-width: 180px; padding: 6px;
+  background: var(--white); border: 1px solid var(--hairline);
+  border-radius: var(--r-md); box-shadow: var(--e-3);
+}
+.acctmenu__item {
+  display: block; width: 100%; text-align: left;
+  padding: 9px 12px; border-radius: var(--r-sm);
+  font-size: var(--t-sm); color: var(--ink-700); background: none; border: 0;
+  text-decoration: none; cursor: pointer; font: inherit;
+  transition: background var(--d-2), color var(--d-2);
+}
+.acctmenu__item:hover { background: var(--paper-2); color: var(--ink-900); }
+.acctmenu__item:focus-visible { outline: none; background: var(--paper-2); color: var(--ink-900); }
+.acctmenu__item--out { color: var(--ink-500); }
+.acctmenu__sep { height: 1px; margin: 6px 4px; background: var(--hairline); }
+@media (prefers-reduced-motion: reduce) {
+  .acctmenu__caret, .acctmenu__btn { transition: none; }
+}
+@media (max-width: 760px) {
+  /* in the collapsed mobile panel the control fills the utility row */
+  .nav__utils .acctmenu { flex: 1; }
+  .nav__utils .acctmenu__btn { width: 100%; justify-content: center; }
+  .acctmenu__panel { left: 0; right: 0; min-width: 0; }
+}
+
 /* ---------- mobile menu (burger + collapsed panel) -------------- */
 .nav__burger {
   display: none; place-items: center; width: 40px; height: 40px; flex-shrink: 0;

@@ -27,6 +27,27 @@
     <section class="panel">
       <h2>Top up</h2>
       <p>Buy prepaid credits with Stripe. Payment methods are handled by Stripe; we never store your card.</p>
+
+      <!-- the in-app top-up control. Hidden until /billing says checkout_ready;
+           account.js shows either this or #topupDisabled. -->
+      <div id="topupBox" hidden>
+        <div class="amounts" id="topupPresets" role="group" aria-label="Top-up amount">
+          <button type="button" class="amount" data-usd="5">$5</button>
+          <button type="button" class="amount is-active" data-usd="20">$20</button>
+          <button type="button" class="amount" data-usd="50">$50</button>
+        </div>
+        <label class="fine" for="topupCustom">Or a custom amount (USD)</label>
+        <div class="amount-row">
+          <span class="amount-row__pre" aria-hidden="true">$</span>
+          <input id="topupCustom" type="number" min="1" max="1000" step="1"
+            inputmode="decimal" placeholder="20" aria-label="Custom top-up amount in dollars" />
+        </div>
+        <button id="topup" class="primary">Top up</button>
+        <span class="fine" id="topupMsg"></span>
+        <p class="fine">Test mode - use card <code>4242 4242 4242 4242</code>, any future expiry and CVC.</p>
+      </div>
+
+      <p class="fine" id="topupDisabled" hidden>Top-ups are not enabled on this broker yet.</p>
       <p class="fine" id="topupNote">-</p>
     </section>
 
@@ -40,5 +61,6 @@
     <button id="logout" class="ghost">Sign out</button>
   </main>
   <script src="js/account.js"></script>
+  <script src="js/session.js"></script>
 </body>
 </html>
