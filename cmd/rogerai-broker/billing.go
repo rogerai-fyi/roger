@@ -59,6 +59,10 @@ func envOr(k, def string) string {
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
 func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
