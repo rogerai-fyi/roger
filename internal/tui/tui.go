@@ -45,6 +45,16 @@ type Hooks struct {
 	SharePriceI float64                                       // saved input price (0 = free)
 	SharePriceO float64                                       // saved output price (0 = free)
 	Login       func(broker, clientID string) (string, error) // device-flow login -> github login
+	// LoginBegin starts the GitHub device flow and returns the URL + code to show
+	// (no polling); LoginPoll then blocks until the user authorizes and returns the
+	// linked login. Split so the TUI can render its own clean login panel + auto-open
+	// the browser instead of relying on the CLI's stdout (hidden behind the TUI). When
+	// nil the TUI falls back to the single-shot Login hook.
+	LoginBegin func(broker, clientID string) (LoginDevice, error)
+	LoginPoll  func(broker, clientID string, d LoginDevice) (string, error)
+	// Logout forgets the local GitHub binding (the in-TUI logout). nil degrades the
+	// logout panel to a labeled hint.
+	Logout      func() error
 	TopupURL    func(broker, user string, usd float64) (string, error)
 	GrantCreate func(broker, name string, free bool) (secret string, err error)
 	GrantList   func(broker string) ([]GrantRow, error)
@@ -66,6 +76,15 @@ type Hooks struct {
 // GrantRow is a compact grant summary for the in-TUI /grant list.
 type GrantRow struct {
 	Name, Price, Status string
+}
+
+// LoginDevice is the display-ready view of a started GitHub device flow the TUI
+// renders in its login panel: the URL to open + the short code to type. Handle is
+// the opaque continuation the host's LoginPoll uses to resume polling.
+type LoginDevice struct {
+	VerificationURI string
+	UserCode        string
+	Handle          any
 }
 
 // quiet is true when output isn't an interactive color TTY (NO_COLOR set, or
@@ -261,6 +280,7 @@ const (
 	modeShareSetup     // guided fallback: no local model detected, pick a tool / paste a URL
 	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
 	modeAgent          // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
+	modeLogin          // [L] confirmable login/logout panel (never an instant action)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -460,6 +480,13 @@ type model struct {
 	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
 	loggedIn  bool           // true when the broker confirms a real account wallet (gates the balance display)
 	grantList []GrantRow     // last /grant list result
+	// [L] confirmable login/logout panel (modeLogin). The panel never acts on arrival -
+	// only y (logout) / enter (start login) inside it does - so arrow-nav can land on it
+	// without surprises. loginReturn is the mode to restore when the panel is dismissed.
+	loginReturn  mode        // mode to return to when the login/logout panel is dismissed
+	loginDevice  LoginDevice // the started device flow (URL + code) while waiting for auth
+	loginWaiting bool        // true once the device flow started and we are polling for auth
+	loginNote    string      // a one-line panel note (e.g. "opened in your browser")
 	// k9s-style SHARE / provider table (modeShare): one row per locally-detected
 	// model, each independently flippable on/off air. shares holds the live session
 	// per on-air model; shareRows is the rendered model list; shareCursor is the
@@ -575,6 +602,14 @@ type topupMsg string                  // checkout URL
 type grantMsg struct{ secret string } // a newly created grant's secret (shown once)
 type grantListMsg []GrantRow
 type flowErrMsg string // a flow failed (login/topup/grant) - shown on the status line
+
+// loginStartedMsg carries the started device flow back to the Update loop so the
+// panel can render the URL + code and we can auto-open the browser, THEN begin
+// polling (the poll is a second Cmd that lands as a loginMsg / flowErrMsg).
+type loginStartedMsg LoginDevice
+
+// logoutMsg signals the local GitHub binding was forgotten (the in-TUI logout).
+type logoutMsg struct{}
 
 func New(broker, user string) model {
 	return NewWith(broker, user, nil)
@@ -736,12 +771,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
+	case loginStartedMsg:
+		// The device flow started: stash the URL + code so the login panel renders
+		// them, auto-open the browser (fire-and-forget; SSH/headless just reads the
+		// code), then kick off polling for the authorization.
+		m.loginDevice = LoginDevice(msg)
+		m.loginWaiting = true
+		m.loginNote = "opened in your browser (or copy the link above)"
+		m.status = stDim.Render("waiting for GitHub authorization…")
+		openURL(m.loginDevice.VerificationURI)
+		return m, m.pollLoginCmd()
 	case loginMsg:
 		m.ghLogin = string(msg)
 		m.loggedIn = true
+		m.loginWaiting = false
+		m.loginDevice = LoginDevice{}
+		// Leave the login panel back to where the user was.
+		if m.mode == modeLogin {
+			m.mode = m.loginReturn
+		}
 		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - wallet ready, you can now earn as a provider")
 		// Refresh the wallet so the header flips to @login · $balance right away.
 		return m, fetchBalance(m.broker, m.user)
+	case logoutMsg:
+		m.ghLogin = ""
+		m.loggedIn = false
+		m.haveBal = false
+		m.balance = 0
+		m.loginWaiting = false
+		m.loginDevice = LoginDevice{}
+		if m.mode == modeLogin {
+			m.mode = m.loginReturn
+		}
+		m.status = stDim.Render("logged out - now anonymous (free models + grant keys); [L] to log back in")
+		return m, nil
 	case topupMsg:
 		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
 		return m, nil
@@ -913,6 +976,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareSetupKey(k)
 	case modeAgent:
 		return m.onAgentKey(k)
+	case modeLogin:
+		return m.onLoginKey(k)
 	default: // browse
 		// FILTER ENTRY owns every key while open: typing edits the live name filter, esc
 		// clears + closes, enter keeps it applied and returns to the list. Handled BEFORE
@@ -1162,7 +1227,9 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 	case "share":
 		return m.doShare(fields[1:])
-	case "login":
+	case "login", "logout":
+		// Both open the same confirmable [L] panel: logged out it offers the login
+		// prompt, logged in it offers the logout confirm. Neither acts on its own.
 		return m.doLogin()
 	case "topup", "add":
 		return m.doTopup(fields[1:])
@@ -1791,23 +1858,182 @@ func schedToProtocol(ws []SchedWindow) []protocol.PriceWindow {
 	return out
 }
 
-// doLogin runs the GitHub device flow in-TUI (async; the result lands as a
-// loginMsg / flowErrMsg).
+// doLogin opens the confirmable [L] panel - it NEVER acts on its own, because
+// arrow-nav across the preset bank can land on [L]. Logged in it offers a log-out
+// confirm; logged out it offers a press-enter-to-log-in prompt. The device flow
+// only starts on an explicit ENTER inside the panel (startLogin), and logout only
+// on an explicit y (see onLoginKey). The panel returns to the mode it was opened
+// from on dismiss.
 func (m model) doLogin() (tea.Model, tea.Cmd) {
-	if m.hooks.Login == nil {
-		m.status = stDim.Render("login unavailable in this build - run `rogerai login`")
-		return m, nil
+	if m.mode != modeLogin {
+		m.loginReturn = m.mode
 	}
-	m.status = stDim.Render("opening GitHub device login - follow the code shown in your terminal…")
+	m.mode = modeLogin
+	m.loginNote = ""
+	// Re-arming the panel never carries over a stale in-flight device flow.
+	m.loginWaiting = false
+	m.loginDevice = LoginDevice{}
+	if m.loggedInState() {
+		m.status = stDim.Render("log out? y confirms · n / esc keeps you logged in")
+	} else {
+		m.status = stDim.Render("log in with GitHub - press enter · esc cancels")
+	}
+	return m, nil
+}
+
+// startLogin begins the GitHub device flow (called only from an explicit ENTER in
+// the login panel). It prefers the begin/poll hook pair so the TUI renders its own
+// clean panel + auto-opens the browser; it falls back to the single-shot Login hook
+// (terminal-printed codes) when only that is wired.
+func (m model) startLogin() (tea.Model, tea.Cmd) {
 	broker, clientID := m.broker, m.hooks.GitHubID
-	login := m.hooks.Login
-	return m, func() tea.Msg {
-		l, err := login(broker, clientID)
+	if m.hooks.LoginBegin != nil {
+		begin := m.hooks.LoginBegin
+		m.status = stDim.Render("starting GitHub device login…")
+		return m, func() tea.Msg {
+			d, err := begin(broker, clientID)
+			if err != nil {
+				return flowErrMsg("login failed: " + err.Error())
+			}
+			return loginStartedMsg(d)
+		}
+	}
+	if m.hooks.Login != nil {
+		// Legacy single-shot hook: it prints the code to the terminal and blocks.
+		m.loginWaiting = true
+		m.loginNote = "follow the code shown in your terminal"
+		m.status = stDim.Render("opening GitHub device login…")
+		login := m.hooks.Login
+		return m, func() tea.Msg {
+			l, err := login(broker, clientID)
+			if err != nil {
+				return flowErrMsg("login failed: " + err.Error())
+			}
+			return loginMsg(l)
+		}
+	}
+	m.status = stDim.Render("login unavailable in this build - run `rogerai login`")
+	return m, nil
+}
+
+// pollLoginCmd waits (off the event loop) for the user to authorize the started
+// device flow, landing a loginMsg on success or a flowErrMsg on failure/timeout.
+func (m model) pollLoginCmd() tea.Cmd {
+	if m.hooks.LoginPoll == nil {
+		return nil
+	}
+	broker, clientID := m.broker, m.hooks.GitHubID
+	poll := m.hooks.LoginPoll
+	dev := m.loginDevice
+	return func() tea.Msg {
+		l, err := poll(broker, clientID, dev)
 		if err != nil {
 			return flowErrMsg("login failed: " + err.Error())
 		}
 		return loginMsg(l)
 	}
+}
+
+// startLogout clears the local GitHub binding (called only from an explicit y in
+// the logout confirm panel).
+func (m model) startLogout() (tea.Model, tea.Cmd) {
+	if m.hooks.Logout == nil {
+		m.status = stDim.Render("logout unavailable in this build - run `rogerai logout`")
+		m.mode = m.loginReturn
+		return m, nil
+	}
+	logout := m.hooks.Logout
+	return m, func() tea.Msg {
+		if err := logout(); err != nil {
+			return flowErrMsg("logout failed: " + err.Error())
+		}
+		return logoutMsg{}
+	}
+}
+
+// onLoginKey owns every key while the [L] login/logout panel is open, so the
+// y / n / enter here are NEVER stolen by the preset bank or the arrow-cycle. The
+// panel is always dismissible (esc / n / arrowing away keep the current session).
+func (m model) onLoginKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the device flow is in flight, only allow dismissing the panel (the poll
+	// keeps running in the background and still lands its loginMsg). No key restarts
+	// the flow, so there is never a surprise second code.
+	switch k.String() {
+	case "esc", "left", "right":
+		// Dismiss: keep the current login state exactly as it is. Arrowing away (the
+		// preset cycle keys) must NOT start a flow or log anyone out - it just leaves.
+		m.mode = m.loginReturn
+		m.status = stDim.Render("")
+		return m, nil
+	}
+	if m.loggedInState() {
+		// LOGGED IN -> a logout confirm. y logs out; everything else keeps the session.
+		switch k.String() {
+		case "y", "Y":
+			return m.startLogout()
+		case "n", "N":
+			m.mode = m.loginReturn
+			m.status = stDim.Render("still logged in")
+			return m, nil
+		}
+		return m, nil
+	}
+	// LOGGED OUT -> press enter to start the device flow (+ auto-open browser).
+	if !m.loginWaiting {
+		switch k.String() {
+		case "enter":
+			return m.startLogin()
+		}
+	}
+	return m, nil
+}
+
+// loginView renders the confirmable [L] panel: the clean GitHub device-flow panel
+// while waiting for authorization (#2), the log-out confirm when logged in (#5),
+// or the press-enter login prompt when logged out (#5). All forms are left-aligned,
+// the device code is rendered in the mono key style, and the panel is width /
+// NO_COLOR / narrow safe (it wraps no fixed-width art; the bordered plate degrades
+// to plain text when color is stripped).
+func (m model) loginView(w int) string {
+	pulse := "(( • ))"
+
+	// IN FLIGHT: the device flow started - the tidy left-aligned panel (#2/#3).
+	if m.loginWaiting && m.loginDevice.UserCode != "" {
+		note := m.loginNote
+		if note == "" {
+			note = "opened in your browser (or copy the link above)"
+		}
+		body := stKey.Render("GITHUB LOGIN") + "\n\n" +
+			stDim.Render("  1 · open   ") + stLive.Render(m.loginDevice.VerificationURI) + "\n" +
+			stDim.Render("  2 · code   ") + stKey.Render(m.loginDevice.UserCode) + "\n\n" +
+			stGold.Render("  "+pulse) + stDim.Render(" waiting for authorization...") + "\n" +
+			stDim.Render("  "+note) + "\n\n" +
+			stDim.Render("  esc backs out (you can /login again any time)")
+		return "\n" + stPanel.Render(body) + "\n"
+	}
+
+	// LOGGED IN -> the log-out confirm (#5). Never auto-logs-out.
+	if m.loggedInState() {
+		who := "@" + m.ghLogin
+		if m.ghLogin == "" {
+			who = "your account"
+		}
+		body := stKey.Render("ACCOUNT") + "\n\n" +
+			stGold.Render("  "+glyphVerify+" ") + stDim.Render("logged in as ") + stSelText.Render(who)
+		if m.haveBal {
+			body += stDim.Render(" · ") + stEmber.Render(dollars(m.balance))
+		}
+		body += "\n\n" +
+			"  " + stDim.Render("log out? ") + stEmber.Render("[y/N]") + "\n\n" +
+			stDim.Render("  y logs out (clears this session) · n / esc keeps you logged in")
+		return "\n" + stPanel.Render(body) + "\n"
+	}
+
+	// LOGGED OUT -> press enter to start the GitHub device flow (#5).
+	body := stKey.Render("GITHUB LOGIN") + "\n\n" +
+		stDim.Render("  log in with GitHub to use your wallet + earn as a provider") + "\n\n" +
+		"  " + stDim.Render("press ") + stKey.Render("enter") + stDim.Render(" to start (opens your browser) · esc cancels")
+	return "\n" + stPanel.Render(body) + "\n"
 }
 
 // doTopup opens checkout (async; the URL lands as a topupMsg).
@@ -2276,13 +2502,19 @@ type presetKey struct {
 // the limits screen (the in-TUI config surface). LOGIN + HELP are always-available
 // actions (lit only while their screen shows).
 func (m model) presetButtons() []presetKey {
-	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp && m.mode != modeAgent
+	tuneActive := !m.inShareSection() && m.mode != modeLimits && m.mode != modeHelp && m.mode != modeAgent && m.mode != modeLogin
+	// [L] flips its label by state: LOGOUT when an account is linked, LOGIN otherwise.
+	// It is a resting-capable mode now (the confirmable panel), so it lights while open.
+	loginLabel := "LOGIN"
+	if m.loggedInState() {
+		loginLabel = "LOGOUT"
+	}
 	return []presetKey{
 		{"0", "AGENT", m.mode == modeAgent},
 		{"1", "TUNE IN", tuneActive},
 		{"2", "SHARE", m.inShareSection()},
 		{"3", "CONFIG", m.mode == modeLimits},
-		{"L", "LOGIN", false},
+		{"L", loginLabel, m.mode == modeLogin},
 		{"?", "HELP", m.mode == modeHelp},
 	}
 }
@@ -2469,10 +2701,12 @@ func (m model) View() string {
 		b.WriteString(m.quitConfirmView(w))
 	case modeAgent:
 		b.WriteString(m.agentView(w))
+	case modeLogin:
+		b.WriteString(m.loginView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
-	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && m.mode != modeAgent && !m.inShareSection() {
+	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && m.mode != modeAgent && m.mode != modeLogin && !m.inShareSection() {
 		// COMPACT drops the bordered endpoint plate (a "compact-on-connect extra") to a
 		// single terse status line - the load-bearing endpoint stays one /endpoint away.
 		if m.compact {
