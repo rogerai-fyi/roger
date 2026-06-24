@@ -335,6 +335,8 @@ type model struct {
 	edPriceOut string             // $/1M out edit buffer
 	edWindows  []SchedWindow      // time-of-use windows being edited
 	edField    int                // focused field (see edField* consts)
+	edWinSub   int                // focused sub-field within a window (see winSub* consts)
+	edWinBuf   string             // in-progress digit buffer for the focused window price sub-field
 	edModel    string             // the model this editor is pricing
 	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
 	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
@@ -350,6 +352,17 @@ const (
 	edFieldOut             // $/1M output price
 	edFieldAddWin          // the "add a time-of-use window" affordance
 	edFieldFirstWin        // first window row (each window is one field below this)
+)
+
+// winSub identifies the focused sub-field WITHIN a time-of-use window row, cycled
+// with left/right so a window can edit its Start, End, and in/out prices (not just
+// Start) - otherwise a window publishes with In=Out=0 unintentionally.
+const (
+	winSubStart = iota // "HH:MM" window start
+	winSubEnd          // "HH:MM" window end
+	winSubIn           // $/1M in inside the window
+	winSubOut          // $/1M out inside the window
+	winSubCount        // number of sub-fields (for modulo cycling)
 )
 
 // SchedWindow is the TUI's editable view of a time-of-use price window (mirrors
@@ -1186,8 +1199,9 @@ func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
 	m.edPriceOut = trimZero(p.Out)
 	m.edWindows = append([]SchedWindow(nil), p.Windows...)
 	m.edField = edFieldOut // out-price is the headline knob
+	m.edWinSub = winSubStart
 	m.mode = modeShareEditor
-	m.status = stDim.Render("set $/1M + time-of-use windows · tab next field · ⏎ save · esc cancel")
+	m.status = stDim.Render("tab field · ←→ window start/end/in/out · a add · d del · f free · ⏎ save · esc")
 	return m, nil
 }
 
@@ -1208,15 +1222,33 @@ func (m *model) onShareEditorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab", "down":
 		m.edField = (m.edField + 1) % nFields
+		m.edWinSub = winSubStart // each row starts on its Start sub-field
+		m.syncWinBuf()
 		return m, nil
 	case "shift+tab", "up":
 		m.edField = (m.edField - 1 + nFields) % nFields
+		m.edWinSub = winSubStart
+		m.syncWinBuf()
+		return m, nil
+	case "right", "left":
+		// Cycle the sub-field WITHIN the focused window (Start/End/In/Out) so all of
+		// its values are editable. No-op outside a window row.
+		if m.edField >= edFieldFirstWin {
+			if k.String() == "right" {
+				m.edWinSub = (m.edWinSub + 1) % winSubCount
+			} else {
+				m.edWinSub = (m.edWinSub - 1 + winSubCount) % winSubCount
+			}
+			m.syncWinBuf()
+		}
 		return m, nil
 	case "a":
 		// Add a time-of-use window (ChargePoint-style): a default evening peak the
 		// user then edits. Focus jumps to the new window.
 		m.edWindows = append(m.edWindows, SchedWindow{Start: "18:00", End: "22:00", In: 0, Out: 0})
 		m.edField = edFieldFirstWin + len(m.edWindows) - 1
+		m.edWinSub = winSubStart
+		m.syncWinBuf()
 		return m, nil
 	case "d":
 		if m.edField >= edFieldFirstWin {
@@ -1260,8 +1292,9 @@ func (m *model) onShareEditorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // editShareField applies edit fn to the buffer of the focused editor field. Price
-// fields (in/out) edit the price buffers; a window field edits its Start time
-// (the most-edited slot; End/prices use the same digits with ':' as the divider).
+// fields (in/out) edit the price buffers; a window field edits its focused sub-field
+// (Start/End time, or in/out price - cycled with left/right) so a window can set all
+// of its values, not just Start.
 func (m *model) editShareField(fn func(string) string) {
 	switch m.edField {
 	case edFieldIn:
@@ -1272,9 +1305,44 @@ func (m *model) editShareField(fn func(string) string) {
 		// nothing to type on the add-window affordance
 	default:
 		i := m.edField - edFieldFirstWin
-		if i >= 0 && i < len(m.edWindows) {
-			m.edWindows[i].Start = fn(m.edWindows[i].Start)
+		if i < 0 || i >= len(m.edWindows) {
+			return
 		}
+		w := &m.edWindows[i]
+		switch m.edWinSub {
+		case winSubEnd:
+			w.End = fn(w.End)
+		case winSubIn:
+			// Edit a persistent string buffer (so a typed "0." survives a keystroke that
+			// would parse to 0), then reflect it into the window's float price.
+			m.edWinBuf = fn(m.edWinBuf)
+			w.In, _ = strconv.ParseFloat(strings.TrimSpace(m.edWinBuf), 64)
+		case winSubOut:
+			m.edWinBuf = fn(m.edWinBuf)
+			w.Out, _ = strconv.ParseFloat(strings.TrimSpace(m.edWinBuf), 64)
+		default: // winSubStart
+			w.Start = fn(w.Start)
+		}
+	}
+}
+
+// syncWinBuf loads edWinBuf from the focused window's price sub-field (so editing
+// continues from the current value), and clears it otherwise. Called whenever the
+// focused field or sub-field changes.
+func (m *model) syncWinBuf() {
+	m.edWinBuf = ""
+	if m.edField < edFieldFirstWin {
+		return
+	}
+	i := m.edField - edFieldFirstWin
+	if i < 0 || i >= len(m.edWindows) {
+		return
+	}
+	switch m.edWinSub {
+	case winSubIn:
+		m.edWinBuf = trimZero(m.edWindows[i].In)
+	case winSubOut:
+		m.edWinBuf = trimZero(m.edWindows[i].Out)
 	}
 }
 
@@ -2756,17 +2824,50 @@ func (m model) shareEditorView(w int) string {
 	}
 	for i, win := range m.edWindows {
 		idx := edFieldFirstWin + i
+		focused := m.edField == idx
 		cur := "    "
 		nameSt := stDim
-		if m.edField == idx {
+		if focused {
 			cur = "  " + stSelText.Render("▌ ")
 			nameSt = stSelText
 		}
-		price := stEmber.Render(dollars(win.Out) + "/1M out")
+		// Each sub-field renders its value; the focused one (in the focused row) is
+		// highlighted (reverse-video, no literal brackets) so the user sees which
+		// Start/End/In/Out they're editing without changing the layout width.
+		sub := func(s int, v string) string {
+			if focused && m.edWinSub == s {
+				return stSelText.Render(v)
+			}
+			return nameSt.Render(v)
+		}
+		hours := sub(winSubStart, win.Start) + nameSt.Render("-") + sub(winSubEnd, win.End)
+		// Pad to the visible (ANSI-stripped) width of the hours label so the price
+		// column lines up regardless of the focus highlight.
+		plainHours := win.Start + "-" + win.End + " UTC"
+		if vis := len([]rune(plainHours)); vis < 18 {
+			hours += nameSt.Render(" UTC" + strings.Repeat(" ", 18-vis))
+		} else {
+			hours += nameSt.Render(" UTC ")
+		}
+		var price string
 		if win.Free {
 			price = stLive.Render("FREE")
+		} else {
+			outVal, inVal := dollars(win.Out), dollars(win.In)
+			// While editing a price sub-field, show the raw in-progress buffer (so a
+			// half-typed "0." is visible, not the rounded float).
+			if focused && m.edWinSub == winSubOut {
+				outVal = "$" + m.edWinBuf
+			}
+			if focused && m.edWinSub == winSubIn {
+				inVal = "$" + m.edWinBuf
+			}
+			price = stEmber.Render(sub(winSubOut, outVal) + "/1M out")
+			if !narrow {
+				price += stDim.Render(" · ") + stEmber.Render(sub(winSubIn, inVal)+"/1M in")
+			}
 		}
-		b.WriteString(cur + nameSt.Render(pad(win.Start+"-"+win.End+" UTC", 18)) + price + "\n")
+		b.WriteString(cur + hours + price + "\n")
 	}
 
 	if !narrow {

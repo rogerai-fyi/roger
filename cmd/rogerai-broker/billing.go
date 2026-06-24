@@ -75,21 +75,8 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	// impersonates the reserved pubkey-derived id space, so a legacy header can never
 	// add credits to (or otherwise touch) a signed user's wallet.
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	// A logged-in web top-up must credit the SAME wallet /me shows (the session
-	// wallet), not the anon/signed id; otherwise the payment credits a different
-	// wallet and the dashboard balance never moves. Fall back to identityOf (with the
-	// body, for signature verification) for CLI/anon top-ups.
-	var user string
-	if _, sw, sok := b.webSession(r); sok {
-		user = sw
-	} else if u, _, iok := b.identityOf(r, body); iok {
-		// One wallet per account: a logged-in keypair tops up the SAME
-		// "u_gh_<githubID>" wallet the web session + the CLI balance read use, so a
-		// CLI top-up and a web top-up land in one place. An anonymous keypair tops up
-		// its own pubkey-derived wallet (anon top-up is allowed; the credit is there to
-		// claim once they log in - see the migration note in ACCOUNT-PAYOUTS-DESIGN).
-		user = b.walletOf(r, u)
-	} else {
+	user, ok := b.checkoutWallet(r, body)
+	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
 	}
@@ -135,6 +122,21 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(respBody, &sess)
 	writeJSON(w, http.StatusOK, map[string]any{"url": sess.URL, "usd": req.USD, "credits": credits})
+}
+
+// checkoutWallet resolves which wallet a top-up must credit, so the payment lands
+// where the dashboard reads. A logged-in web session credits its SESSION wallet (the
+// same "u_gh_<githubID>" /me shows); a signed keypair credits walletOf (the github
+// wallet after login, else its own anon pubkey wallet - anon top-up is allowed and
+// claimable on login); an unsigned/unauthenticated request resolves nothing.
+func (b *broker) checkoutWallet(r *http.Request, body []byte) (string, bool) {
+	if _, sw, sok := b.webSession(r); sok {
+		return sw, true
+	}
+	if u, _, iok := b.identityOf(r, body); iok {
+		return b.walletOf(r, u), true
+	}
+	return "", false
 }
 
 // webhook handles POST /billing/webhook: Stripe's payment callback. The signature

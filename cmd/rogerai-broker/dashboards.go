@@ -37,8 +37,10 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 }
 
 // walletLoggedIn reports whether a resolved wallet id belongs to a logged-in
-// account (the github-scoped or the grant-scoped namespace - both back a real
-// balance) versus an anonymous pubkey-derived id (no wallet by design).
+// GitHub account (the "u_gh_" namespace, which backs a real balance) versus an
+// anonymous pubkey-derived id (no wallet by design). This gates the unsigned
+// dashboard balance path, which only ever resolves a github-scoped wallet; grant
+// keys authenticate on the relay path, not this browser-session dashboard.
 func walletLoggedIn(wallet string) bool {
 	return strings.HasPrefix(wallet, "u_gh_")
 }

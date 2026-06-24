@@ -364,3 +364,154 @@ func TestBandHighlightCarat(t *testing.T) {
 		t.Errorf("selected band row should carry the `>` carat: %q", stripANSI(line))
 	}
 }
+
+// TestScheduleWindowEditEndAndPrice is the P1-3 feature regression: a time-of-use
+// window must be able to edit its End time and in/out prices (not just Start), so
+// windows don't publish with In=Out=0 unintentionally. We add a window, cycle the
+// sub-field with the right arrow, type each value, and assert all of them are saved.
+func TestScheduleWindowEditEndAndPrice(t *testing.T) {
+	var saved Pricing
+	hooks := Hooks{SavePrice: func(model string, p Pricing) { saved = p }}
+	lm := NewWithHooks("http://broker.local", "tester", nil, hooks)
+	lm.width, lm.height = 100, 30
+	lm.mode = modeShare
+	lm.shareRows = []shareRow{{model: "m", ctx: 8192}}
+	var l tea.Model = lm
+	l, _ = l.Update(balanceMsg{balance: 5, loggedIn: true})
+
+	key := func(s string) { l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}) }
+	special := func(t tea.KeyType) { l, _ = l.Update(tea.KeyMsg{Type: t}) }
+
+	key("p") // open editor (logged in)
+	key("a") // add a window, focus jumps to it (sub-field = Start)
+
+	// Edit START: clear the default "18:00" then type "09:00".
+	for i := 0; i < 5; i++ {
+		special(tea.KeyBackspace)
+	}
+	key("0")
+	key("9")
+	key(":")
+	key("0")
+	key("0")
+
+	// right -> END sub-field; clear "22:00", type "17:30".
+	special(tea.KeyRight)
+	for i := 0; i < 5; i++ {
+		special(tea.KeyBackspace)
+	}
+	key("1")
+	key("7")
+	key(":")
+	key("3")
+	key("0")
+
+	// right -> IN price; type "0.15".
+	special(tea.KeyRight)
+	key("0")
+	key(".")
+	key("1")
+	key("5")
+
+	// right -> OUT price; type "0.40".
+	special(tea.KeyRight)
+	key("0")
+	key(".")
+	key("4")
+	key("0")
+
+	special(tea.KeyEnter) // save
+
+	if len(saved.Windows) != 1 {
+		t.Fatalf("expected one saved window, got %+v", saved.Windows)
+	}
+	w := saved.Windows[0]
+	if w.Start != "09:00" || w.End != "17:30" {
+		t.Errorf("window times = %q-%q, want 09:00-17:30", w.Start, w.End)
+	}
+	if w.In != 0.15 || w.Out != 0.40 {
+		t.Errorf("window prices in=%v out=%v, want 0.15/0.40 (not 0/0)", w.In, w.Out)
+	}
+}
+
+// TestNoColorNonTTYRender: every mode must render with NO ANSI escape codes under
+// NO_COLOR (the non-TTY / piped path), at width 0 and a narrow width, without panic.
+func TestNoColorNonTTYRender(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	modes := []mode{
+		modeBrowse, modeCommand, modeChat, modeHelp, modeConnectConfirm,
+		modeOverLimit, modeLimits, modeShare, modeShareEditor, modeShareSetup, modeQuitConfirm,
+	}
+	for _, w := range []int{0, 30} {
+		for _, md := range modes {
+			mm := New("http://broker.local", "tester")
+			mm.width, mm.height = w, 24
+			mm.mode = md
+			mm.connected = &offer{NodeID: "nyx", Model: "m", PriceOut: 0.3, Online: true}
+			mm.q = quote{b: band{model: "m", online: true, stations: 1, cheapest: mm.connected}, typical: 800}
+			mm.shareRows = []shareRow{{model: "m", ctx: 32768}}
+			mm.limModels = []string{"m"}
+			mm.edModel = "m"
+			mm.edWindows = []SchedWindow{{Start: "18:00", End: "22:00", In: 0.1, Out: 0.2}}
+			if md == modeShare || md == modeShareEditor || md == modeShareSetup {
+				mm.connected = nil
+			}
+			var m tea.Model = mm
+			m, _ = m.Update(balanceMsg{balance: 5, loggedIn: true})
+			out := m.View() // must not panic at any width
+			if strings.Contains(out, "\x1b[") {
+				t.Errorf("mode %d width %d emitted ANSI under NO_COLOR: %q", md, w, out)
+			}
+		}
+	}
+}
+
+// TestShareSetupPasteVerifyFailure: in the guided setup, pasting an unreachable URL
+// surfaces a verify error and KEEPS the user in the setup wizard (no dead-end, no
+// crash, no bogus share).
+func TestShareSetupPasteVerifyFailure(t *testing.T) {
+	old := detectShares
+	detectShares = func(extra ...string) []detect.Found { return nil }
+	defer func() { detectShares = old }()
+
+	mm := New("http://127.0.0.1:1", "tester")
+	mm.width, mm.height = 100, 30
+	var m tea.Model = mm
+	m = runCmd(m, "share") // -> guided setup (nothing detected)
+
+	// Move to the "Other - paste a URL" row (last option).
+	for i := 0; i < len(setupOptions)-1; i++ {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	for _, r := range "http://127.0.0.1:1" { // reliably closed -> Probe fails
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // verify -> fails
+
+	mm2 := asModel(m)
+	if mm2.mode != modeShareSetup {
+		t.Errorf("a failed paste-verify must stay in the setup wizard, got mode %v", mm2.mode)
+	}
+	if mm2.setupErr == "" {
+		t.Error("a failed paste-verify must surface an error message")
+	}
+	if !strings.Contains(stripANSI(m.View()), "SET UP A MODEL") {
+		t.Errorf("still expected the setup wizard view:\n%s", stripANSI(m.View()))
+	}
+}
+
+// TestQuitGuardDeclineRestoresMode: declining the on-air quit guard restores the
+// mode the user was in when they pressed q (via quitReturn), not a hardcoded one.
+func TestQuitGuardDeclineRestoresMode(t *testing.T) {
+	mm := New("http://broker.local", "tester")
+	mm.width, mm.height = 100, 30
+	mm.mode = modeQuitConfirm // the on-air quit guard is showing
+	mm.quitReturn = modeShare // requestQuit recorded the prior section before showing it
+	dm, dcmd := mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if dcmd != nil {
+		t.Fatal("declining the quit guard must not quit")
+	}
+	if asModel(dm).mode != modeShare {
+		t.Errorf("decline should restore the prior mode (SHARE), got %v", asModel(dm).mode)
+	}
+}

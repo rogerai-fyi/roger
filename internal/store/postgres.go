@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS rogerai.earning_lots (
     gross DOUBLE PRECISION, reserve DOUBLE PRECISION,
     state TEXT DEFAULT 'held',
     release_at BIGINT, reserve_release_at BIGINT,
+    payout_id BIGINT,
     created_at BIGINT);
 CREATE INDEX IF NOT EXISTS lots_account ON rogerai.earning_lots (account_id, state);
 CREATE INDEX IF NOT EXISTS lots_request ON rogerai.earning_lots (request_id);
@@ -109,7 +110,10 @@ CREATE TABLE IF NOT EXISTS rogerai.grant_usage (
 -- tag receipts with the grant that served them (NULL for public-market traffic),
 -- so the dashboard can GROUP BY grant_id. Additive, like owner_share.
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS grant_id TEXT;
-CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);`
+CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);
+-- tag paid lots with the payout that paid them, so a failed transfer can roll the
+-- exact lots back to 'payable'. Additive.
+ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -648,7 +652,7 @@ func (p *Postgres) EarningSplitOfNode(node string, now time.Time) (EarningSplit,
 	return p.splitQuery("node", node, now)
 }
 
-func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout float64, transferID string) (Payout, bool, string, error) {
+func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout float64) (Payout, bool, string, error) {
 	if err := p.promoteLots(now); err != nil {
 		return Payout{}, false, "", err
 	}
@@ -658,7 +662,12 @@ func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout floa
 	}
 	defer tx.Rollback()
 	n := now.Unix()
-	// Sum the payable amount (gross-minus-reserve, plus reserve whose tail cleared).
+	// Lock the payable lots FOR UPDATE so a concurrent request can't double-debit
+	// them, then sum (gross-minus-reserve, plus reserve whose tail cleared).
+	if _, err := tx.Exec(`SELECT id FROM rogerai.earning_lots
+		WHERE account_id=$1 AND state='payable' FOR UPDATE`, accountID); err != nil {
+		return Payout{}, false, "", err
+	}
 	var amount float64
 	if err := tx.QueryRow(`SELECT COALESCE(SUM(gross-reserve + CASE WHEN reserve_release_at<=$2 THEN reserve ELSE 0 END),0)
 		FROM rogerai.earning_lots WHERE account_id=$1 AND state='payable'`, accountID, n).Scan(&amount); err != nil {
@@ -667,26 +676,73 @@ func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout floa
 	if amount < minPayout {
 		return Payout{}, false, "below minimum payout", nil
 	}
-	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='paid'
-		WHERE account_id=$1 AND state='payable'`, accountID); err != nil {
-		return Payout{}, false, "", err
-	}
-	state := PayoutPending
-	if transferID != "" {
-		state = PayoutPaid
-	}
+	// Insert the PENDING payout first to get its id, then tag + debit the lots with
+	// it so a failed transfer can roll back exactly these lots.
 	var pid int64
 	if err := tx.QueryRow(`INSERT INTO rogerai.payouts(account_id,amount,stripe_transfer_id,state,created_at)
-		VALUES($1,$2,$3,$4,$5) RETURNING id`, accountID, amount, transferID, state, n).Scan(&pid); err != nil {
+		VALUES($1,$2,'',$3,$4) RETURNING id`, accountID, amount, PayoutPending, n).Scan(&pid); err != nil {
 		return Payout{}, false, "", err
 	}
-	if err := appendLedger(tx, accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(pid, 10), StatePosted, transferID, n); err != nil {
+	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='paid', payout_id=$2
+		WHERE account_id=$1 AND state='payable'`, accountID, pid); err != nil {
+		return Payout{}, false, "", err
+	}
+	if err := appendLedger(tx, accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(pid, 10), StatePosted, "", n); err != nil {
 		return Payout{}, false, "", err
 	}
 	if err := tx.Commit(); err != nil {
 		return Payout{}, false, "", err
 	}
-	return Payout{ID: pid, AccountID: accountID, Amount: amount, StripeTransferID: transferID, State: state, CreatedAt: n}, true, "", nil
+	return Payout{ID: pid, AccountID: accountID, Amount: amount, State: PayoutPending, CreatedAt: n}, true, "", nil
+}
+
+// SettlePayout marks a pending payout PAID and records its transfer id. Idempotent.
+func (p *Postgres) SettlePayout(payoutID int64, transferID string) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE rogerai.payouts SET state=$2, stripe_transfer_id=$3
+		WHERE id=$1 AND state=$4`, payoutID, PayoutPaid, transferID, PayoutPending)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return tx.Commit() // already settled / unknown: no-op
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.ledger SET ref=$2
+		WHERE kind=$3 AND idem_key=$1`, "payout:"+strconv.FormatInt(payoutID, 10), transferID, KindPayout); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// FailPayout rolls a pending payout back: its debited lots return to 'payable', the
+// payout is marked FAILED, and the payout ledger row is reversed.
+func (p *Postgres) FailPayout(payoutID int64) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE rogerai.payouts SET state=$2 WHERE id=$1 AND state=$3`,
+		payoutID, PayoutFailed, PayoutPending)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return tx.Commit() // already settled / failed: nothing to roll back
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='payable', payout_id=NULL
+		WHERE payout_id=$1 AND state='paid'`, payoutID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.ledger SET state=$2
+		WHERE kind=$3 AND idem_key=$1`, "payout:"+strconv.FormatInt(payoutID, 10), StateReversed, KindPayout); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (p *Postgres) PayoutsOf(accountID string, limit int) ([]Payout, error) {

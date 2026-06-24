@@ -367,7 +367,11 @@ func cmdUse(cfg config, args []string) error {
 	}
 	useport := *port
 	if useport == 0 {
-		useport = freePort(4141) // auto-pick + the endpoint line prints the chosen port
+		p, err := freePort(4141) // auto-pick + the endpoint line prints the chosen port
+		if err != nil {
+			return err
+		}
+		useport = p
 	}
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,

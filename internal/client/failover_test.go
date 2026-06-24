@@ -264,3 +264,112 @@ func TestIsYes(t *testing.T) {
 		}
 	}
 }
+
+// TestRetryableMatrix is the explicit retry/no-retry table for v0.3.1: server 5xx
+// that warrant failover (500/502/503/504) vs caller-fault 4xx that must be surfaced
+// immediately (400/401/402/429), plus a transport error (always retryable).
+func TestRetryableMatrix(t *testing.T) {
+	retry := []int{500, 502, 503, 504}
+	for _, s := range retry {
+		if !retryable(s, nil) {
+			t.Errorf("status %d should be retryable (failover)", s)
+		}
+	}
+	noRetry := []int{200, 400, 401, 402, 429}
+	for _, s := range noRetry {
+		if retryable(s, nil) {
+			t.Errorf("status %d should NOT be retryable (surface to caller)", s)
+		}
+	}
+	if !retryable(0, errors.New("connection reset")) {
+		t.Error("a transport error should always be retryable")
+	}
+}
+
+// TestRelayFailoverExcludesFailedProvider: when the first-picked provider fails, the
+// relay re-selects an alternative that EXCLUDES the failed node, and the request
+// succeeds on the healthy one (the failed provider is never re-tried in the loop).
+func TestRelayFailoverExcludesFailedProvider(t *testing.T) {
+	var hits []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/discover":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"offers":[
+				{"node_id":"bad","model":"m","price_in":0.1,"online":true,"tps":500},
+				{"node_id":"good","model":"m","price_in":0.2,"online":true,"tps":100}
+			]}`))
+		case "/v1/chat/completions":
+			pin := r.Header.Get("X-Roger-Node")
+			mu.Lock()
+			hits = append(hits, pin)
+			mu.Unlock()
+			if pin == "good" {
+				w.Header().Set("X-RogerAI-Provider", "good")
+				w.Write([]byte(`{"ok":true}`))
+				return
+			}
+			w.Header().Set("X-RogerAI-Provider", "bad")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer srv.Close()
+
+	h := ProxyHandler(ProxyOptions{Broker: srv.URL, User: "u"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Header().Get("X-RogerAI-Provider") != "good" {
+		t.Fatalf("expected success on the healthy provider, got %d provider=%q", rec.Code, rec.Header().Get("X-RogerAI-Provider"))
+	}
+	// "bad" must not appear AFTER the failover pinned "good" (it is excluded).
+	mu.Lock()
+	defer mu.Unlock()
+	for i, p := range hits {
+		if p == "good" {
+			for _, later := range hits[i+1:] {
+				if later == "bad" {
+					t.Errorf("failed provider 'bad' must be excluded after failover, hits=%v", hits)
+				}
+			}
+		}
+	}
+}
+
+// TestRelayRecoveryAlertFires: a transparent failover (a failed provider, then a
+// healthy one) fires a "recovered" alert so the user knows a re-route happened.
+func TestRelayRecoveryAlertFires(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/discover":
+			w.Write([]byte(`{"offers":[
+				{"node_id":"bad","model":"m","price_in":0.1,"online":true,"tps":500},
+				{"node_id":"good","model":"m","price_in":0.2,"online":true,"tps":100}
+			]}`))
+		case "/v1/chat/completions":
+			if r.Header.Get("X-Roger-Node") == "good" {
+				w.Header().Set("X-RogerAI-Provider", "good")
+				w.Write([]byte(`{"ok":true}`))
+				return
+			}
+			w.Header().Set("X-RogerAI-Provider", "bad")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}))
+	defer srv.Close()
+
+	var alerted string
+	h := ProxyHandler(ProxyOptions{Broker: srv.URL, User: "u", Alert: func(s string) { alerted = s }})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	if !strings.Contains(alerted, "recovered") {
+		t.Errorf("a transparent failover must fire a recovery alert, got %q", alerted)
+	}
+}

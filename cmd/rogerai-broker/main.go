@@ -62,6 +62,7 @@ type broker struct {
 	bill         billing
 	conn         connect
 	mod          moderation
+	payoutLocks  sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
 	rl           *rateLimiter
 	grantRL      *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
 	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)

@@ -205,3 +205,69 @@ func TestToV1Base(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeOllamaNative: an Ollama base also exposes /api/tags + /api/ps, which list
+// installed-but-swapped-out models a bare /v1/models misses. mergeOllamaNative must
+// UNION those into f.Models (de-duped, sorted), and a non-Ollama base (no /api/tags)
+// must leave the model list untouched.
+func TestMergeOllamaNative(t *testing.T) {
+	// Ollama-like server: /v1/models shows only the loaded model; /api/tags lists the
+	// whole installed fleet; /api/ps repeats a loaded one (must not duplicate).
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/tags", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]string{
+			{"name": "llama3:8b"}, {"name": "qwen2.5:7b"},
+		}})
+	})
+	mux.HandleFunc("/api/ps", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]string{
+			{"name": "llama3:8b"}, // already in tags
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	f := Found{Models: []string{"llama3:8b"}} // the one /v1/models reported (loaded)
+	mergeOllamaNative(&f, srv.URL+"/v1")
+	want := []string{"llama3:8b", "qwen2.5:7b"} // unioned, de-duped, sorted
+	if len(f.Models) != len(want) {
+		t.Fatalf("models = %v, want %v", f.Models, want)
+	}
+	for i := range want {
+		if f.Models[i] != want[i] {
+			t.Errorf("models[%d] = %q, want %q (full: %v)", i, f.Models[i], want[i], f.Models)
+		}
+	}
+
+	// A non-Ollama base (no /api/tags) leaves the list untouched.
+	bare := httptest.NewServer(http.NotFoundHandler())
+	defer bare.Close()
+	g := Found{Models: []string{"only-this"}}
+	mergeOllamaNative(&g, bare.URL+"/v1")
+	if len(g.Models) != 1 || g.Models[0] != "only-this" {
+		t.Errorf("non-Ollama base must not change models, got %v", g.Models)
+	}
+}
+
+// TestDetectWithExplicitUpstreamWins: an explicit --upstream/config endpoint is
+// probed FIRST and, when the same server is also reachable via a default probe, the
+// explicit entry wins the de-dup so its friendly "configured" name is kept.
+func TestDetectWithExplicitUpstreamWins(t *testing.T) {
+	defer quietSources(t)()
+	srv := fakeServer("up-model")
+	defer srv.Close()
+
+	// The SAME server is in the default probe table under a different name; the
+	// explicit endpoint must take precedence (probed first, wins de-dup).
+	old := probes
+	probes = []struct{ name, base string }{{"default-name", srv.URL + "/v1"}}
+	defer func() { probes = old }()
+
+	found := DetectWith(srv.URL)
+	if len(found) != 1 {
+		t.Fatalf("explicit + default for one server should de-dup to 1, got %d: %+v", len(found), found)
+	}
+	if found[0].Name != "configured" {
+		t.Errorf("explicit upstream should win the name, got %q", found[0].Name)
+	}
+}

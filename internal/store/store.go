@@ -118,10 +118,22 @@ type Store interface {
 	EarningSplitOf(accountID string, now time.Time) (EarningSplit, error)
 	// EarningSplitOfNode is EarningSplitOf scoped to a single node (for /earnings?node=).
 	EarningSplitOfNode(node string, now time.Time) (EarningSplit, error)
-	// RequestPayout creates a payout from the operator's payable balance (promoting
-	// lots first). It debits payable lots, writes a payout row + a payout ledger row,
-	// all in one transaction. ok=false (with reason) if below minimum or nothing payable.
-	RequestPayout(accountID string, now time.Time, min float64, transferID string) (payout Payout, ok bool, reason string, err error)
+	// RequestPayout debits the operator's payable balance and records a PENDING payout
+	// (promoting lots first) in ONE transaction, returning the exact debited amount.
+	// The caller creates the Stripe transfer AFTER this (for the returned amount), then
+	// finalizes with SettlePayout (money moved) or FailPayout (transfer failed). This
+	// ordering guarantees a transfer is never issued without a matching recorded debit,
+	// nor for an amount different from what was debited. ok=false (with reason) if below
+	// minimum or nothing payable.
+	RequestPayout(accountID string, now time.Time, min float64) (payout Payout, ok bool, reason string, err error)
+	// SettlePayout marks a pending payout PAID and records its Stripe transfer id.
+	// Idempotent (settling an already-paid payout is a no-op).
+	SettlePayout(payoutID int64, transferID string) error
+	// FailPayout rolls a pending payout back: its debited lots return to PAYABLE, the
+	// payout is marked FAILED, and the payout ledger row is reversed. Used when the
+	// Stripe transfer fails after a successful debit, so no completed transfer is ever
+	// left with payable lots (and no orphan debit remains).
+	FailPayout(payoutID int64) error
 	// PayoutsOf returns an operator's payout history, newest first.
 	PayoutsOf(accountID string, limit int) ([]Payout, error)
 	// Chargeback records a consumer dispute: a chargeback ledger row against the
@@ -621,7 +633,12 @@ func (m *Mem) EarningSplitOfNode(node string, now time.Time) (EarningSplit, erro
 	return m.splitLocked(func(l EarningLot) bool { return l.Node == node }, now), nil
 }
 
-func (m *Mem) RequestPayout(accountID string, now time.Time, min float64, transferID string) (Payout, bool, string, error) {
+// RequestPayout debits the operator's payable lots and creates a PENDING payout in
+// ONE locked transaction, returning the exact debited amount. The Stripe transfer is
+// created by the caller AFTER this returns (for the returned amount), then settled
+// via SettlePayout or rolled back via FailPayout - so a transfer can never be issued
+// without a matching recorded debit, nor for a different amount than was debited.
+func (m *Mem) RequestPayout(accountID string, now time.Time, min float64) (Payout, bool, string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.promoteLocked(now)
@@ -644,20 +661,75 @@ func (m *Mem) RequestPayout(accountID string, now time.Time, min float64, transf
 	if amount < min {
 		return Payout{}, false, "below minimum payout", nil
 	}
+	m.payoutID++
+	pid := m.payoutID
 	for _, i := range idx {
 		m.lots[i].State = LotPaid
+		m.lots[i].PayoutID = pid
 	}
-	m.payoutID++
 	p := Payout{
-		ID: m.payoutID, AccountID: accountID, Amount: amount,
-		StripeTransferID: transferID, State: PayoutPending, CreatedAt: now.Unix(),
-	}
-	if transferID != "" {
-		p.State = PayoutPaid
+		ID: pid, AccountID: accountID, Amount: amount,
+		State: PayoutPending, CreatedAt: now.Unix(),
 	}
 	m.payouts = append(m.payouts, p)
-	m.appendLedgerLocked(accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(p.ID, 10), StatePosted, transferID, now.Unix())
+	m.appendLedgerLocked(accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(p.ID, 10), StatePosted, "", now.Unix())
 	return p, true, "", nil
+}
+
+// SettlePayout marks a pending payout PAID and records its Stripe transfer id (the
+// money has moved). Idempotent: settling an already-paid payout is a no-op.
+func (m *Mem) SettlePayout(payoutID int64, transferID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.payouts {
+		if m.payouts[i].ID == payoutID {
+			if m.payouts[i].State == PayoutPaid {
+				return nil
+			}
+			m.payouts[i].State = PayoutPaid
+			m.payouts[i].StripeTransferID = transferID
+			// Stamp the transfer id onto the payout ledger row's ref.
+			ref := "payout:" + strconv.FormatInt(payoutID, 10)
+			for j := range m.ledger {
+				if m.ledger[j].Kind == KindPayout && m.ledger[j].IdemKey == ref {
+					m.ledger[j].Ref = transferID
+				}
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// FailPayout rolls a pending payout back: its debited lots return to PAYABLE, the
+// payout is marked FAILED, and the payout ledger row is reversed (so the debit no
+// longer counts). Used when the Stripe transfer fails AFTER a successful debit, so
+// no completed transfer is ever left with payable lots and no orphan debit remains.
+func (m *Mem) FailPayout(payoutID int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.payouts {
+		if m.payouts[i].ID == payoutID {
+			if m.payouts[i].State != PayoutPending {
+				return nil // already settled or failed; nothing to roll back
+			}
+			m.payouts[i].State = PayoutFailed
+			break
+		}
+	}
+	for i := range m.lots {
+		if m.lots[i].PayoutID == payoutID && m.lots[i].State == LotPaid {
+			m.lots[i].State = LotPayable
+			m.lots[i].PayoutID = 0
+		}
+	}
+	ref := "payout:" + strconv.FormatInt(payoutID, 10)
+	for j := range m.ledger {
+		if m.ledger[j].Kind == KindPayout && m.ledger[j].IdemKey == ref {
+			m.ledger[j].State = StateReversed
+		}
+	}
+	return nil
 }
 
 func (m *Mem) PayoutsOf(accountID string, limit int) ([]Payout, error) {

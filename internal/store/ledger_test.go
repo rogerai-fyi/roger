@@ -144,13 +144,13 @@ func TestPayoutMin(t *testing.T) {
 	_, _ = m.Finalize("u", "n", 20, 20, 20, rec("r1"))
 	future := time.Now().Add(91 * 24 * time.Hour)
 
-	if _, ok, reason, _ := m.RequestPayout("acct1", future, 25, "tr_1"); ok || reason == "" {
+	if _, ok, reason, _ := m.RequestPayout("acct1", future, 25); ok || reason == "" {
 		t.Errorf("payout below min should fail, got ok=%v reason=%q", ok, reason)
 	}
 	// add another 20 -> payable 40 (>= 25)
 	_, _ = m.Hold("u", 20)
 	_, _ = m.Finalize("u", "n", 20, 20, 20, rec("r2"))
-	pay, ok, _, _ := m.RequestPayout("acct1", future, 25, "tr_1")
+	pay, ok, _, _ := m.RequestPayout("acct1", future, 25)
 	if !ok || !approx(pay.Amount, 40) {
 		t.Fatalf("payout = %+v ok=%v, want amount 40", pay, ok)
 	}
@@ -221,5 +221,152 @@ func TestAccountAnonymize(t *testing.T) {
 	// a deleted (anonymized) login no longer resolves
 	if _, ok, _ := m.OwnerByLogin("octocat"); ok {
 		t.Error("anonymized login should not resolve")
+	}
+}
+
+// payableAccrue is a test helper: accrue `amount` of payable owner-earnings for
+// account `acct` on node `node`, fast-forwarding past the hold via the `future`
+// clock that the EarningSplit/RequestPayout reads sweep against.
+func payableAccrue(t *testing.T, m *Mem, acct, node, reqID string, amount float64) {
+	t.Helper()
+	_, _ = m.BalanceOf("u", amount+1000)
+	_, _ = m.Hold("u", amount)
+	if _, err := m.Finalize("u", node, amount, amount, amount, rec(reqID)); err != nil {
+		t.Fatalf("finalize %s: %v", reqID, err)
+	}
+}
+
+// TestRequestPayoutReturnsActualAmount: the returned amount equals the summed
+// payable lots AS OF now (boundary-crossing reflected): a lot still inside the hold
+// is excluded; once the clock passes its release it is included.
+func TestRequestPayoutReturnsActualAmount(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "90")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+	payableAccrue(t, m, "acct1", "n", "r1", 30)
+	payableAccrue(t, m, "acct1", "n", "r2", 40)
+
+	// At now+89d nothing is payable yet (still inside the 90d hold) -> below min.
+	early := time.Now().Add(89 * 24 * time.Hour)
+	if _, ok, _, _ := m.RequestPayout("acct1", early, 25); ok {
+		t.Fatal("nothing should be payable before the hold clears")
+	}
+
+	// At now+91d both lots have crossed the boundary -> exactly 70 payable.
+	late := time.Now().Add(91 * 24 * time.Hour)
+	pay, ok, _, _ := m.RequestPayout("acct1", late, 25)
+	if !ok || !approx(pay.Amount, 70) {
+		t.Fatalf("payout = %+v ok=%v, want amount 70 (30+40)", pay, ok)
+	}
+	if pay.State != PayoutPending || pay.StripeTransferID != "" {
+		t.Errorf("payout should be PENDING with no transfer id yet, got state=%q tr=%q", pay.State, pay.StripeTransferID)
+	}
+	// Exactly the summed payable lots were debited; none left.
+	s, _ := m.EarningSplitOf("acct1", late)
+	if s.Payable != 0 || !approx(s.Paid, 70) {
+		t.Errorf("post-debit split payable=%v paid=%v, want 0/70", s.Payable, s.Paid)
+	}
+}
+
+// TestRequestPayoutConcurrent: two concurrent payout requests for the same account
+// must debit the payable lots EXACTLY ONCE (one succeeds with the full amount, the
+// other finds nothing left), never double-paying.
+func TestRequestPayoutConcurrent(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "90")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+	payableAccrue(t, m, "acct1", "n", "r1", 50)
+	late := time.Now().Add(91 * 24 * time.Hour)
+
+	type res struct {
+		amount float64
+		ok     bool
+	}
+	results := make(chan res, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			p, ok, _, _ := m.RequestPayout("acct1", late, 25)
+			results <- res{p.Amount, ok}
+		}()
+	}
+	close(start)
+	r1, r2 := <-results, <-results
+
+	wins := 0
+	var total float64
+	for _, r := range []res{r1, r2} {
+		if r.ok {
+			wins++
+			total += r.amount
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("exactly one payout should succeed, got %d (r1=%+v r2=%+v)", wins, r1, r2)
+	}
+	if !approx(total, 50) {
+		t.Errorf("the single successful payout = %v, want 50 (no double-debit)", total)
+	}
+	// The ledger has exactly one payout row (the loser debited nothing).
+	led, _ := m.LedgerOf("acct1", []string{KindPayout}, 10)
+	if len(led) != 1 || !approx(led[0].Amount, -50) {
+		t.Errorf("payout ledger = %+v, want exactly one -50 row", led)
+	}
+}
+
+// TestSettleAndFailPayout: SettlePayout marks a pending payout PAID + records the
+// transfer id; FailPayout rolls the debited lots back to PAYABLE and reverses the
+// payout ledger row (so no orphan debit and no paid-out-but-not-payable lots).
+func TestSettleAndFailPayout(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "90")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+	payableAccrue(t, m, "acct1", "n", "r1", 60)
+	late := time.Now().Add(91 * 24 * time.Hour)
+
+	// FAIL path: debit, then fail -> lots back to payable, ledger reversed.
+	pay, ok, _, _ := m.RequestPayout("acct1", late, 25)
+	if !ok {
+		t.Fatal("payout should debit")
+	}
+	if err := m.FailPayout(pay.ID); err != nil {
+		t.Fatalf("FailPayout: %v", err)
+	}
+	s, _ := m.EarningSplitOf("acct1", late)
+	if !approx(s.Payable, 60) || s.Paid != 0 {
+		t.Errorf("after FailPayout split payable=%v paid=%v, want 60/0 (rolled back)", s.Payable, s.Paid)
+	}
+	// The reversed payout row no longer counts against the operator.
+	bal, _ := m.DeriveBalance("acct1")
+	_ = bal
+
+	// SETTLE path: re-debit, then settle with a transfer id -> paid, lots stay paid.
+	pay2, ok, _, _ := m.RequestPayout("acct1", late, 25)
+	if !ok {
+		t.Fatal("re-payout should debit the restored lots")
+	}
+	if err := m.SettlePayout(pay2.ID, "tr_real_123"); err != nil {
+		t.Fatalf("SettlePayout: %v", err)
+	}
+	pays, _ := m.PayoutsOf("acct1", 10)
+	var settled *Payout
+	for i := range pays {
+		if pays[i].ID == pay2.ID {
+			settled = &pays[i]
+		}
+	}
+	if settled == nil || settled.State != PayoutPaid || settled.StripeTransferID != "tr_real_123" {
+		t.Errorf("settled payout = %+v, want PAID with transfer tr_real_123", settled)
+	}
+	s2, _ := m.EarningSplitOf("acct1", late)
+	if s2.Payable != 0 || !approx(s2.Paid, 60) {
+		t.Errorf("after settle split payable=%v paid=%v, want 0/60", s2.Payable, s2.Paid)
 	}
 }

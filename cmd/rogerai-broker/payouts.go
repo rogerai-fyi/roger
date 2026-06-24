@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -9,10 +10,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
 )
+
+// errStripeTransfer is the sentinel for a rejected/empty Stripe Transfer response.
+var errStripeTransfer = errors.New("stripe transfer rejected")
 
 // This file is the operator money-out rail (ACCOUNT-PAYOUTS-DESIGN section 6):
 // Stripe Connect Express onboarding + KYC gate, payout request (>= minimum, payable
@@ -28,6 +33,10 @@ type connect struct {
 	refreshURL string
 	returnURL  string
 	policy     store.PayoutPolicy
+	// transfer creates a Stripe Transfer of amountCents to destination, idempotent on
+	// idemKey, returning the transfer id. nil = the real Stripe API call. Injectable so
+	// the payout flow is testable without real money / network.
+	transfer func(destination string, amountCents int64, idemKey string) (string, error)
 }
 
 func loadConnect() connect {
@@ -241,50 +250,24 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pre-check the payable amount against the minimum BEFORE transferring (we need a
-	// transfer id to record the payout, but we must not transfer below the minimum).
+	// Single-flight per account: serialize concurrent payout requests for the same
+	// operator so two in-flight requests can never both debit the payable lots.
+	unlock := b.lockPayout(o.Pubkey)
+	defer unlock()
+
+	// Pre-check the payable amount against the minimum before debiting, to return a
+	// clean 400 (no transfer, no payout row) when below minimum.
 	split, _ := b.db.EarningSplitOf(o.Pubkey, time.Now())
 	if split.Payable < b.conn.policy.MinPayout {
 		jsonErr(w, http.StatusBadRequest, "below minimum payout ($"+strconv.FormatFloat(b.conn.policy.MinPayout, 'f', -1, 64)+")")
 		return
 	}
 
-	// Create the Stripe Transfer first (idempotent on a per-attempt key), then record
-	// the payout from payable in one store transaction.
-	transferID := ""
-	if b.conn.secretKey == "" || o.ConnectID == "" || o.ConnectID == "acct_dev_stub" {
-		transferID = "tr_dev_stub_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-		log.Printf("CONNECT(STUB): transfer %.4f credits to %s -> %s (no real money moved)", split.Payable, login, transferID)
-	} else {
-		var tr struct {
-			ID string `json:"id"`
-		}
-		form := url.Values{}
-		// 1 credit == creditUSD dollars; Stripe wants the smallest unit (cents).
-		form.Set("amount", strconv.Itoa(int(split.Payable*b.bill.creditUSD*100+0.5)))
-		form.Set("currency", "usd")
-		form.Set("destination", o.ConnectID)
-		req, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers", strings.NewReader(form.Encode()))
-		req.Header.Set("Authorization", "Bearer "+b.conn.secretKey)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Idempotency-Key", "payout:"+o.Pubkey+":"+strconv.FormatInt(time.Now().Unix()/60, 10))
-		resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
-		if err != nil {
-			jsonErr(w, http.StatusBadGateway, "stripe transfer failed")
-			return
-		}
-		rb, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode >= 300 {
-			log.Printf("stripe transfer error %d: %s", resp.StatusCode, rb)
-			jsonErr(w, http.StatusBadGateway, "stripe transfer rejected")
-			return
-		}
-		_ = json.Unmarshal(rb, &tr)
-		transferID = tr.ID
-	}
-
-	pay, okp, reason, err := b.db.RequestPayout(o.Pubkey, time.Now(), b.conn.policy.MinPayout, transferID)
+	// Debit + record a PENDING payout in the store FIRST (atomic: marks the payable
+	// lots paid and returns the EXACT debited amount). The transfer is created for that
+	// returned amount, then the payout is settled or rolled back - so a transfer is
+	// never issued for a different amount than was debited, nor without a payout row.
+	pay, okp, reason, err := b.db.RequestPayout(o.Pubkey, time.Now(), b.conn.policy.MinPayout)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")
 		return
@@ -293,8 +276,88 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, reason)
 		return
 	}
+
+	// Create the Stripe Transfer for EXACTLY the debited amount. Idempotency-Key is the
+	// store payout id (stable per payout - a retry of the same payout never double-pays;
+	// distinct payouts never collide).
+	idemKey := "payout:" + strconv.FormatInt(pay.ID, 10)
+	transferID, terr := b.payoutTransfer(o.ConnectID, login, pay.Amount, idemKey)
+	if terr != nil {
+		// Transfer failed AFTER the debit: roll the lots back to payable + mark the
+		// payout failed, so no completed transfer is ever left with payable lots and no
+		// orphan debit remains.
+		if ferr := b.db.FailPayout(pay.ID); ferr != nil {
+			log.Printf("payout %s: transfer failed AND rollback failed (payout %d): transfer=%v rollback=%v", login, pay.ID, terr, ferr)
+		} else {
+			log.Printf("payout %s: transfer failed, rolled back payout %d: %v", login, pay.ID, terr)
+		}
+		jsonErr(w, http.StatusBadGateway, "stripe transfer failed")
+		return
+	}
+
+	if err := b.db.SettlePayout(pay.ID, transferID); err != nil {
+		// The money MOVED but we couldn't flip the record to paid. Do NOT roll back the
+		// lots (that would imply the transfer didn't happen). Surface a 500 with the
+		// transfer id so the operator state is reconcilable.
+		log.Printf("payout %s: transfer %s succeeded but SettlePayout(%d) failed: %v", login, transferID, pay.ID, err)
+		jsonErr(w, http.StatusInternalServerError, "transfer completed but payout record update failed; contact support with transfer "+transferID)
+		return
+	}
+	pay.State = store.PayoutPaid
+	pay.StripeTransferID = transferID
 	log.Printf("payout %s: %.4f credits -> transfer %s (state=%s)", login, pay.Amount, transferID, pay.State)
 	writeJSON(w, http.StatusOK, map[string]any{"payout": pay})
+}
+
+// lockPayout acquires the per-account single-flight lock, returning the unlock func.
+func (b *broker) lockPayout(accountID string) func() {
+	mu, _ := b.payoutLocks.LoadOrStore(accountID, &sync.Mutex{})
+	m := mu.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+// payoutTransfer moves `amount` credits to the operator's connected account,
+// idempotent on idemKey, returning the Stripe transfer id. It uses the injectable
+// conn.transfer when set (tests), then a dev stub when Stripe is unconfigured, else
+// the real Stripe Transfers API.
+func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey string) (string, error) {
+	// 1 credit == creditUSD dollars; Stripe wants the smallest unit (cents).
+	cents := int64(amount*b.bill.creditUSD*100 + 0.5)
+	if b.conn.transfer != nil {
+		return b.conn.transfer(connectID, cents, idemKey)
+	}
+	if b.conn.secretKey == "" || connectID == "" || connectID == "acct_dev_stub" {
+		id := "tr_dev_stub_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+		log.Printf("CONNECT(STUB): transfer %.4f credits to %s -> %s (no real money moved)", amount, login, id)
+		return id, nil
+	}
+	var tr struct {
+		ID string `json:"id"`
+	}
+	form := url.Values{}
+	form.Set("amount", strconv.FormatInt(cents, 10))
+	form.Set("currency", "usd")
+	form.Set("destination", connectID)
+	req, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers", strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", "Bearer "+b.conn.secretKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Idempotency-Key", idemKey)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	rb, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("stripe transfer error %d: %s", resp.StatusCode, rb)
+		return "", errStripeTransfer
+	}
+	_ = json.Unmarshal(rb, &tr)
+	if tr.ID == "" {
+		return "", errStripeTransfer
+	}
+	return tr.ID, nil
 }
 
 // payoutsHistory handles GET /payouts/history: the operator's payout + clawback log.

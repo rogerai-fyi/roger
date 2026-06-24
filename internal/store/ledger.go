@@ -68,6 +68,7 @@ type EarningLot struct {
 	ReleaseAt        int64   `json:"release_at"`         // unix: gross-minus-reserve becomes payable
 	ReserveReleaseAt int64   `json:"reserve_release_at"` // unix: reserve becomes payable
 	CreatedAt        int64   `json:"created_at"`
+	PayoutID         int64   `json:"payout_id,omitempty"` // the payout that paid this lot (0 = none); rollback key
 }
 
 // EarningSplit is the held/reserved/payable/paid breakdown an operator sees, derived
