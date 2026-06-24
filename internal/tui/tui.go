@@ -92,7 +92,43 @@ var (
 	stPrompt   = lipgloss.NewStyle().Foreground(cVolt).Bold(true) // the `rog ›` prompt lockup
 	cRed       = lipgloss.Color("#FF3B3B")                        // the live-red on-air beacon (web --carrier)
 	stRed      = lipgloss.NewStyle().Foreground(cRed).Bold(true)
+
+	// k9s-grade selection: a full-width reverse-video (accent-bg) row so the cursor
+	// is unmistakable at a glance, exactly like k9s's cursor row (it flips the row's
+	// background to its accent so the selected resource pops). We use the brand volt
+	// as the row background with ink text; under NO_COLOR lipgloss drops the bg and a
+	// leading `>` carat carries the selection instead (see rowSel / selCarat).
+	// k9s design refs (cited for the local design record): k9scli.io (cursor/accent
+	// row, status columns, contextual key footer) and github.com/derailed/k9s
+	// (skin table.cursorColor=aqua, reverse-video selected row, keyboard-first nav).
+	stRowSel = lipgloss.NewStyle().Foreground(cInk).Background(cVolt).Bold(true)
 )
+
+// selCarat is the NO_COLOR / non-TTY selection marker: a bold `>` the eye still
+// catches when the reverse-video background is stripped. A space keeps unselected
+// rows aligned under the same gutter.
+func selCarat(sel bool) string {
+	if sel {
+		return stSelText.Render(">")
+	}
+	return " "
+}
+
+// rowSel renders a table row body so the SELECTED row is k9s-style reverse-video
+// (a full-width accent background bar) and unselected rows are plain. The `plain`
+// text for a selected row should carry no per-cell color - one reverse-video style
+// governs the whole row (mixing fg colors inside a bg run reads as noise). Under
+// NO_COLOR the background is stripped automatically and the caller's leading
+// selCarat carries the cursor instead.
+func rowSel(sel bool, plain string, width int) string {
+	if !sel {
+		return plain
+	}
+	if w := lipgloss.Width(plain); w < width {
+		plain += strings.Repeat(" ", width-w)
+	}
+	return stRowSel.Render(plain)
+}
 
 type offer struct {
 	NodeID       string  `json:"node_id"`
@@ -134,6 +170,7 @@ const (
 	modeConnectConfirm // 3.2 cost confirmation (default DENY)
 	modeOverLimit      // 3.3 over-limit + inline edit-your-max
 	modeLimits         // 3.4 per-model spend limits
+	modeShare          // k9s-style provider table: list local models, toggle on/off-air
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -247,12 +284,13 @@ type model struct {
 	editField  int    // which field is focused in the limits editor (0=out,1=tps)
 	limCursor  int    // cursor in the limits view
 	limModels  []string
-	watching   string // band we are "wait & notify" watching (stub label)
-	showDetail bool   // [d] expands the connect-confirm screen; default off (simple)
-	relaying   bool   // a chat request is in flight (drives Ping's transmit line)
-	scanErr    bool   // last band scan failed (broker unreachable) -> Ping "...static"
-	scanned    bool   // at least one scan has come back (good or empty) -> Ping idle, not tx
-	minimized  bool   // header toggle: thin one-line bar vs the full lockup
+	watching   string    // band we are "wait & notify" watching (stub label)
+	showDetail bool      // [d] expands the connect-confirm screen; default off (simple)
+	relaying   bool      // a chat request is in flight (drives Ping's transmit line)
+	relayStart time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
+	scanErr    bool      // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned    bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	minimized  bool      // header toggle: thin one-line bar vs the full lockup
 	// chat session state (CHANNEL mode)
 	sysPrompt string  // /system prompt prepended to each turn
 	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
@@ -260,10 +298,25 @@ type model struct {
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
 	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
-	share     *agent.Session // running in-process /share (nil = off air)
-	onAir     bool           // ON AIR indicator + panel
+	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
+	onAir     bool           // ON AIR indicator + panel (true while any share is live)
 	ghLogin   string         // linked GitHub login once /login succeeds
 	grantList []GrantRow     // last /grant list result
+	// k9s-style SHARE / provider table (modeShare): one row per locally-detected
+	// model, each independently flippable on/off air. shares holds the live session
+	// per on-air model; shareRows is the rendered model list; shareCursor is the
+	// highly-visible reverse-video selection cursor.
+	shares      map[string]*agent.Session // model -> live in-process session (on air)
+	shareRows   []shareRow                // the provider table rows (detected models)
+	shareCursor int                       // selected row in the provider table
+	shareUp     string                    // the local upstream chat URL backing the shares
+}
+
+// shareRow is one model in the k9s-style provider table: a locally-detected model
+// plus its share status. Live metrics are read off the session when on air.
+type shareRow struct {
+	model string
+	ctx   int
 }
 
 // ---- messages ----
@@ -273,6 +326,7 @@ type chatMsg struct {
 	reply, status string
 	cost          float64
 }
+type chatErrMsg string // a chat turn failed - surfaced INLINE in the CHANNEL transcript
 type errMsg string
 type tickMsg struct{}
 
@@ -327,6 +381,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = stEmber.Render("⚡ " + a)
 			}
 		}
+		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
+		// pull a fresh /discover so the band table + the "is a station on air" check
+		// stay live without the user pressing r. This keeps the consumer + share views
+		// honest about who is actually on air (the broker ages a node out at ~35s).
+		if m.frame%rescanEveryFrames == 0 {
+			return m, tea.Batch(tick(), fetchOffers(m.broker))
+		}
 		return m, tick()
 	case offersMsg:
 		m.offers = []offer(msg)
@@ -350,8 +411,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Don't clobber a fresh dip-under notification with the scan summary.
-		if !notified {
+		// Don't clobber a fresh dip-under notification, an in-flight relay, or a modal
+		// sub-screen's own status with the periodic scan summary - it's a browse-mode
+		// affordance only; in CHANNEL the transcript carries the signal.
+		if !notified && !m.relaying && (m.mode == modeBrowse || m.mode == modeCommand) {
 			m.status = fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
 		}
 		return m, nil
@@ -361,9 +424,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatMsg:
 		m.relaying = false
 		m.sessCost += msg.cost
-		m.transcript = append(m.transcript, stLive.Render("◂ ")+msg.reply, stDim.Render("   "+msg.status))
+		reply := msg.reply
+		if strings.TrimSpace(reply) == "" {
+			// The station answered but with no content (an all-reasoning turn, or an
+			// empty completion). Never render a blank arrow - say so plainly so the turn
+			// is not a silent no-response.
+			reply = stDim.Render("(the station replied with no text)")
+		} else {
+			reply = stLive.Render("◂ ") + reply
+		}
+		m.transcript = append(m.transcript, reply, stDim.Render("   "+msg.status))
 		// Refresh the wallet after a billed turn so the header balance stays true.
 		return m, fetchBalance(m.broker, m.user)
+	case chatErrMsg:
+		// A chat turn FAILED. The fix for the founder's silent no-response: the failure
+		// lands IN the CHANNEL transcript (red, inline) - not just the footer - so the
+		// user always sees an outcome right where they were typing.
+		m.relaying = false
+		m.transcript = append(m.transcript, stRed.Render("✕ ")+stEmber.Render(string(msg)))
+		m.status = stEmber.Render("! " + string(msg))
+		return m, nil
 	case errMsg:
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
@@ -445,7 +525,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				turn = m.sysPrompt + "\n\n" + p
 			}
 			m.transcript = append(m.transcript, stSelText.Render("▸ ")+p)
+			// Pre-flight: if no station for this band is on air right now, say so in the
+			// transcript immediately instead of firing a request the broker will bounce
+			// with a 503 the user might never see. (Best-effort: a stale scan still falls
+			// through to the real request + its inline error.)
+			if !m.bandOnAir(m.connected.Model) {
+				m.transcript = append(m.transcript, stRed.Render("✕ ")+stEmber.Render("no station on air for "+m.connected.Model+" right now - press r in BROWSE to re-scan, or /share to put one up"))
+				return m, nil
+			}
 			m.relaying = true
+			m.relayStart = time.Now()
 			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly)
 		}
 		var c tea.Cmd
@@ -470,6 +559,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onOverLimitKey(k)
 	case modeLimits:
 		return m.onLimitsKey(k)
+	case modeShare:
+		return m.onShareKey(k)
 	default: // browse
 		switch k.String() {
 		case "q", "ctrl+c":
@@ -637,22 +728,16 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// doShare starts (or stops) an in-process provider and flips the ON-AIR panel.
-// `/share off` goes off air. With no running session it auto-detects the local
-// model + the saved price (FREE by default) and registers in-process - no second
-// terminal, no "run it elsewhere". A free share needs no login (matches the CLI).
+// doShare opens the k9s-style provider table (modeShare) instead of silently
+// auto-committing a share - the founder's "it just auto-selected and I couldn't
+// tell which model" complaint. It detects the local models, lists them with an
+// ON-AIR / OFF-AIR status + price + live metrics, and lets the user flip any model
+// on/off air from a highly visible cursor. `/share off` still stops everything;
+// `/share <model>` is a quick shortcut that flips one model on air directly.
 func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 	if len(args) > 0 && (args[0] == "off" || args[0] == "stop") {
-		if m.share != nil {
-			m.share.Stop()
-			m.share = nil
-		}
-		m.onAir = false
+		m.stopAllShares()
 		m.status = stDim.Render("off air - you stopped sharing")
-		return m, nil
-	}
-	if m.onAir && m.share != nil {
-		m.status = stLive.Render("already ON AIR") + stDim.Render(" - /share off to stop")
 		return m, nil
 	}
 	found := detect.Detect()
@@ -660,38 +745,160 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("! no local LLM detected - start Ollama/LM Studio/llama.cpp/vLLM, then /share")
 		return m, nil
 	}
+	m.loadShareRows(found)
+	// `/share <model>` shortcut: flip that exact model on air, then show the table.
+	if len(args) > 0 {
+		want := args[0]
+		for i, r := range m.shareRows {
+			if r.model == want {
+				m.shareCursor = i
+				mm := &m
+				mm.toggleShareAt(i)
+				m = *mm
+				break
+			}
+		}
+	}
+	m.mode = modeShare
+	if len(m.shareRows) == 0 {
+		m.status = stEmber.Render("! the local server reported no models - check it serves /v1/models")
+	} else {
+		m.status = stDim.Render("provider table - ↑↓ select, enter/a toggle ON-AIR, esc done")
+	}
+	return m, nil
+}
+
+// loadShareRows builds the provider table from detected servers: one row per
+// served model id (de-duplicated), remembering the upstream chat URL to back the
+// shares. The first reachable server is used as the upstream (the share path is
+// in-process; multi-server fan-out is deferred).
+func (m *model) loadShareRows(found []detect.Found) {
+	if m.shares == nil {
+		m.shares = map[string]*agent.Session{}
+	}
 	pick := found[0]
-	mdl := m.hooks.ShareModel
-	if mdl == "" && len(pick.Models) > 0 {
-		mdl = pick.Models[0]
+	m.shareUp = normalizeUpstream(pick.Chat)
+	seen := map[string]bool{}
+	rows := make([]shareRow, 0, len(pick.Models))
+	for _, mdl := range pick.Models {
+		if mdl == "" || seen[mdl] {
+			continue
+		}
+		seen[mdl] = true
+		ctxLen := pick.Ctx[mdl]
+		if ctxLen <= 0 {
+			ctxLen = 32768
+		}
+		rows = append(rows, shareRow{model: mdl, ctx: ctxLen})
 	}
-	ctxLen := 0
-	if c, ok := pick.Ctx[mdl]; ok {
-		ctxLen = c
+	// Put the saved onboarding model first so the obvious default is at the cursor.
+	if def := m.hooks.ShareModel; def != "" {
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].model == def && rows[j].model != def })
 	}
-	if ctxLen <= 0 {
-		ctxLen = 32768
+	m.shareRows = rows
+	if m.shareCursor >= len(rows) {
+		m.shareCursor = 0
+	}
+}
+
+// toggleShareAt flips the on-air state of the provider-table row at index i: a
+// model that is off air goes ON AIR (starts an in-process agent.Session against
+// the local upstream at the saved/free price), one that is on air goes off. It
+// keeps m.share / m.onAir pointing at the headline (any-live) session so the
+// existing ON-AIR panel + header indicator still work.
+func (m *model) toggleShareAt(i int) {
+	if i < 0 || i >= len(m.shareRows) {
+		return
+	}
+	if m.shares == nil {
+		m.shares = map[string]*agent.Session{}
+	}
+	row := m.shareRows[i]
+	if sess, ok := m.shares[row.model]; ok && sess != nil {
+		sess.Stop()
+		delete(m.shares, row.model)
+		m.refreshShareHeadline()
+		m.status = stDim.Render("off air - stopped sharing ") + stKey.Render(row.model)
+		return
 	}
 	node := m.hooks.NodeID
 	if node == "" {
 		node = "node"
 	}
+	// Free by default (visible + changeable in the table); the saved onboarding
+	// price applies only to the saved model, so a different model shares FREE unless
+	// the user set a global price. A priced share still requires `rogerai login`.
+	priceIn, priceOut := 0.0, 0.0
+	if row.model == m.hooks.ShareModel {
+		priceIn, priceOut = m.hooks.SharePriceI, m.hooks.SharePriceO
+	}
 	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: normalizeUpstream(pick.Chat), NodeID: node,
-		Region: "home", HW: m.hooks.HW, Model: mdl,
-		PriceIn: m.hooks.SharePriceI, PriceOut: m.hooks.SharePriceO, Ctx: ctxLen, Parallel: 4,
+		Broker: m.broker, Upstream: m.shareUp, NodeID: node,
+		Region: "home", HW: m.hooks.HW, Model: row.model,
+		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, Parallel: 4,
 	})
 	if err != nil {
-		m.status = stEmber.Render("! could not go on air: " + err.Error())
-		return m, nil
+		m.status = stEmber.Render("! could not put " + row.model + " on air: " + err.Error())
+		return
 	}
-	m.share = sess
-	m.onAir = true
+	m.shares[row.model] = sess
+	m.refreshShareHeadline()
 	kind := "FREE"
-	if m.hooks.SharePriceO > 0 || m.hooks.SharePriceI > 0 {
-		kind = dollars(m.hooks.SharePriceO) + "/1M out"
+	if priceIn > 0 || priceOut > 0 {
+		kind = dollars(priceOut) + "/1M out"
 	}
-	m.status = stLive.Render("● ON AIR ") + stDim.Render("- sharing ") + stKey.Render(mdl) + stDim.Render(" ("+kind+")")
+	m.status = stLive.Render("● ON AIR ") + stDim.Render("- sharing ") + stKey.Render(row.model) + stDim.Render(" ("+kind+")")
+}
+
+// refreshShareHeadline repoints m.share / m.onAir at any still-live session so the
+// header ON-AIR badge and the onAirPanel reflect the current set after a toggle.
+func (m *model) refreshShareHeadline() {
+	m.share, m.onAir = nil, false
+	for _, sess := range m.shares {
+		if sess != nil {
+			m.share, m.onAir = sess, true
+			return
+		}
+	}
+}
+
+// stopAllShares takes every model off air (used by /share off and a clean exit).
+func (m *model) stopAllShares() {
+	for mdl, sess := range m.shares {
+		if sess != nil {
+			sess.Stop()
+		}
+		delete(m.shares, mdl)
+	}
+	m.share, m.onAir = nil, false
+}
+
+// onShareKey drives the k9s-style provider table: up/down (j/k) move the
+// reverse-video cursor, enter/a/space toggle the selected model on/off air, r
+// re-detects local models, esc/q leaves (shares keep running in the background).
+func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc", "q":
+		m.mode = modeBrowse
+		return m, nil
+	case "up", "k":
+		if m.shareCursor > 0 {
+			m.shareCursor--
+		}
+	case "down", "j":
+		if m.shareCursor < len(m.shareRows)-1 {
+			m.shareCursor++
+		}
+	case "enter", "a", " ", "space":
+		m.toggleShareAt(m.shareCursor)
+	case "r":
+		if found := detect.Detect(); len(found) > 0 {
+			m.loadShareRows(found)
+			m.status = stDim.Render("re-detected local models")
+		} else {
+			m.status = stEmber.Render("! no local LLM detected")
+		}
+	}
 	return m, nil
 }
 
@@ -1064,10 +1271,12 @@ func (m model) View() string {
 		b.WriteString(m.overLimitView(w))
 	case modeLimits:
 		b.WriteString(m.limitsView(w))
+	case modeShare:
+		b.WriteString(m.shareView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
-	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits {
+	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits && m.mode != modeShare {
 		b.WriteString("\n" + m.endpointPanel(w))
 	}
 	// The ON AIR provider panel rides under the browse view whenever /share is live.
@@ -1287,6 +1496,8 @@ func (m model) modeName() string {
 		return "OVER LIMIT"
 	case modeLimits:
 		return "LIMITS"
+	case modeShare:
+		return "SHARE"
 	default:
 		return "BROWSE"
 	}
@@ -1356,6 +1567,27 @@ func (m model) header(w int) string {
 	return top + "\n" + state + "\n" + rule
 }
 
+// bandOnAir reports whether the latest scan shows any online station for model.
+// It also counts the user's own in-process /share when it serves that model, so a
+// solo founder sharing + chatting their own node is never told "no station" on a
+// stale scan (the share registered but a fresh /discover hasn't come back yet).
+func (m model) bandOnAir(model string) bool {
+	for _, b := range m.bands {
+		if b.model == model && b.online {
+			return true
+		}
+	}
+	if m.share != nil && m.share.Model() == model {
+		return true
+	}
+	for mdl, s := range m.shares {
+		if mdl == model && s != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // balDollars renders the wallet balance in dollars, or "-" before it loads.
 func (m model) balDollars() string {
 	if !m.haveBal {
@@ -1395,44 +1627,78 @@ func (m model) browseView(w int) string {
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
 			"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
 	}
+	// Table width for the k9s reverse-video selection bar (spans the whole row).
+	tableW := w - 2
+	if tableW < 20 {
+		tableW = 20
+	}
 	for i, bd := range m.bands {
-		nameStyle := lipgloss.NewStyle().Foreground(cInk)
-		cur := " "
-		if i == m.cursor {
-			cur = stSelBar.Render("▌")
-			nameStyle = stSelText
-		}
-		name := nameStyle.Render(pad(bd.model, nameW))
+		sel := i == m.cursor
 		stationsLbl := "-"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
 		}
-		stations := stDim.Render(pad(stationsLbl, 7))
 		if m.narrow() {
-			// Single point price (the cheapest) keeps the narrow row short; the FREE
-			// tag still rides along since it's decision-relevant and tiny.
-			rng := stEmber.Render(rangeStr(bd))
 			free := ""
 			if bd.free {
-				free = "  " + stLive.Render("FREE")
+				free = "  FREE"
 			}
-			b.WriteString(fmt.Sprintf("%s %s  %s  %s%s\n", cur, name, stations, rng, free))
+			// PLAIN row for the reverse-video bar; the selected row is one accent bar.
+			plain := fmt.Sprintf("%s  %s  %s%s", pad(bd.model, nameW), pad(stationsLbl, 7), rangeStr(bd), free)
+			if sel {
+				b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
+				continue
+			}
+			// Unselected: dim band, tinted price + FREE tag.
+			freeTag := ""
+			if bd.free {
+				freeTag = "  " + stLive.Render("FREE")
+			}
+			b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
+				stDim.Render(pad(stationsLbl, 7)) + "  " + stEmber.Render(rangeStr(bd)) + freeTag + "\n")
 			continue
 		}
-		// Price range, tinted: cheap end ember (money), single point or min ~ max.
-		rng := stEmber.Render(pad(rangeStr(bd), 17))
 		// Signal from the cheapest station's measured tps (fixed 5-cell equalizer).
 		var sigTPS float64
 		online := bd.online
 		if bd.cheapest != nil {
 			sigTPS = bd.cheapest.TPS
 		}
-		sig := pad(signalBarsRaw(m.frame, sigTPS, online), 8) // pad on the RAW glyphs
-		sig = tintSignal(sig, sigTPS, online)
-		b.WriteString(fmt.Sprintf("%s %s  %s  %s  %s  %s\n",
-			cur, name, stations, rng, sig, bandBadge(bd, m.limits)))
+		if sel {
+			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
+			// the raw (uncolored) signal glyphs so the single accent style governs the
+			// whole row (a colored cell inside an accent bg reads as noise).
+			rawSig := pad(signalBarsRaw(m.frame, sigTPS, online), 8)
+			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
+				pad(bd.model, nameW), pad(stationsLbl, 7), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits))
+			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
+			continue
+		}
+		rng := stEmber.Render(pad(rangeStr(bd), 17))
+		sig := tintSignal(pad(signalBarsRaw(m.frame, sigTPS, online), 8), sigTPS, online)
+		b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
+			stDim.Render(pad(stationsLbl, 7)) + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits) + "\n")
 	}
 	return b.String()
+}
+
+// plainBandBadge is bandBadge without color, for the reverse-video selected row
+// (one accent style governs the whole row; an embedded fg color reads as noise).
+func plainBandBadge(bd band, limits *LimitStore) string {
+	parts := []string{}
+	if bd.lineage > 0 {
+		parts = append(parts, fmt.Sprintf("◆ %d", bd.lineage))
+	}
+	if bd.free {
+		parts = append(parts, "FREE")
+	}
+	if bandOverLimit(bd, limits) {
+		parts = append(parts, "above limit")
+	}
+	if len(parts) == 0 {
+		return "·"
+	}
+	return strings.Join(parts, " ")
 }
 
 // bandBadge renders the right-hand flag cell: the gold ◆ lineage call-sign (with
@@ -1589,10 +1855,15 @@ func (m model) chatView(w int) string {
 	for _, l := range lines {
 		b.WriteString("  " + l + "\n")
 	}
-	// While a reply is in flight, Ping relays it: a subtle one-line transmit. It
-	// sits just under the last message and never displaces the transcript.
+	// While a reply is in flight, Ping relays it: a subtle one-line transmit with an
+	// elapsed-seconds readout so a slow CPU inference reads as progress, not a hang.
+	// It sits just under the last message and never displaces the transcript.
 	if m.relaying {
-		b.WriteString("  " + transmitLine(m.frame) + "\n")
+		elapsed := 0
+		if !m.relayStart.IsZero() {
+			elapsed = int(time.Since(m.relayStart).Seconds())
+		}
+		b.WriteString("  " + transmitLine(m.frame, elapsed) + "\n")
 	}
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
@@ -1602,9 +1873,15 @@ func (m model) chatView(w int) string {
 }
 
 // transmitLine is Ping's inline relay indicator: the on-air motif breathing with
-// a short radio caption. Single line, so it never obstructs the chat transcript.
-func transmitLine(frame int) string {
-	return pulseWith(frame, stPingEye) + " " + stLive.Render("◂ ") + stDim.Render("relaying… ping carries your tokens to the station")
+// a short radio caption + an elapsed-seconds readout. Single line, so it never
+// obstructs the chat transcript. The elapsed counter reassures on slow inference
+// (CPU MoE replies can take a minute) that the request is alive, not hung.
+func transmitLine(frame, elapsedSec int) string {
+	caption := "relaying… ping carries your tokens to the station"
+	if elapsedSec >= 2 {
+		caption = fmt.Sprintf("relaying… %ds  (slow stations can take a minute - holding the channel)", elapsedSec)
+	}
+	return pulseWith(frame, stPingEye) + " " + stLive.Render("◂ ") + stDim.Render(caption)
 }
 
 func (m model) endpointPanel(w int) string {
@@ -1644,6 +1921,159 @@ func (m model) onAirPanel(w int) string {
 		stDim.Render("  earnings   ") + stEmber.Render(dollars(s.Earnings())) + stDim.Render("  (settles on the broker)") + "\n" +
 		stDim.Render("  ") + stKey.Render("/share off") + stDim.Render(" to go off air")
 	return stPanel.Render(body)
+}
+
+// sharesOnAir counts how many local models are currently on air.
+func (m model) sharesOnAir() int {
+	n := 0
+	for _, s := range m.shares {
+		if s != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// sharePrice returns the price a row WOULD share at (FREE unless it's the saved
+// model with a saved price), or the live session's price when it's on air.
+func (m model) sharePrice(row shareRow, live *agent.Session) (in, out float64) {
+	if live != nil {
+		return live.Price()
+	}
+	if row.model == m.hooks.ShareModel {
+		return m.hooks.SharePriceI, m.hooks.SharePriceO
+	}
+	return 0, 0
+}
+
+// shareView is the k9s-style provider table: one row per locally-detected model
+// with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
+// status column, the price (FREE or $/1M out), and the live earning metrics
+// (requests served, out tokens, earnings $) for any model that is on air. The
+// founder can glance and instantly see what is shared vs not, and flip any model
+// on/off air with one key. This replaces the old silent auto-share.
+//
+// k9s patterns applied (cited for the local design record): a highly visible
+// cursor row (k9s flips the selected row to its accent background; we use the
+// brand-volt reverse-video bar, with a `>` carat under NO_COLOR), status columns
+// per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
+func (m model) shareView(w int) string {
+	var b strings.Builder
+	// compact drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
+	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
+	// stay width-safe (the band grid uses the same idea at its own threshold).
+	compact := w < 88
+	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
+	if compact {
+		b.WriteString("  " + head + stDim.Render(fmt.Sprintf("   %d on air / %d", m.sharesOnAir(), len(m.shareRows))) + "\n")
+	} else {
+		b.WriteString("  " + head +
+			stDim.Render(fmt.Sprintf("   your GPU as a station   %s detected · %d on air",
+				plural(len(m.shareRows), "model"), m.sharesOnAir())) + "\n")
+	}
+
+	if len(m.shareRows) == 0 {
+		return b.String() + "\n  " + stEmber.Render("no local models detected") +
+			stDim.Render(" - start a local LLM and press r to re-detect") + "\n"
+	}
+
+	// Column geometry. compact drops the metrics columns so nothing overflows.
+	nameW := 24
+	if compact {
+		nameW = 14
+	}
+	// Header (k9s-style ALL-CAPS column labels).
+	if compact {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-14s  %-8s  %s", "MODEL", "STATUS", "PRICE")) + "\n")
+	} else {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
+			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "EARNINGS")) + "\n")
+	}
+
+	// Table width for the reverse-video bar (the highlight spans the whole row).
+	tableW := w - 4
+	if tableW < 20 {
+		tableW = 20
+	}
+
+	for i, row := range m.shareRows {
+		sel := i == m.shareCursor
+		live := m.shares[row.model]
+		on := live != nil
+		// Status cell text (plain, so the reverse-video bar governs a selected row).
+		statusTxt := "OFF-AIR"
+		if on {
+			statusTxt = "ON-AIR"
+		}
+		in, out := m.sharePrice(row, live)
+		priceTxt := "FREE"
+		if in > 0 || out > 0 {
+			priceTxt = dollars(out) + "/1M out"
+		}
+
+		// Build the row body as PLAIN text first (cells padded), then color it: a
+		// selected row is one reverse-video bar; an unselected row tints the status
+		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
+		var plain string
+		if compact {
+			plain = fmt.Sprintf("  %-14s  %-8s  %s", pad(row.model, 14), statusTxt, priceTxt)
+		} else {
+			served, outTok, earn := "-", "-", "-"
+			if on {
+				reqs, toks := live.Served()
+				served = fmt.Sprintf("%d", reqs)
+				outTok = fmt.Sprintf("%d", toks)
+				earn = dollars(live.Earnings())
+			}
+			plain = fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
+				pad(row.model, nameW), statusTxt, priceTxt, served, outTok, earn)
+		}
+
+		if sel {
+			// Reverse-video accent bar across the whole row - unmistakable cursor.
+			b.WriteString(selCarat(true) + rowSel(true, plain, tableW) + "\n")
+			continue
+		}
+		// Unselected: a dot/blank gutter, dim model, colored status + price cells.
+		st := stDim.Render(pad(statusTxt, 9))
+		if on {
+			st = stLive.Render(pad("● "+statusTxt, 9))
+		}
+		if compact {
+			stN := stDim.Render(pad(statusTxt, 8))
+			if on {
+				stN = stLive.Render(pad("●"+statusTxt, 8))
+			}
+			b.WriteString(selCarat(false) + "  " + stDim.Render(pad(row.model, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
+			continue
+		}
+		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render("-")
+		if on {
+			reqs, toks := live.Served()
+			served = stLive.Render(pad(fmt.Sprintf("%d", reqs), 9))
+			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
+			earn = stEmber.Render(dollars(live.Earnings()))
+		}
+		b.WriteString(selCarat(false) + "  " + stDim.Render(pad(row.model, nameW)) + "  " + st + "  " +
+			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
+	}
+
+	if compact {
+		b.WriteString("\n  " + stDim.Render("free by default · ") + stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles") + "\n")
+	} else {
+		b.WriteString("\n  " + stDim.Render("free by default · the selected model toggles with ") +
+			stKey.Render("enter") + stDim.Render(" or ") + stKey.Render("a") +
+			stDim.Render(" · shares keep serving when you leave this view") + "\n")
+	}
+	return b.String()
+}
+
+// sharePriceCell tints a price cell: FREE live-green, a priced cell ember.
+func sharePriceCell(txt string) string {
+	if strings.HasPrefix(strings.TrimSpace(txt), "FREE") {
+		return stLive.Render(txt)
+	}
+	return stEmber.Render(txt)
 }
 
 // modalFooter renders a modal sub-screen's own footer (its keys + the balance),
@@ -1688,6 +2118,13 @@ func (m model) footer(w int) string {
 			left = stDim.Render("↑↓ · ⏎ edit · tab · d · esc")
 		}
 		return modalFooter(m.effWidth(), left, stEmber.Render("bal "+m.balDollars()), m.status)
+	case modeShare:
+		left = stDim.Render("↑↓/jk move  ·  ⏎/a toggle on-air  ·  r re-detect  ·  esc done")
+		if m.narrow() {
+			left = stDim.Render("↑↓ · ⏎/a on-air · r · esc")
+		}
+		right := stRed.Render(fmt.Sprintf("%d on air", m.sharesOnAir()))
+		return modalFooter(m.effWidth(), left, right, m.status)
 	}
 	if m.mode == modeChat {
 		if m.narrow() {
@@ -1744,7 +2181,7 @@ func (m model) helpView() string {
 		{"/limits", "see + edit your per-model spend maxes"},
 		{"/balance", "wallet balance ($)"},
 		{"/topup [usd]", "add credits (opens checkout)"},
-		{"/share [off]", "go ON AIR - share your local model (in-process)"},
+		{"/share [off]", "open the provider table - flip your local models on/off air"},
 		{"/login", "link GitHub (device flow) - to earn"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
@@ -1879,6 +2316,11 @@ func countOnline(o []offer) int {
 	return n
 }
 
+// rescanEveryFrames sets the live band re-scan cadence: at the 160ms tick, ~31
+// frames is ~5s, comfortably under the broker's ~35s on-air TTL so a node that
+// just went on/off air is reflected within one cadence.
+const rescanEveryFrames = 31
+
 func tick() tea.Cmd {
 	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
@@ -1925,7 +2367,10 @@ func sendChat(broker, user, mdl, prompt string, confidential bool) tea.Cmd {
 	return func() tea.Msg {
 		reply, status, cost, err := client.Chat(broker, user, mdl, prompt, confidential)
 		if err != nil {
-			return errMsg(err.Error())
+			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
+			// the footer status line - that was the silent-no-response bug: the user
+			// typed, the spinner vanished, and nothing appeared where they were looking.
+			return chatErrMsg(err.Error())
 		}
 		return chatMsg{reply: reply, status: status, cost: cost}
 	}
