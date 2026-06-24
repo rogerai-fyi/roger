@@ -44,7 +44,11 @@ func loadBilling() billing {
 	if b.secretKey == "" {
 		log.Printf("billing: disabled (set STRIPE_SECRET_KEY to enable wallet top-ups)")
 	} else {
-		log.Printf("billing: Stripe enabled (1 credit = $%.2f)", b.creditUSD)
+		mode := "test"
+		if strings.HasPrefix(b.secretKey, "sk_live") {
+			mode = "LIVE"
+		}
+		log.Printf("billing: Stripe enabled [%s mode] (1 credit = $%.2f)", mode, b.creditUSD)
 	}
 	return b
 }
