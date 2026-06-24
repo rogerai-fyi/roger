@@ -112,6 +112,18 @@ body.auth {
   max-width: 64ch;
 }
 
+/* Acceptable-use list (tos.html): hairline-marked items, document tone. */
+.tos-list {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-5);
+  max-width: 64ch;
+  color: var(--ink-700);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+.tos-list li { margin: 0 0 var(--s-2); }
+.tos-list b { color: var(--ink-900); font-weight: var(--weight-medium); }
+
 /* Fine print / captions - tertiary ink, small. */
 .fine {
   color: var(--ink-400);

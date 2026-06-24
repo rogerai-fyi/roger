@@ -17,3 +17,7 @@
 /install.ps1
   Content-Type: text/plain; charset=utf-8
   Cache-Control: no-cache
+
+# RFC 9116 security contact, served as plain text.
+/.well-known/security.txt
+  Content-Type: text/plain; charset=utf-8

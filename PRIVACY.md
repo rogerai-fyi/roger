@@ -15,6 +15,15 @@ open tier economically/legally hostile to logging, and (3) offer a tier where th
    ports). Prompts are never in cleartext on the wire.
 2. **The broker is content-blind.** It relays request bytes but **persists only token counts +
    hashes** in receipts - never prompt or response text. No prompt logging at the broker, ever.
+   The one honest exception is a **transient, pre-dispatch safety screen**: before a prompt is
+   relayed, its text is checked against a moderation model (today **Groq Llama Guard**) so we can
+   refuse content we do not allow on the network (see the AUP in the ToS). That screen runs *in
+   transit* - the prompt is not stored for it - but it does mean the text is read by the screen at
+   dispatch time and sent to **Groq, a third-party processor**, for the check. The same applies to
+   the public **Ping** site concierge: a Ping message may be served by a free on-air community
+   station or fall back to **Groq**. Treat Ping as a public, unauthenticated demo, not a private
+   channel. Disclosed in the site privacy policy and ToS; no contradiction with content-blindness -
+   we do not *store* or *read for the marketplace*, the screen is a narrow in-transit exception.
 3. **Identity pseudonymization (shipped).** Providers never receive your real identity - only a
    per-`(user, node)` pseudonym. A host can count repeat customers but cannot tie usage to a
    person, and two colluding hosts get *different* pseudonyms for the same user, so they can't
