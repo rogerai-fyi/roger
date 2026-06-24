@@ -137,7 +137,7 @@ func Start(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("register with %s: %w", cfg.Broker, err)
 	}
 	sess := &Session{cfg: cfg, stop: make(chan struct{})}
-	go heartbeatUntil(cfg.Broker, cfg.NodeID, sess.stop)
+	go heartbeatUntil(cfg.Broker, cfg.NodeID, token, sess.stop)
 
 	log.Printf("sharing: node=%s broker=%s upstream=%s model=%s ($%.2f/$%.2f per 1M) pollers=%d",
 		cfg.NodeID, cfg.Broker, cfg.Upstream, cfg.Model, cfg.PriceIn, cfg.PriceOut, cfg.Parallel)
@@ -198,8 +198,10 @@ func recordIf(sess *Session, rec protocol.UsageReceipt) {
 	}
 }
 
-// heartbeatUntil heartbeats every 10s until stop is closed.
-func heartbeatUntil(broker, nodeID string, stop <-chan struct{}) {
+// heartbeatUntil heartbeats every 10s until stop is closed. The node's BridgeToken
+// is sent as a Bearer so the broker can authenticate the heartbeat (an unsigned or
+// forged node_id is rejected).
+func heartbeatUntil(broker, nodeID, token string, stop <-chan struct{}) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
 	for {
@@ -208,7 +210,13 @@ func heartbeatUntil(broker, nodeID string, stop <-chan struct{}) {
 			return
 		case <-t.C:
 			b, _ := json.Marshal(map[string]string{"node_id": nodeID})
-			if resp, err := http.Post(broker+"/nodes/heartbeat", "application/json", bytes.NewReader(b)); err == nil {
+			req, err := http.NewRequest(http.MethodPost, broker+"/nodes/heartbeat", bytes.NewReader(b))
+			if err != nil {
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+token)
+			if resp, err := http.DefaultClient.Do(req); err == nil {
 				resp.Body.Close()
 			}
 		}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,6 +245,87 @@ func TestPayoutTransfersRecordedAmount(t *testing.T) {
 	// idempotency key must be the store payout id.
 	if gotIdem != "payout:"+strconv.FormatInt(out.Payout.ID, 10) {
 		t.Errorf("idempotency key = %q, want payout:%d", gotIdem, out.Payout.ID)
+	}
+}
+
+// TestPayoutFailClosedRequireLive locks the payout fail-closed P0: under
+// ROGERAI_REQUIRE_LIVE, a payout must NEVER run the dev stub and NEVER settle lots with
+// a fake tr_dev_stub_... id when the key is missing/test. The transfer is refused, the
+// payout rolls back to FAILED, and the lots return to payable (no money "moved").
+func TestPayoutFailClosedRequireLive(t *testing.T) {
+	t.Setenv("ROGERAI_REQUIRE_LIVE", "1")
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_devkey") // not sk_live -> must fail closed
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	_ = db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: "pk1"})
+	_ = db.BindNode("n", "pk1")
+	// loadConnect must blank the test key under REQUIRE_LIVE (fail closed at load).
+	b := &broker{priv: priv, db: db, seedFunds: 0, conn: loadConnect()}
+	if b.conn.secretKey != "" {
+		t.Fatalf("REQUIRE_LIVE + sk_test must blank the connect key, got %q", b.conn.secretKey)
+	}
+	// KYC stub "active" so the request reaches the transfer step; bill.creditUSD set so
+	// payoutTransfer computes cents. NO conn.transfer hook -> exercises the real path.
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	b.bill.creditUSD = 1
+
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 40)
+	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
+
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, sessionReq(b, http.MethodPost, "/payouts/request", "octocat", 7))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("fail-closed payout = %d, want 502 (transfer refused)", w.Code)
+	}
+	// No lots may be left PAID, and the payout must be FAILED (rolled back).
+	if s, _ := db.EarningSplitOf("pk1", time.Now()); s.Paid != 0 || s.Payable < 39.9 {
+		t.Errorf("after fail-closed: paid=%v payable=%v, want 0 paid / lots rolled back to payable", s.Paid, s.Payable)
+	}
+	pays, _ := db.PayoutsOf("pk1", 10)
+	if len(pays) != 1 || pays[0].State != store.PayoutFailed {
+		t.Errorf("fail-closed payout must be FAILED, got %+v", pays)
+	}
+	for _, p := range pays {
+		if strings.HasPrefix(p.StripeTransferID, "tr_dev_stub_") {
+			t.Errorf("a fail-closed payout must NEVER carry a tr_dev_stub_ id, got %q", p.StripeTransferID)
+		}
+	}
+}
+
+// TestPayoutStubOKWithoutRequireLive confirms the dev stub still works in DEV (no
+// REQUIRE_LIVE): a no-key payout settles via the stub so the flow stays exercisable.
+func TestPayoutStubOKWithoutRequireLive(t *testing.T) {
+	t.Setenv("ROGERAI_REQUIRE_LIVE", "")
+	t.Setenv("STRIPE_SECRET_KEY", "") // no key -> dev stub path
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	_ = db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: "pk1"})
+	_ = db.BindNode("n", "pk1")
+	b := &broker{priv: priv, db: db, seedFunds: 0, conn: loadConnect()}
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	b.bill.creditUSD = 1
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 40)
+	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
+
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, sessionReq(b, http.MethodPost, "/payouts/request", "octocat", 7))
+	if w.Code != http.StatusOK {
+		t.Fatalf("dev stub payout = %d, want 200 body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Payout store.Payout `json:"payout"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.Payout.State != store.PayoutPaid || !strings.HasPrefix(out.Payout.StripeTransferID, "tr_dev_stub_") {
+		t.Errorf("dev stub payout = %+v, want PAID with a tr_dev_stub_ id", out.Payout)
 	}
 }
 

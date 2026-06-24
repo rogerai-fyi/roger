@@ -81,6 +81,18 @@ CREATE TABLE IF NOT EXISTS rogerai.payouts (
 CREATE TABLE IF NOT EXISTS rogerai.disputes (
     id TEXT PRIMARY KEY, request_id TEXT, wallet TEXT, amount DOUBLE PRECISION,
     state TEXT, account_id TEXT, created_at BIGINT);
+-- completed-checkout -> charge mapping. A charge.dispute.created object carries NONE
+-- of the checkout metadata (no metadata.user/request_id), only a payment_intent +
+-- charge id, so persist the (wallet, credits) at checkout.session.completed keyed on
+-- BOTH ids to resolve the consumer wallet at dispute time. Append-only-friendly:
+-- keyed on the session id, written once (idempotent on Stripe redelivery).
+CREATE TABLE IF NOT EXISTS rogerai.checkout_charges (
+    session_id TEXT PRIMARY KEY,
+    payment_intent TEXT, charge TEXT,
+    wallet TEXT NOT NULL, credits DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now());
+CREATE INDEX IF NOT EXISTS checkout_charges_pi ON rogerai.checkout_charges (payment_intent);
+CREATE INDEX IF NOT EXISTS checkout_charges_ch ON rogerai.checkout_charges (charge);
 -- grant keys (GRANT-KEYS-DESIGN section 1.1): owner-issued private access keys.
 -- secret_hash UNIQUE is the auth lookup key; the secret itself is never stored.
 CREATE TABLE IF NOT EXISTS rogerai.grants (
@@ -787,29 +799,56 @@ func (p *Postgres) Chargeback(disputeID, wallet, requestID string, amount float6
 	if err := appendLedger(tx, wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
 		return 0, err
 	}
-	// Claw back operator earnings from the same request while not yet paid out.
-	rows, err := tx.Query(`SELECT id,account_id,gross FROM rogerai.earning_lots
-		WHERE request_id=$1 AND state IN ('held','payable')`, requestID)
-	if err != nil {
-		return 0, err
-	}
+	// Clawable operator lots, still held/payable (not yet paid out). With an explicit
+	// requestID we claw that one request's lots; otherwise (the dispute path, which
+	// carries no request id) we claw the lots attributed to this consumer wallet via
+	// the request receipts, NEWEST FIRST, capped at the disputed amount.
 	type claw struct {
 		id    int64
 		acct  string
 		gross float64
 	}
 	var claws []claw
-	for rows.Next() {
-		var c claw
-		if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
-			rows.Close()
+	if requestID != "" {
+		rows, err := tx.Query(`SELECT id,account_id,gross FROM rogerai.earning_lots
+			WHERE request_id=$1 AND state IN ('held','payable')`, requestID)
+		if err != nil {
 			return 0, err
 		}
-		claws = append(claws, c)
+		for rows.Next() {
+			var c claw
+			if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			claws = append(claws, c)
+		}
+		rows.Close()
+	} else {
+		// Join lots to the receipts that attribute them to this consumer wallet, newest
+		// first; the caller caps the total clawed at the disputed amount below.
+		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross FROM rogerai.earning_lots l
+			JOIN rogerai.receipts r ON r.request_id=l.request_id
+			WHERE r.usr=$1 AND l.state IN ('held','payable')
+			ORDER BY r.ts DESC, l.id DESC`, wallet)
+		if err != nil {
+			return 0, err
+		}
+		for rows.Next() {
+			var c claw
+			if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			claws = append(claws, c)
+		}
+		rows.Close()
 	}
-	rows.Close()
 	var clawed float64
 	for _, c := range claws {
+		if requestID == "" && clawed >= amount {
+			break
+		}
 		if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
 			return 0, err
 		}
@@ -819,6 +858,30 @@ func (p *Postgres) Chargeback(disputeID, wallet, requestID string, amount float6
 		clawed += c.gross
 	}
 	return clawed, tx.Commit()
+}
+
+func (p *Postgres) LinkCharge(sessionID, paymentIntent, charge, wallet string, credits float64) error {
+	_, err := p.db.Exec(`INSERT INTO rogerai.checkout_charges(session_id,payment_intent,charge,wallet,credits)
+		VALUES($1,$2,$3,$4,$5) ON CONFLICT (session_id) DO NOTHING`,
+		sessionID, nullStr(paymentIntent), nullStr(charge), wallet, credits)
+	return err
+}
+
+func (p *Postgres) WalletByCharge(ref string) (string, float64, bool, error) {
+	if ref == "" {
+		return "", 0, false, nil
+	}
+	var wallet string
+	var credits float64
+	err := p.db.QueryRow(`SELECT wallet,credits FROM rogerai.checkout_charges
+		WHERE payment_intent=$1 OR charge=$1 LIMIT 1`, ref).Scan(&wallet, &credits)
+	if err == sql.ErrNoRows {
+		return "", 0, false, nil
+	}
+	if err != nil {
+		return "", 0, false, err
+	}
+	return wallet, credits, true, nil
 }
 
 func (p *Postgres) OpenDisputeCount(accountID string) (int, error) {

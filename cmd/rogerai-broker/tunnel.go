@@ -127,16 +127,34 @@ func offersPriced(offers []protocol.ModelOffer) bool {
 }
 
 // heartbeat handles POST /nodes/heartbeat: keeps a node marked online (~35s TTL).
+// Authenticated by the node's Bearer BridgeToken (like agentPoll/agentResult): an
+// unsigned or forged node_id can no longer keep a node "online" or refresh another
+// node's TTL. The body is bounded (a heartbeat is a few bytes of JSON).
 func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
-	var m map[string]string
-	_ = json.NewDecoder(r.Body).Decode(&m)
-	b.mu.Lock()
-	if id := m["node_id"]; id != "" {
-		b.lastSeen[id] = time.Now()
+	var m struct {
+		NodeID string `json:"node_id"`
 	}
+	_ = json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&m)
+	if m.NodeID == "" {
+		jsonErr(w, http.StatusBadRequest, "missing node_id")
+		return
+	}
+	b.mu.Lock()
+	t := b.tunnels[m.NodeID]
+	b.mu.Unlock()
+	if t == nil {
+		jsonErr(w, http.StatusNotFound, "unknown node")
+		return
+	}
+	if !authNode(r, t.token) {
+		jsonErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	b.mu.Lock()
+	b.lastSeen[m.NodeID] = time.Now()
 	b.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

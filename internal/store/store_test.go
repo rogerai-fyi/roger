@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
@@ -152,5 +153,80 @@ func TestOwnerBinding(t *testing.T) {
 	}
 	if o, _, _ := m.OwnerByPubkey("pk1"); o.Login != "octocat-renamed" {
 		t.Errorf("rebind login = %q, want octocat-renamed", o.Login)
+	}
+}
+
+// TestChargebackByWalletRecency verifies the dispute clawback path used when the
+// dispute carries no request id: Chargeback debits the consumer wallet and claws the
+// operator lots attributed to that consumer (via the receipts), NEWEST FIRST, capped
+// at the disputed amount. It is idempotent on the Stripe dispute id.
+func TestChargebackByWalletRecency(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0") // lots become payable immediately
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	_, _ = m.BalanceOf("alice", 100)
+
+	// Two spends by alice on node n (operator pk1): an older 10-credit lot then a newer
+	// 20-credit lot. A third spend by BOB must never be clawed for alice's dispute.
+	_ = m.BindNode("n", "pk1")
+	mk := func(id, user string, cost float64, ts int64) {
+		_, _ = m.Hold(user, cost)
+		r := protocol.UsageReceipt{RequestID: id, Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: ts}
+		_, _ = m.Finalize(user, "n", cost, cost, cost, r)
+	}
+	_, _ = m.BalanceOf("bob", 100)
+	mk("old", "alice", 10, 1000)
+	mk("new", "alice", 20, 2000)
+	mk("bob1", "bob", 15, 1500)
+
+	// Dispute for 25 credits, no request id -> claw alice's lots newest-first up to 25:
+	// the new (20) lot then the old (10) lot (the loop stops once clawed >= 25, so it
+	// claws 20 then 10 reaching 30). Bob's lot is untouched.
+	clawed, err := m.Chargeback("dp1", "alice", "", 25, time.Now())
+	if err != nil {
+		t.Fatalf("Chargeback err: %v", err)
+	}
+	if clawed != 30 { // newest 20 then old 10 (stops after crossing 25)
+		t.Errorf("clawed = %v, want 30 (newest-first, capped past 25)", clawed)
+	}
+	// alice wallet debited the disputed 25.
+	if bal, _ := m.PeekBalance("alice"); !approx(bal, 100-10-20-25) {
+		t.Errorf("alice balance = %v, want %v", bal, 100-10-20-25)
+	}
+	// pk1 lots from alice are clawed; bob's 15 lot survives as payable.
+	if s, _ := m.EarningSplitOf("pk1", time.Now()); !approx(s.Payable, 15) {
+		t.Errorf("operator payable after claw = %v, want 15 (only bob's lot)", s.Payable)
+	}
+
+	// Idempotent: a redelivery of dp1 changes nothing.
+	balBefore, _ := m.PeekBalance("alice")
+	clawed2, _ := m.Chargeback("dp1", "alice", "", 25, time.Now())
+	if clawed2 != 0 {
+		t.Errorf("redelivered dispute clawed = %v, want 0 (idempotent)", clawed2)
+	}
+	if bal, _ := m.PeekBalance("alice"); bal != balBefore {
+		t.Errorf("redelivered dispute changed balance %v -> %v", balBefore, bal)
+	}
+}
+
+// TestLinkChargeWalletByCharge verifies the checkout->charge mapping: a charge can be
+// resolved by EITHER the payment_intent or the charge id; an unknown ref reports
+// ok=false; and the mapping is idempotent on the session id.
+func TestLinkChargeWalletByCharge(t *testing.T) {
+	m := NewMem()
+	if err := m.LinkCharge("cs_1", "pi_1", "ch_1", "u_gh_5", 42); err != nil {
+		t.Fatalf("LinkCharge: %v", err)
+	}
+	for _, ref := range []string{"pi_1", "ch_1"} {
+		w, c, ok, err := m.WalletByCharge(ref)
+		if err != nil || !ok || w != "u_gh_5" || c != 42 {
+			t.Errorf("WalletByCharge(%q) = %q,%v,%v,%v want u_gh_5,42,true,nil", ref, w, c, ok, err)
+		}
+	}
+	if _, _, ok, _ := m.WalletByCharge("pi_unknown"); ok {
+		t.Error("unknown ref must resolve ok=false")
+	}
+	if _, _, ok, _ := m.WalletByCharge(""); ok {
+		t.Error("empty ref must resolve ok=false")
 	}
 }

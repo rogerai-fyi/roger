@@ -45,11 +45,24 @@ func loadConnect() connect {
 		returnURL:  envOr("STRIPE_CONNECT_RETURN_URL", "https://rogerai.fyi/payouts?onboard=done"),
 		policy:     store.LoadPayoutPolicy(),
 	}
+	// Fail-closed in production, mirroring billing: if ROGERAI_REQUIRE_LIVE is set, the
+	// payout rail REFUSES to run on anything but a real sk_live key. This blanks the key
+	// so onboarding/transfers are disabled (never the dev stub, never a test-mode
+	// transfer) rather than silently moving fake money in production. The
+	// fail-closed transfer guard in payoutTransfer enforces the same at call time.
+	if requireLive() && !strings.HasPrefix(c.secretKey, "sk_live") {
+		log.Printf("CONNECT: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - payouts DISABLED (refusing the dev stub / test mode in production)")
+		c.secretKey = ""
+	}
 	if c.secretKey == "" {
-		log.Printf("CONNECT: Stripe payouts DISABLED (no STRIPE_SECRET_KEY). Onboarding + transfers are STUBBED - safe in dev, NOT a real money rail. Set STRIPE_SECRET_KEY before launch.")
+		log.Printf("CONNECT: Stripe payouts DISABLED (no usable STRIPE_SECRET_KEY). Onboarding + transfers are STUBBED - safe in dev, NOT a real money rail. Set STRIPE_SECRET_KEY before launch.")
 	} else {
-		log.Printf("CONNECT: Stripe Connect enabled (hold=%dd reserve=%.0f%% min=%.0f schedule=%s)",
-			c.policy.HoldDays, c.policy.Reserve*100, c.policy.MinPayout, c.policy.Schedule)
+		mode := "test"
+		if strings.HasPrefix(c.secretKey, "sk_live") {
+			mode = "LIVE"
+		}
+		log.Printf("CONNECT: Stripe Connect enabled [%s mode] (hold=%dd reserve=%.0f%% min=%.0f schedule=%s)",
+			mode, c.policy.HoldDays, c.policy.Reserve*100, c.policy.MinPayout, c.policy.Schedule)
 	}
 	return c
 }
@@ -325,6 +338,14 @@ func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey
 	cents := int64(amount*b.bill.creditUSD*100 + 0.5)
 	if b.conn.transfer != nil {
 		return b.conn.transfer(connectID, cents, idemKey)
+	}
+	// Fail-closed in production: under ROGERAI_REQUIRE_LIVE, never run the dev stub and
+	// never issue a transfer without a real sk_live key + a real connected account. A
+	// missing/test key or a stub account aborts with an error so SettlePayout is NEVER
+	// reached with a fake tr_dev_stub_... id (the payout rolls back via FailPayout).
+	if requireLive() && (!strings.HasPrefix(b.conn.secretKey, "sk_live") || connectID == "" || connectID == "acct_dev_stub") {
+		log.Printf("CONNECT: REFUSING payout transfer for %s - REQUIRE_LIVE set but key/connect account is not live (key live=%v connect=%q)", login, strings.HasPrefix(b.conn.secretKey, "sk_live"), connectID)
+		return "", errStripeTransfer
 	}
 	if b.conn.secretKey == "" || connectID == "" || connectID == "acct_dev_stub" {
 		id := "tr_dev_stub_" + strconv.FormatInt(time.Now().UnixNano(), 36)
