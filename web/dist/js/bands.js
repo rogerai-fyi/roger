@@ -233,6 +233,7 @@
       if (+o.ctx > b.ctx) b.ctx = +o.ctx;
       b.stations.push({
         callsign: callsign(o.node_id),
+        nodeId: o.node_id,
         region: coarseRegion(o.region),
         online: online,
         priceIn: pin, priceOut: pout,
@@ -365,7 +366,10 @@
 
     return (
       '<span class="band-cell band-cell--name">' +
-        '<span class="band-name-line">' + dot + '<span class="band-name">' + esc(b.model) + marks + '</span></span>' +
+        '<span class="band-name-line">' + dot + '<span class="band-name">' + esc(b.model) + marks + '</span>' +
+          '<button type="button" class="report-btn report-btn--row" data-report-model="' + esc(b.model) +
+            '" aria-label="Report a station on ' + esc(b.model) + '">report</button>' +
+        '</span>' +
         prov + ctx +
       '</span>' +
       '<span class="band-cell band-cell--sig"><span class="sig" aria-hidden="true">' + towerBars(b.signal, b.live) + '</span>' +
@@ -737,13 +741,18 @@
         var pout = s.priceOut != null ? fmtPrice(s.priceOut) : "-";
         var ok = s.quality != null ? Math.round(Math.min(1, s.quality) * 100) + "%" : "-";
         var ttft = s.ttft ? (s.ttft >= 1000 ? (s.ttft / 1000).toFixed(1) + "s" : Math.round(s.ttft) + "ms") : "-";
-        log.appendChild(el("li", "qsl-row",
-          '<span class="qsl-cs"><span class="qsl-cs__sign mono">' + dot + ' ' + esc(s.callsign) + marks + '</span>' +
+        var row = el("li", "qsl-row",
+          '<span class="qsl-cs"><span class="qsl-cs__sign mono">' + dot + ' ' + esc(s.callsign) + marks +
+            '<button type="button" class="report-btn" data-report-node="' + esc(s.nodeId || "") +
+              '" data-report-callsign="' + esc(s.callsign) + '" aria-label="Report ' + esc(s.callsign) +
+              '">report</button>' +
+            '</span>' +
             '<span class="qsl-cs__reg mono">' + esc(s.region) + '</span></span>' +
           '<span class="mono">' + pin + '<span class="band-unit"> · ' + pout + '</span></span>' +
           '<span class="mono">' + (s.online && s.tps ? Math.round(s.tps) : '-') + '</span>' +
           '<span class="mono">' + ttft + '</span>' +
-          '<span class="mono">' + ok + '</span>'));
+          '<span class="mono">' + ok + '</span>');
+        log.appendChild(row);
       });
     }
 
@@ -767,6 +776,8 @@
 
     document.getElementById("qslCmdCode").textContent = "rogerai use " + b.model;
     document.getElementById("qslStamp").textContent = "RogerAI · QSL · " + b.model;
+    var qslRep = document.getElementById("qslReport");
+    if (qslRep) qslRep.setAttribute("data-report-model", b.model);
 
     if (typeof detailEl.scrollIntoView === "function") {
       detailEl.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" });
@@ -788,11 +799,13 @@
   window.addEventListener("hashchange", routeFromHash);
 
   listEl.addEventListener("click", function (e) {
+    if (e.target.closest(".report-btn")) return; // the report button handles itself
     var row = e.target.closest(".band-row");
     if (row && row.dataset.band) window.location.hash = "band=" + encodeURIComponent(row.dataset.band);
   });
   listEl.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" && e.key !== " ") return;
+    if (e.target.closest(".report-btn")) return; // let the report button activate normally
     var row = e.target.closest(".band-row");
     if (row && row.dataset.band) { e.preventDefault(); window.location.hash = "band=" + encodeURIComponent(row.dataset.band); }
   });

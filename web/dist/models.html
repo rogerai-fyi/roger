@@ -359,6 +359,7 @@
 
         <footer class="qsl__foot">
           <a class="qsl__back" href="#directory" id="qslBack">&larr; back to the directory</a>
+          <button type="button" class="report-btn report-btn--qsl" id="qslReport" data-report-model="">report a station</button>
           <span class="mono qsl__stamp" id="qslStamp">RogerAI · QSL</span>
         </footer>
       </article>
@@ -366,6 +367,49 @@
   </section>
 
   </main>
+
+  <!-- ============================ REPORT MODAL ============================ -->
+  <!-- Abuse / report-a-station dialog. Posts to broker POST /report.
+       Hidden by default; report.js opens it from any .report-btn. CSP-safe
+       (external js/report.js, posts to broker.rogerai.fyi which connect-src allows).
+       Reduced-motion safe (no animation needed) and usable narrow. -->
+  <div class="reportmodal" id="reportModal" hidden>
+    <div class="reportmodal__scrim" id="reportScrim" aria-hidden="true"></div>
+    <div class="reportmodal__dialog" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+      <button type="button" class="reportmodal__x" id="reportClose" aria-label="Close">&times;</button>
+      <h2 class="reportmodal__title" id="reportTitle">Report a station</h2>
+      <p class="reportmodal__sub mono" id="reportTarget">station: -</p>
+      <form class="reportform" id="reportForm">
+        <label class="reportform__field">
+          <span class="reportform__k mono">CATEGORY</span>
+          <select id="reportCategory" class="mono" required>
+            <option value="abuse">abuse / prohibited use</option>
+            <option value="csam">child sexual abuse material</option>
+            <option value="spam">spam</option>
+            <option value="quality">quality / wrong model</option>
+            <option value="other">other</option>
+          </select>
+        </label>
+        <label class="reportform__field">
+          <span class="reportform__k mono">REQUEST ID <span class="reportform__opt">(optional)</span></span>
+          <input type="text" id="reportRequestId" class="mono" autocomplete="off"
+                 spellcheck="false" placeholder="req_... if you have one" />
+        </label>
+        <label class="reportform__field">
+          <span class="reportform__k mono">DETAIL</span>
+          <textarea id="reportDetail" rows="4" maxlength="2000"
+                    placeholder="What happened?"></textarea>
+        </label>
+        <p class="reportform__note mono">Reports can be anonymous. Do not paste secrets. The
+          Acceptable Use Policy is in the <a href="/tos.html">Terms</a>.</p>
+        <div class="reportform__actions">
+          <button type="button" class="reportform__cancel" id="reportCancel">cancel</button>
+          <button type="submit" class="reportform__submit" id="reportSubmit">send report</button>
+        </div>
+        <p class="reportform__status mono" id="reportStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
 
   <!-- ============================ FOOTER ============================ -->
   <!-- The ONE shared footer, on every page. Brand (shared mark) + links + status,
@@ -419,6 +463,7 @@
         <a href="/tos.html">Terms</a>
         <a href="/privacy.html">Privacy</a>
         <a href="/security.html">Security</a>
+        <a href="mailto:abuse@rogerai.fyi">Report abuse</a>
       </div>
     </nav>
   </div>
@@ -465,6 +510,7 @@
 
   <script src="js/radiomap.js" defer></script>
   <script src="js/bands.js" defer></script>
+  <script src="js/report.js" defer></script>
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
 </body>

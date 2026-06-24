@@ -1935,3 +1935,147 @@ table.man-table tr:hover td { background: var(--paper); }
   .qsl-cs { grid-area: cs; }
 }
 
+
+/* =====================================================================
+   REPORT FLOW (models.html) - the report-a-station button + abuse modal.
+   Hairline-defined, mono labels, red only as the beacon on hover/focus.
+   No fills, square focus rings; reduced-motion + narrow safe.
+   ===================================================================== */
+.report-btn {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  margin-left: var(--s-2);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.report-btn:hover,
+.report-btn:focus-visible { color: var(--live); border-color: var(--live); }
+.report-btn:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.report-btn--row { opacity: 0; }
+.band-row:hover .report-btn--row,
+.band-row:focus-within .report-btn--row,
+.report-btn--row:focus-visible { opacity: 1; }
+.report-btn--qsl { margin-left: 0; }
+
+/* modal overlay */
+.reportmodal[hidden] { display: none; }
+.reportmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+}
+.reportmodal__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+.reportmodal__dialog {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100vh - 2 * var(--s-4));
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-top: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  padding: var(--s-6);
+}
+.reportmodal__x {
+  position: absolute;
+  top: var(--s-2);
+  right: var(--s-3);
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--ink-400);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.reportmodal__x:hover { color: var(--live); }
+.reportmodal__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.reportmodal__title { margin: 0 0 var(--s-1); font-size: var(--t-lg); color: var(--ink-900); }
+.reportmodal__sub { margin: 0 0 var(--s-4); color: var(--ink-500); font-size: var(--t-xs); }
+
+.reportform__field { display: block; margin: 0 0 var(--s-3); }
+.reportform__k {
+  display: block;
+  margin-bottom: var(--s-1);
+  color: var(--ink-500);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.reportform__opt { text-transform: none; letter-spacing: 0; color: var(--ink-300); }
+.reportform select,
+.reportform input,
+.reportform textarea {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+.reportform textarea { resize: vertical; min-height: 84px; }
+.reportform select:focus-visible,
+.reportform input:focus-visible,
+.reportform textarea:focus-visible {
+  outline: none;
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.reportform__note { margin: 0 0 var(--s-4); color: var(--ink-400); font-size: var(--t-xs); line-height: 1.5; }
+.reportform__note a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); }
+.reportform__note a:hover { color: var(--live); border-bottom-color: var(--live); }
+.reportform__actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
+.reportform__cancel {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  padding: 9px 16px;
+  cursor: pointer;
+}
+.reportform__cancel:hover { color: var(--live); border-color: var(--live); }
+.reportform__cancel:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.reportform__submit {
+  appearance: none;
+  border: 1px solid var(--ink-900);
+  border-radius: var(--r-sm);
+  background: var(--ink-900);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: opacity var(--d-1) var(--ease-standard);
+}
+.reportform__submit:hover { opacity: 0.88; }
+.reportform__submit:disabled { opacity: 0.45; cursor: default; }
+.reportform__submit:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.reportform__status { margin: var(--s-3) 0 0; min-height: 1.2em; font-size: var(--t-xs); color: var(--ink-500); }
+.reportform__status.is-ok { color: var(--ink-700); }
+.reportform__status.is-err { color: var(--live); }
