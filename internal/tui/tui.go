@@ -821,11 +821,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case loginStartedMsg:
 		// The device flow started: stash the URL + code so the login panel renders
-		// them, auto-open the browser (fire-and-forget; SSH/headless just reads the
-		// code), then kick off polling for the authorization.
+		// them, auto-open the browser ONCE here (and only here - the poll never opens
+		// anything), then kick off polling for the authorization. openURL self-gates on
+		// an interactive TTY, so a headless / piped / background-service rogerai shows
+		// the code but never hijacks a browser.
 		m.loginDevice = LoginDevice(msg)
 		m.loginWaiting = true
-		m.loginNote = "opened in your browser (or copy the link above)"
+		if interactive() {
+			m.loginNote = "opened in your browser (or copy the link above)"
+		} else {
+			m.loginNote = "open the link above + enter the code"
+		}
 		m.status = stDim.Render("waiting for GitHub authorization…")
 		openURL(m.loginDevice.VerificationURI)
 		return m, m.pollLoginCmd()
