@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill
+.PHONY: build demo clean kill test check
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -6,6 +6,19 @@ build:
 	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
 	go build -o bin/rogerai           ./cmd/rogerai
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
+
+# Run the full test suite (ledger/payouts/account etc. live in internal/store +
+# cmd/rogerai-broker).
+test:
+	go test ./...
+
+# The CI gate: build, vet, test, and a gofmt cleanliness check.
+check:
+	go build ./...
+	go vet ./...
+	go test ./...
+	@out=$$(gofmt -l cmd internal); if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
+	@echo "check: ok"
 
 # cross-compile the client for all platforms (single static binary each).
 # CGO_ENABLED=0 => no libc dependency, so one Linux binary runs on glibc

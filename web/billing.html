@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Billing - RogerAI</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <script src="js/theme-init.js"></script>
+  <link rel="stylesheet" href="styles/auth.css" />
+</head>
+<body class="auth">
+  <main class="card" id="card" hidden>
+    <a class="back" href="/">Roger<b>AI</b></a>
+    <h1>Billing</h1>
+    <p class="sub">Top-ups and credit balance.</p>
+
+    <section class="panel">
+      <h2>Balance</h2>
+      <dl class="stats">
+        <div><dt>Balance</dt><dd id="balance">-</dd></div>
+        <div><dt>Verified</dt><dd id="derived">-</dd></div>
+      </dl>
+      <p class="fine">"Verified" re-derives your balance from the append-only ledger - it should match.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Top up</h2>
+      <p>Buy prepaid credits with Stripe. Payment methods are handled by Stripe; we never store your card.</p>
+      <p class="fine" id="topupNote">-</p>
+    </section>
+
+    <section class="panel">
+      <h2>Top-up history</h2>
+      <ul class="recent" id="topups"></ul>
+      <p class="fine" id="topupsEmpty" hidden>No top-ups yet.</p>
+    </section>
+
+    <p class="fine"><a href="/account">Account</a> - <a href="/usage">Usage</a> - <a href="/dashboard">Dashboard</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  <script src="js/account.js"></script>
+</body>
+</html>

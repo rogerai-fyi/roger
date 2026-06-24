@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Usage - RogerAI</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <script src="js/theme-init.js"></script>
+  <link rel="stylesheet" href="styles/auth.css" />
+</head>
+<body class="auth">
+  <main class="card" id="card" hidden>
+    <a class="back" href="/">Roger<b>AI</b></a>
+    <h1>Usage</h1>
+    <p class="sub">Your spend across models.</p>
+
+    <section class="panel">
+      <h2>Lifetime spend</h2>
+      <dl class="stats">
+        <div><dt>Spend</dt><dd id="spend">-</dd></div>
+      </dl>
+    </section>
+
+    <section class="panel">
+      <h2>Breakdown</h2>
+      <p class="fine">
+        Group by:
+        <a href="?group=model" id="byModel">model</a> -
+        <a href="?group=day" id="byDay">day</a>
+      </p>
+      <ul class="recent" id="buckets"></ul>
+      <p class="fine" id="bucketsEmpty" hidden>No usage yet. Try <code>rogerai use &lt;model&gt;</code>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Recent requests</h2>
+      <ul class="recent" id="recent"></ul>
+      <p class="fine" id="recentEmpty" hidden>No requests yet.</p>
+    </section>
+
+    <p class="fine"><a href="/account">Account</a> - <a href="/billing">Billing</a> - <a href="/dashboard">Dashboard</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  <script src="js/account.js"></script>
+</body>
+</html>

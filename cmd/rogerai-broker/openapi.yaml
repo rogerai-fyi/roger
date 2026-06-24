@@ -31,6 +31,8 @@ tags:
   - { name: consumer, description: Discover + use models }
   - { name: billing, description: Prepaid credit wallet (Stripe) }
   - { name: auth, description: GitHub login (owners who monetize) }
+  - { name: account, description: Account hub - profile, billing, usage, data export/delete }
+  - { name: payouts, description: Operator earnings + Stripe Connect payouts }
   - { name: provider, description: Node registration + the outbound job tunnel }
 
 paths:
@@ -134,7 +136,12 @@ paths:
                 properties:
                   node: { type: string }
                   online: { type: boolean }
-                  earnings: { type: number, description: accrued (unpaid) owner credits }
+                  earnings: { type: number, description: accrued (unpaid) owner credits (legacy counter) }
+                  held: { type: number, description: earnings still inside the hold window }
+                  reserved: { type: number, description: rolling reserve not yet released }
+                  payable: { type: number, description: released, withdrawable now }
+                  paid: { type: number, description: lifetime paid out }
+                  next_release: { type: integer, description: unix of the soonest upcoming release }
                   recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
         "400": { description: node query param required }
 
@@ -279,18 +286,169 @@ paths:
 
   /account:
     get:
-      tags: [auth]
-      summary: The web session owner (from the signed session cookie)
+      tags: [account]
+      summary: Account hub - profile, balances, payout status
       description: |
-        Used by the minimal web /dashboard to show who is logged in and to route
-        logged-out visitors to /login. Credentialed CORS (explicit web origin).
+        Profile (handle, email, github), cached consumer balance, Stripe Connect
+        payout status, and (for operators) the held/reserved/payable/paid earnings
+        split. Backed by the signed session cookie; credentialed CORS.
       responses:
         "200":
-          description: Logged-in owner
+          description: Account profile + balances
           content:
             application/json:
-              schema: { type: object, properties: { github_login: { type: string }, github_id: { type: integer } } }
+              schema:
+                type: object
+                properties:
+                  github_login: { type: string }
+                  github_id: { type: integer }
+                  email: { type: string }
+                  balance: { type: number }
+                  connect: { type: object, properties: { status: { type: string }, id: { type: string } } }
+                  earnings: { $ref: '#/components/schemas/EarningSplit' }
         "401": { description: no valid session }
+    patch:
+      tags: [account]
+      summary: Update the account contact email
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { email: { type: string } } }
+      responses:
+        "200": { description: updated }
+        "404": { description: no operator account for this login }
+
+  /account/export:
+    post:
+      tags: [account]
+      summary: GDPR/CCPA data export (profile + ledger + receipts) as JSON
+      responses:
+        "200": { description: data dump (Content-Disposition attachment) }
+        "401": { description: no valid session }
+
+  /account/delete:
+    post:
+      tags: [account]
+      summary: Soft-delete + anonymize the account (retention-safe)
+      description: |
+        Scrubs identity (email, login), revokes the session, and retains
+        de-identified financial rows for the legal retention window. BLOCKED (409)
+        while the account holds a positive balance, held/reserved/payable earnings,
+        or open disputes.
+      responses:
+        "200": { description: deleted }
+        "409": { description: blocked by balance, earnings, or open disputes }
+        "401": { description: no valid session }
+
+  /billing:
+    get:
+      tags: [account]
+      summary: Money-in view - balance + top-up history from the ledger
+      responses:
+        "200":
+          description: Balance + top-ups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance: { type: number }
+                  derived: { type: number, description: ledger re-derivation (drift check) }
+                  credit_usd: { type: number }
+                  checkout_ready: { type: boolean }
+                  topups: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
+        "401": { description: no valid session }
+
+  /usage:
+    get:
+      tags: [account]
+      summary: Consumer spend history grouped by model or day
+      parameters:
+        - in: query
+          name: group
+          schema: { type: string, enum: [model, day] }
+      responses:
+        "200":
+          description: Spend total + grouped buckets + recent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spend: { type: number }
+                  group: { type: string }
+                  buckets:
+                    type: array
+                    items: { type: object, properties: { key: { type: string }, cost: { type: number }, count: { type: integer } } }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+        "401": { description: no valid session }
+
+  /connect/onboard:
+    post:
+      tags: [payouts]
+      summary: Create a Stripe Connect Express onboarding (KYC) link
+      description: |
+        Creates (or reuses) the operator's Express connected account and returns a
+        Stripe Account Link. Stubbed (returns a placeholder link, marks onboarding)
+        when STRIPE_SECRET_KEY is unset.
+      responses:
+        "200":
+          description: Onboarding link
+          content:
+            application/json:
+              schema: { type: object, properties: { url: { type: string }, status: { type: string }, stub: { type: boolean } } }
+        "403": { description: no operator account for this login }
+
+  /connect/status:
+    get:
+      tags: [payouts]
+      summary: Stripe Connect capability status (the KYC gate)
+      responses:
+        "200":
+          description: Connect status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, description: "none|onboarding|active|restricted" }
+                  can_payout: { type: boolean }
+                  min_payout: { type: number }
+                  schedule: { type: string }
+        "403": { description: no operator account for this login }
+
+  /payouts/request:
+    post:
+      tags: [payouts]
+      summary: Request a payout (KYC-gated, >= minimum, payable only)
+      description: |
+        Promotes held->payable, transfers the payable balance via Stripe Connect (a
+        stub transfer in dev), and records the payout + ledger rows. 403 until Connect
+        transfers capability is active; 400 below the minimum.
+      responses:
+        "200":
+          description: Payout created
+          content:
+            application/json:
+              schema: { type: object, properties: { payout: { $ref: '#/components/schemas/Payout' } } }
+        "400": { description: below minimum payout }
+        "403": { description: KYC not complete (transfers not active) }
+
+  /payouts/history:
+    get:
+      tags: [payouts]
+      summary: Payout + clawback history
+      responses:
+        "200":
+          description: Payouts + payout/chargeback/adjustment ledger rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payouts: { type: array, items: { $ref: '#/components/schemas/Payout' } }
+                  ledger: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
+        "403": { description: no operator account for this login }
 
   /auth/logout:
     post:
@@ -529,3 +687,35 @@ components:
         status: { type: integer }
         body: { type: object }
         receipt: { $ref: '#/components/schemas/UsageReceipt' }
+    LedgerRow:
+      type: object
+      description: One append-only money event (the ledger is the source of truth).
+      properties:
+        id: { type: integer }
+        holder: { type: string, description: wallet id (consumer) or account id (operator) }
+        side: { type: string, description: "consumer | operator" }
+        kind: { type: string, description: "topup|spend|hold|hold_release|earn|payout|refund|chargeback|reserve_hold|reserve_release|adjustment" }
+        amount: { type: number, description: signed (+credit to holder, -debit) }
+        idem_key: { type: string }
+        state: { type: string, description: "posted|pending|reversed" }
+        ref: { type: string }
+        ts: { type: integer }
+    EarningSplit:
+      type: object
+      description: Operator earnings lifecycle split (held -> reserved -> payable -> paid).
+      properties:
+        held: { type: number }
+        reserved: { type: number }
+        payable: { type: number }
+        paid: { type: number }
+        next_release: { type: integer, description: unix of the soonest upcoming release }
+    Payout:
+      type: object
+      description: One requested payout (a Stripe Transfer per operator per run).
+      properties:
+        id: { type: integer }
+        account_id: { type: string }
+        amount: { type: number }
+        stripe_transfer_id: { type: string }
+        state: { type: string, description: "pending|paid|reversed|failed" }
+        created_at: { type: integer }

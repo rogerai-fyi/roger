@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payouts - RogerAI</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <script src="js/theme-init.js"></script>
+  <link rel="stylesheet" href="styles/auth.css" />
+</head>
+<body class="auth">
+  <main class="card" id="card" hidden>
+    <a class="back" href="/">Roger<b>AI</b></a>
+    <h1>Payouts</h1>
+    <p class="sub">Your earnings and withdrawals.</p>
+
+    <section class="panel">
+      <h2>Earnings</h2>
+      <dl class="stats">
+        <div><dt>Held</dt><dd id="held">-</dd></div>
+        <div><dt>Reserved</dt><dd id="reserved">-</dd></div>
+        <div><dt>Payable</dt><dd id="payable">-</dd></div>
+      </dl>
+      <dl class="stats" style="margin-top:8px">
+        <div><dt>Lifetime paid</dt><dd id="paid">-</dd></div>
+      </dl>
+      <p class="fine" id="releaseNote"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Get paid</h2>
+      <p class="fine">Earnings are held for a hold period and a small rolling reserve covers
+        late disputes. You must finish Stripe Connect onboarding (KYC) before any withdrawal.</p>
+      <p>Payout status: <b id="connect">-</b></p>
+      <button id="onboard" class="ghost">Set up payouts (Stripe)</button>
+      <button id="request" class="ghost" hidden>Request payout</button>
+      <p class="fine" id="payMsg"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Payout history</h2>
+      <ul class="recent" id="payouts"></ul>
+      <p class="fine" id="payoutsEmpty" hidden>No payouts yet.</p>
+    </section>
+
+    <p class="fine"><a href="/account">Account</a> - <a href="/console">Console</a> - <a href="/tos">Terms</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  <script src="js/account.js"></script>
+</body>
+</html>

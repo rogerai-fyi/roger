@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account - RogerAI</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <script src="js/theme-init.js"></script>
+  <link rel="stylesheet" href="styles/auth.css" />
+</head>
+<body class="auth">
+  <main class="card" id="card" hidden>
+    <a class="back" href="/">Roger<b>AI</b></a>
+    <h1>Account</h1>
+    <p class="sub">Signed in as <b id="who">-</b></p>
+
+    <section class="panel">
+      <h2>Profile</h2>
+      <dl class="stats">
+        <div><dt>Handle</dt><dd id="handle">-</dd></div>
+        <div><dt>Balance</dt><dd id="balance">-</dd></div>
+      </dl>
+      <p class="fine">GitHub id <span id="ghid">-</span> - payout status <b id="connect">-</b></p>
+      <p style="margin-top:16px">
+        <label class="fine" for="email">Contact email (optional)</label><br />
+        <input id="email" type="email" placeholder="you@example.com"
+          style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit" />
+      </p>
+      <button id="saveEmail" class="ghost">Save email</button>
+      <span class="fine" id="saveMsg"></span>
+    </section>
+
+    <section class="panel">
+      <h2>Your data</h2>
+      <p>Download a copy of your profile, ledger and receipts, or delete your account.</p>
+      <button id="export" class="ghost">Export my data</button>
+    </section>
+
+    <section class="panel">
+      <h2>Delete account</h2>
+      <p>This anonymizes your identity (email, GitHub link) and revokes your sessions.
+        Financial records are retained, de-identified, for the legal retention window.
+        Deletion is blocked while you hold a balance, unpaid earnings, or open disputes.</p>
+      <button id="del" class="ghost" style="border-color:#c0392b;color:#c0392b">Delete my account</button>
+      <span class="fine" id="delMsg"></span>
+    </section>
+
+    <p class="fine"><a href="/dashboard">Dashboard</a> - <a href="/billing">Billing</a> - <a href="/usage">Usage</a> - <a href="/payouts">Payouts</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  <script src="js/account.js"></script>
+</body>
+</html>
