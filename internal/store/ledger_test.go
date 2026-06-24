@@ -94,7 +94,12 @@ func TestHoldPromotionAt90d(t *testing.T) {
 // in held (nothing reserved), and at +90d the whole gross becomes payable - no stuck
 // reserved bucket, no withholding past the hold.
 func TestOptionADefaultNoReserve(t *testing.T) {
-	// deliberately set NO ROGERAI_PAYOUT_* env: exercise the shipped defaults.
+	// Exercise the shipped defaults: clear any ROGERAI_PAYOUT_* the developer's shell
+	// may export so the test is hermetic (an empty value falls through to the default).
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "")
+	t.Setenv("ROGERAI_PAYOUT_SCHEDULE", "")
 	p := LoadPayoutPolicy()
 	if p.Reserve != 0 {
 		t.Fatalf("default Reserve = %v, want 0 (Option A: no separate reserve)", p.Reserve)
