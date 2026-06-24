@@ -194,6 +194,74 @@ func TestRelayRejectsUnsignedSpend(t *testing.T) {
 	}
 }
 
+// TestRelayAnonPaidRejected verifies the anon-vs-logged-in spend gate: a SIGNED but
+// not-logged-in keypair hitting a PRICED public model is rejected with the login
+// prompt (no anon spend), while a FREE public model passes the gate. After login the
+// same keypair spends its u_gh_ account wallet (one wallet).
+func TestRelayAnonPaidRejected(t *testing.T) {
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	b := &broker{
+		priv:         brokerPriv,
+		db:           store.NewMem(),
+		nodes:        map[string]protocol.NodeRegistration{},
+		tunnels:      map[string]*nodeTunnel{},
+		lastSeen:     map[string]time.Time{},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+		inflight:     map[string]int{},
+		success:      map[string]float64{},
+		trust:        map[string]trustState{},
+		streams:      map[string]*streamSink{},
+		quotes:       map[string]priceQuote{},
+		pubOfUser:    map[string]string{},
+		seedFunds:    100,
+		lockWin:      time.Hour,
+		rl:           loadRateLimiter(),
+	}
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	// One priced node + one free node, both "online".
+	b.nodes["paid"] = protocol.NodeRegistration{NodeID: "paid", PubKey: hex.EncodeToString(nodePub), Offers: []protocol.ModelOffer{{Model: "paid-m", PriceOut: 0.5}}}
+	b.nodes["free"] = protocol.NodeRegistration{NodeID: "free", PubKey: hex.EncodeToString(nodePub), Offers: []protocol.ModelOffer{{Model: "free-m"}}}
+	// Register the PAID tunnel so the relay reaches the pre-dispatch login gate (the
+	// 401 vs 402 decision). The FREE node has NO tunnel on purpose, so a free request
+	// 503s fast at the "no tunnel" check (still NOT a 401 - which is all we assert for
+	// the free case) instead of blocking on a node that never answers.
+	b.tunnels["paid"] = &nodeTunnel{jobs: make(chan protocol.Job, 1), waiters: map[string]chan protocol.JobResult{}}
+	b.lastSeen["paid"] = time.Now()
+	b.lastSeen["free"] = time.Now()
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	userPubHex := hex.EncodeToString(userPriv.Public().(ed25519.PublicKey))
+
+	doRelay := func(model string) int {
+		body := []byte(`{"model":"` + model + `","max_tokens":8}`)
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		signReq(r, userPriv, body)
+		w := httptest.NewRecorder()
+		b.relay(w, r)
+		return w.Code
+	}
+
+	// Anon (signed, not logged in) hitting a PAID model → 401 (log in to spend).
+	if code := doRelay("paid-m"); code != http.StatusUnauthorized {
+		t.Errorf("anon paid relay = %d, want 401 (log in to spend)", code)
+	}
+	// Anon hitting a FREE model passes the login gate (no node poller answers, so it
+	// times out at 503 - the point is it is NOT a 401 login rejection).
+	if code := doRelay("free-m"); code == http.StatusUnauthorized {
+		t.Errorf("anon FREE relay = 401, want it to pass the login gate (free models work anon)")
+	}
+	// Log in: bind the keypair. The paid model is no longer login-gated; with an empty
+	// account wallet the request now lands on 402 insufficient credits (the hold stage,
+	// BEFORE dispatch) - proving it passed the 401 login gate and bills the u_gh_
+	// account wallet, without blocking on a node that never answers.
+	_ = b.db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: userPubHex})
+	_, _ = b.db.BalanceOf("u_gh_7", 0) // existing wallet at 0 so the hold path won't seed it
+	if code := doRelay("paid-m"); code != http.StatusPaymentRequired {
+		t.Errorf("logged-in paid relay = %d, want 402 (past the login gate, empty wallet)", code)
+	}
+}
+
 func TestLockedPrice(t *testing.T) {
 	b := &broker{quotes: map[string]priceQuote{}, lockWin: time.Hour}
 
