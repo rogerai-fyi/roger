@@ -305,7 +305,7 @@ func TestGuidedFallbackWizard(t *testing.T) {
 // width like the rest of the reflow contract.
 func TestAllModesRenderSafe(t *testing.T) {
 	modes := []mode{
-		modeBrowse, modeCommand, modeChat, modeHelp, modeConnectConfirm,
+		modeBrowse, modeCommand, modeChat, modeHelp, modeConnectConfirm, modeConnecting,
 		modeOverLimit, modeLimits, modeShare, modeShareEditor, modeShareSetup, modeQuitConfirm,
 	}
 	for _, w := range []int{40, 50, 64, 80, 120} {
@@ -440,7 +440,7 @@ func TestScheduleWindowEditEndAndPrice(t *testing.T) {
 func TestNoColorNonTTYRender(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	modes := []mode{
-		modeBrowse, modeCommand, modeChat, modeHelp, modeConnectConfirm,
+		modeBrowse, modeCommand, modeChat, modeHelp, modeConnectConfirm, modeConnecting,
 		modeOverLimit, modeLimits, modeShare, modeShareEditor, modeShareSetup, modeQuitConfirm,
 	}
 	for _, w := range []int{0, 30} {

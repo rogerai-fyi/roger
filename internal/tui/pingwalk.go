@@ -94,7 +94,7 @@ func PingWalk() error {
 		fmt.Println()
 		fmt.Println(art)
 		fmt.Println()
-		fmt.Println(lipgloss.NewStyle().Foreground(cMist).Render("  ping. ((•)) roger that - standing by."))
+		fmt.Println(lipgloss.NewStyle().Foreground(cDim).Render("  ping. ((•)) roger that - standing by."))
 		return nil
 	}
 	_, err := tea.NewProgram(pingWalkModel{}, tea.WithAltScreen()).Run()

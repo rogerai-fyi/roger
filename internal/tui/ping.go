@@ -39,12 +39,14 @@ const (
 )
 
 // pingEye paints the eye glyph live-red; everything else in a Ping frame is the
-// body, which we tint volt (or leave bare under quiet). We render the body line
-// by line and recolor only the eye cell so the "one red glyph" rule holds.
+// body, which we tint mono ink (or leave bare under quiet). We render the body
+// line by line and recolor only the eye cell so the "one red glyph" rule holds -
+// Ping is the operator persona, and the on-air eye is the SAME red beacon the
+// header carries (the web's single accent). Body = ink, eye = the one red.
 var (
-	stPingBody = lipgloss.NewStyle().Foreground(cVolt)
-	stPingEye  = lipgloss.NewStyle().Foreground(cLive).Bold(true)
-	stPingDim  = lipgloss.NewStyle().Foreground(cMist)
+	stPingBody = lipgloss.NewStyle().Foreground(cDim)
+	stPingEye  = lipgloss.NewStyle().Foreground(cRed).Bold(true)
+	stPingDim  = lipgloss.NewStyle().Foreground(cDim)
 )
 
 // pingFrame is one rendered pose: 5 short lines. We keep them as raw strings and
