@@ -7,6 +7,6 @@
   <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
   <!-- right bracket (mirror about x=16) -->
   <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
-  <!-- center: the on-air beacon (the eye), live red -->
-  <circle cx="16" cy="16" r="5" fill="#FF3B3B" />
+  <!-- center: the on-air beacon (the eye), system live red -->
+  <circle cx="16" cy="16" r="5" fill="#E0231C" />
 </svg>

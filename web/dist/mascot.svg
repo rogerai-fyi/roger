@@ -2,7 +2,7 @@
   <!--
     Ping - the RogerAI mascot, grown from the ((  •  )) ON AIR motif.
     Body inherits text color via currentColor; the on-air eye + glow are the
-    only fixed live-red (#FF3B3B). Self-animating (blink, bob, on-air pulse,
+    only fixed live-red (#E0231C). Self-animating (blink, bob, on-air pulse,
     signal waves) and reduced-motion aware.
     Part ids let a page drive it: #ping-eye #ping-glow #ping-wave-a #ping-wave-b #ping-body
   -->
@@ -41,7 +41,7 @@
 
   <g id="ping">
     <!-- signal-wave arcs (radiate from the antennae / eye) -->
-    <g fill="none" stroke="#FF3B3B" stroke-linecap="round" stroke-width="2">
+    <g fill="none" stroke="#E0231C" stroke-linecap="round" stroke-width="2">
       <path id="ping-wave-a" d="M16 22 A18 18 0 0 1 48 22" opacity="0"/>
       <path id="ping-wave-b" d="M11 24 A24 24 0 0 1 53 24" opacity="0"/>
     </g>
@@ -62,7 +62,7 @@
     <!-- on-air eye: glow halo + the live-red CIRCLE beacon - the same circle
          that sits between the brackets of the logo / favicon / nav mark, so Ping's
          eye and the brand beacon are one and the same. -->
-    <circle id="ping-glow" cx="32" cy="22" r="9" fill="#FF3B3B" opacity="0.3"/>
-    <circle id="ping-eye" cx="32" cy="22" r="5" fill="#FF3B3B"/>
+    <circle id="ping-glow" cx="32" cy="22" r="9" fill="#E0231C" opacity="0.3"/>
+    <circle id="ping-eye" cx="32" cy="22" r="5" fill="#E0231C"/>
   </g>
 </svg>
