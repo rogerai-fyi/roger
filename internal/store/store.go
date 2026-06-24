@@ -123,6 +123,27 @@ type Store interface {
 	// (gates account deletion / payout). accountID is the owner pubkey.
 	OpenDisputeCount(accountID string) (int, error)
 
+	// --- grant keys (GRANT-KEYS-DESIGN) ------------------------------------
+
+	// CreateGrant persists an owner-issued grant (free or custom-priced private
+	// access key). Only the secret HASH is stored; the secret is shown once at create.
+	CreateGrant(g Grant) error
+	// GrantBySecretHash is the hot auth lookup: resolve a grant from sha256(secret).
+	GrantBySecretHash(hash string) (Grant, bool, error)
+	// GrantsByOwner lists an owner's grants (dashboard + CLI list).
+	GrantsByOwner(owner string) ([]Grant, error)
+	// SetGrantRevoked flips a grant's revoked flag, owner-scoped (an owner can never
+	// touch another owner's grant). ok=false if the grant doesn't exist for that owner.
+	SetGrantRevoked(id, owner string, revoked bool) (bool, error)
+	// UpdateGrant applies an owner-scoped patch (caps/scope/price/revoked) and
+	// returns the updated grant.
+	UpdateGrant(id, owner string, patch GrantPatch) (Grant, bool, error)
+	// GrantUsageOf returns a grant's token usage for the current UTC day + month
+	// (the cap check + dashboard rollup).
+	GrantUsageOf(id string, now time.Time) (GrantUsage, error)
+	// AddGrantUsage increments a grant's day + month token rollup at settle time.
+	AddGrantUsage(id string, tokens int64, now time.Time) error
+
 	Close() error
 }
 
@@ -163,6 +184,7 @@ type Mem struct {
 	payoutID int64             // monotonic payout id
 	disputes map[string]bool   // seen stripe dispute ids (idempotency)
 	nodeAcct map[string]string // node id -> owner pubkey (TOFU)
+	gs       *grantStore       // grant keys + per-grant usage rollups
 }
 
 func NewMem() *Mem {
@@ -170,6 +192,7 @@ func NewMem() *Mem {
 		wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
+		gs: newGrantStore(),
 	}
 }
 

@@ -44,8 +44,29 @@ func loadRateLimiter() *rateLimiter {
 // allow consumes one token for key and reports whether it may proceed. When denied,
 // retryAfter is a seconds hint. RPM <= 0 disables limiting (always allow).
 func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
-	if rl == nil || rl.rpm <= 0 {
+	return rl.allowAt(key, 0, 0)
+}
+
+// allowAt is allow with a per-key rate override (rpm/burst). A zero rpm or burst
+// falls back to the limiter's configured default - this is what lets a grant carry
+// its own caps while sharing one limiter instance keyed by grant id. rpmOverride
+// <= 0 AND the limiter default <= 0 means "no limit" (always allow).
+func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (ok bool, retryAfter int) {
+	if rl == nil {
 		return true, 0
+	}
+	rpm, burst := rl.rpm, rl.burst
+	if rpmOverride > 0 {
+		rpm = rpmOverride
+	}
+	if burstOverride > 0 {
+		burst = burstOverride
+	}
+	if rpm <= 0 {
+		return true, 0
+	}
+	if burst <= 0 {
+		burst = rpm // a sane default depth when none is set
 	}
 	now := time.Now()
 	rl.mu.Lock()
@@ -60,16 +81,16 @@ func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
 	}
 	b := rl.buckets[key]
 	if b == nil {
-		b = &tokenBucket{tokens: rl.burst, last: now}
+		b = &tokenBucket{tokens: burst, last: now}
 		rl.buckets[key] = b
 	}
-	b.tokens += now.Sub(b.last).Seconds() * (rl.rpm / 60.0)
+	b.tokens += now.Sub(b.last).Seconds() * (rpm / 60.0)
 	b.last = now
-	if b.tokens > rl.burst {
-		b.tokens = rl.burst
+	if b.tokens > burst {
+		b.tokens = burst
 	}
 	if b.tokens < 1 {
-		retry := int((1 - b.tokens) / (rl.rpm / 60.0))
+		retry := int((1 - b.tokens) / (rpm / 60.0))
 		if retry < 1 {
 			retry = 1
 		}

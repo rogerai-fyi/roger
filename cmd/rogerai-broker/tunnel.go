@@ -213,21 +213,45 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-	user, authed, ok := b.identityOf(r, body)
-	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+
+	// Grant path FIRST: a `Bearer rog-grant_...` is its own authentication (the
+	// owner-minted secret), so it skips the signed-identity requirement entirely and
+	// resolves to a grant-scoped wallet + the issuing owner's nodes. See grant.go.
+	gc, gok, gerr := b.resolveGrant(r)
+	if gerr != "" {
+		jsonErr(w, http.StatusUnauthorized, gerr)
 		return
 	}
-	// Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
-	// never spend a wallet. This enforces the core P0 invariant directly on the spend
-	// path (not just via the reserved-id guard in identityOf).
-	if !authed {
-		jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
-		return
+
+	var user string
+	var authed bool
+	if gok {
+		user = gc.wallet // "g_<id>" grant-scoped wallet (reservedID-protected)
+	} else {
+		var iok bool
+		user, authed, iok = b.identityOf(r, body)
+		if !iok {
+			jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+			return
+		}
+		// Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
+		// never spend a wallet. This enforces the core P0 invariant directly on the spend
+		// path (not just via the reserved-id guard in identityOf).
+		if !authed {
+			jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
+			return
+		}
 	}
 	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
-	// flood the broker or a provider. Checked before the costly moderation/pick.
-	if ok, retry := b.rl.allow(user); !ok {
+	// flood the broker or a provider. Checked before the costly moderation/pick. A
+	// grant uses its own bucket map keyed by grant id, with the grant's rpm/burst.
+	if gok {
+		if ok, retry := b.grantRL.allowAt(gc.grant.ID, gc.grant.RPM, gc.grant.Burst); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			jsonErr(w, http.StatusTooManyRequests, "grant rate limit exceeded - slow down")
+			return
+		}
+	} else if ok, retry := b.rl.allow(user); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(retry))
 		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 		return
@@ -238,9 +262,18 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &req)
 
+	// Grant token caps (daily/monthly) - checked before dispatch, denied at 429.
+	if gok {
+		if st, msg := b.grantCapCheck(gc.grant); st != 0 {
+			jsonErr(w, st, msg)
+			return
+		}
+	}
+
 	// Mandatory pre-dispatch content screen: an illegal prompt is blocked HERE,
 	// before it reaches any provider. Off by default in dev; required + fail-closed
-	// for launch (see moderation.go). Covers streaming too (this is before the branch).
+	// for launch (see moderation.go). Grants do NOT bypass it (owner's legal
+	// exposure on shared access). Covers streaming too (this is before the branch).
 	if st, msg := b.mod.screen(promptText(body)); st != 0 {
 		log.Printf("moderation reject model=%s status=%d: %s", req.Model, st, msg)
 		jsonErr(w, st, msg)
@@ -256,33 +289,68 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// AROUND a dropped provider without the broker re-handing it the same one.
 	pinNode := r.Header.Get("X-Roger-Node")
 	exclude := parseNodeSet(r.Header.Get("X-Roger-Exclude-Nodes"))
+	// A grant confines routing to the issuing owner's nodes (intersected with the
+	// grant's node/model allow-lists) - it can never reach another owner's hardware.
+	var allow map[string]bool
+	if gok {
+		allow = gc.nodeAllow
+		if len(allow) == 0 {
+			jsonErr(w, http.StatusServiceUnavailable, "no node of this grant's owner is serving right now")
+			return
+		}
+		if gc.modelDenied(req.Model) {
+			jsonErr(w, http.StatusForbidden, "this grant does not allow model "+req.Model)
+			return
+		}
+	}
 	b.mu.Lock()
-	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude)
+	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow)
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
 		msg := "no node offers " + req.Model
-		if confidentialOnly {
+		if gok {
+			msg = "no node of this grant's owner is serving " + req.Model + " right now"
+		} else if confidentialOnly {
 			msg += " on a confidential node"
 		}
 		jsonErr(w, http.StatusServiceUnavailable, msg)
 		return
 	}
 
+	// Resolve the price + payer for this request. Grant: the grant's price (free/self
+	// = 0/0, owner-sponsored otherwise). Signed self-use: $0 when the caller-owner
+	// owns the picked node. Public: the offer's active market price billed to `user`.
+	pricing := b.resolvePricing(gc, gok, user, node, offer)
+	payer := pricing.payer
+	grantID := ""
+	if gok {
+		grantID = gc.grant.ID
+	}
+
 	// Pre-authorize an upper-bound cost (a "hold") BEFORE doing any work, so
 	// concurrent requests can never drive a wallet negative (free inference). The
-	// hold is captured (Finalize) or returned (ReleaseHold) on every exit path.
-	holdIn, holdOut, _, _ := offer.ActivePrice(time.Now())
-	maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
-	_, _ = b.db.BalanceOf(user, b.seedFunds) // seed new users so the hold can land
-	held, herr := b.db.Hold(user, maxCost)
-	if herr != nil {
-		jsonErr(w, http.StatusInternalServerError, "wallet error")
-		return
+	// hold is captured (Finalize) or returned (ReleaseHold) on every exit path. A
+	// $0 (free/self) request places no hold - there is nothing to protect.
+	maxCost := estimateMaxCost(body, pricing.in, pricing.out, offer.Ctx)
+	if pricing.free {
+		maxCost = 0
 	}
-	if !held {
-		jsonErr(w, http.StatusPaymentRequired, "insufficient credits")
-		return
+	if maxCost > 0 {
+		_, _ = b.db.BalanceOf(payer, b.seedFunds) // seed new users so the hold can land
+		held, herr := b.db.Hold(payer, maxCost)
+		if herr != nil {
+			jsonErr(w, http.StatusInternalServerError, "wallet error")
+			return
+		}
+		if !held {
+			msg := "insufficient credits"
+			if gok {
+				msg = "top up to keep sponsoring this grant, or make it --free"
+			}
+			jsonErr(w, http.StatusPaymentRequired, msg)
+			return
+		}
 	}
 
 	// The provider never sees the real user identity - only a pseudonym that is
@@ -296,14 +364,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
 	if req.Stream {
-		b.relayStream(w, t, node, offer, user, req.Model, job, resCh, maxCost)
+		b.relayStream(w, t, node, offer, streamBill{user: payer, model: req.Model, pricing: pricing, grantID: grantID}, job, resCh, maxCost)
 		return
 	}
 
 	settled := false
 	defer func() {
-		if !settled {
-			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
+		if !settled && maxCost > 0 {
+			b.db.ReleaseHold(payer, maxCost) // refund the hold if we never captured it
 		}
 	}()
 
@@ -322,26 +390,33 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		b.exitInflight(node.NodeID, res.Status < 500)
 		rec := res.Receipt
 		if rec.VerifyNode(node.PubKey) {
-			// Bill at the price the user was first quoted for this node+model
-			// (honored for lockWin); owners can't raise mid-engagement.
-			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+			// Resolve the billed price for this request. Free/self -> 0/0 (metering
+			// only). Grant -> the grant's price. Public -> the price the user was
+			// first quoted for this node+model (lockWin), so owners can't raise
+			// mid-engagement.
 			var pin, pout float64
 			var until time.Time
-			if scheduled {
-				// published time-of-use / free price - charge as-is, never pin it
-				// (otherwise first contact in a free window would lock $0 for 24h).
-				pin, pout = curIn, curOut
+			if pricing.fixed {
+				pin, pout = pricing.in, pricing.out
 			} else {
-				// base price in effect - protect from owner hikes for the lock window
-				pin, pout, until = b.lockedPrice(user, node.NodeID, req.Model, curIn, curOut)
+				curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+				if scheduled {
+					// published time-of-use / free price - charge as-is, never pin it
+					// (otherwise first contact in a free window would lock $0 for 24h).
+					pin, pout = curIn, curOut
+				} else {
+					// base price in effect - protect from owner hikes for the lock window
+					pin, pout, until = b.lockedPrice(user, node.NodeID, req.Model, curIn, curOut)
+				}
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
+			rec.GrantID = grantID
 			rec.SignBroker(b.priv)
 			cost := rec.Cost()
-			if cost > maxCost {
+			if maxCost > 0 && cost > maxCost {
 				cost = maxCost // never capture more than was authorized
 			}
-			newBal, ferr := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec)
+			newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
 			if ferr != nil {
 				// Settle failed - leave settled=false so the deferred ReleaseHold
 				// refunds the user in full (fail safe toward the customer) and emit no
@@ -386,10 +461,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 // headers, registers the client as a sink, and enqueues the job. The node pipes
 // chunks via /agent/stream straight to this client; when it finishes it posts a
 // receipt (resCh) which settles the wallet. No metering headers (already streaming).
-func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, user, model string, job protocol.Job, resCh chan protocol.JobResult, maxCost float64) {
+func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, bill streamBill, job protocol.Job, resCh chan protocol.JobResult, maxCost float64) {
+	user, model, pricing, grantID := bill.user, bill.model, bill.pricing, bill.grantID
 	settled := false
 	defer func() {
-		if !settled {
+		if !settled && maxCost > 0 {
 			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
 		}
 	}()
@@ -426,18 +502,24 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		b.exitInflight(node.NodeID, res.Status < 500)
 		rec := res.Receipt
 		if rec.VerifyNode(node.PubKey) {
-			curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
-			pin, pout := curIn, curOut
-			if !scheduled {
-				pin, pout, _ = b.lockedPrice(user, node.NodeID, model, curIn, curOut)
+			var pin, pout float64
+			if pricing.fixed {
+				pin, pout = pricing.in, pricing.out
+			} else {
+				curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+				pin, pout = curIn, curOut
+				if !scheduled {
+					pin, pout, _ = b.lockedPrice(user, node.NodeID, model, curIn, curOut)
+				}
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
+			rec.GrantID = grantID
 			rec.SignBroker(b.priv)
 			cost := rec.Cost()
-			if cost > maxCost {
+			if maxCost > 0 && cost > maxCost {
 				cost = maxCost
 			}
-			if _, ferr := b.db.Finalize(user, node.NodeID, maxCost, cost, cost*(1-b.feeRate), rec); ferr != nil {
+			if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
 				// settle failed - leave settled=false so the deferred ReleaseHold refunds
 				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
 			} else {
@@ -543,7 +625,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 // whose active OUTPUT price exceeds maxPriceOut, is filtered out (0 = no cap on
 // that side). We bill primarily on output, so the out-price cap is the one the
 // pricing UX surfaces; both are enforced. Caller holds lock.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	var best protocol.NodeRegistration
 	var bestOffer protocol.ModelOffer
 	bestPrice := 0.0
@@ -558,6 +640,11 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			continue
 		}
 		if exclude[n.NodeID] {
+			continue
+		}
+		// allow (when set) confines the candidate set, e.g. a grant request may only
+		// reach the issuing owner's nodes (server-derived, never caller-supplied).
+		if allow != nil && !allow[n.NodeID] {
 			continue
 		}
 		if confidentialOnly && !b.confidential[n.NodeID] {

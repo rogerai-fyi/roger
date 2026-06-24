@@ -79,7 +79,37 @@ CREATE TABLE IF NOT EXISTS rogerai.payouts (
 -- dispute / chargeback log (platform-liable events).
 CREATE TABLE IF NOT EXISTS rogerai.disputes (
     id TEXT PRIMARY KEY, request_id TEXT, wallet TEXT, amount DOUBLE PRECISION,
-    state TEXT, account_id TEXT, created_at BIGINT);`
+    state TEXT, account_id TEXT, created_at BIGINT);
+-- grant keys (GRANT-KEYS-DESIGN section 1.1): owner-issued private access keys.
+-- secret_hash UNIQUE is the auth lookup key; the secret itself is never stored.
+CREATE TABLE IF NOT EXISTS rogerai.grants (
+    id           TEXT PRIMARY KEY,            -- grant_<rand>
+    secret_hash  TEXT NOT NULL UNIQUE,        -- sha256(secret); never the secret
+    owner        TEXT NOT NULL,               -- owner pubkey (rogerai.owners.pubkey)
+    label        TEXT NOT NULL,
+    nodes        JSONB DEFAULT '[]',          -- allowed node ids ([] = all owner nodes)
+    models       JSONB DEFAULT '[]',          -- allowed models ([] = any)
+    free         BOOLEAN DEFAULT false,
+    price_in     DOUBLE PRECISION DEFAULT 0,
+    price_out    DOUBLE PRECISION DEFAULT 0,
+    rpm          DOUBLE PRECISION DEFAULT 0,
+    burst        DOUBLE PRECISION DEFAULT 0,
+    daily_cap    BIGINT DEFAULT 0,
+    monthly_cap  BIGINT DEFAULT 0,
+    self         BOOLEAN DEFAULT false,
+    expires_at   BIGINT DEFAULT 0,
+    revoked      BOOLEAN DEFAULT false,
+    created_at   BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS grants_owner ON rogerai.grants (owner);
+-- per-grant token usage rollup (daily/monthly cap check + dashboard). window is a
+-- UTC day ("YYYY-MM-DD") or month ("YYYY-MM"); tokens accumulate at settle time.
+CREATE TABLE IF NOT EXISTS rogerai.grant_usage (
+    grant_id TEXT NOT NULL, window TEXT NOT NULL, tokens BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (grant_id, window));
+-- tag receipts with the grant that served them (NULL for public-market traffic),
+-- so the dashboard can GROUP BY grant_id. Additive, like owner_share.
+ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS grant_id TEXT;
+CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -185,9 +215,9 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 	}
 	rj, _ := json.Marshal(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
@@ -337,9 +367,9 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	}
 	rj, _ := json.Marshal(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	// Capture: release the full reservation then debit the actual spend. Net wallet

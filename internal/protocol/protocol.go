@@ -170,15 +170,24 @@ type UsageReceipt struct {
 	// count is an outlier gate only, never a discrepancy trigger. Settlement
 	// still bills the node's count for now; enforced re-bill is the next step
 	// (see docs-internal/VERIFICATION-DESIGN.md). 0 = not re-counted.
-	BrokerCompletionTokens int    `json:"broker_completion_tokens,omitempty"`
-	TokenizerExact         bool   `json:"tokenizer_exact,omitempty"`
-	NodeSig                string `json:"node_sig,omitempty"`
-	BrokerSig              string `json:"broker_sig,omitempty"`
+	BrokerCompletionTokens int  `json:"broker_completion_tokens,omitempty"`
+	TokenizerExact         bool `json:"tokenizer_exact,omitempty"`
+	// GrantID tags a receipt with the owner grant key that served it (empty for
+	// public-market traffic), so the owner's dashboard can group usage per grant.
+	// Broker-set after the node signs (the node never sees the grant), so it is
+	// excluded from the node-signed bytes; see signingBytes.
+	GrantID   string `json:"grant_id,omitempty"`
+	NodeSig   string `json:"node_sig,omitempty"`
+	BrokerSig string `json:"broker_sig,omitempty"`
 }
 
-// signingBytes is the canonical form signed by both parties (sigs excluded).
+// signingBytes is the canonical form signed by both parties (sigs excluded). The
+// broker-set GrantID is also excluded: the node signs before the broker resolves
+// the grant (the node never sees it), so including it would break node-sig
+// verification. The grant tag is a billing/dashboard annotation, not lineage.
 func (r UsageReceipt) signingBytes() []byte {
 	c := r
+	c.GrantID = ""
 	c.NodeSig = ""
 	c.BrokerSig = ""
 	b, _ := json.Marshal(c)

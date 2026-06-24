@@ -63,6 +63,7 @@ type broker struct {
 	conn         connect
 	mod          moderation
 	rl           *rateLimiter
+	grantRL      *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
 	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
 	probe        probeConfig   // active canary + latency probe
 }
@@ -120,6 +121,7 @@ func main() {
 	b.conn = loadConnect()
 	b.mod = loadModeration()
 	b.rl = loadRateLimiter()
+	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)
@@ -150,6 +152,8 @@ func main() {
 	mux.HandleFunc("/connect/status", b.connectStatus)            // Connect capability status (KYC gate)
 	mux.HandleFunc("/payouts/request", b.payoutsRequest)          // request a payout (KYC + min gated)
 	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
+	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
+	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -284,12 +288,14 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 
 // reservedID reports whether an id belongs to a namespace that an UNSIGNED legacy
 // header must never be allowed to claim: the pubkey-derived wallet ("u_"+16hex,
-// owned by a signed caller) OR the github-scoped web wallet ("u_gh_<id>", owned by
-// a session-cookie holder). Both are guessable from public info (a pubkey, or a
-// GitHub numeric id), so the unsigned path must reject them or it leaks another
-// caller's balance/spend/recent. See identityOf.
+// owned by a signed caller), the github-scoped web wallet ("u_gh_<id>", owned by
+// a session-cookie holder), OR a grant wallet ("g_<id>", owned server-side by a
+// grant secret). All are guessable from public info (a pubkey, a GitHub numeric
+// id, or a grant id), so the unsigned path must reject them or it leaks another
+// caller's balance/spend/recent, or lets someone claim a grant without its secret.
+// See identityOf.
 func reservedID(s string) bool {
-	return looksLikeDerivedID(s) || strings.HasPrefix(s, "u_gh_")
+	return looksLikeDerivedID(s) || strings.HasPrefix(s, "u_gh_") || strings.HasPrefix(s, "g_")
 }
 
 // looksLikeDerivedID reports whether s is shaped like a pubkey-derived wallet id
