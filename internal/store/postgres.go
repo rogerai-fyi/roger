@@ -151,7 +151,38 @@ CREATE TABLE IF NOT EXISTS rogerai.nodes (
     reg           JSONB NOT NULL,
     confidential  BOOLEAN NOT NULL DEFAULT false,
     last_seen     BIGINT NOT NULL DEFAULT 0,
-    registered_at BIGINT NOT NULL DEFAULT 0);`
+    registered_at BIGINT NOT NULL DEFAULT 0);
+-- safety: preserved child-exploitation hits (18 USC 2258A). ACCESS-RESTRICTED +
+-- retention-limited: the offending prompt is stored ENCRYPTED-AT-REST (the broker
+-- encrypts before insert; the column is ciphertext, never plaintext). report_state
+-- tracks the CyberTipline obligation (queued -> reported). pseudonym is the opaque
+-- per-(user,node) id (never the real user); ip + category aid the report.
+CREATE TABLE IF NOT EXISTS rogerai.csam_incidents (
+    id           BIGSERIAL PRIMARY KEY,
+    pseudonym    TEXT NOT NULL,
+    ip           TEXT,
+    category     TEXT,
+    content      BYTEA NOT NULL,                 -- broker-encrypted ciphertext
+    report_state TEXT NOT NULL DEFAULT 'queued', -- queued -> reported
+    created_at   BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS csam_state ON rogerai.csam_incidents (report_state, id DESC);
+-- abuse/quality reports (POST /report; may be anonymous). The per-node count drives
+-- the auto-eject ban threshold. ip is the reporter (abuse-of-reporting forensics).
+CREATE TABLE IF NOT EXISTS rogerai.reports (
+    id         BIGSERIAL PRIMARY KEY,
+    category   TEXT NOT NULL,
+    node_id    TEXT,
+    request_id TEXT,
+    detail     TEXT,
+    ip         TEXT,
+    created_at BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS reports_node ON rogerai.reports (node_id);
+-- banned/ejected nodes: flipped OUT of pick/market/discover. Re-hydrated at startup so
+-- a ban survives a restart. reason records why (report threshold, manual, etc).
+CREATE TABLE IF NOT EXISTS rogerai.banned_nodes (
+    node_id    TEXT PRIMARY KEY,
+    reason     TEXT,
+    created_at TIMESTAMPTZ DEFAULT now());`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)

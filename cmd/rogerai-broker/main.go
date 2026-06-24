@@ -17,6 +17,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -71,6 +72,14 @@ type broker struct {
 	concierge    *concierge    // "Ping" homepage chatbot (public LLM surface)
 	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
 	probe        probeConfig   // active canary + latency probe
+
+	// banned is the in-memory ejected-node set (node id -> true), guarded by metricsMu.
+	// Re-hydrated from the store at startup and updated on a ban; pick/discover/market
+	// consult it so a reported/banned node is never routed to (reuses the probe-eject
+	// idea: a banned node is treated as not-serving). reportEjectAt is the per-node
+	// report threshold that auto-bans (0 disables auto-eject).
+	banned        map[string]bool
+	reportEjectAt int
 }
 
 // priceQuote pins the price a user first saw for a (node, model) so an owner's
@@ -125,7 +134,13 @@ func main() {
 	db.SetSeedLimit(seedLimit)
 	log.Printf("seed: %g credits/new user, capped at %d seeded users (max %g free credits)", *seed, seedLimit, *seed*float64(seedLimit))
 
-	priv := loadBrokerKey()
+	priv, err := resolveBrokerKey(os.Getenv("BROKER_PRIVATE_KEY"), requireBrokerKey())
+	if err != nil {
+		// Fail-closed (ROGERAI_REQUIRE_BROKER_KEY set): the seed signs receipts,
+		// derives pseudonyms, AND keys the session-cookie HMAC, so an ephemeral
+		// fallback silently breaks all three across a restart. Refuse to boot.
+		log.Fatalf("broker identity: %v (ROGERAI_REQUIRE_BROKER_KEY is set - refusing to boot with an ephemeral key)", err)
+	}
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{}, tps: map[string]float64{},
@@ -135,7 +150,10 @@ func main() {
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
+		banned:        map[string]bool{},
+		reportEjectAt: reportEjectThreshold(),
 	}
+	b.rehydrateBans()
 	// Re-hydrate the in-memory node registry from the store so a restart/redeploy
 	// does NOT wipe registrations: a still-running provider reappears once its next
 	// heartbeat re-confirms liveness, instead of being gone until a manual restart.
@@ -185,6 +203,7 @@ func main() {
 	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/concierge", b.conciergeHandler) // "Ping" homepage chatbot (public)
+	mux.HandleFunc("/report", b.report)              // public abuse/quality report + node-ban flow
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
@@ -219,21 +238,49 @@ func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (i
 	return min(q.in, curIn), min(q.out, curOut), q.until
 }
 
-// loadBrokerKey returns the broker's stable signing identity. Set BROKER_PRIVATE_KEY
-// (hex ed25519 seed) as a secret so lineage receipts stay verifiable and pseudonyms
-// stay stable across restarts/redeploys; otherwise a fresh ephemeral key is used.
-func loadBrokerKey() ed25519.PrivateKey {
-	if h := os.Getenv("BROKER_PRIVATE_KEY"); h != "" {
+// requireBrokerKey mirrors requireLive (see billing.go): when set on the live broker
+// it makes the signing identity FAIL CLOSED - the broker refuses to boot with an
+// ephemeral key rather than silently breaking receipts/pseudonyms/session cookies on
+// the next restart. Off by default so dev/local runs still come up with an ephemeral
+// key. Accepts 1/true/yes/on.
+func requireBrokerKey() bool {
+	switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_BROKER_KEY")) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// resolveBrokerKey returns the broker's stable signing identity from the hex
+// BROKER_PRIVATE_KEY seed. The seed signs lineage receipts, derives the per-(user,node)
+// pseudonyms, AND keys the web session-cookie HMAC, so it MUST stay stable across
+// restarts/redeploys or all three silently break. Posture:
+//
+//   - valid seed set                -> load it (stable identity).
+//   - unset/invalid, requireKey=true -> return an error: the caller REFUSES TO BOOT
+//     (fail-closed), instead of silently downgrading to an ephemeral key.
+//   - unset/invalid, requireKey=false -> generate an ephemeral key (dev), logged loud.
+//
+// Returns (key, nil) on success or a fresh ephemeral key, and (nil, err) only in the
+// fail-closed case so main can log + exit non-zero.
+func resolveBrokerKey(h string, requireKey bool) (ed25519.PrivateKey, error) {
+	if h != "" {
 		if seed, err := hex.DecodeString(h); err == nil && len(seed) == ed25519.SeedSize {
 			log.Printf("broker identity: loaded from BROKER_PRIVATE_KEY")
-			return ed25519.NewKeyFromSeed(seed)
+			return ed25519.NewKeyFromSeed(seed), nil
+		}
+		if requireKey {
+			return nil, fmt.Errorf("BROKER_PRIVATE_KEY invalid (want %d-byte hex seed)", ed25519.SeedSize)
 		}
 		log.Printf("BROKER_PRIVATE_KEY invalid (want %d-byte hex seed) - using ephemeral key", ed25519.SeedSize)
 	} else {
+		if requireKey {
+			return nil, fmt.Errorf("BROKER_PRIVATE_KEY unset")
+		}
 		log.Printf("BROKER_PRIVATE_KEY unset - using ephemeral key (receipts won't verify across restarts)")
 	}
 	_, priv, _ := ed25519.GenerateKey(nil)
-	return priv
+	return priv, nil
 }
 
 // pseudonym derives an opaque, per-(user,node) id from a broker-held secret.

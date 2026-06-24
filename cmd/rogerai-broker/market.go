@@ -37,6 +37,11 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var out []offerView
 	for _, n := range b.nodes {
+		// Ejected/banned nodes are removed from the public market view too (not just
+		// pick), so a reported node disappears from /discover.
+		if b.isBanned(n.NodeID) {
+			continue
+		}
 		online := time.Since(b.lastSeen[n.NodeID]) < nodeTTL
 		for _, o := range n.Offers {
 			pin, pout, free, _ := o.ActivePrice(now)
@@ -98,6 +103,11 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	b.metricsMu.Lock()
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
+			continue
+		}
+		// Banned/ejected nodes drop out of the aggregated market signal too. metricsMu
+		// is already held here, so read b.banned directly (no re-lock via isBanned).
+		if b.banned[n.NodeID] {
 			continue
 		}
 		tps := b.tps[n.NodeID]

@@ -157,9 +157,14 @@ func (b *broker) conciergeHandler(w http.ResponseWriter, r *http.Request) {
 	// Inert when MODERATION_URL is unset; rejects with a 4xx when flagged; fail-closed
 	// (503) when REQUIRE_MODERATION=1 and the screen is unreachable. We screen only the
 	// latest user turn (the new content) to keep this hot public path cheap.
-	if st, msg := b.mod.screen(lastUserText(req.Messages)); st != 0 {
-		log.Printf("concierge moderation reject status=%d: %s", st, msg)
-		jsonErr(w, st, msg)
+	if res := b.mod.screen(lastUserText(req.Messages)); !res.allow() {
+		log.Printf("concierge moderation reject status=%d: %s", res.status, res.msg)
+		if res.csam {
+			// Public unauthenticated surface: preserve + queue keyed on the caller IP
+			// pseudonym (there is no wallet identity here). 18 USC 2258A.
+			b.preserveCSAM(b.pseudonym(ip, "concierge"), ip, res.category, []byte(lastUserText(req.Messages)))
+		}
+		jsonErr(w, res.status, res.msg)
 		return
 	}
 
@@ -259,9 +264,11 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 	// grants/concierge do not bypass it). conciergeHandler already screens the user
 	// input before reaching here, so on the concierge path this is belt-and-suspenders;
 	// any other caller of dogfoodRelay is still covered.
-	if st, _ := b.mod.screen(promptText(rawBody)); st != 0 {
+	if res := b.mod.screen(promptText(rawBody)); !res.allow() {
 		// Treat a screen rejection as "not served" so Ping degrades gracefully
-		// rather than echoing a 451 to the homepage widget.
+		// rather than echoing a 451 to the homepage widget. (conciergeHandler already
+		// preserved+queued any CSAM hit before reaching here, so this defensive
+		// second screen need not duplicate the report.)
 		return "", false
 	}
 

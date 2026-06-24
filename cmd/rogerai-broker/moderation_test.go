@@ -23,11 +23,11 @@ func TestPromptText(t *testing.T) {
 
 func TestModerationScreen(t *testing.T) {
 	// disabled (no url, not required) -> allow
-	if st, _ := (moderation{}).screen("x"); st != 0 {
+	if st := (moderation{}).screen("x").status; st != 0 {
 		t.Errorf("disabled should allow, got %d", st)
 	}
 	// required but unconfigured -> 503 (fail closed)
-	if st, _ := (moderation{require: true}).screen("x"); st != http.StatusServiceUnavailable {
+	if st := (moderation{require: true}).screen("x").status; st != http.StatusServiceUnavailable {
 		t.Errorf("required+unset should 503, got %d", st)
 	}
 	// flagged endpoint -> 451
@@ -35,7 +35,7 @@ func TestModerationScreen(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[{"flagged":true}]}`))
 	}))
 	defer flag.Close()
-	if st, _ := (moderation{provider: "url", url: flag.URL, client: flag.Client()}).screen("bad"); st != http.StatusUnavailableForLegalReasons {
+	if st := (moderation{provider: "url", url: flag.URL, client: flag.Client()}).screen("bad").status; st != http.StatusUnavailableForLegalReasons {
 		t.Errorf("flagged should 451, got %d", st)
 	}
 	// clean endpoint -> allow
@@ -43,14 +43,14 @@ func TestModerationScreen(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[{"flagged":false}]}`))
 	}))
 	defer clean.Close()
-	if st, _ := (moderation{provider: "url", url: clean.URL, client: clean.Client()}).screen("ok"); st != 0 {
+	if st := (moderation{provider: "url", url: clean.URL, client: clean.Client()}).screen("ok").status; st != 0 {
 		t.Errorf("clean should allow, got %d", st)
 	}
 	// required + endpoint down -> 503 (fail closed); not required + down -> allow (fail open)
-	if st, _ := (moderation{provider: "url", url: "http://127.0.0.1:0", require: true, client: &http.Client{}}).screen("x"); st != http.StatusServiceUnavailable {
+	if st := (moderation{provider: "url", url: "http://127.0.0.1:0", require: true, client: &http.Client{}}).screen("x").status; st != http.StatusServiceUnavailable {
 		t.Errorf("required+unreachable should 503, got %d", st)
 	}
-	if st, _ := (moderation{provider: "url", url: "http://127.0.0.1:0", client: &http.Client{}}).screen("x"); st != 0 {
+	if st := (moderation{provider: "url", url: "http://127.0.0.1:0", client: &http.Client{}}).screen("x").status; st != 0 {
 		t.Errorf("unreachable+not-required should fail open, got %d", st)
 	}
 }
@@ -66,7 +66,7 @@ func TestModerationEmptyInputShortCircuits(t *testing.T) {
 	defer srv.Close()
 	m := moderation{provider: "url", url: srv.URL, client: srv.Client()}
 	for _, in := range []string{"", "   ", "\n\t "} {
-		if st, _ := m.screen(in); st != 0 {
+		if st := m.screen(in).status; st != 0 {
 			t.Errorf("empty input %q should allow, got %d", in, st)
 		}
 	}
@@ -82,7 +82,7 @@ func TestModerationCategoriesShape(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[{"flagged":true,"categories":{"sexual/minors":true,"violence":false}}]}`))
 	}))
 	defer srv.Close()
-	if st, _ := (moderation{provider: "url", url: srv.URL, client: srv.Client()}).screen("bad"); st != http.StatusUnavailableForLegalReasons {
+	if st := (moderation{provider: "url", url: srv.URL, client: srv.Client()}).screen("bad").status; st != http.StatusUnavailableForLegalReasons {
 		t.Errorf("flagged-with-categories should 451, got %d", st)
 	}
 }
@@ -119,7 +119,7 @@ func groqMod(srv *httptest.Server, require bool) moderation {
 func TestModerationGroqSafe(t *testing.T) {
 	srv := groqVerdictServer(t, "safe", nil)
 	defer srv.Close()
-	if st, _ := groqMod(srv, false).screen("hi there"); st != 0 {
+	if st := groqMod(srv, false).screen("hi there").status; st != 0 {
 		t.Errorf("safe verdict should allow, got %d", st)
 	}
 }
@@ -128,7 +128,7 @@ func TestModerationGroqSafe(t *testing.T) {
 func TestModerationGroqUnsafe(t *testing.T) {
 	srv := groqVerdictServer(t, "unsafe\nS1", nil)
 	defer srv.Close()
-	if st, _ := groqMod(srv, false).screen("bad stuff"); st != http.StatusUnavailableForLegalReasons {
+	if st := groqMod(srv, false).screen("bad stuff").status; st != http.StatusUnavailableForLegalReasons {
 		t.Errorf("unsafe verdict should 451, got %d", st)
 	}
 }
@@ -138,12 +138,12 @@ func TestModerationGroqUnsafe(t *testing.T) {
 func TestModerationGroqFailClosed(t *testing.T) {
 	down := moderation{provider: "groq", require: true, client: &http.Client{},
 		groqKey: "test-key", groqURL: "http://127.0.0.1:0", groqModel: "x"}
-	if st, _ := down.screen("x"); st != http.StatusServiceUnavailable {
+	if st := down.screen("x").status; st != http.StatusServiceUnavailable {
 		t.Errorf("groq+required+unreachable should 503, got %d", st)
 	}
 	open := down
 	open.require = false
-	if st, _ := open.screen("x"); st != 0 {
+	if st := open.screen("x").status; st != 0 {
 		t.Errorf("groq+unreachable+not-required should fail open, got %d", st)
 	}
 }
@@ -155,7 +155,7 @@ func TestModerationGroqEmptyShortCircuits(t *testing.T) {
 	defer srv.Close()
 	m := groqMod(srv, true)
 	for _, in := range []string{"", "   ", "\n\t "} {
-		if st, _ := m.screen(in); st != 0 {
+		if st := m.screen(in).status; st != 0 {
 			t.Errorf("empty input %q should allow, got %d", in, st)
 		}
 	}

@@ -47,12 +47,39 @@ type moderation struct {
 	groqKey   string
 	groqURL   string
 	groqModel string
+
+	// csamCats is the set of policy category codes (lowercased) that mark a hit as
+	// child sexual abuse material - the legally-distinct class that must be PRESERVED
+	// and REPORTED (US 18 USC 2258A), not just rejected+discarded. Defaults to Llama
+	// Guard's S4 plus the OpenAI Moderation "sexual/minors" category; configurable via
+	// ROGERAI_CSAM_CATEGORIES (comma-separated). Matching is case-insensitive.
+	csamCats map[string]bool
 }
+
+// modResult is the outcome of a content screen. status==0 means ALLOW; a non-zero
+// status is the HTTP code to reject with (451 flagged / 503 fail-closed). csam is true
+// ONLY for a child-exploitation hit (a matched csamCats category), which the relay must
+// PRESERVE + QUEUE for a CyberTipline report rather than silently discard; category is
+// the matched category string (for the incident record + log).
+type modResult struct {
+	status   int
+	msg      string
+	csam     bool
+	category string
+}
+
+// allow reports whether the screen passed (nothing to reject).
+func (r modResult) allow() bool { return r.status == 0 }
 
 // defaultModerationModel is a current Groq Llama Guard model id (verified against
 // Groq's catalog 2026-06-24). Override with MODERATION_MODEL to fix the name without
 // a redeploy if Groq retires/renames it.
 const defaultModerationModel = "meta-llama/llama-guard-4-12b"
+
+// defaultCSAMCategories is the built-in child-exploitation category set: Llama Guard's
+// S4 ("Child Sexual Exploitation") and the OpenAI Moderation "sexual/minors" category.
+// Override (replace) with ROGERAI_CSAM_CATEGORIES.
+var defaultCSAMCategories = []string{"s4", "sexual/minors"}
 
 func loadModeration() moderation {
 	m := moderation{
@@ -68,6 +95,7 @@ func loadModeration() moderation {
 	if v := strings.TrimSpace(os.Getenv("MODERATION_MODEL")); v != "" {
 		m.groqModel = v
 	}
+	m.csamCats = loadCSAMCategories(os.Getenv("ROGERAI_CSAM_CATEGORIES"))
 	// Resolve the backend. An explicit MODERATION_PROVIDER wins; otherwise infer it
 	// from what is configured (a MODERATION_URL implies "url"; else a GROQ_API_KEY
 	// implies "groq"). The result is one of "", "url", "groq".
@@ -99,7 +127,56 @@ func loadModeration() moderation {
 	default:
 		log.Printf("MODERATION: enabled via %s (require=%v)", m.url, m.require)
 	}
+	// Surface the legal preserve+report obligation at startup whenever the screen is
+	// on: a CSAM (child-exploitation) hit is PRESERVED to rogerai.csam_incidents and a
+	// CyberTipline report is QUEUED (US 18 USC 2258A), not silently discarded.
+	if m.provider != "" {
+		log.Printf("MODERATION: CSAM categories %v -> hits are PRESERVED + a CyberTipline report is QUEUED (18 USC 2258A); other unsafe categories are 451-rejected only", sortedKeys(m.csamCats))
+	}
 	return m
+}
+
+// loadCSAMCategories parses the configurable child-exploitation category set from a
+// comma-separated env value (case-folded), falling back to the built-in default.
+func loadCSAMCategories(env string) map[string]bool {
+	out := map[string]bool{}
+	add := func(list []string) {
+		for _, c := range list {
+			if c = strings.ToLower(strings.TrimSpace(c)); c != "" {
+				out[c] = true
+			}
+		}
+	}
+	if strings.TrimSpace(env) != "" {
+		add(strings.Split(env, ","))
+	}
+	if len(out) == 0 {
+		add(defaultCSAMCategories)
+	}
+	return out
+}
+
+// sortedKeys returns a set's keys sorted, for a stable startup log line.
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isCSAM reports whether any of the matched policy categories falls in the configured
+// CSAM set, and returns the first matched category (for the incident record + log).
+// Category names are compared case-insensitively. The list is the raw category tokens
+// from either backend (Llama Guard "S4"/"S1" codes, or OpenAI category keys).
+func (m moderation) isCSAM(cats []string) (bool, string) {
+	for _, c := range cats {
+		if m.csamCats[strings.ToLower(strings.TrimSpace(c))] {
+			return true, c
+		}
+	}
+	return false, ""
 }
 
 // failMode renders the fail posture for a startup log line.
@@ -115,22 +192,22 @@ func failMode(require bool) string {
 // policy, 503 when the screen is required but unavailable (fail-closed). When not
 // required, a configuration or transport problem fails open (logged) so a screen
 // outage does not take the marketplace down in non-launch posture.
-func (m moderation) screen(text string) (status int, msg string) {
+func (m moderation) screen(text string) modResult {
 	// Backend not configured (or configured but missing its credential).
 	switch {
 	case m.provider == "",
 		m.provider == "url" && m.url == "",
 		m.provider == "groq" && m.groqKey == "":
 		if m.require {
-			return http.StatusServiceUnavailable, "content screening required but not configured"
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening required but not configured"}
 		}
-		return 0, ""
+		return modResult{}
 	}
 	// Empty input has nothing to screen - short-circuit ALLOW and skip the network
 	// round-trip (this is on the hot dispatch path). A no-text request is handled by
 	// the dispatch logic, not by the content policy.
 	if strings.TrimSpace(text) == "" {
-		return 0, ""
+		return modResult{}
 	}
 	if m.provider == "groq" {
 		return m.screenGroq(text)
@@ -139,17 +216,21 @@ func (m moderation) screen(text string) (status int, msg string) {
 	resp, err := m.client.Post(m.url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		if m.require {
-			return http.StatusServiceUnavailable, "content screening unavailable"
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
 		}
 		log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", err)
-		return 0, ""
+		return modResult{}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if m.require {
-			return http.StatusServiceUnavailable, "content screening error"
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening error"}
 		}
-		return 0, ""
+		// Fail-open path: log every skipped incident so it is recorded for review
+		// (matches the groq backend's fail-open log). Policy is unchanged - REQUIRE
+		// still controls open vs closed; this only guarantees the log.
+		log.Printf("MODERATION: screen returned HTTP %d, failing open (require=false)", resp.StatusCode)
+		return modResult{}
 	}
 	// Accept the OpenAI Moderation shape {"results":[{"flagged":bool,"categories":{...}}]}
 	// and a simpler adapter shape {"flagged":bool} (e.g. a Llama Guard wrapper). The
@@ -175,12 +256,16 @@ func (m moderation) screen(text string) (status int, msg string) {
 		}
 	}
 	if flagged {
-		if hit := flaggedCategories(cats); hit != "" {
+		matched := matchedCategoryList(cats)
+		if hit := strings.Join(matched, ", "); hit != "" {
 			log.Printf("MODERATION: blocked (categories: %s)", hit)
 		}
-		return http.StatusUnavailableForLegalReasons, "request blocked by the content policy"
+		if csam, cat := m.isCSAM(matched); csam {
+			return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}
+		}
+		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy"}
 	}
-	return 0, ""
+	return modResult{}
 }
 
 // screenGroq screens text with a Groq-hosted Llama Guard model over Groq's
@@ -190,7 +275,7 @@ func (m moderation) screen(text string) (status int, msg string) {
 // which we capture for the block log. Honors the same fail-open/closed posture as the
 // URL backend: on a transport/non-200/parse error, fail-closed (503) when required,
 // else fail-open (served). Caller has already short-circuited empty input.
-func (m moderation) screenGroq(text string) (status int, msg string) {
+func (m moderation) screenGroq(text string) modResult {
 	payload := map[string]any{
 		"model": m.groqModel,
 		"messages": []map[string]string{
@@ -229,32 +314,36 @@ func (m moderation) screenGroq(text string) (status int, msg string) {
 		first = first[:i]
 	}
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "safe") {
-		return 0, ""
+		return modResult{}
 	}
-	cats := strings.TrimSpace(strings.TrimPrefix(verdict, first))
-	cats = strings.ReplaceAll(strings.ReplaceAll(cats, "\r", " "), "\n", " ")
-	cats = strings.TrimSpace(cats)
-	if cats != "" {
-		log.Printf("MODERATION: blocked by Llama Guard (categories: %s)", cats)
+	rawCats := strings.TrimSpace(strings.TrimPrefix(verdict, first))
+	rawCats = strings.ReplaceAll(strings.ReplaceAll(rawCats, "\r", " "), "\n", " ")
+	rawCats = strings.TrimSpace(rawCats)
+	matched := splitCategories(rawCats)
+	if rawCats != "" {
+		log.Printf("MODERATION: blocked by Llama Guard (categories: %s)", strings.Join(matched, ", "))
 	} else {
 		log.Printf("MODERATION: blocked by Llama Guard")
 	}
-	return http.StatusUnavailableForLegalReasons, "request blocked by the content policy"
+	if csam, cat := m.isCSAM(matched); csam {
+		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}
+	}
+	return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy"}
 }
 
 // groqFailMode applies the require posture to a Groq-backend error: fail-closed (503)
 // when required, else fail-open (allow, logged).
-func (m moderation) groqFailMode(what string, err error) (int, string) {
+func (m moderation) groqFailMode(what string, err error) modResult {
 	if m.require {
-		return http.StatusServiceUnavailable, "content screening unavailable"
+		return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
 	}
 	log.Printf("MODERATION: groq screen error (%s: %v), failing open (require=false)", what, err)
-	return 0, ""
+	return modResult{}
 }
 
-// flaggedCategories renders the matched policy categories (value true) as a sorted,
-// comma-separated string for the block log. Returns "" when none are reported.
-func flaggedCategories(cats map[string]bool) string {
+// matchedCategoryList renders the matched policy categories (value true) from an
+// OpenAI-shape category map as a sorted slice (for the block log + CSAM detection).
+func matchedCategoryList(cats map[string]bool) []string {
 	var hit []string
 	for name, matched := range cats {
 		if matched {
@@ -262,7 +351,19 @@ func flaggedCategories(cats map[string]bool) string {
 		}
 	}
 	sort.Strings(hit)
-	return strings.Join(hit, ", ")
+	return hit
+}
+
+// splitCategories parses Llama Guard's comma/space-separated category codes (e.g.
+// "S4", "S1,S3", "S1, S3") into a trimmed, non-empty list.
+func splitCategories(s string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // promptText pulls the user-visible text from an OpenAI chat-completions body for
