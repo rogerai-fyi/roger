@@ -7,9 +7,11 @@
    tuning-bar progress readout, all radio/tape-deck styled.
 
      rogerai  - a fuller walk of the bare interactive TUI: boot + the preset
-                bar (incl [0] AGENT), tuning in + browsing the band, opening a
-                channel + chatting, a glimpse of compact `m` mode, and a short
-                agent-mode beat (a dj.md harness tool turn: tool call + result).
+                bar, then [2] SHARE -> auto-detecting local models across
+                backends (the provider-onboarding moment), then the consumer
+                walk: tuning in + browsing the band, opening a channel +
+                chatting, a glimpse of compact `m` mode, and a short agent-mode
+                beat (a dj.md harness tool turn: tool call + result).
      search   - the band listing for a model, with inline signal bars.
      use      - staged scanning -> locking -> handshake -> CHANNEL OPEN +
                 endpoint plate.
@@ -147,36 +149,10 @@
       label: "rogerai", title: "rogerai - the dial",
       build: function () {
         return compile(function (c) {
-          // --- LEAD WITH THE PROVIDER SIDE: this is the differentiator ---
-          // entering the CLI as a station owner: your GPU as a station, the
-          // model detected, going ◉ ON AIR, a served request + an earnings tick.
-          var shareCmd = "rogerai share " + BAND + " --rate " + MAX_PRICE;
-          c.type([], shareCmd, AFTER_TYPE);
-          var shBase = [PROMPT + head(shareCmd), ""];
-          var shSteps = [
-            ok("  ◉") + " your GPU         " + head("RTX PRO 4500") + dim(" · 32 GB · 127.0.0.1:8000") + "  " + ok("ok"),
-            ok("  ◉") + " models detected  " + head(BAND) + dim(" · ") + dim("vLLM backend") + "  " + ok("ok"),
-            ok("  ◉") + " call-sign        " + head("@you") + " " + gold("◆") + dim(" · rate ") + money(MAX_PRICE + " $/M out") + "  " + ok("ok")
-          ];
-          for (var si = 0; si < shSteps.length; si++) c.show(shBase.concat(shSteps.slice(0, si + 1)), STEP);
-          var shOnAir = shBase.concat(shSteps, ["",
-            ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
-              dim(" · ") + live("station live") + dim(" · your GPU is a station now")
-          ]);
-          c.show(shOnAir, STAGE);
-          c.show(shOnAir.concat(["",
-            dim("  ┌ live ──────────────────────────────────────────────────────┐"),
-            dim("  │ ") + ok("◉ on air ") + gold("◆") + dim(" │ ") + head("@you    ") +
-              dim(" │ ") + live("incoming request from @ssh-bot…") + dim("            │"),
-            dim("  └────────────────────────────────────────────────────────────┘")
-          ]), STAGE);
-          c.show(shOnAir.concat(["",
-            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money(MAX_PRICE + " $/M") +
-              dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"),
-            dim("  balance ") + money("$42.18") + dim("  ·  your GPU is paying rent. ") + live("roger that.")
-          ]), END_HOLD);
-
-          // --- now the other side: boot / carrier (tune in as a consumer) ---
+          // --- OPEN ON ONBOARDING: launch the bare TUI, then [2] SHARE ->
+          // auto-detect local models across backends. This is the DISCOVERY
+          // moment (find what you can put on air), NOT a station broadcasting.
+          // The consumer walk (tune in -> chat -> [0] AGENT) follows after.
           c.type([], "rogerai", AFTER_TYPE);
           c.show([
             PROMPT + head("rogerai"), "",
@@ -185,9 +161,71 @@
           var deck = [
             PROMPT + head("rogerai"), "",
             dim("  ((•)) RogerAI   ") + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
-            dim("  presets   ") + head("[0] AGENT") + dim("  [1] search  [2] use  [3] share  [4] balance"),
+            dim("  presets   ") + head("[0] AGENT") + dim("  [1] TUNE IN  ") + head("[2] SHARE") + dim("  [3] CONFIG  [4] balance"),
             dim("            ") + dim("dial a band · ◉ on  ○ off  ◆ lineage-verified")
           ];
+          c.show(deck, STAGE);
+
+          // --- press [2] SHARE: become a provider, scan for local models ---
+          var pressShare = deck.concat(["",
+            dim("  ▸ ") + head("[2] SHARE") + dim("  ·  put your own GPU on the air")
+          ]);
+          c.show(pressShare, STEP);
+
+          // detection scan: probe the real local backends one at a time.
+          // ◉ = backend up + models found, ○ = port answered but empty.
+          var scanHead = [
+            head("  [2] SHARE") + dim("  ·  go on air") + "   " + gold("◆ provider"),
+            RULE,
+            dim("  scanning the band for local models…"), ""
+          ];
+          var probes = [
+            ok("  ◉") + " ollama      " + dim(":11434") + dim("  ……  ") + ok("2 models"),
+            ok("  ◉") + " llama.cpp   " + dim(":8080") + dim("   ……  ") + ok("1 model"),
+            dim("  ○") + " lm-studio   " + dim(":1234") + dim("   ……  ") + dim("none"),
+            ok("  ◉") + " vLLM        " + dim(":8000") + dim("   ……  ") + ok("1 model")
+          ];
+          // probing line, then each backend resolves in turn
+          c.show(scanHead.concat([dim("  ○") + " ollama      " + dim(":11434") + dim("  ……  ") + live("probing…") + CURSOR]), STEP);
+          for (var pi = 0; pi < probes.length; pi++) {
+            var rows = probes.slice(0, pi + 1);
+            if (pi + 1 < probes.length) {
+              var nextName = ["ollama      :11434", "llama.cpp   :8080 ", "lm-studio   :1234 ", "vLLM        :8000 "][pi + 1];
+              rows = rows.concat([dim("  ○") + " " + dim(nextName) + dim("  ……  ") + live("probing…") + CURSOR]);
+            }
+            c.show(scanHead.concat(rows), STEP);
+          }
+          c.show(scanHead.concat(probes, ["",
+            ok("  ◉") + dim("  3 backends up · ") + head("4 models") + dim(" detected across the box")
+          ]), STAGE);
+
+          // --- the SHARE table: detected local models, ready to go on air ---
+          var shareHead = [
+            head("  [2] SHARE") + dim("  ·  your models, detected") + "   " + gold("◆ provider"),
+            RULE,
+            "  " + dim(pad("MODEL", 20)) + dim(pad("BACKEND", 12)) + dim(pad("STATUS", 11)) + dim("YOUR RATE")
+          ];
+          var locals = [
+            { model: "gpt-oss-20b",      back: "ollama",    rate: "0.18" },
+            { model: "qwen3-coder-30b",  back: "vLLM",      rate: "0.30" },
+            { model: "llama-3.3-70b",    back: "llama.cpp", rate: "0.55" }
+          ];
+          function localRow(m) {
+            return "  " + dim("○") + " " + head(pad(m.model, 18)) +
+              dim(pad(m.back, 12)) + dim(pad("OFF-AIR", 11)) + money(m.rate + " $/M");
+          }
+          for (var li = 0; li < locals.length; li++) {
+            c.show(shareHead.concat(locals.slice(0, li + 1).map(localRow)), STEP);
+          }
+          c.show(shareHead.concat(locals.map(localRow), [RULE,
+            dim("  your models, ready to go on air - pick one to monetize.")
+          ]), STAGE);
+          c.show(shareHead.concat(locals.map(localRow), [RULE,
+            dim("  pick a model, set a rate, go live - GPU pays rent. ") + live("roger that.")
+          ]), END_HOLD);
+
+          // --- now the consumer side: tune in, browse the band ---
+          c.type([], "rogerai", AFTER_TYPE);
           c.show(deck, STAGE);
 
           // --- tune in: browse the band, signal bars fill in ---
