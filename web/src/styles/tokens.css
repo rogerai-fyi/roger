@@ -111,6 +111,9 @@
 
   --gutter: clamp(20px, 5vw, 56px);
   --maxw:   1080px;          /* document feel (down from 1200) */
+  /* the left running-head spine: an intentional operating-manual margin.
+     The document is offset right by exactly this width >=1080px (see .rail). */
+  --spine:  clamp(64px, 7.5vw, 108px);
 
   /* tighter, document-style section rhythm (cap toward 96px) */
   --section-y:  clamp(56px, 8vw, 96px);
