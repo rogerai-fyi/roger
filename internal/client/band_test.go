@@ -1,8 +1,10 @@
 package client
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 )
 
@@ -14,6 +16,10 @@ func TestEffectiveMaxOut(t *testing.T) {
 	}
 	if got := effectiveMaxOut(2.5); got != 2.5 {
 		t.Errorf("explicit cap clobbered: %v", got)
+	}
+	// The exported helper (used by the agent harness) must agree with the internal one.
+	if EffectiveMaxOut(0) != ConsumerDefaultMaxOut || EffectiveMaxOut(7) != 7 {
+		t.Errorf("EffectiveMaxOut diverged from effectiveMaxOut")
 	}
 	if !priceMatches(12.50, 12.50) || !priceMatches(12.505, 12.50) {
 		t.Errorf("priceMatches should accept an exact / near-exact typed price")
@@ -68,19 +74,90 @@ func TestRelayHonorsExplicitCap(t *testing.T) {
 }
 
 // TestRelaySendsFreqHeader: a private-band tune-in carries X-Roger-Freq so the broker
-// admits only the resolved station.
+// admits only the resolved station - AND still carries the consumer out-cap, so the
+// PRIVATE (--freq) path is bounded against overpay exactly like the public market.
 func TestRelaySendsFreqHeader(t *testing.T) {
-	var gotFreq string
+	var gotFreq, gotCap string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotFreq = r.Header.Get("X-Roger-Freq")
+		gotCap = r.Header.Get("X-Roger-Max-Price-Out")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
 	w := httptest.NewRecorder()
+	// --freq tune-in with NO explicit cap: the broker default cap must ride along.
 	opts := ProxyOptions{Broker: srv.URL, User: "u", Freq: "147.520 MHz 8F3K-9M2Q"}
 	relayWithFailover(w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy())
 	if gotFreq != "147.520 MHz 8F3K-9M2Q" {
 		t.Errorf("freq header = %q, want the code", gotFreq)
+	}
+	if gotCap != "10" {
+		t.Errorf("--freq path cap header = %q, want the $10 default (private path must be bounded too)", gotCap)
+	}
+}
+
+// bandResolveServer stands up a broker stub whose /bands/resolve returns one online
+// private station for "m" at priceOut, so the private-band confirm path can be driven.
+func bandResolveServer(t *testing.T, priceOut float64) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bands/resolve" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"band":   map[string]string{"display": "147.520 MHz 8F3K-9M2Q"},
+				"offers": []Offer{{NodeID: "n", Model: "m", PriceOut: priceOut, Online: true}},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+}
+
+// TestPrivateBandTypeThePriceConfirm: on a PRIVATE (--freq) band whose out-price is above
+// the type-the-price confirm threshold, a wrong typed price aborts (no channel opens).
+// This proves the high-price confirm fires on the private path, not only the public use.
+func TestPrivateBandTypeThePriceConfirm(t *testing.T) {
+	srv := bandResolveServer(t, ConsumerConfirmThreshold+5) // above the confirm line
+	defer srv.Close()
+
+	// Feed a WRONG typed price on stdin; the confirm must reject and return without
+	// binding a channel (so the call returns promptly with nil and never ListenAndServe).
+	pr, pw, _ := os.Pipe()
+	_, _ = pw.WriteString("0.01\n") // not the shown price -> abort
+	_ = pw.Close()
+
+	opt := UseOptions{Freq: "147.520 MHz 8F3K-9M2Q", Port: 0}
+	err := useOnFreq(srv.URL, "u", "m", opt, ConsumerConfirmThreshold+5, 800, false, pr)
+	if err != nil {
+		t.Fatalf("useOnFreq returned error on aborted confirm: %v", err)
+	}
+	// (A correct path would block in ListenAndServe; the abort returns nil immediately,
+	// which is exactly the type-the-price guard doing its job on the private band.)
+}
+
+// TestChatCarriesDefaultCap: the in-channel chat relay (client.Chat) carries the
+// consumer out-cap header so the TUI channel is bounded against overpay like `use`. A 0
+// maxOut applies the default; an explicit cap is honored (opt-in to pay more).
+func TestChatCarriesDefaultCap(t *testing.T) {
+	var gotCap string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCap = r.Header.Get("X-Roger-Max-Price-Out")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"hi"}}]}`))
+	}))
+	defer srv.Close()
+
+	if _, _, _, err := Chat(srv.URL, "u", "m", "hello", false, 0); err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if gotCap != "10" {
+		t.Errorf("in-channel chat cap header = %q, want the $10 default", gotCap)
+	}
+	if _, _, _, err := Chat(srv.URL, "u", "m", "hello", false, 42); err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if gotCap != "42" {
+		t.Errorf("in-channel chat explicit cap header = %q, want 42 (opt-in to pay more)", gotCap)
 	}
 }

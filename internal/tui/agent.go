@@ -247,7 +247,10 @@ func (m model) newAgentRuntime() *agentRuntime {
 		if rt.model == "" {
 			return harness.Message{}, fmt.Errorf("no station on air - no model is tuned in")
 		}
-		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, costFn)(messages, tools)
+		// Carry the user's explicit out-price cap for the live model (0 -> the default
+		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
+		maxOut := m.limits.resolve(rt.model).MaxOut
+		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
 		c := agentConfirm{tool: tool, args: args, resp: make(chan bool, 1)}

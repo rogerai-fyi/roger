@@ -593,7 +593,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
-	maxPriceOut := parseFloat(r.Header.Get("X-Roger-Max-Price-Out"))
+	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
+	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
+	// broker applies the DEFAULT consumer out-cap server-side so no consume path can
+	// silently bind to an exorbitant band. An explicit (higher) cap is honored as sent;
+	// the operator ceiling at register already bounds the absolute max. This makes the
+	// consumer cap GLOBAL across every relay path (public use, --freq, grant, agent
+	// harness, in-channel chat) rather than only the interactive `use` prompt.
+	maxPriceOut := effectiveRelayMaxOut(parseFloat(r.Header.Get("X-Roger-Max-Price-Out")))
 	// Client-side failover hints: pin to a specific node, and/or skip nodes that
 	// just failed for this caller (comma-separated). These let the connector route
 	// AROUND a dropped provider without the broker re-handing it the same one.

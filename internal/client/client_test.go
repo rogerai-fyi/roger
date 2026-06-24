@@ -29,7 +29,7 @@ func TestChatSendsRaisedMaxTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false); err != nil {
+	if _, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0); err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
 	if !seen {
@@ -143,7 +143,7 @@ func TestChat402MapsToTopupHint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false)
+	_, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0)
 	if err == nil {
 		t.Fatalf("Chat on a 402 returned nil error")
 	}

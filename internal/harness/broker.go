@@ -41,7 +41,12 @@ const agentMaxTokens = client.MaxAnswerTokens
 // untouched - no broker change is needed. If the model on the channel is NOT
 // tool-capable it simply returns content with no tool_calls, and the loop degrades to
 // plain chat.
-func BrokerCompleter(broker, user, model string, confidential bool, onCost CostFunc) Completer {
+// maxOut is the consumer out-price cap ($/1M) the agent relay must carry so the
+// [0] AGENT harness is bounded against overpay like every other consume path: 0 means
+// "use the default consumer cap" (client.EffectiveMaxOut), a positive value is the
+// user's explicit opt-in. Without this an agent turn could silently bind to an
+// exorbitant band (the harness relay previously sent no max-out at all).
+func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer {
 	httpClient := &http.Client{Timeout: brokerTimeout}
 	return func(messages []Message, tools []map[string]any) (Message, error) {
 		reqBody, _ := json.Marshal(map[string]any{
@@ -63,6 +68,10 @@ func BrokerCompleter(broker, user, model string, confidential bool, onCost CostF
 		if confidential {
 			req.Header.Set("X-Roger-Confidential", "1")
 		}
+		// Always carry an out-price cap (the caller's, or the default consumer ceiling
+		// when none was set) so an agent turn is bounded against overpay exactly like
+		// `rogerai use` and the in-channel chat - the harness is just another consume path.
+		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
