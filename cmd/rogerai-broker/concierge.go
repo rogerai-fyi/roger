@@ -143,9 +143,23 @@ func (b *broker) conciergeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lightweight unsafe-input precheck (stopgap for the deferred content-filter P0).
+	// Lightweight unsafe-input precheck (stopgap, kept as a model-independent fast
+	// refusal for the most blatant categories - a friendly canned reply, no error).
 	if isUnsafe(lastUserText(req.Messages)) {
 		writeJSON(w, http.StatusOK, map[string]string{"reply": "I can't help with that one. I'm just here to get you tuned in - ask me about sharing a GPU, earning, or finding a station."})
+		return
+	}
+
+	// Mandatory pre-dispatch content screen on the user's input - the SAME screen the
+	// relay uses (b.mod.screen, moderation.go). Running it HERE, once, covers BOTH
+	// downstream dispatch paths (the dogfood relay AND the Groq fallback) on a single
+	// check, so the public Groq path can NEVER bypass the screen (it previously did).
+	// Inert when MODERATION_URL is unset; rejects with a 4xx when flagged; fail-closed
+	// (503) when REQUIRE_MODERATION=1 and the screen is unreachable. We screen only the
+	// latest user turn (the new content) to keep this hot public path cheap.
+	if st, msg := b.mod.screen(lastUserText(req.Messages)); st != 0 {
+		log.Printf("concierge moderation reject status=%d: %s", st, msg)
+		jsonErr(w, st, msg)
 		return
 	}
 
@@ -241,8 +255,10 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 	}
 	rawBody, _ := json.Marshal(payload)
 
-	// Mandatory pre-dispatch content screen still applies on the relay path (the
-	// broker is the single choke point; grants/concierge do not bypass it).
+	// Defensive second screen on the relay path (the broker is the single choke point;
+	// grants/concierge do not bypass it). conciergeHandler already screens the user
+	// input before reaching here, so on the concierge path this is belt-and-suspenders;
+	// any other caller of dogfoodRelay is still covered.
 	if st, _ := b.mod.screen(promptText(rawBody)); st != 0 {
 		// Treat a screen rejection as "not served" so Ping degrades gracefully
 		// rather than echoing a 451 to the homepage widget.
