@@ -75,8 +75,16 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	// impersonates the reserved pubkey-derived id space, so a legacy header can never
 	// add credits to (or otherwise touch) a signed user's wallet.
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	user, _, ok := b.identityOf(r, body)
-	if !ok {
+	// A logged-in web top-up must credit the SAME wallet /me shows (the session
+	// wallet), not the anon/signed id; otherwise the payment credits a different
+	// wallet and the dashboard balance never moves. Fall back to identityOf (with the
+	// body, for signature verification) for CLI/anon top-ups.
+	var user string
+	if _, w, sok := b.webSession(r); sok {
+		user = w
+	} else if u, _, iok := b.identityOf(r, body); iok {
+		user = u
+	} else {
 		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
 		return
 	}

@@ -2205,7 +2205,7 @@ func (m model) helpView() string {
 }
 
 // helpVersion is the client version shown in help; set by the host via SetVersion.
-var helpVersion = "v0.2.0"
+var helpVersion = "v0.2.1"
 
 // SetVersion lets the host (cmd/rogerai) inject the build version so the help /
 // about surfaces match `rogerai version`.
