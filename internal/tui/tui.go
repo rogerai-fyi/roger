@@ -40,7 +40,7 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
-	NodeID      string                                        // this node's id (hostname)
+	NodeID      string                                        // this host's base id (hostname); per-band node ids are derived from it + model + upstream via agent.ShareNodeID
 	HW          string                                        // hardware label for the offer
 	GitHubID    string                                        // public GitHub OAuth client id (device flow)
 	LinkedLogin string                                        // the locally-linked GitHub login at startup ("" = anonymous)
@@ -1616,10 +1616,6 @@ func (m *model) toggleShareAt(i int) {
 		m.status = stDim.Render("off air - stopped sharing ") + stKey.Render(row.model)
 		return
 	}
-	node := m.hooks.NodeID
-	if node == "" {
-		node = "node"
-	}
 	// Free by default (visible + changeable in the editor). The price + time-of-use
 	// schedule come from pricingFor (an edited price, the saved onboarding price for
 	// the default model, else free).
@@ -1639,6 +1635,10 @@ func (m *model) toggleShareAt(i int) {
 	if up == "" {
 		up = m.shareUp
 	}
+	// Unique, STABLE node id per band: <hostname>-<model>-<port>, derived through the
+	// SAME helper the CLI `rogerai share` uses, so two bands on one host are DISTINCT
+	// broker nodes (no bare-hostname collision -> no token war / re-register storm).
+	node := agent.ShareNodeID(m.hooks.NodeID, row.model, up)
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
@@ -1686,15 +1686,15 @@ func (m *model) togglePrivateAt(i int) {
 		sess.Stop()
 		delete(m.shares, row.model)
 	}
-	node := m.hooks.NodeID
-	if node == "" {
-		node = "node"
-	}
 	p := m.pricingFor(row.model)
 	up := row.upstream
 	if up == "" {
 		up = m.shareUp
 	}
+	// Same unique/stable node id as the public-share path (private just flips
+	// visibility): <hostname>-<model>-<port> via the shared helper, so a private band
+	// also gets its own broker node instead of colliding on the bare hostname.
+	node := agent.ShareNodeID(m.hooks.NodeID, row.model, up)
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,

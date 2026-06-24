@@ -442,7 +442,11 @@ func cmdShare(cfg config, args []string) error {
 	}
 	fs := flag.NewFlagSet("share", flag.ExitOnError)
 	broker := fs.String("broker", cfg.Broker, "broker URL")
-	node := fs.String("node", hostname(), "node id")
+	// Empty default: the node id is DERIVED below (hostname + model slug + a
+	// per-upstream disambiguator) once the model + upstream are known, so multiple
+	// bands on one host become distinct broker nodes instead of colliding on the bare
+	// hostname. An explicit --node still overrides.
+	node := fs.String("node", "", "node id (default: <hostname>-<model>-<port>, derived)")
 	model := fs.String("model", defModel, "model to expose (default: first detected)")
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
@@ -532,6 +536,16 @@ func cmdShare(cfg config, args []string) error {
 	// is idempotent for them).
 	up = normalizeUpstream(up)
 
+	// Derive a UNIQUE, STABLE node id per (host, model, upstream) so several bands on
+	// one host are DISTINCT broker nodes - not colliding on the bare hostname (which
+	// caused the token-overwrite + re-register storm where only the last band stayed
+	// on air). An explicit --node still overrides. Routed through the same helper the
+	// in-TUI share flow uses.
+	nodeID := *node
+	if nodeID == "" {
+		nodeID = agent.ShareNodeID(hostname(), mdl, up)
+	}
+
 	var sched []protocol.PriceWindow
 	if *freeWindow != "" {
 		p := strings.SplitN(*freeWindow, "-", 2)
@@ -572,7 +586,7 @@ func cmdShare(cfg config, args []string) error {
 	}
 	cfgRun := agent.Config{
 		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
-		NodeID: *node, Region: *region, HW: detectHW(), Model: mdl,
+		NodeID: nodeID, Region: *region, HW: detectHW(), Model: mdl,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
