@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
 	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/client"
@@ -54,6 +55,12 @@ type Hooks struct {
 	// SavedPrices seeds the editor with prices the user set in a previous session, so
 	// the provider table shows them and on-air uses them (nil = none).
 	SavedPrices map[string]Pricing
+	// Compact seeds the "windowshade" compact mode at launch from the saved config, so
+	// the [m] choice sticks across sessions (the host owns the disk read).
+	Compact bool
+	// SaveCompact persists the compact toggle when the user presses [m], so the calm
+	// view is remembered next launch (nil = session-only; no disk I/O in the TUI).
+	SaveCompact func(bool)
 }
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
@@ -81,6 +88,12 @@ func anim(frame int) int {
 	}
 	return frame
 }
+
+// frozenFrame is the fixed, well-formed frame the compact "windowshade" mode feeds
+// every animation function (beacon arcs, signal shimmer, Ping pose) so motion
+// settles to a stable snapshot - the same canonical frame quiet/anim() picks. Used
+// by the compact render paths to treat compact as an explicit prefers-reduced-motion.
+const frozenFrame = 1
 
 // ---- palette: the web's "Live Operating Manual" tokens ----
 //
@@ -374,6 +387,13 @@ type model struct {
 	scanErr    bool      // last band scan failed (broker unreachable) -> Ping "...static"
 	scanned    bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
 	minimized  bool      // header toggle: thin one-line bar vs the full lockup
+	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
+	// animation-free alternate view toggled by [m] in every non-text-entry context.
+	// When set the header drops to one strip, all motion freezes (carrier beat, Ping,
+	// the ((•)) spinner), rows tighten, and the frame tick idles when nothing is in
+	// flight - an explicit prefers-reduced-motion within the app. Persisted via the
+	// host SaveCompact hook (nil = session-only).
+	compact bool
 	// chat session state (CHANNEL mode)
 	sysPrompt string  // /system prompt prepended to each turn
 	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
@@ -520,6 +540,8 @@ func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 	// before the first /balance comes back. The broker's logged_in flag (from the
 	// signed balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
+	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
+	m.compact = hooks.Compact
 	// Seed per-model pricing the user set in a previous session.
 	if len(hooks.SavedPrices) > 0 {
 		m.prices = map[string]Pricing{}
@@ -562,6 +584,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// lock, so the sequence stays smooth.
 		if m.mode == modeConnecting {
 			return m.advanceConnect()
+		}
+		// COMPACT (windowshade): treat compact like prefers-reduced-motion. When nothing
+		// is in flight the fast 160ms animation tick idles - we drop to a slow rescan tick
+		// (a fresh /discover every ~5s, no animation frames) so the view is genuinely calm
+		// yet still updates on real events (offers, balance, chat replies arrive via their
+		// own Cmds). A relay / staged tune-in / SHARE detection still needs the live beat,
+		// so those keep the fast tick even in compact.
+		if m.compact && !m.relaying && m.mode != modeConnecting && !m.shareLoading {
+			return m, tea.Batch(slowTick(), fetchOffers(m.broker))
 		}
 		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
 		// pull a fresh /discover so the band table + the "is a station on air" check
@@ -829,10 +860,6 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			// The one obvious section toggle: jump to SHARE (provide). esc/s returns.
 			return m.toggleSection()
-		case "m":
-			if m.connected != nil {
-				m.minimized = !m.minimized
-			}
 		case "?":
 			m.mode = modeHelp
 		case "r":
@@ -1750,8 +1777,10 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	m.connectStage = 0
 	m.connectStartFrame = m.frame
 	m.status = stRed.Render(glyphOnAir+" ") + stLive.Render("tuning in to ") + stSelText.Render(o.NodeID) + stDim.Render(" …")
-	if quiet {
-		// No animation in a pipe / NO_COLOR: jump to the resolved sequence + channel.
+	if quiet || m.compact {
+		// No animation in a pipe / NO_COLOR, or in the windowshade compact mode (an
+		// explicit reduced-motion): jump straight to the resolved channel, no staged
+		// tune-in churn.
 		return m.finishConnect()
 	}
 	return m, tick()
@@ -2113,8 +2142,34 @@ func (m model) presetBar(w int) string {
 // (limits), L -> LOGIN, ? -> HELP. It is only consulted from non-text-entry modes
 // (browse / a SHARE sub-screen / limits / help) so it never steals a typed digit in
 // the command palette, the chat input, or a numeric price/limit editor.
+// toggleCompact flips the windowshade compact mode and persists the choice via the
+// host SaveCompact hook (nil = session-only). It also clears the connected-header
+// `minimized` sub-toggle so the two header collapses never fight: expanding out of
+// compact returns to the full header, and compact subsumes the thin-bar minimize.
+func (m model) toggleCompact() model {
+	m.compact = !m.compact
+	if m.compact {
+		m.status = stDim.Render("compact - calm, dense, animation-free · m expands")
+	} else {
+		m.minimized = false
+		m.status = stDim.Render("expanded - the full operating manual · m compacts")
+	}
+	if m.hooks.SaveCompact != nil {
+		m.hooks.SaveCompact(m.compact)
+	}
+	return m
+}
+
 func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 	switch key {
+	case "m":
+		// COMPACT (the "windowshade"): toggle the calm, dense, animation-free view. Lives
+		// alongside the preset jumps so it works in every non-text-entry context (browse /
+		// the SHARE table / limits-not-editing / help) and is NEVER stolen while typing in
+		// chat, the command palette, or a numeric price/limit/schedule editor (those modes
+		// own their keys and don't consult presetForKey). Persisted via SaveCompact so the
+		// choice sticks across launches (nil = session-only).
+		return m.toggleCompact(), nil, true
 	case "1":
 		// TUNE IN: leave any SHARE/limits screen, back to the band browser. A live
 		// channel stays open (tab/c returns to it).
@@ -2146,12 +2201,19 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 func (m model) View() string {
 	w := m.effWidth()
 	var b strings.Builder
-	// A blank spacer line sets the preset bar apart from the brand lockup below it, so
-	// the [1] TUNE IN ... bar and the ▟█▙ R O G E R · A I ((•)) logo read as two
-	// distinct rows instead of one cramped block. A single line keeps it tight on a
-	// short terminal; an empty line is inherently NO_COLOR / narrow-safe.
-	b.WriteString(m.presetBar(w) + "\n\n")
-	b.WriteString(m.header(w) + "\n")
+	// COMPACT (the "windowshade"): no expanded preset bar and no spacer - the dense
+	// one-line header carries the section + counts + account + the `m:expand` hint, so
+	// the whole top collapses to a single strip + a hairline rule.
+	if m.compact {
+		b.WriteString(m.compactHeader(w) + "\n")
+	} else {
+		// A blank spacer line sets the preset bar apart from the brand lockup below it, so
+		// the [1] TUNE IN ... bar and the ▟█▙ R O G E R · A I ((•)) logo read as two
+		// distinct rows instead of one cramped block. A single line keeps it tight on a
+		// short terminal; an empty line is inherently NO_COLOR / narrow-safe.
+		b.WriteString(m.presetBar(w) + "\n\n")
+		b.WriteString(m.header(w) + "\n")
+	}
 	switch m.mode {
 	case modeHelp:
 		b.WriteString(m.helpView())
@@ -2177,11 +2239,22 @@ func (m model) View() string {
 		b.WriteString(m.browseView(w))
 	}
 	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && !m.inShareSection() {
-		b.WriteString("\n" + m.endpointPanel(w))
+		// COMPACT drops the bordered endpoint plate (a "compact-on-connect extra") to a
+		// single terse status line - the load-bearing endpoint stays one /endpoint away.
+		if m.compact {
+			b.WriteString("\n" + truncVisible("  "+stRed.Render(glyphOnAir+" ")+stLive.Render("channel open")+stDim.Render(" · ")+stKey.Render(m.endpoint)+stDim.Render(" · /chat"), w))
+		} else {
+			b.WriteString("\n" + m.endpointPanel(w))
+		}
 	}
 	// The ON AIR provider panel rides under the browse view whenever /share is live.
+	// COMPACT drops the bordered panel to a one-line status (density + width-safety).
 	if m.onAir && m.share != nil && (m.mode == modeBrowse || m.mode == modeCommand) {
-		b.WriteString("\n" + m.onAirPanel(w))
+		if m.compact {
+			b.WriteString("\n" + truncVisible("  "+stRed.Render(glyphOnAir+" ON AIR")+stDim.Render(" · ")+stKey.Render(m.share.Model())+stDim.Render(" · /share off"), w))
+		} else {
+			b.WriteString("\n" + m.onAirPanel(w))
+		}
 	}
 	// The command prompt is always present in browse/command mode so it is never a
 	// mystery WHERE to type: a labeled `rog ›` line that echoes every keystroke
@@ -2612,6 +2685,90 @@ func (m model) modeName() string {
 	}
 }
 
+// compactHeader is the windowshade-mode header: the whole brand lockup + preset bar
+// collapses to ONE dense, animation-free strip carrying the live state + account +
+// the `m:expand` hint, with a single hairline rule under it. No big banner, no arcs.
+// The static `(•)` beacon stands in for the breathing pulse (frozen, per the
+// reduced-motion contract). Width-safe: the strip is built as labeled segments and
+// truncated to the real width before the rule, so it never overflows at 40 cols.
+//
+// Shapes (illustrative):
+//
+//	browsing: (•) ROGER·AI · TUNE IN · 3 on air · ◆ @bownux $42.17   m:expand
+//	on air:   (•) ROGER·AI · ◆ on @nyx · gpt-oss-20b · $0.30/1M · $42.17   m:expand
+func (m model) compactHeader(w int) string {
+	dot := stRed.Render("(•)")
+	brand := stBrand.Render("ROGER") + stTag.Render("·AI")
+	sep := stDim.Render(" · ")
+	hint := stDim.Render("m:expand")
+
+	var mid string
+	if m.connected != nil {
+		// Channel context: the load-bearing "what am I on + price + balance".
+		o := m.connected
+		mid = stGold.Render(glyphVerify) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
+			sep + stKey.Render(o.Model) +
+			sep + stEmber.Render(dollars(o.PriceOut)+"/1M")
+	} else {
+		// Browsing: the section + how many stations are on air.
+		on := countOnline(m.offers)
+		summary := "scanning…"
+		if m.scanned {
+			summary = fmt.Sprintf("%d on air", on)
+		}
+		section := "TUNE IN"
+		if m.inShareSection() {
+			section = "SHARE"
+		}
+		state := stKey.Render(section) + sep + stDim.Render(summary)
+		if m.onAir {
+			state = stRed.Render(glyphOnAir+" ON AIR") + sep + state
+		}
+		mid = state
+	}
+
+	// The account tag carries the wallet, the other load-bearing bit. The compact form
+	// is terse - ◆ @login · $bal collapses to just $bal (or /login when anonymous) - so
+	// the dense strip stays short and the m:expand hint never gets crowded out.
+	acct := m.accountTag(true)
+	if m.loggedInState() && m.ghLogin != "" {
+		// Logged in: keep the callsign + balance (the identity is worth the few cols).
+		acct = stGold.Render(glyphVerify) + stDim.Render(" @") + stSelText.Render(m.ghLogin)
+		if m.haveBal {
+			acct += stDim.Render(" ") + stEmber.Render(dollars(m.balance))
+		}
+	}
+
+	left := dot + " " + brand + sep + mid + sep + acct
+	// Right-align the hint when there's room; otherwise it trails inline. We measure on
+	// the visible (ANSI-stripped) width so color never throws off the geometry.
+	leftVis := lipgloss.Width(left)
+	hintVis := lipgloss.Width(hint)
+	rule := stHeadRule.Render(strings.Repeat("-", w))
+	if leftVis+2+hintVis <= w {
+		gap := w - leftVis - hintVis
+		return left + strings.Repeat(" ", gap) + hint + "\n" + rule
+	}
+	// Too narrow for the gap: trim the left strip to fit "… m:expand" on one line so it
+	// never overflows. truncVisible cuts on display width, ANSI-safe.
+	budget := w - hintVis - 1
+	if budget < 0 {
+		budget = 0
+	}
+	return truncVisible(left, budget) + " " + hint + "\n" + rule
+}
+
+// truncVisible cuts s to at most n display columns, preserving ANSI styling and never
+// splitting an escape sequence. It is the compact strip's width clamp (ansi.Truncate
+// is display-width aware and ANSI-safe, so a colored segment is cut cleanly rather
+// than leaking a half escape).
+func truncVisible(s string, n int) string {
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	return ansi.Truncate(s, n, "")
+}
+
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
 // live-red on-air eye + the current state. It COMPACTS to a thin one-line bar
 // once a channel is open (so you never lose "what am I on + my balance"), and the
@@ -2670,8 +2827,8 @@ func (m model) header(w int) string {
 	holdingChannel := m.connected != nil && (m.mode == modeBrowse || m.mode == modeCommand)
 	var state string
 	if holdingChannel {
-		// Narrow: drop the "([m] minimize)" hint so the line fits the real width.
-		hint := stDim.Render("  ([m] minimize)")
+		// Narrow: drop the "([m] compact)" hint so the line fits the real width.
+		hint := stDim.Render("  ([m] compact)")
 		if m.narrow() {
 			hint = ""
 		}
@@ -2713,6 +2870,17 @@ func (m model) bandOnAir(model string) bool {
 		}
 	}
 	return false
+}
+
+// sigFrame is the frame the view feeds every animation function (the signal-bar
+// shimmer, the beacon pulse, Ping, the working spinner). In compact ("windowshade")
+// mode it returns a fixed frozen frame so motion settles to a static snapshot - the
+// app's own prefers-reduced-motion. Otherwise it is the live carrier beat (m.frame).
+func (m model) sigFrame() int {
+	if m.compact {
+		return frozenFrame
+	}
+	return m.frame
 }
 
 // balDollars renders the wallet balance in dollars, or "-" before it loads.
@@ -2757,6 +2925,18 @@ func (m model) accountTag(compact bool) string {
 
 func (m model) browseView(w int) string {
 	if len(m.bands) == 0 {
+		// COMPACT: no Ping art (it animates and eats rows) - a single static status
+		// line in the calm windowshade voice.
+		if m.compact {
+			switch {
+			case m.scanErr:
+				return "  " + stEmber.Render("(○) ...static") + stDim.Render(" - broker off air · r to retune") + "\n"
+			case !m.scanned:
+				return "  " + stDim.Render("(•) tuning in - reaching for stations on air") + "\n"
+			default:
+				return "  " + stDim.Render("(•) no stations on air right now · r to re-scan") + "\n"
+			}
+		}
 		// Three empty cases, all filled with Ping in the dead space (never over
 		// real content): the broker dropped -> Ping "...static"; still scanning
 		// (no fetch back yet) -> Ping transmitting; scanned but quiet -> Ping idle
@@ -2773,20 +2953,32 @@ func (m model) browseView(w int) string {
 	}
 	var b strings.Builder
 	// Section heading, manual-style: a thin tab + a count, like the web's §-markers.
-	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
-		stDim.Render(fmt.Sprintf("   %d models on air", len(m.bands))) + "\n")
+	// COMPACT drops the prose count to a terse "N" and (below) the column-header row,
+	// so more bands fit per screen - the windowshade density.
+	if m.compact {
+		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("BAND") +
+			stDim.Render(fmt.Sprintf("  %d", len(m.bands))) + "\n")
+	} else {
+		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
+			stDim.Render(fmt.Sprintf("   %d models on air", len(m.bands))) + "\n")
+	}
 	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
 	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
 	nameW := 20
 	if m.narrow() {
 		nameW = 14
-		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-7s  %s", "band", "on air", "$/1M out")) + "\n")
+		if !m.compact {
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-7s  %s", "band", "on air", "$/1M out")) + "\n")
+		}
 	} else {
 		// Column header, tabular. Widths match the body cells exactly so price + signal
 		// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
-		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
-			"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+		// COMPACT omits the header row entirely (denser; the cells stay self-evident).
+		if !m.compact {
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
+				"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+		}
 	}
 	// Table width for the k9s reverse-video selection bar (spans the whole row).
 	tableW := w - 2
@@ -2829,14 +3021,14 @@ func (m model) browseView(w int) string {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
-			rawSig := pad(signalBarsRaw(m.frame, sigTPS, online, bd.stations), 8)
+			rawSig := pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 7), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
-		sig := tintSignal(pad(signalBarsRaw(m.frame, sigTPS, online, bd.stations), 8), sigTPS, online)
+		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8), sigTPS, online)
 		b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
 			stDim.Render(pad(stationsLbl, 7)) + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits) + "\n")
 	}
@@ -3003,13 +3195,25 @@ func (m model) chatView(w int) string {
 		sys = stDim.Render(" · system set")
 	}
 	// Section-tab heading, matching the SHARE table's "▌ SECTION  context" look so
-	// the channel reads as part of the same designed system.
-	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
-		stDim.Render("   ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
-		stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
-	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂).
+	// the channel reads as part of the same designed system. COMPACT collapses it to a
+	// single terse status (callsign · model · cost), dropping the prose label.
+	if m.compact {
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("CHAN") +
+			stDim.Render("  ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+			stDim.Render(" · ") + stEmber.Render(dollars(m.sessCost)) + sys
+		b.WriteString(truncVisible(head, w) + "\n")
+	} else {
+		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
+			stDim.Render("   ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+			stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
+	}
+	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂). COMPACT
+	// reclaims two rows (no preset bar / spacer above) so more of the transcript shows.
 	lines := m.transcript
 	max := m.height - 8
+	if m.compact {
+		max = m.height - 6
+	}
 	if max < 6 {
 		max = 12
 	}
@@ -3027,12 +3231,18 @@ func (m model) chatView(w int) string {
 		if !m.relayStart.IsZero() {
 			elapsed = int(time.Since(m.relayStart).Seconds())
 		}
-		b.WriteString("  " + transmitLine(m.frame, elapsed) + "\n")
+		// COMPACT freezes the ((•)) working spinner to a static (•) glyph + phrase (no
+		// ring animation), per the reduced-motion contract.
+		b.WriteString("  " + m.transmitLineFor(elapsed) + "\n")
 	}
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
 	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
-	b.WriteString("  " + stDim.Render("enter sends  ·  ") + stKey.Render("esc") + stDim.Render(" disconnects (leave this channel)  ·  ") + stKey.Render("tab") + stDim.Render(" peek at the band  ·  /help") + "\n")
+	// COMPACT omits this verbose in-view key line - the terse compactFooter teaches the
+	// keys (esc disconnect · tab peek), keeping the channel dense and width-safe.
+	if !m.compact {
+		b.WriteString("  " + stDim.Render("enter sends  ·  ") + stKey.Render("esc") + stDim.Render(" disconnects (leave this channel)  ·  ") + stKey.Render("tab") + stDim.Render(" peek at the band  ·  /help") + "\n")
+	}
 	return b.String()
 }
 
@@ -3086,6 +3296,27 @@ func workingPhrase(frame int) string {
 // motif for any in-flight request/turn. quiet freezes both the rings and the phrase.
 func workingSpinner(frame int) string {
 	return pulseWith(frame, stPingEye) + " " + stLive.Render(workingPhrase(frame))
+}
+
+// staticSpinner is the compact ("windowshade") working spinner: a frozen (•) glyph
+// (no pulsing carrier rings) next to a fixed phrase, so an in-flight request reads as
+// "we're on it" without any motion - the reduced-motion form of workingSpinner.
+func staticSpinner() string {
+	return stPingEye.Render("(•)") + " " + stLive.Render(workingPhrases[0])
+}
+
+// transmitLineFor is transmitLine but honors compact: a static spinner under compact
+// (no ring animation), the live animated one otherwise. The elapsed-seconds readout
+// is kept in both so a slow station still reads as alive, not hung.
+func (m model) transmitLineFor(elapsedSec int) string {
+	if m.compact {
+		line := staticSpinner()
+		if elapsedSec >= 2 {
+			line += stDim.Render(fmt.Sprintf("  %ds (holding the channel)", elapsedSec))
+		}
+		return line
+	}
+	return transmitLine(m.frame, elapsedSec)
 }
 
 // transmitLine is Ping's inline relay indicator: the working spinner (on-air beacon
@@ -3179,12 +3410,13 @@ func (m model) hasSchedule(row shareRow) bool {
 // per resource, and a contextual key footer - k9scli.io + github.com/derailed/k9s.
 func (m model) shareView(w int) string {
 	var b strings.Builder
-	// compact drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
+	// dense drops the metrics columns (SERVED/OUT TOK/EARNINGS): the full grid is
 	// ~88 cols, so anything narrower uses the 3-column model·status·price layout to
-	// stay width-safe (the band grid uses the same idea at its own threshold).
-	compact := w < 88
+	// stay width-safe (the band grid uses the same idea at its own threshold). The
+	// windowshade compact mode forces the dense layout regardless of width.
+	dense := w < 88 || m.compact
 	head := stSelBar.Render("▌") + " " + stBrand.Render("SHARE")
-	if compact {
+	if dense {
 		b.WriteString("  " + head + stDim.Render(fmt.Sprintf("   %d on air / %d", m.sharesOnAir(), len(m.shareRows))) + "\n")
 	} else {
 		b.WriteString("  " + head +
@@ -3193,11 +3425,11 @@ func (m model) shareView(w int) string {
 	}
 
 	// LOADING: detection runs off the event loop, so while it's in flight we show a
-	// clear, animated indicator instead of a frozen UI. The ((•)) working spinner
-	// reuses transmitLine so it pulses with the tick (m.frame), and quiet (NO_COLOR /
-	// non-TTY / reduced-motion) freezes it to a static ((•)) frame via anim()/quiet.
+	// clear indicator instead of a frozen UI. The ((•)) working spinner pulses with the
+	// tick; quiet (NO_COLOR / non-TTY) and compact (windowshade) both freeze it to a
+	// static (•) glyph + phrase via transmitLineFor.
 	if m.shareLoading {
-		spin := transmitLine(m.frame, 0)
+		spin := m.transmitLineFor(0)
 		return b.String() + "\n  " + spin + "\n  " +
 			stDim.Render("scanning the band for local models…") + "\n"
 	}
@@ -3207,15 +3439,19 @@ func (m model) shareView(w int) string {
 			stDim.Render(" - start a local LLM and press r to re-detect") + "\n"
 	}
 
-	// Column geometry. compact drops the metrics columns so nothing overflows.
+	// Column geometry. dense drops the metrics columns so nothing overflows.
 	nameW := 24
-	if compact {
+	if dense {
 		nameW = 14
 	}
-	// Header (k9s-style ALL-CAPS column labels).
-	if compact {
+	// Header (k9s-style ALL-CAPS column labels). Windowshade compact omits the header
+	// row entirely for density (the cells stay self-evident).
+	switch {
+	case m.compact:
+		// no column-header row
+	case dense:
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-14s  %-8s  %s", "MODEL", "STATUS", "PRICE")) + "\n")
-	} else {
+	default:
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
 			"MODEL", "STATUS", "PRICE", "SERVED", "OUT TOK", "EARNINGS")) + "\n")
 	}
@@ -3250,7 +3486,7 @@ func (m model) shareView(w int) string {
 		// selected row is one reverse-video bar; an unselected row tints the status
 		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
 		var plain string
-		if compact {
+		if dense {
 			plain = fmt.Sprintf("  %-14s  %-8s  %s", pad(row.model, 14), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
@@ -3274,7 +3510,7 @@ func (m model) shareView(w int) string {
 		if on {
 			st = stRed.Render(pad(glyphOnAir+" "+statusTxt, 9))
 		}
-		if compact {
+		if dense {
 			stN := stDim.Render(pad(statusTxt, 8))
 			if on {
 				stN = stRed.Render(pad(glyphOnAir+statusTxt, 8))
@@ -3295,7 +3531,7 @@ func (m model) shareView(w int) string {
 
 	// Pricing affordance: logged in -> the per-model editor; anonymous -> the clear
 	// "log in to earn" gate (free sharing still works without an account).
-	if compact {
+	if dense {
 		ph := stKey.Render("p") + stDim.Render(" price")
 		if !m.loggedInState() {
 			ph = stDim.Render("log in to earn")
@@ -3509,7 +3745,48 @@ func modalFooter(w int, left, right, status string) string {
 	return rule + "\n" + left + strings.Repeat(" ", gap) + right + st
 }
 
+// compactFooter is the windowshade single-line key-hint footer: a hairline rule, a
+// terse per-mode hint, then the account tag and the `m expand` reminder. Width-safe:
+// the hint is trimmed to fit before the rule, and a fresh status note (if any) rides
+// one line under it so an action still surfaces an outcome.
+func (m model) compactFooter(w int) string {
+	rule := stHeadRule.Render(strings.Repeat("-", w))
+	var keys string
+	switch m.mode {
+	case modeChat:
+		keys = "talk · esc disconnect · tab peek"
+	case modeShare:
+		keys = "↑↓ · ⏎/a air · p price · r"
+	case modeLimits:
+		keys = "↑↓ · ⏎ edit · d clear · esc"
+	case modeShareEditor:
+		keys = "tab field · ⏎ save · esc"
+	case modeShareSetup:
+		keys = "↑↓ · ⏎ · r · esc"
+	case modeConnectConfirm:
+		keys = "⏎/y accept · esc deny"
+	case modeOverLimit:
+		keys = "⏎ save · ↑↓ · w wait · esc"
+	default:
+		keys = "↑↓ · ⏎ tune in · s share · / · ?"
+	}
+	hint := stDim.Render(keys) + stDim.Render("  ·  ") + stKey.Render("m") + stDim.Render(" expand") +
+		stDim.Render("  ·  ") + m.accountTag(true)
+	line := truncVisible("  "+hint, w)
+	st := ""
+	if m.status != "" {
+		st = "\n" + truncVisible("  "+m.status, w)
+	}
+	return rule + "\n" + line + st
+}
+
 func (m model) footer(w int) string {
+	// COMPACT (windowshade): a single, terse key-hint footer under one hairline rule -
+	// no sprawling bal/broker/status block. It still adapts the leading hint to the
+	// mode so the right keys are taught, and always carries the `m expand` reminder.
+	if m.compact {
+		return m.compactFooter(w)
+	}
 	// Keybindings adapt to the mode so the footer always teaches the right keys. At
 	// narrow widths a terse key line replaces the full one so it fits.
 	var left string
@@ -3574,13 +3851,13 @@ func (m model) footer(w int) string {
 			left = stDim.Render("type to talk  ·  esc disconnect  ·  tab peek at the band  ·  /quit leaves channel  ·  ⌃c quit app")
 		}
 	} else if m.narrow() {
-		left = stDim.Render("↑↓ · ⏎ tune in · s share · / · ? · q")
+		left = stDim.Render("↑↓ · ⏎ tune in · s · m · / · ? · q")
 	} else {
 		chatKey := ""
 		if m.connected != nil {
-			chatKey = "  ·  tab/c channel  ·  m minimize"
+			chatKey = " · tab/c channel"
 		}
-		left = stDim.Render("↑↓ pick  ·  enter tune in  ·  s share" + chatKey + "  ·  / cmd  ·  ? help  ·  q quit")
+		left = stDim.Render("↑↓ pick · enter tune in · s share" + chatKey + " · m compact · / cmd · ? help · q quit")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -3619,6 +3896,7 @@ func (m model) helpView() string {
 	start := [][2]string{
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
+		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
 	}
@@ -3637,8 +3915,13 @@ func (m model) helpView() string {
 	}
 	var b strings.Builder
 	// Ping rests here, on air and standing by - an intentional home for the mascot
-	// (not just empty/error states). Body volt, the eye the one live-red glyph.
-	ping := renderPing(pingIdleFrames[anim(m.frame)%len(pingIdleFrames)], "•")
+	// (not just empty/error states). Body volt, the eye the one live-red glyph. COMPACT
+	// freezes Ping to the canonical standing-by pose (no bob) per reduced-motion.
+	pf := anim(m.frame)
+	if m.compact {
+		pf = frozenFrame
+	}
+	ping := renderPing(pingIdleFrames[pf%len(pingIdleFrames)], "•")
 	b.WriteString("\n" + indentBlock(ping, "    ") + "\n")
 	b.WriteString("    " + stPingDim.Render("Ping · on air, go ahead") + "\n\n")
 	b.WriteString(stBrand.Render("  start here") + stDim.Render("  (a two-way radio for GPUs)") + "\n\n")
@@ -3651,7 +3934,9 @@ func (m model) helpView() string {
 	}
 	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /disconnect /quit") + "\n")
 	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
-		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel · ") + stKey.Render("m") + stDim.Render(" minimizes the header") + "\n")
+		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
+	b.WriteString("  " + stDim.Render("view: ") + stKey.Render("m") +
+		stDim.Render(" toggles COMPACT - the calm, dense, animation-free windowshade") + "\n")
 	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
 	return b.String()
 }
@@ -3820,6 +4105,15 @@ const rescanEveryFrames = 31
 
 func tick() tea.Cmd {
 	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// slowTick is the compact ("windowshade") cadence: a calm ~5s beat that only drives
+// the periodic band re-scan, never animation. It keeps the band/share tables live
+// without the rapid 160ms churn, so compact + idle is genuinely quiet. The instant
+// the user un-compacts, relays, or starts a staged tune-in, the tickMsg handler
+// switches back to the fast tick().
+func slowTick() tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 func fetchOffers(broker string) tea.Cmd {

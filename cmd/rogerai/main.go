@@ -75,6 +75,7 @@ type config struct {
 	Onboarded bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
 	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
 	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
+	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -212,6 +213,14 @@ func tuiHooks(cfg config) tui.Hooks {
 				c.Prices = map[string]SharePrice{}
 			}
 			c.Prices[model] = SharePrice{PriceIn: p.In, PriceOut: p.Out, Windows: toCfgWindows(p.Windows)}
+			_ = saveConfig(c)
+		},
+		// Seed + persist the windowshade compact-mode choice so [m] sticks across launches
+		// (the host owns the config write; the TUI does no disk I/O).
+		Compact: cfg.Compact,
+		SaveCompact: func(on bool) {
+			c := loadConfig()
+			c.Compact = on
 			_ = saveConfig(c)
 		},
 	}
