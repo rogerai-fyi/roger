@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Ping, the RogerAI mascot">
+  <!-- Ping-face tile: the ((•)) on-air mascot on a volt rounded square. A
+       friendlier, character-forward variant for home-screen / apple-touch use.
+       The primary favicon stays the live-red beacon monogram (favicon.svg). -->
+  <rect width="32" height="32" rx="7" fill="#5B5BFF"/>
+  <g fill="#fff">
+    <!-- bracket arms/antennae, mirroring the monogram -->
+    <path d="M5 6 h6 v3 H8 v6 h3 v3 H5 Z" />
+    <path d="M27 6 h-6 v3 h3 v6 h-3 v3 h6 Z" />
+    <!-- little body block + feet -->
+    <path d="M11 19 h10 v6 a2 2 0 0 1 -2 2 h-6 a2 2 0 0 1 -2 -2 Z" />
+    <rect x="13" y="27" width="2.6" height="2.6" rx=".6" />
+    <rect x="16.4" y="27" width="2.6" height="2.6" rx=".6" />
+  </g>
+  <!-- the on-air eye: the live-red CIRCLE beacon, matching the logo/favicon mark -->
+  <circle cx="16" cy="12" r="3" fill="#FF3B3B" />
+</svg>

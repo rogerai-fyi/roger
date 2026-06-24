@@ -1,0 +1,2 @@
+# Canonicalize www -> apex (Cloudflare Pages).
+https://www.rogerai.fyi/* https://rogerai.fyi/:splat 301!

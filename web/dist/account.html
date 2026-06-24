@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Shared <head>. One source for meta, the no-flash theme, fonts and stylesheets.
+     args:
+       title    = full <title> text
+       desc     = meta description (optional)
+       theme    = "inline" (homepage only - CSP sha256-locked bytes) | "external"
+       css      = "site" (marketing) | "chrome" (account: site + auth shells)
+       robots   = "noindex" to add the robots meta (optional)
+       og       = "1" to emit the marketing Open Graph block (optional)
+     The shared nav/footer need tokens.css + site.css on EVERY page, so account
+     pages load the chrome plus auth.css for the card. -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account - RogerAI</title>
+
+  <meta name="color-scheme" content="light dark" />
+
+  <meta name="robots" content="noindex" />
+
+
+
+  <!-- No-flash theme: external (script-src 'self'), runs synchronously before
+       first paint, applies the saved roger-theme so the page matches the site. -->
+  <script src="js/theme-init.js"></script>
+
+
+
+  <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="mask-icon" href="favicon.svg" color="#5B5BFF" />
+  <!-- home-screen / apple-touch: the friendlier Ping-face tile -->
+  <link rel="apple-touch-icon" href="ping.svg" />
+  <meta name="theme-color" content="#5B5BFF" />
+
+  <!-- Inter + Geist Mono via Google Fonts; degrades to system stacks offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/site.css" />
+
+  <link rel="stylesheet" href="styles/auth.css" />
+
+
+</head>
+<body class="auth">
+  <!-- The ONE shared nav. Brand (left) + a utility cluster (right): theme toggle +
+     session account control (session.js swaps "Log in" for the avatar/dropdown
+     when signed in). Marketing pages also render the section links + the mobile
+     burger; account pages render the lean form (brand + theme + account only).
+     args:
+       variant   = "marketing" (sections + burger) | "lean" (default)
+       home      = brand link target (default "/")
+       anchors   = prefix for the #section links (empty on the homepage, "/" elsewhere)
+       scrolled  = "1" to ship the solid bar state for non-scrolling pages -->
+<header class="nav is-scrolled" id="nav">
+  <div class="wrap nav__inner">
+    <!-- The RogerAI brand mark, defined ONCE. To change the logo, edit THIS file.
+     [ ] brackets + the live-red CIRCLE on-air beacon + the spanned RogerAI
+     wordmark (the span keeps "Roger" and "AI" tight, no gap). The whole brand
+     family (favicon.svg / logo.svg / Ping's eye) shares this circle beacon.
+     args:
+       as   = "nav" (default, an <a> link) | "footer" (a non-interactive <div>)
+       href = link target for the nav form (default "/") -->
+
+
+<a class="brand" href="/" aria-label="RogerAI home">
+  <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
+    <!-- the ((on air)) monogram: two solid brackets around the pulse -->
+    <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
+    <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
+    <circle class="brand__pulse" cx="16" cy="16" r="5" />
+  </svg>
+  <span class="brand__name">Roger<b>AI</b></span>
+</a>
+
+
+
+    <nav class="nav__menu" id="navMenu" aria-label="Primary">
+
+      <!-- utility cluster: account, source, theme - on EVERY page -->
+      <div class="nav__utils">
+        <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
+
+        <button class="theme-toggle" id="themeToggle" type="button"
+                aria-label="Switch to dark theme" aria-pressed="false">
+          <!-- moon: shown in light mode (click switches to dark) -->
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
+          </svg>
+          <!-- sun: shown in dark mode (click switches to light) -->
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <g class="theme-toggle__rays">
+              <line x1="12" y1="2.5" x2="12" y2="5" />
+              <line x1="12" y1="19" x2="12" y2="21.5" />
+              <line x1="2.5" y1="12" x2="5" y2="12" />
+              <line x1="19" y1="12" x2="21.5" y2="12" />
+              <line x1="5.3" y1="5.3" x2="7" y2="7" />
+              <line x1="17" y1="17" x2="18.7" y2="18.7" />
+              <line x1="5.3" y1="18.7" x2="7" y2="17" />
+              <line x1="17" y1="7" x2="18.7" y2="5.3" />
+            </g>
+          </svg>
+        </button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>Account</h1>
+    <p class="sub">Signed in as <b id="who">-</b></p>
+
+    <section class="panel">
+      <h2>Profile</h2>
+      <dl class="stats">
+        <div><dt>Handle</dt><dd id="handle">-</dd></div>
+        <div><dt>Balance</dt><dd id="balance">-</dd></div>
+      </dl>
+      <p class="fine">GitHub id <span id="ghid">-</span> - payout status <b id="connect">-</b></p>
+      <p style="margin-top:16px">
+        <label class="fine" for="email">Contact email (optional)</label><br />
+        <input id="email" type="email" placeholder="you@example.com"
+          style="width:100%;margin-top:6px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit" />
+      </p>
+      <button id="saveEmail" class="ghost">Save email</button>
+      <span class="fine" id="saveMsg"></span>
+    </section>
+
+    <section class="panel">
+      <h2>Your data</h2>
+      <p>Download a copy of your profile, ledger and receipts, or delete your account.</p>
+      <button id="export" class="ghost">Export my data</button>
+    </section>
+
+    <section class="panel">
+      <h2>Delete account</h2>
+      <p>This anonymizes your identity (email, GitHub link) and revokes your sessions.
+        Financial records are retained, de-identified, for the legal retention window.
+        Deletion is blocked while you hold a balance, unpaid earnings, or open disputes.</p>
+      <button id="del" class="ghost" style="border-color:#c0392b;color:#c0392b">Delete my account</button>
+      <span class="fine" id="delMsg"></span>
+    </section>
+
+    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/billing.html">Billing</a> - <a href="/usage.html">Usage</a> - <a href="/payouts.html">Payouts</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  </div>
+  <!-- The ONE shared footer, on every page. Brand (shared mark) + links + status,
+     and a discreet "how to upgrade" disclosure (hidden by default, JS-toggled,
+     reduced-motion safe, copy-to-clipboard via site.js).
+     args: anchors = prefix for the #section links (empty on the homepage, "/" elsewhere) -->
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <!-- The RogerAI brand mark, defined ONCE. To change the logo, edit THIS file.
+     [ ] brackets + the live-red CIRCLE on-air beacon + the spanned RogerAI
+     wordmark (the span keeps "Roger" and "AI" tight, no gap). The whole brand
+     family (favicon.svg / logo.svg / Ping's eye) shares this circle beacon.
+     args:
+       as   = "nav" (default, an <a> link) | "footer" (a non-interactive <div>)
+       href = link target for the nav form (default "/") -->
+
+<div class="footer__brand">
+  <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
+    <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
+    <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
+    <circle class="brand__pulse" cx="16" cy="16" r="5" />
+  </svg>
+  <span class="brand__name">Roger<b>AI</b></span>
+</div>
+
+
+
+    <nav class="footer__links">
+      <a href="/#market">Band</a>
+      <a href="/#spec">Spec</a>
+      <a href="/#how">Operating</a>
+      <a href="/#monetize">Monetize</a>
+      <a href="/login.html">Log in</a>
+      <a href="https://github.com/rogerai-fyi/roger">GitHub</a>
+      <a href="https://github.com/rogerai-fyi/roger/releases">Releases</a>
+    </nav>
+  </div>
+
+  <!-- discreet "how to upgrade" disclosure: a tiny button reveals the commands -->
+  <div class="wrap upgrade">
+    <button class="upgrade__toggle" id="upgradeToggle" type="button"
+            aria-expanded="false" aria-controls="upgradePanel">
+      <span class="upgrade__caret" aria-hidden="true"></span>
+      How to upgrade
+    </button>
+    <div class="upgrade__panel" id="upgradePanel" hidden>
+      <p class="upgrade__lead mono">Already on air? Pull the latest:</p>
+      <button class="upgrade__cmd" id="upgradeCmd1" type="button"
+              aria-label="Copy upgrade command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>rogerai upgrade</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+      <p class="upgrade__lead mono">Or re-run the installer (it upgrades in place):</p>
+      <button class="upgrade__cmd" id="upgradeCmd2" type="button"
+              aria-label="Copy install command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="wrap footer__bar">
+    <small>&copy; 2026 RogerAI · built on real machines</small>
+    <span class="footer__status">
+      <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+      the band is open · roger that
+    </span>
+  </div>
+</footer>
+
+<!-- toast for copy confirmation (shared with the install boxes) -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/account.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor" role="img" aria-label="RogerAI">
+  <!-- RogerAI mark: the ((on air)) monogram - blocky and symmetrical.
+       Two solid brackets (the broadcast walls / future arms) embrace a center
+       diamond (the on-air pulse / future eye). Symmetrical about x=16.
+       Tints via currentColor. -->
+  <!-- left bracket -->
+  <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
+  <!-- right bracket (mirror about x=16) -->
+  <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
+  <!-- center: the on-air beacon (the eye), live red -->
+  <circle cx="16" cy="16" r="5" fill="#FF3B3B" />
+</svg>

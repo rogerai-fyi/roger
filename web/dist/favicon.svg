@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="RogerAI">
+  <!-- Favicon: the RogerAI ((on air)) monogram on a volt tile, crisp at 16px.
+       Same bracket geometry + same live-red circle beacon as logo.svg / the nav
+       mark / Ping's eye, so the whole brand family reads as ONE mark. -->
+  <rect width="32" height="32" rx="7" fill="#5B5BFF"/>
+  <g fill="#fff">
+    <!-- left bracket (matches logo.svg, nudged in for the tile padding) -->
+    <path d="M5 7 h8 v4 H9 v10 h4 v4 H5 Z" />
+    <!-- right bracket (mirror about x=16) -->
+    <path d="M27 7 h-8 v4 h4 v10 h-4 v4 h8 Z" />
+  </g>
+  <!-- center: the on-air circle beacon, live red -->
+  <circle cx="16" cy="16" r="5" fill="#FF3B3B" />
+</svg>
