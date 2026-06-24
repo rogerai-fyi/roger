@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"strconv"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -10,7 +12,10 @@ import (
 
 // Postgres is a durable Store. Tables are prefixed `rogerai_` so they share an
 // existing database cleanly. Swap this out for any other Store impl freely.
-type Postgres struct{ db *sql.DB }
+type Postgres struct {
+	db     *sql.DB
+	policy PayoutPolicy
+}
 
 // The `rogerai` schema is provisioned by an admin and OWNED by the app's DB user
 // (least privilege: the user has no DB-level CREATE, only its own schema). The app
@@ -30,7 +35,51 @@ CREATE TABLE IF NOT EXISTS rogerai.owners (
     pubkey TEXT PRIMARY KEY,                    -- hex ed25519 user pubkey (the binding key)
     github_id BIGINT NOT NULL,
     login TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now());`
+    created_at TIMESTAMPTZ DEFAULT now());
+-- account-hub fields (ACCOUNT-PAYOUTS-DESIGN section 9): extend owners into an account.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS stripe_connect_id TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS connect_status TEXT DEFAULT 'none';
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS anonymized BOOLEAN DEFAULT false;
+-- node -> operator account (owner pubkey) binding, so a node's earnings attribute
+-- to an account at payout/Connect time. TOFU: first account to bind a node wins.
+CREATE TABLE IF NOT EXISTS rogerai.node_owner (
+    node TEXT PRIMARY KEY, account_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now());
+-- the append-only ledger (section 3.1): the source of truth. idem_key UNIQUE gives
+-- idempotency for free on every money event.
+CREATE TABLE IF NOT EXISTS rogerai.ledger (
+    id BIGSERIAL PRIMARY KEY,
+    holder TEXT NOT NULL,
+    side TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    idem_key TEXT UNIQUE,
+    state TEXT NOT NULL DEFAULT 'posted',
+    ref TEXT,
+    ts BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now());
+CREATE INDEX IF NOT EXISTS ledger_holder_ts ON rogerai.ledger (holder, id DESC);
+CREATE INDEX IF NOT EXISTS ledger_kind ON rogerai.ledger (kind);
+-- operator earnings lifecycle lots (section 6.1): held -> payable -> paid|clawed.
+CREATE TABLE IF NOT EXISTS rogerai.earning_lots (
+    id BIGSERIAL PRIMARY KEY,
+    node TEXT, account_id TEXT, request_id TEXT,
+    gross DOUBLE PRECISION, reserve DOUBLE PRECISION,
+    state TEXT DEFAULT 'held',
+    release_at BIGINT, reserve_release_at BIGINT,
+    created_at BIGINT);
+CREATE INDEX IF NOT EXISTS lots_account ON rogerai.earning_lots (account_id, state);
+CREATE INDEX IF NOT EXISTS lots_request ON rogerai.earning_lots (request_id);
+-- payout batches (one Stripe Transfer per operator per run).
+CREATE TABLE IF NOT EXISTS rogerai.payouts (
+    id BIGSERIAL PRIMARY KEY, account_id TEXT, amount DOUBLE PRECISION,
+    stripe_transfer_id TEXT, state TEXT DEFAULT 'pending',
+    idem_key TEXT UNIQUE, created_at BIGINT);
+-- dispute / chargeback log (platform-liable events).
+CREATE TABLE IF NOT EXISTS rogerai.disputes (
+    id TEXT PRIMARY KEY, request_id TEXT, wallet TEXT, amount DOUBLE PRECISION,
+    state TEXT, account_id TEXT, created_at BIGINT);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -43,7 +92,57 @@ func NewPostgres(dsn string) (*Postgres, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
-	return &Postgres{db: db}, nil
+	return &Postgres{db: db, policy: LoadPayoutPolicy()}, nil
+}
+
+// appendLedger writes one append-only money event inside the caller's transaction.
+// A duplicate idem_key is a no-op (ON CONFLICT DO NOTHING) - idempotency for free.
+// idemKey="" means "no idempotency key" (a NULL row that never conflicts).
+func appendLedger(tx *sql.Tx, holder, side, kind string, amount float64, idemKey, state, ref string, ts int64) error {
+	var ik any
+	if idemKey != "" {
+		ik = idemKey
+	}
+	if ts == 0 {
+		ts = time.Now().Unix()
+	}
+	_, err := tx.Exec(`INSERT INTO rogerai.ledger(holder,side,kind,amount,idem_key,state,ref,ts)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (idem_key) DO NOTHING`,
+		holder, side, kind, amount, ik, state, ref, ts)
+	return err
+}
+
+// addLot creates an operator earning lot (+ earn/reserve ledger rows) for a node's
+// owner-share inside the caller's transaction. No-op if the node has no bound account.
+func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64, now time.Time) error {
+	if ownerShare <= 0 {
+		return nil
+	}
+	var acct string
+	err := tx.QueryRow(`SELECT account_id FROM rogerai.node_owner WHERE node=$1`, node).Scan(&acct)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	reserve := ownerShare * p.policy.Reserve
+	rel := now.Add(p.policy.holdDuration()).Unix()
+	if _, err := tx.Exec(`INSERT INTO rogerai.earning_lots
+		(node,account_id,request_id,gross,reserve,state,release_at,reserve_release_at,created_at)
+		VALUES($1,$2,$3,$4,$5,'held',$6,$6,$7)`,
+		node, acct, requestID, ownerShare, reserve, rel, now.Unix()); err != nil {
+		return err
+	}
+	if err := appendLedger(tx, acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix()); err != nil {
+		return err
+	}
+	if reserve > 0 {
+		if err := appendLedger(tx, acct, "operator", KindReserveHold, -reserve, "reserve:"+requestID, StatePending, requestID, now.Unix()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
@@ -74,6 +173,12 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
 		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := p.addLot(tx, node, rec.RequestID, ownerShare, time.Now()); err != nil {
 		return 0, err
 	}
 	return bal, tx.Commit()
@@ -129,10 +234,20 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 }
 
 func (p *Postgres) AddCredits(user string, amount float64) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
 	var bal float64
-	err := p.db.QueryRow(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2)
-		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2 RETURNING balance`, user, amount).Scan(&bal)
-	return bal, err
+	if err := tx.QueryRow(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2)
+		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2 RETURNING balance`, user, amount).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindTopup, amount, "", StatePosted, "", 0); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
 }
 
 func (p *Postgres) MarkProcessed(key string) (bool, error) {
@@ -164,18 +279,31 @@ func (p *Postgres) CreditOnce(key, user string, amount float64) (bool, float64, 
 		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2 RETURNING balance`, user, amount).Scan(&bal); err != nil {
 		return false, 0, err
 	}
+	if err := appendLedger(tx, user, "consumer", KindTopup, amount, key, StatePosted, key, 0); err != nil {
+		return false, 0, err
+	}
 	return true, bal, tx.Commit()
 }
 
 // Hold atomically reserves credits: the WHERE balance>=amount makes concurrent
 // holds serialize at the row, so a wallet can never be driven negative.
 func (p *Postgres) Hold(user string, amount float64) (bool, error) {
-	res, err := p.db.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 AND balance>=$2`, user, amount)
+	tx, err := p.db.Begin()
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
-	return n == 1, nil
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 AND balance>=$2`, user, amount)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return false, nil // balance can't cover it; nothing committed
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, "", 0); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
@@ -199,13 +327,34 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj); err != nil {
 		return 0, err
 	}
+	// Capture: release the full reservation then debit the actual spend. Net wallet
+	// delta == held-cost, matching the cache update above.
+	if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := p.addLot(tx, node, rec.RequestID, ownerShare, time.Now()); err != nil {
+		return 0, err
+	}
 	return bal, tx.Commit()
 }
 
 func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
 	var bal float64
-	err := p.db.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held).Scan(&bal)
-	return bal, err
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "", StatePosted, "", 0); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
 }
 
 // BindOwner upserts the owner binding for a pubkey, preserving created_at on
@@ -217,10 +366,23 @@ func (p *Postgres) BindOwner(o Owner) error {
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized
+		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
+}
+
+func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized
+		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
+}
+
+// scanOwner runs a single-row owner query, mapping NULL columns to zero values.
+func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var o Owner
-	var created sql.NullTime
-	err := p.db.QueryRow(`SELECT pubkey,github_id,login,created_at FROM rogerai.owners WHERE pubkey=$1`, pubkey).
-		Scan(&o.Pubkey, &o.GitHubID, &o.Login, &created)
+	var created, deleted sql.NullTime
+	var email, connectID, connectStatus sql.NullString
+	var anon sql.NullBool
+	err := p.db.QueryRow(query, arg).Scan(
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -230,7 +392,292 @@ func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
 	if created.Valid {
 		o.CreatedAt = created.Time.Unix()
 	}
+	if deleted.Valid {
+		o.DeletedAt = deleted.Time.Unix()
+	}
+	o.Email = email.String
+	o.ConnectID = connectID.String
+	o.ConnectStatus = connectStatus.String
+	o.Anonymized = anon.Bool
 	return o, true, nil
+}
+
+func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET email=$2 WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, email)
+	if err != nil {
+		return Owner{}, false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Owner{}, false, nil
+	}
+	return p.OwnerByLogin(login)
+}
+
+func (p *Postgres) SetConnect(login, connectID, status string) error {
+	_, err := p.db.Exec(`UPDATE rogerai.owners SET stripe_connect_id=$2, connect_status=$3
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login, connectID, status)
+	return err
+}
+
+func (p *Postgres) DeleteAccount(login string) (bool, error) {
+	// Soft-delete + anonymize: scrub email/login, mark deleted. Financial rows
+	// (ledger, receipts, earning_lots, payouts) are retained, de-identified by the
+	// opaque pubkey. The login is replaced so it can never be resolved again.
+	res, err := p.db.Exec(`UPDATE rogerai.owners
+		SET email=NULL, login='deleted_'||left(md5(pubkey),8), anonymized=true, deleted_at=now()
+		WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func (p *Postgres) BindNode(node, accountID string) error {
+	_, err := p.db.Exec(`INSERT INTO rogerai.node_owner(node,account_id) VALUES($1,$2)
+		ON CONFLICT (node) DO NOTHING`, node, accountID) // TOFU: first account wins
+	return err
+}
+
+func (p *Postgres) AccountOfNode(node string) (string, bool, error) {
+	var a string
+	err := p.db.QueryRow(`SELECT account_id FROM rogerai.node_owner WHERE node=$1`, node).Scan(&a)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	return a, err == nil, err
+}
+
+func (p *Postgres) NodesOfAccount(accountID string) ([]string, error) {
+	rows, err := p.db.Query(`SELECT node FROM rogerai.node_owner WHERE account_id=$1`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) LedgerOf(holder string, kinds []string, limit int) ([]LedgerRow, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	q := `SELECT id,holder,side,kind,amount,COALESCE(idem_key,''),state,COALESCE(ref,''),ts
+		FROM rogerai.ledger WHERE holder=$1`
+	args := []any{holder}
+	if len(kinds) > 0 {
+		q += ` AND kind = ANY($2)`
+		args = append(args, kinds)
+		q += ` ORDER BY id DESC LIMIT $3`
+		args = append(args, limit)
+	} else {
+		q += ` ORDER BY id DESC LIMIT $2`
+		args = append(args, limit)
+	}
+	rows, err := p.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LedgerRow
+	for rows.Next() {
+		var r LedgerRow
+		if err := rows.Scan(&r.ID, &r.Holder, &r.Side, &r.Kind, &r.Amount, &r.IdemKey, &r.State, &r.Ref, &r.TS); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) DeriveBalance(holder string) (float64, error) {
+	var sum float64
+	err := p.db.QueryRow(`SELECT COALESCE(SUM(amount),0) FROM rogerai.ledger
+		WHERE holder=$1 AND state<>'reversed'
+		AND kind IN ('topup','spend','hold','hold_release','refund','chargeback','adjustment')`, holder).Scan(&sum)
+	return sum, err
+}
+
+// promoteLots sweeps held lots to payable when their release time has passed, in
+// one transaction (sweep-on-read). Emits a reserve_release ledger row when the
+// reserve tail also clears.
+func (p *Postgres) promoteLots(now time.Time) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='payable'
+		WHERE state='held' AND release_at<=$1`, now.Unix()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (p *Postgres) splitQuery(col, val string, now time.Time) (EarningSplit, error) {
+	if err := p.promoteLots(now); err != nil {
+		return EarningSplit{}, err
+	}
+	var s EarningSplit
+	n := now.Unix()
+	// held: still-held lots (gross-minus-reserve) + their reserve.
+	// payable: payable lots' gross-minus-reserve, plus reserve once its tail clears.
+	// reserved: reserve still inside its release tail (held lots + payable lots whose
+	//           reserve tail hasn't cleared). paid: paid lots.
+	row := p.db.QueryRow(`SELECT
+		COALESCE(SUM(CASE WHEN state='held' THEN gross-reserve ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN state='held' THEN reserve
+		                  WHEN state='payable' AND reserve_release_at>$2 THEN reserve ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN state='payable' THEN gross-reserve
+		                  + CASE WHEN reserve_release_at<=$2 THEN reserve ELSE 0 END ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN state='paid' THEN gross-reserve ELSE 0 END),0),
+		COALESCE(MIN(CASE WHEN state='held' THEN release_at
+		                  WHEN state='payable' AND reserve_release_at>$2 THEN reserve_release_at END),0)
+		FROM rogerai.earning_lots WHERE `+col+`=$1`, val, n)
+	if err := row.Scan(&s.Held, &s.Reserved, &s.Payable, &s.Paid, &s.NextRelease); err != nil {
+		return EarningSplit{}, err
+	}
+	return s, nil
+}
+
+func (p *Postgres) EarningSplitOf(accountID string, now time.Time) (EarningSplit, error) {
+	return p.splitQuery("account_id", accountID, now)
+}
+
+func (p *Postgres) EarningSplitOfNode(node string, now time.Time) (EarningSplit, error) {
+	return p.splitQuery("node", node, now)
+}
+
+func (p *Postgres) RequestPayout(accountID string, now time.Time, minPayout float64, transferID string) (Payout, bool, string, error) {
+	if err := p.promoteLots(now); err != nil {
+		return Payout{}, false, "", err
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return Payout{}, false, "", err
+	}
+	defer tx.Rollback()
+	n := now.Unix()
+	// Sum the payable amount (gross-minus-reserve, plus reserve whose tail cleared).
+	var amount float64
+	if err := tx.QueryRow(`SELECT COALESCE(SUM(gross-reserve + CASE WHEN reserve_release_at<=$2 THEN reserve ELSE 0 END),0)
+		FROM rogerai.earning_lots WHERE account_id=$1 AND state='payable'`, accountID, n).Scan(&amount); err != nil {
+		return Payout{}, false, "", err
+	}
+	if amount < minPayout {
+		return Payout{}, false, "below minimum payout", nil
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='paid'
+		WHERE account_id=$1 AND state='payable'`, accountID); err != nil {
+		return Payout{}, false, "", err
+	}
+	state := PayoutPending
+	if transferID != "" {
+		state = PayoutPaid
+	}
+	var pid int64
+	if err := tx.QueryRow(`INSERT INTO rogerai.payouts(account_id,amount,stripe_transfer_id,state,created_at)
+		VALUES($1,$2,$3,$4,$5) RETURNING id`, accountID, amount, transferID, state, n).Scan(&pid); err != nil {
+		return Payout{}, false, "", err
+	}
+	if err := appendLedger(tx, accountID, "operator", KindPayout, -amount, "payout:"+strconv.FormatInt(pid, 10), StatePosted, transferID, n); err != nil {
+		return Payout{}, false, "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return Payout{}, false, "", err
+	}
+	return Payout{ID: pid, AccountID: accountID, Amount: amount, StripeTransferID: transferID, State: state, CreatedAt: n}, true, "", nil
+}
+
+func (p *Postgres) PayoutsOf(accountID string, limit int) ([]Payout, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := p.db.Query(`SELECT id,account_id,amount,COALESCE(stripe_transfer_id,''),state,created_at
+		FROM rogerai.payouts WHERE account_id=$1 ORDER BY id DESC LIMIT $2`, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Payout
+	for rows.Next() {
+		var po Payout
+		if err := rows.Scan(&po.ID, &po.AccountID, &po.Amount, &po.StripeTransferID, &po.State, &po.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, po)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) Chargeback(disputeID, wallet, requestID string, amount float64, now time.Time) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	// Idempotent on the stripe dispute id: a fresh insert means first delivery.
+	res, err := tx.Exec(`INSERT INTO rogerai.disputes(id,request_id,wallet,amount,state,created_at)
+		VALUES($1,$2,$3,$4,'open',$5) ON CONFLICT (id) DO NOTHING`, disputeID, requestID, wallet, amount, now.Unix())
+	if err != nil {
+		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return 0, tx.Commit() // already processed
+	}
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, wallet, amount); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
+		return 0, err
+	}
+	// Claw back operator earnings from the same request while not yet paid out.
+	rows, err := tx.Query(`SELECT id,account_id,gross FROM rogerai.earning_lots
+		WHERE request_id=$1 AND state IN ('held','payable')`, requestID)
+	if err != nil {
+		return 0, err
+	}
+	type claw struct {
+		id    int64
+		acct  string
+		gross float64
+	}
+	var claws []claw
+	for rows.Next() {
+		var c claw
+		if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		claws = append(claws, c)
+	}
+	rows.Close()
+	var clawed float64
+	for _, c := range claws {
+		if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
+			return 0, err
+		}
+		if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -c.gross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
+			return 0, err
+		}
+		clawed += c.gross
+	}
+	return clawed, tx.Commit()
+}
+
+func (p *Postgres) OpenDisputeCount(accountID string) (int, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT COUNT(*) FROM rogerai.disputes d
+		JOIN rogerai.earning_lots l ON l.request_id=d.request_id
+		WHERE l.account_id=$1 AND d.state='open'`, accountID).Scan(&n)
+	return n, err
 }
 
 func (p *Postgres) Close() error { return p.db.Close() }
