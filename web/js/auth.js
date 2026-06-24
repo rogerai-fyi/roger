@@ -62,7 +62,7 @@
     if (!out) return;
     out.addEventListener("click", function () {
       fetch(BROKER + "/auth/logout", { method: "POST", credentials: "include" })
-        .then(function () { location.replace("/login"); });
+        .then(function () { location.replace("/login.html"); });
     });
   }
 
@@ -73,7 +73,7 @@
 
   if (path.endsWith("/dashboard")) {
     get("/me").then(function (me) {
-      if (!me) { location.replace("/login"); return; }
+      if (!me) { location.replace("/login.html"); return; }
       text("who", "@" + (me.github_login || "you"));
       text("balance", cr(me.balance));
       text("spend", cr(me.spend));
@@ -83,7 +83,7 @@
     });
   } else if (path.endsWith("/console")) {
     get("/account").then(function (a) {
-      if (!a) { location.replace("/login"); return; }
+      if (!a) { location.replace("/login.html"); return; }
       text("who", "@" + (a.github_login || "you"));
       show("card");
       wireLogout();
@@ -99,7 +99,7 @@
     });
   } else if (path.endsWith("/login")) {
     get("/account").then(function (a) {
-      if (a) location.replace("/dashboard");
+      if (a) location.replace("/dashboard.html");
     });
   }
 })();
