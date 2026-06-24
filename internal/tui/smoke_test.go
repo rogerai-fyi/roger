@@ -69,10 +69,22 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 		t.Error("endpoint should NOT bind before the user accepts")
 	}
 
-	// accept (enter) -> endpoint binds
+	// accept (enter) -> endpoint binds AND we auto-switch to CHANNEL mode with a
+	// compact header (compact-on-connect). The endpoint is revealed via /endpoint.
 	om, _ := cm.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !strings.Contains(om.View(), "127.0.0.1:") {
-		t.Errorf("endpoint panel not shown after accept:\n%s", om.View())
+	ov := om.View()
+	if !strings.Contains(ov, "CHANNEL") || !strings.Contains(ov, "on channel nyx-home") {
+		t.Errorf("expected compact CHANNEL view after accept:\n%s", ov)
+	}
+	// /endpoint in-session surfaces the bound 127.0.0.1 endpoint.
+	em := om
+	em, _ = em.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "endpoint" {
+		em, _ = em.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	em, _ = em.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(em.View(), "127.0.0.1:") {
+		t.Errorf("/endpoint should surface the bound endpoint:\n%s", em.View())
 	}
 
 	// deny path: a fresh connect, then esc -> no endpoint, back to browse

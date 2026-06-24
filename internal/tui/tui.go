@@ -228,12 +228,21 @@ type model struct {
 	relaying   bool   // a chat request is in flight (drives Ping's transmit line)
 	scanErr    bool   // last band scan failed (broker unreachable) -> Ping "...static"
 	scanned    bool   // at least one scan has come back (good or empty) -> Ping idle, not tx
+	minimized  bool   // header toggle: thin one-line bar vs the full lockup
+	// chat session state (CHANNEL mode)
+	sysPrompt string  // /system prompt prepended to each turn
+	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
+	// async, cached update check (non-blocking)
+	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 }
 
 // ---- messages ----
 type offersMsg []offer
 type balanceMsg float64
-type chatMsg struct{ reply, status string }
+type chatMsg struct {
+	reply, status string
+	cost          float64
+}
 type errMsg string
 type tickMsg struct{}
 
@@ -302,8 +311,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case chatMsg:
 		m.relaying = false
+		m.sessCost += msg.cost
 		m.transcript = append(m.transcript, stLive.Render("◂ ")+msg.reply, stDim.Render("   "+msg.status))
-		return m, nil
+		// Refresh the wallet after a billed turn so the header balance stays true.
+		return m, fetchBalance(m.broker, m.user)
 	case errMsg:
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
@@ -344,7 +355,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, c
 	case modeChat:
 		switch k.String() {
-		case "esc":
+		case "esc", "tab":
+			// leave CHANNEL for BROWSE; the channel + endpoint stay live.
 			m.mode = modeBrowse
 			m.chatIn.Blur()
 			return m, nil
@@ -354,9 +366,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.chatIn.SetValue("")
+			// A leading / in-session is a slash command, not a chat turn.
+			if strings.HasPrefix(p, "/") {
+				return m.runSession(p)
+			}
+			turn := p
+			if m.sysPrompt != "" {
+				turn = m.sysPrompt + "\n\n" + p
+			}
 			m.transcript = append(m.transcript, stSelText.Render("▸ ")+p)
 			m.relaying = true
-			return m, sendChat(m.broker, m.user, m.connected.Model, p, m.confidentialOnly)
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -398,11 +418,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			return m.connect()
-		case "c":
+		case "c", "tab":
 			if m.connected != nil {
 				m.mode = modeChat
 				m.chatIn.Focus()
 				return m, textinput.Blink
+			}
+		case "m":
+			if m.connected != nil {
+				m.minimized = !m.minimized
 			}
 		case "?":
 			m.mode = modeHelp
@@ -413,6 +437,75 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// runSession dispatches an in-CHANNEL slash command (the pi.dev-style session
+// harness). It is a clean dispatch so deeper agentic tool-use can be added later;
+// for now it covers re-tune, transcript, system prompt, cost, privacy, endpoint,
+// help, and leave. Anything unrecognized is echoed as a hint, never sent as chat.
+func (m model) runSession(line string) (tea.Model, tea.Cmd) {
+	fields := strings.Fields(line)
+	cmd := strings.TrimPrefix(fields[0], "/")
+	arg := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+	sysLine := func(s string) {
+		m.transcript = append(m.transcript, stDim.Render("· ")+stDim.Render(s))
+	}
+	switch cmd {
+	case "model", "tune", "retune":
+		// re-tune: drop back to the band browser to pick a new channel.
+		m.mode = modeBrowse
+		m.chatIn.Blur()
+		m.status = stDim.Render("pick a band, enter to re-tune (the channel stays open until you do)")
+		return m, nil
+	case "clear":
+		m.transcript = nil
+		m.sessCost = 0
+		sysLine("transcript cleared")
+		return m, nil
+	case "save":
+		// save is a labeled local action: the transcript already lives in-memory;
+		// we surface where it would write (no disk I/O from the TUI by design).
+		sysLine("session has " + fmt.Sprintf("%d", len(m.transcript)) + " lines (kept in-memory this session)")
+		return m, nil
+	case "system":
+		if arg == "" {
+			if m.sysPrompt == "" {
+				sysLine("no system prompt set · /system <prompt> to set one")
+			} else {
+				sysLine("system: " + m.sysPrompt)
+			}
+			return m, nil
+		}
+		m.sysPrompt = arg
+		sysLine("system prompt set · prepended to each turn")
+		return m, nil
+	case "cost":
+		sysLine("session cost so far: " + dollars(m.sessCost) + " · balance " + m.balDollars())
+		return m, nil
+	case "confidential", "conf":
+		m.confidentialOnly = !m.confidentialOnly
+		if m.confidentialOnly {
+			sysLine("confidential-only ON · routing only to TEE-attested nodes")
+		} else {
+			sysLine("confidential-only off")
+		}
+		return m, nil
+	case "endpoint", "ep":
+		if m.endpoint == "" {
+			sysLine("no endpoint yet")
+			return m, nil
+		}
+		sysLine("endpoint " + m.endpoint + " · key " + m.apikey + " · model " + m.connected.Model)
+		return m, nil
+	case "help", "h":
+		sysLine("/model /clear /save /system <p> /cost /confidential /endpoint /help /quit · tab leaves channel")
+		return m, nil
+	case "quit", "q":
+		return m, tea.Quit
+	default:
+		sysLine("unknown: /" + cmd + " · /help for in-session commands")
+		return m, nil
+	}
 }
 
 // run handles a slash command.
@@ -520,9 +613,15 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	}
 	m.connected = &o
 	m.apikey = "roger-local"
-	m.mode = modeBrowse
+	// Connecting auto-switches to CHANNEL mode and compacts the header (the founder's
+	// "compact-on-connect"). The endpoint stays live regardless of mode.
+	m.mode = modeChat
+	m.chatIn.Focus()
+	if len(m.transcript) == 0 {
+		m.transcript = append(m.transcript, stDim.Render("◂ ")+stLive.Render("roger that")+stDim.Render(" - channel open. type to talk, /help for in-session commands."))
+	}
 	m.status = stGold.Render("◆ ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
-	return m, nil
+	return m, textinput.Blink
 }
 
 // onOverLimitKey drives the over-limit screen (3.3): inline numeric edit of your
@@ -892,37 +991,88 @@ func tpsCell(tps float64, online bool) string {
 	return dot + stDim.Render("  - t/s")
 }
 
-// onAirPulse returns the breathing ON-AIR motif in a FIXED-width cell so the
-// header's right edge never jitters as the arcs grow/shrink. The eye is live-red
-// (the one red glyph), the arcs live-green. Cadence is gated on a slow phase so
-// it reads as a calm breath, not a flicker.
-func onAirPulse(frame int) string {
-	// arc widths 1..3..1, on a 9-cell stage; the eye sits dead center.
+// onAirPulse returns the breathing ON-AIR beacon in a FIXED-width cell so the
+// header's right edge never jitters as the arcs grow/shrink. The eye is the
+// live-red (#FF3B3B) on-air beacon matching the web --carrier; the arcs are
+// live-green. Cadence is gated on a slow phase so it reads as a calm breath, not
+// a flicker. eyeStyle lets callers pick the red brand beacon vs Ping's green eye.
+func onAirPulse(frame int) string { return pulseWith(frame, stRed) }
+
+func pulseWith(frame int, eyeStyle lipgloss.Style) string {
+	// arc widths 1..3..1, on a 9-cell stage; the eye sits dead center. Under quiet
+	// (NO_COLOR / pipe) anim() freezes the frame so a pipe sees a stable beacon.
 	arcs := []int{1, 2, 3, 2}[anim(frame/2)%4]
 	open := strings.Repeat("(", arcs)
 	clos := strings.Repeat(")", arcs)
-	body := stLive.Render(open) + " " + stPingEye.Render("•") + " " + stLive.Render(clos)
+	body := stLive.Render(open) + " " + eyeStyle.Render("•") + " " + stLive.Render(clos)
 	const stage = 9 // width of "((( • )))"
 	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
 }
 
+// modeName returns the current mode's short label for the indicator.
+func (m model) modeName() string {
+	if m.mode == modeChat {
+		return "CHANNEL"
+	}
+	return "BROWSE"
+}
+
+// header is the PERSISTENT status bar, always visible: the brand lockup with the
+// live-red on-air eye + the current state. It COMPACTS to a thin one-line bar
+// once a channel is open (so you never lose "what am I on + my balance"), and the
+// [m] key toggles minimized vs expanded.
 func (m model) header(w int) string {
 	tower := stBrand.Render("▟█▙")
 	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I")
-	pulse := onAirPulse(m.frame)
-	var right string
-	if m.connected != nil {
-		right = "  " + stGold.Render("◆") + " " + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) + "  " + pulse
-	} else {
-		right = "  " + pulse
+	eye := onAirPulse(m.frame)
+	rule := stHeadRule.Render(strings.Repeat("─", w))
+
+	// COMPACT: once connected (or the user minimized), a single thin bar carrying
+	// channel + model + out-price + balance + a tiny live signal.
+	if m.connected != nil && (m.minimized || m.mode == modeChat) {
+		o := m.connected
+		bar := stGold.Render("◆") + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
+			stDim.Render(" · ") + stKey.Render(o.Model) +
+			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
+			stDim.Render(" · bal ") + stEmber.Render(m.balDollars()) +
+			"  " + tintSignal(signalBarsRaw(m.frame, o.TPS, true), o.TPS, true)
+		return bar + "\n" + rule
 	}
-	left := tower + name + right
-	tag := stDim.Render("borrow a GPU, pay by the token")
-	gap := w - lipgloss.Width(left) - lipgloss.Width(tag)
+
+	// EXPANDED: brand lockup + eye on the left; the mode badge on the right.
+	left := tower + name + "  " + eye
+	badge := stDim.Render("mode ") + stSelText.Render(m.modeName())
+	gap := w - lipgloss.Width(left) - lipgloss.Width(badge)
 	if gap < 1 {
 		gap = 1
 	}
-	return left + strings.Repeat(" ", gap) + tag + "\n" + stHeadRule.Render(strings.Repeat("─", w))
+	top := left + strings.Repeat(" ", gap) + badge
+
+	// the state line: while browsing, "scanning the band · N on air · balance $X";
+	// once connected (expanded, not minimized) it names the channel.
+	var state string
+	if m.connected != nil {
+		state = stGold.Render("  ◆ ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
+			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
+			stDim.Render(" · bal ") + stEmber.Render(m.balDollars()) + stDim.Render("  ([m] minimize)")
+	} else {
+		on := countOnline(m.offers)
+		summary := "scanning the band…"
+		if m.scanned {
+			summary = fmt.Sprintf("%d on air", on)
+		}
+		state = stDim.Render("  ((•)) ") + stDim.Render(summary) +
+			stDim.Render(" · balance ") + stEmber.Render(m.balDollars())
+	}
+	return top + "\n" + state + "\n" + rule
+}
+
+// balDollars renders the wallet balance in dollars, or "-" before it loads.
+func (m model) balDollars() string {
+	if !m.haveBal {
+		return "-"
+	}
+	return dollars(m.balance)
 }
 
 func (m model) browseView(w int) string {
@@ -1059,8 +1209,32 @@ func bandOverLimit(b band, limits *LimitStore) bool {
 	return lim.MaxOut > 0 && b.minOut > lim.MaxOut
 }
 
-// money renders a price as a fixed 2-dp string.
+// money renders a price as a fixed 2-dp string (the per-1M band prices).
 func money(v float64) string { return fmt.Sprintf("%.2f", v) }
+
+// dollars renders a money value with Groq-style adaptive precision: balances and
+// "big" amounts at 2dp ($12.34), but tiny per-reply / per-token costs keep enough
+// significant digits to never collapse to $0.00 (e.g. $0.000123). 1 credit = $1,
+// so this is a pure display relabel of the credit unit. Display only - settlement
+// math is untouched.
+func dollars(v float64) string {
+	if v < 0 {
+		return "-"
+	}
+	if v == 0 {
+		return "$0.00"
+	}
+	if v >= 0.01 {
+		return "$" + fmt.Sprintf("%.2f", v)
+	}
+	// sub-cent: show ~3 significant figures so a real cost never reads as $0.00.
+	prec := 4
+	for x := v; x < 0.1 && prec < 9; x *= 10 {
+		prec++
+	}
+	s := strconv.FormatFloat(v, 'f', prec, 64)
+	return "$" + s
+}
 
 // rangeStr renders a band's cross-station out-price spread as "min ~ max", or a
 // single point when there is only one station (never fake a spread, per design).
@@ -1085,10 +1259,20 @@ func pad(s string, n int) string {
 
 func (m model) chatView(w int) string {
 	var b strings.Builder
-	b.WriteString(stGold.Render("  ◆ ") + stDim.Render(fmt.Sprintf("on channel · %s · esc to leave", m.connected.NodeID)) + "\n")
+	sys := ""
+	if m.sysPrompt != "" {
+		sys = stDim.Render(" · system set")
+	}
+	b.WriteString(stGold.Render("  ◆ ") + stDim.Render("CHANNEL · "+m.connected.NodeID+" · "+m.connected.Model) +
+		stDim.Render(" · cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
+	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂).
 	lines := m.transcript
-	if len(lines) > 12 {
-		lines = lines[len(lines)-12:]
+	max := m.height - 8
+	if max < 6 {
+		max = 12
+	}
+	if len(lines) > max {
+		lines = lines[len(lines)-max:]
 	}
 	for _, l := range lines {
 		b.WriteString("  " + l + "\n")
@@ -1101,13 +1285,14 @@ func (m model) chatView(w int) string {
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
 	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
+	b.WriteString("  " + stDim.Render("/help for in-session commands  ·  tab leaves channel  ·  enter sends") + "\n")
 	return b.String()
 }
 
 // transmitLine is Ping's inline relay indicator: the on-air motif breathing with
 // a short radio caption. Single line, so it never obstructs the chat transcript.
 func transmitLine(frame int) string {
-	return onAirPulse(frame) + " " + stLive.Render("◂ ") + stDim.Render("relaying… ping carries your tokens to the station")
+	return pulseWith(frame, stPingEye) + " " + stLive.Render("◂ ") + stDim.Render("relaying… ping carries your tokens to the station")
 }
 
 func (m model) endpointPanel(w int) string {
@@ -1130,16 +1315,22 @@ func (m model) endpointPanel(w int) string {
 }
 
 func (m model) footer(w int) string {
-	bal := "-"
-	if m.haveBal {
-		bal = fmt.Sprintf("%.4f cr", m.balance)
+	// Keybindings adapt to the mode so the footer always teaches the right keys.
+	var left string
+	if m.mode == modeChat {
+		left = stDim.Render("type to talk  ·  / in-session cmds  ·  tab browse  ·  esc leave  ·  ⌃c quit")
+	} else {
+		chatKey := ""
+		if m.connected != nil {
+			chatKey = "  ·  tab/c channel  ·  m minimize"
+		}
+		left = stDim.Render("↑↓ tune  ·  enter on-air" + chatKey + "  ·  / cmd  ·  ? help  ·  q quit")
 	}
-	left := stDim.Render("↑↓ tune  ·  enter on-air  ·  c chat  ·  / cmd  ·  ? help  ·  q quit")
 	confMode := ""
 	if m.confidentialOnly {
 		confMode = stGold.Render("◆conf-only") + "  "
 	}
-	right := confMode + stEmber.Render("balance "+bal) + "  " + stDim.Render(m.broker)
+	right := confMode + stEmber.Render("bal "+m.balDollars()) + "  " + stDim.Render(m.broker)
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1
@@ -1147,6 +1338,10 @@ func (m model) footer(w int) string {
 	st := ""
 	if m.status != "" {
 		st = "\n" + stDim.Render("  ") + m.status
+	}
+	// A subtle non-blocking update notice rides in the status area when available.
+	if m.updateLine != "" {
+		st += "\n" + stDim.Render("  ") + stEmber.Render(m.updateLine)
 	}
 	return stHeadRule.Render(strings.Repeat("─", w)) + "\n" + left + strings.Repeat(" ", gap) + right + st
 }
@@ -1279,11 +1474,11 @@ func fetchBalance(broker, user string) tea.Cmd {
 
 func sendChat(broker, user, mdl, prompt string, confidential bool) tea.Cmd {
 	return func() tea.Msg {
-		reply, status, err := client.Chat(broker, user, mdl, prompt, confidential)
+		reply, status, cost, err := client.Chat(broker, user, mdl, prompt, confidential)
 		if err != nil {
 			return errMsg(err.Error())
 		}
-		return chatMsg{reply: reply, status: status}
+		return chatMsg{reply: reply, status: status, cost: cost}
 	}
 }
 

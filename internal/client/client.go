@@ -470,9 +470,10 @@ func isYes(s string) bool {
 	return s == "y" || s == "yes"
 }
 
-// Chat sends one message through the broker and returns the reply + a status
-// line (provider · cost) - used by the TUI's in-CLI test chat.
-func Chat(broker, user, model, prompt string, confidential bool) (reply, status string, err error) {
+// Chat sends one message through the broker and returns the reply, a status
+// line (provider · cost), and the parsed per-reply cost in credits (1 cr = $1).
+// Used by the TUI's in-CLI test chat / session.
+func Chat(broker, user, model, prompt string, confidential bool) (reply, status string, costCr float64, err error) {
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
 		"messages":   []map[string]string{{"role": "user", "content": prompt}},
@@ -487,7 +488,7 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	}
 	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 	defer resp.Body.Close()
 	var d struct {
@@ -504,14 +505,17 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	json.NewDecoder(resp.Body).Decode(&d)
 	if len(d.Choices) == 0 {
 		if d.Error.Message != "" {
-			return "", "", fmt.Errorf("%s", d.Error.Message)
+			return "", "", 0, fmt.Errorf("%s", d.Error.Message)
 		}
-		return "", "", fmt.Errorf("no response (status %d)", resp.StatusCode)
+		return "", "", 0, fmt.Errorf("no response (status %d)", resp.StatusCode)
 	}
 	reply = d.Choices[0].Message.Content
 	if reply == "" {
 		reply = d.Choices[0].Message.Reasoning
 	}
-	status = fmt.Sprintf("%s · %s cr", resp.Header.Get("X-RogerAI-Provider"), resp.Header.Get("X-RogerAI-Cost"))
-	return reply, status, nil
+	costStr := resp.Header.Get("X-RogerAI-Cost")
+	costCr, _ = strconv.ParseFloat(costStr, 64)
+	// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
+	status = fmt.Sprintf("%s · $%s", resp.Header.Get("X-RogerAI-Provider"), costStr)
+	return reply, status, costCr, nil
 }
