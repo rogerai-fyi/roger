@@ -3,7 +3,8 @@
 RogerAI is a peer-to-peer marketplace + CLI/TUI to discover hobbyist home-GPU LLMs and pay per
 token. Metaphor: **"two-way radio for GPUs"** - operators go ON AIR, you TUNE IN to a channel.
 LIVE: `rogerai.fyi` (site) + `broker.rogerai.fyi` (API), both on DigitalOcean. Go monorepo,
-public on GitHub as `rogerai-fyi/roger`, **BSL-1.1** (-> Apache 2030-06-23). Latest release **v0.3.3**.
+public on GitHub as `rogerai-fyi/roger`, **BSL-1.1** (-> Apache 2030-06-23). Latest release **v4.3.0**
+(the v4 line = web-parity CLI/TUI redesign + the `[0] AGENT` harness + the public Ping concierge).
 
 This file is the fast-ramp map. Internal working notes are in `docs-internal/` (gitignored).
 
@@ -24,6 +25,16 @@ This file is the fast-ramp map. Internal working notes are in `docs-internal/` (
   - **Transparent failover:** `internal/client/failover.go` - on node failure, re-select an
     alternative that satisfies EVERY `Criteria` constraint (model/confidential/min-tps/max-price);
     never a silent downgrade.
+- **Agent harness** `internal/harness/` - the `[0] AGENT` tool-use loop embedded in the TUI
+  (`internal/tui/agent.go`). `loop.go` runs the tool-call loop (MaxSteps-bounded, degrade-to-chat
+  if the channel's model can't tool-call); `tools.go` is a SMALL bounded set - `read_file` /
+  `list_dir` / `web_fetch` auto-run, `write_file` / `run_shell` are confirm-gated (y/N), all
+  sandboxed to the cwd via `resolveInRoot` (absolute paths and `../` escapes rejected); `persona.go`
+  loads the `dj.md` persona from `~/.config/rogerai/dj.md` (written on first run, user-editable);
+  `broker.go` is the completer (relay through the broker). NO persistent memory (session-only),
+  per-turn answer budget 4096, tool-output previews. The agent runs on the resolved model: the
+  open channel, else the LAST band tuned this session (`lastConnected`), else the `/model` picker -
+  never a stale config default.
 - Other packages: `internal/store` (swappable `Store`: `Mem` + `Postgres`/pgx, append-only ledger),
   `internal/detect` (build-tagged HW + local-LLM discovery), `internal/protocol` (hash-chained
   dual-signed receipts), `internal/tokenizer` + `cmd/tokenizer-sidecar` (L1 token re-count),
@@ -36,6 +47,11 @@ node serves + signs receipt -> broker verifies + co-signs -> capture cost (Final
 ## Versioning
 
 `const Version` in `cmd/rogerai/main.go` AND `helpVersion` in `internal/tui/tui.go` - bump BOTH.
+**Push-verify gotcha:** the tag-time bump keeps losing the push race (v4.1.0, v4.2.3, v4.2.4, and
+v4.3.0 all shipped with the source consts trailing the tag - at the v4.3.0 tag they still read
+`4.2.2`). After cutting a release, re-fetch and confirm the bump actually landed on `origin/main`.
+Beware the grep trap: a `git log` / `branch -r` line reading `main ->` (a remote symref) is NOT
+`HEAD -> main` (your tip pushed) - match the wrong one and a failed push looks like a success.
 
 ## Build / test / release
 
@@ -54,6 +70,7 @@ runs under `go test ./...` via the self-contained `test/smoke/` package.
 
 Release: `git tag vX.Y.Z && git push --tags` -> `.github/workflows/release.yml` cross-compiles 6
 targets (linux/macos/windows x amd64/arm64, `CGO_ENABLED=0` static) + `checksums.txt`.
+After tagging, **re-fetch and verify the version bump landed** (see the Versioning push-verify gotcha).
 Install: `curl rogerai.fyi/install.sh | sh` (POSIX) / `irm rogerai.fyi/install.ps1 | iex` (Windows);
 `rogerai upgrade` self-updates.
 
@@ -67,6 +84,25 @@ buildpack, no node at deploy). Workflow: edit `web/src`, run the build, commit `
 Dependency-light (Node ESM + `node:fs`, no npm install).
 **DO serves NO clean URLs** - every page is `.html`; all internal links and the broker redirect
 envs (`ROGERAI_DASHBOARD_URL`/`LOGIN_URL`/`CONSOLE_URL`) MUST be `.html` paths.
+
+## Pages: Stations vs Models, + the Ping concierge
+
+- **Stations = nodes (on-air GPUs); Models = the LLMs.** `/bands.html` was renamed to
+  **`/models.html`** (`/bands.html` redirects; the nav is a single "Models" link). `web/src/models.html`
+  + `web/src/js/bands.js`. The Models page is **REAL-DATA-ONLY**: no demo/fake bands, an honest
+  empty state, a localStorage grayed-out history of stations seen, and an on-air/offline filter.
+  It hosts the interactive mouse-driven tuning dial (moved off the homepage).
+- **Homepage** has a small auto-animated **dial teaser** (`web/src/js/teaser.js`) + a multi-demo
+  **tape-deck player** (auto-play, auto-advancing playlist) whose `rogerai` demo opens on the
+  SHARE / provider-detection flow.
+- **Ping concierge** (`web/src/js/ping-chat.js`): an always-on side ticker + a draggable/closable
+  type-in popup that POSTs to the broker `POST /concierge` (`cmd/rogerai-broker/concierge.go`).
+  Fallback chain = dogfood a free on-air station -> Groq `llama-3.3-70b-versatile` (`GROQ_API_KEY`)
+  -> a canned "off air" reply (never an error). Bounded: small persona, per-IP rate limit
+  (`ROGERAI_CONCIERGE_RPM`/`_BURST`, default 6), a global daily message cap, and a STOPGAP keyword
+  precheck (`unsafeTerms`). **This is the FIRST public unauthenticated LLM surface** - the real
+  content-filter P0 (a `MODERATION_URL` / Llama Guard hook on the relay) is being wired now; the
+  keyword precheck is only a stopgap.
 
 ## Design system - "The Live Operating Manual"
 
@@ -89,16 +125,21 @@ Specs: `docs-internal/design/direction-foundation.md` (type/color/layout/copy) +
 - **Motion discipline:** single shared rAF; animate only transform/opacity; full
   `prefers-reduced-motion` fallbacks; no new runtime dependency (CSS/SVG/Canvas only); page usable
   with JS/network off.
-- **Phase-2 (pending):** `auth.css` is still indigo/Inter on ~10 account pages (out of scope for
-  this pass; homepage + manual are on-brand).
+- **All account/operational pages are now restyled** onto the manual (auth.css moved off the old
+  indigo); the colophon footer is right-aligned and footer/nav are grouped.
 
 ## Billing / payouts
 
 - **Stripe** SDK-free (raw API + stdlib HMAC), inert until `STRIPE_SECRET_KEY` set. Broker handles
   `checkout.session.completed` (credit wallet) + `charge.dispute.created`. See `docs-internal/STRIPE.md`.
-  Production: `sk_live` key, set `STRIPE_WEBHOOK_SECRET` (the broker reads this exact name), add
-  `charge.dispute.created` to the webhook, enable Connect, redeploy. Fintech-lawyer gate before
-  real money.
+- **Config = PER-ENV** (no `_PROD_`/flag): the broker env holds the LIVE values in
+  `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`; the local `.env` holds test. `ROGERAI_REQUIRE_LIVE=1`
+  is an opt-in **fail-closed guard** (refuse to start in test mode). The broker logs `[LIVE]` vs
+  `[test]` at startup (detects the `sk_live` prefix). **Currently [test mode].**
+- **Production switch (operator):** set the broker's `STRIPE_SECRET_KEY` = `sk_live`,
+  `STRIPE_WEBHOOK_SECRET` = the live `whsec`, subscribe `charge.dispute.created` on the webhook
+  (`broker.rogerai.fyi/billing/webhook`), set `ROGERAI_REQUIRE_LIVE=1`, enable Connect, redeploy.
+  Validate the live flow with the `web-fetch` CLI. Fintech-lawyer gate before real money.
 - **Payout policy = OPTION A:** 90-day HOLD, NO separate reserve (`ROGERAI_PAYOUT_RESERVE` default
   0), $25 MIN, MONTHLY, Connect-KYC gated. Payout rail is transfer-SAFE (`payouts.go`: debit-first
   store txn -> transfer exact amount -> settle/fail rollback). Append-only `rogerai.ledger`;
@@ -116,9 +157,11 @@ BROKER exchanges the code, not the static site). Design: `docs-internal/AUTH-DES
 
 3 of 4 launch-gating P0s CLOSED: **auth** (Ed25519 + GitHub OAuth), **double-spend** (credit
 Hold -> Finalize/ReleaseHold, atomic `WHERE balance>=amount`), **node-register** (Ed25519
-challenge). **Content-filter** (CSAM/illegal pre-dispatch screen, needs a moderation LLM e.g.
-Llama Guard 3) is **DEFERRED - the only open P0**. Privacy: broker is content-blind; users
-pseudonymized per-(user,node). Tracked in `docs-internal/{ROADMAP,SUGGESTIONS}.md`.
+challenge). **TWO launch gates remain:** the **content-filter P0** (CSAM/illegal pre-dispatch
+screen via a `MODERATION_URL` / Llama Guard hook on the relay - IN PROGRESS, now urgent because the
+Ping concierge is a live public unauthenticated LLM surface) and the **Stripe production switch**.
+Privacy: broker is content-blind; users pseudonymized per-(user,node). Tracked in
+`docs-internal/{ROADMAP,SUGGESTIONS}.md`.
 
 ## Deploy (DigitalOcean App Platform)
 
@@ -144,8 +187,7 @@ be set in prod or receipts won't verify across restarts. See `docs-internal/DEPL
 
 ## Pending queue
 
-`/bands` discovery page (HuggingFace-style, our theme, no PII beyond callsign) · multi-demo player
-(switchable + replay/pause) · "Image #21 into the binary" TUI polish (signal bars, `◉◆` markers,
-staged scanning/locking/handshake/CHANNEL OPEN) · Phase-2 page-body redesign (auth.css) · content-
-filter moderation · Stripe production · **v0.4.0 "harness" vision** (`dj.md` personas + tool-calling
-+ MCP + connections-as-profiles, plus an endpoint-handoff for external harnesses).
+**Launch gates:** content-filter moderation P0 (in progress) · Stripe production (operator sets the
+live env values). **Next-up:** MCP support + connections-as-profiles for the `[0] AGENT` harness
+(the rest of the "harness" vision beyond the shipped agent) · an endpoint-handoff for external
+harnesses · any account-page polish still trailing the redesign.
