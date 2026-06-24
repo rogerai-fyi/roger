@@ -1549,10 +1549,14 @@ table.man-table tr:hover td { background: var(--paper); }
 .market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
 
 /* =====================================================================
-   FIG.1 (homepage) - the BAND TEASER. A compact, glanceable band selector
-   that links into /models.html (where the full interactive dial lives).
-   Marketing surface: gently animated, representative data. Whole thing is
-   one <a>. Flat hairline plate, monochrome + the one red lock line.
+   FIG.1 (homepage) - the BAND TEASER. A COMPACT fake-dial tuner: a short
+   frequency strip (notches + labels) under a fixed center needle, that
+   AUTO-sweeps + re-locks band to band (teaser.js, shared rAF on --carrier).
+   It links into /models.html (where the full INTERACTIVE dial lives, real
+   data). Marketing surface: representative data, gentle motion. Whole thing
+   is one <a>. Flat hairline plate, monochrome + the one red lock line. The
+   --lock (0..1, detent glow) + --sig (0..1, signal meter) vars are driven by
+   teaser.js; pre-seeded inline so JS-off / reduced-motion looks locked.
    ===================================================================== */
 .teaser {
   display: block; max-width: 720px; margin: var(--s-8) auto;
@@ -1563,7 +1567,7 @@ table.man-table tr:hover td { background: var(--paper); }
 .teaser:hover { border-color: var(--ink-400); }
 .teaser:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
 .teaser__fig { display: block; padding: var(--s-3) var(--s-4) 0; }
-.teaser__face { padding: var(--s-2) 0 0; }
+.teaser__face { padding: var(--s-2) 0 0; --lock: 1; --sig: 0.87; }
 .teaser__top {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
@@ -1574,6 +1578,50 @@ table.man-table tr:hover td { background: var(--paper); }
 .teaser__sig { font-size: 0.74rem; color: var(--ink-500); white-space: nowrap;
   font-variant-numeric: tabular-nums slashed-zero; }
 .teaser__sig b { color: var(--live); font-weight: var(--weight-semi); }
+
+/* the dial face: the auto-sweeping spectrum strip + fixed needle + glass +
+   a bottom signal meter that reacts to --sig. Compact (short height). */
+.teaser__dial { position: relative; background: var(--paper-2);
+  border-bottom: 1px solid var(--hairline); }
+.teaser__svgwrap { position: relative; overflow: hidden; padding: var(--s-3) 0 0;
+  background: linear-gradient(var(--paper) 0, var(--paper-2) 100%); }
+.teaser__svg { display: block; width: 100%; height: 80px; }
+@media (max-width: 560px) { .teaser__svg { height: 72px; } }
+.teaser__tick { transition: stroke .25s ease; }
+.teaser__pip { transition: fill .25s ease; }
+.teaser__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
+.teaser__lbl--on { opacity: 1; fill: var(--live); font-weight: var(--weight-semi); }
+/* fixed red needle, dead center, with a soft lock-glow that brightens at a
+   detent (--lock -> 1). transform/opacity only. */
+.teaser__needle {
+  position: absolute; left: 50%; top: var(--s-3); bottom: 22px;
+  width: 2px; margin-left: -1px; background: var(--live);
+  box-shadow: 0 0 calc(2px + var(--lock) * 6px) var(--live-glow);
+  pointer-events: none;
+}
+.teaser__needle::before, .teaser__needle::after {
+  content: ""; position: absolute; left: 50%; width: 8px; height: 8px;
+  margin-left: -4px; background: var(--live); transform: rotate(45deg);
+  opacity: calc(.35 + var(--lock) * .65);
+}
+.teaser__needle::before { top: -4px; }
+.teaser__needle::after  { bottom: -4px; }
+/* glass: a center detent column + faint scanlines + side vignette */
+.teaser__glass { position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 20px), var(--live-wash) 50%, transparent calc(50% + 20px)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.018) 3px),
+    linear-gradient(90deg, var(--paper) 0, transparent 10%, transparent 90%, var(--paper) 100%);
+  opacity: calc(.5 + var(--lock) * .5);
+}
+/* the signal meter along the dial bottom, reacting to --sig */
+.teaser__dial::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background:
+    linear-gradient(90deg, var(--live) 0, var(--live) calc(var(--sig) * 100%), transparent calc(var(--sig) * 100%)),
+    var(--hairline-2);
+  background-clip: padding-box;
+}
 
 .teaser__list { list-style: none; margin: 0; padding: var(--s-2) 0; }
 .teaser__band {
@@ -1604,6 +1652,13 @@ table.man-table tr:hover td { background: var(--paper); }
 .teaser__open { color: var(--ink-700); border-bottom: 1px solid transparent; transition: color var(--d-2), border-color var(--d-2); }
 .teaser:hover .teaser__open { color: var(--live); border-bottom-color: var(--live); }
 @media (max-width: 480px) { .teaser__open { display: none; } }
+
+/* reduced-motion: static, pre-locked on the strongest band (teaser.js does not
+   start the sweep). No transitions / no lock-glow pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .teaser__tick, .teaser__pip, .teaser__lbl, .teaser__locked { transition: none; }
+  .teaser__needle { box-shadow: none; }
+}
 
 /* ---------- bands hero ----------------------------------------- */
 .bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
