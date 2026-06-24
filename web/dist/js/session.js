@@ -90,7 +90,7 @@
     [
       { label: "Dashboard", href: "/dashboard.html" },
       { label: "Console", href: "/console.html" },
-      { label: "Usage", href: "/usage.html" },
+      { label: "Metrics", href: "/usage.html" },
       { label: "Billing", href: "/billing.html" },
       { label: "Payouts", href: "/payouts.html" },
       { label: "Account", href: "/account.html" }

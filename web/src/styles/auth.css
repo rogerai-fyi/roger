@@ -389,3 +389,195 @@ body.auth {
   color: var(--ink-700);
 }
 .danger:hover { color: var(--live); border-color: var(--live); }
+
+/* =====================================================================
+   METRICS (usage.html) - per-model PROVIDER + USAGE tables and the
+   hand-rolled CSS bar charts. Same plate language: hairlines, mono
+   numerals (tabular-nums), one red glint = the paid portion / range.
+   No chart library; bars are flexed spans scaled inline by JS.
+   ===================================================================== */
+
+/* range selector: 7d / 30d / All - quiet hairline segmented control,
+   the active option carries the one red glint. */
+.mx-range {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-6) 0 0;
+  flex-wrap: wrap;
+}
+.mx-range__k {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin-right: var(--s-1);
+}
+.mx-range__opt {
+  padding: 6px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-500);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.mx-range__opt:hover { color: var(--ink-900); border-color: var(--ink-500); }
+.mx-range__opt.is-active {
+  border-color: var(--live);
+  color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.mx-range__opt:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* totals header reuses .stats; this just tightens spacing under a chart. */
+.mx-totals { margin-bottom: var(--s-5); }
+
+/* ---- the chart: a stack of labelled horizontal bars ---- */
+.mx-chart { margin: var(--s-5) 0 var(--s-6); }
+.mx-chart__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  flex-wrap: wrap;
+}
+.mx-chart__title {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.mx-legend {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+.mx-legend__sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-xs);
+  margin: 0 2px 0 var(--s-2);
+  vertical-align: -1px;
+}
+.mx-legend__sw--paid { background: var(--live); }
+.mx-legend__sw--free { background: var(--ink-300); }
+
+.mx-bars { list-style: none; margin: 0; padding: 0; }
+.mx-bars__row {
+  display: grid;
+  grid-template-columns: minmax(72px, 28%) 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+}
+.mx-bars__label {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-bars__track {
+  position: relative;
+  height: 14px;
+  background: var(--paper-2);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+.mx-bars__fill {
+  display: flex;
+  height: 100%;
+  min-width: 2px;
+  /* width set inline by JS; animate growth, guarded for reduced motion */
+  transition: width var(--d-3) var(--ease-out-quint);
+}
+.mx-bars__seg { height: 100%; }
+.mx-bars__seg--paid { background: var(--live); }
+.mx-bars__seg--free { background: var(--ink-300); }
+.mx-bars__val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  white-space: nowrap;
+  text-align: right;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mx-bars__fill { transition: none; }
+}
+
+/* ---- the table: hairline rows, mono numerals, right-aligned numbers ---- */
+.mx-tablewrap {
+  margin: var(--s-4) 0 0;
+  overflow-x: auto;            /* narrow screens scroll the table, never clip */
+  -webkit-overflow-scrolling: touch;
+}
+.mx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.mx-table th,
+.mx-table td {
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--hairline);
+  text-align: left;
+  white-space: nowrap;
+}
+.mx-table thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--hairline-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.mx-table td.num,
+.mx-table th.num { text-align: right; }
+.mx-table td.num,
+.mx-table .mx-fp {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-700);
+}
+.mx-table .mx-model {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.mx-table .mx-money { color: var(--ink-900); font-weight: var(--weight-medium); }
+.mx-fp__free { color: var(--ink-500); }
+.mx-fp__sep  { color: var(--ink-300); }
+.mx-fp__paid { color: var(--ink-900); }
+
+/* loading / empty / error notices - the fine, quiet register. */
+.mx-state {
+  margin: var(--s-4) 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+  line-height: 1.6;
+}
+
+/* narrow: drop the model-name column width and tighten the chart grid. */
+@media (max-width: 460px) {
+  .mx-bars__row { grid-template-columns: minmax(56px, 34%) 1fr auto; gap: var(--s-2); }
+  .mx-table th, .mx-table td { padding: var(--s-2); }
+}

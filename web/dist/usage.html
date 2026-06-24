@@ -26,7 +26,7 @@
        invisible. Its sha256 is allow-listed in _headers (script-src) for CSP. -->
   <script>(function(){function r(){var n=document.querySelectorAll("[data-reveal]");for(var i=0;i<n.length;i++){n[i].classList.add("is-revealed");}}if(document.readyState!=="loading"){r();}else{document.addEventListener("DOMContentLoaded",r);}setTimeout(r,1200);})();</script>
   <noscript><style>[data-reveal]{opacity:1 !important;transform:none !important;}</style></noscript>
-  <title>Usage - RogerAI</title>
+  <title>Metrics - RogerAI</title>
 
   <meta name="color-scheme" content="light dark" />
 
@@ -130,35 +130,116 @@
 
   <div class="authwrap">
   <main class="card" id="card" hidden>
-    <h1>Usage</h1>
-    <p class="sub">Your spend across models.</p>
+    <h1>Metrics</h1>
+    <p class="sub">What you host and earn, and what you consume and spend - per model.</p>
 
-    <section class="panel">
-      <h2>Lifetime spend</h2>
-      <dl class="stats">
-        <div><dt>Spend</dt><dd id="spend">-</dd></div>
+    <!-- Range selector (shared by both views). -->
+    <div class="mx-range" role="group" aria-label="Time range">
+      <span class="mx-range__k">Range</span>
+      <button type="button" class="mx-range__opt" data-days="7">7d</button>
+      <button type="button" class="mx-range__opt is-active" data-days="30">30d</button>
+      <button type="button" class="mx-range__opt" data-days="all">All</button>
+    </div>
+
+    <!-- ============ PROVIDER METRICS (what you host / earn) ============ -->
+    <section class="panel" id="provider">
+      <h2>Provider metrics</h2>
+      <p class="fine">Tokens you served and earnings accrued across the models on your nodes.</p>
+
+      <dl class="stats mx-totals" id="provTotals" hidden>
+        <div><dt>Requests</dt><dd id="provReq">-</dd></div>
+        <div><dt>Tokens out</dt><dd id="provTokOut">-</dd></div>
+        <div><dt>Earnings</dt><dd id="provEarn">-</dd></div>
       </dl>
+
+      <!-- chart: per-model horizontal bars of tokens-out, free/paid shaded -->
+      <div class="mx-chart" id="provChart" hidden>
+        <div class="mx-chart__head">
+          <span class="mx-chart__title">Tokens out by model</span>
+          <span class="mx-legend" aria-hidden="true">
+            <span class="mx-legend__sw mx-legend__sw--paid"></span>paid
+            <span class="mx-legend__sw mx-legend__sw--free"></span>free
+          </span>
+        </div>
+        <ul class="mx-bars" id="provBars"></ul>
+      </div>
+
+      <div class="mx-tablewrap" id="provTableWrap" hidden>
+        <table class="mx-table">
+          <thead>
+            <tr>
+              <th scope="col">Model</th>
+              <th scope="col" class="num">Requests</th>
+              <th scope="col" class="num">Tokens out</th>
+              <th scope="col" class="num">Free / paid</th>
+              <th scope="col" class="num">Earnings</th>
+            </tr>
+          </thead>
+          <tbody id="provRows"></tbody>
+        </table>
+      </div>
+
+      <p class="mx-state" id="provLoading">Loading provider metrics...</p>
+      <p class="mx-state" id="provEmpty" hidden>No activity yet. Put a GPU on air with <code>rogerai share</code> to start earning.</p>
+      <p class="mx-state" id="provError" hidden>Could not load provider metrics. Try again shortly.</p>
     </section>
 
-    <section class="panel">
-      <h2>Breakdown</h2>
-      <p class="fine">
-        Group by:
-        <a href="?group=model" id="byModel">model</a> -
-        <a href="?group=day" id="byDay">day</a>
-      </p>
-      <ul class="recent" id="buckets"></ul>
-      <p class="fine" id="bucketsEmpty" hidden>No usage yet. Try <code>rogerai use &lt;model&gt;</code>.</p>
+    <!-- ============ YOUR USAGE (what you consume / spend) ============ -->
+    <section class="panel" id="usage">
+      <h2>Your usage</h2>
+      <p class="fine">Tokens you consumed and what they cost across the models you tuned in.</p>
+
+      <dl class="stats mx-totals" id="useTotals" hidden>
+        <div><dt>Requests</dt><dd id="useReq">-</dd></div>
+        <div><dt>Tokens</dt><dd id="useTok">-</dd></div>
+        <div><dt>Spend</dt><dd id="useSpend">-</dd></div>
+      </dl>
+
+      <!-- chart: per-model horizontal bars of total tokens, free/paid shaded -->
+      <div class="mx-chart" id="useChart" hidden>
+        <div class="mx-chart__head">
+          <span class="mx-chart__title">Tokens by model</span>
+          <span class="mx-legend" aria-hidden="true">
+            <span class="mx-legend__sw mx-legend__sw--paid"></span>paid
+            <span class="mx-legend__sw mx-legend__sw--free"></span>free
+          </span>
+        </div>
+        <ul class="mx-bars" id="useBars"></ul>
+      </div>
+
+      <div class="mx-tablewrap" id="useTableWrap" hidden>
+        <table class="mx-table">
+          <thead>
+            <tr>
+              <th scope="col">Model</th>
+              <th scope="col" class="num">Requests</th>
+              <th scope="col" class="num">Tokens</th>
+              <th scope="col" class="num">Free / paid</th>
+              <th scope="col" class="num">Spend</th>
+            </tr>
+          </thead>
+          <tbody id="useRows"></tbody>
+        </table>
+      </div>
+
+      <p class="mx-state" id="useLoading">Loading your usage...</p>
+      <p class="mx-state" id="useEmpty" hidden>No usage yet. Tune in with <code>rogerai use &lt;model&gt;</code>.</p>
+      <p class="mx-state" id="useError" hidden>Could not load your usage. Try again shortly.</p>
     </section>
 
-    <section class="panel">
-      <h2>Recent requests</h2>
-      <ul class="recent" id="recent"></ul>
-      <p class="fine" id="recentEmpty" hidden>No requests yet.</p>
-    </section>
-
-    <p class="fine"><a href="/account.html">Account</a> - <a href="/billing.html">Billing</a> - <a href="/dashboard.html">Dashboard</a></p>
+    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/account.html">Account</a> - <a href="/billing.html">Billing</a> - <a href="/payouts.html">Payouts</a></p>
     <button id="logout" class="ghost">Sign out</button>
+  </main>
+
+  <!-- Logged-out gate: shown when the broker says we are not signed in. -->
+  <main class="card" id="gate" hidden>
+    <h1>Metrics</h1>
+    <p class="sub">Log in to see your provider earnings and usage.</p>
+    <section class="panel">
+      <h2>Signed out</h2>
+      <p>Sign in to view per-model tokens, free-vs-paid split, earnings and spend.</p>
+      <p style="margin-top:16px"><a class="gh" href="/login.html">Log in</a></p>
+    </section>
   </main>
   </div>
   <!-- The ONE shared footer, on every page. Brand (shared mark) + links + status,
@@ -265,7 +346,7 @@
 <!-- toast for copy confirmation (shared with the install boxes) -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/account.js"></script>
+  <script src="js/metrics.js"></script>
   <script src="js/site.js"></script>
   <script src="js/session.js"></script>
 </body>
