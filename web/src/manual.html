@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b>v4.0.0</b></span>
+          <span>Version: <b data-cli-version>v4.4.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -55,6 +55,7 @@
             <li><a href="#s0"><span class="man-toc__no">§0</span>Front matter</a></li>
             <li><a href="#s1"><span class="man-toc__no">§1</span>Installation</a></li>
             <li><a href="#s2"><span class="man-toc__no">§2</span>First contact</a></li>
+            <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
             <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
@@ -64,7 +65,8 @@
             <li><a href="#s9"><span class="man-toc__no">§9</span>Command reference</a></li>
             <li><a href="#s10"><span class="man-toc__no">§10</span>Verification</a></li>
             <li><a href="#s11"><span class="man-toc__no">§11</span>Troubleshooting</a></li>
-            <li><a href="#sA"><span class="man-toc__no">A</span>The API</a></li>
+            <li><a href="#sAPI"><span class="man-toc__no">B</span>The API</a></li>
+            <li><a href="#schangelog"><span class="man-toc__no">C</span>Changelog</a></li>
           </ol>
         </nav>
 
@@ -167,13 +169,85 @@
             <p>Choose to use models and you land in the app: browse the band, tune in,
               chat. Or skip the app and go straight to an endpoint for your bots:</p>
             <pre><span class="p">$</span> rogerai use qwen3-coder-30b
-  endpoint  http://127.0.0.1:4141/v1
-  key       sk-roger-...
-  model     qwen3-coder-30b</pre>
+  BASE URL  http://127.0.0.1:4141/v1
+  API KEY   roger-local
+  MODEL     qwen3-coder-30b</pre>
             <div class="man-note">
               <span class="man-note__tag">note</span>
               Browsing the band and opening a free endpoint need no account. You only log
               in to use a paid <b>wallet</b> (§6) or to <b>earn</b> as a provider (§4).
+            </div>
+
+            <h3>The app at a glance: the preset bank</h3>
+            <p>The interactive app is a radio. A row of station presets sits across the
+              bottom of every screen - press the key, jump to that screen:</p>
+            <pre><span class="p">[0] AGENT</span>   <span class="p">[1] TUNE IN</span>   <span class="p">[2] SHARE</span>   <span class="p">[3] CONFIG</span>   <span class="p">[L] LOGIN</span>   <span class="p">[?] HELP</span></pre>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">[0] AGENT</span><span class="man-plate__v">the embedded tool-using agent - it can read/list/fetch and (with your y/N) write/run, on a model you tune in (§A)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[1] TUNE IN</span><span class="man-plate__v">browse the live band, filter/sort, and tune in to a station to chat (§3)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[2] SHARE</span><span class="man-plate__v">your provider table - flip your own models on / off air (§4)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[3] CONFIG</span><span class="man-plate__v">the in-app spend-limits editor (§8)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[L] LOGIN / LOGOUT</span><span class="man-plate__v">link or unlink GitHub - the label flips with your state (§6)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">[?] HELP</span><span class="man-plate__v">the in-app help screen; the version is printed here</span></div>
+            </div>
+            <p>The lit preset is the screen you are on. <kbd>&larr;</kbd> / <kbd>&rarr;</kbd>
+              step through the bank; <kbd>m</kbd> collapses the header into a compact
+              "windowshade" line and the choice sticks across runs.</p>
+          </section>
+
+          <!-- ============== §A THE [0] AGENT ============== -->
+          <section class="man-sec" id="sAG">
+            <span class="man-sec__no">§A · The [0] agent</span>
+            <h2>An agent that runs on the band</h2>
+            <p class="man-lead">Press <kbd>0</kbd> in the app to open <b>[0] AGENT</b>: a
+              small tool-using agent that runs on whatever model you have tuned in. Ask it
+              to do something and it loops - it can read files, list directories, and fetch
+              the web on its own; writing files and running shell commands always stop to
+              ask you first. It is session-only: it keeps no memory between runs.</p>
+
+            <h3>The model it uses</h3>
+            <p>The agent never reaches for a stale default. It runs on, in order: your
+              <b>open channel</b> if you have one, else the <b>last band you tuned in</b>
+              this session, else it asks you with <code>/model</code>. With no model
+              tuned in it tells you so and points you at <kbd>1</kbd> to tune in. If the
+              tuned model cannot make tool calls, the agent degrades to a plain chat rather
+              than failing.</p>
+
+            <h3>The tools, and what asks first</h3>
+            <p>The tool set is small and bounded. Read-only tools run on their own;
+              anything that changes your machine is confirm-gated (<kbd>y</kbd> /
+              <kbd>N</kbd>, default <b>no</b>). File tools are sandboxed to the directory
+              you launched in - absolute paths and <code>../</code> escapes are rejected.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">read_file</span><span class="man-plate__v">read a file under the working dir - runs on its own</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">list_dir</span><span class="man-plate__v">list a directory under the working dir - runs on its own</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">web_fetch</span><span class="man-plate__v">fetch a URL - runs on its own</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">write_file</span><span class="man-plate__v">write a file (sandboxed) - <b>asks first</b> (y/N)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">run_shell</span><span class="man-plate__v">run a shell command in the working dir - <b>asks first</b> (y/N); runs in the cwd but is not sandboxed</span></div>
+            </div>
+            <p>Each tool call shows a short preview of what it did, so you can follow the
+              agent's work as it goes.</p>
+
+            <h3>The persona</h3>
+            <p>The agent's voice and house rules come from a plain Markdown persona at
+              <code>~/.config/rogerai/dj.md</code>, written on first run and yours to edit.
+              <code>/persona</code> prints its path so you can open and tune it.</p>
+
+            <h3>Keys &amp; commands in AGENT</h3>
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>[0] AGENT</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td>type + <kbd>Enter</kbd></td><td>give the agent a task; it loops until done</td></tr>
+                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>recall your previous prompts (shell-style history)</td></tr>
+                  <tr><td><code>/model</code></td><td>switch the model the agent runs on (picker, or by name)</td></tr>
+                  <tr><td><code>/clear</code></td><td>reset the session and clear the transcript</td></tr>
+                  <tr><td><code>/persona</code></td><td>show the <code>dj.md</code> path + its first line</td></tr>
+                  <tr><td><code>/help</code></td><td>list the in-agent commands</td></tr>
+                  <tr><td><kbd>esc</kbd></td><td>leave AGENT (the session is kept)</td></tr>
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -186,43 +260,53 @@
               headless local endpoint your tools talk to.</p>
 
             <h3>The app (the dial)</h3>
-            <p>Run <code>rogerai</code> to open the TUI. <b>BROWSE</b> shows the live band;
-              <b>CHANNEL</b> is the chat session with a connected model. Slash commands
-              drive it; <kbd>tab</kbd> switches modes.</p>
+            <p>Run <code>rogerai</code> to open the app and press <kbd>1</kbd> for
+              <b>TUNE IN</b>: the live band, sorted strongest first. Move the cursor with
+              <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> (or <kbd>j</kbd>/<kbd>k</kbd>),
+              <kbd>Enter</kbd> to tune in. The list is virtualized, so a crowded band stays
+              fast. When you are connected, <kbd>Enter</kbd> on that row jumps into the
+              chat, and <kbd>d</kbd> disconnects right from the list.</p>
             <div class="man-table-wrap">
               <table class="man-table">
-                <caption>In the app - BROWSE mode</caption>
-                <thead><tr><th>Command / key</th><th>What it does</th></tr></thead>
+                <caption>[1] TUNE IN - the band browser</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
-                  <tr><td><code>/search</code></td><td>re-scan the band for stations</td></tr>
-                  <tr><td><code>/connect</code> (Enter)</td><td>tune in to the selected station</td></tr>
-                  <tr><td><code>/chat</code> (c · tab)</td><td>open the CHANNEL session with the connected model</td></tr>
-                  <tr><td><code>/limits</code></td><td>see and edit your per-model spend maxes</td></tr>
-                  <tr><td><code>/balance</code></td><td>wallet balance ($)</td></tr>
-                  <tr><td><code>/topup [usd]</code></td><td>add funds (opens checkout)</td></tr>
-                  <tr><td><code>/share [off]</code></td><td>open the provider table - flip models on/off air</td></tr>
-                  <tr><td><code>/login</code></td><td>link GitHub (device flow) - to earn</td></tr>
+                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> · <kbd>j</kbd> <kbd>k</kbd></td><td>move the cursor through the band</td></tr>
+                  <tr><td><kbd>Enter</kbd></td><td>tune in to the selected station (opens the cost-confirm); on the connected row, jump into chat</td></tr>
+                  <tr><td><kbd>d</kbd></td><td>disconnect the open channel without entering it</td></tr>
+                  <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into the open channel</td></tr>
+                  <tr><td><kbd>f</kbd></td><td>live name filter - type to search models (re-opens to edit, esc clears)</td></tr>
+                  <tr><td><kbd>S</kbd></td><td>cycle the sort dial: strongest / cheapest / fastest / most-stations (mirrors the web Models page)</td></tr>
+                  <tr><td><kbd>F</kbd></td><td>toggle: only bands with a FREE-now station</td></tr>
+                  <tr><td><kbd>C</kbd></td><td>toggle: only confidential / verified-lineage bands</td></tr>
+                  <tr><td><kbd>O</kbd></td><td>toggle: only bands with a station on air</td></tr>
+                  <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
+                  <tr><td><kbd>m</kbd></td><td>compact "windowshade" mode (collapse the header)</td></tr>
+                  <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt for a slash command</td></tr>
+                  <tr><td><code>/limits</code> · <code>/balance</code> · <code>/topup [usd]</code></td><td>spend maxes · wallet balance ($) · add funds</td></tr>
+                  <tr><td><code>/share [off|&lt;model&gt;]</code></td><td>open SHARE; <code>off</code> stops all, <code>&lt;model&gt;</code> flips one on air</td></tr>
                   <tr><td><code>/grant [create &lt;name&gt;]</code></td><td>private free keys for your bots/family</td></tr>
-                  <tr><td><code>/confidential</code></td><td>toggle: route only to TEE-attested nodes</td></tr>
-                  <tr><td><code>/endpoint</code> · <code>/config</code></td><td>endpoint + key · broker/identity</td></tr>
-                  <tr><td><code>/help</code> · <code>/quit</code></td><td>this · exit</td></tr>
-                  <tr><td><kbd>m</kbd></td><td>minimize the header</td></tr>
+                  <tr><td><code>/confidential</code> · <code>/config</code> · <code>/help</code></td><td>TEE-only toggle · broker/identity · help</td></tr>
+                  <tr><td><kbd>q</kbd> · <code>/quit</code></td><td>quit the app (confirms first if you are ON AIR)</td></tr>
                 </tbody>
               </table>
             </div>
             <div class="man-table-wrap">
               <table class="man-table">
-                <caption>In the app - CHANNEL (chat) mode</caption>
-                <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+                <caption>The channel (chat with a tuned-in model)</caption>
+                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
                 <tbody>
-                  <tr><td><code>/model</code></td><td>re-tune: drop back to the band to pick a new channel</td></tr>
+                  <tr><td>type + <kbd>Enter</kbd></td><td>send a turn to the connected model</td></tr>
+                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>recall your previous messages (shell-style history)</td></tr>
+                  <tr><td><kbd>tab</kbd></td><td>peek at the band; the channel stays open</td></tr>
+                  <tr><td><kbd>esc</kbd> · <code>/disconnect</code> (<code>/leave</code> · <code>/dc</code>)</td><td>leave this channel and return to the band (not quit the app)</td></tr>
+                  <tr><td><code>/model</code> (<code>/tune</code> · <code>/retune</code>)</td><td>drop back to the band to pick a new channel</td></tr>
                   <tr><td><code>/clear</code></td><td>clear the transcript and session cost</td></tr>
-                  <tr><td><code>/save</code></td><td>report the in-memory transcript size</td></tr>
                   <tr><td><code>/system &lt;p&gt;</code></td><td>set a system prompt, prepended to each turn</td></tr>
-                  <tr><td><code>/cost</code></td><td>session cost so far + balance</td></tr>
+                  <tr><td><code>/cost</code></td><td>session cost so far + wallet balance ($)</td></tr>
                   <tr><td><code>/confidential</code></td><td>toggle TEE-only routing</td></tr>
                   <tr><td><code>/endpoint</code></td><td>endpoint + key + model for this channel</td></tr>
-                  <tr><td><code>/help</code> · <code>/quit</code></td><td>in-session help · exit</td></tr>
+                  <tr><td><code>/help</code> · <code>/quit</code></td><td>in-session help · leave the channel</td></tr>
                 </tbody>
               </table>
             </div>
@@ -381,6 +465,17 @@
               <div class="man-plate__row"><span class="man-plate__k">/usage</span><span class="man-plate__v">per-request usage and receipts</span></div>
               <div class="man-plate__row"><span class="man-plate__k">/dashboard</span><span class="man-plate__v">your nodes, grants, and live activity</span></div>
             </div>
+
+            <h3>Logging in from the app</h3>
+            <p>Press <kbd>L</kbd> in the app for the login panel. Logged out, it explains
+              what a login unlocks (a funded wallet + earning as a provider) and waits -
+              press <kbd>Enter</kbd> to start the GitHub device flow (it opens your browser
+              and shows a short code to paste if the browser does not open),
+              <kbd>esc</kbd> to back out. The panel never logs you in just by opening it.
+              Once linked, the same <kbd>L</kbd> shows you as <code>@your-login</code> with
+              your balance and asks <b>log out? [y/N]</b> - a deliberate confirm, default
+              no. The preset's label flips <b>LOGIN</b> &harr; <b>LOGOUT</b> with your
+              state.</p>
           </section>
 
           <!-- ============== §7 EARNINGS & PAYOUTS ============== -->
@@ -422,6 +517,17 @@
               lifetime paid, your Connect status, and a Request payout button once you are
               over the minimum. RogerAI never stores your
               identity documents; Stripe holds those.</p>
+
+            <h3>Cash out from the CLI</h3>
+            <p>The whole payout flow is also headless. You must be logged in
+              (<code>rogerai login</code>); KYC and a GitHub link gate every payout.</p>
+            <pre><span class="p">$</span> rogerai payout                  <span class="c"># same as `payout status`</span>
+<span class="p">$</span> rogerai payout status           <span class="c"># Connect/KYC state, payable vs held, next-payable date, policy</span>
+<span class="p">$</span> rogerai payout onboard           <span class="c"># complete Stripe Connect KYC (opens the browser)</span>
+<span class="p">$</span> rogerai payout request           <span class="c"># request a payout of your payable balance</span>
+<span class="p">$</span> rogerai payout history           <span class="c"># past payouts and their states</span></pre>
+            <p>Aliases: <code>payouts</code> / <code>cashout</code> for the command;
+              <code>withdraw</code> for <code>request</code>.</p>
           </section>
 
           <!-- ============== §8 CONFIGURATION ============== -->
@@ -461,11 +567,11 @@
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of v4.0.0: the top-level CLI commands with their key
-              flags, then the in-app TUI keys and slash commands grouped by context. Run
-              any command with <code>--help</code> for its flags; advanced flags hide
-              behind <code>--advanced</code>. Run <code>rogerai</code> with no arguments to
-              open the app.</p>
+            <p>The full surface as of <b data-cli-version>v4.4.0</b>: the top-level CLI
+              commands with their key flags, then the in-app keys and slash commands grouped
+              by context. Run any command with <code>--help</code> for its flags; advanced
+              flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
+              arguments to open the app.</p>
 
             <h3>CLI commands</h3>
             <div class="man-table-wrap">
@@ -481,6 +587,7 @@
                   <tr><td><code>share</code></td><td>go on air - FREE by default, no login (auto-detects your model). Flags: <code>--model</code> · <code>--price-in</code> / <code>--price-out</code> ($/1M to earn; needs login) · <code>--free-window HH:MM-HH:MM</code> · <code>--schedule &lt;json&gt;</code> (time-of-use) · <code>--advanced</code> reveals <code>--node</code> · <code>--region</code> · <code>--parallel</code> · <code>--upstream</code> / <code>--upstream-key</code> · <code>--ctx</code> · <code>--confidential</code> / <code>--attestation</code>. With no local server it runs a guided "no model found" fallback</td></tr>
                   <tr><td><code>limits</code></td><td>print your per-model spend limits (mirrors the in-app <code>/limits</code>; edit with <code>config set-limit</code>)</td></tr>
                   <tr><td><code>grant</code></td><td>private access keys for your bots/family: <code>create --name &lt;n&gt;</code> · <code>list</code> · <code>show</code> · <code>revoke</code> (aliases <code>new</code> / <code>ls</code> / <code>rm</code>)</td></tr>
+                  <tr><td><code>payout</code></td><td>cash out provider earnings (login + KYC gated): <code>status</code> (default) · <code>onboard</code> (Stripe Connect KYC) · <code>request</code> (pays your payable balance) · <code>history</code> (aliases: <code>payouts</code> / <code>cashout</code>; <code>withdraw</code> for <code>request</code>)</td></tr>
                   <tr><td><code>account</code></td><td>who you are; <code>account login</code> / <code>account logout</code> (alias: <code>identity</code>)</td></tr>
                   <tr><td><code>login</code></td><td>link GitHub (device flow) - only needed to earn</td></tr>
                   <tr><td><code>logout</code></td><td>forget the local GitHub link</td></tr>
@@ -495,37 +602,18 @@
               </table>
             </div>
 
-            <h3>In the app: keys &amp; slash commands</h3>
-            <p>The TUI has three contexts. <b>BROWSE</b> is the live band; <b>CHANNEL</b> is
-              the chat session with a connected model; <b>SHARE</b> is the provider table
-              where you flip your own models on air. <kbd>s</kbd> toggles TUNE IN
-              &harr; SHARE; <kbd>tab</kbd> peeks between BROWSE and CHANNEL without leaving.
-              Leaving a channel (<kbd>esc</kbd> / <code>/disconnect</code> / <code>/quit</code>)
-              is distinct from quitting the app - quitting is a deliberate <kbd>q</kbd> from
-              BROWSE, and while you are ON AIR it asks you to confirm going off air first.</p>
-
-            <div class="man-table-wrap">
-              <table class="man-table">
-                <caption>BROWSE (the band)</caption>
-                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
-                <tbody>
-                  <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd> · <kbd>j</kbd> <kbd>k</kbd></td><td>move the cursor through the bands</td></tr>
-                  <tr><td><kbd>Enter</kbd> · <code>/connect</code> · <code>/tune</code></td><td>tune in to the selected band (opens the cost-confirm)</td></tr>
-                  <tr><td><kbd>c</kbd> · <kbd>tab</kbd></td><td>jump into / peek at the open CHANNEL (non-destructive)</td></tr>
-                  <tr><td><kbd>s</kbd></td><td>toggle TUNE IN &harr; SHARE (the provider table)</td></tr>
-                  <tr><td><kbd>r</kbd> · <code>/search</code></td><td>re-scan the band for stations</td></tr>
-                  <tr><td><kbd>m</kbd></td><td>minimize the header (when connected)</td></tr>
-                  <tr><td><kbd>/</kbd> or <kbd>:</kbd></td><td>open the command prompt to type a slash command</td></tr>
-                  <tr><td><code>/limits</code></td><td>see and edit your per-model spend maxes</td></tr>
-                  <tr><td><code>/balance</code> · <code>/topup [usd]</code></td><td>wallet balance ($) · add funds (opens checkout)</td></tr>
-                  <tr><td><code>/share [off|&lt;model&gt;]</code></td><td>open the provider table; <code>off</code> stops all, <code>&lt;model&gt;</code> flips one on air</td></tr>
-                  <tr><td><code>/login</code> · <code>/grant [create &lt;name&gt;]</code></td><td>link GitHub (to earn) · mint a free private key</td></tr>
-                  <tr><td><code>/confidential</code></td><td>toggle: route only to TEE-attested nodes</td></tr>
-                  <tr><td><code>/config</code> · <code>/help</code></td><td>show broker/user · open help</td></tr>
-                  <tr><td><kbd>q</kbd> · <code>/quit</code></td><td>quit the app (confirms first if you are ON AIR)</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <h3>In the app: the preset bank</h3>
+            <p>Every screen carries the preset bank along the bottom -
+              <b>[0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG [L] LOGIN/LOGOUT [?] HELP</b> -
+              and the lit preset is where you are. Press a key to jump there;
+              <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> step through the bank; <kbd>m</kbd> is the
+              compact "windowshade". The full keys for <b>[0] AGENT</b> are in §A and for
+              <b>[1] TUNE IN</b> + the channel in §3; <b>[2] SHARE</b> is below.
+              <b>[3] CONFIG</b> is the spend-limits editor (§8) and <b>[L]</b> is the login
+              panel (§6). Leaving a channel (<kbd>esc</kbd> / <code>/disconnect</code>) is
+              distinct from quitting the app - quitting is a deliberate <kbd>q</kbd> from
+              the band, and while you are ON AIR it asks you to confirm going off air
+              first.</p>
 
             <p class="man-note">At the cost-confirm: <kbd>Enter</kbd> / <kbd>y</kbd> accepts,
               <kbd>esc</kbd> / <kbd>n</kbd> denies (the safe default), <kbd>d</kbd> toggles
@@ -533,25 +621,6 @@
               type a new max inline (<kbd>&uarr;</kbd>/<kbd>&darr;</kbd> nudge by 0.01,
               <kbd>Enter</kbd> save &amp; re-check, <kbd>w</kbd> wait &amp; notify,
               <kbd>esc</kbd> deny).</p>
-
-            <div class="man-table-wrap">
-              <table class="man-table">
-                <caption>CHANNEL (the chat session)</caption>
-                <thead><tr><th>Key / command</th><th>What it does</th></tr></thead>
-                <tbody>
-                  <tr><td>type + <kbd>Enter</kbd></td><td>send a turn to the connected model</td></tr>
-                  <tr><td><kbd>tab</kbd></td><td>peek at the band; the channel stays open</td></tr>
-                  <tr><td><kbd>esc</kbd> · <code>/disconnect</code> · <code>/quit</code></td><td>leave this channel and return to BROWSE (not quit the app)</td></tr>
-                  <tr><td><code>/model</code> · <code>/tune</code> · <code>/retune</code></td><td>drop back to the band to pick a new channel</td></tr>
-                  <tr><td><code>/clear</code></td><td>clear the transcript and session cost</td></tr>
-                  <tr><td><code>/system &lt;p&gt;</code></td><td>set a system prompt, prepended to each turn</td></tr>
-                  <tr><td><code>/cost</code></td><td>session cost so far + wallet balance ($)</td></tr>
-                  <tr><td><code>/confidential</code></td><td>toggle TEE-only routing</td></tr>
-                  <tr><td><code>/endpoint</code></td><td>endpoint + key + model for this channel</td></tr>
-                  <tr><td><code>/save</code> · <code>/help</code></td><td>report the in-memory transcript size · in-session help</td></tr>
-                </tbody>
-              </table>
-            </div>
 
             <div class="man-table-wrap">
               <table class="man-table">
@@ -627,6 +696,13 @@
               <code>rogerai login</code> first, or share for free (drop the price flags) -
               free shares need no login.</p>
 
+            <h3>"no station is serving &lt;model&gt; right now"</h3>
+            <p>The band for that model is empty - no station is on air for it this moment.
+              The app says so plainly and points you at the fix: <b>put one on air with
+              [2]</b> (SHARE your own GPU) <b>or tune in [1]</b> to a different band. The
+              same hint shows in the channel and in <b>[0] AGENT</b> if a station fades
+              mid-request; tuning in re-scans the band.</p>
+
             <h3>"balance empty" / not logged in</h3>
             <p>Browsing is free; spending on paid stations needs a funded wallet. Run
               <code>rogerai login</code>, then <code>rogerai balance --topup</code>. Free
@@ -646,9 +722,9 @@
               <code>ROGER_BROKER=&lt;url&gt;</code> for one session. Pick who you trust.</p>
           </section>
 
-          <!-- ============== APPENDIX: THE API ============== -->
-          <section class="man-sec" id="sA">
-            <span class="man-sec__no">Appendix A · The OpenAI-compatible API</span>
+          <!-- ============== APPENDIX B: THE API ============== -->
+          <section class="man-sec" id="sAPI">
+            <span class="man-sec__no">Appendix B · The OpenAI-compatible API</span>
             <h2>Drop-in for anything that speaks OpenAI</h2>
             <p>When you tune in, the radio runs a local OpenAI-compatible server on
               <code>127.0.0.1</code>. Set the <b>base_url</b> to that endpoint and the
@@ -656,12 +732,12 @@
               OpenAI SDK or tool works unchanged.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">base_url</span><span class="man-plate__v"><code>http://127.0.0.1:&lt;port&gt;/v1</code></span></div>
-              <div class="man-plate__row"><span class="man-plate__k">api key</span><span class="man-plate__v">the <code>sk-roger-...</code> key printed by <code>use</code> / <code>/endpoint</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">api key</span><span class="man-plate__v"><code>roger-local</code> - the local proxy key printed by <code>use</code> / <code>/endpoint</code> (it authorizes the local server, not the broker)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">model</span><span class="man-plate__v">the band id you connected, e.g. <code>qwen3-coder-30b</code></span></div>
             </div>
             <span class="man-fig">FIG. 4 - EXAMPLE REQUEST</span>
             <pre><span class="p">$</span> curl http://127.0.0.1:4141/v1/chat/completions \
-    -H "Authorization: Bearer sk-roger-..." \
+    -H "Authorization: Bearer roger-local" \
     -H "Content-Type: application/json" \
     -d '{
       "model": "qwen3-coder-30b",
@@ -669,12 +745,34 @@
     }'</pre>
             <p>In Python with the OpenAI SDK:</p>
             <pre><span class="p">&gt;&gt;&gt;</span> from openai import OpenAI
-<span class="p">&gt;&gt;&gt;</span> client = OpenAI(base_url="http://127.0.0.1:4141/v1", api_key="sk-roger-...")
+<span class="p">&gt;&gt;&gt;</span> client = OpenAI(base_url="http://127.0.0.1:4141/v1", api_key="roger-local")
 <span class="p">&gt;&gt;&gt;</span> client.chat.completions.create(
 ...     model="qwen3-coder-30b",
 ...     messages=[{"role": "user", "content": "Say roger."}],
 ... )</pre>
             <p class="man-lead" style="margin-top:32px">Roger that. The band is open.</p>
+          </section>
+
+          <!-- ============== APPENDIX C: CHANGELOG ============== -->
+          <!--
+            HOW TO APPEND (per release): add ONE <div class="man-plate__row"> at the TOP
+            of the list below with the new <b>vX.Y.Z</b> and a one-line highlight, and
+            bump the two `data-cli-version` spans (cover + §9) to the new version. The
+            smoke gate (scripts/smoke.sh) FAILS if the built manual does not mention the
+            current `const Version` from cmd/rogerai/main.go, so this stays honest.
+          -->
+          <section class="man-sec" id="schangelog">
+            <span class="man-sec__no">Appendix C · Changelog</span>
+            <h2>What changed, by version</h2>
+            <p class="man-lead">The shipped milestones of the <code>rogerai</code> set.
+              Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
+              latest, <code>rogerai upgrade --check</code> just reports.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v">self-healing SHARE: a provider auto-re-registers when the broker restarts (token refresh, no manual restart). Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.3.0</span><span class="man-plate__v">web-parity visual redesign: one palette, signal meters, the compact "windowshade" [m], a band-browser with filter / sort / FREE-confidential-on-air toggles + a virtualized list, [d] disconnect from the list, and a clean GitHub device-login panel with a confirmed [L] logout</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.2.x</span><span class="man-plate__v">payout command group (<code>rogerai payout status|onboard|request|history</code>) - headless cash-out for Stripe Connect earnings; the in-app preset bank ([0]-[3], [L], [?]) with arrow-key navigation</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.0.0</span><span class="man-plate__v">the v4 line: the "Live Operating Manual" redesign across the CLI and web, and the <b>[0] AGENT</b> harness - an in-app tool-use loop with a <code>dj.md</code> persona, a <code>/model</code> picker, auto read/list/fetch + confirm-gated write/run, cwd-sandboxed, session-only</span></div>
+            </div>
           </section>
 
         </div>

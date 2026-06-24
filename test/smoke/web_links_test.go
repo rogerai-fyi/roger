@@ -21,20 +21,17 @@ import (
 	"testing"
 )
 
-// distDir walks up from the test's working directory to the repo root and
-// returns <root>/web/dist. The test package lives at test/smoke, so the repo
-// root is two levels up.
-func distDir(t *testing.T) string {
+// repoRoot walks up from the test's working directory until it finds go.mod.
+func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	// climb until we find go.mod (repo root), then append web/dist.
 	dir := wd
 	for i := 0; i < 8; i++ {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Join(dir, "web", "dist")
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -44,6 +41,43 @@ func distDir(t *testing.T) string {
 	}
 	t.Fatalf("could not locate repo root (go.mod) from %s", wd)
 	return ""
+}
+
+// distDir returns <root>/web/dist.
+func distDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRoot(t), "web", "dist")
+}
+
+// versionRe pulls the value out of `const Version = "X.Y.Z"` in main.go.
+var versionRe = regexp.MustCompile(`(?m)^const Version = "([0-9][^"]*)"`)
+
+// TestManualMentionsCLIVersion is the sync guard: the built operating manual
+// (web/dist/manual.html) MUST mention the current CLI version from
+// cmd/rogerai/main.go. A release that bumps `const Version` but forgets to
+// update web/src/manual.html (cover + changelog) fails here, mirroring the
+// equivalent check in scripts/smoke.sh. Keeps the manual from drifting stale.
+func TestManualMentionsCLIVersion(t *testing.T) {
+	root := repoRoot(t)
+	mainGo, err := os.ReadFile(filepath.Join(root, "cmd", "rogerai", "main.go"))
+	if err != nil {
+		t.Fatalf("read cmd/rogerai/main.go: %v", err)
+	}
+	m := versionRe.FindSubmatch(mainGo)
+	if m == nil {
+		t.Fatal("could not find `const Version = \"...\"` in cmd/rogerai/main.go")
+	}
+	version := string(m[1])
+
+	manual := filepath.Join(root, "web", "dist", "manual.html")
+	b, err := os.ReadFile(manual)
+	if err != nil {
+		t.Skipf("web/dist/manual.html not built (%v); run `make site` first", err)
+	}
+	if !strings.Contains(string(b), version) {
+		t.Errorf("web/dist/manual.html does not mention current CLI version %q; "+
+			"update web/src/manual.html (cover + changelog) and re-run `node web/build.mjs`", version)
+	}
 }
 
 var hrefRe = regexp.MustCompile(`href="([^"]+)"`)

@@ -47,6 +47,7 @@ node serves + signs receipt -> broker verifies + co-signs -> capture cost (Final
 ## Versioning
 
 `const Version` in `cmd/rogerai/main.go` AND `helpVersion` in `internal/tui/tui.go` - bump BOTH.
+On a release, also update `web/src/manual.html` (the `data-cli-version` spans + add a changelog row), run `node web/build.mjs`, and `git add -f web/dist` - the smoke gate fails if the built manual does not mention the current `const Version`.
 **Push-verify step (works - keep doing it):** the tag-time bump CAN lose the push race if you tag
 before the bump commit lands. Verified 2026-06-24: tags v4.2.2..v4.3.0 all carry the correct
 `Version`/`helpVersion` - the verify-by-refetch step is what keeps them in sync. After cutting,
