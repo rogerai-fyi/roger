@@ -335,6 +335,9 @@ func main() {
 		err = cmdOnboard(cfg, os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
+	case "support", "community", "help-me", "discord":
+		// Mirror the TUI's /support: open the website (community + Discord live there).
+		err = cmdSupport()
 	case "ping":
 		// easter egg: walk the mascot across the terminal once, then exit.
 		err = tui.PingWalk()
@@ -353,6 +356,22 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// supportURL is the website (community + Discord link live in its footer). Per the
+// founder, `rogerai support` / the TUI's /support point here, not straight at Discord,
+// so the footer stays the single source of truth for the community link.
+const supportURL = "https://rogerai.fyi"
+
+// cmdSupport opens the website where the community / Discord link lives. tui.OpenURL
+// self-gates on an interactive TTY (never auto-opens headless / piped), and we print
+// the URL regardless as the fallback.
+func cmdSupport() error {
+	fmt.Println("RogerAI support - community, docs, and the Discord invite live on the site:")
+	fmt.Printf("  %s\n", supportURL)
+	fmt.Println("  (if your browser didn't open, paste the URL above)")
+	tui.OpenURL(supportURL)
+	return nil
 }
 
 func cmdUse(cfg config, args []string) error {
@@ -1051,6 +1070,7 @@ more:
   rogerai account               who you are (login / logout)
   rogerai onboard               re-run the first-run setup
   rogerai config ...            broker, spend limits (rogerai config --help)
+  rogerai support               open rogerai.fyi - community + Discord
   rogerai upgrade · version · ping
 
 advanced flags live behind --advanced (e.g. rogerai use <model> --advanced,
