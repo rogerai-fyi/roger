@@ -112,7 +112,7 @@ type Store interface {
 	// RequestPayout creates a payout from the operator's payable balance (promoting
 	// lots first). It debits payable lots, writes a payout row + a payout ledger row,
 	// all in one transaction. ok=false (with reason) if below minimum or nothing payable.
-	RequestPayout(accountID string, now time.Time, min float64, transferID string) (Payout, ok bool, reason string, err error)
+	RequestPayout(accountID string, now time.Time, min float64, transferID string) (payout Payout, ok bool, reason string, err error)
 	// PayoutsOf returns an operator's payout history, newest first.
 	PayoutsOf(accountID string, limit int) ([]Payout, error)
 	// Chargeback records a consumer dispute: a chargeback ledger row against the
@@ -218,6 +218,11 @@ func (m *Mem) BalanceOf(user string, seed float64) (float64, error) {
 	defer m.mu.Unlock()
 	if _, ok := m.wallet[user]; !ok {
 		m.wallet[user] = seed
+		if seed != 0 {
+			// Seed credits are a real balance, so they get a ledger row too (else the
+			// re-derivation drift check would flag every seeded wallet).
+			m.appendLedgerLocked(user, "consumer", KindAdjustment, seed, "seed:"+user, StatePosted, "seed", 0)
+		}
 	}
 	return m.wallet[user], nil
 }
@@ -540,7 +545,7 @@ func (m *Mem) splitLocked(match func(EarningLot) bool, now time.Time) EarningSpl
 				}
 			}
 		case LotPaid:
-			s.Paid += l.Gross - l.Reserve
+			s.Paid += l.Gross // the full lot (gross incl. released reserve) was paid out
 		}
 	}
 	return s

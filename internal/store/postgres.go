@@ -146,12 +146,27 @@ func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64
 }
 
 func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
-	if _, err := p.db.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2) ON CONFLICT (usr) DO NOTHING`, user, seed); err != nil {
+	tx, err := p.db.Begin()
+	if err != nil {
 		return 0, err
 	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2) ON CONFLICT (usr) DO NOTHING`, user, seed)
+	if err != nil {
+		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 1 && seed != 0 {
+		// A freshly-seeded wallet gets a ledger row, so the re-derivation drift check
+		// matches (idem_key keeps the seed row unique per wallet).
+		if err := appendLedger(tx, user, "consumer", KindAdjustment, seed, "seed:"+user, StatePosted, "seed", 0); err != nil {
+			return 0, err
+		}
+	}
 	var bal float64
-	err := p.db.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal)
-	return bal, err
+	if err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
 }
 
 func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
@@ -537,7 +552,7 @@ func (p *Postgres) splitQuery(col, val string, now time.Time) (EarningSplit, err
 		                  WHEN state='payable' AND reserve_release_at>$2 THEN reserve ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN state='payable' THEN gross-reserve
 		                  + CASE WHEN reserve_release_at<=$2 THEN reserve ELSE 0 END ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN state='paid' THEN gross-reserve ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN state='paid' THEN gross ELSE 0 END),0),
 		COALESCE(MIN(CASE WHEN state='held' THEN release_at
 		                  WHEN state='payable' AND reserve_release_at>$2 THEN reserve_release_at END),0)
 		FROM rogerai.earning_lots WHERE `+col+`=$1`, val, n)
