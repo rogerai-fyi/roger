@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -24,6 +27,181 @@ func sessionReq(b *broker, method, path, login string, gid int64) *http.Request 
 	r := httptest.NewRequest(method, path, nil)
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession(login, gid, time.Now().Add(time.Hour).Unix())})
 	return r
+}
+
+// signedReq builds an Ed25519-signed CLI request (the SAME request-signing the rest
+// of the client uses) over (method, path, body) with priv. body may be nil (GET).
+func signedReq(method, path string, body []byte, priv ed25519.PrivateKey) *http.Request {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	r := httptest.NewRequest(method, path, rdr)
+	pub, ts, sig := protocol.SignRequest(priv, method, path, body)
+	r.Header.Set(protocol.HeaderPubkey, pub)
+	r.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	r.Header.Set(protocol.HeaderSig, sig)
+	return r
+}
+
+// newSignedPayoutBroker wires a broker with a bound operator whose pubkey is the hex
+// public key of priv, so an Ed25519-signed CLI request from priv resolves to that
+// operator (the headless-provider auth path). Hold/reserve are 0 + min 25 so a payout
+// is deterministic at time.Now().
+func newSignedPayoutBroker(t *testing.T) (*broker, store.Store, ed25519.PrivateKey) {
+	t.Helper()
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(pub)
+	_, bpriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	_ = db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: pubHex})
+	_ = db.BindNode("n", pubHex)
+	b := &broker{priv: bpriv, db: db, seedFunds: 0, conn: loadConnect(), pubOfUser: map[string]string{}}
+	b.bill.creditUSD = 1
+	return b, db, priv
+}
+
+// TestPayoutSignedCLIAuth locks the new auth path: a VALID Ed25519-signed CLI request
+// (pubkey bound to a GitHub owner) is accepted on every connect/payout endpoint, an
+// ANONYMOUS / unsigned request is rejected (401), a TAMPERED signature is rejected,
+// and a signed-but-UNBOUND keypair gets no payout surface. The web-session path stays
+// accepted (the other tests in this file cover it).
+func TestPayoutSignedCLIAuth(t *testing.T) {
+	b, _, priv := newSignedPayoutBroker(t)
+
+	w := httptest.NewRecorder()
+	b.connectStatus(w, signedReq(http.MethodGet, "/connect/status", nil, priv))
+	if w.Code != http.StatusOK {
+		t.Errorf("signed connect/status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	b.connectOnboard(w, signedReq(http.MethodPost, "/connect/onboard", []byte("{}"), priv))
+	if w.Code != http.StatusOK {
+		t.Errorf("signed connect/onboard = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	b.payoutsHistory(w, signedReq(http.MethodGet, "/payouts/history", nil, priv))
+	if w.Code != http.StatusOK {
+		t.Errorf("signed payouts/history = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+
+	// Anonymous (no cookie, no signature) -> 401 on each endpoint.
+	for _, tc := range []struct {
+		name string
+		fn   func(http.ResponseWriter, *http.Request)
+		m, p string
+	}{
+		{"status", b.connectStatus, http.MethodGet, "/connect/status"},
+		{"onboard", b.connectOnboard, http.MethodPost, "/connect/onboard"},
+		{"request", b.payoutsRequest, http.MethodPost, "/payouts/request"},
+		{"history", b.payoutsHistory, http.MethodGet, "/payouts/history"},
+	} {
+		wa := httptest.NewRecorder()
+		tc.fn(wa, httptest.NewRequest(tc.m, tc.p, nil))
+		if wa.Code != http.StatusUnauthorized {
+			t.Errorf("anon %s = %d, want 401", tc.name, wa.Code)
+		}
+	}
+
+	// Tampered signature (signature present but the body changed) -> rejected 401.
+	wt := httptest.NewRecorder()
+	bad := signedReq(http.MethodPost, "/connect/onboard", []byte("{}"), priv)
+	bad.Body = io.NopCloser(bytes.NewReader([]byte(`{"x":"tampered"}`)))
+	b.connectOnboard(wt, bad)
+	if wt.Code != http.StatusUnauthorized {
+		t.Errorf("tampered-signature onboard = %d, want 401", wt.Code)
+	}
+
+	// A signed-but-UNBOUND keypair (not an owner) -> no payout surface (not 200).
+	_, unbound, _ := ed25519.GenerateKey(nil)
+	wu := httptest.NewRecorder()
+	b.connectStatus(wu, signedReq(http.MethodGet, "/connect/status", nil, unbound))
+	if wu.Code == http.StatusOK {
+		t.Errorf("signed-but-unbound keypair must NOT get a 200 payout surface, got %d", wu.Code)
+	}
+}
+
+// TestPayoutWebSessionStillAccepted confirms the additional signed path did NOT break
+// the existing web-session-cookie path: a cookie request is still served 200.
+func TestPayoutWebSessionStillAccepted(t *testing.T) {
+	b, _, _ := newSignedPayoutBroker(t)
+	w := httptest.NewRecorder()
+	b.connectStatus(w, sessionReq(b, http.MethodGet, "/connect/status", "octocat", 7))
+	if w.Code != http.StatusOK {
+		t.Errorf("web-session connect/status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestPayoutSignedRequestEndToEnd drives a full signed-CLI payout: KYC active +
+// payable >= min -> 200 PAID, transfer amount == recorded amount. The headless
+// provider cash-out the web cookie path already exercises - same transfer-safe rail.
+func TestPayoutSignedRequestEndToEnd(t *testing.T) {
+	b, db, priv := newSignedPayoutBroker(t)
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	var gotCents int64
+	b.conn.transfer = func(dest string, cents int64, idem string) (string, error) {
+		gotCents = cents
+		return "tr_signed_1", nil
+	}
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 40)
+	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
+
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, signedReq(http.MethodPost, "/payouts/request", []byte("{}"), priv))
+	if w.Code != http.StatusOK {
+		t.Fatalf("signed payout = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var out struct {
+		Payout store.Payout `json:"payout"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if out.Payout.State != store.PayoutPaid || out.Payout.StripeTransferID != "tr_signed_1" {
+		t.Errorf("signed payout = %+v, want PAID via tr_signed_1", out.Payout)
+	}
+	if want := int64(out.Payout.Amount*b.bill.creditUSD*100 + 0.5); gotCents != want {
+		t.Errorf("transferred %d cents, recorded = %d cents - must match", gotCents, want)
+	}
+}
+
+// TestPayoutSignedKYCGate: a signed CLI payout before Connect onboarding is rejected
+// 403 (the SAME KYC gate the web path enforces - unchanged policy).
+func TestPayoutSignedKYCGate(t *testing.T) {
+	b, db, priv := newSignedPayoutBroker(t)
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 40)
+	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, signedReq(http.MethodPost, "/payouts/request", []byte("{}"), priv))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("signed payout without KYC = %d, want 403", w.Code)
+	}
+}
+
+// TestPayoutSignedBelowMin: a signed CLI payout below the $25 minimum is rejected 400
+// before any transfer (the SAME minimum gate - unchanged policy).
+func TestPayoutSignedBelowMin(t *testing.T) {
+	b, db, priv := newSignedPayoutBroker(t)
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	transfers := 0
+	b.conn.transfer = func(dest string, cents int64, idem string) (string, error) {
+		transfers++
+		return "tr_should_not_happen", nil
+	}
+	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.Hold("u", 10)
+	_, _ = db.Finalize("u", "n", 10, 10, 10, rec("r1")) // 10 < 25
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, signedReq(http.MethodPost, "/payouts/request", []byte("{}"), priv))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("signed below-min payout = %d, want 400", w.Code)
+	}
+	if transfers != 0 {
+		t.Errorf("a below-min request must NOT attempt a transfer (called %d times)", transfers)
+	}
 }
 
 // newPayoutBroker wires a broker with an in-memory store, a bound operator (login

@@ -391,6 +391,10 @@ paths:
         Creates (or reuses) the operator's Express connected account and returns a
         Stripe Account Link. Stubbed (returns a placeholder link, marks onboarding)
         when STRIPE_SECRET_KEY is unset.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - so a headless `rogerai share`
+        provider can onboard from the terminal. 401 when neither is present/valid.
       responses:
         "200":
           description: Onboarding link
@@ -402,10 +406,14 @@ paths:
   /connect/status:
     get:
       tags: [payouts]
-      summary: Stripe Connect capability status (the KYC gate)
+      summary: Stripe Connect capability status (the KYC gate) + earnings split
+      description: |
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme). Also returns the operator's earnings split (payable vs held + the next
+        release date) so `rogerai payout status` renders in one round trip.
       responses:
         "200":
-          description: Connect status
+          description: Connect status + earnings split
           content:
             application/json:
               schema:
@@ -414,7 +422,10 @@ paths:
                   status: { type: string, description: "none|onboarding|active|restricted" }
                   can_payout: { type: boolean }
                   min_payout: { type: number }
+                  hold_days: { type: integer }
                   schedule: { type: string }
+                  earnings: { $ref: '#/components/schemas/EarningSplit' }
+        "401": { description: not logged in (no session, no valid signature) }
         "403": { description: no operator account for this login }
 
   /payouts/request:
@@ -425,6 +436,10 @@ paths:
         Promotes held->payable, transfers the payable balance via Stripe Connect (a
         stub transfer in dev), and records the payout + ledger rows. 403 until Connect
         transfers capability is active; 400 below the minimum.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner. The policy + transfer-safe rail
+        are identical on both paths (90-day hold, $25 min, monthly, debit-first/rollback).
       responses:
         "200":
           description: Payout created
@@ -432,12 +447,16 @@ paths:
             application/json:
               schema: { type: object, properties: { payout: { $ref: '#/components/schemas/Payout' } } }
         "400": { description: below minimum payout }
+        "401": { description: not logged in (no session, no valid signature) }
         "403": { description: KYC not complete (transfers not active) }
 
   /payouts/history:
     get:
       tags: [payouts]
       summary: Payout + clawback history
+      description: |
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme).
       responses:
         "200":
           description: Payouts + payout/chargeback/adjustment ledger rows
