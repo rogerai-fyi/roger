@@ -15,6 +15,11 @@ import (
 type Postgres struct {
 	db     *sql.DB
 	policy PayoutPolicy
+
+	// seedLimit caps how many distinct wallets ever receive a non-zero starter seed
+	// (<=0 = unlimited). Set via SetSeedLimit at startup; read on the seed path. A
+	// plain field is safe: it is set once before serving and only read thereafter.
+	seedLimit int
 }
 
 // The `rogerai` schema is provisioned by an admin and OWNED by the app's DB user
@@ -125,7 +130,15 @@ ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS grant_id TEXT;
 CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);
 -- tag paid lots with the payout that paid them, so a failed transfer can roll the
 -- exact lots back to 'payable'. Additive.
-ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;`
+ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;
+-- seed cap (bound free-credit liability): seed_grants is the per-wallet "this wallet
+-- was offered the starter seed" guard (one row per wallet, idempotent); seed_counter
+-- is the single-row durable count of wallets actually granted a non-zero seed. The
+-- grant + the counter bump happen in ONE statement under the cap predicate, so the
+-- total seeded never exceeds the configured limit even under concurrency.
+CREATE TABLE IF NOT EXISTS rogerai.seed_grants (wallet TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS rogerai.seed_counter (id INT PRIMARY KEY, count BIGINT NOT NULL DEFAULT 0);
+INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0) ON CONFLICT (id) DO NOTHING;`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -191,22 +204,67 @@ func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64
 	return nil
 }
 
+func (p *Postgres) SetSeedLimit(limit int) { p.seedLimit = limit }
+
+// grantSeedTx applies the starter seed to a wallet at most once, enforcing the seed
+// cap atomically, inside the caller's transaction. It returns granted=true only when
+// THIS call actually credited a non-zero seed (a new wallet AND the cap allowed it).
+//
+// Atomicity: one statement both claims the per-wallet seed slot (seed_grants insert)
+// AND, only if newly claimed and under the cap, bumps seed_counter. The counter bump
+// is the authoritative gate - we credit the wallet + post the seed ledger row ONLY
+// when the bump succeeded, so the ledger never records a grant that didn't happen
+// (DeriveBalance stays exact) and the count can never exceed the limit under load.
+func (p *Postgres) grantSeedTx(tx *sql.Tx, wallet string, seed float64) (bool, error) {
+	if seed == 0 {
+		return false, nil
+	}
+	var newlyClaimed, bumped int
+	// $2 = seedLimit (<=0 means unlimited). Claim the per-wallet slot; bump the global
+	// counter only when this wallet is newly claimed AND the cap is not yet hit.
+	err := tx.QueryRow(`
+		WITH claim AS (
+			INSERT INTO rogerai.seed_grants(wallet) VALUES($1)
+			ON CONFLICT (wallet) DO NOTHING
+			RETURNING wallet
+		),
+		bump AS (
+			UPDATE rogerai.seed_counter SET count = count + 1
+			WHERE id = 1 AND EXISTS(SELECT 1 FROM claim) AND ($2 <= 0 OR count < $2)
+			RETURNING count
+		)
+		SELECT (SELECT count(*) FROM claim), (SELECT count(*) FROM bump)`,
+		wallet, p.seedLimit).Scan(&newlyClaimed, &bumped)
+	if err != nil {
+		return false, err
+	}
+	if bumped == 0 {
+		return false, nil // already seeded, or the cap is exhausted: no credit
+	}
+	// Cap allowed it: credit the wallet and post the seed ledger row (idem-keyed so the
+	// re-derivation drift check matches and the row is unique per wallet).
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1`, wallet, seed); err != nil {
+		return false, err
+	}
+	if err := appendLedger(tx, wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,$2) ON CONFLICT (usr) DO NOTHING`, user, seed)
-	if err != nil {
+	// Ensure a wallet row exists at balance 0; the seed (if any) is applied by
+	// grantSeedTx, which enforces the cap and credits at most once per wallet.
+	if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, user); err != nil {
 		return 0, err
 	}
-	if n, _ := res.RowsAffected(); n == 1 && seed != 0 {
-		// A freshly-seeded wallet gets a ledger row, so the re-derivation drift check
-		// matches (idem_key keeps the seed row unique per wallet).
-		if err := appendLedger(tx, user, "consumer", KindAdjustment, seed, "seed:"+user, StatePosted, "seed", 0); err != nil {
-			return 0, err
-		}
+	if _, err := p.grantSeedTx(tx, user, seed); err != nil {
+		return 0, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal); err != nil {
@@ -215,36 +273,27 @@ func (p *Postgres) BalanceOf(user string, seed float64) (float64, error) {
 	return bal, tx.Commit()
 }
 
-// SeedOnce grants starter credits to a wallet exactly once. The seed ledger row's
-// idem_key "seed:<wallet>" is the unique guard: a duplicate insert is a no-op, so a
-// re-login never re-seeds. seeded reports whether this call applied the credit.
+// SeedOnce grants starter credits to a wallet exactly once (seed_grants is the unique
+// per-wallet guard), subject to the seed cap. A re-login never re-seeds. seeded
+// reports whether this call newly claimed the wallet's seed slot; a non-zero credit
+// additionally requires the cap to allow it (grantSeedTx).
 func (p *Postgres) SeedOnce(wallet string, seed float64) (float64, bool, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
 		return 0, false, err
 	}
 	defer tx.Rollback()
-	// Ensure a wallet row exists (balance 0); the credit is applied below only when
-	// the seed ledger row is newly inserted, so the amount lands at most once.
+	// Ensure a wallet row exists (balance 0); the credit lands at most once via the
+	// per-wallet seed_grants guard inside grantSeedTx.
 	if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance) VALUES($1,0) ON CONFLICT (usr) DO NOTHING`, wallet); err != nil {
 		return 0, false, err
 	}
-	seeded := false
-	if seed != 0 {
-		res, err := tx.Exec(`INSERT INTO rogerai.ledger(holder,side,kind,amount,idem_key,state,ref,ts)
-			VALUES($1,'consumer',$2,$3,$4,$5,'seed',$6) ON CONFLICT (idem_key) DO NOTHING`,
-			wallet, KindAdjustment, seed, "seed:"+wallet, StatePosted, time.Now().Unix())
-		if err != nil {
-			return 0, false, err
-		}
-		// Apply the credit only when the seed ledger row was newly inserted (so a
-		// re-login, which finds the row already present, never re-credits).
-		if n, _ := res.RowsAffected(); n == 1 {
-			seeded = true
-			if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1`, wallet, seed); err != nil {
-				return 0, false, err
-			}
-		}
+	// seeded reports whether THIS call actually granted a non-zero seed. The credit
+	// correctness (at most once per wallet, capped) is fully carried by grantSeedTx;
+	// the bool is advisory (auth.go ignores it).
+	seeded, err := p.grantSeedTx(tx, wallet, seed)
+	if err != nil {
+		return 0, false, err
 	}
 	var bal float64
 	if err := tx.QueryRow(`SELECT balance FROM rogerai.wallet WHERE usr=$1`, wallet).Scan(&bal); err != nil {

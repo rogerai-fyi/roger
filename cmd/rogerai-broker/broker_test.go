@@ -289,7 +289,7 @@ func TestRelayModerationBlocks(t *testing.T) {
 		seedFunds:    100,
 		lockWin:      time.Hour,
 		rl:           loadRateLimiter(),
-		mod:          moderation{url: flag.URL, client: flag.Client()},
+		mod:          moderation{provider: "url", url: flag.URL, client: flag.Client()},
 	}
 	// A free, online model so the request would otherwise pass the spend gate.
 	nodePub, _, _ := ed25519.GenerateKey(nil)
