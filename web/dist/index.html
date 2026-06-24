@@ -184,94 +184,18 @@
         ports, no account to browse.
       </p>
 
-      <!-- ONE MOVE: read the band at a glance (FIG.1) -> open the full dial on
-           the Models page -> tune in with the command (FIG.2). This is a small,
-           glanceable teaser of the band (marketing - gently animated); the real
-           interactive dial lives on /models.html, driven by live data. -->
-    </div><!-- /.hero__inner : the teaser breaks out of the document column -->
-
-    <!-- FIG.1 - the band teaser. A COMPACT fake-dial tuner: a short frequency
-         strip auto-sweeps + re-locks band to band, proving "browse a band ->
-         tune in". Marketing data, gently animated, no mouse interaction. The
-         whole figure links to /models.html, where the full INTERACTIVE dial
-         (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
-    <a class="teaser" id="teaser" data-reveal data-reveal-delay="160"
-       href="/models.html" aria-label="Browse the models on the live dial">
-      <span class="fig teaser__fig" aria-hidden="true">FIG. 1 - THE BAND · AT A GLANCE</span>
-      <div class="teaser__face" style="--lock:1;--sig:0.87">
-        <div class="teaser__top">
-          <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
-          <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>87</b>/100</span>
-        </div>
-
-        <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
-             fixed center needle + glass. Pre-filled for JS-off / reduced-motion. -->
-        <div class="teaser__dial">
-          <div class="teaser__svgwrap">
-            <svg id="teaserSvg" class="teaser__svg" viewBox="0 0 640 78" preserveAspectRatio="none" aria-hidden="true">
-              <g id="teaserStrip" class="teaser__stripg" transform="translate(320,0)"></g>
-            </svg>
-            <span class="teaser__glass" aria-hidden="true"></span>
-            <span class="teaser__needle" aria-hidden="true"></span>
-          </div>
-        </div>
-
-        <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
-        <ul class="teaser__list" id="teaserList" aria-hidden="true">
-          <li class="teaser__band is-locked"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">7 stn · sig 87</span></li>
-          <li class="teaser__band"><span class="teaser__bm">mixtral-8x7b</span><span class="teaser__bd">6 stn · sig 82</span></li>
-          <li class="teaser__band"><span class="teaser__bm">qwen3-72b</span><span class="teaser__bd">4 stn · sig 74</span></li>
-          <li class="teaser__band"><span class="teaser__bm">gpt-oss-120b</span><span class="teaser__bd">3 stn · sig 66</span></li>
-          <li class="teaser__band"><span class="teaser__bm">llama3.3-70b</span><span class="teaser__bd">5 stn · sig 61</span></li>
-          <li class="teaser__band"><span class="teaser__bm">gemma3-27b</span><span class="teaser__bd">4 stn · sig 57</span></li>
-          <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
-        </ul>
-
-        <div class="teaser__foot">
-          <span class="teaser__chip mono" id="teaserChip">
-            <span class="meter__k">RATE</span><b>$0.22 /1M</b>
-            <span class="meter__k">SPEED</span><b>61 t/s</b>
-            <span class="meter__k">STN</span><b>7</b>
-          </span>
-          <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
-        </div>
-      </div>
-    </a>
-
-    <div class="wrap hero__inner hero__inner--after">
-      <div class="tunein" data-reveal data-reveal-delay="200">
-        <p class="tunein__bridge">This is the band, live right now. Tune in with one command:</p>
-
-        <!-- THE hero object: the install command -->
-        <div class="install" style="margin-top:0">
-          <span class="fig" aria-hidden="true">FIG. 2 - TUNE IN</span>
-        <button class="install__box" id="installCmd" type="button"
-                aria-label="Copy install command to clipboard">
-          <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
-          <span class="install__copy" id="installCopy" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
-              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
-            </svg>
-          </span>
-        </button>
-        <div class="install__meta">
-          <span id="installNote">macOS · Linux - no account needed to browse</span>
-          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary →</a>
-        </div>
-        <div class="install__meta">
-          <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
-        </div>
-        </div>
-      </div>
+      <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
+           FIG.1 the install command (command-as-hero) -> FIG.2 the small,
+           left-aligned band teaser (representative models, gently animated, links
+           to the live dial on /models.html) -> FIG.3 the demo replay below. -->
 
       <!-- Ping, the operator persona: standing by / on air, driven by live state.
            The mascot is ALWAYS on, with a scrolling LED banner to its right (idle
            it rolls flavor phrases; on a reply it scrolls the reply, like a station's
            now-playing display). Clicking the mascot OR the banner opens a small
-           record-player chat (Ping concierge) for typing. -->
-      <span class="hero__ping" id="pingDock">
+           record-player chat (Ping concierge) for typing. Sits right after the
+           subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
+      <span class="hero__ping" id="pingDock" data-reveal data-reveal-delay="160">
         <button class="hero__ping-trigger" id="pingTrigger" type="button"
                 aria-haspopup="dialog" aria-expanded="false" aria-controls="pingDeck"
                 aria-label="Talk to Ping, the RogerAI on-air concierge">
@@ -350,6 +274,79 @@
           </form>
         </div>
       </span>
+
+      <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
+      <div class="install" data-reveal data-reveal-delay="200">
+        <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
+        <button class="install__box" id="installCmd" type="button"
+                aria-label="Copy install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+          <span class="install__copy" id="installCopy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <div class="install__meta">
+          <span id="installNote">macOS · Linux - no account needed to browse</span>
+          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary →</a>
+        </div>
+        <div class="install__meta">
+          <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+        </div>
+      </div>
+
+      <!-- FIG.2 - the band teaser. A COMPACT fake-dial tuner: a short frequency
+           strip auto-sweeps + re-locks band to band, proving "browse a band ->
+           tune in". Representative data, gently animated, no mouse interaction.
+           Smaller + LEFT-ALIGNED with the command above (same left edge / max
+           width). The whole figure links to /models.html, where the full
+           INTERACTIVE dial (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
+      <a class="teaser" id="teaser" data-reveal data-reveal-delay="240"
+         href="/models.html" aria-label="Browse the models on the live dial">
+        <span class="fig teaser__fig" aria-hidden="true">FIG. 2 - THE BAND · AT A GLANCE</span>
+        <p class="teaser__bridge">Some models that have been available - browse the full band on the dial:</p>
+        <div class="teaser__face" style="--lock:1;--sig:0.87">
+          <div class="teaser__top">
+            <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
+            <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>87</b>/100</span>
+          </div>
+
+          <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
+               fixed center needle + glass. Pre-filled for JS-off / reduced-motion. -->
+          <div class="teaser__dial">
+            <div class="teaser__svgwrap">
+              <svg id="teaserSvg" class="teaser__svg" viewBox="0 0 640 78" preserveAspectRatio="none" aria-hidden="true">
+                <g id="teaserStrip" class="teaser__stripg" transform="translate(320,0)"></g>
+              </svg>
+              <span class="teaser__glass" aria-hidden="true"></span>
+              <span class="teaser__needle" aria-hidden="true"></span>
+            </div>
+          </div>
+
+          <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
+          <ul class="teaser__list" id="teaserList" aria-hidden="true">
+            <li class="teaser__band is-locked"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">7 stn · sig 87</span></li>
+            <li class="teaser__band"><span class="teaser__bm">mixtral-8x7b</span><span class="teaser__bd">6 stn · sig 82</span></li>
+            <li class="teaser__band"><span class="teaser__bm">qwen3-72b</span><span class="teaser__bd">4 stn · sig 74</span></li>
+            <li class="teaser__band"><span class="teaser__bm">gpt-oss-120b</span><span class="teaser__bd">3 stn · sig 66</span></li>
+            <li class="teaser__band"><span class="teaser__bm">llama3.3-70b</span><span class="teaser__bd">5 stn · sig 61</span></li>
+            <li class="teaser__band"><span class="teaser__bm">gemma3-27b</span><span class="teaser__bd">4 stn · sig 57</span></li>
+            <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
+          </ul>
+
+          <div class="teaser__foot">
+            <span class="teaser__chip mono" id="teaserChip">
+              <span class="meter__k">RATE</span><b>$0.22 /1M</b>
+              <span class="meter__k">SPEED</span><b>61 t/s</b>
+              <span class="meter__k">STN</span><b>7</b>
+            </span>
+            <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
+          </div>
+        </div>
+      </a>
 
     </div>
   </section>
