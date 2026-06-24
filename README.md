@@ -70,6 +70,6 @@ go test ./...
 
 ## License
 
-[Business Source License 1.1](LICENSE) - source-available, free for non-competing use; converts
-to Apache 2.0 on 2030-06-23. You can self-host your own broker for your own community; you can't
-run it as a competing commercial marketplace service. See the LICENSE for the exact grant.
+[PolyForm Perimeter 1.0.0](LICENSE) - source-available, free for any non-competing use. You can
+self-host your own broker for your own community; you can't run it as a competing commercial
+marketplace service. See the LICENSE for the exact grant.
