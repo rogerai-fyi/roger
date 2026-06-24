@@ -3,7 +3,7 @@
 RogerAI is a peer-to-peer marketplace + CLI/TUI to discover hobbyist home-GPU LLMs and pay per
 token. Metaphor: **"two-way radio for GPUs"** - operators go ON AIR, you TUNE IN to a channel.
 LIVE: `rogerai.fyi` (site) + `broker.rogerai.fyi` (API), both on DigitalOcean. Go monorepo,
-public on GitHub as `rogerai-fyi/roger`, **BSL-1.1** (-> Apache 2030-06-23). Latest release **v4.3.0**
+public on GitHub as `rogerai-fyi/roger`, **PolyForm Perimeter 1.0.0** (source-available, noncompete). Latest release **v4.3.0**
 (the v4 line = web-parity CLI/TUI redesign + the `[0] AGENT` harness + the public Ping concierge).
 
 This file is the fast-ramp map. Internal working notes are in `docs-internal/` (gitignored).

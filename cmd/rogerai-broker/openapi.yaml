@@ -21,7 +21,7 @@ info:
 
     Every served request yields a hash-chained UsageReceipt signed by the node and
     counter-signed by the broker (the "lineage" guarantee).
-  license: { name: Proprietary }
+  license: { name: PolyForm Perimeter 1.0.0, url: https://polyformproject.org/licenses/perimeter/1.0.0 }
 servers:
   - url: https://broker.rogerai.fyi
   - url: http://127.0.0.1:7070
