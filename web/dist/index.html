@@ -190,17 +190,33 @@
            interactive dial lives on /models.html, driven by live data. -->
     </div><!-- /.hero__inner : the teaser breaks out of the document column -->
 
-    <!-- FIG.1 - the band teaser. A compact, glanceable selector; the full
-         interactive dial is on /models.html. -->
+    <!-- FIG.1 - the band teaser. A COMPACT fake-dial tuner: a short frequency
+         strip auto-sweeps + re-locks band to band, proving "browse a band ->
+         tune in". Marketing data, gently animated, no mouse interaction. The
+         whole figure links to /models.html, where the full INTERACTIVE dial
+         (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
     <a class="teaser" id="teaser" data-reveal data-reveal-delay="160"
        href="/models.html" aria-label="Browse the models on the live dial">
       <span class="fig teaser__fig" aria-hidden="true">FIG. 1 - THE BAND · AT A GLANCE</span>
-      <div class="teaser__face">
+      <div class="teaser__face" style="--lock:1;--sig:0.87">
         <div class="teaser__top">
           <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
           <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>87</b>/100</span>
         </div>
 
+        <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
+             fixed center needle + glass. Pre-filled for JS-off / reduced-motion. -->
+        <div class="teaser__dial">
+          <div class="teaser__svgwrap">
+            <svg id="teaserSvg" class="teaser__svg" viewBox="0 0 640 78" preserveAspectRatio="none" aria-hidden="true">
+              <g id="teaserStrip" class="teaser__stripg" transform="translate(320,0)"></g>
+            </svg>
+            <span class="teaser__glass" aria-hidden="true"></span>
+            <span class="teaser__needle" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
         <ul class="teaser__list" id="teaserList" aria-hidden="true">
           <li class="teaser__band is-locked"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">7 stn · sig 87</span></li>
           <li class="teaser__band"><span class="teaser__bm">mixtral-8x7b</span><span class="teaser__bd">6 stn · sig 82</span></li>
