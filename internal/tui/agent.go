@@ -505,6 +505,15 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			mark, tail = stLive.Render("  ✓ "), stDim.Render("ok"+resultHint(e.Result))
 		}
 		m.agentLines = append(m.agentLines, mark+stDim.Render(e.Tool+" · ")+tail)
+		// Show the user the ACTUAL output, not just "ok · N bytes": a short preview of
+		// the result is the real UX gap behind a truncated answer (the user could never
+		// see the listing the model summarized). Read-only tools (the listing / file /
+		// page the user asked to see) and run_shell get the preview; a denied or errored
+		// result keeps just the line above (its error text already rode in the tail). In
+		// compact mode the summary line is enough.
+		if !m.compact && !e.Denied && !e.IsError && previewableTool(e.Tool) {
+			m.agentLines = append(m.agentLines, resultPreview(e.Result)...)
+		}
 	case harness.EventFinal:
 		t := strings.TrimSpace(e.Text)
 		if t == "" {
@@ -571,6 +580,89 @@ func clipLine(s string) string {
 	const max = 80
 	if len(s) > max {
 		return s[:max] + "…"
+	}
+	return s
+}
+
+// previewableTool reports whether a tool's output is worth previewing under its result
+// line. The read-only tools (list_dir / read_file / web_fetch) show the user what they
+// asked to see; run_shell previews its captured output too. The mutating write_file
+// only returns a short "wrote N bytes" confirmation, so its existing summary line is
+// enough (no preview).
+func previewableTool(tool string) bool {
+	switch tool {
+	case "list_dir", "read_file", "web_fetch", "run_shell":
+		return true
+	}
+	return false
+}
+
+// previewMaxLines / previewMaxChars bound the inlined preview of a tool result so even a
+// 16 KiB file or a huge listing shows just the head, with a "... +N more lines" marker.
+const (
+	previewMaxLines = 8
+	previewMaxChars = 600
+	previewLineCols = 100 // per-line clamp before agentView's width clamp; keeps long lines tidy
+)
+
+// resultPreview renders a short, dim, indented preview of a tool's raw output as a
+// SLICE of transcript lines (one entry per line so agentView's per-line truncVisible
+// keeps every line width-safe). It shows the first previewMaxLines lines (and at most
+// previewMaxChars), each clipped to a single bounded line, and appends a
+// "... +N more lines" marker when the output is longer. An empty/whitespace result
+// yields no preview (the summary line above already said "ok" with no bytes). It is
+// NO_COLOR-safe (it leans on stDim, which strips color under NO_COLOR) and never emits
+// a multi-line string in a single entry.
+func resultPreview(result string) []string {
+	// Normalize line endings and drop a trailing blank so the line count is honest.
+	s := strings.ReplaceAll(result, "\r\n", "\n")
+	s = strings.TrimRight(s, "\n")
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	// Cap the scanned text first so a giant blob doesn't get split into a giant slice.
+	clipped := false
+	if len(s) > previewMaxChars {
+		s = s[:previewMaxChars]
+		clipped = true
+	}
+	all := strings.Split(s, "\n")
+	total := len(all)
+	shown := all
+	if len(shown) > previewMaxLines {
+		shown = shown[:previewMaxLines]
+	}
+	out := make([]string, 0, len(shown)+1)
+	for _, ln := range shown {
+		out = append(out, "    "+stDim.Render(previewClip(ln)))
+	}
+	// A "... +N more lines" marker when we truncated by line count OR by char budget.
+	more := total - len(shown)
+	if more > 0 {
+		out = append(out, "    "+stDim.Render("... +"+plural(more, "more line")))
+	} else if clipped {
+		out = append(out, "    "+stDim.Render("... (more)"))
+	}
+	return out
+}
+
+// previewClip turns one raw output line into a single, tab-expanded, bounded preview
+// line. It strips control characters that would corrupt the transcript and clamps to
+// previewLineCols (agentView then clamps again to the real terminal width).
+func previewClip(s string) string {
+	s = strings.ReplaceAll(s, "\t", "    ")
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || (r < 0x20 && r != '\t') {
+			return -1
+		}
+		return r
+	}, s)
+	if len([]rune(s)) > previewLineCols {
+		s = string([]rune(s)[:previewLineCols]) + "…"
+	}
+	if s == "" {
+		// A now-empty (control-only) line still occupies a row; keep it visible.
+		return " "
 	}
 	return s
 }

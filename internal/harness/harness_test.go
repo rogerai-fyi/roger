@@ -1,6 +1,9 @@
 package harness
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,6 +202,22 @@ func TestDefaultPersonaWrittenWhenAbsent(t *testing.T) {
 	}
 }
 
+// TestDefaultPersonaSaysDontDumpToolOutput: the shipped persona must steer the model
+// AWAY from re-typing long tool output verbatim (the user already sees it in the
+// transcript preview), so a reasoning model spends its budget answering, not echoing.
+func TestDefaultPersonaSaysDontDumpToolOutput(t *testing.T) {
+	low := strings.ToLower(DefaultPersona)
+	if !strings.Contains(low, "already see") {
+		t.Errorf("persona should note the user already sees the tool output")
+	}
+	if !strings.Contains(low, "verbatim") {
+		t.Errorf("persona should tell the model not to re-type tool output verbatim")
+	}
+	if !strings.Contains(low, "summarize") {
+		t.Errorf("persona should tell the model to summarize and answer instead")
+	}
+}
+
 // TestToolSchemasShape: the advertised OpenAI tools array has the right shape and
 // marks exactly the mutating tools (write_file, run_shell) as such.
 func TestToolSchemasShape(t *testing.T) {
@@ -225,6 +244,43 @@ func TestToolSchemasShape(t *testing.T) {
 		if !ok || fn["name"] == "" || fn["parameters"] == nil {
 			t.Errorf("tool schema missing function/name/parameters: %v", s)
 		}
+	}
+}
+
+// TestBrokerCompleterRequestsHigherMaxTokens: the agent turn must request the raised
+// answer budget (agentMaxTokens, not the old 1024). gpt-oss-style reasoning models
+// bill hidden reasoning into the SAME budget, so at 1024 the visible answer truncated
+// mid-word; this asserts the value actually sent on the wire.
+func TestBrokerCompleterRequestsHigherMaxTokens(t *testing.T) {
+	// Keep SignRequest's key-on-first-use side effect inside the test sandbox.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var gotMaxTokens float64
+	var seen bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if v, ok := body["max_tokens"].(float64); ok {
+			gotMaxTokens, seen = v, true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	complete := BrokerCompleter(srv.URL, "tester", "gpt-oss-20b", false, nil)
+	if _, err := complete([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("completer error: %v", err)
+	}
+	if !seen {
+		t.Fatalf("request did not carry a max_tokens field")
+	}
+	if int(gotMaxTokens) != agentMaxTokens {
+		t.Errorf("agent turn requested max_tokens=%d, want %d (raised budget)", int(gotMaxTokens), agentMaxTokens)
+	}
+	if agentMaxTokens <= 1024 {
+		t.Errorf("agentMaxTokens=%d must exceed the old 1024 ceiling that truncated answers", agentMaxTokens)
 	}
 }
 
