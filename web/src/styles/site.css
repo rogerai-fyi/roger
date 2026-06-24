@@ -875,6 +875,45 @@ code, pre { font-family: var(--font-mono); }
 .footer__status { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-xs); color: var(--ink-500); }
 .footer__status .livedot { --dot: var(--live); --dot-size: 7px; }
 
+/* ---------- "how to upgrade" disclosure ------------------------ */
+/* discreet by default: a tiny ghost button reveals the upgrade commands. */
+.upgrade { padding-block: 0 var(--s-6); }
+.upgrade__toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: 0; padding: 6px 0; cursor: pointer;
+  font: inherit; font-size: var(--t-xs); color: var(--ink-400);
+  transition: color var(--d-2);
+}
+.upgrade__toggle:hover { color: var(--volt); }
+.upgrade__toggle:focus-visible { outline: none; color: var(--volt); }
+.upgrade__caret {
+  width: 6px; height: 6px; flex-shrink: 0;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  transition: transform var(--d-2) var(--ease-out-quint);
+}
+.upgrade__toggle[aria-expanded="true"] .upgrade__caret { transform: translateY(1px) rotate(225deg); }
+.upgrade__panel { margin-top: var(--s-4); max-width: 52ch; }
+.upgrade__lead { font-size: var(--t-xs); color: var(--ink-500); margin: var(--s-3) 0 6px; }
+.upgrade__panel .upgrade__lead:first-child { margin-top: 0; }
+.upgrade__cmd {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--paper); color: var(--ink-900); cursor: pointer;
+  font: inherit; text-align: left;
+  transition: border-color var(--d-2), background var(--d-2);
+}
+.upgrade__cmd:hover { border-color: var(--volt); }
+.upgrade__cmd:focus-visible { outline: none; border-color: var(--volt); box-shadow: 0 0 0 4px var(--volt-glow); }
+.upgrade__cmd code { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-900); }
+.upgrade__prompt { color: var(--volt); font-family: var(--font-mono); font-weight: var(--weight-semi); }
+.upgrade__copy { margin-left: auto; font-size: var(--t-xs); color: var(--ink-400); font-family: var(--font-mono); }
+.upgrade__cmd.is-copied { border-color: var(--volt); }
+.upgrade__cmd.is-copied .upgrade__copy { color: var(--live); }
+@media (prefers-reduced-motion: reduce) {
+  .upgrade__caret, .upgrade__cmd { transition: none; }
+}
+
 /* ---------- toast ---------------------------------------------- */
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(20px);

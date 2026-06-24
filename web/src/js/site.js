@@ -149,6 +149,31 @@
     });
   });
 
+  /* ---- "how to upgrade" disclosure (footer) ---------------------- */
+  var upToggle = document.getElementById("upgradeToggle");
+  var upPanel = document.getElementById("upgradePanel");
+  if (upToggle && upPanel) {
+    upToggle.addEventListener("click", function () {
+      var open = upToggle.getAttribute("aria-expanded") === "true";
+      upToggle.setAttribute("aria-expanded", open ? "false" : "true");
+      upPanel.hidden = open;
+    });
+  }
+  // each upgrade command box copies its own <code> text on click
+  [["upgradeCmd1"], ["upgradeCmd2"]].forEach(function (pair) {
+    var btn = document.getElementById(pair[0]);
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var code = btn.querySelector("code");
+      var text = code ? code.textContent : "";
+      copy(text).then(function () {
+        btn.classList.add("is-copied");
+        showToast("Copied to clipboard");
+        setTimeout(function () { btn.classList.remove("is-copied"); }, 1600);
+      }).catch(function () { showToast("Press ⌘/Ctrl-C to copy"); });
+    });
+  });
+
   /* ---- OS hint --------------------------------------------------- */
   var note = document.getElementById("installNote");
   if (note) {

@@ -1,0 +1,67 @@
+<!-- Shared <head>. One source for meta, the no-flash theme, fonts and stylesheets.
+     args:
+       title    = full <title> text
+       desc     = meta description (optional)
+       theme    = "inline" (homepage only - CSP sha256-locked bytes) | "external"
+       css      = "site" (marketing) | "chrome" (account: site + auth shells)
+       robots   = "noindex" to add the robots meta (optional)
+       og       = "1" to emit the marketing Open Graph block (optional)
+     The shared nav/footer need tokens.css + site.css on EVERY page, so account
+     pages load the chrome plus auth.css for the card. -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{title}}</title>
+{{#if desc}}
+  <meta name="description" content="{{desc}}" />
+{{/if}}
+  <meta name="color-scheme" content="light dark" />
+{{#if robots=noindex}}
+  <meta name="robots" content="noindex" />
+{{/if}}
+{{#if theme=inline}}
+
+  <!-- No-flash theme: set data-theme BEFORE first paint. Saved choice wins,
+       else the OS preference. Kept tiny and synchronous on purpose.
+       Its sha256 is allow-listed in _headers (script-src) for the CSP. -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("roger-theme");
+        var dark = saved ? saved === "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch (e) {}
+    })();
+  </script>
+{{/if}}
+{{#if theme=external}}
+  <!-- No-flash theme: external (script-src 'self'), runs synchronously before
+       first paint, applies the saved roger-theme so the page matches the site. -->
+  <script src="js/theme-init.js"></script>
+{{/if}}
+{{#if og=1}}
+
+  <meta property="og:title" content="RogerAI - a two-way radio for GPUs" />
+  <meta property="og:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://rogerai.fyi" />
+  <meta property="og:image" content="https://rogerai.fyi/logo.svg" />
+{{/if}}
+
+  <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="mask-icon" href="favicon.svg" color="#5B5BFF" />
+  <!-- home-screen / apple-touch: the friendlier Ping-face tile -->
+  <link rel="apple-touch-icon" href="ping.svg" />
+  <meta name="theme-color" content="#5B5BFF" />
+
+  <!-- Inter + Geist Mono via Google Fonts; degrades to system stacks offline. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/site.css" />
+{{#if css=chrome}}
+  <link rel="stylesheet" href="styles/auth.css" />
+{{/if}}

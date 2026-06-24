@@ -1,0 +1,54 @@
+<!-- The ONE shared footer, on every page. Brand (shared mark) + links + status,
+     and a discreet "how to upgrade" disclosure (hidden by default, JS-toggled,
+     reduced-motion safe, copy-to-clipboard via site.js).
+     args: anchors = prefix for the #section links (empty on the homepage, "/" elsewhere) -->
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <!-- include: brand.html as=footer -->
+    <nav class="footer__links">
+      <a href="{{anchors}}#market">Band</a>
+      <a href="{{anchors}}#spec">Spec</a>
+      <a href="{{anchors}}#how">Operating</a>
+      <a href="{{anchors}}#monetize">Monetize</a>
+      <a href="/login.html">Log in</a>
+      <a href="https://github.com/rogerai-fyi/roger">GitHub</a>
+      <a href="https://github.com/rogerai-fyi/roger/releases">Releases</a>
+    </nav>
+  </div>
+
+  <!-- discreet "how to upgrade" disclosure: a tiny button reveals the commands -->
+  <div class="wrap upgrade">
+    <button class="upgrade__toggle" id="upgradeToggle" type="button"
+            aria-expanded="false" aria-controls="upgradePanel">
+      <span class="upgrade__caret" aria-hidden="true"></span>
+      How to upgrade
+    </button>
+    <div class="upgrade__panel" id="upgradePanel" hidden>
+      <p class="upgrade__lead mono">Already on air? Pull the latest:</p>
+      <button class="upgrade__cmd" id="upgradeCmd1" type="button"
+              aria-label="Copy upgrade command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>rogerai upgrade</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+      <p class="upgrade__lead mono">Or re-run the installer (it upgrades in place):</p>
+      <button class="upgrade__cmd" id="upgradeCmd2" type="button"
+              aria-label="Copy install command to clipboard">
+        <span class="upgrade__prompt" aria-hidden="true">$</span>
+        <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        <span class="upgrade__copy" aria-hidden="true">copy</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="wrap footer__bar">
+    <small>&copy; 2026 RogerAI · built on real machines</small>
+    <span class="footer__status">
+      <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+      the band is open · roger that
+    </span>
+  </div>
+</footer>
+
+<!-- toast for copy confirmation (shared with the install boxes) -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>

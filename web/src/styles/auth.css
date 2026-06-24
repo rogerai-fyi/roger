@@ -1,5 +1,8 @@
-/* Minimal, white auth pages (/login, /dashboard). Essentials only - detail lives
-   behind the CLI. Intentionally independent of the marketing site's heavier CSS. */
+/* The account-card shell (/login, /dashboard, /account, /billing, /usage,
+   /payouts, /console, /tos). The CARD lives here; the surrounding chrome (the
+   ONE shared nav + footer) comes from site.css. These pages load tokens.css +
+   site.css (chrome) THEN this file. Card rules are scoped to .card / .authwrap
+   so nothing here bleeds into the shared nav or footer. */
 :root {
   --ink: #111418;
   --muted: #5b6470;
@@ -18,20 +21,24 @@
 }
 :root[data-theme="dark"] .gh { background: #e9edf2; color: #0b0d12; }
 :root[data-theme="dark"] .cmd { background: #11141a; }
-/* No animation on these pages; keep the guard so any future transition is opt-out. */
+/* No card animation; the shared chrome (site.css) carries its own guards. */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  .card *, .authwrap * { transition: none !important; animation: none !important; }
 }
-* { box-sizing: border-box; }
-html, body { margin: 0; }
 body.auth {
   background: var(--bg);
   color: var(--ink);
   font: 16px/1.5 Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+/* the card sits in a centered region between the shared nav and footer */
+.authwrap {
+  flex: 1 0 auto;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 48px 24px;
 }
 .card {
   width: 100%;
@@ -40,16 +47,8 @@ body.auth {
   border-radius: 14px;
   padding: 32px;
 }
-.back {
-  display: inline-block;
-  margin-bottom: 24px;
-  color: var(--ink);
-  text-decoration: none;
-  font-weight: 600;
-}
-.back b { color: var(--brand); }
-h1 { font-size: 24px; margin: 0 0 8px; }
-h2 { font-size: 15px; margin: 0 0 8px; }
+.card h1 { font-size: 24px; margin: 0 0 8px; }
+.card h2 { font-size: 15px; margin: 0 0 8px; }
 .sub { color: var(--muted); margin: 0 0 24px; }
 .gh {
   display: flex;
@@ -77,7 +76,7 @@ h2 { font-size: 15px; margin: 0 0 8px; }
   color: var(--ink);
   overflow-x: auto;
 }
-code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
+.card code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
 .ghost {
   margin-top: 24px;
   background: none;
@@ -103,7 +102,7 @@ code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 0.9em; }
 }
 .r-model { color: var(--ink); font-family: "Geist Mono", ui-monospace, monospace; }
 .r-cost { color: var(--muted); }
-a { color: var(--brand); }
+.card a { color: var(--brand); }
 
 /* ---- top-up control (billing.html) ----------------------------- */
 .amounts { display: flex; gap: 8px; margin: 4px 0 16px; }
