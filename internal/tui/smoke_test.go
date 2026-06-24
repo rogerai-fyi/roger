@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -264,5 +265,41 @@ func TestInTUIFlows(t *testing.T) {
 	}
 	if !strings.Contains(gm.View(), "grant") {
 		t.Errorf("grant list result not surfaced:\n%s", gm.View())
+	}
+}
+
+// stripANSI removes color escape sequences so we can measure visible width.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// TestNarrowReflow: at widths 40-64 the view reflows to a single column and no
+// rendered line overflows the terminal width; at 80/120 the full grid renders.
+func TestNarrowReflow(t *testing.T) {
+	for _, w := range []int{40, 50, 64, 80, 120} {
+		var m tea.Model = New("http://broker.local", "tester")
+		m, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: 30})
+		m, _ = m.Update(offersMsg{
+			{NodeID: "demo-node", Region: "home", Model: "gpt-oss-20b", PriceIn: 0.2, PriceOut: 0.3, Ctx: 32768, Online: true, FreeNow: true},
+			{NodeID: "alt-node", Region: "us-w", Model: "llama-3.3-70b-instruct", PriceIn: 0.25, PriceOut: 0.41, Online: true},
+		})
+		m, _ = m.Update(balanceMsg(12.5))
+		m, _ = m.Update(tickMsg{})
+		for _, line := range strings.Split(m.View(), "\n") {
+			vis := utf8.RuneCountInString(stripANSI(line))
+			if vis > w {
+				t.Errorf("width %d: line overflows (%d cols): %q", w, vis, stripANSI(line))
+			}
+		}
 	}
 }

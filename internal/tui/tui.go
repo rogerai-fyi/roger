@@ -1024,12 +1024,33 @@ func trimZero(v float64) string {
 	return fmt.Sprintf("%g", v)
 }
 
+// narrowCols is the width below which the TUI reflows to a single, slimmer column
+// (drops the band table's signal/flags columns, two-line footer).
+const narrowCols = 64
+
+// effWidth returns the width to DRAW at. Width 0 is the unsized initial frame
+// (before the first WindowSizeMsg) - balloon to 88 so the first paint isn't a
+// 1-column sliver. A genuinely small terminal draws at its REAL width (floored at
+// 40), so the rules + footer match the viewport instead of overflowing at 88.
+// (TUI-V2-CRITIQUE A.)
+func (m model) effWidth() int {
+	if m.width == 0 {
+		return 88
+	}
+	if m.width < 40 {
+		return 40
+	}
+	return m.width
+}
+
+// narrow reports whether to use the single-column reflow (real width is small).
+// At exactly narrowCols (64) the wide band grid (~67 cols) would still overflow,
+// so the boundary is inclusive: width <= 64 reflows.
+func (m model) narrow() bool { return m.width != 0 && m.width <= narrowCols }
+
 // ---- view ----
 func (m model) View() string {
-	w := m.width
-	if w < 64 {
-		w = 88
-	}
+	w := m.effWidth()
 	var b strings.Builder
 	b.WriteString(m.header(w) + "\n")
 	switch m.mode {
@@ -1071,7 +1092,11 @@ func (m model) promptLine(w int) string {
 	if m.mode == modeCommand {
 		return stPrompt.Render("  rog › ") + m.cmd.View()
 	}
-	return stPrompt.Render("  rog › ") + stDim.Render("press / to type a command  ·  enter to tune in")
+	hint := "press / to type a command  ·  enter to tune in"
+	if m.narrow() {
+		hint = "/ command · ⏎ tune in"
+	}
+	return stPrompt.Render("  rog › ") + stDim.Render(hint)
 }
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
@@ -1296,11 +1321,18 @@ func (m model) header(w int) string {
 	if m.onAir {
 		badge = stRed.Render("● ON AIR") + stDim.Render("  ·  ") + badge
 	}
-	gap := w - lipgloss.Width(left) - lipgloss.Width(badge)
-	if gap < 1 {
-		gap = 1
+	var top string
+	if m.narrow() {
+		// Single column: stack the badge under the lockup so neither overflows the
+		// real (narrow) width.
+		top = left + "\n" + badge
+	} else {
+		gap := w - lipgloss.Width(left) - lipgloss.Width(badge)
+		if gap < 1 {
+			gap = 1
+		}
+		top = left + strings.Repeat(" ", gap) + badge
 	}
-	top := left + strings.Repeat(" ", gap) + badge
 
 	// the state line: while browsing, "scanning the band · N on air · balance $X";
 	// once connected (expanded, not minimized) it names the channel.
@@ -1347,10 +1379,19 @@ func (m model) browseView(w int) string {
 	// Section heading, manual-style: a thin tab + a count, like the web's §-markers.
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
 		stDim.Render(fmt.Sprintf("   %d models on air", len(m.bands))) + "\n")
-	// Column header, tabular. Widths match the body cells exactly so price + signal
-	// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
-	b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
-		"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
+	// the signal + flags columns so nothing overflows the real width. Wide: the full
+	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
+	nameW := 20
+	if m.narrow() {
+		nameW = 14
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-7s  %s", "band", "on air", "$/1M out")) + "\n")
+	} else {
+		// Column header, tabular. Widths match the body cells exactly so price + signal
+		// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-7s  %-17s  %-8s  %s",
+			"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+	}
 	for i, bd := range m.bands {
 		nameStyle := lipgloss.NewStyle().Foreground(cInk)
 		cur := " "
@@ -1358,12 +1399,23 @@ func (m model) browseView(w int) string {
 			cur = stSelBar.Render("▌")
 			nameStyle = stSelText
 		}
-		name := nameStyle.Render(pad(bd.model, 20))
+		name := nameStyle.Render(pad(bd.model, nameW))
 		stationsLbl := "-"
 		if bd.online {
 			stationsLbl = fmt.Sprintf("%d on", bd.stations)
 		}
 		stations := stDim.Render(pad(stationsLbl, 7))
+		if m.narrow() {
+			// Single point price (the cheapest) keeps the narrow row short; the FREE
+			// tag still rides along since it's decision-relevant and tiny.
+			rng := stEmber.Render(rangeStr(bd))
+			free := ""
+			if bd.free {
+				free = "  " + stLive.Render("FREE")
+			}
+			b.WriteString(fmt.Sprintf("%s %s  %s  %s%s\n", cur, name, stations, rng, free))
+			continue
+		}
 		// Price range, tinted: cheap end ember (money), single point or min ~ max.
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
 		// Signal from the cheapest station's measured tps (fixed 5-cell equalizer).
@@ -1592,10 +1644,17 @@ func (m model) onAirPanel(w int) string {
 }
 
 func (m model) footer(w int) string {
-	// Keybindings adapt to the mode so the footer always teaches the right keys.
+	// Keybindings adapt to the mode so the footer always teaches the right keys. At
+	// narrow widths a terse key line replaces the full one so it fits.
 	var left string
 	if m.mode == modeChat {
-		left = stDim.Render("type to talk  ·  / in-session cmds  ·  tab browse  ·  esc leave  ·  ⌃c quit")
+		if m.narrow() {
+			left = stDim.Render("talk · / cmds · tab · esc · ⌃c")
+		} else {
+			left = stDim.Render("type to talk  ·  / in-session cmds  ·  tab browse  ·  esc leave  ·  ⌃c quit")
+		}
+	} else if m.narrow() {
+		left = stDim.Render("↑↓ · ⏎ on-air · / · ? · q")
 	} else {
 		chatKey := ""
 		if m.connected != nil {
@@ -1608,10 +1667,6 @@ func (m model) footer(w int) string {
 		confMode = stGold.Render("◆conf-only") + "  "
 	}
 	right := confMode + stEmber.Render("bal "+m.balDollars()) + "  " + stDim.Render(m.broker)
-	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
 	st := ""
 	if m.status != "" {
 		st = "\n" + stDim.Render("  ") + m.status
@@ -1620,7 +1675,23 @@ func (m model) footer(w int) string {
 	if m.updateLine != "" {
 		st += "\n" + stDim.Render("  ") + stEmber.Render(m.updateLine)
 	}
-	return stHeadRule.Render(strings.Repeat("─", w)) + "\n" + left + strings.Repeat(" ", gap) + right + st
+	rule := stHeadRule.Render(strings.Repeat("─", w))
+	// Narrow: stack the keys above the bal/broker line (a two-line status bar) so
+	// neither half is forced to overflow the real width. (TUI-V2-CRITIQUE A §5.)
+	if m.narrow() {
+		return rule + "\n" + left + "\n" + right + st
+	}
+	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		// Wide-ish but the broker URL pushes past the edge: drop it (keep the
+		// balance, which is the load-bearing half) so the line fits.
+		right = confMode + stEmber.Render("bal "+m.balDollars())
+		gap = w - lipgloss.Width(left) - lipgloss.Width(right)
+		if gap < 1 {
+			return rule + "\n" + left + "\n" + right + st // last resort: stack
+		}
+	}
+	return rule + "\n" + left + strings.Repeat(" ", gap) + right + st
 }
 
 func (m model) helpView() string {
