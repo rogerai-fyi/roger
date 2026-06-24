@@ -447,14 +447,19 @@ func priceMatches(typed, shown float64) bool {
 	return d <= 0.01
 }
 
-// effectiveMaxOut applies the default consumer out-price cap when none was set, so the
+// EffectiveMaxOut applies the default consumer out-price cap when none was set, so the
 // relay always carries a max-out the broker can enforce (the headless-overpay guard).
-func effectiveMaxOut(maxOut float64) float64 {
+// Exported so the agent harness (which builds its own relay request) injects the SAME
+// cap as `use`/`Chat` - one source of truth for the consumer cap across every path.
+func EffectiveMaxOut(maxOut float64) float64 {
 	if maxOut <= 0 {
 		return ConsumerDefaultMaxOut
 	}
 	return maxOut
 }
+
+// effectiveMaxOut is the internal alias kept for the package's existing call sites.
+func effectiveMaxOut(maxOut float64) float64 { return EffectiveMaxOut(maxOut) }
 
 // UseOptions are the resolved spend limits + flags for `rogerai use`.
 type UseOptions struct {
@@ -785,7 +790,10 @@ const chatTimeout = 300 * time.Second
 // clear, human-readable error so the TUI never shows a blank no-response: a
 // missing station, a slow-inference timeout, the broker's own error body, or a
 // transport drop are all surfaced verbatim instead of as an empty turn.
-func Chat(broker, user, model, prompt string, confidential bool) (reply, status string, costCr float64, err error) {
+// maxOut is the consumer out-price cap ($/1M) the relay must carry so the in-channel
+// chat is bounded like every other consume path: 0 means "use the default consumer cap"
+// (effectiveMaxOut), a positive value is the user's explicit opt-in to pay up to that.
+func Chat(broker, user, model, prompt string, confidential bool, maxOut float64) (reply, status string, costCr float64, err error) {
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
 		"messages":   []map[string]string{{"role": "user", "content": prompt}},
@@ -798,6 +806,10 @@ func Chat(broker, user, model, prompt string, confidential bool) (reply, status 
 	if confidential {
 		req.Header.Set("X-Roger-Confidential", "1")
 	}
+	// Always carry an out-price cap (the caller's, or the default consumer ceiling when
+	// none was set) so the in-channel chat relay is bounded against overpay exactly like
+	// `rogerai use` - not only the interactive tune-in confirm.
+	req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
 	resp, err := (&http.Client{Timeout: chatTimeout}).Do(req)
 	if err != nil {
 		// A transport timeout/drop: name it plainly (the bare net error reads as

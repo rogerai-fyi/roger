@@ -1092,7 +1092,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.relaying = true
 			m.relayStart = time.Now()
-			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly)
+			// Carry the user's explicit out-price cap for this model (0 -> the default
+			// consumer cap applies broker-side); keeps the in-channel chat bounded like use.
+			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut)
 		}
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
@@ -5658,9 +5660,9 @@ func fetchPayoutStatus(broker string) tea.Cmd {
 	}
 }
 
-func sendChat(broker, user, mdl, prompt string, confidential bool) tea.Cmd {
+func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64) tea.Cmd {
 	return func() tea.Msg {
-		reply, status, cost, err := client.Chat(broker, user, mdl, prompt, confidential)
+		reply, status, cost, err := client.Chat(broker, user, mdl, prompt, confidential, maxOut)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user

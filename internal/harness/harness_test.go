@@ -271,7 +271,7 @@ func TestBrokerCompleterRequestsHigherMaxTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	complete := BrokerCompleter(srv.URL, "tester", "gpt-oss-20b", false, nil)
+	complete := BrokerCompleter(srv.URL, "tester", "gpt-oss-20b", false, 0, nil)
 	if _, err := complete([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
 		t.Fatalf("completer error: %v", err)
 	}
@@ -283,6 +283,35 @@ func TestBrokerCompleterRequestsHigherMaxTokens(t *testing.T) {
 	}
 	if agentMaxTokens <= 1024 {
 		t.Errorf("agentMaxTokens=%d must exceed the old 1024 ceiling that truncated answers", agentMaxTokens)
+	}
+}
+
+// TestBrokerCompleterCarriesMaxOut: the [0] AGENT harness relay must carry the consumer
+// out-price cap so an agent turn is bounded against overpay like `use`/chat. A 0 maxOut
+// applies the default ($10); an explicit cap is honored (the opt-in-to-pay-more path).
+func TestBrokerCompleterCarriesMaxOut(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var gotCap string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCap = r.Header.Get("X-Roger-Max-Price-Out")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 0, nil)([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("completer error: %v", err)
+	}
+	if gotCap != "10" {
+		t.Fatalf("agent relay cap header = %q, want the $10 default (harness overpay path was open)", gotCap)
+	}
+	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 25, nil)([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+		t.Fatalf("completer error: %v", err)
+	}
+	if gotCap != "25" {
+		t.Errorf("agent relay explicit cap header = %q, want 25 (opt-in to pay more)", gotCap)
 	}
 }
 
