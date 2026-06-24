@@ -1,6 +1,10 @@
-// Package tui is the interactive `rogerai` experience - a two-way radio for GPUs.
-// Stations (providers) go on air; you tune in to a channel and talk. Signal bars
-// animate live; a gold call-sign ◆ marks lineage-verified. Built on Bubble Tea.
+// Package tui is the interactive `rogerai` experience - a two-way radio for GPUs,
+// and the terminal twin of the website's "Live Operating Manual". Stations
+// (providers) go on air; you tune in to a channel and talk. The look is the web's:
+// ~95% monochrome + ONE red beacon, the shared instrument glyphs (◉ on air, ○ off
+// air, ◆ verified, ▁▂▃▄▅▆▇█ signal bars), flat hairline structure, and a single
+// carrier beat driving the beacon, the ((•)) spinner, and the signal-bar shimmer.
+// Built on Bubble Tea + Lipgloss.
 package tui
 
 import (
@@ -78,39 +82,82 @@ func anim(frame int) int {
 	return frame
 }
 
-// ---- palette (the "white room, neon wiring" tokens) ----
+// ---- palette: the web's "Live Operating Manual" tokens ----
+//
+// ~95% monochrome + ONE red beacon. This mirrors the website exactly (see
+// docs-internal/design/direction-foundation.md §3.2): a near-monochrome ink/dim/
+// bright ramp plus a SINGLE accent red used only as glints - the on-air beacon,
+// the verified ◆, the selection cursor, the pressed preset, and headline accents.
+// Everything else is ink-on-paper. The old indigo "volt", green "live", orange
+// "ember", and gold "lineage" accents are RETIRED - they collapse into the mono
+// ramp (so the binary reads as a terminal twin of the site, not a different app).
+//
+// lipgloss.AdaptiveColor flips light/dark with the terminal background, matching
+// the web's "white room" / "ink room" pair: live red is #E0231C on light, lifted
+// to #FF4438 on dark for AA; the ink ramp warms toward the page neutrals.
 var (
-	cVolt  = lipgloss.Color("#5B5BFF") // brand / you / selection
-	cLive  = lipgloss.Color("#00C781") // on air / health
-	cEmber = lipgloss.Color("#FF8A3D") // money / cost
-	cInk   = lipgloss.Color("#0B0D12")
-	cMist  = lipgloss.Color("#6B7280")
-	cGold  = lipgloss.Color("#E8B339") // lineage call-sign
+	// The one accent: the live-red on-air beacon (web --live). Light #E0231C / dark
+	// #FF4438. Used ONLY as a signal glint, never as a surface fill behind text.
+	cRed = lipgloss.AdaptiveColor{Light: "#E0231C", Dark: "#FF4438"}
 
-	stBrand    = lipgloss.NewStyle().Foreground(cVolt).Bold(true)
-	stTag      = lipgloss.NewStyle().Foreground(cEmber)
-	stDim      = lipgloss.NewStyle().Foreground(cMist)
-	stLive     = lipgloss.NewStyle().Foreground(cLive)
-	stEmber    = lipgloss.NewStyle().Foreground(cEmber)
-	stGold     = lipgloss.NewStyle().Foreground(cGold)
-	stSelBar   = lipgloss.NewStyle().Foreground(cVolt)
-	stSelText  = lipgloss.NewStyle().Foreground(cVolt).Bold(true)
-	stHeadRule = lipgloss.NewStyle().Foreground(lipgloss.Color("#ECEDF1"))
-	stPanel    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(cVolt).Padding(0, 1)
-	stKey      = lipgloss.NewStyle().Foreground(cEmber).Bold(true)
-	stPrompt   = lipgloss.NewStyle().Foreground(cVolt).Bold(true) // the `rog ›` prompt lockup
-	cRed       = lipgloss.Color("#FF3B3B")                        // the live-red on-air beacon (web --carrier)
+	// The monochrome ink ramp (warm near-black on paper / warm off-white on ink),
+	// tracking the web's --ink-900 / --ink-500 / --ink-400 / --hairline tokens.
+	cInk   = lipgloss.AdaptiveColor{Light: "#15140F", Dark: "#F3F1EA"} // headlines / primary
+	cBody  = lipgloss.AdaptiveColor{Light: "#33312B", Dark: "#CFCCC4"} // body / values
+	cDim   = lipgloss.AdaptiveColor{Light: "#6B685F", Dark: "#9A968B"} // secondary / labels
+	cFaint = lipgloss.AdaptiveColor{Light: "#9A968B", Dark: "#6F6C64"} // off-bars / disabled
+	cRule  = lipgloss.AdaptiveColor{Light: "#D8D7D2", Dark: "#2A2720"} // the single hairline
+	cInkBg = lipgloss.AdaptiveColor{Light: "#FBFBFA", Dark: "#0E0D0B"} // paper (selection text)
+
+	// One voice, five roles - but now they all draw from the SAME mono+red system,
+	// so the names are kept (minimal churn across the file) while the COLOR is unified:
+	//   stBrand  - the headline / faceplate lettering (bright ink, bold).
+	//   stTag    - a quiet brand-tail / secondary (dim).
+	//   stDim    - labels, captions, structure (dim).
+	//   stLive   - on-air / good / values that were "green" -> now ink (no green).
+	//   stEmber  - prices / money that were "orange" -> now ink mono (weight, not hue).
+	//   stGold   - lineage ◆ that was "gold" -> now the ONE red (verified is a glint).
+	//   stKey    - the load-bearing value (command / endpoint / model) -> bright ink.
+	//   stSelText- the selection / focus glint -> red.
+	stBrand    = lipgloss.NewStyle().Foreground(cInk).Bold(true)
+	stTag      = lipgloss.NewStyle().Foreground(cDim)
+	stDim      = lipgloss.NewStyle().Foreground(cDim)
+	stLive     = lipgloss.NewStyle().Foreground(cBody)
+	stEmber    = lipgloss.NewStyle().Foreground(cBody)
+	stGold     = lipgloss.NewStyle().Foreground(cRed).Bold(true)
+	stSelBar   = lipgloss.NewStyle().Foreground(cRed)
+	stSelText  = lipgloss.NewStyle().Foreground(cRed).Bold(true)
+	stHeadRule = lipgloss.NewStyle().Foreground(cRule)
+	stPanel    = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(cRule).Padding(0, 1)
+	stKey      = lipgloss.NewStyle().Foreground(cInk).Bold(true)
+	stPrompt   = lipgloss.NewStyle().Foreground(cInk).Bold(true) // the `rog ›` prompt lockup
 	stRed      = lipgloss.NewStyle().Foreground(cRed).Bold(true)
 
 	// k9s-grade selection: a full-width reverse-video (accent-bg) row so the cursor
 	// is unmistakable at a glance, exactly like k9s's cursor row (it flips the row's
-	// background to its accent so the selected resource pops). We use the brand volt
-	// as the row background with ink text; under NO_COLOR lipgloss drops the bg and a
-	// leading `>` carat carries the selection instead (see rowSel / selCarat).
-	// k9s design refs (cited for the local design record): k9scli.io (cursor/accent
-	// row, status columns, contextual key footer) and github.com/derailed/k9s
-	// (skin table.cursorColor=aqua, reverse-video selected row, keyboard-first nav).
-	stRowSel = lipgloss.NewStyle().Foreground(cInk).Background(cVolt).Bold(true)
+	// background to its accent so the selected resource pops). The web's one accent is
+	// red, so the cursor row is the red bar with paper text; under NO_COLOR lipgloss
+	// drops the bg and a leading `>` carat carries the selection instead (see rowSel /
+	// selCarat). k9s design refs (cited for the local design record): k9scli.io
+	// (cursor/accent row, status columns, contextual key footer) and
+	// github.com/derailed/k9s (skin table.cursorColor, reverse-video selected row).
+	stRowSel = lipgloss.NewStyle().Foreground(cInkBg).Background(cRed).Bold(true)
+)
+
+// Shared iconography (the web's instrument glyphs), used consistently across
+// search / share / channel so every surface reads as one designed system:
+//
+//	glyphOnAir  ◉  on air / online / a live carrier
+//	glyphOffAir ○  off air / offline / over-margin
+//	glyphVerify ◆  lineage-verified (rendered in the one red as a glint)
+//	signalGlyphs ▁▂▃▄▅▆▇█  the signal-strength tower
+//
+// These degrade to plain runes under NO_COLOR (lipgloss strips the color, the
+// glyph itself is still a recognizable Unicode mark) and stay fixed-width.
+const (
+	glyphOnAir  = "◉"
+	glyphOffAir = "○"
+	glyphVerify = "◆"
 )
 
 // selCarat is the NO_COLOR / non-TTY selection marker: a bold `>` the eye still
@@ -193,6 +240,7 @@ const (
 	modeChat
 	modeHelp
 	modeConnectConfirm // 3.2 cost confirmation (default DENY)
+	modeConnecting     // staged scan/lock/handshake/CHANNEL-OPEN sequence (the web's tune-in)
 	modeOverLimit      // 3.3 over-limit + inline edit-your-max
 	modeLimits         // 3.4 per-model spend limits
 	modeShare          // k9s-style provider table: list local models, toggle on/off-air
@@ -285,25 +333,32 @@ type quote struct {
 }
 
 type model struct {
-	broker, user     string
-	offers           []offer
-	cursor           int
-	width, height    int
-	frame            int
-	mode             mode
-	cmd              textinput.Model
-	chatIn           textinput.Model
-	transcript       []string
-	connected        *offer
-	endpoint         string
-	apikey           string
-	proxyUp          bool
-	proxyAddr        string
-	confidentialOnly bool
-	balance          float64
-	haveBal          bool
-	status           string
-	alert            *alertBox
+	broker, user  string
+	offers        []offer
+	cursor        int
+	width, height int
+	frame         int
+	mode          mode
+	cmd           textinput.Model
+	chatIn        textinput.Model
+	transcript    []string
+	connected     *offer
+	endpoint      string
+	apikey        string
+	// staged tune-in sequence (modeConnecting): connectStage is the step the
+	// animation has reached (0..connectStageDone); connectStartFrame anchors the
+	// per-step dwell to m.frame so the steps advance on the one carrier beat. Under
+	// quiet (NO_COLOR / non-TTY / reduced-motion) the sequence renders fully resolved
+	// in a single frame (no churn in a pipe).
+	connectStage      int
+	connectStartFrame int
+	proxyUp           bool
+	proxyAddr         string
+	confidentialOnly  bool
+	balance           float64
+	haveBal           bool
+	status            string
+	alert             *alertBox
 	// pricing UX state
 	limits     *LimitStore
 	bands      []band // offers grouped by model (the band list, 3.1)
@@ -501,6 +556,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a := m.alert.take(); a != "" {
 				m.status = stEmber.Render("⚡ " + a)
 			}
+		}
+		// While the staged tune-in is playing, advance it on the carrier beat (it owns
+		// the tick until it drops into CHANNEL). It never fires a /discover re-scan mid
+		// lock, so the sequence stays smooth.
+		if m.mode == modeConnecting {
+			return m.advanceConnect()
 		}
 		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
 		// pull a fresh /discover so the band table + the "is a station on air" check
@@ -714,6 +775,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeBrowse
 			m.status = stDim.Render("denied - no channel opened")
 			return m, nil
+		}
+	case modeConnecting:
+		// The staged tune-in is brief and self-completing; a key lets an impatient
+		// operator skip straight to the channel (enter/space) or back out (esc).
+		switch k.String() {
+		case "esc", "n", "N":
+			m.mode = modeBrowse
+			m.status = stDim.Render("cancelled - the endpoint stays bound, no channel opened")
+			return m, nil
+		default:
+			return m.finishConnect()
 		}
 	case modeOverLimit:
 		return m.onOverLimitKey(k)
@@ -1094,7 +1166,7 @@ func (m *model) toggleShareAt(i int) {
 	if priceIn > 0 || priceOut > 0 {
 		kind = dollars(priceOut) + "/1M out"
 	}
-	m.status = stLive.Render("● ON AIR ") + stDim.Render("- sharing ") + stKey.Render(row.model) + stDim.Render(" ("+kind+")")
+	m.status = stRed.Render(glyphOnAir+" ON AIR ") + stDim.Render("- sharing ") + stKey.Render(row.model) + stDim.Render(" ("+kind+")")
 }
 
 // refreshShareHeadline repoints m.share / m.onAir at any still-live session so the
@@ -1664,14 +1736,70 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	}
 	m.connected = &o
 	m.apikey = "roger-local"
-	// Connecting auto-switches to CHANNEL mode and compacts the header (the founder's
-	// "compact-on-connect"). The endpoint stays live regardless of mode.
+	// Rather than snapping straight to the channel, run the web's staged tune-in:
+	//   ◉ scanning stations … ok
+	//   ◉ locking strongest @x · NN t/s · 0.NN $/M … ok
+	//   ◉ lineage handshake ◆ weights·shard·token … ok
+	//   ◉ CHANNEL OPEN <model> via @x ◆ verified
+	// then the clean BASE URL / API KEY / MODEL plate + "roger that." This replaces
+	// the old blank wait with a legible "what's happening" sequence that matches the
+	// site's tune-in animation. The endpoint is already bound (above); the channel
+	// itself opens when the sequence completes (advanceConnect). Under quiet the
+	// sequence is rendered fully resolved in a single frame.
+	m.mode = modeConnecting
+	m.connectStage = 0
+	m.connectStartFrame = m.frame
+	m.status = stRed.Render(glyphOnAir+" ") + stLive.Render("tuning in to ") + stSelText.Render(o.NodeID) + stDim.Render(" …")
+	if quiet {
+		// No animation in a pipe / NO_COLOR: jump to the resolved sequence + channel.
+		return m.finishConnect()
+	}
+	return m, tick()
+}
+
+// connectStages is the number of staged steps in the tune-in sequence (scan, lock,
+// handshake, CHANNEL OPEN). connectStageDone is the terminal stage (all steps "ok"
+// and the channel held open, ready to drop into CHANNEL on the next beat).
+const (
+	connectStages    = 4
+	connectStageDone = connectStages
+	// connectDwellFrames is how many ticks each staged step holds before the next
+	// reveals - ~3 frames at the 160ms tick (~0.5s/step) so the sequence reads as a
+	// deliberate lock, not a flicker, and completes in ~2s.
+	connectDwellFrames = 3
+)
+
+// advanceConnect steps the staged tune-in on each tick: every connectDwellFrames
+// it reveals the next step; once every step is "ok" it drops into the live CHANNEL.
+// Called from the tick handler while in modeConnecting.
+func (m model) advanceConnect() (tea.Model, tea.Cmd) {
+	if m.mode != modeConnecting {
+		return m, tick()
+	}
+	elapsed := m.frame - m.connectStartFrame
+	stage := elapsed / connectDwellFrames
+	if stage > connectStageDone {
+		stage = connectStageDone
+	}
+	m.connectStage = stage
+	if stage >= connectStageDone {
+		return m.finishConnect()
+	}
+	return m, tick()
+}
+
+// finishConnect drops the completed tune-in sequence into the live CHANNEL: it
+// auto-switches to CHANNEL mode and compacts the header (the founder's
+// "compact-on-connect"). The endpoint stays live regardless of mode.
+func (m model) finishConnect() (tea.Model, tea.Cmd) {
+	o := m.connected
 	m.mode = modeChat
+	m.connectStage = connectStageDone
 	m.chatIn.Focus()
 	if len(m.transcript) == 0 {
 		m.transcript = append(m.transcript, stDim.Render("◂ ")+stLive.Render("roger that")+stDim.Render(" - channel open. type to talk, /help for in-session commands."))
 	}
-	m.status = stGold.Render("◆ ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
+	m.status = stGold.Render(glyphVerify+" ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
 	return m, textinput.Blink
 }
 
@@ -1941,8 +2069,8 @@ func (m model) presetButtons() []presetKey {
 // dim. Under NO_COLOR the reverse-video is stripped and a leading dot marks the lit
 // preset so the active mode is still unmistakable.
 var (
-	stPreset   = lipgloss.NewStyle().Foreground(cMist)
-	stPresetOn = lipgloss.NewStyle().Foreground(cInk).Background(cRed).Bold(true)
+	stPreset   = lipgloss.NewStyle().Foreground(cDim)
+	stPresetOn = lipgloss.NewStyle().Foreground(cInkBg).Background(cRed).Bold(true)
 )
 
 // presetBar renders the always-visible "preset bank" of radio-station buttons:
@@ -2031,6 +2159,8 @@ func (m model) View() string {
 		b.WriteString(m.chatView(w))
 	case modeConnectConfirm:
 		b.WriteString(m.confirmView(w))
+	case modeConnecting:
+		b.WriteString(m.connectingView(w))
 	case modeOverLimit:
 		b.WriteString(m.overLimitView(w))
 	case modeLimits:
@@ -2046,7 +2176,7 @@ func (m model) View() string {
 	default:
 		b.WriteString(m.browseView(w))
 	}
-	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits && !m.inShareSection() {
+	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeConnecting && m.mode != modeOverLimit && m.mode != modeLimits && !m.inShareSection() {
 		b.WriteString("\n" + m.endpointPanel(w))
 	}
 	// The ON AIR provider panel rides under the browse view whenever /share is live.
@@ -2083,7 +2213,7 @@ func (m model) promptLine(w int) string {
 // least one model is live (requestQuit gates entry).
 func (m model) quitConfirmView(w int) string {
 	n := m.onAirCount()
-	body := stRed.Render("● ON AIR") + stDim.Render(" - you are sharing ") +
+	body := stRed.Render(glyphOnAir+" ON AIR") + stDim.Render(" - you are sharing ") +
 		stKey.Render(fmt.Sprintf("%d model(s)", n)) + "\n\n" +
 		"  You are ON AIR sharing " + stKey.Render(fmt.Sprintf("%d model(s)", n)) +
 		stDim.Render(" - quit and go off air? ") + stEmber.Render("[y/N]") + "\n\n" +
@@ -2141,6 +2271,120 @@ func (m model) confirmView(w int) string {
 	b.WriteString("       " + stLive.Render("accept · open channel") + "     " + stDim.Render("deny · back") + "     " + stDim.Render("more detail") + "\n")
 	b.WriteString("       " + stKey.Render("[ enter / y ]") + "         " + stDim.Render("[ esc / n ]") + "     " + stKey.Render("[ d ]") + "\n")
 	return b.String()
+}
+
+// connectStep renders one line of the staged tune-in: a leading ◉ on-air glyph,
+// the step label, and - once the step is reached - a trailing "ok". A step not yet
+// reached is dim and shows the working "…"; the reached step glints the on-air red.
+// state: 0 = pending, 1 = working (current), 2 = done.
+func connectStep(state int, label, detail string) string {
+	switch state {
+	case 0: // pending - not yet revealed (dim, hollow)
+		return "  " + stDim.Render(glyphOffAir+" "+label)
+	case 1: // working - the live carrier glint + an animated ellipsis-feel "…"
+		line := "  " + stRed.Render(glyphOnAir) + " " + stLive.Render(label)
+		if detail != "" {
+			line += stDim.Render(" · ") + stDim.Render(detail)
+		}
+		return line + stDim.Render(" …")
+	default: // done
+		line := "  " + stRed.Render(glyphOnAir) + " " + stDim.Render(label)
+		if detail != "" {
+			line += stDim.Render(" · ") + stDim.Render(detail)
+		}
+		return line + stDim.Render(" … ") + stLive.Render("ok")
+	}
+}
+
+// connectingView renders the staged tune-in sequence (modeConnecting): the web's
+// scan -> lock -> lineage handshake -> CHANNEL OPEN animation, finishing on the
+// aligned BASE URL / API KEY / MODEL plate + "roger that." The steps reveal one at
+// a time on the carrier beat (m.connectStage); under quiet the whole sequence is
+// shown resolved at once. Each step uses the shared ◉ on-air glyph and the verified
+// ◆; the only color is the one red glint on ◉ / ◆ and the selection.
+func (m model) connectingView(w int) string {
+	o := m.connected
+	if o == nil {
+		return ""
+	}
+	st := m.connectStage // 0..connectStageDone; a step at index i is "done" once stage>i
+	stateOf := func(i int) int {
+		switch {
+		case st > i+1 || st >= connectStageDone:
+			return 2 // done
+		case st == i+1:
+			return 2 // the step that just completed
+		case st == i:
+			return 1 // working (current)
+		default:
+			return 0 // pending
+		}
+	}
+	narrow := m.narrow()
+	var b strings.Builder
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("TUNE IN") +
+		stDim.Render("   locking the channel") + "\n\n")
+
+	// The lock detail (station · t/s · price) is the widest line; drop it to just the
+	// callsign when narrow so the step still reads but never overflows.
+	lockDetail := "@" + o.NodeID + " · " + tpsPlain(o.TPS, o.Online) + " · " + money(o.PriceOut) + " $/M"
+	if narrow {
+		lockDetail = "@" + o.NodeID
+	}
+	b.WriteString(connectStep(stateOf(0), "scanning stations", "") + "\n")
+	b.WriteString(connectStep(stateOf(1), "locking strongest", lockDetail) + "\n")
+	// The lineage-handshake step carries the verified ◆ + the signed triplet (the
+	// triplet is dropped when narrow).
+	hs := stateOf(2)
+	triplet := " weights·shard·token"
+	if narrow {
+		triplet = ""
+	}
+	hsTriplet := stGold.Render(glyphVerify) + stDim.Render(triplet)
+	switch hs {
+	case 0:
+		b.WriteString("  " + stDim.Render(glyphOffAir+" lineage handshake") + "\n")
+	case 1:
+		b.WriteString("  " + stRed.Render(glyphOnAir) + " " + stLive.Render("lineage handshake") + "  " + hsTriplet + stDim.Render(" …") + "\n")
+	default:
+		b.WriteString("  " + stRed.Render(glyphOnAir) + " " + stDim.Render("lineage handshake") + "  " + hsTriplet + stDim.Render(" … ") + stLive.Render("ok") + "\n")
+	}
+	// The terminal CHANNEL OPEN line: revealed once every prior step is done.
+	if st >= connectStageDone {
+		open := "  " + stRed.Render(glyphOnAir) + " " + stBrand.Render("CHANNEL OPEN") + "  " + stKey.Render(o.Model)
+		if !narrow {
+			open += stDim.Render(" via @") + stSelText.Render(o.NodeID) + "  " + stGold.Render(glyphVerify+" verified")
+		}
+		b.WriteString(open + "\n")
+		// The clean endpoint plate + the drop-in line (a shorter line when narrow).
+		b.WriteString("\n" + m.endpointBlock(w) + "\n")
+		dropIn := "drop-in, OpenAI-compatible - point any OpenAI tool here. "
+		if narrow {
+			dropIn = "drop-in. "
+		}
+		b.WriteString("  " + stDim.Render(dropIn) + stLive.Render("roger that.") + "\n")
+	} else {
+		b.WriteString("  " + stDim.Render(glyphOffAir+" CHANNEL OPEN") + "\n")
+	}
+	return b.String()
+}
+
+// endpointBlock renders the clean, aligned BASE URL / API KEY / MODEL spec plate -
+// dim mono labels, bright mono values, lined up like the web's endpoint plate. It
+// is the shared surface used by both the staged tune-in finale and the persistent
+// endpoint panel, so the binary shows the same "spec plate" the site does.
+func (m model) endpointBlock(w int) string {
+	model := "-"
+	if m.connected != nil {
+		model = m.connected.Model
+	}
+	// A small fixed-width label column so the values align in one mono gutter.
+	row := func(label, value string) string {
+		return "  " + stDim.Render(pad(label, 9)) + stKey.Render(value)
+	}
+	return row("BASE URL", m.endpoint) + "\n" +
+		row("API KEY", m.apikey) + "\n" +
+		row("MODEL", model)
 }
 
 // overLimitView is the over-limit + inline edit-your-max screen (3.3).
@@ -2222,11 +2466,13 @@ func (m model) limitsView(w int) string {
 	return b.String()
 }
 
-// tpsCell renders a station's signal: a live dot + measured tok/s, or offline.
+// tpsCell renders a station's signal: the shared ◉ on-air glyph (the one red
+// glint) + measured tok/s, or the hollow ○ off-air glyph, in mono. Same
+// iconography the band table, share table, and channel header all use.
 func tpsCell(tps float64, online bool) string {
-	dot := stDim.Render("○")
+	dot := stDim.Render(glyphOffAir)
 	if online {
-		dot = stLive.Render("●")
+		dot = stRed.Render(glyphOnAir)
 	}
 	if tps > 0 {
 		return dot + stLive.Render(fmt.Sprintf("  %.0f t/s", tps))
@@ -2235,11 +2481,11 @@ func tpsCell(tps float64, online bool) string {
 }
 
 // tpsPlain is tpsCell without color (for a reverse-video selected row, where one
-// accent style must govern the whole row).
+// accent style must govern the whole row). Same ◉/○ shared glyphs, no color.
 func tpsPlain(tps float64, online bool) string {
-	dot := "○"
+	dot := glyphOffAir
 	if online {
-		dot = "●"
+		dot = glyphOnAir
 	}
 	if tps > 0 {
 		return fmt.Sprintf("%s %.0f t/s", dot, tps)
@@ -2248,10 +2494,11 @@ func tpsPlain(tps float64, online bool) string {
 }
 
 // onAirPulse returns the breathing ON-AIR beacon in a FIXED-width cell so the
-// header's right edge never jitters as the arcs grow/shrink. The eye is the
-// live-red (#FF3B3B) on-air beacon matching the web --carrier; the arcs are
-// live-green. Cadence is gated on a slow phase so it reads as a calm breath, not
-// a flicker. eyeStyle lets callers pick the red brand beacon vs Ping's green eye.
+// header's right edge never jitters as the arcs grow/shrink. The eye is the one
+// live-red on-air beacon (cRed: #E0231C light / #FF4438 dark) matching the web's
+// --live carrier; the arcs are mono ink. Cadence is gated on a slow phase so it
+// reads as a calm breath, not a flicker. eyeStyle lets callers pass the beacon
+// style (the beacon and Ping's eye now share the same one red).
 func onAirPulse(frame int) string { return pulseWith(frame, stRed) }
 
 func pulseWith(frame int, eyeStyle lipgloss.Style) string {
@@ -2348,6 +2595,8 @@ func (m model) modeName() string {
 		return "CHANNEL"
 	case modeConnectConfirm:
 		return "CONFIRM"
+	case modeConnecting:
+		return "LOCKING"
 	case modeOverLimit:
 		return "OVER LIMIT"
 	case modeLimits:
@@ -2398,7 +2647,7 @@ func (m model) header(w int) string {
 		badge += stDim.Render("  ·  ") + stDim.Render("mode ") + stSelText.Render(m.modeName())
 	}
 	if m.onAir {
-		badge = stRed.Render("● ON AIR") + stDim.Render("  ·  ") + badge
+		badge = stRed.Render(glyphOnAir+" ON AIR") + stDim.Render("  ·  ") + badge
 	}
 	var top string
 	if m.narrow() {
@@ -2414,12 +2663,21 @@ func (m model) header(w int) string {
 	}
 
 	// the state line: while browsing, "scanning the band · N on air · balance $X";
-	// once connected (expanded, not minimized) it names the channel.
+	// once connected AND back on the band (channel held, expanded, not minimized) it
+	// names the channel. A connect-time sub-screen (confirm / the staged LOCKING
+	// sequence) does NOT show this line - those views carry the channel context
+	// themselves - so the header stays compact and width-safe through the tune-in.
+	holdingChannel := m.connected != nil && (m.mode == modeBrowse || m.mode == modeCommand)
 	var state string
-	if m.connected != nil {
-		state = stGold.Render("  ◆ ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
+	if holdingChannel {
+		// Narrow: drop the "([m] minimize)" hint so the line fits the real width.
+		hint := stDim.Render("  ([m] minimize)")
+		if m.narrow() {
+			hint = ""
+		}
+		state = stGold.Render("  "+glyphVerify+" ") + stLive.Render("on channel ") + stSelText.Render(m.connected.NodeID) +
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
-			stDim.Render(" · ") + m.accountTag(m.narrow()) + stDim.Render("  ([m] minimize)")
+			stDim.Render(" · ") + m.accountTag(true) + hint
 	} else {
 		on := countOnline(m.offers)
 		summary := "scanning the band…"
@@ -2571,14 +2829,14 @@ func (m model) browseView(w int) string {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
-			rawSig := pad(signalBarsRaw(m.frame, sigTPS, online), 8)
+			rawSig := pad(signalBarsRaw(m.frame, sigTPS, online, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 7), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
-		sig := tintSignal(pad(signalBarsRaw(m.frame, sigTPS, online), 8), sigTPS, online)
+		sig := tintSignal(pad(signalBarsRaw(m.frame, sigTPS, online, bd.stations), 8), sigTPS, online)
 		b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
 			stDim.Render(pad(stationsLbl, 7)) + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits) + "\n")
 	}
@@ -2747,7 +3005,7 @@ func (m model) chatView(w int) string {
 	// Section-tab heading, matching the SHARE table's "▌ SECTION  context" look so
 	// the channel reads as part of the same designed system.
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
-		stDim.Render("   ") + stGold.Render("◆") + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+		stDim.Render("   ") + stGold.Render(glyphVerify) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 		stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
 	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂).
 	lines := m.transcript
@@ -2843,22 +3101,21 @@ func transmitLine(frame, elapsedSec int) string {
 	return line
 }
 
+// endpointPanel is the persistent channel-open plate shown under the browse view
+// while a channel is held: the ◉ on-air glyph + (when confidential) the verified
+// ◆, then the shared aligned BASE URL / API KEY / MODEL block + the drop-in line.
+// It is the same spec plate the staged tune-in finishes on (endpointBlock), inside
+// a flat single-hairline border (no heavy/double box).
 func (m model) endpointPanel(w int) string {
 	lineage := stDim.Render("·")
 	if m.connected != nil && m.connected.Confidential {
-		lineage = stGold.Render("◆ verified")
+		lineage = stGold.Render(glyphVerify + " verified")
 	}
-	head := stGold.Render("◆ ") + stLive.Render("channel open") + "  " +
+	head := stRed.Render(glyphOnAir+" ") + stLive.Render("channel open") + "  " +
 		stDim.Render("point your bots here") + "  " + lineage
-	model := stDim.Render("-")
-	if m.connected != nil {
-		model = stKey.Render(m.connected.Model)
-	}
 	body := head + "\n" +
-		stDim.Render("  base url  ") + stKey.Render(m.endpoint) + "\n" +
-		stDim.Render("  api key   ") + stKey.Render(m.apikey) + "\n" +
-		stDim.Render("  model     ") + model + "\n" +
-		stDim.Render("  drop-in, openai-compatible. ") + stLive.Render("roger that.") + stDim.Render("  ·  /chat to test")
+		m.endpointBlock(w) + "\n" +
+		stDim.Render("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + stLive.Render("roger that.") + stDim.Render("  ·  /chat to test")
 	return stPanel.Render(body)
 }
 
@@ -2872,7 +3129,7 @@ func (m model) onAirPanel(w int) string {
 	if in > 0 || out > 0 {
 		price = stEmber.Render(dollars(out) + "/1M out  " + dollars(in) + "/1M in")
 	}
-	head := stRed.Render("● ON AIR") + "  " + stDim.Render("you are sharing") + "  " + stKey.Render(s.Model())
+	head := stRed.Render(glyphOnAir+" ON AIR") + "  " + stDim.Render("you are sharing") + "  " + stKey.Render(s.Model())
 	body := head + "\n" +
 		stDim.Render("  node       ") + stSelText.Render(s.Node()) + "\n" +
 		stDim.Render("  price      ") + price + "\n" +
@@ -3015,12 +3272,12 @@ func (m model) shareView(w int) string {
 		// Unselected: a dot/blank gutter, dim model, colored status + price cells.
 		st := stDim.Render(pad(statusTxt, 9))
 		if on {
-			st = stLive.Render(pad("● "+statusTxt, 9))
+			st = stRed.Render(pad(glyphOnAir+" "+statusTxt, 9))
 		}
 		if compact {
 			stN := stDim.Render(pad(statusTxt, 8))
 			if on {
-				stN = stLive.Render(pad("●"+statusTxt, 8))
+				stN = stRed.Render(pad(glyphOnAir+statusTxt, 8))
 			}
 			b.WriteString(selCarat(false) + "  " + stDim.Render(pad(row.model, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
 			continue
@@ -3265,6 +3522,12 @@ func (m model) footer(w int) string {
 			left = stDim.Render("⏎/y accept · esc/n deny · d detail")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeConnecting:
+		left = stDim.Render("locking the channel  ·  ⏎ skip to channel  ·  esc cancel")
+		if m.narrow() {
+			left = stDim.Render("locking · ⏎ skip · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeOverLimit:
 		left = stDim.Render("⏎ save & re-check  ·  ↑↓ nudge  ·  w wait  ·  esc deny")
 		if m.narrow() {
@@ -3421,8 +3684,13 @@ func indentBlock(s, pad string) string {
 // ---- helpers / cmds ----
 // signalBarsRaw returns the 5-cell equalizer glyphs WITHOUT color, so callers can
 // pad/align on the true display width before tinting. Bar height is set by the
-// node's measured tok/s; offline or unmeasured shows a flat low signal.
-func signalBarsRaw(frame int, tps float64, online bool) string {
+// node's measured tok/s AND (optionally) the number of stations on the band - the
+// web's "more stations, stronger signal" rule: each extra station after the first
+// lifts the floor a notch (capped), so a busy band reads taller. Pass the station
+// count as the optional 4th arg; the per-station header bar passes none (no boost).
+// Offline or unmeasured shows a flat low signal. The shimmer rides m.frame (the one
+// carrier beat) so the bars breathe with the beacon; quiet freezes the frame.
+func signalBarsRaw(frame int, tps float64, online bool, stations ...int) string {
 	glyphs := []rune("▁▂▃▄▅▆▇█")
 	if !online {
 		return "▁▁▁▁▁"
@@ -3445,6 +3713,16 @@ func signalBarsRaw(frame int, tps float64, online bool) string {
 	if base == 0 {
 		return "▁▁▁▁▁" // online but not yet measured
 	}
+	// More stations on the band -> a stronger carrier: +1 notch per extra station
+	// beyond the first, capped at +2 so a single fast node and a crowded band stay
+	// distinguishable without pinning everything to the top.
+	if len(stations) > 0 && stations[0] > 1 {
+		boost := stations[0] - 1
+		if boost > 2 {
+			boost = 2
+		}
+		base += boost
+	}
 	var sb strings.Builder
 	frame = anim(frame)
 	for i := 0; i < 5; i++ {
@@ -3460,14 +3738,44 @@ func signalBarsRaw(frame int, tps float64, online bool) string {
 	return sb.String()
 }
 
-// tintSignal colors a raw equalizer: live-green when the station is up and
-// measured, dim otherwise. Any alignment padding in raw is tinted too, but
-// spaces have no visible color so the column stays clean.
+// signalPeak is the glyph level at and above which a signal cell glints red - the
+// "data-as-decoration" grade (like Serie / regex-tui): the tower is mono ink, but
+// its tallest bars (a strong carrier) tip into the one accent red at the peak. The
+// glyph ramp is ▁▂▃▄▅▆▇█ (indices 0..7); ▇/█ (>= 6) read as "peaking".
+const signalPeak = 6
+
+// tintSignal grades a raw equalizer cell-by-cell so the bar carries meaning, not
+// just a flat color: an online, measured tower is mono ink with its PEAK cells
+// (the tallest bars) glinting the one accent red - a subtle dim->red gradient
+// driven by tok/s. Offline / unmeasured is flat dim. Padding spaces stay bare
+// (no visible color), so column alignment is unaffected. Under NO_COLOR lipgloss
+// strips every color and the ▁..█ glyphs alone still read the signal.
 func tintSignal(raw string, tps float64, online bool) string {
-	if online && tps > 0 {
-		return stLive.Render(raw)
+	if !(online && tps > 0) {
+		return stDim.Render(raw)
 	}
-	return stDim.Render(raw)
+	ramp := []rune("▁▂▃▄▅▆▇█")
+	lvlOf := func(r rune) int {
+		for i, g := range ramp {
+			if g == r {
+				return i
+			}
+		}
+		return -1
+	}
+	var b strings.Builder
+	for _, r := range raw {
+		lvl := lvlOf(r)
+		switch {
+		case lvl < 0: // a space / non-bar rune (alignment padding) - leave bare
+			b.WriteRune(r)
+		case lvl >= signalPeak: // peaking - the one red glint
+			b.WriteString(stRed.Render(string(r)))
+		default: // body of the tower - mono ink
+			b.WriteString(stLive.Render(string(r)))
+		}
+	}
+	return b.String()
 }
 
 // normalizeUpstream turns a detected base/chat URL into the chat-completions URL

@@ -69,11 +69,16 @@ func Search(broker string) error {
 		fmt.Println("no offers yet - run `rogerai share` on a box with a local model")
 		return nil
 	}
-	fmt.Printf("%-12s %-22s %-9s %-9s %-7s %-7s %-7s %-8s %s\n", "NODE", "MODEL", "$/1M in", "$/1M out", "TOK/S", "CTX", "REGION", "STATUS", "FLAGS")
+	// Station rows mirror the TUI band table's instrument language so the piped CLI
+	// reads as a terminal twin of the on-screen one: a ◉ on-air / ○ off-air glyph in
+	// the STATUS cell, a ▁▂▃▄▅▆▇ SIGNAL tower driven by tok/s, and the verified ◆ in
+	// FLAGS. Plain text (no color), so it degrades cleanly under NO_COLOR / a pipe.
+	fmt.Printf("%-8s %-12s %-22s %-9s %-9s %-7s %-7s %-7s %-7s %s\n",
+		"STATUS", "SIGNAL", "MODEL", "$/1M in", "$/1M out", "TOK/S", "CTX", "REGION", "NODE", "FLAGS")
 	for _, o := range d.Offers {
-		status := "online"
+		status := glyphOnAir
 		if !o.Online {
-			status = "offline"
+			status = glyphOffAir
 		}
 		tps := "-"
 		if o.TPS > 0 {
@@ -81,14 +86,61 @@ func Search(broker string) error {
 		}
 		flags := ""
 		if o.Confidential {
-			flags += "◆confidential "
+			flags += glyphVerify + " verified "
 		}
 		if o.FreeNow {
 			flags += "FREE-now"
 		}
-		fmt.Printf("%-12s %-22s %-9.2f %-9.2f %-7s %-7d %-7s %-8s %s\n", o.NodeID, o.Model, o.PriceIn, o.PriceOut, tps, o.Ctx, o.Region, status, flags)
+		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-7s %-7d %-7s %-7s %s\n",
+			status, signalTower(o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut, tps, o.Ctx, o.Region, o.NodeID, flags)
 	}
 	return nil
+}
+
+// Shared CLI iconography, kept in lock-step with the TUI's glyphs (internal/tui):
+// ◉ on air / ○ off air / ◆ verified. The CLI prints plain text (no color), so the
+// glyphs alone carry the meaning under NO_COLOR / a pipe.
+const (
+	glyphOnAir  = "◉"
+	glyphOffAir = "○"
+	glyphVerify = "◆"
+)
+
+// signalTower renders a 5-cell ▁▂▃▄▅▆▇█ signal bar driven by tok/s, mirroring the
+// TUI band table's inline meter (same tps thresholds). Offline / unmeasured shows
+// a flat low tower. No color - the glyph heights carry the reading in a pipe.
+func signalTower(tps float64, online bool) string {
+	if !online {
+		return "▁▁▁▁▁"
+	}
+	glyphs := []rune("▁▂▃▄▅▆▇█")
+	base := 0
+	switch {
+	case tps >= 600:
+		base = 6
+	case tps >= 300:
+		base = 5
+	case tps >= 150:
+		base = 4
+	case tps >= 60:
+		base = 3
+	case tps >= 20:
+		base = 2
+	case tps > 0:
+		base = 1
+	}
+	if base == 0 {
+		return "▁▁▁▁▁"
+	}
+	var b strings.Builder
+	for i := 0; i < 5; i++ {
+		lvl := base - (i % 2)
+		if lvl < 0 {
+			lvl = 0
+		}
+		b.WriteRune(glyphs[lvl])
+	}
+	return b.String()
 }
 
 // Balance prints the caller's wallet credits (GET /balance as `user`). When the
@@ -383,6 +435,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 	maxOut := opt.MaxOut
 	in := os.Stdin
+	var locked BandRange // the station we resolve + confirm (used for the staged lock)
 
 	for {
 		br, ok := BandRangeFor(broker, model)
@@ -390,6 +443,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 			fmt.Printf("no station on air for %q right now - try `rogerai search` or come back.\n", model)
 			return nil
 		}
+		locked = br
 		// Is the cheapest station within the out-price cap?
 		if maxOut > 0 && br.Min > maxOut {
 			gap := br.Min - maxOut
@@ -448,10 +502,26 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 
 	addr := fmt.Sprintf("127.0.0.1:%d", opt.Port)
-	fmt.Printf("\nRogerAI endpoint: http://%s/v1   model=%s  user=%s  broker=%s\n", addr, model, user, broker)
-	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
-		fmt.Printf("  limits: max-in=%g  max-out=%g $/1M   min-tps=%g t/s   (only tunes to stations within these)\n", opt.MaxIn, maxOut, opt.MinTPS)
+	// The staged tune-in: scan -> lock -> lineage handshake -> CHANNEL OPEN, mirroring
+	// the TUI sequence + the website's animation. Plain text (CLI is non-interactive),
+	// ◉ on-air / ◆ verified shared with the band table, so the lock reads the same on
+	// screen and in a pipe.
+	verified := ""
+	if opt.Confidential {
+		verified = "  " + glyphVerify + " verified"
 	}
+	fmt.Printf("\n  %s scanning stations ... ok\n", glyphOnAir)
+	fmt.Printf("  %s locking strongest @%s · %s · %.2f $/M ... ok\n", glyphOnAir, locked.CheapNode, tpsLabel(locked.CheapTPS), locked.Min)
+	fmt.Printf("  %s lineage handshake %s weights·shard·token ... ok\n", glyphOnAir, glyphVerify)
+	fmt.Printf("  %s CHANNEL OPEN %s via @%s%s\n", glyphOnAir, model, locked.CheapNode, verified)
+	// The clean, aligned BASE URL / API KEY / MODEL plate (matches the TUI plate).
+	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
+	fmt.Printf("  %-9s %s\n", "API KEY", "roger-local")
+	fmt.Printf("  %-9s %s\n", "MODEL", model)
+	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
+		fmt.Printf("  %-9s max-in=%g  max-out=%g $/1M   min-tps=%g t/s\n", "LIMITS", opt.MaxIn, maxOut, opt.MinTPS)
+	}
+	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
 	opts := ProxyOptions{Broker: broker, User: user, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
