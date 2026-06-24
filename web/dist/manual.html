@@ -639,17 +639,10 @@
               gates wrong-model and dead-or-filtered stations out of the band before a
               paying request can hit them.</p>
 
-            <h3>Honest framing: statistical, not bitwise</h3>
+            <h3>How we keep the band honest</h3>
             <div class="man-note">
-              <span class="man-note__tag">the honest part</span>
-              GPU inference is non-deterministic (floating-point non-associativity and
-              non-batch-invariant kernels), so there is no bitwise re-execution hash to
-              check, and zero-knowledge ML is hours per inference. Verification is
-              therefore <b>statistical detection plus economic deterrence</b>: make
-              cheating cheaply detectable and negative-EV, not provably impossible.
-              Logprob spot-checks, a held-earnings escrow with slashing, and an optional
-              TEE-attested confidential tier (§4) layer on top of the receipts and the
-              re-count.
+              <span class="man-note__tag">in practice</span>
+              RogerAI layers several checks so a station that serves the wrong model, a heavy quant, or pads its token counts is caught and made unprofitable: (a) co-signed lineage receipts on every token, (b) an independent token re-count - we re-count, not just trust the node, and (c) active canary probes that test each station's latency and that it serves the model it advertises - plus logprob spot-checks, a held-earnings escrow with slashing for caught cheating, and an optional TEE-attested confidential tier (§4). Together these make misreporting statistically detectable and not worth it. As with any model provider, verify that outputs meet your quality bar for your use case, and report anything off - we act on reports, and a station's record follows it.
             </div>
           </section>
 
