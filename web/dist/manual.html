@@ -185,7 +185,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.4.0</b></span>
+          <span>Version: <b data-cli-version>v4.5.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -801,7 +801,7 @@
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.4.0</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.5.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1028,6 +1028,7 @@
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v4.5.0</span><span class="man-plate__v">Real SEV-SNP TEE confidential tier; private bands (frequency codes); payouts from the CLI; global price-safety; self-healing share + truthful ON AIR/RECONNECTING; Windows-ready (cmd /C, self-update, glyph fallback); report-a-station + moderation; /support; $1 starter credit.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> (or <kbd>h</kbd> in SHARE) prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (or <kbd>Shift</kbd>+<kbd>F</kbd> / <code>/freq</code> in-app; same account = $0, or hand the code to a friend). Login-gated, 1 free band (broker-enforced), $5 packs in Phase 2 (see §5). <b>Real TEE confidential tier</b>: the gold <span class="cs">&#9670;</span> now means a node passed live AMD SEV-SNP remote attestation - nonce-bound (no replay), measurement-allowlisted, re-attested on a cadence, fail-closed; <code>share --confidential</code> needs real TEE hardware and refuses honestly otherwise (§4, §10). <b>Trust + safety surface</b>: a pre-dispatch Groq Llama Guard moderation screen on the relay and the public Ping concierge, a report-a-station control on every Models card (POSTs to the broker, auto-ejects on enough reports), <a href="mailto:abuse@rogerai.fyi">abuse@</a> + a real ToS/AUP + <code>security.txt</code> (§10). <b>Wallet</b>: a one-time $1 starter credit for the first 1000 accounts; consumer price-safety guards (a $10/1M default cap even with <code>--yes</code>, type-the-price above $20/1M) and operator ceilings ($100/1M out, $50/1M in) (§4, §6). <b>Self-healing SHARE</b>: a provider auto-re-registers when the broker restarts (the registry is persisted and re-hydrated; no manual restart), with truthful ON AIR vs RECONNECTING status. <code>rogerai support</code> opens the site/Discord. Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.3.0</span><span class="man-plate__v">web-parity visual redesign: one palette, signal meters, the compact "windowshade" [m], a band-browser with filter / sort / FREE-confidential-on-air toggles + a virtualized list, [d] disconnect from the list, and a clean GitHub device-login panel with a confirmed [L] logout</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.2.x</span><span class="man-plate__v">payout command group (<code>rogerai payout status|onboard|request|history</code>) - headless cash-out for Stripe Connect earnings; the in-app preset bank ([0]-[3], [L], [?]) with arrow-key navigation</span></div>
