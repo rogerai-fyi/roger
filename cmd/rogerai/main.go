@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/client"
@@ -326,6 +327,8 @@ func main() {
 		// Mirror the TUI's /limits (prints the spend-limits view); editing stays under
 		// `config set-limit` for the flags.
 		err = cmdConfig(append([]string{"limits"}, os.Args[2:]...))
+	case "payout", "payouts", "cashout":
+		err = cmdPayout(cfg, os.Args[2:])
 	case "grant":
 		err = cmdGrant(cfg, os.Args[2:])
 	case "onboard", "setup":
@@ -579,6 +582,235 @@ func cmdTopup(cfg config, args []string) error {
 	return client.Topup(cfg.Broker, cfg.User, usd)
 }
 
+// cmdPayout is the provider money-OUT verb group: cash out earnings from the
+// terminal. Every call is Ed25519-signed (the same identity the rest of the client
+// uses), so a headless `rogerai share` provider can withdraw + see KYC status without
+// a browser session. Requires a GitHub-linked account (run `rogerai login`); the
+// broker enforces the unchanged policy (90-day hold, $25 min, monthly, Connect-KYC).
+// Amounts are shown in dollars (1 credit == $1).
+//
+//	rogerai payout            -> status (default)
+//	rogerai payout status     -> KYC state + payable/held + next-payable date + policy
+//	rogerai payout onboard    -> open the Stripe Connect KYC link (prints it too)
+//	rogerai payout request    -> request a payout (broker pays the full payable amount)
+//	rogerai payout history    -> past payouts + their states
+func cmdPayout(cfg config, args []string) error {
+	sub := "status"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	// Help works without login (so a new provider can read it before linking).
+	if sub == "-h" || sub == "--help" || sub == "help" {
+		payoutUsage()
+		return nil
+	}
+	// Login gate: payouts are KYC + GitHub-linked only. Without a local link there is
+	// no signing identity bound to an account, so point at `rogerai login` up front.
+	if client.LinkedLogin() == "" {
+		fmt.Println("not logged in - run `rogerai login` to link GitHub (required to earn + cash out)")
+		return nil
+	}
+	switch sub {
+	case "status", "":
+		return payoutStatus(cfg)
+	case "onboard", "kyc", "setup":
+		return payoutOnboard(cfg)
+	case "request", "withdraw", "cashout":
+		return payoutRequest(cfg, args[1:])
+	case "history", "log", "list":
+		return payoutHistory(cfg)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown payout command %q\n", sub)
+		payoutUsage()
+		return nil
+	}
+}
+
+func payoutUsage() {
+	fmt.Println(`rogerai payout - cash out your provider earnings (dollars; 1 credit = $1)
+
+  rogerai payout status     Connect/KYC state + payable vs held + next-payable date
+  rogerai payout onboard     complete Stripe Connect KYC (opens the browser)
+  rogerai payout request      request a payout of your payable balance
+  rogerai payout history      past payouts and their states
+
+  Policy: 90-day hold, $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
+}
+
+// payoutPolicyLine is the single one-liner describing the unchanged policy, reused by
+// status so the user always sees the terms.
+func payoutPolicyLine(st client.PayoutStatus) string {
+	hold := st.HoldDays
+	if hold == 0 {
+		hold = 90
+	}
+	min := st.MinPayout
+	if min == 0 {
+		min = 25
+	}
+	sched := st.Schedule
+	if sched == "" {
+		sched = "monthly"
+	}
+	return fmt.Sprintf("policy     %d-day hold · $%s min · %s", hold, trimAmt(min), sched)
+}
+
+// trimAmt formats a dollar amount without trailing zeros (25 -> "25", 25.5 -> "25.50").
+func trimAmt(v float64) string {
+	if v == float64(int64(v)) {
+		return strconv.FormatInt(int64(v), 10)
+	}
+	return strconv.FormatFloat(v, 'f', 2, 64)
+}
+
+// payoutDate renders a unix time as a short date, or "-" for 0.
+func payoutDate(unix int64) string {
+	if unix <= 0 {
+		return "-"
+	}
+	return time.Unix(unix, 0).Format("2006-01-02")
+}
+
+// kycLabel maps the Connect status to a human phrase.
+func kycLabel(status string) string {
+	switch status {
+	case "active":
+		return "active (KYC complete)"
+	case "onboarding":
+		return "pending (finish onboarding)"
+	case "restricted":
+		return "restricted (Stripe needs more info)"
+	default:
+		return "not onboarded"
+	}
+}
+
+func payoutStatus(cfg config) error {
+	st, err := client.FetchPayoutStatus(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	payable := st.Earnings.Payable
+	held := st.Earnings.Held + st.Earnings.Reserved
+	fmt.Println("\n  PAYOUT")
+	fmt.Printf("    KYC        %s\n", kycLabel(st.Status))
+	fmt.Printf("    payable    $%.2f   (ready to cash out)\n", payable)
+	fmt.Printf("    held       $%.2f   (inside the %d-day hold)\n", held, holdOr90(st))
+	if st.Earnings.Paid > 0 {
+		fmt.Printf("    paid out   $%.2f   (lifetime)\n", st.Earnings.Paid)
+	}
+	if next := st.Earnings.NextRelease; next > 0 {
+		fmt.Printf("    next due   %s   (held earnings become payable)\n", payoutDate(next))
+	}
+	fmt.Printf("    %s\n", payoutPolicyLine(st))
+	// Actionable next step.
+	switch {
+	case st.Status != "active":
+		fmt.Println("\n  complete KYC to cash out:  rogerai payout onboard")
+	case payable < minOr25(st):
+		fmt.Printf("\n  below the $%s minimum - keep earning, then `rogerai payout request`.\n", trimAmt(minOr25(st)))
+	default:
+		fmt.Println("\n  ready to cash out:  rogerai payout request")
+	}
+	return nil
+}
+
+func holdOr90(st client.PayoutStatus) int {
+	if st.HoldDays == 0 {
+		return 90
+	}
+	return st.HoldDays
+}
+
+func minOr25(st client.PayoutStatus) float64 {
+	if st.MinPayout == 0 {
+		return 25
+	}
+	return st.MinPayout
+}
+
+func payoutOnboard(cfg config) error {
+	url, err := client.FetchOnboardURL(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	fmt.Println("opening Stripe Connect onboarding (complete KYC to enable payouts)...")
+	fmt.Printf("  %s\n", url)
+	fmt.Println("  (if your browser didn't open, paste the URL above)")
+	tui.OpenURL(url)
+	return nil
+}
+
+func payoutRequest(cfg config, args []string) error {
+	// Pre-flight against the live status so the user gets a clear, local error (KYC /
+	// minimum / payable cap) before the broker round-trip. The broker re-checks every
+	// gate authoritatively; this just turns rejections into friendly messages.
+	st, err := client.FetchPayoutStatus(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	min := minOr25(st)
+	payable := st.Earnings.Payable
+	if st.Status != "active" {
+		fmt.Println("KYC not complete - run `rogerai payout onboard` first.")
+		return nil
+	}
+	// Optional [amount]: validate it fits the rules. The broker pays out the FULL
+	// payable balance (monthly batch), so an amount is a sanity check, not a partial
+	// withdrawal; surface that honestly rather than silently ignoring it.
+	if len(args) > 0 {
+		amt, perr := strconv.ParseFloat(strings.TrimPrefix(args[0], "$"), 64)
+		if perr != nil || amt <= 0 {
+			return fmt.Errorf("not a valid amount: %q", args[0])
+		}
+		if amt < min {
+			fmt.Printf("$%.2f is below the $%s minimum.\n", amt, trimAmt(min))
+			return nil
+		}
+		if amt > payable+1e-9 {
+			fmt.Printf("$%.2f is more than your payable balance ($%.2f).\n", amt, payable)
+			return nil
+		}
+		if amt < payable-1e-9 {
+			fmt.Printf("note: payouts transfer your FULL payable balance ($%.2f), not a partial amount.\n", payable)
+		}
+	}
+	if payable < min {
+		fmt.Printf("payable $%.2f is below the $%s minimum - keep earning.\n", payable, trimAmt(min))
+		return nil
+	}
+	rec, err := client.RequestPayout(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("payout requested: $%.2f (state: %s", rec.Amount, rec.State)
+	if rec.StripeTransferID != "" {
+		fmt.Printf(", transfer %s", rec.StripeTransferID)
+	}
+	fmt.Println(")")
+	return nil
+}
+
+func payoutHistory(cfg config) error {
+	pays, err := client.FetchPayoutHistory(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	if len(pays) == 0 {
+		fmt.Println("no payouts yet - run `rogerai payout status` to see what's payable.")
+		return nil
+	}
+	fmt.Printf("%-12s %-9s %-9s %s\n", "DATE", "AMOUNT", "STATE", "TRANSFER")
+	for _, p := range pays {
+		tr := p.StripeTransferID
+		if tr == "" {
+			tr = "-"
+		}
+		fmt.Printf("%-12s $%-8.2f %-9s %s\n", payoutDate(p.CreatedAt), p.Amount, p.State, tr)
+	}
+	return nil
+}
+
 // cmdBalance is the one money verb (C4): `balance` shows credits; `balance --topup
 // [usd]` (or `balance topup [usd]`) opens checkout. Folds the old top-level `topup`
 // into balance so a user has one noun for money.
@@ -812,6 +1044,7 @@ func usage() {
 providers (share your GPU):
   rogerai share                 go on air - FREE by default, no login (auto-detects your model)
   rogerai login                 link GitHub - only needed to EARN
+  rogerai payout                cash out your earnings (status · onboard · request · history)
   rogerai grant create --name my-bots   a free private key for your bots/family
 
 more:

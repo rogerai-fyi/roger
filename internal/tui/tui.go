@@ -538,6 +538,22 @@ type model struct {
 	setupCursor int    // selected option in the setup wizard
 	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
 	setupErr    string // last paste-verify error
+	// payout: a lightweight, lazily-fetched snapshot of the operator's Connect/KYC
+	// state + payable balance, surfaced as a one-line hint in the ON-AIR / SHARE
+	// earnings surface ("$X payable - run `rogerai payout`" or "complete KYC: ...").
+	// Fetched off the event loop (a tea.Cmd) only for a logged-in owner; payoutFetched
+	// guards the one-shot fetch so the SHARE view doesn't re-hit the broker on render.
+	payout        payoutSnapshot
+	payoutFetched bool
+}
+
+// payoutSnapshot is the TUI's compact view of `rogerai payout status` (enough for the
+// earnings hint). kyc is the Connect status (none|onboarding|active|restricted).
+type payoutSnapshot struct {
+	loaded  bool
+	kyc     string
+	payable float64
+	min     float64
 }
 
 // edField identifies the focused field in the pricing/schedule editor.
@@ -623,6 +639,11 @@ type loginStartedMsg LoginDevice
 
 // logoutMsg signals the local GitHub binding was forgotten (the in-TUI logout).
 type logoutMsg struct{}
+
+// payoutStatusMsg carries the lazily-fetched Connect/KYC + payable snapshot back to
+// the Update loop (best-effort; a fetch failure lands as a not-loaded snapshot and is
+// simply not surfaced - the SHARE view still renders).
+type payoutStatusMsg payoutSnapshot
 
 func New(broker, user string) model {
 	return NewWith(broker, user, nil)
@@ -754,6 +775,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Anonymous: no wallet/balance to show.
 			m.balance, m.haveBal = 0, false
 		}
+		// One-shot: a logged-in owner can have provider earnings, so fetch the payout
+		// snapshot once (off the event loop) to drive the SHARE-view cash-out hint.
+		if m.loggedInState() && !m.payoutFetched {
+			m.payoutFetched = true
+			return m, fetchPayoutStatus(m.broker)
+		}
 		return m, nil
 	case chatMsg:
 		m.relaying = false
@@ -812,8 +839,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = m.loginReturn
 		}
 		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - wallet ready, you can now earn as a provider")
-		// Refresh the wallet so the header flips to @login · $balance right away.
-		return m, fetchBalance(m.broker, m.user)
+		// Refresh the wallet so the header flips to @login · $balance right away, and
+		// (re)fetch the payout snapshot now that there is a signing identity to read it.
+		m.payoutFetched = true
+		return m, tea.Batch(fetchBalance(m.broker, m.user), fetchPayoutStatus(m.broker))
 	case logoutMsg:
 		m.ghLogin = ""
 		m.loggedIn = false
@@ -821,10 +850,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.balance = 0
 		m.loginWaiting = false
 		m.loginDevice = LoginDevice{}
+		// Drop the payout snapshot: anonymous has no earnings/KYC to surface.
+		m.payout = payoutSnapshot{}
+		m.payoutFetched = false
 		if m.mode == modeLogin {
 			m.mode = m.loginReturn
 		}
 		m.status = stDim.Render("logged out - now anonymous (free models + grant keys); [L] to log back in")
+		return m, nil
+	case payoutStatusMsg:
+		m.payout = payoutSnapshot(msg)
 		return m, nil
 	case topupMsg:
 		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
@@ -4347,9 +4382,43 @@ func (m model) onAirPanel(w int) string {
 		stDim.Render("  node       ") + stSelText.Render(s.Node()) + "\n" +
 		stDim.Render("  price      ") + price + "\n" +
 		stDim.Render("  served     ") + stLive.Render(fmt.Sprintf("%d", reqs)) + stDim.Render(fmt.Sprintf(" requests · %d out tokens", toks)) + "\n" +
-		stDim.Render("  earnings   ") + stEmber.Render(dollars(s.Earnings())) + stDim.Render("  (settles on the broker)") + "\n" +
-		stDim.Render("  ") + stKey.Render("/share off") + stDim.Render(" to go off air")
+		stDim.Render("  earnings   ") + stEmber.Render(dollars(s.Earnings())) + stDim.Render("  (settles on the broker)") + "\n"
+	// Cash-out hint (KYC / payable): only when there's something actionable. Width-safe
+	// (truncated to the panel width) + NO_COLOR-safe (the plain text carries it).
+	if hint := m.payoutHint(); hint != "" {
+		body += "  " + truncVisible(hint, w-4) + "\n"
+	}
+	body += stDim.Render("  ") + stKey.Render("/share off") + stDim.Render(" to go off air")
 	return stPanel.Render(body)
+}
+
+// payoutHint returns a compact, single-line cash-out hint for the SHARE / earnings
+// surface, or "" when there is nothing to say (not logged in, snapshot not loaded, or
+// nothing actionable). It is plain text under stDim/stEmber so it stays readable under
+// NO_COLOR and narrow widths (the caller truncates to width). The two states that
+// matter to a provider: KYC not done -> point at onboarding; payable at/above the
+// minimum -> point at `rogerai payout` to withdraw.
+func (m model) payoutHint() string {
+	if !m.loggedInState() || !m.payout.loaded {
+		return ""
+	}
+	min := m.payout.min
+	if min == 0 {
+		min = 25
+	}
+	switch {
+	case m.payout.kyc != "active":
+		// Earnings can accrue before KYC, so nudge onboarding once there's anything held
+		// or payable; stay quiet for a brand-new owner with zero earnings.
+		if m.payout.payable <= 0 {
+			return ""
+		}
+		return stDim.Render("complete KYC to cash out: ") + stKey.Render("rogerai payout onboard")
+	case m.payout.payable >= min:
+		return stEmber.Render(dollars(m.payout.payable)) + stDim.Render(" payable - run ") + stKey.Render("rogerai payout") + stDim.Render(" to cash out")
+	default:
+		return ""
+	}
 }
 
 // sharesOnAir counts how many local models are currently on air.
@@ -4526,6 +4595,11 @@ func (m model) shareView(w int) string {
 		}
 		b.WriteString("\n  " + stDim.Render("free by default · ") +
 			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") + ph + "\n")
+	}
+	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
+	// Width-safe + NO_COLOR-safe; empty when there's nothing actionable.
+	if hint := m.payoutHint(); hint != "" {
+		b.WriteString("  " + truncVisible(hint, w-4) + "\n")
 	}
 	return b.String()
 }
@@ -5176,6 +5250,19 @@ func fetchBalance(broker, user string) tea.Cmd {
 		}
 		json.NewDecoder(resp.Body).Decode(&b)
 		return balanceMsg{balance: b.Balance, loggedIn: b.LoggedIn}
+	}
+}
+
+// fetchPayoutStatus reads the operator's Connect/KYC + payable snapshot off the
+// event loop (the SAME signed CLI path `rogerai payout` uses), for the SHARE-view
+// earnings hint. Best-effort: any error returns a not-loaded snapshot (no hint).
+func fetchPayoutStatus(broker string) tea.Cmd {
+	return func() tea.Msg {
+		st, err := client.FetchPayoutStatus(broker)
+		if err != nil {
+			return payoutStatusMsg{loaded: false}
+		}
+		return payoutStatusMsg{loaded: true, kyc: st.Status, payable: st.Earnings.Payable, min: st.MinPayout}
 	}
 }
 

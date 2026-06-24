@@ -29,6 +29,12 @@ func openURLCommand(goos, url string) (name string, args []string) {
 	}
 }
 
+// OpenURL is the exported wrapper so plain CLI commands (cmd/rogerai) can reuse the
+// single default-browser launcher the TUI uses (e.g. `rogerai payout onboard` opening
+// the Stripe Connect link). Fire-and-forget; the caller always prints the URL as a
+// fallback for headless / SSH boxes.
+func OpenURL(url string) { openURL(url) }
+
 // openURL launches the default browser at url, fire-and-forget. Any error is
 // swallowed: on a headless / SSH box there is no browser, and the device-flow
 // panel always shows the URL + code as the fallback, so a failed open is never

@@ -94,9 +94,48 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 	return resp.StatusCode, nil
 }
 
+// payoutOwner resolves the GitHub-linked operator behind a connect/payout request,
+// accepting EITHER auth path:
+//
+//  1. a logged-in BROWSER session cookie (the web /payouts page), or
+//  2. a signed CLI request (Ed25519, the SAME request-signing the rest of the client
+//     uses) whose pubkey is bound to a non-anonymized GitHub owner.
+//
+// Both paths converge on the owner's GitHub login + owner record, so every downstream
+// gate (KYC / 90-day hold / $25 min / debit-first transfer rail / dispute clawback)
+// is identical no matter how the caller authenticated. This is purely an additional
+// AUTH path - it changes no policy. A signed-but-UNBOUND keypair (not logged in via
+// `rogerai login`) is rejected here: payouts are KYC + GitHub-linked only, so a
+// headless provider must have linked GitHub to cash out. An unsigned / anonymous
+// request (no cookie, no valid signature) returns ok=false -> 401.
+//
+// body is the exact request body the signature is verified over (nil for GET).
+func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) {
+	// 1) Web session cookie (browser). Unchanged web path.
+	if l, _, _, sok := b.sessionOwner(r); sok {
+		if rec, found, _ := b.db.OwnerByLogin(l); found {
+			return l, rec, true
+		}
+		// A valid session whose login is not (yet) a bound operator: still a logged-in
+		// identity - return it so the handler emits the "no operator account" 403.
+		return l, store.Owner{}, true
+	}
+	// 2) Signed CLI request: it MUST verify (identityOf rejects an offered-but-invalid
+	// signature), and its pubkey MUST be bound to a non-anonymized GitHub owner (the
+	// GitHub-link/KYC prerequisite). A signed-but-unbound keypair is anonymous here -
+	// no wallet, no payouts.
+	if _, authed, iok := b.identityOf(r, body); iok && authed {
+		if rec, found := b.requireOwner(r); found && !rec.Anonymized && rec.GitHubID != 0 {
+			return rec.Login, rec, true
+		}
+	}
+	return "", store.Owner{}, false
+}
+
 // connectOnboard handles POST /connect/onboard: creates (or reuses) the operator's
 // Express connected account and returns a Stripe Account Link to complete KYC. In
-// dev (no key) it returns a stub link + marks the account onboarding.
+// dev (no key) it returns a stub link + marks the account onboarding. Accepts a
+// logged-in web session OR a signed CLI request (see payoutOwner).
 func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -105,13 +144,13 @@ func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.sessionOwner(r)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
 		return
 	}
-	o, found, _ := b.db.OwnerByLogin(login)
-	if !found {
+	if o.GitHubID == 0 {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login (run `rogerai login` on a node first)")
 		return
 	}
@@ -166,6 +205,9 @@ func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 // connectStatus handles GET /connect/status: reports the operator's Connect
 // capability (none|onboarding|active|restricted). With a key it refreshes from
 // Stripe (transfers capability == active); in dev it returns the stored status.
+// Accepts a logged-in web session OR a signed CLI request (see payoutOwner). It
+// also returns the earnings split (payable vs held) + the next-payable date so the
+// CLI `rogerai payout status` renders the whole picture in one call.
 func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -174,13 +216,12 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.sessionOwner(r)
+	login, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
 		return
 	}
-	o, found, _ := b.db.OwnerByLogin(login)
-	if !found {
+	if o.GitHubID == 0 {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -193,13 +234,21 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 			status = live
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"status":     status,
 		"can_payout": status == "active",
 		"connect_id": o.ConnectID,
 		"min_payout": b.conn.policy.MinPayout,
+		"hold_days":  b.conn.policy.HoldDays,
 		"schedule":   b.conn.policy.Schedule,
-	})
+	}
+	// The earnings split (payable / held / paid + next release) keyed by the owner
+	// pubkey (the account id), so `rogerai payout status` shows payable-vs-held +
+	// the next-payable date without a second round trip.
+	if split, err := b.db.EarningSplitOf(o.Pubkey, time.Now()); err == nil {
+		out["earnings"] = split
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // refreshConnectStatus reads the connected account and maps the transfers capability
@@ -239,13 +288,13 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.sessionOwner(r)
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
 		return
 	}
-	o, found, _ := b.db.OwnerByLogin(login)
-	if !found {
+	if o.GitHubID == 0 {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
@@ -381,6 +430,7 @@ func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey
 }
 
 // payoutsHistory handles GET /payouts/history: the operator's payout + clawback log.
+// Accepts a logged-in web session OR a signed CLI request (see payoutOwner).
 func (b *broker) payoutsHistory(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -389,13 +439,12 @@ func (b *broker) payoutsHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, _, ok := b.sessionOwner(r)
+	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
 		return
 	}
-	o, found, _ := b.db.OwnerByLogin(login)
-	if !found {
+	if o.GitHubID == 0 {
 		jsonErr(w, http.StatusForbidden, "no operator account for this login")
 		return
 	}
