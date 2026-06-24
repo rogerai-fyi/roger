@@ -79,31 +79,14 @@ func Login(broker, clientID string) error {
 	// Hand the GitHub token to the broker, which verifies it server-side and binds
 	// github_id<->login<->our signing pubkey. The CLI signs this request so the
 	// broker knows which pubkey to bind.
-	resp, err := postSigned(broker+"/auth/github", map[string]string{"access_token": token})
+	login, err := bindToken(broker, token)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	var out struct {
-		OK          bool   `json:"ok"`
-		GitHubLogin string `json:"github_login"`
-		GitHubID    int64  `json:"github_id"`
-		Error       struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if resp.StatusCode != http.StatusOK || !out.OK {
-		if out.Error.Message != "" {
-			return fmt.Errorf("broker rejected the login: %s", out.Error.Message)
-		}
-		return fmt.Errorf("broker rejected the login (status %d)", resp.StatusCode)
-	}
-	_ = saveAuth(authState{GitHubLogin: out.GitHubLogin, GitHubID: out.GitHubID, BoundAt: time.Now().Unix()})
 	// Binding collapses the CLI keypair onto the account wallet: this keypair now
 	// spends/tops-up/reads the SAME wallet as the web session (one wallet per account),
 	// and earning as a provider is unlocked.
-	fmt.Printf("\nlogged in as @%s, wallet ready - this keypair now shares one wallet with your account (and can earn as a provider).\n", out.GitHubLogin)
+	fmt.Printf("\nlogged in as @%s, wallet ready - this keypair now shares one wallet with your account (and can earn as a provider).\n", login)
 	return nil
 }
 
@@ -122,6 +105,93 @@ func LoginReturn(broker, clientID string) (string, error) {
 		return "", err
 	}
 	return LinkedLogin(), nil
+}
+
+// Device is the public, display-ready view of a started device flow: the
+// verification URL the user opens and the short code they type. The TUI renders
+// these in its own panel (and auto-opens the URL) instead of relying on the CLI's
+// stdout, which is hidden behind the full-screen TUI. Handle is the opaque
+// continuation passed back to LoginPoll.
+type Device struct {
+	VerificationURI string // the URL to open (github.com/login/device)
+	UserCode        string // the short code to type (e.g. FD9D-8F33)
+	Handle          any    // opaque; pass back to LoginPoll
+}
+
+// LoginBegin starts the GitHub device flow and returns the URL + code to show,
+// WITHOUT polling. The TUI calls this, renders the panel, auto-opens the URL,
+// then calls LoginPoll to wait for the user to authorize. Splitting begin/poll
+// lets the in-TUI login render its own clean panel rather than printing to the
+// terminal hidden behind it.
+func LoginBegin(broker, clientID string) (Device, error) {
+	if clientID == "" {
+		return Device{}, fmt.Errorf("no GitHub client id configured (set GITHUB_OAUTH_CLIENT_ID or build with the default)")
+	}
+	dev, err := startDeviceFlow(clientID)
+	if err != nil {
+		return Device{}, err
+	}
+	return Device{VerificationURI: dev.VerificationURI, UserCode: dev.UserCode, Handle: dev}, nil
+}
+
+// LoginPoll blocks until the user authorizes the device started by LoginBegin (or
+// it times out / is denied), then binds the GitHub identity to the local signing
+// key via the broker and persists it. It returns the linked GitHub login. d.Handle
+// must be the value returned by LoginBegin.
+func LoginPoll(broker, clientID string, d Device) (string, error) {
+	dev, ok := d.Handle.(deviceFlow)
+	if !ok {
+		return "", fmt.Errorf("invalid login handle")
+	}
+	token, err := pollDeviceToken(clientID, dev)
+	if err != nil {
+		return "", err
+	}
+	login, err := bindToken(broker, token)
+	if err != nil {
+		return "", err
+	}
+	return login, nil
+}
+
+// bindToken hands the GitHub token to the broker, which verifies it server-side
+// and binds github_id<->login<->our signing pubkey, then persists the local auth
+// record. Returns the bound GitHub login. Shared by Login and LoginPoll.
+func bindToken(broker, token string) (string, error) {
+	resp, err := postSigned(broker+"/auth/github", map[string]string{"access_token": token})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK          bool   `json:"ok"`
+		GitHubLogin string `json:"github_login"`
+		GitHubID    int64  `json:"github_id"`
+		Error       struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if resp.StatusCode != http.StatusOK || !out.OK {
+		if out.Error.Message != "" {
+			return "", fmt.Errorf("broker rejected the login: %s", out.Error.Message)
+		}
+		return "", fmt.Errorf("broker rejected the login (status %d)", resp.StatusCode)
+	}
+	_ = saveAuth(authState{GitHubLogin: out.GitHubLogin, GitHubID: out.GitHubID, BoundAt: time.Now().Unix()})
+	return out.GitHubLogin, nil
+}
+
+// LogoutReturn forgets the local GitHub binding (the in-TUI logout). It mirrors
+// Logout but stays silent (no stdout) so the TUI owns the on-screen feedback.
+func LogoutReturn() error {
+	if _, ok := loadAuth(); !ok {
+		return nil
+	}
+	if err := os.Remove(authPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // Logout forgets the local GitHub binding record (the broker binding persists

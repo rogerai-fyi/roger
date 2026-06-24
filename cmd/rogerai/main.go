@@ -190,7 +190,20 @@ func tuiHooks(cfg config) tui.Hooks {
 		GitHubID:    gitHubClientID(),
 		LinkedLogin: client.LinkedLogin(), // "" when not logged in -> header shows the /login prompt
 		Login:       client.LoginReturn,
-		TopupURL:    client.TopupURL,
+		// Split begin/poll so the TUI renders its own clean login panel + auto-opens the
+		// browser (instead of the CLI printing the code to the hidden-behind-the-TUI stdout).
+		LoginBegin: func(broker, clientID string) (tui.LoginDevice, error) {
+			d, err := client.LoginBegin(broker, clientID)
+			if err != nil {
+				return tui.LoginDevice{}, err
+			}
+			return tui.LoginDevice{VerificationURI: d.VerificationURI, UserCode: d.UserCode, Handle: d.Handle}, nil
+		},
+		LoginPoll: func(broker, clientID string, d tui.LoginDevice) (string, error) {
+			return client.LoginPoll(broker, clientID, client.Device{VerificationURI: d.VerificationURI, UserCode: d.UserCode, Handle: d.Handle})
+		},
+		Logout:   client.LogoutReturn,
+		TopupURL: client.TopupURL,
 		GrantCreate: func(broker, name string, free bool) (string, error) {
 			return client.GrantCreateSecret(broker, name, free)
 		},

@@ -265,14 +265,19 @@ func TestInTUIFlows(t *testing.T) {
 		t.Errorf("empty balance should surface /topup:\n%s", bm.View())
 	}
 
-	// /login dispatches the device-flow hook (run the returned cmd) and the
+	// /login opens the confirmable login panel (never an instant flow); pressing
+	// ENTER inside it dispatches the device-flow hook (run the returned cmd) and the
 	// resulting loginMsg lands the github login on the status line.
 	lm, _ := tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
 	for _, r := range "login" {
 		lm, _ = lm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
+	lm, _ = lm.Update(tea.KeyMsg{Type: tea.KeyEnter}) // run the /login command -> panel
+	if called.login {
+		t.Errorf("opening the login panel must NOT start the flow on its own")
+	}
 	var lcmd tea.Cmd
-	lm, lcmd = lm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	lm, lcmd = lm.Update(tea.KeyMsg{Type: tea.KeyEnter}) // ENTER in the panel starts the flow
 	if lcmd != nil {
 		lm, _ = lm.Update(lcmd())
 	}
