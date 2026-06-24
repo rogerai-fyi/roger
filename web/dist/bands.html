@@ -13,13 +13,11 @@
      pages load the chrome plus auth.css for the card. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>...static - RogerAI</title>
+  <title>Bands - RogerAI station directory</title>
 
-  <meta name="description" content="...static. the signal dropped. That channel is not on the band. Tune back in to RogerAI." />
+  <meta name="description" content="The live RogerAI band directory: every model is a band, every home GPU a station on air. Tune the dial, read the signal, and pick up an endpoint. Pay per token on the CLI." />
 
   <meta name="color-scheme" content="light dark" />
-
-  <meta name="robots" content="noindex" />
 
 
 
@@ -47,11 +45,15 @@
 
 
 </head>
-<body>
+<body data-onair="idle">
 
-  <!-- running head: this page is one bound document -->
+  <!-- ===== blip-map background: stations on air across a faint grid ===== -->
+  <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
+  <div class="blipmap-fallback" aria-hidden="true"></div>
+
+  <!-- ===== running head: this page is one bound document ===== -->
   <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Operating Manual</span>
+    <span class="rail__head">RogerAI · Band Directory</span>
     <span class="rail__rev">Rev. 2026.06 · ((•))</span>
   </div>
 
@@ -143,51 +145,204 @@
 </header>
 
 
-  <!-- ============================ LOST SIGNAL ============================ -->
   <main id="top">
-  <section class="lost">
-    <div class="wrap lost__inner">
-      <span class="fig" aria-hidden="true">FIG. 404 - NO CARRIER</span>
 
-      <!-- Ping in its dropped / "...static" pose: arms sag, the on-air eye goes
-           hollow (a dim ring, no live-red fill). Holds still - the signal is
-           gone, so nothing transmits. -->
-      <span class="lost__ping" aria-hidden="true">
-        <svg class="ping ping--dropped" viewBox="0 0 64 72" fill="currentColor" focusable="false"
-             role="img" aria-label="Ping, off the air">
-          <g class="ping__body">
-            <!-- arms sag down and outward -->
-            <path d="M10 10 h9 v4.5 H14.5 v9 H19 V28 H10 Z"/>
-            <path d="M54 10 h-9 v4.5 H49.5 v9 H45 V28 h9 Z"/>
-            <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
-            <rect x="25" y="64" width="5" height="5" rx="1"/>
-            <rect x="34" y="64" width="5" height="5" rx="1"/>
-          </g>
-          <!-- hollow eye: a dim grey ring, no live-red -->
-          <circle class="ping__eye-hollow" cx="32" cy="22" r="6" fill="none" stroke-width="2.5"/>
-        </svg>
+  <!-- ============================ HERO / SCANNER ============================ -->
+  <section class="bands-hero">
+    <div class="wrap bands-hero__inner">
+
+      <span class="hero__eyebrow" data-reveal>
+        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <span class="hero__callsign">THE BAND</span>
+        <span class="hero__sep" aria-hidden="true">·</span>
+        a directory of live stations
       </span>
 
-      <h1 class="lost__title">...static. the signal dropped.</h1>
-      <p class="lost__sub">
-        That channel is not on the band. Either it went off air, or this path
-        never broadcast in the first place.
+      <h1 class="bands-hero__title" data-reveal data-reveal-delay="60">
+        Tune the dial.
+      </h1>
+
+      <p class="bands-hero__sub" data-reveal data-reveal-delay="120">
+        Every model is a <b>band</b>; every home GPU serving it is a <b>station</b> on air.
+        Scan the directory, read the signal, then pick up a local OpenAI-compatible
+        endpoint on the CLI. We show everything about the network - operators stay
+        a callsign and a coarse region, nothing more.
       </p>
 
-      <p class="lost__path mono" aria-label="The page you requested">
-        <span class="lost__path-label" aria-hidden="true">no carrier at</span>
-        <span class="lost__path-code" id="lostPath">/</span>
-      </p>
+      <!-- THE CENTERPIECE: a 3D band-scanner. Parallax tick-strip under a fixed
+           needle, with depth via CSS transforms; locks on the strongest band. -->
+      <figure class="scanner" data-reveal data-reveal-delay="160" aria-label="Band scanner, locked on the strongest live band">
+        <figcaption class="fig" aria-hidden="true">FIG. 1 - THE SCANNER · LIVE BAND</figcaption>
+        <div class="scanner__face">
+          <div class="scanner__top">
+            <span class="scanner__locked" id="scanLocked">SCANNING&hellip;</span>
+            <span class="scanner__sig" id="scanSig">SIGNAL <b>--</b>/100</span>
+          </div>
+          <div class="scanner__stage" id="scanStage">
+            <div class="scanner__depth" aria-hidden="true">
+              <span class="scanner__plane scanner__plane--far"></span>
+              <span class="scanner__plane scanner__plane--mid"></span>
+            </div>
+            <div class="scanner__viewport">
+              <svg id="scanSvg" class="scanner__svg" role="img"
+                   aria-label="A frequency strip of bands locked on the strongest signal"></svg>
+            </div>
+            <span class="scanner__needle" aria-hidden="true"></span>
+            <span class="scanner__glass" aria-hidden="true"></span>
+          </div>
+          <div class="scanner__readout" id="scanChip" aria-hidden="true"></div>
+        </div>
+      </figure>
 
-      <div class="lost__actions">
-        <a class="lost__home" href="/">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
-          tune back in
-        </a>
-        <a class="lost__alt" href="/#market">read the band →</a>
+    </div>
+  </section>
+
+  <!-- ============================ DIRECTORY ============================ -->
+  <section class="section bands-dir" id="directory">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§1 / THE DIRECTORY · LIVE</span>
+        <h2>Read the band.</h2>
+        <p>The live station directory, mirroring <code class="inline">rogerai search</code>.
+          Sort it, filter it, tune the dial below to a band, then open it for the full
+          station list. Auto-refreshes every 30s.</p>
+      </div>
+
+      <!-- ---- tuner: search + filters ---- -->
+      <div class="tuner" data-reveal data-reveal-delay="60">
+        <div class="tuner__search">
+          <span class="tuner__prompt mono" aria-hidden="true">/</span>
+          <input type="search" id="bandSearch" class="tuner__input mono"
+                 placeholder="tune the dial - search a band or model" autocomplete="off"
+                 spellcheck="false" aria-label="Search bands" />
+          <button class="tuner__clear" id="bandClear" type="button" aria-label="Clear search" hidden>clear</button>
+        </div>
+        <div class="tuner__filters" role="group" aria-label="Filters and sort">
+          <label class="tuner__sel">
+            <span class="tuner__k">SORT</span>
+            <select id="bandSort" class="mono" aria-label="Sort bands">
+              <option value="signal">strongest signal</option>
+              <option value="cheapest">cheapest</option>
+              <option value="fastest">fastest</option>
+              <option value="stations">most stations</option>
+              <option value="ctx">largest context</option>
+            </select>
+          </label>
+          <button class="tuner__chip" id="fltFree"  type="button" aria-pressed="false">free now</button>
+          <button class="tuner__chip" id="fltConf"  type="button" aria-pressed="false">confidential</button>
+          <button class="tuner__chip" id="fltVer"   type="button" aria-pressed="false">verified <span class="cs" aria-hidden="true">&#9670;</span></button>
+          <button class="tuner__chip" id="fltOn"    type="button" aria-pressed="false">on air</button>
+        </div>
+      </div>
+
+      <!-- ---- directory status + table ---- -->
+      <div class="bands-panel" data-reveal data-reveal-delay="80">
+        <div class="bands-panel__bar">
+          <span class="bands-panel__status" id="bandStatus">
+            <span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span>
+            <span id="bandStatusText">tuning in to the broker&hellip;</span>
+          </span>
+          <button class="market__refresh" id="bandRefresh" type="button" aria-label="Refresh the directory">refresh</button>
+        </div>
+
+        <div class="band-row band-row--head" aria-hidden="true">
+          <span class="band-cell band-cell--name">band · stations</span>
+          <span class="band-cell band-cell--sig">signal</span>
+          <span class="band-cell band-cell--price">$/1M in · out</span>
+          <span class="band-cell band-cell--tps">tok/s</span>
+          <span class="band-cell band-cell--stn">on air</span>
+          <span class="band-cell band-cell--flags">status</span>
+        </div>
+
+        <ul class="band-list" id="bandList" aria-live="polite">
+          <li class="band-skel" aria-hidden="true"></li>
+          <li class="band-skel" aria-hidden="true"></li>
+          <li class="band-skel" aria-hidden="true"></li>
+          <li class="band-skel" aria-hidden="true"></li>
+          <li class="band-skel" aria-hidden="true"></li>
+        </ul>
+
+        <p class="bands-panel__empty mono" id="bandEmpty" hidden>no bands match - widen the search or clear the filters.</p>
+
+        <p class="market__foot mono" id="bandFoot">
+          <span class="ember">◉</span> on air · <span class="cs">&#9670;</span> verified / confidential ·
+          <span class="band-glyph">▁▂▃▄▅▆▇█</span> signal · prices in $ / 1M tokens
+        </p>
       </div>
     </div>
   </section>
+
+  <!-- ============================ DETAIL · QSL CARD ============================ -->
+  <!-- Hash-routed (#band=<model>). Static-host-friendly: a panel revealed in place. -->
+  <section class="section qsl-section" id="detail" hidden aria-label="Band detail card">
+    <div class="wrap">
+      <span class="sectionno">§2 / QSL CARD</span>
+      <article class="qsl" id="qslCard" data-reveal>
+        <header class="qsl__head">
+          <div class="qsl__id">
+            <span class="qsl__label mono">CONFIRMING CONTACT WITH</span>
+            <h2 class="qsl__band" id="qslBand">band</h2>
+            <span class="qsl__sub mono" id="qslSub">- stations on air</span>
+          </div>
+          <div class="qsl__meter">
+            <span class="qsl__sig-glyph mono" id="qslSigGlyph">········</span>
+            <span class="qsl__sig-num mono" id="qslSigNum">SIGNAL --/100</span>
+            <span class="onair qsl__onair" aria-hidden="true">((<span class="onair__dot"></span>))</span>
+          </div>
+        </header>
+
+        <div class="qsl__grid">
+          <!-- left: the log of stations on this band -->
+          <div class="qsl__col qsl__col--log">
+            <span class="fig" aria-hidden="true">FIG. 2 - STATION LOG</span>
+            <div class="qsl-row qsl-row--head" aria-hidden="true">
+              <span>callsign · region</span>
+              <span>$/1M in·out</span>
+              <span>tok/s</span>
+              <span>ttft</span>
+              <span>ok%</span>
+            </div>
+            <ul class="qsl-log" id="qslLog"></ul>
+            <p class="qsl__priv mono">
+              operators are pseudonymous: a <b>@callsign</b> + a coarse region only.
+              no names, precise location, host, IP, email or account ids.
+            </p>
+          </div>
+
+          <!-- right: lineage / schedule / how to tune in -->
+          <aside class="qsl__col qsl__col--meta">
+            <div class="qsl__block">
+              <span class="qsl__bk mono">LINEAGE</span>
+              <p class="mono qsl__line"><span class="cs">&#9670;</span> ed25519 co-signed - weights · shard · token</p>
+              <p class="mono qsl__line" id="qslVerify">verification: -</p>
+            </div>
+            <div class="qsl__block">
+              <span class="qsl__bk mono">TIME-OF-USE</span>
+              <div class="qsl__hours" id="qslHours" aria-label="Time-of-use availability, 24h"></div>
+              <p class="mono qsl__line" id="qslSched">schedule: continuous</p>
+            </div>
+            <div class="qsl__block">
+              <span class="qsl__bk mono">HOW TO TUNE IN</span>
+              <button class="install__box qsl__cmd" id="qslCmd" type="button"
+                      aria-label="Copy the use command to clipboard">
+                <span class="install__prompt" aria-hidden="true">$</span>
+                <code class="install__code" id="qslCmdCode">rogerai use &lt;band&gt;</code>
+                <span class="install__copy" aria-hidden="true">copy</span>
+              </button>
+              <p class="mono qsl__line">then point any OpenAI client at the local endpoint:</p>
+              <p class="mono qsl__endpoint">http://127.0.0.1:11434/v1 <span class="qsl__epnote">· key-scoped</span></p>
+            </div>
+          </aside>
+        </div>
+
+        <footer class="qsl__foot">
+          <a class="qsl__back" href="#directory" id="qslBack">&larr; back to the directory</a>
+          <span class="mono qsl__stamp" id="qslStamp">RogerAI · QSL</span>
+        </footer>
+      </article>
+    </div>
+  </section>
+
   </main>
 
   <!-- ============================ FOOTER ============================ -->
@@ -287,7 +442,8 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 
-  <script src="js/notfound.js" defer></script>
+  <script src="js/radiomap.js" defer></script>
+  <script src="js/bands.js" defer></script>
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
 </body>
