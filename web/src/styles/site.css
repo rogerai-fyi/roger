@@ -388,6 +388,10 @@ code, pre { font-family: var(--font-mono); }
   display: flex; flex-direction: column; align-items: flex-start; text-align: left;
   padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
 }
+/* the hero now breaks at the full-bleed dial: the lead block ends after the
+   subhead (no big bottom pad), the after-block carries the install + Ping. */
+.hero__inner { padding-bottom: var(--s-6); }
+.hero__inner--after { padding-top: 0; padding-bottom: var(--s-16); }
 .hero__eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
   margin-bottom: var(--s-6);
@@ -1222,29 +1226,127 @@ table.man-table tr:hover td { background: var(--paper); }
 }
 .hero__ping-tag { color: var(--ink-500); }
 
-/* the tuning dial: the hero signature (SVG + CSS, JS-hydrated) */
-.dial {
-  margin: var(--s-6) 0 var(--s-8); max-width: 640px;
-  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
-  background: var(--paper-2);
+/* =====================================================================
+   FIG.1 - THE DIAL: a full-bleed radio tuner you can sweep. Monochrome +
+   the one red beacon (needle / lock glints). Flat hairline instrument
+   plate; graduated SVG ticks; fixed center needle; glass scanline vignette;
+   a signal meter that reacts to the tuned band. JS-hydrated; works static.
+   ===================================================================== */
+
+/* full-bleed breakout: the instrument spans the whole viewport while the
+   rest of the hero stays in the document column. The hero text block above
+   and the FIG.2 block below sit in their own .wrap; this band is between. */
+.tuner {
+  --lock: 0;            /* 0..1 how locked onto a detent (JS) */
+  --sig: 0.4;           /* 0..1 tuned band signal (JS) */
+  width: 100vw; max-width: 100vw;
+  margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+  margin-top: var(--s-8); margin-bottom: var(--s-8);
+  padding-inline: var(--gutter);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  background:
+    linear-gradient(var(--paper-2), var(--paper-2)) padding-box;
 }
+.tuner__fig { display: block; max-width: var(--maxw); margin: var(--s-5) auto var(--s-3); }
+
+/* the instrument plate, centered in the wide band but allowed to breathe */
+.dial {
+  display: block; margin: 0 auto var(--s-6); max-width: 1180px; width: 100%;
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  background: var(--paper);
+  outline: none; cursor: ew-resize; touch-action: pan-y;
+  position: relative;
+}
+.dial:focus-visible { box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
+.dial.is-tuning { cursor: grabbing; }
+
 .dial__top {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
 }
-.dial__locked { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-900); }
+.dial__locked { font-family: var(--font-mono); font-size: 0.82rem; color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; }
 .dial__locked b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.dial__sig { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-500); }
+.dial__sig { font-family: var(--font-mono); font-size: 0.74rem; color: var(--ink-500);
+  font-variant-numeric: tabular-nums slashed-zero; white-space: nowrap; }
 .dial__sig b { color: var(--live); font-weight: var(--weight-semi); }
-.dial__svgwrap { position: relative; padding: var(--s-4) 0 var(--s-3); overflow: hidden; }
-.dial__svgwrap svg { display: block; width: 100%; height: 110px; }
-.dial__hint { text-align: center; padding-bottom: var(--s-3); }
+
+/* the face: the scrolling spectrum + fixed needle + glass + signal meter */
+.dial__face { position: relative; background: var(--paper-2); }
+.dial__svgwrap { position: relative; overflow: hidden;
+  padding: var(--s-5) 0 var(--s-4);
+  background:
+    linear-gradient(var(--paper) 0, var(--paper-2) 100%); }
+.dial__svgwrap svg { display: block; width: 100%; height: 150px; }
+@media (max-width: 760px) { .dial__svgwrap svg { height: 134px; } }
+
+.dial__grad { opacity: .8; }
+.dial__tick { transition: stroke .25s ease; }
+.dial__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
+.dial__lbl--on { opacity: 1; fill: var(--live); font-weight: var(--weight-semi); }
+.dial__pip { transition: fill .25s ease; }
+
+/* fixed red needle, dead center, with a soft lock-glow that brightens at a
+   detent (--lock -> 1). transform/opacity only. */
+.dial__pointer {
+  position: absolute; left: 50%; top: var(--s-5); bottom: calc(var(--s-4) + 30px);
+  width: 2px; margin-left: -1px; background: var(--live);
+  box-shadow: 0 0 calc(2px + var(--lock) * 7px) var(--live-glow);
+  pointer-events: none;
+}
+.dial__pointer::before, .dial__pointer::after {
+  content: ""; position: absolute; left: 50%; width: 9px; height: 9px;
+  margin-left: -4.5px; background: var(--live); transform: rotate(45deg);
+  opacity: calc(.35 + var(--lock) * .65);
+}
+.dial__pointer::before { top: -4px; }
+.dial__pointer::after  { bottom: -4px; }
+
+/* glass: faint scanlines + a center detent column + edge vignette */
+.dial__glass { position: absolute; inset: 0; pointer-events: none;
+  background:
+    /* center detent: a hairline-wide brighter slot under the needle */
+    linear-gradient(90deg, transparent calc(50% - 22px), var(--live-wash) 50%, transparent calc(50% + 22px)),
+    /* scanlines */
+    repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.018) 3px),
+    /* side vignette so the spectrum fades into the rails */
+    linear-gradient(90deg, var(--paper) 0, transparent 9%, transparent 91%, var(--paper) 100%);
+  opacity: calc(.5 + var(--lock) * .5);
+}
+
+/* the signal meter strip along the face bottom, reacting to --sig */
+.dial__face::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background:
+    linear-gradient(90deg, var(--live) 0, var(--live) calc(var(--sig) * 100%), transparent calc(var(--sig) * 100%)),
+    var(--hairline-2);
+  background-clip: padding-box;
+}
+
+.dial__hint { display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: var(--s-3) var(--s-4); padding: var(--s-3) var(--s-4) var(--s-4);
+  border-top: 1px solid var(--hairline); }
 .dial__chip {
   display: inline-flex; gap: var(--s-3); align-items: center;
-  font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-500);
+  font-family: var(--font-mono); font-size: 0.74rem; color: var(--ink-500);
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 .dial__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.dial__chip .meter__k { margin-right: 4px; }
+.dial__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.dial__cue { font-size: 0.68rem; color: var(--ink-400); letter-spacing: 0; }
+
+@media (max-width: 560px) {
+  .dial__cue { display: none; }
+  .dial__top { flex-wrap: wrap; gap: var(--s-2); }
+}
+
+/* reduced-motion: a static, pre-locked instrument (drag still re-tunes, but
+   no momentum / scanline shimmer / glow pulse) */
+@media (prefers-reduced-motion: reduce) {
+  .dial__pointer { box-shadow: none; }
+  .dial__tick, .dial__lbl, .dial__pip, .dial__glass { transition: none; }
+}
 
 /* market status beacon ((•)) - reacts to live state */
 .beacon { font-family: var(--font-mono); color: var(--ink-500); white-space: nowrap; }
