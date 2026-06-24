@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -173,6 +174,74 @@ func estReplyCost(priceOut float64, outTokens int) float64 {
 		outTokens = 800
 	}
 	return priceOut * float64(outTokens) / 1e6
+}
+
+// MarketMedianOut returns the median active OUTPUT price across the online public
+// stations serving `model`, for the operator soft price-warn (a price far above the
+// median is likely a typo). It reads /discover (public). ok=false when there is no
+// public station for the model (nothing to compare against). Best-effort: a fetch
+// error returns ok=false (the warn is non-blocking, never fatal to sharing).
+func MarketMedianOut(broker, model string) (float64, bool) {
+	offers, err := discover(broker)
+	if err != nil {
+		return 0, false
+	}
+	var outs []float64
+	for _, o := range offers {
+		if o.Online && o.Model == model {
+			outs = append(outs, o.PriceOut)
+		}
+	}
+	if len(outs) == 0 {
+		return 0, false
+	}
+	sort.Float64s(outs)
+	n := len(outs)
+	if n%2 == 1 {
+		return outs[n/2], true
+	}
+	return (outs[n/2-1] + outs[n/2]) / 2, true
+}
+
+// ResolveBand resolves a private band frequency code against the broker's public
+// POST /bands/resolve (no login). It returns the band's live offers for `model` (or
+// all of them when model==""). ok=false on the broker's uniform "no station on that
+// frequency" reply - which is IDENTICAL for a wrong code, a revoked/expired band, OR
+// a valid band whose station is off air (no enumeration oracle). The display string
+// (cosmetic "147.520 MHz · ...") is returned for the connect screen when present.
+func ResolveBand(broker, freq, model string) (offers []Offer, display string, ok bool) {
+	body, _ := json.Marshal(map[string]string{"freq": freq})
+	resp, err := http.Post(broker+"/bands/resolve", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, "", false
+	}
+	defer resp.Body.Close()
+	var d struct {
+		Offers []Offer `json:"offers"`
+		Band   struct {
+			Display string `json:"display"`
+		} `json:"band"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&d)
+	// The broker returns 404 {"offers":[]} uniformly for every negative case. Treat an
+	// empty offer list as "no station" regardless of status, so the client never leaks
+	// a wrong-vs-offline distinction either.
+	if resp.StatusCode != http.StatusOK || len(d.Offers) == 0 {
+		return nil, "", false
+	}
+	if model != "" {
+		var filtered []Offer
+		for _, o := range d.Offers {
+			if o.Model == model {
+				filtered = append(filtered, o)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, "", false
+		}
+		d.Offers = filtered
+	}
+	return d.Offers, d.Band.Display, true
 }
 
 // discover fetches the current offer list from the broker.

@@ -204,6 +204,24 @@ type Store interface {
 	// AddGrantUsage increments a grant's day + month token rollup at settle time.
 	AddGrantUsage(id string, tokens int64, now time.Time) error
 
+	// --- private bands ("frequency codes": private discovery) - BANDS-DESIGN ----
+
+	// CreateBand persists an owner-issued private band. Only the code HASH is stored;
+	// the secret frequency code is returned once at mint.
+	CreateBand(b Band) error
+	// BandByCodeHash is the resolve lookup: a band from sha256(canonical secret tail).
+	BandByCodeHash(hash string) (Band, bool, error)
+	// BandByNode returns the band bound to a node (idempotent re-register lookup).
+	BandByNode(nodeID string) (Band, bool, error)
+	// BandsByOwner lists an owner's bands (dashboard + CLI list).
+	BandsByOwner(owner string) ([]Band, error)
+	// SetBandRevoked flips a band's revoked flag, owner-scoped (an owner can never
+	// touch another owner's band). ok=false if the band doesn't exist for that owner.
+	SetBandRevoked(id, owner string, revoked bool) (bool, error)
+	// CountActiveBands counts an owner's live (non-revoked, non-expired) bands as of
+	// now - the free-cap enforcement point (compared against BandQuota at register).
+	CountActiveBands(owner string, now time.Time) (int, error)
+
 	// --- safety: CSAM preservation + abuse reports + node bans (safety.go) ----
 
 	// PreserveCSAM records a child-exploitation hit (18 USC 2258A): the broker-ENCRYPTED
@@ -287,6 +305,7 @@ type Mem struct {
 	nodeAcct map[string]string     // node id -> owner pubkey (TOFU)
 	charges  map[string]charge     // stripe payment_intent/charge id -> checkout mapping
 	gs       *grantStore           // grant keys + per-grant usage rollups
+	bs       *bandStore            // private bands ("frequency codes": private discovery)
 	nodes    map[string]NodeRecord // persisted node registry (re-hydrated on restart)
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
@@ -319,7 +338,7 @@ func NewMem() *Mem {
 		wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
-		charges: map[string]charge{}, gs: newGrantStore(), nodes: map[string]NodeRecord{},
+		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		banned: map[string]string{},
 	}
 }

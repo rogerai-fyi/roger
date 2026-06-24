@@ -293,7 +293,7 @@ func TestReportThresholdEjectsNode(t *testing.T) {
 
 	// pick returns it before any reports.
 	b.mu.Lock()
-	_, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil)
+	_, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
 	b.mu.Unlock()
 	if !ok {
 		t.Fatal("node should be pickable before reports")
@@ -310,7 +310,7 @@ func TestReportThresholdEjectsNode(t *testing.T) {
 	}
 	// pick now skips it (ejected from routing).
 	b.mu.Lock()
-	_, _, ok = b.pick("m", false, 0, 0, 0, "", nil, nil)
+	_, _, ok = b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
 	b.mu.Unlock()
 	if ok {
 		t.Error("banned node must be removed from pick")

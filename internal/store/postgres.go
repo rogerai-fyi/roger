@@ -128,6 +128,26 @@ CREATE TABLE IF NOT EXISTS rogerai.grant_usage (
 -- so the dashboard can GROUP BY grant_id. Additive, like owner_share.
 ALTER TABLE rogerai.receipts ADD COLUMN IF NOT EXISTS grant_id TEXT;
 CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);
+-- private bands ("frequency codes": private discovery, BANDS-DESIGN). A band makes
+-- a node reachable ONLY to whoever knows its secret code, while hiding it from the
+-- public /discover + /market views. code_hash UNIQUE is the resolve lookup key
+-- (sha256 of the canonical Crockford tail only - the cosmetic "147.520 MHz" part is
+-- NEVER folded into the key); the secret code itself is shown ONCE at mint and never
+-- stored. code_display is the cosmetic full string for the owner's own re-display
+-- (NOT secret). One band per node (node_id index = idempotent re-register lookup).
+CREATE TABLE IF NOT EXISTS rogerai.private_bands (
+    id           TEXT PRIMARY KEY,            -- band_<rand>
+    code_hash    TEXT NOT NULL UNIQUE,        -- sha256(canonical secret tail); never the code
+    code_display TEXT NOT NULL,               -- cosmetic "147.520 MHz · 8F3K-9M2Q" (not secret)
+    owner        TEXT NOT NULL,               -- owner pubkey (rogerai.owners.pubkey)
+    label        TEXT NOT NULL DEFAULT '',
+    node_id      TEXT NOT NULL,               -- the private node this band routes to
+    models       JSONB DEFAULT '[]',          -- allowed models ([] = any the node offers)
+    expires_at   BIGINT DEFAULT 0,            -- unix; 0 = never (Phase 2 packs add expiry)
+    revoked      BOOLEAN DEFAULT false,
+    created_at   BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS private_bands_owner ON rogerai.private_bands (owner);
+CREATE INDEX IF NOT EXISTS private_bands_node ON rogerai.private_bands (node_id);
 -- tag paid lots with the payout that paid them, so a failed transfer can roll the
 -- exact lots back to 'payable'. Additive.
 ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;

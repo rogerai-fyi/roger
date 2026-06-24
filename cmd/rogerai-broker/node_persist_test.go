@@ -60,7 +60,7 @@ func heartbeat(b *broker, nodeID, token string) int {
 func (b *broker) onAir(model string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	_, _, ok := b.pick(model, false, 0, 0, 0, "", nil, nil)
+	_, _, ok := b.pick(model, false, 0, 0, 0, "", nil, nil, nil)
 	return ok
 }
 

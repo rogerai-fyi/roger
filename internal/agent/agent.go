@@ -43,6 +43,7 @@ type Config struct {
 	Ctx, Parallel                 int
 	BridgeToken                   string
 	Confidential                  bool
+	Private                       bool // go on air as a PRIVATE band (hidden; freq-code only)
 	Schedule                      []protocol.PriceWindow
 }
 
@@ -68,6 +69,20 @@ type Session struct {
 	stop          chan struct{}
 	rereg         *reregistrar // shared self-healing re-register coordinator
 	link          atomic.Int32 // LinkState: is the BROKER actually acknowledging us?
+
+	// Private band: the broker-minted band id + the secret frequency code (the code is
+	// returned ONCE at the first register and stashed here so the caller - CLI/TUI -
+	// can show it once; it is empty on a re-register). BandDisplay is cosmetic.
+	bandID      string
+	bandCode    string
+	bandDisplay string
+}
+
+// Band returns this session's private band id, the one-time secret code (empty
+// unless this register just minted it), and the cosmetic display string. Used by the
+// CLI/TUI to show the code exactly once after going private.
+func (s *Session) Band() (id, code, display string) {
+	return s.bandID, s.bandCode, s.bandDisplay
 }
 
 // LinkState is the TRUTHFUL on-air status: whether the broker is actually accepting
@@ -195,7 +210,10 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 		}
 		reg.TS = time.Now().Unix()
 		reg.SignRegistration(rr.priv)
-		if err := register(rr.broker, reg); err == nil {
+		// A re-register of a PRIVATE node returns only band_id (never the code again),
+		// so the result is intentionally ignored here - the secret is shown only at the
+		// initial mint in Start.
+		if _, err := register(rr.broker, reg); err == nil {
 			rr.mu.Lock()
 			rr.token = newTok
 			rr.gen++
@@ -292,7 +310,7 @@ func Start(cfg Config) (*Session, error) {
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
-		Confidential: cfg.Confidential,
+		Confidential: cfg.Confidential, Private: cfg.Private,
 	}
 	// Confidential tier: generate a REAL TEE quote bound to (pubkey, fresh broker
 	// nonce). On non-TEE hardware this fails - we surface the error so the node does
@@ -305,14 +323,19 @@ func Start(cfg Config) (*Session, error) {
 	}
 	reg.TS = time.Now().Unix()
 	reg.SignRegistration(priv) // prove we hold PubKey's private key
-	if err := register(cfg.Broker, reg); err != nil {
+	regRes, err := register(cfg.Broker, reg)
+	if err != nil {
 		return nil, fmt.Errorf("register with %s: %w", cfg.Broker, err)
+	}
+	if regRes.BandID != "" {
+		reg.BandID = regRes.BandID // carry the band id on future re-registers
 	}
 	// Self-healing: the reregistrar holds the live token and re-registers (with the
 	// same reg, idempotently) when the in-memory broker forgets the node after a
 	// restart. All pollers + the heartbeat read its token each iteration.
 	rereg := newReregistrar(cfg.Broker, reg, priv)
-	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg}
+	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg,
+		bandID: regRes.BandID, bandCode: regRes.BandCode, bandDisplay: regRes.BandDisplay}
 	// Registration was acknowledged (register() returned ok); the link is "connecting"
 	// until the first heartbeat is accepted, after which it flips to genuinely ON AIR.
 	sess.setLink(LinkConnecting)
@@ -602,7 +625,18 @@ func postResult(client *http.Client, cfg Config, token string, res protocol.JobR
 	}
 }
 
-func register(broker string, reg protocol.NodeRegistration) error {
+// registerResult carries the broker's register response. For a PRIVATE band the
+// broker returns band_id on every register and the secret BandCode ONCE (on the
+// first register that mints it - empty on every re-register, which is what makes
+// the idempotent re-register safe to repeat without re-leaking). BandDisplay is the
+// cosmetic "147.520 MHz · ..." string (not secret).
+type registerResult struct {
+	BandID      string `json:"band_id"`
+	BandCode    string `json:"band_code"`    // SECRET, present only at first mint
+	BandDisplay string `json:"band_display"` // cosmetic, not secret
+}
+
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) {
 	b, _ := json.Marshal(reg)
 	req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -612,7 +646,7 @@ func register(broker string, reg protocol.NodeRegistration) error {
 	client.SignRequest(req, b)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return registerResult{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -620,12 +654,14 @@ func register(broker string, reg protocol.NodeRegistration) error {
 		// the node would start poll loops against a registration that didn't take.
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
-			return fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
+			return registerResult{}, fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, bytes.TrimSpace(msg))
 		}
-		return fmt.Errorf("broker returned status %d", resp.StatusCode)
+		return registerResult{}, fmt.Errorf("broker returned status %d", resp.StatusCode)
 	}
+	var rr registerResult
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&rr)
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)
-	return nil
+	return rr, nil
 }
 
 func loadOrCreateKey() ed25519.PrivateKey {

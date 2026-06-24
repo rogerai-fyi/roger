@@ -225,7 +225,7 @@ func TestRecordProbeStreakAndPick(t *testing.T) {
 
 	// Despite being cheaper, the failing node loses to the healthy one.
 	b.mu.Lock()
-	node, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil)
+	node, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
 	b.mu.Unlock()
 	if !ok || node.NodeID != "good" {
 		t.Errorf("pick = %q (ok=%v), want healthy 'good' over cheaper failing 'bad'", node.NodeID, ok)
@@ -233,7 +233,7 @@ func TestRecordProbeStreakAndPick(t *testing.T) {
 
 	// If only the failing node offers a model, it is still chosen (availability).
 	b.mu.Lock()
-	node2, _, ok2 := b.pick("only-bad", false, 0, 0, 0, "", nil, nil)
+	node2, _, ok2 := b.pick("only-bad", false, 0, 0, 0, "", nil, nil, nil)
 	b.mu.Unlock()
 	_ = node2
 	if ok2 {
