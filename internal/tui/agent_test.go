@@ -207,6 +207,185 @@ func TestAgentUsesTunedInModel(t *testing.T) {
 	}
 }
 
+// TestAgentReusesLastTunedModelAfterDisconnect is the core bug fix: tune in -> esc
+// (which disconnects, clearing m.connected) -> enter AGENT must reuse the LAST model
+// via lastConnected, NOT dead-end on "no model tuned in".
+func TestAgentReusesLastTunedModelAfterDisconnect(t *testing.T) {
+	m := browseSeed(100)
+	// Simulate having tuned in to a band and then disconnected: the disconnect fix keeps
+	// the model on lastConnected even though m.connected is now nil.
+	m.connected = nil
+	m.lastConnected = &offer{NodeID: "demo-node", Model: "gpt-oss-20b", Online: true}
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	gm := asModel(am)
+	if gm.agent == nil || gm.agent.model != "gpt-oss-20b" {
+		t.Fatalf("AGENT should reuse the last-tuned model gpt-oss-20b, got %q", agentModelOf(gm))
+	}
+	out := stripANSI(gm.View())
+	if strings.Contains(out, "no model tuned in") {
+		t.Errorf("AGENT must NOT dead-end on 'no model' when a band was just tuned in:\n%s", out)
+	}
+	if !strings.Contains(out, "gpt-oss-20b") {
+		t.Errorf("AGENT heading should name the reused model:\n%s", out)
+	}
+}
+
+// TestAgentResolutionPrefersOpenChannelOverLast: when a channel is open AND a different
+// band was tuned earlier, the OPEN channel's model wins (priority (a) over (b)).
+func TestAgentResolutionPrefersOpenChannelOverLast(t *testing.T) {
+	m := browseSeed(100)
+	m.lastConnected = &offer{Model: "gpt-oss-20b"}
+	m.connected = &offer{NodeID: "nyx", Model: "qwen3-coder-30b", Online: true}
+	if got := m.resolveAgentModel(); got != "qwen3-coder-30b" {
+		t.Errorf("open channel model should win, got %q", got)
+	}
+}
+
+// TestSlashModelOneCandidateAutoSelects: /model with exactly one candidate auto-selects
+// it (no picker prompt) and re-points the agent.
+func TestSlashModelOneCandidateAutoSelects(t *testing.T) {
+	m := browseSeed(100)
+	// Exactly one candidate: a single recent band, no on-air discover bands.
+	m.offers = nil
+	m.bands = nil
+	m.recentBands = map[string]bool{"solo-model": true}
+	m.connected = nil
+	m.lastConnected = nil
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0")) // enter AGENT (no model resolved yet)
+	am = typeLine(am, "/model")    // bare /model
+	gm := asModel(am)
+	if gm.agentPicker {
+		t.Errorf("/model with one candidate should NOT open the picker")
+	}
+	if agentModelOf(gm) != "solo-model" {
+		t.Errorf("/model with one candidate should auto-select it, got %q", agentModelOf(gm))
+	}
+	if !gm.agentPicked {
+		t.Errorf("auto-select should mark the model as explicitly picked")
+	}
+}
+
+// TestSlashModelManyOpensPickerAndSelects: /model with several candidates opens the
+// picker; arrowing down + enter re-points the agent at the chosen model.
+func TestSlashModelManyOpensPickerAndSelects(t *testing.T) {
+	m := browseSeed(100) // browseSeed seeds two on-air bands -> two candidates
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	am = typeLine(am, "/model")
+	gm := asModel(am)
+	if !gm.agentPicker {
+		t.Fatalf("/model with several candidates should open the picker; rows=%v", gm.agentPickerRows)
+	}
+	if len(gm.agentPickerRows) < 2 {
+		t.Fatalf("picker should list 2+ candidates, got %v", gm.agentPickerRows)
+	}
+	out := stripANSI(gm.View())
+	if !strings.Contains(out, "pick a model") {
+		t.Errorf("picker view should render the prompt:\n%s", out)
+	}
+	want := gm.agentPickerRows[1]
+	var pm tea.Model = gm
+	pm, _ = pm.Update(keyMsg2(tea.KeyDown)) // move to the second row
+	pm, _ = pm.Update(keyMsg2(tea.KeyEnter))
+	fm := asModel(pm)
+	if fm.agentPicker {
+		t.Errorf("enter should close the picker")
+	}
+	if agentModelOf(fm) != want {
+		t.Errorf("selecting row 2 should re-point the agent at %q, got %q", want, agentModelOf(fm))
+	}
+}
+
+// TestAgentPickerKeysGuarded: while the /model picker is open, presets / digits / a
+// typed prompt do NOT leak through (the picker is modal and owns its keys).
+func TestAgentPickerKeysGuarded(t *testing.T) {
+	m := browseSeed(100)
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	am = typeLine(am, "/model")
+	gm := asModel(am)
+	if !gm.agentPicker {
+		t.Fatalf("expected the picker open")
+	}
+	// A digit that would otherwise be a preset jump / typed into the prompt is swallowed.
+	before := gm.agentPickerCursor
+	var pm tea.Model = gm
+	pm, _ = pm.Update(keyMsg("1"))
+	gm2 := asModel(pm)
+	if !gm2.agentPicker || gm2.mode != modeAgent {
+		t.Errorf("a digit must not escape the open picker (mode=%d, picker=%v)", gm2.mode, gm2.agentPicker)
+	}
+	if gm2.agentIn.Value() != "" {
+		t.Errorf("a digit must not be typed into the prompt while the picker is open, got %q", gm2.agentIn.Value())
+	}
+	if gm2.agentPickerCursor != before {
+		t.Errorf("a digit must not move the picker cursor")
+	}
+}
+
+// TestSlashModelNoCandidateShowsHint: /model with truly no model anywhere shows the
+// actionable tune-in / share hint, not an empty picker.
+func TestSlashModelNoCandidateShowsHint(t *testing.T) {
+	m := browseSeed(100)
+	m.offers, m.bands, m.recentBands = nil, nil, nil
+	m.connected, m.lastConnected = nil, nil
+	var am tea.Model = m
+	am, _ = am.Update(keyMsg("0"))
+	am = typeLine(am, "/model")
+	gm := asModel(am)
+	if gm.agentPicker {
+		t.Errorf("/model with no candidate should NOT open an empty picker")
+	}
+	out := stripANSI(gm.View())
+	if !strings.Contains(out, "no model tuned in") || !strings.Contains(out, "[1]") {
+		t.Errorf("/model with no candidate should show the no-model + [1]/[2] hint:\n%s", out)
+	}
+}
+
+// TestAgentPickerNoColorNarrowSafe: the open picker renders without ANSI under NO_COLOR
+// and never overflows narrow widths.
+func TestAgentPickerNoColorNarrowSafe(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	for _, w := range []int{40, 50, 64, 80, 120} {
+		var am tea.Model = browseSeed(w)
+		am, _ = am.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+		am, _ = am.Update(keyMsg("0"))
+		am = typeLine(am, "/model")
+		out := am.View()
+		if strings.Contains(out, "\x1b[") {
+			t.Errorf("width %d: picker emitted ANSI under NO_COLOR", w)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if vis := utf8.RuneCountInString(stripANSI(line)); vis > w {
+				t.Errorf("width %d: picker line overflows (%d cols): %q", w, vis, stripANSI(line))
+			}
+		}
+	}
+}
+
+// agentModelOf reads the agent's current model ("" when the runtime is nil).
+func agentModelOf(m model) string {
+	if m.agent == nil {
+		return ""
+	}
+	return m.agent.model
+}
+
+// keyMsg2 builds a non-rune key (arrows / enter) for driving the picker.
+func keyMsg2(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t} }
+
+// typeLine feeds each rune of s into the AGENT prompt then submits with enter (the way
+// a user enters a slash command).
+func typeLine(m tea.Model, s string) tea.Model {
+	for _, r := range s {
+		m, _ = m.Update(keyMsg(string(r)))
+	}
+	m, _ = m.Update(keyMsg2(tea.KeyEnter))
+	return m
+}
+
 // firstLineContaining returns the first line of s that contains sub ("" if none).
 func firstLineContaining(s, sub string) string {
 	for _, line := range strings.Split(s, "\n") {

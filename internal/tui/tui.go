@@ -442,6 +442,15 @@ type model struct {
 	agentStart          time.Time     // when the in-flight turn began (elapsed readout)
 	agentPendingConfirm *agentConfirm // non-nil while a mutating tool awaits y/N
 	agentCost           float64       // running AGENT session cost in dollars
+	// /model selection state. agentPicked marks that the user chose the model
+	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
+	// list (open with 2+ candidates); agentPickerRows is the candidate models and
+	// agentPickerCursor the selected row. See agent.go (openAgentModelPicker / the
+	// picker key + view).
+	agentPicked       bool     // the model was chosen via /model (sticky over auto-resolve)
+	agentPicker       bool     // the /model picker modal is open
+	agentPickerRows   []string // candidate models in the open picker
+	agentPickerCursor int      // selected row in the picker
 	// async, cached update check (non-blocking)
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
@@ -2390,7 +2399,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		return m.toggleCompact(), nil, true
 	case "0":
 		// AGENT: open the embedded tool-capable harness (dj.md persona). It runs on the
-		// model on the current channel, or a default if none is tuned in.
+		// open channel's model, else the last band tuned in this session; /model switches.
 		nm, cmd := m.enterAgent()
 		return nm, cmd, true
 	case "1":
@@ -4462,15 +4471,21 @@ func (m model) footer(w int) string {
 		right := stRed.Render(fmt.Sprintf("%d on air", m.onAirCount()))
 		return modalFooter(m.effWidth(), left, right, m.status)
 	case modeAgent:
-		if m.agentPendingConfirm != nil {
+		switch {
+		case m.agentPicker:
+			left = stDim.Render("↑↓ pick a model  ·  ⏎ select  ·  esc keep current")
+			if m.narrow() {
+				left = stDim.Render("↑↓ pick · ⏎ select · esc keep")
+			}
+		case m.agentPendingConfirm != nil:
 			left = stDim.Render("y run the tool  ·  n/esc deny (default DENY)")
 			if m.narrow() {
 				left = stDim.Render("y run · n/esc deny")
 			}
-		} else {
-			left = stDim.Render("type to ask  ·  /clear  ·  /persona  ·  esc exits AGENT")
+		default:
+			left = stDim.Render("type to ask  ·  /model  ·  /clear  ·  /persona  ·  esc exits AGENT")
 			if m.narrow() {
-				left = stDim.Render("ask · esc exit · ⌃c quit")
+				left = stDim.Render("ask · /model · esc exit")
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)

@@ -80,13 +80,69 @@ type (
 	agentCostMsg float64
 )
 
+// resolveAgentModel picks the model the agent should run on, in priority order:
+//
+//	(a) the currently-open channel (m.connected.Model), else
+//	(b) the LAST model tuned in this session (m.lastConnected.Model - the sticky band
+//	    the disconnect fix keeps), so "esc out of the channel -> [0] AGENT" just reuses
+//	    the model you were JUST on instead of dead-ending on "no model".
+//
+// "" means neither is available (truly nothing tuned in - the up-front hint / picker
+// decide what to do next). It is a pure read of the current model; no mutation.
+func (m model) resolveAgentModel() string {
+	if m.connected != nil && m.connected.Model != "" {
+		return m.connected.Model
+	}
+	if m.lastConnected != nil && m.lastConnected.Model != "" {
+		return m.lastConnected.Model
+	}
+	return ""
+}
+
+// agentModelCandidates is the set of models the /model picker can choose from, in a
+// stable, useful order with no duplicates: the currently-resolved model first, then
+// the rest of this session's tuned-in models (the sticky last band + recent bands),
+// then any other model currently ON AIR in the discover band list. This is "the
+// model(s) I could plausibly point the agent at right now".
+func (m model) agentModelCandidates() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	add(m.resolveAgentModel())     // the model we'd use right now leads
+	add(m.lastConnected.modelOr()) // the sticky last-tuned band
+	for mdl := range m.recentBands {
+		add(mdl) // every model tuned in this session
+	}
+	for _, b := range m.bands {
+		if b.online {
+			add(b.model) // any band currently on air in the discover list
+		}
+	}
+	return out
+}
+
+// modelOr is a nil-safe read of an *offer's model ("" when nil), so candidate
+// gathering can fold in the sticky band without a guard at every call site.
+func (o *offer) modelOr() string {
+	if o == nil {
+		return ""
+	}
+	return o.Model
+}
+
 // enterAgent opens the AGENT mode, building the runtime lazily on first entry. The
-// agent runs on the model of the OPEN channel if one is tuned in; if NOTHING is tuned
-// in it runs on no model and shows an up-front "tune in / share" hint (never a stale
-// default that 504s). It loads the dj.md persona (writing the shipped default on first
-// run if absent) and seeds a one-line welcome into the transcript. Re-entering keeps
-// the existing session, but re-resolves the model so a channel tuned in AFTER first
-// entry is picked up.
+// agent runs on the resolved model (the open channel, else the LAST band tuned in this
+// session); if neither is available it runs on no model and shows an up-front "tune in
+// / share" hint (never a stale default that 504s). It loads the dj.md persona (writing
+// the shipped default on first run if absent) and seeds a one-line welcome into the
+// transcript. Re-entering keeps the existing session, but re-resolves the model so a
+// channel tuned in AFTER first entry is picked up.
 func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	m.mode = modeAgent
 	if m.agent == nil {
@@ -94,12 +150,13 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 		if m.agent.model != "" {
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
-				stDim.Render("· ")+stDim.Render("read/list/fetch run on their own · write/run ask first · sandboxed to "+m.agent.loop.Root),
+				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · sandboxed to "+m.agent.loop.Root),
 			)
 		} else {
-			// Nothing tuned in: be honest up front and point at the two moves. The turn
-			// itself is still allowed (it falls into the same actionable hint), but the
-			// user should not have to send one to learn there is no model.
+			// Nothing tuned in (and nothing tuned in earlier this session): be honest up
+			// front and point at the two moves. The turn itself is still allowed (it falls
+			// into the same actionable hint), but the user should not have to send one to
+			// learn there is no model.
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"),
 				stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
@@ -107,9 +164,9 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			)
 		}
 	} else {
-		// Re-entry: pick up a channel tuned in since we last built the runtime (or note
-		// one was dropped) so the agent never runs on a model that no longer matches the
-		// open channel.
+		// Re-entry: pick up a channel tuned in since we last built the runtime (or fall
+		// back to the last band tuned in this session) so the agent never runs on a model
+		// that no longer matches what the user just had.
 		m.refreshAgentModel()
 	}
 	m.agentIn.Focus()
@@ -117,25 +174,30 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	return m, textinput.Blink
 }
 
-// refreshAgentModel re-resolves the agent's model from the currently open channel. It
-// is a no-op when the model already matches; on a change it updates the runtime and
-// drops a one-line note into the transcript so the heading + the next turn run on the
-// right model.
+// refreshAgentModel re-resolves the agent's model (open channel, else this session's
+// last-tuned band). It is a no-op when the model already matches; on a change it
+// updates the runtime and drops a one-line note into the transcript so the heading +
+// the next turn run on the right model. It NEVER overrides a model the user picked
+// explicitly via /model (unless a fresh channel is opened on top), and it only shows
+// "no model" when there is genuinely none - the disconnect-then-[0] dead end is gone
+// (lastConnected carries the model across the disconnect).
 func (m *model) refreshAgentModel() {
 	if m.agent == nil {
 		return
 	}
-	want := ""
-	if m.connected != nil {
-		want = m.connected.Model
+	// A model chosen explicitly in this session (via /model) stays put unless a fresh
+	// channel is opened on top of it - the user's pick wins over auto-resolution.
+	if m.agentPicked && m.connected == nil {
+		return
 	}
+	want := m.resolveAgentModel()
 	if want == m.agent.model {
 		return
 	}
 	m.agent.model = want
 	switch {
 	case want != "":
-		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("tuned in - the agent now runs on ")+stKey.Render(want))
+		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("the agent now runs on ")+stKey.Render(want))
 	default:
 		m.agentLines = append(m.agentLines,
 			stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
@@ -143,15 +205,31 @@ func (m *model) refreshAgentModel() {
 	}
 }
 
+// pickAgentModel re-points the agent at the chosen model and notes the switch. It sets
+// agentPicked so refreshAgentModel (which fires on every re-entry / turn) does not snap
+// it back to the auto-resolved model - the user's explicit choice sticks for the rest
+// of the session unless they open a new channel.
+func (m *model) pickAgentModel(mdl string) {
+	if m.agent == nil || mdl == "" {
+		return
+	}
+	m.agentPicked = true
+	if mdl == m.agent.model {
+		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("already running on ")+stKey.Render(mdl))
+		return
+	}
+	m.agent.model = mdl
+	m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("switched - the agent now runs on ")+stKey.Render(mdl))
+}
+
 // newAgentRuntime builds the harness loop + bridge channels. The completer relays
 // through the broker (so the agent dogfoods the marketplace); the confirmer sends a
 // pending confirm to the UI and blocks for the answer. costFn feeds per-turn relay
 // cost back to the model via the events drain (a side channel on agentCostMsg).
 func (m model) newAgentRuntime() *agentRuntime {
-	mdl := "" // the TUNED-IN model only; "" when nothing is tuned in
-	if m.connected != nil && m.connected.Model != "" {
-		mdl = m.connected.Model
-	}
+	// The open channel, else this session's last-tuned band (so "tune in -> esc ->
+	// [0]" reuses the model you just had); "" only when truly nothing is/was tuned in.
+	mdl := m.resolveAgentModel()
 	rt := &agentRuntime{
 		model:       mdl,
 		events:      make(chan harness.Event, 32),
@@ -193,6 +271,36 @@ const eventCost = harness.EventKind(1000)
 // other keys feed the prompt input. Because this owns its keys (and never consults
 // presetForKey), a typed `0` is a literal digit, NEVER a re-entry into AGENT.
 func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The /model picker owns every key while open (arrow + enter to choose, esc to
+	// cancel) so a digit/preset/left-right is NEVER stolen out from under it.
+	if m.agentPicker {
+		switch k.String() {
+		case "up", "k":
+			if m.agentPickerCursor > 0 {
+				m.agentPickerCursor--
+			}
+			return m, nil
+		case "down", "j":
+			if m.agentPickerCursor < len(m.agentPickerRows)-1 {
+				m.agentPickerCursor++
+			}
+			return m, nil
+		case "enter":
+			if m.agentPickerCursor >= 0 && m.agentPickerCursor < len(m.agentPickerRows) {
+				m.pickAgentModel(m.agentPickerRows[m.agentPickerCursor])
+			}
+			m.agentPicker = false
+			m.agentPickerRows = nil
+			return m, nil
+		case "esc":
+			m.agentPicker = false
+			m.agentPickerRows = nil
+			m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("kept the current model"))
+			return m, nil
+		default:
+			return m, nil // swallow everything else - the picker is modal
+		}
+	}
 	// A pending confirm modal: answer the y/N gate for the side-effecting tool.
 	if c := m.agentPendingConfirm; c != nil {
 		switch k.String() {
@@ -269,12 +377,61 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		head := strings.SplitN(harness.LoadPersona(harness.PersonaPath()), "\n", 2)
 		note(strings.TrimSpace(head[0]))
 		return m, nil
+	case "model", "models":
+		// `/model <name>` jumps straight to a candidate by (case-insensitive) name; bare
+		// `/model` opens the picker: one candidate auto-selects (no needless prompt), many
+		// show the arrow+enter list to re-point the agent.
+		if len(fields) >= 2 {
+			want := strings.ToLower(strings.Join(fields[1:], " "))
+			for _, c := range m.agentModelCandidates() {
+				if strings.ToLower(c) == want {
+					m.pickAgentModel(c)
+					return m, nil
+				}
+			}
+			note("no candidate model matches " + strings.Join(fields[1:], " ") + " - /model lists what you can pick")
+			return m, nil
+		}
+		return m.openAgentModelPicker()
 	case "help", "h":
-		note("/clear resets the session · /persona shows dj.md · esc exits AGENT")
+		note("/model switches model · /clear resets the session · /persona shows dj.md · esc exits AGENT")
 		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
 		return m, nil
 	default:
 		note("unknown: /" + cmd + " · /help for AGENT commands")
+		return m, nil
+	}
+}
+
+// openAgentModelPicker resolves the candidate models and either auto-selects (exactly
+// one - the obvious choice, no needless prompt) or opens the modal picker (several -
+// arrow + enter). With NO candidate at all it shows the actionable tune-in / share
+// hint rather than an empty picker. The candidate set is the recent / last-tuned
+// model(s) plus any band currently on air in the discover list (agentModelCandidates).
+func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
+	cands := m.agentModelCandidates()
+	switch len(cands) {
+	case 0:
+		m.agentLines = append(m.agentLines,
+			stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
+			hintTuneOrShare(m.narrow()))
+		return m, nil
+	case 1:
+		// Exactly one candidate: just use it (obvious - no prompt).
+		m.pickAgentModel(cands[0])
+		return m, nil
+	default:
+		m.agentPicker = true
+		m.agentPickerRows = cands
+		m.agentPickerCursor = 0
+		// Start the cursor on the model we are already running on, if it is in the list,
+		// so enter-without-moving is a no-op rather than a surprise switch.
+		for i, c := range cands {
+			if m.agent != nil && c == m.agent.model {
+				m.agentPickerCursor = i
+				break
+			}
+		}
 		return m, nil
 	}
 }
@@ -432,18 +589,24 @@ func (m model) agentView(w int) string {
 		mdl = m.agent.model
 		root = m.agent.loop.Root
 	}
-	// With nothing tuned in the heading names the gap (not a stale default model) so
-	// the screen and the up-front hint agree. "on <model>" reads naturally when tuned
-	// in; with no model it drops the "on" and just states the gap.
-	mdlCell := stDim.Render(" on ") + stKey.Render(mdl)
+	// With a model resolved the heading reads "on <model> · /model to switch"; with
+	// nothing tuned in it names the gap (not a stale default model) so the screen and
+	// the up-front hint agree. The "/model to switch" affordance rides the full heading
+	// only (dropped under narrow / compact so the heading never overflows).
+	var mdlCell string
 	if mdl == "" {
 		mdlCell = stDim.Render(" ") + stEmber.Render("no model tuned in")
+	} else {
+		mdlCell = stDim.Render(" on ") + stKey.Render(mdl)
 	}
 	if m.compact {
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") +
 			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
+		if mdl != "" && !m.narrow() {
+			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
+		}
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") +
 			stDim.Render("  ") + mdlCell + stDim.Render(" · sandbox ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
@@ -463,6 +626,27 @@ func (m model) agentView(w int) string {
 	}
 	for _, l := range lines {
 		b.WriteString(truncVisible("  "+l, w) + "\n")
+	}
+	// The /model picker: a small modal list of selectable models (recent / last-tuned +
+	// on-air bands). The cursor row is reverse-video with a carat, matching the band /
+	// share tables. Only opens with 2+ candidates (one auto-selects), so it is always a
+	// real choice. NO_COLOR / narrow safe (shared styles + per-line clip).
+	if m.agentPicker {
+		b.WriteString("\n" + truncVisible("  "+stSelText.Render("pick a model")+stDim.Render(" - the agent will run on it"), w) + "\n")
+		for i, mdl := range m.agentPickerRows {
+			row := pad(mdl, 28)
+			if i == m.agentPickerCursor {
+				b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+row), w) + "\n")
+			} else {
+				b.WriteString(truncVisible("  "+stDim.Render("   "+row), w) + "\n")
+			}
+		}
+		hint := "↑↓ pick · ⏎ select · esc keep current"
+		if m.narrow() {
+			hint = "↑↓ · ⏎ · esc"
+		}
+		b.WriteString(truncVisible("  "+stDim.Render(hint), w) + "\n")
+		return b.String()
 	}
 	// A pending mutating-tool confirm: an obvious y/N gate (default DENY). The footer is
 	// rendered by View(); agentView only draws the prompt body.
@@ -487,9 +671,9 @@ func (m model) agentView(w int) string {
 	// to width so a long placeholder / echoed line never overflows.
 	b.WriteString("\n" + truncVisible("  "+stPrompt.Render("ask › ")+m.agentIn.View(), w) + "\n")
 	if !m.compact {
-		help := "enter asks  ·  esc exits AGENT  ·  /clear  ·  /persona  ·  read/list auto · write/run confirm"
+		help := "enter asks  ·  /model switches  ·  esc exits AGENT  ·  /clear  ·  /persona  ·  read/list auto · write/run confirm"
 		if m.narrow() {
-			help = "enter ask · esc exit · /clear · /persona"
+			help = "enter ask · /model · esc exit · /clear"
 		}
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}
