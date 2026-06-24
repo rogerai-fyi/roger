@@ -30,7 +30,7 @@ import (
 
 // Version is the client version (compared against the latest GitHub release for
 // the update check / `rogerai upgrade`). Keep in sync with releases.
-const Version = "0.3.0"
+const Version = "0.3.1"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
