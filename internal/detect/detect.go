@@ -11,10 +11,11 @@ import (
 
 // Found is a reachable local OpenAI-compatible server discovered by Detect.
 type Found struct {
-	Name    string   // friendly server name (e.g. "ollama")
-	BaseURL string   // .../v1
-	Chat    string   // .../v1/chat/completions
-	Models  []string // served model ids from GET /v1/models
+	Name    string         // friendly server name (e.g. "ollama")
+	BaseURL string         // .../v1
+	Chat    string         // .../v1/chat/completions
+	Models  []string       // served model ids from GET /v1/models
+	Ctx     map[string]int // per-model context length when the server reports it
 }
 
 // Common local OpenAI-compatible servers, by default port. Any server exposing
@@ -47,18 +48,41 @@ func Detect() []Found {
 			}
 			continue
 		}
+		// Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
+		// per-model context length on /v1/models under one of these common keys. We
+		// read whichever is present so `rogerai share` can auto-detect --ctx.
 		var d struct {
 			Data []struct {
-				ID string `json:"id"`
+				ID         string `json:"id"`
+				MaxLen     int    `json:"max_model_len"`  // vLLM
+				CtxLen     int    `json:"context_length"` // some gateways
+				NCtx       int    `json:"n_ctx"`          // llama.cpp
+				MaxCtx     int    `json:"max_context_length"`
+				ContextWin int    `json:"context_window"` // LM Studio / others
 			} `json:"data"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&d)
 		resp.Body.Close()
 		var models []string
+		ctx := map[string]int{}
 		for _, m := range d.Data {
 			models = append(models, m.ID)
+			if c := firstPositive(m.MaxLen, m.CtxLen, m.NCtx, m.MaxCtx, m.ContextWin); c > 0 {
+				ctx[m.ID] = c
+			}
 		}
-		out = append(out, Found{Name: p.name, BaseURL: p.base, Chat: p.base + "/chat/completions", Models: models})
+		out = append(out, Found{Name: p.name, BaseURL: p.base, Chat: p.base + "/chat/completions", Models: models, Ctx: ctx})
 	}
 	return out
+}
+
+// firstPositive returns the first value > 0 (the first context-length key a server
+// actually populated), or 0 when none is reported.
+func firstPositive(vals ...int) int {
+	for _, v := range vals {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }

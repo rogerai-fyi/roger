@@ -69,9 +69,20 @@ type Limits struct {
 }
 
 type config struct {
-	Broker string `json:"broker"`
-	User   string `json:"user"`
-	Limits Limits `json:"limits"`
+	Broker    string `json:"broker"`
+	User      string `json:"user"`
+	Limits    Limits `json:"limits"`
+	Onboarded bool   `json:"onboarded,omitempty"` // first-run wizard completed
+	Share     *Share `json:"share,omitempty"`     // saved provider config (the wizard's earn/free choice)
+}
+
+// Share is the provider config the onboarding wizard saves: the model to expose,
+// the chosen port, and the price (0/0 = free). Absent = not a provider yet.
+type Share struct {
+	Model    string  `json:"model"`
+	Port     int     `json:"port"`
+	PriceIn  float64 `json:"price_in,omitempty"`
+	PriceOut float64 `json:"price_out,omitempty"`
 }
 
 // resolve returns the effective limit for model m: the per-model limit if set,
@@ -153,6 +164,9 @@ func main() {
 	// the TUI does no network at startup; the cache refreshes in the background.
 	notice := update.CachedNotice(Version)
 	if len(os.Args) < 2 {
+		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
+		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
+		cfg = maybeOnboard(cfg)
 		// no args -> launch the interactive radio TUI
 		if err := tui.RunWithNotice(cfg.Broker, cfg.User, tuiLimits(cfg), notice); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -191,6 +205,8 @@ func main() {
 		err = cmdShare(cfg, os.Args[2:])
 	case "grant":
 		err = cmdGrant(cfg, os.Args[2:])
+	case "onboard", "setup":
+		err = cmdOnboard(cfg, os.Args[2:])
 	case "config":
 		err = cmdConfig(os.Args[2:])
 	case "ping":
@@ -253,17 +269,26 @@ func cmdUse(cfg config, args []string) error {
 }
 
 func cmdShare(cfg config, args []string) error {
+	// Defaults inherit the saved onboarding share config (model + price) when set,
+	// so `rogerai share` after the wizard Just Works with the choices already made.
+	defModel, defIn, defOut := "", 0.0, 0.0
+	if cfg.Share != nil {
+		defModel, defIn, defOut = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
+	}
 	fs := flag.NewFlagSet("share", flag.ExitOnError)
 	broker := fs.String("broker", cfg.Broker, "broker URL")
 	node := fs.String("node", hostname(), "node id")
-	model := fs.String("model", "", "model to expose (default: first detected)")
+	model := fs.String("model", defModel, "model to expose (default: first detected)")
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
 	region := fs.String("region", "home", "region")
 	parallel := fs.Int("parallel", 4, "concurrent poll workers (per-node concurrency)")
-	priceIn := fs.Float64("price-in", 0.20, "credits per 1M input tokens (base/fallback)")
-	priceOut := fs.Float64("price-out", 0.30, "credits per 1M output tokens (base/fallback)")
-	ctx := fs.Int("ctx", 32768, "context length")
+	// FREE BY DEFAULT (price 0/0): a bare `rogerai share` goes on air with NO login
+	// (a priced node would require `rogerai login` and otherwise 403). Set a price to
+	// EARN (that does require login). See the onboarding wizard's earn branch.
+	priceIn := fs.Float64("price-in", defIn, "$/1M input tokens to EARN (default 0 = free, no login needed)")
+	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
+	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
 	confidential := fs.Bool("confidential", false, "advertise as confidential (TEE-attested)")
 	attestation := fs.String("attestation", "", "TEE attestation blob (dev placeholder if --confidential without it)")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
@@ -272,6 +297,7 @@ func cmdShare(cfg config, args []string) error {
 
 	up := *upstream
 	mdl := *model
+	ctxLen := *ctx
 	if up == "" {
 		found := detect.Detect()
 		if len(found) == 0 {
@@ -292,10 +318,21 @@ func cmdShare(cfg config, args []string) error {
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
 		}
+		// Auto-detect --ctx from the upstream's /v1/models when the user didn't pin it.
+		if ctxLen == 0 {
+			if c, ok := pick.Ctx[mdl]; ok && c > 0 {
+				ctxLen = c
+			}
+		}
 		fmt.Printf("detected %s at %s - exposing model %q\n", pick.Name, pick.BaseURL, mdl)
 	}
 	if mdl == "" {
 		return fmt.Errorf("could not determine a model; pass --model")
+	}
+	// ctx fallback: auto-detect (above) or the safe default when the upstream did
+	// not report a context length and the user didn't pass --ctx.
+	if ctxLen <= 0 {
+		ctxLen = 32768
 	}
 	// Accept --upstream as a base URL (http://host:port), a /v1 URL, or the full
 	// /v1/chat/completions URL - normalize to the chat-completions endpoint the
@@ -324,10 +361,13 @@ func cmdShare(cfg config, args []string) error {
 		fmt.Println("warning: --confidential without --attestation won't earn the confidential badge - the broker rejects placeholder attestations (real TEE attestation required).")
 	}
 
+	if *priceIn == 0 && *priceOut == 0 && len(sched) == 0 {
+		fmt.Println("sharing FREE (price 0/0) - on air with no login. set --price-out to earn (needs `rogerai login`).")
+	}
 	return agent.Run(agent.Config{
 		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
 		NodeID: *node, Region: *region, HW: detectHW(), Model: mdl,
-		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: *ctx, Parallel: *parallel,
+		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, Parallel: *parallel,
 		Confidential: *confidential, Attestation: att, Schedule: sched,
 	})
 }
