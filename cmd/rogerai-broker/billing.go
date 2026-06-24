@@ -36,17 +36,17 @@ func loadBilling() billing {
 	}
 	b := billing{
 		secretKey:     stripeSecretKey(),
-		webhookSecret: stripeWebhookSecret(),
+		webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 		successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fyi/topup/success"),
 		cancelURL:     envOr("STRIPE_CANCEL_URL", "https://rogerai.fyi/topup/cancel"),
 		creditUSD:     cu,
 	}
+	if requireLive() && !strings.HasPrefix(b.secretKey, "sk_live") {
+		log.Printf("billing: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - billing DISABLED (refusing test mode in production)")
+		b.secretKey, b.webhookSecret = "", ""
+	}
 	if b.secretKey == "" {
-		if stripeLive() {
-			log.Printf("billing: STRIPE_LIVE set but STRIPE_SECRET_PROD_KEY missing/not sk_live - billing DISABLED (refusing test fallback in production)")
-		} else {
-			log.Printf("billing: disabled (set STRIPE_SECRET_KEY for test, or STRIPE_LIVE=1 + STRIPE_SECRET_PROD_KEY for production)")
-		}
+		log.Printf("billing: disabled (set STRIPE_SECRET_KEY)")
 	} else {
 		mode := "test"
 		if strings.HasPrefix(b.secretKey, "sk_live") {
@@ -67,38 +67,20 @@ func envOr(k, def string) string {
 // stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
 // REQUIRES this flag - it is never inferred from the presence of a prod key, so a
 // stray or blanked prod var can never silently flip modes.
-func stripeLive() bool {
-	switch strings.ToLower(os.Getenv("STRIPE_LIVE")) {
-	case "1", "true", "yes", "live", "on":
+// requireLive (ROGERAI_REQUIRE_LIVE=1 on the live broker) makes billing FAIL CLOSED
+// unless STRIPE_SECRET_KEY is a real sk_live key - so a misconfigured/test key in
+// production disables billing instead of silently accepting fake test cards. Off
+// locally so dev test keys work. The broker holds live values in STRIPE_SECRET_KEY /
+// STRIPE_WEBHOOK_SECRET; the local .env holds test values under the same names.
+func requireLive() bool {
+	switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_LIVE")) {
+	case "1", "true", "yes", "on":
 		return true
 	}
 	return false
 }
 
-// stripeSecretKey returns the ACTIVE secret key. In live mode it returns ONLY a real
-// sk_live prod key and FAILS CLOSED (empty -> billing disabled) when the prod key is
-// missing or not sk_live, so production can never silently fall back to test mode and
-// accept fake test cards. In test mode it returns the test key.
-func stripeSecretKey() string {
-	if stripeLive() {
-		if k := os.Getenv("STRIPE_SECRET_PROD_KEY"); strings.HasPrefix(k, "sk_live") {
-			return k
-		}
-		return "" // fail closed: live flag set but no real live key
-	}
-	return os.Getenv("STRIPE_SECRET_KEY")
-}
-
-// stripeWebhookSecret mirrors stripeSecretKey's mode selection + fail-closed rule.
-func stripeWebhookSecret() string {
-	if stripeLive() {
-		if strings.HasPrefix(os.Getenv("STRIPE_SECRET_PROD_KEY"), "sk_live") {
-			return os.Getenv("STRIPE_WEBHOOK_PROD_SECRET")
-		}
-		return ""
-	}
-	return os.Getenv("STRIPE_WEBHOOK_SECRET")
-}
+func stripeSecretKey() string { return os.Getenv("STRIPE_SECRET_KEY") }
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
