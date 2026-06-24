@@ -105,6 +105,49 @@ func GrantCreate(broker string, o GrantCreateOpts) error {
 	return nil
 }
 
+// GrantInfo is a compact grant summary for programmatic callers (the in-TUI list).
+type GrantInfo struct {
+	Name, Price, Status string
+}
+
+// GrantCreateSecret mints a grant and returns ONLY the secret (the data form of
+// GrantCreate, for the in-TUI /grant create flow). free=true makes it a free key.
+func GrantCreateSecret(broker, name string, free bool) (string, error) {
+	resp, err := postSigned(broker+"/grants", map[string]any{"name": name, "free": free})
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK     bool   `json:"ok"`
+		Secret string `json:"secret"`
+		Error  struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if resp.StatusCode != http.StatusOK || out.Secret == "" {
+		if out.Error.Message != "" {
+			return "", fmt.Errorf("%s", out.Error.Message)
+		}
+		return "", fmt.Errorf("grant create failed (status %d)", resp.StatusCode)
+	}
+	return out.Secret, nil
+}
+
+// GrantListRows returns the owner's grants as compact rows (the in-TUI /grant list).
+func GrantListRows(broker string) ([]GrantInfo, error) {
+	gs, err := fetchGrants(broker)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]GrantInfo, 0, len(gs))
+	for _, g := range gs {
+		rows = append(rows, GrantInfo{Name: g.Name, Price: priceLabel(g), Status: g.Status})
+	}
+	return rows, nil
+}
+
 // GrantList prints the caller-owner's grants as a table.
 func GrantList(broker string) error {
 	gs, err := fetchGrants(broker)

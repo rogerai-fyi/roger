@@ -104,6 +104,23 @@ func Login(broker, clientID string) error {
 	return nil
 }
 
+// LinkedLogin returns the locally-linked GitHub login, or "" if not logged in.
+func LinkedLogin() string {
+	if a, ok := loadAuth(); ok {
+		return a.GitHubLogin
+	}
+	return ""
+}
+
+// LoginReturn runs Login and returns the resulting GitHub login (the data form for
+// the in-TUI /login flow).
+func LoginReturn(broker, clientID string) (string, error) {
+	if err := Login(broker, clientID); err != nil {
+		return "", err
+	}
+	return LinkedLogin(), nil
+}
+
 // Logout forgets the local GitHub binding record (the broker binding persists
 // server-side and is re-established on the next login; the signing key is kept).
 func Logout() error {

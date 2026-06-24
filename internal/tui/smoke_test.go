@@ -193,3 +193,76 @@ func TestOverLimitFlow(t *testing.T) {
 		t.Errorf("limit not saved/raised, got %v", store.Models["m"].MaxOut)
 	}
 }
+
+// runCmd types a slash command into the palette and submits it.
+func runCmd(m tea.Model, cmd string) tea.Model {
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range cmd {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	return m
+}
+
+// TestInTUIFlows: /help lists the in-TUI verbs, an empty balance surfaces /topup,
+// and the /grant list + /login flows fire through their hooks and update state.
+func TestInTUIFlows(t *testing.T) {
+	var called struct{ login, grant bool }
+	hooks := Hooks{
+		Login: func(broker, id string) (string, error) { called.login = true; return "octocat", nil },
+		GrantList: func(broker string) ([]GrantRow, error) {
+			called.grant = true
+			return []GrantRow{{Name: "petlings", Price: "free", Status: "active"}}, nil
+		},
+	}
+	m := NewWithHooks("http://broker.local", "tester", nil, hooks)
+	var tm tea.Model = m
+	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// /help lists the new verbs.
+	hv := runCmd(tm, "help").View()
+	for _, want := range []string{"/share", "/login", "/grant", "/topup"} {
+		if !strings.Contains(hv, want) {
+			t.Errorf("/help missing %q:\n%s", want, hv)
+		}
+	}
+
+	// Empty balance + /balance surfaces the /topup hint.
+	bm, _ := tm.Update(balanceMsg(0))
+	bm = runCmd(bm, "balance")
+	if !strings.Contains(bm.View(), "/topup") {
+		t.Errorf("empty balance should surface /topup:\n%s", bm.View())
+	}
+
+	// /login dispatches the device-flow hook (run the returned cmd) and the
+	// resulting loginMsg lands the github login on the status line.
+	lm, _ := tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "login" {
+		lm, _ = lm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	var lcmd tea.Cmd
+	lm, lcmd = lm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if lcmd != nil {
+		lm, _ = lm.Update(lcmd())
+	}
+	if !called.login || !strings.Contains(lm.View(), "octocat") {
+		t.Errorf("login flow did not complete: called=%v\n%s", called.login, lm.View())
+	}
+
+	// /grant list fires the hook (run the returned cmd to execute the closure).
+	gm, _ := tm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "grant list" {
+		gm, _ = gm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	var gcmd tea.Cmd
+	gm, gcmd = gm.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if gcmd != nil {
+		gm, _ = gm.Update(gcmd())
+	}
+	if !called.grant {
+		t.Errorf("grant list hook not called")
+	}
+	if !strings.Contains(gm.View(), "grant") {
+		t.Errorf("grant list result not surfaced:\n%s", gm.View())
+	}
+}

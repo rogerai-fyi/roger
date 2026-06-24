@@ -20,11 +20,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
+
+// shareFeeRate is the platform take used only to ESTIMATE the session's live
+// earnings panel (the broker is the source of truth at settle). Matches the
+// broker default; override with ROGERAI_FEE for an accurate local readout.
+const shareFeeRate = 0.30
 
 // Config is everything `rogerai share` needs to become a provider: the broker to
 // register with, the local upstream to serve against, the single model offer and
@@ -46,11 +52,66 @@ var (
 	lastHash string
 )
 
+// Session is a running in-process share (the TUI's /share). It exposes live
+// counters so the ON-AIR panel can render connections + earnings without the
+// agent importing the TUI. Stop ends the poll loops. Earnings here are the
+// node's gross owner-share in credits (= dollars), summed from served receipts.
+type Session struct {
+	cfg           Config
+	servedReqs    atomic.Int64
+	servedToks    atomic.Int64
+	earningsMicro atomic.Int64 // owner-share in millionths of a credit (avoid float races)
+	stop          chan struct{}
+}
+
+// Served returns the request + completion-token counts served so far.
+func (s *Session) Served() (reqs, tokens int64) {
+	return s.servedReqs.Load(), s.servedToks.Load()
+}
+
+// Earnings returns the node's accrued owner-share in credits ($).
+func (s *Session) Earnings() float64 {
+	return float64(s.earningsMicro.Load()) / 1e6
+}
+
+// Model / Price / Node surface the session's offer for the panel.
+func (s *Session) Model() string            { return s.cfg.Model }
+func (s *Session) Price() (in, out float64) { return s.cfg.PriceIn, s.cfg.PriceOut }
+func (s *Session) Node() string             { return s.cfg.NodeID }
+
+// Stop ends the session's poll loops (best-effort; the process can also just exit).
+func (s *Session) Stop() {
+	select {
+	case <-s.stop:
+	default:
+		close(s.stop)
+	}
+}
+
+// record folds a served job's receipt into the session counters (called by the
+// in-process poll loop after it serves a job).
+func (s *Session) record(rec protocol.UsageReceipt, feeRate float64) {
+	s.servedReqs.Add(1)
+	s.servedToks.Add(int64(rec.CompletionTokens))
+	// owner-share = cost * (1 - fee); cost is the node-priced receipt cost.
+	owner := rec.Cost() * (1 - feeRate)
+	s.earningsMicro.Add(int64(owner*1e6 + 0.5))
+}
+
 // Run registers the node with the broker and starts cfg.Parallel outbound
 // long-poll workers that serve relayed jobs against the local upstream. It blocks
 // forever (the node serves until the process is killed); it returns early only if
 // the initial broker registration fails.
 func Run(cfg Config) error {
+	if _, err := Start(cfg); err != nil {
+		return err
+	}
+	select {} // serve forever
+}
+
+// Start registers the node and launches its outbound poll loops, returning a
+// Session for live stats + Stop (the TUI's in-process /share). It does NOT block.
+func Start(cfg Config) (*Session, error) {
 	priv := loadOrCreateKey()
 	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
 	token := cfg.BridgeToken
@@ -70,25 +131,33 @@ func Run(cfg Config) error {
 	reg.TS = time.Now().Unix()
 	reg.SignRegistration(priv) // prove we hold PubKey's private key
 	if err := register(cfg.Broker, reg); err != nil {
-		return fmt.Errorf("register with %s: %w", cfg.Broker, err)
+		return nil, fmt.Errorf("register with %s: %w", cfg.Broker, err)
 	}
-	go heartbeat(cfg.Broker, cfg.NodeID)
+	sess := &Session{cfg: cfg, stop: make(chan struct{})}
+	go heartbeatUntil(cfg.Broker, cfg.NodeID, sess.stop)
 
 	log.Printf("sharing: node=%s broker=%s upstream=%s model=%s ($%.2f/$%.2f per 1M) pollers=%d",
 		cfg.NodeID, cfg.Broker, cfg.Upstream, cfg.Model, cfg.PriceIn, cfg.PriceOut, cfg.Parallel)
 
 	for i := 0; i < cfg.Parallel; i++ {
-		go pollLoop(cfg, token, offer, priv)
+		go pollLoop(cfg, token, offer, priv, sess)
 	}
-	select {} // serve forever
+	return sess, nil
 }
 
 // pollLoop: one outbound long-poll worker. Pulls a job, serves it, posts result.
-func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.PrivateKey) {
+func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.PrivateKey, sess *Session) {
 	poll := &http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
 	up := &http.Client{Timeout: 120 * time.Second}
 	pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
 	for {
+		if sess != nil {
+			select {
+			case <-sess.stop:
+				return // /share went off air
+			default:
+			}
+		}
 		req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := poll.Do(req)
@@ -109,9 +178,36 @@ func pollLoop(cfg Config, token string, offer protocol.ModelOffer, priv ed25519.
 		json.NewDecoder(resp.Body).Decode(&job)
 		resp.Body.Close()
 		if isStream(job.Body) {
-			serveStream(cfg, offer, priv, token, job)
+			rec := serveStream(cfg, offer, priv, token, job)
+			recordIf(sess, rec)
 		} else {
-			postResult(poll, cfg, token, serve(cfg, offer, priv, up, job))
+			res := serve(cfg, offer, priv, up, job)
+			postResult(poll, cfg, token, res)
+			recordIf(sess, res.Receipt)
+		}
+	}
+}
+
+// recordIf folds a served receipt into the session counters (no-op without a session).
+func recordIf(sess *Session, rec protocol.UsageReceipt) {
+	if sess != nil && rec.RequestID != "" {
+		sess.record(rec, shareFeeRate)
+	}
+}
+
+// heartbeatUntil heartbeats every 10s until stop is closed.
+func heartbeatUntil(broker, nodeID string, stop <-chan struct{}) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b, _ := json.Marshal(map[string]string{"node_id": nodeID})
+			if resp, err := http.Post(broker+"/nodes/heartbeat", "application/json", bytes.NewReader(b)); err == nil {
+				resp.Body.Close()
+			}
 		}
 	}
 }
@@ -128,7 +224,7 @@ func isStream(body []byte) bool {
 // the broker's /agent/stream (which pipes it to the waiting client), captures
 // token usage from the final chunk, then posts a signed receipt to settle. The
 // node asks the upstream to include a usage chunk so we can meter the stream.
-func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) {
+func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
 	client := &http.Client{Timeout: 10 * time.Minute} // streams can be long
 	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(job.Body)))
 	upReq.Header.Set("Content-Type", "application/json")
@@ -138,7 +234,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 	resp, err := client.Do(upReq)
 	if err != nil {
 		postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway})
-		return
+		return protocol.UsageReceipt{}
 	}
 	defer resp.Body.Close()
 
@@ -181,6 +277,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 	lastHash = rec.Hash()
 	mu.Unlock()
 	postResult(client, cfg, token, protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Receipt: rec})
+	return rec
 }
 
 // withUsageOption sets stream_options.include_usage so the upstream emits a final
@@ -284,15 +381,6 @@ func register(broker string, reg protocol.NodeRegistration) error {
 	}
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)
 	return nil
-}
-
-func heartbeat(broker, nodeID string) {
-	for range time.Tick(10 * time.Second) {
-		b, _ := json.Marshal(map[string]string{"node_id": nodeID})
-		if resp, err := http.Post(broker+"/nodes/heartbeat", "application/json", bytes.NewReader(b)); err == nil {
-			resp.Body.Close()
-		}
-	}
 }
 
 func loadOrCreateKey() ed25519.PrivateKey {

@@ -131,6 +131,32 @@ func Topup(broker, user string, usd float64) error {
 	return nil
 }
 
+// TopupURL asks the broker for a Stripe Checkout URL to buy `usd` of credits and
+// returns it (the data form of Topup, for the in-TUI /topup flow).
+func TopupURL(broker, user string, usd float64) (string, error) {
+	body, _ := json.Marshal(map[string]float64{"usd": usd})
+	req, _ := http.NewRequest(http.MethodPost, broker+"/billing/checkout", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	signRequest(req, body)
+	req.Header.Set("X-Roger-User", user)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return "", fmt.Errorf("billing isn't configured on this broker yet")
+	}
+	var d struct {
+		URL string `json:"url"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	if d.URL == "" {
+		return "", fmt.Errorf("no checkout URL returned")
+	}
+	return d.URL, nil
+}
+
 // ProxyOptions configures the local relay handler.
 type ProxyOptions struct {
 	Broker, User string

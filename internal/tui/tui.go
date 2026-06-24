@@ -21,8 +21,32 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-isatty"
+	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/detect"
 )
+
+// Hooks lets the host (cmd/rogerai) supply the few platform/auth bits the TUI
+// can't compute itself, so the in-TUI /share, /login, /topup, /grant flows are
+// REAL actions (not "run it elsewhere") without the tui package importing the
+// host. All are optional; a nil hook degrades that flow to a labeled hint.
+type Hooks struct {
+	NodeID      string                                        // this node's id (hostname)
+	HW          string                                        // hardware label for the offer
+	GitHubID    string                                        // public GitHub OAuth client id (device flow)
+	ShareModel  string                                        // saved onboarding model (default offer)
+	SharePriceI float64                                       // saved input price (0 = free)
+	SharePriceO float64                                       // saved output price (0 = free)
+	Login       func(broker, clientID string) (string, error) // device-flow login -> github login
+	TopupURL    func(broker, user string, usd float64) (string, error)
+	GrantCreate func(broker, name string, free bool) (secret string, err error)
+	GrantList   func(broker string) ([]GrantRow, error)
+}
+
+// GrantRow is a compact grant summary for the in-TUI /grant list.
+type GrantRow struct {
+	Name, Price, Status string
+}
 
 // quiet is true when output isn't an interactive color TTY (NO_COLOR set, or
 // piped / redirected). lipgloss already strips color in that case; we also
@@ -234,6 +258,12 @@ type model struct {
 	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
 	// async, cached update check (non-blocking)
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
+	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
+	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
+	share     *agent.Session // running in-process /share (nil = off air)
+	onAir     bool           // ON AIR indicator + panel
+	ghLogin   string         // linked GitHub login once /login succeeds
+	grantList []GrantRow     // last /grant list result
 }
 
 // ---- messages ----
@@ -246,17 +276,36 @@ type chatMsg struct {
 type errMsg string
 type tickMsg struct{}
 
+// in-TUI flow result messages
+type loginMsg string                  // github login on success
+type topupMsg string                  // checkout URL
+type grantMsg struct{ secret string } // a newly created grant's secret (shown once)
+type grantListMsg []GrantRow
+type flowErrMsg string // a flow failed (login/topup/grant) - shown on the status line
+
 func New(broker, user string) model {
 	return NewWith(broker, user, nil)
 }
 
 // NewWith builds the model with a spend-limit store (nil = no caps / no persist).
 func NewWith(broker, user string, limits *LimitStore) model {
+	return NewWithHooks(broker, user, limits, Hooks{})
+}
+
+// NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
+// account / money flows.
+func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
+	m := newBase(broker, user, limits)
+	m.hooks = hooks
+	return m
+}
+
+func newBase(broker, user string, limits *LimitStore) model {
 	ci := textinput.New()
 	// We render the `rog ›` lockup ourselves in promptLine, so the input carries no
 	// prompt of its own (avoids a doubled marker). Its View() still echoes live.
 	ci.Prompt = ""
-	ci.Placeholder = "search · connect · chat · limits · share · endpoint · balance · help · quit"
+	ci.Placeholder = "search · connect · chat · share · login · topup · grant · limits · balance · help · quit"
 	ch := textinput.New()
 	ch.Prompt = ""
 	ch.Placeholder = "type to talk on channel  ·  / for in-session commands"
@@ -320,6 +369,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(string(msg), "broker unreachable") {
 			m.scanErr = true // the band scan dropped -> Ping goes "...static"
 		}
+		m.status = stEmber.Render("! " + string(msg))
+		return m, nil
+	case loginMsg:
+		m.ghLogin = string(msg)
+		m.status = stLive.Render("◆ logged in as @" + string(msg) + " - you can now earn as a provider")
+		return m, nil
+	case topupMsg:
+		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
+		return m, nil
+	case grantMsg:
+		m.status = stLive.Render("◆ grant created - secret (shown once): ") + stKey.Render(msg.secret)
+		return m, nil
+	case grantListMsg:
+		m.grantList = []GrantRow(msg)
+		if len(m.grantList) == 0 {
+			m.status = stDim.Render("no grants yet - /grant create <name> mints a free key")
+		} else {
+			m.status = stLive.Render(plural(len(m.grantList), "grant") + " - see the panel")
+		}
+		return m, nil
+	case flowErrMsg:
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
 	case tea.KeyMsg:
@@ -529,6 +599,9 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 		m.status = "tune in to a station first (Enter)"
 	case "balance", "bal":
+		if m.haveBal && m.balance <= 0 {
+			m.status = stEmber.Render("balance empty") + stDim.Render(" - ") + stKey.Render("/topup") + stDim.Render(" to add funds")
+		}
 		return m, fetchBalance(m.broker, m.user)
 	case "limits", "limit":
 		m.enterLimits()
@@ -543,7 +616,13 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 			m.status = "confidential-only off"
 		}
 	case "share":
-		m.status = "go on air: run `rogerai share` in another terminal (auto-detects your local model)"
+		return m.doShare(fields[1:])
+	case "login":
+		return m.doLogin()
+	case "topup", "add":
+		return m.doTopup(fields[1:])
+	case "grant":
+		return m.doGrant(fields[1:])
 	case "endpoint", "ep":
 		if m.connected == nil {
 			m.status = "tune in first to get an endpoint"
@@ -556,6 +635,143 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		m.status = "unknown: /" + fields[0] + "  (try /help)"
 	}
 	return m, nil
+}
+
+// doShare starts (or stops) an in-process provider and flips the ON-AIR panel.
+// `/share off` goes off air. With no running session it auto-detects the local
+// model + the saved price (FREE by default) and registers in-process - no second
+// terminal, no "run it elsewhere". A free share needs no login (matches the CLI).
+func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
+	if len(args) > 0 && (args[0] == "off" || args[0] == "stop") {
+		if m.share != nil {
+			m.share.Stop()
+			m.share = nil
+		}
+		m.onAir = false
+		m.status = stDim.Render("off air - you stopped sharing")
+		return m, nil
+	}
+	if m.onAir && m.share != nil {
+		m.status = stLive.Render("already ON AIR") + stDim.Render(" - /share off to stop")
+		return m, nil
+	}
+	found := detect.Detect()
+	if len(found) == 0 {
+		m.status = stEmber.Render("! no local LLM detected - start Ollama/LM Studio/llama.cpp/vLLM, then /share")
+		return m, nil
+	}
+	pick := found[0]
+	mdl := m.hooks.ShareModel
+	if mdl == "" && len(pick.Models) > 0 {
+		mdl = pick.Models[0]
+	}
+	ctxLen := 0
+	if c, ok := pick.Ctx[mdl]; ok {
+		ctxLen = c
+	}
+	if ctxLen <= 0 {
+		ctxLen = 32768
+	}
+	node := m.hooks.NodeID
+	if node == "" {
+		node = "node"
+	}
+	sess, err := agent.Start(agent.Config{
+		Broker: m.broker, Upstream: normalizeUpstream(pick.Chat), NodeID: node,
+		Region: "home", HW: m.hooks.HW, Model: mdl,
+		PriceIn: m.hooks.SharePriceI, PriceOut: m.hooks.SharePriceO, Ctx: ctxLen, Parallel: 4,
+	})
+	if err != nil {
+		m.status = stEmber.Render("! could not go on air: " + err.Error())
+		return m, nil
+	}
+	m.share = sess
+	m.onAir = true
+	kind := "FREE"
+	if m.hooks.SharePriceO > 0 || m.hooks.SharePriceI > 0 {
+		kind = dollars(m.hooks.SharePriceO) + "/1M out"
+	}
+	m.status = stLive.Render("● ON AIR ") + stDim.Render("- sharing ") + stKey.Render(mdl) + stDim.Render(" ("+kind+")")
+	return m, nil
+}
+
+// doLogin runs the GitHub device flow in-TUI (async; the result lands as a
+// loginMsg / flowErrMsg).
+func (m model) doLogin() (tea.Model, tea.Cmd) {
+	if m.hooks.Login == nil {
+		m.status = stDim.Render("login unavailable in this build - run `rogerai login`")
+		return m, nil
+	}
+	m.status = stDim.Render("opening GitHub device login - follow the code shown in your terminal…")
+	broker, clientID := m.broker, m.hooks.GitHubID
+	login := m.hooks.Login
+	return m, func() tea.Msg {
+		l, err := login(broker, clientID)
+		if err != nil {
+			return flowErrMsg("login failed: " + err.Error())
+		}
+		return loginMsg(l)
+	}
+}
+
+// doTopup opens checkout (async; the URL lands as a topupMsg).
+func (m model) doTopup(args []string) (tea.Model, tea.Cmd) {
+	if m.hooks.TopupURL == nil {
+		m.status = stDim.Render("top-up unavailable in this build - run `rogerai balance --topup`")
+		return m, nil
+	}
+	usd := 10.0
+	if len(args) > 0 {
+		if f, err := strconv.ParseFloat(args[0], 64); err == nil && f > 0 {
+			usd = f
+		}
+	}
+	broker, user, topup := m.broker, m.user, m.hooks.TopupURL
+	m.status = stDim.Render("opening checkout…")
+	return m, func() tea.Msg {
+		url, err := topup(broker, user, usd)
+		if err != nil {
+			return flowErrMsg("top-up failed: " + err.Error())
+		}
+		return topupMsg(url)
+	}
+}
+
+// doGrant creates or lists owner grant keys in-TUI. `/grant create <name>` mints a
+// FREE key (shown once); `/grant` or `/grant list` lists them.
+func (m model) doGrant(args []string) (tea.Model, tea.Cmd) {
+	if len(args) >= 1 && (args[0] == "create" || args[0] == "new") {
+		if m.hooks.GrantCreate == nil {
+			m.status = stDim.Render("grants unavailable in this build - run `rogerai grant create`")
+			return m, nil
+		}
+		name := "my-bots"
+		if len(args) >= 2 {
+			name = args[1]
+		}
+		broker, create := m.broker, m.hooks.GrantCreate
+		m.status = stDim.Render("creating free grant " + name + "…")
+		return m, func() tea.Msg {
+			secret, err := create(broker, name, true)
+			if err != nil {
+				return flowErrMsg("grant create failed: " + err.Error())
+			}
+			return grantMsg{secret: secret}
+		}
+	}
+	// default: list
+	if m.hooks.GrantList == nil {
+		m.status = stDim.Render("grants unavailable in this build - run `rogerai grant list`")
+		return m, nil
+	}
+	broker, list := m.broker, m.hooks.GrantList
+	return m, func() tea.Msg {
+		rows, err := list(broker)
+		if err != nil {
+			return flowErrMsg("grant list failed: " + err.Error())
+		}
+		return grantListMsg(rows)
+	}
 }
 
 // connect is two-phase: it builds the quote for the selected band and enters the
@@ -833,6 +1049,10 @@ func (m model) View() string {
 	if m.connected != nil && m.mode != modeChat && m.mode != modeConnectConfirm && m.mode != modeOverLimit && m.mode != modeLimits {
 		b.WriteString("\n" + m.endpointPanel(w))
 	}
+	// The ON AIR provider panel rides under the browse view whenever /share is live.
+	if m.onAir && m.share != nil && (m.mode == modeBrowse || m.mode == modeCommand) {
+		b.WriteString("\n" + m.onAirPanel(w))
+	}
 	// The command prompt is always present in browse/command mode so it is never a
 	// mystery WHERE to type: a labeled `rog ›` line that echoes every keystroke
 	// live (its textinput View() is re-rendered each Update). modeChat owns its own
@@ -1069,9 +1289,13 @@ func (m model) header(w int) string {
 		return bar + "\n" + rule
 	}
 
-	// EXPANDED: brand lockup + eye on the left; the mode badge on the right.
+	// EXPANDED: brand lockup + eye on the left; the mode badge on the right. When
+	// /share is live, a single ON AIR mark leads the badge (the one on-air indicator).
 	left := tower + name + "  " + eye
 	badge := stDim.Render("mode ") + stSelText.Render(m.modeName())
+	if m.onAir {
+		badge = stRed.Render("● ON AIR") + stDim.Render("  ·  ") + badge
+	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(badge)
 	if gap < 1 {
 		gap = 1
@@ -1347,6 +1571,26 @@ func (m model) endpointPanel(w int) string {
 	return stPanel.Render(body)
 }
 
+// onAirPanel renders the live ON AIR provider instrument: model, price,
+// connections served, and running earnings in $, with an off-air hint.
+func (m model) onAirPanel(w int) string {
+	s := m.share
+	in, out := s.Price()
+	reqs, toks := s.Served()
+	price := stLive.Render("FREE")
+	if in > 0 || out > 0 {
+		price = stEmber.Render(dollars(out) + "/1M out  " + dollars(in) + "/1M in")
+	}
+	head := stRed.Render("● ON AIR") + "  " + stDim.Render("you are sharing") + "  " + stKey.Render(s.Model())
+	body := head + "\n" +
+		stDim.Render("  node       ") + stSelText.Render(s.Node()) + "\n" +
+		stDim.Render("  price      ") + price + "\n" +
+		stDim.Render("  served     ") + stLive.Render(fmt.Sprintf("%d", reqs)) + stDim.Render(fmt.Sprintf(" requests · %d out tokens", toks)) + "\n" +
+		stDim.Render("  earnings   ") + stEmber.Render(dollars(s.Earnings())) + stDim.Render("  (settles on the broker)") + "\n" +
+		stDim.Render("  ") + stKey.Render("/share off") + stDim.Render(" to go off air")
+	return stPanel.Render(body)
+}
+
 func (m model) footer(w int) string {
 	// Keybindings adapt to the mode so the footer always teaches the right keys.
 	var left string
@@ -1385,11 +1629,13 @@ func (m model) helpView() string {
 		{"/connect (enter)", "tune in to the selected station"},
 		{"/chat (c · tab)", "open the CHANNEL session with the connected model"},
 		{"/limits", "see + edit your per-model spend maxes"},
-		{"/endpoint", "show the local OpenAI endpoint + key"},
-		{"/confidential", "toggle: route only to TEE-attested nodes"},
-		{"/config", "broker + identity (federation: switch brokers)"},
-		{"/share", "go on air - share your own local model"},
 		{"/balance", "wallet balance ($)"},
+		{"/topup [usd]", "add credits (opens checkout)"},
+		{"/share [off]", "go ON AIR - share your local model (in-process)"},
+		{"/login", "link GitHub (device flow) - to earn"},
+		{"/grant [create <name>]", "private free keys for your bots/family"},
+		{"/confidential", "toggle: route only to TEE-attested nodes"},
+		{"/endpoint  /config", "endpoint + key · broker/identity"},
 		{"/help  /quit", "this · exit"},
 	}
 	var b strings.Builder
@@ -1485,6 +1731,23 @@ func tintSignal(raw string, tps float64, online bool) string {
 	return stDim.Render(raw)
 }
 
+// normalizeUpstream turns a detected base/chat URL into the chat-completions URL
+// the agent POSTs to (mirrors cmd/rogerai's helper; kept local so the TUI's
+// in-process /share has no host dependency).
+func normalizeUpstream(u string) string {
+	u = strings.TrimRight(strings.TrimSpace(u), "/")
+	switch {
+	case u == "":
+		return u
+	case strings.HasSuffix(u, "/chat/completions"):
+		return u
+	case strings.HasSuffix(u, "/v1"):
+		return u + "/chat/completions"
+	default:
+		return u + "/v1/chat/completions"
+	}
+}
+
 // plural renders "1 band" / "3 bands": a count with its noun, +s unless n == 1.
 func plural(n int, noun string) string {
 	if n == 1 {
@@ -1570,7 +1833,13 @@ func RunWith(broker, user string, limits *LimitStore) error {
 // (empty = none) surfaced in the status area. The host owns the (cached, async,
 // non-blocking) update check so the TUI never does network at startup.
 func RunWithNotice(broker, user string, limits *LimitStore, notice string) error {
-	m := NewWith(broker, user, limits)
+	return RunWithHooks(broker, user, limits, notice, Hooks{})
+}
+
+// RunWithHooks is RunWithNotice plus the host-supplied hooks that make the in-TUI
+// /share, /login, /topup, /grant flows real actions.
+func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks Hooks) error {
+	m := NewWithHooks(broker, user, limits, hooks)
 	m.updateLine = notice
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err

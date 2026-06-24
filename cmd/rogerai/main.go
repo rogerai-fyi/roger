@@ -157,6 +157,37 @@ func tuiLimits(cfg config) *tui.LimitStore {
 	}
 }
 
+// tuiHooks supplies the host bits the TUI can't compute (hostname, HW, the public
+// GitHub client id, the saved share config) plus the login/topup/grant closures,
+// so the in-TUI /share, /login, /topup, /grant flows are real actions.
+func tuiHooks(cfg config) tui.Hooks {
+	h := tui.Hooks{
+		NodeID:   hostname(),
+		HW:       detectHW(),
+		GitHubID: gitHubClientID(),
+		Login:    client.LoginReturn,
+		TopupURL: client.TopupURL,
+		GrantCreate: func(broker, name string, free bool) (string, error) {
+			return client.GrantCreateSecret(broker, name, free)
+		},
+		GrantList: func(broker string) ([]tui.GrantRow, error) {
+			rows, err := client.GrantListRows(broker)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]tui.GrantRow, 0, len(rows))
+			for _, r := range rows {
+				out = append(out, tui.GrantRow{Name: r.Name, Price: r.Price, Status: r.Status})
+			}
+			return out, nil
+		},
+	}
+	if cfg.Share != nil {
+		h.ShareModel, h.SharePriceI, h.SharePriceO = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
+	}
+	return h
+}
+
 func main() {
 	cfg := loadConfig()
 	tui.SetVersion(Version) // help/about surfaces match `rogerai version`
@@ -167,8 +198,8 @@ func main() {
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
 		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
 		cfg = maybeOnboard(cfg)
-		// no args -> launch the interactive radio TUI
-		if err := tui.RunWithNotice(cfg.Broker, cfg.User, tuiLimits(cfg), notice); err != nil {
+		// no args -> launch the interactive radio TUI with the in-TUI flow hooks
+		if err := tui.RunWithHooks(cfg.Broker, cfg.User, tuiLimits(cfg), notice, tuiHooks(cfg)); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
