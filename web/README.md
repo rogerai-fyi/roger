@@ -25,19 +25,34 @@ Cloudflare Pages (output dir = `web/`).
 White, minimal, lots of whitespace; one accent (volt `#5B5BFF`) with live/ember/
 gold used only as small signals. No emoji, no icon fonts, no JS frameworks.
 
-## Run it (no build)
+## Run it (tiny build)
+
+The chrome (nav, footer, head, brand) is defined ONCE in `web/src/_partials/`
+and stitched into every page by a dependency-free Node script. Pages live in
+`web/src/`; the static output lands in `web/dist/`.
 
 ```sh
-cd web
-python3 -m http.server 5173
-# → http://localhost:5173
+make site            # node web/build.mjs -> web/dist/
+make site-serve      # build + http.server on http://localhost:5173
 ```
+
+Include syntax: `<!-- include: nav.html variant=marketing -->`; inside a partial,
+args substitute as `{{name}}` and gate `{{#if k=v}}...{{/if}}` blocks. The build
+fails loudly on any unresolved marker.
+
+**How to change the logo:** edit **`web/src/_partials/brand.html`** - the single
+source of the brand mark (the `[ ]` brackets + the live-red circle on-air beacon
++ the spanned `RogerAI` wordmark). Every page's nav and footer brand come from
+it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
+(`ping.svg`) so the brand family stays in sync.
 
 ## Deploy
 
-Cloudflare Pages, **no build command**, output directory `web`. Full steps and
-the rationale for the tech choices are in **[`TECH.md`](TECH.md)**. The hero
-`curl` resolves to **[`install.sh`](install.sh)** served from this same dir.
+DigitalOcean App Platform runs the build at deploy time
+(`build_command: node web/build.mjs`, `output_dir: web/dist`); see
+**[`../.do/app.yaml`](../.do/app.yaml)**. The hero `curl` resolves to
+**[`src/install.sh`](src/install.sh)**, copied to the output root. The rationale
+for the tech choices is in **[`TECH.md`](TECH.md)**.
 
 ## install.sh
 

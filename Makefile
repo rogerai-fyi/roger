@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check
+.PHONY: build demo clean kill test check site site-serve
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -6,6 +6,17 @@ build:
 	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
 	go build -o bin/rogerai           ./cmd/rogerai
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
+
+# Build the marketing + account site: resolve the shared chrome partials
+# (web/src/_partials/{head,brand,nav,footer}.html) into every page and copy
+# assets, writing the static tree to web/dist/. Same command DO App Platform
+# runs (build_command). To change the logo, edit web/src/_partials/brand.html.
+site:
+	node web/build.mjs
+
+# Build, then serve the output for a quick local check at http://localhost:5173
+site-serve: site
+	cd web/dist && python3 -m http.server 5173
 
 # Run the full test suite (ledger/payouts/account etc. live in internal/store +
 # cmd/rogerai-broker).

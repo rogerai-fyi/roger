@@ -24,6 +24,30 @@ services:
         value: "8080"
     routes:
       - path: /
+        # serve the broker only on its own domain (broker.rogerai.fyi)
+    # The broker answers on broker.rogerai.fyi; the marketing/account site on the
+    # apex. Pin each component to its domain so they don't share a route prefix.
+# ----------------------------------------------------------------------------
+# Marketing + account site (rogerai.fyi). DO runs the build at deploy time:
+# `node web/build.mjs` resolves the shared chrome partials (web/src/_partials/
+# {head,brand,nav,footer}.html) into every page and copies assets to web/dist/.
+# Dependency-free (no npm install); the Node buildpack provides node.
+static_sites:
+  - name: site
+    github:
+      repo: rogerai-fyi/roger
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    build_command: node web/build.mjs
+    output_dir: web/dist
+    catchall_document: 404.html   # serve the on-brand 404 for unknown paths
+    routes:
+      - path: /
 domains:
   - domain: broker.rogerai.fyi
     type: PRIMARY
+  - domain: rogerai.fyi
+    type: ALIAS
+  - domain: www.rogerai.fyi
+    type: ALIAS
