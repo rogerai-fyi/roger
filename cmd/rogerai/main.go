@@ -78,6 +78,12 @@ type config struct {
 	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
 	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
 	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
+	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
+	// hostname - so it never leaks the machine name. Auto-generated once and persisted
+	// (loadOrCreateStation); the owner can rename it (`share --node`, or the TUI [2]
+	// SHARE `n` rename). The broker node id is derived as `<station>-<model-slug>`.
+	Station string `json:"station,omitempty"`
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -175,6 +181,39 @@ func saveConfig(c config) error {
 	return os.WriteFile(configPath(), b, 0600)
 }
 
+// loadOrCreateStation returns this install's friendly, NON-SENSITIVE broadcast
+// callsign (e.g. `brave-otter-37`), generating + persisting one with crypto/rand on
+// first use. It is the PUBLIC station identity surfaced in /discover - deliberately
+// NOT the hostname - and is stable across restarts so a node re-registers as the same
+// broker id. The owner can override it with `share --node` or the TUI rename, both of
+// which persist via saveStation.
+func loadOrCreateStation() string {
+	c := loadConfig()
+	if s := agentSlugStation(c.Station); s != "" {
+		return s
+	}
+	st := agent.GenerateStation()
+	saveStation(st)
+	return st
+}
+
+// saveStation persists the owner's station callsign (a rename or the first
+// auto-generated one). Empty input is ignored so a rename never blanks the station.
+func saveStation(station string) {
+	station = agentSlugStation(station)
+	if station == "" {
+		return
+	}
+	c := loadConfig()
+	c.Station = station
+	_ = saveConfig(c)
+}
+
+// agentSlugStation normalizes a station name to the same broker-safe slug the node id
+// uses (lowercased, non-alphanumerics collapsed to single dashes), so what the owner
+// types, what is persisted, and what appears in /discover all match. Empty in -> empty.
+func agentSlugStation(s string) string { return agent.SlugStation(s) }
+
 // tuiLimits builds the TUI spend-limit store from the config, with a Save
 // callback that persists edits back to config.json (the TUI owns no I/O).
 func tuiLimits(cfg config) *tui.LimitStore {
@@ -202,12 +241,17 @@ func tuiLimits(cfg config) *tui.LimitStore {
 	}
 }
 
-// tuiHooks supplies the host bits the TUI can't compute (hostname, HW, the public
-// GitHub client id, the saved share config) plus the login/topup/grant closures,
-// so the in-TUI /share, /login, /topup, /grant flows are real actions.
+// tuiHooks supplies the host bits the TUI can't compute (the broadcast station, HW,
+// the public GitHub client id, the saved share config) plus the login/topup/grant
+// closures, so the in-TUI /share, /login, /topup, /grant flows are real actions.
 func tuiHooks(cfg config) tui.Hooks {
 	h := tui.Hooks{
-		NodeID:      hostname(),
+		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
+		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
+		// hostname, so going on air in the TUI leaks no machine name or port. SaveStation
+		// persists a rename (the TUI does no disk I/O itself).
+		Station:     loadOrCreateStation(),
+		SaveStation: saveStation,
 		HW:          detectHW(),
 		GitHubID:    gitHubClientID(),
 		LinkedLogin: client.LinkedLogin(), // "" when not logged in -> header shows the /login prompt
@@ -466,11 +510,11 @@ func cmdShare(cfg config, args []string) error {
 	}
 	fs := flag.NewFlagSet("share", flag.ExitOnError)
 	broker := fs.String("broker", cfg.Broker, "broker URL")
-	// Empty default: the node id is DERIVED below (hostname + model slug + a
-	// per-upstream disambiguator) once the model + upstream are known, so multiple
-	// bands on one host become distinct broker nodes instead of colliding on the bare
-	// hostname. An explicit --node still overrides.
-	node := fs.String("node", "", "node id (default: <hostname>-<model>-<port>, derived)")
+	// --node sets the friendly STATION callsign (e.g. `brave-otter`). Empty default: use
+	// the persisted station (auto-generated once on first share, never the hostname). A
+	// given --node is REMEMBERED as the station so it sticks across restarts and the TUI.
+	// The broker node id is then `<station>-<model-slug>` (no hostname, no port leak).
+	node := fs.String("node", "", "station callsign (e.g. brave-otter); persisted. default: your saved/auto station")
 	model := fs.String("model", defModel, "model to expose (default: first detected)")
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
@@ -560,15 +604,22 @@ func cmdShare(cfg config, args []string) error {
 	// is idempotent for them).
 	up = normalizeUpstream(up)
 
-	// Derive a UNIQUE, STABLE node id per (host, model, upstream) so several bands on
-	// one host are DISTINCT broker nodes - not colliding on the bare hostname (which
-	// caused the token-overwrite + re-register storm where only the last band stayed
-	// on air). An explicit --node still overrides. Routed through the same helper the
-	// in-TUI share flow uses.
-	nodeID := *node
-	if nodeID == "" {
-		nodeID = agent.ShareNodeID(hostname(), mdl, up)
+	// Resolve the PUBLIC station callsign and derive the broker node id from it. A
+	// `--node` value is the owner naming/renaming their station: persist it so it sticks
+	// across restarts and matches the TUI. Otherwise use the saved/auto-generated station
+	// (never the hostname). The node id is `<station>-<model-slug>` - no hostname and no
+	// upstream port ever appear in it (it is echoed verbatim to consumers in /discover).
+	station := ""
+	if s := agentSlugStation(*node); s != "" {
+		station = s
+		saveStation(station) // a --node rename sticks
+	} else {
+		station = loadOrCreateStation()
 	}
+	// instance 0: the CLI serves one model per process, so no same-model disambiguation
+	// is needed here (the TUI passes a real index when one host shares the same model on
+	// two local servers).
+	nodeID := agent.ShareNodeID(station, mdl, 0)
 
 	var sched []protocol.PriceWindow
 	if *freeWindow != "" {
@@ -1173,14 +1224,6 @@ func printLimits(c config) {
 		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
 	}
 	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
-}
-
-func hostname() string {
-	h, _ := os.Hostname()
-	if h == "" {
-		return "node"
-	}
-	return strings.ToLower(h)
 }
 
 // normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible

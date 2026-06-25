@@ -40,13 +40,19 @@ import (
 // REAL actions (not "run it elsewhere") without the tui package importing the
 // host. All are optional; a nil hook degrades that flow to a labeled hint.
 type Hooks struct {
-	NodeID      string  // this host's base id (hostname); per-band node ids are derived from it + model + upstream via agent.ShareNodeID
-	HW          string  // hardware label for the offer
-	GitHubID    string  // public GitHub OAuth client id (device flow)
-	LinkedLogin string  // the locally-linked GitHub login at startup ("" = anonymous)
-	ShareModel  string  // saved onboarding model (default offer)
-	SharePriceI float64 // saved input price (0 = free)
-	SharePriceO float64 // saved output price (0 = free)
+	// Station is the owner's friendly, NON-SENSITIVE broadcast callsign (e.g.
+	// `brave-otter`). Every band's broker node id is derived as `<station>-<model>` via
+	// agent.ShareNodeID - so it carries the station, NEVER the hostname or a port, into
+	// /discover. Seeded from the saved/auto-generated station; the in-TUI [2] SHARE `n`
+	// rename updates it live + persists via SaveStation.
+	Station     string
+	SaveStation func(station string) // persist a station rename (nil = in-session only; the TUI does no disk I/O)
+	HW          string               // hardware label for the offer
+	GitHubID    string               // public GitHub OAuth client id (device flow)
+	LinkedLogin string               // the locally-linked GitHub login at startup ("" = anonymous)
+	ShareModel  string               // saved onboarding model (default offer)
+	SharePriceI float64              // saved input price (0 = free)
+	SharePriceO float64              // saved output price (0 = free)
 	// ShareMaxOnAir is the SOFT local cap on how many bands may be ON AIR at once (the
 	// share.max_on_air config knob), read once at startup. The [2] SHARE selector shows
 	// the ON AIR n/max slots and BLOCKS flipping another row on air at the cap. <=0 means
@@ -554,6 +560,13 @@ type model struct {
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
 	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
+	// station is the live, slugged broadcast callsign every band's node id is derived
+	// from (`<station>-<model>`). Seeded from Hooks.Station; the `n` rename in [2] SHARE
+	// edits it (renaming buffer = stationEdit while renaming==true) and persists via
+	// Hooks.SaveStation. NEVER the hostname - it is the public /discover identity.
+	station     string
+	renaming    bool // [2] SHARE rename mode: keystrokes build stationEdit until enter/esc
+	stationEdit string
 	// Private bands ("frequency codes"): sharePrivate[model] marks a row shared on a
 	// hidden band (h toggles it). The band-card buffers hold the one-time secret code +
 	// cosmetic display to show ONCE on a modeBandCard card (c copies it). The card
@@ -733,6 +746,13 @@ func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 	// before the first /balance comes back. The broker's logged_in flag (from the
 	// signed balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
+	// Seed the live broadcast station from the host (the saved/auto-generated callsign),
+	// slugged so it matches the node id exactly. Falls back to a fresh callsign if the
+	// host supplied none, so the TUI never derives a hostname-based id.
+	m.station = agent.SlugStation(hooks.Station)
+	if m.station == "" {
+		m.station = agent.GenerateStation()
+	}
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
 	m.compact = hooks.Compact
 	// Seed per-model pricing the user set in a previous session.
@@ -1653,10 +1673,12 @@ func (m *model) toggleShareAt(i int) {
 	if up == "" {
 		up = m.shareUp
 	}
-	// Unique, STABLE node id per band: <hostname>-<model>-<port>, derived through the
-	// SAME helper the CLI `rogerai share` uses, so two bands on one host are DISTINCT
-	// broker nodes (no bare-hostname collision -> no token war / re-register storm).
-	node := agent.ShareNodeID(m.hooks.NodeID, row.model, up)
+	// Unique, STABLE, PRIVACY-PRESERVING node id per band: <station>-<model>, derived
+	// through the SAME helper the CLI `rogerai share` uses. The station is the friendly
+	// callsign (never the hostname); the per-model slug keeps each band a DISTINCT broker
+	// node (no collision -> no token war / re-register storm). instance 0: one row per
+	// model (the shares map is keyed by model), so no same-model disambiguation is needed.
+	node := agent.ShareNodeID(m.station, row.model, 0)
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
@@ -1719,10 +1741,10 @@ func (m *model) togglePrivateAt(i int) {
 	if up == "" {
 		up = m.shareUp
 	}
-	// Same unique/stable node id as the public-share path (private just flips
-	// visibility): <hostname>-<model>-<port> via the shared helper, so a private band
-	// also gets its own broker node instead of colliding on the bare hostname.
-	node := agent.ShareNodeID(m.hooks.NodeID, row.model, up)
+	// Same unique/stable/privacy-preserving node id as the public-share path (private
+	// just flips visibility): <station>-<model> via the shared helper, so a private band
+	// also gets its own broker node and carries the friendly station, not the hostname.
+	node := agent.ShareNodeID(m.station, row.model, 0)
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
@@ -1868,6 +1890,12 @@ func (m *model) quitNow() (tea.Model, tea.Cmd) {
 // opens the per-model price + schedule editor (login-gated), r re-detects, esc/q
 // leaves (shares keep running in the background), s returns to TUNE IN.
 func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// RENAME mode owns every keystroke: `n` started a station rename, so we build the
+	// edit buffer char-by-char until enter (commit + persist) or esc (cancel). This is
+	// checked FIRST so the preset bank / table keys never steal the typing.
+	if m.renaming {
+		return m.onStationRenameKey(k)
+	}
 	// Preset bank: 1 TUNE IN · 3 CONFIG · L LOGIN · ? HELP jump straight out of the
 	// table. (2 SHARE is the current screen, so it is a no-op pressed-state and falls
 	// through to the table keys below; `a`/`enter` toggle on-air as before.)
@@ -1895,6 +1923,14 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// HIDE / PRIVATE: toggle the selected row onto a hidden frequency band
 		// (login-gated). A fresh mint routes into the one-time code card (modeBandCard).
 		m.togglePrivateAt(m.shareCursor)
+	case "n":
+		// RENAME the station callsign (the friendly, non-sensitive broadcast name shown in
+		// /discover). Opens the inline editor seeded with the current station; commit
+		// persists + re-derives every band's node id on its next on-air.
+		m.renaming = true
+		m.stationEdit = m.station
+		m.status = stDim.Render("rename station - type a callsign, ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
+		return m, nil
 	case "p", "e":
 		// Open the price + time-of-use schedule editor for the selected model. This is
 		// EARNING, so it is login-gated: anonymous users get a clear /login prompt
@@ -1912,6 +1948,45 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sharePending = ""
 		m.status = stDim.Render("re-scanning the band for local models…")
 		return m, detectSharesCmd(m.shareUp)
+	}
+	return m, nil
+}
+
+// onStationRenameKey drives the inline station-callsign rename (entered with `n` on the
+// SHARE table): printable runes + backspace build the buffer, enter commits, esc/ctrl+c
+// cancels. On commit the typed name is slugged (so it matches the node id exactly) and,
+// if non-empty, becomes the live station + is persisted via Hooks.SaveStation; the new
+// callsign takes effect on each band's NEXT on-air (or restart the row). An empty/blank
+// commit keeps the current station rather than blanking it.
+func (m *model) onStationRenameKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyEsc, tea.KeyCtrlC:
+		m.renaming = false
+		m.stationEdit = ""
+		m.status = stDim.Render("rename cancelled - station stays ") + stKey.Render(m.station)
+		return m, nil
+	case tea.KeyEnter:
+		m.renaming = false
+		slug := agent.SlugStation(m.stationEdit)
+		m.stationEdit = ""
+		if slug == "" {
+			m.status = stEmber.Render("station unchanged - ") + stKey.Render(m.station) + stDim.Render(" (a callsign needs at least one letter or digit)")
+			return m, nil
+		}
+		m.station = slug
+		if m.hooks.SaveStation != nil {
+			m.hooks.SaveStation(slug)
+		}
+		m.status = stLive.Render("station set to ") + stKey.Render(m.station) + stDim.Render(" - applies on the next on-air (re-toggle a row to apply now)")
+		return m, nil
+	case tea.KeyBackspace, tea.KeyDelete:
+		if n := len(m.stationEdit); n > 0 {
+			m.stationEdit = m.stationEdit[:n-1]
+		}
+		return m, nil
+	case tea.KeyRunes, tea.KeySpace:
+		m.stationEdit += string(k.Runes)
+		return m, nil
 	}
 	return m, nil
 }
@@ -5095,6 +5170,20 @@ func (m model) shareView(w int) string {
 			slotCell + "\n")
 	}
 
+	// Station line: the friendly broadcast callsign every band's node id carries into
+	// /discover (the owner sees THEIR name, never the hostname). While renaming, it shows
+	// the live edit buffer + a cursor; otherwise the current station + the `n` rename
+	// affordance. Width/NO_COLOR-safe (plain text carries it).
+	if m.renaming {
+		ln := "  " + stDim.Render("station ") + stSelText.Render(m.stationEdit+"_") +
+			stDim.Render("  ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
+		b.WriteString(truncVisible(ln, w-2) + "\n")
+	} else {
+		ln := "  " + stDim.Render("station ") + stKey.Render(m.station) +
+			stDim.Render(" · ") + stKey.Render("n") + stDim.Render(" rename")
+		b.WriteString(truncVisible(ln, w-2) + "\n")
+	}
+
 	// LOADING: detection runs off the event loop, so while it's in flight we show a
 	// clear indicator instead of a frozen UI. The ((•)) working spinner pulses with the
 	// tick; quiet (NO_COLOR / non-TTY) and compact (windowshade) both freeze it to a
@@ -5212,6 +5301,8 @@ func (m model) shareView(w int) string {
 		if !m.loggedInState() {
 			ph = stDim.Render("log in to earn")
 		}
+		// Dense (narrow) footer keeps it short; the `n rename` affordance already rides on
+		// the station line above, so it is omitted here to stay within 40 cols.
 		b.WriteString("\n  " + stDim.Render("free · ") + stKey.Render("⏎") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggle · ") + stKey.Render("h") + stDim.Render(" hide · ") + ph + "\n")
 	} else {
 		ph := stKey.Render("p") + stDim.Render(" set price + schedule")
@@ -5220,7 +5311,8 @@ func (m model) shareView(w int) string {
 		}
 		b.WriteString("\n  " + stDim.Render("free by default · ") +
 			stKey.Render("enter") + stDim.Render("/") + stKey.Render("a") + stDim.Render(" toggles on/off air · ") +
-			stKey.Render("h") + stDim.Render(" hide on a private band · ") + ph + "\n")
+			stKey.Render("h") + stDim.Render(" hide on a private band · ") +
+			stKey.Render("n") + stDim.Render(" rename station · ") + ph + "\n")
 	}
 	// Cash-out hint for an earning provider (KYC / payable), under the affordance line.
 	// Width-safe + NO_COLOR-safe; empty when there's nothing actionable.
