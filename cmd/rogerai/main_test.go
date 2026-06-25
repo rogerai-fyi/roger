@@ -279,6 +279,18 @@ func TestOnAirLine(t *testing.T) {
 	}
 }
 
+// TestEarningsLine: the provider money-OUT pointer printed under the go-live line
+// names the dashboard and the payout-status verb so a fresh provider knows where
+// earnings show up.
+func TestEarningsLine(t *testing.T) {
+	got := earningsLine()
+	for _, want := range []string{"earnings", "rogerai.fyi/dashboard.html", "rogerai payout status"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("earnings line %q missing %q", got, want)
+		}
+	}
+}
+
 // TestBalanceTopupAlias verifies the retired-but-still-working topup spellings under
 // `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and the
 // `--topup=<usd>` form, plus the bare `balance` (no alias).

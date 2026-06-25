@@ -1032,7 +1032,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.payout = payoutSnapshot(msg)
 		return m, nil
 	case topupMsg:
-		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render("  (open to pay)")
+		// Auto-open the Stripe Checkout URL ONCE here (this msg lands once per /topup),
+		// matching login/onboard/payout. openURL self-gates on an interactive TTY, so a
+		// headless / piped / background-service rogerai prints the URL but never hijacks
+		// a browser - hence the URL stays on screen as the copy-paste fallback.
+		openURL(string(msg))
+		hint := "  (opening in your browser - or copy to pay)"
+		if !interactive() {
+			hint = "  (open to pay)"
+		}
+		m.status = stEmber.Render("top up: ") + stKey.Render(string(msg)) + stDim.Render(hint)
 		return m, nil
 	case grantMsg:
 		m.status = stLive.Render(glyphLineage+" grant created - secret (shown once): ") + stKey.Render(msg.secret)
@@ -5691,9 +5700,13 @@ func (m model) onAirPanel(w int) string {
 	lines = append(lines, rows...)
 	lines = append(lines, totals)
 	// Cash-out hint (KYC / payable): only when there's something actionable. Width-safe
-	// + NO_COLOR-safe (the plain text carries it).
+	// + NO_COLOR-safe (the plain text carries it). When there is nothing actionable yet
+	// (fresh provider, nothing payable), still point them at where earnings show up so
+	// they are never left wondering where their money lands - one tasteful line either way.
 	if hint := m.payoutHint(); hint != "" {
 		lines = append(lines, "  "+hint)
+	} else {
+		lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fyi/dashboard.html")+stDim.Render("  (or: rogerai payout status)"))
 	}
 	lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
 	// Every line is truncated to the inner content width so the bordered plate never
