@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -53,6 +54,15 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	// Per-IP rate limit on this UNAUTHENTICATED public surface (keyed on the validated
+	// CF-Connecting-IP, see clientIP). /discover is no-auth and enumerates the whole
+	// market, so it gets the same per-IP discipline as the concierge and the anon relay
+	// to keep a single source from hammering it.
+	if ok, retry := b.anonRL.allow(clientIP(r)); !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 		return
 	}
 	cors(w) // public market data - let the website (rogerai.fyi) fetch it

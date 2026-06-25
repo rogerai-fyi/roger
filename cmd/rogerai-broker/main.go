@@ -93,10 +93,18 @@ type broker struct {
 	mod         moderation
 	payoutLocks sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
 	rl          *rateLimiter
-	grantRL     *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
-	concierge   *concierge    // "Ping" homepage chatbot (public LLM surface)
-	recount     recountConfig // L1 independent token re-count (tokenizer-sidecar)
-	probe       probeConfig   // active canary + latency probe
+	grantRL     *rateLimiter // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
+	// anonRL is a SEPARATE per-IP token bucket for the UNAUTHENTICATED public surfaces
+	// (the free/anon relay, /discover). identityOf collapses all unauthenticated callers
+	// to the single id "anon", so the per-identity b.rl bucket would be ONE shared bucket
+	// for the entire public surface - a single abuser could starve every anon caller, and
+	// no abuser is individually bounded. anonRL is keyed on the validated CF-Connecting-IP
+	// (clientIP), giving each source IP its own bucket. This extends the same per-IP
+	// discipline the concierge already uses (concierge.rl) to the other anon surfaces.
+	anonRL    *rateLimiter
+	concierge *concierge    // "Ping" homepage chatbot (public LLM surface)
+	recount   recountConfig // L1 independent token re-count (tokenizer-sidecar)
+	probe     probeConfig   // active canary + latency probe
 
 	// banned is the in-memory ejected-node set (node id -> true), guarded by metricsMu.
 	// Re-hydrated from the store at startup and updated on a ban; pick/discover/market
@@ -115,6 +123,17 @@ type broker struct {
 	bannedOwners map[string]bool
 	strikeWarnAt int
 	strikeBanAt  int
+
+	// freeRegMu guards freeRegByIP: the per-CF-IP sliding-window record of FREE (anon,
+	// no-owner) node registrations used for the Sybil ceiling. A free node has no owner
+	// account, so the per-owner cap (maxNodesPerOwner) does not apply to it; without a
+	// separate ceiling an attacker could flood /discover + the pick candidate set with
+	// throwaway free node ids from one host. freeRegByIP[ip] holds the timestamps of
+	// that IP's recent NEW free registrations (older than freeRegWindow are pruned).
+	freeRegMu     sync.Mutex
+	freeRegByIP   map[string][]time.Time
+	freeRegPerIP  int           // max NEW free node registrations per CF-IP per window (0 disables)
+	freeRegWindow time.Duration // the sliding window for the per-IP free-reg cap
 
 	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
 	// on-air nodes a single owner account may have live (within nodeTTL) across all of
@@ -199,6 +218,9 @@ func main() {
 		banned:           map[string]bool{},
 		reportEjectAt:    reportEjectThreshold(),
 		maxNodesPerOwner: maxNodesPerOwnerLimit(),
+		freeRegByIP:      map[string][]time.Time{},
+		freeRegPerIP:     freeRegPerIPLimit(),
+		freeRegWindow:    freeRegWindowDur(),
 		bannedOwners:     map[string]bool{},
 		strikeWarnAt:     strikeWarnAt(),
 		strikeBanAt:      strikeBanAt(),
@@ -214,6 +236,7 @@ func main() {
 	b.mod = loadModeration()
 	b.rl = loadRateLimiter()
 	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
+	b.anonRL = loadAnonRateLimiter()
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	b.concierge = loadConcierge()
@@ -282,7 +305,83 @@ func main() {
 	go b.reattestSweep() // drop verified-confidential status that has lapsed its re-attest cadence
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+
+	// Tuned server (replaces the bare http.ListenAndServe). The timeouts that are
+	// SAFE for every route live here; the per-route write/response bound is applied
+	// selectively in streamSafeHandler so the long-lived routes are never capped.
+	//
+	//   ReadHeaderTimeout - slow-loris guard: bound how long a client may dribble
+	//     request headers. Safe on every route (including streams/long-poll).
+	//   ReadTimeout       - bound the time to read the whole request (headers+body).
+	//     Safe everywhere: our request bodies are small + bounded (LimitReader); the
+	//     LONG wait is on the RESPONSE side (long-poll/stream), which ReadTimeout does
+	//     not touch.
+	//   IdleTimeout       - reap idle keep-alive connections.
+	//   MaxHeaderBytes    - cap header size (cheap DoS guard).
+	//
+	// DELIBERATELY NO global WriteTimeout. A blanket WriteTimeout fires from the
+	// moment the handler is invoked and would KILL the long-lived surfaces:
+	//   - /agent/poll holds a connection open up to 25s waiting for a job (tunnel.go),
+	//   - /v1/chat/completions (stream:true) + /agent/stream pump SSE for up to 300s,
+	//   - /concierge can wait on an upstream model.
+	// Those MUST stay open. Instead the NON-streaming routes are individually bounded
+	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
+	// never pin a connection, while the streaming/poll routes keep their long windows.
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           streamSafeHandler(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KiB
+	}
+	log.Fatal(srv.ListenAndServe())
+}
+
+// streamRoutes are the paths that MUST keep a long-lived response open and therefore
+// must NOT be wrapped in a response/write deadline:
+//
+//   - /agent/poll   - the node long-poll, held up to 25s for a job (tunnel.go).
+//   - /agent/stream - the node pipes SSE chunks here for the life of a stream.
+//   - /agent/result - the node POSTs a completed result; can arrive late on a slow
+//     CPU-MoE provider, so it must not be cut by a non-stream write deadline.
+//   - /v1/chat/completions - may be stream:true (SSE, up to 300s) OR a non-stream
+//     relay that itself waits on the provider; it does its OWN Cloudflare-aware
+//     bounding internally (relay caps the non-stream wait below CF's ~100s proxy
+//     limit, see tunnel.go), so a blanket TimeoutHandler here would double-bound it
+//     and could truncate a legitimate SSE stream.
+//   - /concierge - the public Ping chat may wait on an upstream model.
+//
+// Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
+var streamRoutes = map[string]bool{
+	"/agent/poll":          true,
+	"/agent/stream":        true,
+	"/agent/result":        true,
+	"/v1/chat/completions": true,
+	"/concierge":           true,
+}
+
+// nonStreamTimeout is the response deadline applied to every NON-streaming route. It
+// caps how long a single non-stream handler may take to produce its full response so
+// a stuck handler can never pin a connection, WITHOUT touching the long-lived
+// streaming/long-poll routes (those are excluded via streamRoutes). Comfortably
+// below Cloudflare's ~100s proxy cap so a slow bounded handler returns a real 503
+// before CF would emit an opaque 524.
+const nonStreamTimeout = 30 * time.Second
+
+// streamSafeHandler wraps the mux so NON-streaming routes get a response deadline
+// (http.TimeoutHandler) while the streaming/long-poll routes in streamRoutes pass
+// through unbounded. This is the per-handler discipline that replaces a global
+// WriteTimeout: short routes are capped, long-lived routes stay open.
+func streamSafeHandler(mux http.Handler) http.Handler {
+	bounded := http.TimeoutHandler(mux, nonStreamTimeout, `{"error":{"message":"request timed out"}}`)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if streamRoutes[r.URL.Path] {
+			mux.ServeHTTP(w, r) // long-lived: no response deadline
+			return
+		}
+		bounded.ServeHTTP(w, r)
+	})
 }
 
 // lockedPrice returns the price to BILL for this user+node+model. The first time

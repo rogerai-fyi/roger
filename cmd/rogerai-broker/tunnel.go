@@ -69,6 +69,71 @@ func (b *broker) ownerOnAirCount(owner, self string) int {
 	return n
 }
 
+// Free-node registration ceiling (Sybil hygiene). A FREE (anon, no-owner) node is
+// not attributable to an owner account, so the per-owner on-air cap cannot bound it.
+// Without a ceiling, one host could flood /discover + the pick candidate set with
+// throwaway free node ids. defaultFreeRegPerIP NEW free registrations per CF-IP within
+// defaultFreeRegWindow are allowed; the next is rejected. Both are env-tunable; a
+// per-IP limit <= 0 disables the ceiling entirely (e.g. for a trusted/dev deployment).
+const (
+	defaultFreeRegPerIP  = 10
+	defaultFreeRegWindow = time.Hour
+)
+
+// freeRegPerIPLimit reads the per-CF-IP free-registration cap from the environment,
+// falling back to the default. <0 is ignored (keeps default); 0 disables the ceiling.
+func freeRegPerIPLimit() int {
+	if v := os.Getenv("ROGERAI_FREE_REG_PER_IP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultFreeRegPerIP
+}
+
+// freeRegWindowDur reads the sliding window for the per-IP free-registration cap from
+// the environment (seconds), falling back to the default. <=0 is ignored.
+func freeRegWindowDur() time.Duration {
+	if v := os.Getenv("ROGERAI_FREE_REG_WINDOW_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return defaultFreeRegWindow
+}
+
+// allowFreeReg records a NEW free (anon, no-owner) node registration from ip and
+// reports whether it is within the per-IP ceiling. An idempotent re-register of an
+// already-known node passes `isNew=false` and is NEVER counted or rejected (a running
+// free node must be able to keep refreshing). Returns true (allowed) when the ceiling
+// is disabled (freeRegPerIP <= 0) or ip is empty. The per-IP timestamp slice is pruned
+// to the sliding window on each call so it cannot grow without bound.
+func (b *broker) allowFreeReg(ip string, isNew bool) bool {
+	if b.freeRegPerIP <= 0 || ip == "" || !isNew {
+		return true
+	}
+	now := time.Now()
+	b.freeRegMu.Lock()
+	defer b.freeRegMu.Unlock()
+	if b.freeRegByIP == nil {
+		b.freeRegByIP = map[string][]time.Time{}
+	}
+	// Prune timestamps older than the window for this IP.
+	cutoff := now.Add(-b.freeRegWindow)
+	kept := b.freeRegByIP[ip][:0]
+	for _, t := range b.freeRegByIP[ip] {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= b.freeRegPerIP {
+		b.freeRegByIP[ip] = kept
+		return false
+	}
+	b.freeRegByIP[ip] = append(kept, now)
+	return true
+}
+
 // nodeTunnel is the broker's per-node relay state: a buffered job queue the node
 // long-polls, and the set of result waiters keyed by job id. The token is the
 // node's Bearer BridgeToken, checked on every poll/result/stream call.
@@ -78,6 +143,14 @@ type nodeTunnel struct {
 	waiters map[string]chan protocol.JobResult
 	token   string
 }
+
+// maxRecountCapture bounds the off-band completion copy the broker keeps for the L1
+// token re-count. Without this cap a malicious node could stream an unbounded body to
+// OOM the broker (a 512MB box) via the private capture buffer, multiplied by every
+// concurrent stream. 256 KiB is far more text than any legitimate completion needs
+// for a representative re-count; capture stops once the buffer reaches this size while
+// the client still receives the full, uncapped stream.
+const maxRecountCapture = 256 << 10 // 256 KiB
 
 // streamSink is the waiting client connection a node streams SSE chunks into.
 // cap (when non-nil) accumulates the assistant completion text from the SSE
@@ -205,6 +278,23 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// on-air node). Only owner-bound (priced OR private) registrations are attributable
 	// and capped; free public supply has no owner and is not counted here. The
 	// (limit+1)th node is rejected with a clear 4xx the share UX surfaces verbatim.
+	// FREE-NODE REGISTRATION CEILING (Sybil hygiene): a FREE (anon, no-owner)
+	// registration is not attributable to an owner account, so the per-owner cap above
+	// cannot bound it. Cap how many NEW free node ids one CF-IP may register within the
+	// window so a single host can't flood /discover + the pick candidate set with
+	// throwaway nodes. Only NEW free nodes count (`_, known := b.nodes[id]`): an
+	// idempotent re-register of an existing free node refreshes without being rejected.
+	// Owner-bound (priced/private) registers skip this - they are bounded by the
+	// per-owner cap instead.
+	if regOwner.Pubkey == "" {
+		_, known := b.nodes[reg.NodeID]
+		if !b.allowFreeReg(clientIP(r), !known) {
+			b.mu.Unlock()
+			jsonErr(w, http.StatusTooManyRequests,
+				"too many new free stations from this address - slow down or `rogerai login` to register an owned station")
+			return
+		}
+	}
 	if regOwner.Pubkey != "" && b.maxNodesPerOwner > 0 {
 		if b.ownerOnAirCount(regOwner.Pubkey, reg.NodeID) >= b.maxNodesPerOwner {
 			b.mu.Unlock()
@@ -606,10 +696,27 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusTooManyRequests, "grant rate limit exceeded - slow down")
 			return
 		}
-	} else if ok, retry := b.rl.allow(user); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(retry))
-		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
-		return
+	} else {
+		// Any UNAUTHENTICATED caller that resolves to the shared "anon" identity (no
+		// signed/grant identity) would otherwise share ONE relay bucket for the whole
+		// public surface, so enforce a SEPARATE per-IP limit first (keyed on the
+		// validated CF-Connecting-IP). A signed caller has its own per-identity bucket
+		// (keyed on its pubkey-derived id) and skips this. The relay spend gate below
+		// already 401s a bare unsigned request, so this is the defense for any no-auth
+		// relay path AND keeps the per-IP discipline uniform with /discover + concierge.
+		// See loadAnonRateLimiter.
+		if user == "anon" {
+			if ok, retry := b.anonRL.allow(clientIP(r)); !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retry))
+				jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+				return
+			}
+		}
+		if ok, retry := b.rl.allow(user); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
+			jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
+			return
+		}
 	}
 	var req struct {
 		Model  string `json:"model"`
@@ -926,11 +1033,26 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(res.Status)
 		_, _ = w.Write(res.Body)
-	case <-time.After(120 * time.Second):
+	case <-time.After(nonStreamRelayWait):
+		// CLOUDFLARE ~100s PROXY CAP: CF aborts a proxied request that has produced NO
+		// response bytes after ~100s with an opaque 524 the client cannot retry on
+		// cleanly. This NON-stream branch writes nothing until the result arrives, so we
+		// must return BEFORE CF's cap: nonStreamRelayWait (90s) is comfortably under it,
+		// so the broker emits its own clean, retryable 504 ("node timed out") instead of
+		// a CF 524. A genuinely slow provider should be consumed with stream:true (the
+		// streaming branch flushes headers immediately, resetting CF's idle clock).
 		b.exitInflight(node.NodeID, false)
-		jsonErr(w, http.StatusGatewayTimeout, "node timed out")
+		jsonErr(w, http.StatusGatewayTimeout, "node timed out (use stream:true for slow models)")
 	}
 }
+
+// nonStreamRelayWait bounds how long the NON-stream relay waits for a provider result
+// before returning a clean, retryable 504. It is held BELOW Cloudflare's ~100s proxy
+// cap (CF emits an opaque 524 if a proxied request produces no bytes within ~100s) so
+// the consumer always gets the broker's own 504 rather than CF's untyped 524. Slow
+// providers should be consumed with stream:true, which flushes headers immediately and
+// keeps the CF connection alive for the full 300s stream window.
+const nonStreamRelayWait = 90 * time.Second
 
 // relayStream handles the streaming path of POST /v1/chat/completions: it sends SSE
 // headers, registers the client as a sink, and enqueues the job. The node pipes
@@ -1132,8 +1254,13 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 			}
 			// Capture the streamed completion text (off-band, for the L1 re-count
 			// at stream end). The bytes still go straight to the client above; this
-			// only siphons a copy when capture is enabled.
-			if sink.cap != nil {
+			// only siphons a copy when capture is enabled. BOUNDED: a malicious node
+			// could stream an unbounded body to OOM the broker (512MB box) via this
+			// off-band copy, so we stop capturing once cap + the carry reach
+			// maxRecountCapture. The L1 re-count needs a REPRESENTATIVE sample, not the
+			// verbatim completion, so a prefix is sufficient; the client still receives
+			// the full stream (the cap only bounds our private copy).
+			if sink.cap != nil && sink.cap.Len()+sink.capRaw.Len() < maxRecountCapture {
 				sink.capRaw.Write(buf[:n])
 				drainSSEDeltas(&sink.capRaw, sink.cap)
 			}

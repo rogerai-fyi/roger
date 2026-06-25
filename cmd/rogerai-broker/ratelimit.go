@@ -49,6 +49,20 @@ func loadRateLimiter() *rateLimiter {
 	}
 }
 
+// loadAnonRateLimiter builds the per-IP limiter for the UNAUTHENTICATED public
+// surfaces (the free/anon relay + /discover), keyed on the validated CF-Connecting-IP.
+// It is intentionally TIGHTER than the per-identity relay limiter: an anonymous source
+// IP gets a smaller sustained rate + burst than a signed wallet, since the anon surface
+// is the abuse-prone one and a logged-in caller has its own per-identity bucket.
+// Tunable via ROGERAI_ANON_RATE_RPM / ROGERAI_ANON_RATE_BURST; RPM <= 0 disables it.
+func loadAnonRateLimiter() *rateLimiter {
+	return &rateLimiter{
+		buckets: map[string]*tokenBucket{},
+		rpm:     envFloat("ROGERAI_ANON_RATE_RPM", 30),
+		burst:   envFloat("ROGERAI_ANON_RATE_BURST", 15),
+	}
+}
+
 // allow consumes one token for key and reports whether it may proceed. When denied,
 // retryAfter is a seconds hint. RPM <= 0 disables limiting (always allow).
 func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) {
