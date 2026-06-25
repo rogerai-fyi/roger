@@ -18,7 +18,8 @@
     <h1>Terms of Service and Acceptable Use</h1>
     <p class="sub">The agreement between you and RogerAI ("we", "us"). By using the site, the
       CLI, the broker, or by going on air as an operator, you accept these Terms. If you do
-      not agree, do not use the service. Last updated 2026-06.</p>
+      not agree, do not use the service. Last updated 2026-06.
+      Metering, billing-integrity, and anti-abuse terms are in section 8.</p>
 
     <section class="panel">
       <h2>1. What RogerAI is</h2>
@@ -138,7 +139,39 @@
     </section>
 
     <section class="panel">
-      <h2>8. Termination</h2>
+      <h2>8. Metering, billing integrity, and anti-abuse</h2>
+      <p><b>How usage is measured.</b> RogerAI independently measures the token utilization of
+        every request - both the input you send and the output a node returns - using its own
+        measurement tools. <b>RogerAI's measurement is authoritative.</b> A node's self-reported
+        counts are advisory. Where a node's reported counts differ from RogerAI's measurement,
+        we adjust the billed usage, the cost charged to the consumer, and the operator's
+        earnings to RogerAI's measured figure - resolved to the platform's benefit, billed and
+        earned on the lesser of the two counts on each of input and output. We log every such
+        discrepancy for audit and quality.</p>
+      <p><b>No charge for non-generated output.</b> A request that produces no usable generated
+        output - an error response, an empty response, or an otherwise unfulfilled completion -
+        is not charged to the consumer. Any provisional or pre-authorized charge is voided and
+        refunded in full, and no operator earning accrues for it, regardless of the input the
+        request consumed.</p>
+      <p><b>Anti-abuse.</b> You must not attempt to inflate token counts, misreport input
+        against output, extract value without delivering usable output, run wash or self-dealing
+        traffic, or otherwise game the platform's pricing, earnings, or metrics. These are
+        violations of the Acceptable Use Policy. On detection we may issue a warning; withhold
+        or void the affected usage and earnings; suspend payouts; and suspend or ban the account
+        and its operator. <b>A ban attaches to the operator's account and KYC payout identity,
+        not merely to a single node identifier</b>, and it propagates to current and future
+        nodes operated under that identity. We make the supporting evidence - signed receipts
+        and our own measurements - available to the affected user.</p>
+      <p><b>Reservation of rights.</b> RogerAI reserves the right to void fraudulent or anomalous
+        usage and earnings, to withhold or reverse payouts tied to them, and to refuse, pause,
+        or terminate service for abuse. Consistent with our privacy posture, the broker remains
+        content-blind for this purpose: integrity enforcement relies on token counts and
+        integrity signals, not on the content of your messages. See the
+        <a href="/privacy.html">Privacy</a> page for how prompt content is handled.</p>
+    </section>
+
+    <section class="panel">
+      <h2>9. Termination</h2>
       <p>You may stop using the service at any time and delete your account from the
         <a href="/account.html">Account</a> page. We may suspend or terminate access - with or
         without notice where the law allows - for a breach of these Terms or the Acceptable
@@ -148,7 +181,7 @@
     </section>
 
     <section class="panel">
-      <h2>9. Data and deletion</h2>
+      <h2>10. Data and deletion</h2>
       <p>You can export your data and delete your account. Deletion anonymizes your identity
         but retains de-identified financial records for the legal retention window (tax/AML).
         See the <a href="/privacy.html">Privacy</a> page for what we collect and how prompt
@@ -156,14 +189,14 @@
     </section>
 
     <section class="panel">
-      <h2>10. Changes to these Terms</h2>
+      <h2>11. Changes to these Terms</h2>
       <p>We may update these Terms as the service and its legal review evolve. Material changes
         will be reflected by an updated date at the top. Continuing to use the service after a
         change means you accept the updated Terms.</p>
     </section>
 
     <section class="panel">
-      <h2>11. Governing law and disputes</h2>
+      <h2>12. Governing law and disputes</h2>
       <p>These Terms are governed by the laws of the operator's home jurisdiction in the United
         States, without regard to conflict-of-laws rules. The parties will first try to
         resolve any dispute informally by contacting
