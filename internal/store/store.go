@@ -398,6 +398,34 @@ type Store interface {
 	// stops being swept and is surfaced for manual handling). Idempotent per call.
 	MarkReversalAttempt(key string, success bool, errMsg string, maxAttempts int, now time.Time) error
 
+	// --- super-admin aggregates (admin.go) ---------------------------------
+	//
+	// Platform-wide rollups read ACROSS all accounts/wallets/lots/ledger. Every caller
+	// is admin-gated (cmd/rogerai-broker/admin.go); these are the only un-account-scoped
+	// reads in the store. Derived from the SAME source of truth the per-account views
+	// use, so an admin overview never drifts from what an operator/consumer sees.
+
+	// AdminFinancials sums the platform money rollup (consumer spend, operator earned,
+	// platform fee, topup volume, the held/payable/paid/clawed lot lifecycle totals,
+	// wallet+owner counts) as of `now`, promoting held->payable on read.
+	AdminFinancials(now time.Time) (AdminFinancials, error)
+	// AdminMarketTotals sums settled-request/token volume across every receipt, all-time
+	// and within the trailing [since,until) window (receipt-derived, drift-free).
+	AdminMarketTotals(since, until int64) (AdminMarketTotals, error)
+	// AdminPayoutQueue returns every operator account's payable/held/paid/pending posture
+	// as of `now`, sorted most-owed first, capped by limit (0 = all).
+	AdminPayoutQueue(now time.Time, limit int) ([]AdminPayoutQueueRow, error)
+	// AdminAllPayouts returns the most-recent payouts ACROSS all accounts, newest first,
+	// capped by limit (the platform payout history).
+	AdminAllPayouts(limit int) ([]Payout, error)
+	// AdminAbuse rolls up platform safety state: banned owners (+ strike counts), struck
+	// account + total strike counts, the CSAM report queue depth, report/dispute/ban
+	// counts, and accounts currently under a recount hold.
+	AdminAbuse() (AdminAbuse, error)
+	// AdminActivity returns the most-recent ledger rows ACROSS every holder, newest
+	// first (the platform-wide event stream), capped by limit.
+	AdminActivity(limit int) ([]LedgerRow, error)
+
 	// Healthy is a cheap liveness/readiness probe of the store backend: nil = reachable.
 	// Mem always returns nil; Postgres pings the connection. Used by the /ready endpoint
 	// so the load balancer only routes to a broker whose store is actually answering.

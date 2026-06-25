@@ -79,6 +79,9 @@ type broker struct {
 	// totalReqs is a broker-wide relay counter for the UCB exploration radius
 	// (ln(1+totalReqs)). Atomic so the hot relay path bumps it without metricsMu.
 	totalReqs atomic.Int64
+	// startTime is the process boot instant, set once in main, read by the admin HEALTH
+	// tile for uptime. Read-only after startup (no lock needed).
+	startTime time.Time
 	// probeSched is the per-node ADAPTIVE performance-probe schedule (next-due +
 	// exponential backoff level + last-measured). Guarded by metricsMu. It makes IDLE
 	// performance probing lazy (floor -> doubling -> ceiling) while real traffic and
@@ -191,6 +194,13 @@ type broker struct {
 	// the real operator secret. See requireAdmin.
 	adminKey string
 
+	// adminGitHubID is the SINGLE super-admin (founder) GitHub numeric id. When set
+	// (ADMIN_GITHUB_ID), a web session whose github_id matches it passes requireAdmin, so
+	// the founder drives the admin portal by just logging in - no key paste in the
+	// browser. 0 = no session-admin (the admin portal is then key-only / disabled in the
+	// browser). An ordinary logged-in owner is NEVER an admin (the id must match exactly).
+	adminGitHubID int64
+
 	// freeRegMu guards freeRegByIP: the per-CF-IP sliding-window record of FREE (anon,
 	// no-owner) node registrations used for the Sybil ceiling. A free node has no owner
 	// account, so the per-owner cap (maxNodesPerOwner) does not apply to it; without a
@@ -293,8 +303,13 @@ func main() {
 		strikeBanAt:      strikeBanAt(),
 		recountHoldDays:  recountHoldDays(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
-		// ephemeral/unset key leaves adminKey empty => the admin surface is CLOSED.
+		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),
+		// The single super-admin (founder) GitHub id: a matching web session passes the
+		// admin gate so the founder uses the portal by just logging in. Unset => 0 (the
+		// browser admin path is off; only the broker key works). See requireAdmin.
+		adminGitHubID: adminGitHubID(),
+		startTime:     time.Now(),
 	}
 	b.rehydrateBans()
 	b.rehydrateOwnerBans()
@@ -403,6 +418,11 @@ func main() {
 	mux.HandleFunc("/report", b.report)                                                               // public abuse/quality report + node-ban flow
 	mux.HandleFunc("/owner/strikes", b.ownerStrikes)                                                  // owner-authed: the caller's own strikes + evidence (operator recourse)
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
+	mux.HandleFunc("/admin/whoami", b.adminWhoami)                                                    // admin-authed: is-this-caller-an-admin probe (the portal gates on this)
+	mux.HandleFunc("/admin/overview", b.adminOverview)                                                // admin-authed: HEALTH + MARKETPLACE + REVENUE rollup
+	mux.HandleFunc("/admin/payouts", b.adminPayouts)                                                  // admin-authed: payout queue + history + open reversals + policy
+	mux.HandleFunc("/admin/abuse", b.adminAbuse)                                                      // admin-authed: banned owners, strikes, CSAM queue, disputes (counts only)
+	mux.HandleFunc("/admin/activity", b.adminActivity)                                                // admin-authed: recent cross-account ledger event stream (lineage)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
 	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {

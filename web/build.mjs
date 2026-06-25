@@ -52,6 +52,7 @@ const CSS_BUNDLES = {
   "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
   "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
   "console.html":   [...CSS_ACCOUNT, "console.css"],
+  "admin.html":     [...CSS_ACCOUNT, "admin.css"],       // founder super-admin ops portal
   "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
   "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
