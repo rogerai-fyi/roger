@@ -190,7 +190,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.5.2</b></span>
+          <span>Version: <b data-cli-version>v4.6.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -862,7 +862,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.5.2</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.6.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1140,6 +1140,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v4.6.0</span><span class="man-plate__v"><b>Smart routing v2</b>: best bang-for-buck within your price range - reliability and speed now count, not just price (a flaky free node no longer wins on cost alone), load spreads across stations so no one node piles up and queues, new honest stations get a fair shot, and an <code>X-Roger-Pref</code> preference (cheap / fast / reliable / balanced). <b>Real signal + a kinder probe</b>: the 0-100 signal now reflects measured speed, latency, verified-serving, success and trust (idle stations stop hammering their GPUs - probing eases from 30s out to every 15min and snaps fresh on demand), and reasoning models (gpt-oss etc.) verify correctly instead of reading falsely low. <b>Real station data, no placeholders</b>: real per-model context window, a privacy-bucketed hardware class (<code>multi-gpu</code> / <code>single-gpu</code> / <code>apple</code> / <code>cpu</code>, never your exact rig), the real success rate (or an honest "no data"), and a new <kbd>i</kbd> station-detail view in the TUI with a "why is this signal a 71?" breakdown. <b>Privacy callsigns</b>: your station now shows a friendly callsign (e.g. <code>rustic-mink-92</code>) instead of your hostname and port; rename it with <code>rogerai share --node &lt;name&gt;</code> or <kbd>n</kbd> in SHARE. <b>API keys for bots</b>: generate, list and revoke grant keys on the website (<a href="/keys.html">/keys.html</a>) - a <code>rog-grant_</code> key is a drop-in <code>OPENAI_API_KEY</code> for headless bots (no login, no browser), with expiry and daily/monthly caps. <b>Payouts hardened</b>: starter credits are non-earning, a longer 120-day hold, dispute reversal on paid earnings, lineage-attributed clawback, and authenticated earnings.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.2</span><span class="man-plate__v">Reliable multi-on-air: unique node id per band (fixes the re-register storm / flapping when several bands share a host); on-air slot limits (soft 4 via share.max_on_air, hard 20/account server-enforced); SHARE slot meter + multi-band tune-in display. Manual: a new "use RogerAI in opencode (and other OpenAI-compatible tools)" section (Appendix B2).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.1</span><span class="man-plate__v">Monthly spend cap (Groq-style budget): set a max $/month with <code>rogerai limit --monthly</code>; 80% and 100% notices; server-side enforced on every paid path (over budget -> 402 before dispatch); shown in balance + [3] CONFIG.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.0</span><span class="man-plate__v">Real SEV-SNP TEE confidential tier; private bands (frequency codes); payouts from the CLI; global price-safety; self-healing share + truthful ON AIR/RECONNECTING; Windows-ready (cmd /C, self-update, glyph fallback); report-a-station + moderation; /support; $1 starter credit.</span></div>
