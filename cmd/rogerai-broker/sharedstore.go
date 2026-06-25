@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -111,8 +112,86 @@ type sharedStore interface {
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
 
+	// markInflight write-throughs THIS instance's current in-flight count for a node
+	// (mirrors the Stage-1 liveness write-through): it stores count under a per-instance
+	// field in the node's shared inflight hash with a TTL, so a peer can sum it. A non-nil
+	// err is best-effort/non-fatal (the local count stays authoritative for this
+	// instance's own dispatch decisions).
+	markInflight(instanceID, node string, count int, now time.Time) error
+
+	// inflightByNode returns, for every node any instance has reported, the SUM of all
+	// instances' in-flight counts EXCEPT this instance's own (selfInstanceID is excluded
+	// so the caller can add its exact live local count without double-counting). The
+	// broker merges this peer-sum into a peerInflight map on the same background loop as
+	// liveness, so capacity-aware pick sees cross-instance load without a Valkey hop on
+	// the hot path. A non-nil err means the snapshot is unavailable this round (the
+	// caller keeps the last merged peer-sum, degrading to local-only capacity).
+	inflightByNode(selfInstanceID string) (map[string]int, error)
+
+	// --- PRE-SCALE Stage 2: the cross-instance job/result/stream RENDEZVOUS bus. ---
+	//
+	// These back the multi-instance relay path (ROGERAI_MULTI_INSTANCE=1). They are a
+	// thin pub/sub: a relay on instance A dispatches a job onto the bus channel for the
+	// picked node; whichever instance holds that node's long-poll receives it, serves
+	// the local upstream, and publishes the result/stream-chunks back on a per-JOB
+	// channel that the ORIGINATING instance is subscribed to. Pub/sub (at-most-once) is
+	// the right primitive here, NOT Streams: the originating instance holds the live
+	// consumer HTTP connection AND the pre-dispatch credit Hold; if it dies the request
+	// is already lost (the consumer socket is gone) and the deferred ReleaseHold refunds
+	// the hold, so durability/replay buys nothing. A dropped/missed message simply lets
+	// the waiter time out and fail the request CLEANLY (never a double-serve or
+	// double-charge, since Hold + the Postgres Finalize are the durable money truth, not
+	// the bus). Every method is bounded; ALL of them are no-ops on memStore (the flag is
+	// only ever ON with a valkeyStore), and a non-nil err fails the request cleanly.
+
+	// busPublishJob hands a serialized job onto the bus channel for nodeID so the
+	// instance currently long-polling that node (any instance) receives it. delivered
+	// reports the number of subscribers the message reached (0 = no poller is listening
+	// on any instance right now -> the caller treats it as "node busy / no poller free",
+	// exactly like a full local job channel today). A non-nil err means the publish did
+	// not happen and the caller must fail the request cleanly.
+	busPublishJob(nodeID string, job []byte) (delivered int, err error)
+
+	// busSubscribeJobs returns a channel of serialized jobs dispatched to nodeID from
+	// ANY instance, plus a cancel to release the subscription. The poll handler waits on
+	// it exactly as it waits on the local job channel today. The subscription is torn
+	// down when ctx is cancelled (the poll returning) or cancel() is called.
+	busSubscribeJobs(ctx context.Context, nodeID string) (<-chan []byte, func(), error)
+
+	// busPublishResult publishes a serialized non-stream JobResult back on the per-job
+	// channel the ORIGINATING instance subscribed to. Best-effort delivery: a non-nil
+	// err is returned to the node-facing handler but the originating instance's own
+	// timeout is the backstop (it fails the relay cleanly and refunds the hold).
+	busPublishResult(jobID string, result []byte) error
+
+	// busSubscribeResult subscribes the originating instance to the per-job result
+	// channel and returns it plus a cancel. The non-stream relay selects on it instead
+	// of the local resCh. Torn down on ctx cancel / cancel().
+	busSubscribeResult(ctx context.Context, jobID string) (<-chan []byte, func(), error)
+
+	// busPublishStream publishes one framed stream message back on the per-job stream
+	// channel: a CHUNK (raw SSE bytes the originating instance writes+flushes to the
+	// client in order) or the terminal DONE marker. Redis pub/sub preserves per-channel
+	// order from a single publisher (the one poller serving the stream), so chunks arrive
+	// in order on the originating instance. A non-nil err is returned to the streaming
+	// node handler.
+	busPublishStreamChunk(jobID string, chunk []byte) error
+	busPublishStreamDone(jobID string) error
+
+	// busSubscribeStream subscribes the originating instance to the per-job stream
+	// channel. Each received frame is either a chunk (isDone=false, payload=raw bytes) or
+	// the terminal marker (isDone=true). Torn down on ctx cancel / cancel().
+	busSubscribeStream(ctx context.Context, jobID string) (<-chan streamFrame, func(), error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
+}
+
+// streamFrame is one message off the per-job stream bus channel: a raw SSE chunk to
+// relay to the waiting client, or the terminal done marker (payload empty).
+type streamFrame struct {
+	payload []byte
+	isDone  bool
 }
 
 // memStore is the default impl. It is intentionally INERT: it does not store
@@ -155,6 +234,26 @@ func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
+
+func (m *memStore) markInflight(string, string, int, time.Time) error { return errNoSharedStore }
+func (m *memStore) inflightByNode(string) (map[string]int, error)     { return nil, errNoSharedStore }
+
+// The rendezvous-bus primitives are all "unavailable" no-ops on memStore: the
+// multi-instance flag is only ever ON with a valkeyStore, so the in-memory path never
+// touches these. They return errNoSharedStore so any accidental caller fails cleanly.
+func (m *memStore) busPublishJob(string, []byte) (int, error) { return 0, errNoSharedStore }
+func (m *memStore) busSubscribeJobs(context.Context, string) (<-chan []byte, func(), error) {
+	return nil, func() {}, errNoSharedStore
+}
+func (m *memStore) busPublishResult(string, []byte) error { return errNoSharedStore }
+func (m *memStore) busSubscribeResult(context.Context, string) (<-chan []byte, func(), error) {
+	return nil, func() {}, errNoSharedStore
+}
+func (m *memStore) busPublishStreamChunk(string, []byte) error { return errNoSharedStore }
+func (m *memStore) busPublishStreamDone(string) error          { return errNoSharedStore }
+func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFrame, func(), error) {
+	return nil, func() {}, errNoSharedStore
+}
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -376,6 +475,82 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 	return out, nil
 }
 
+// --- PRE-SCALE Stage 2: cross-instance inflight (write-through + merge). ---
+//
+// Each instance write-throughs its OWN inflight count per node under a hash field keyed
+// by the instance id; a peer sums the OTHER instances' fields and adds its exact local
+// count. Modeled on the liveness write-through: forward-only freshness via a TTL, no
+// hot-path Valkey hop (the merge runs on the background loop). inflightKey is the hash;
+// inflightNodesKey enumerates the nodes without an un-prefixed SCAN over the shared
+// keyspace.
+func inflightKey(node string) string { return keyPrefix + "inflight:" + node }
+
+const inflightNodesKey = keyPrefix + "inflight:nodes"
+
+// inflightTTL bounds how long an instance's reported inflight survives without a
+// refresh, so a crashed instance's stale load ages out and a node's hash cannot linger
+// forever on the shared keyspace.
+const inflightTTL = 60 * time.Second
+
+func (v *valkeyStore) markInflight(instanceID, node string, count int, now time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	key := inflightKey(node)
+	pipe := v.rdb.Pipeline()
+	pipe.HSet(ctx, key, instanceID, count)
+	pipe.PExpire(ctx, key, inflightTTL)
+	pipe.SAdd(ctx, inflightNodesKey, node)
+	pipe.PExpire(ctx, inflightNodesKey, inflightTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("markInflight", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) inflightByNode(selfInstanceID string) (map[string]int, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	nodes, err := v.rdb.SMembers(ctx, inflightNodesKey).Result()
+	if err != nil {
+		v.noteErr("inflightByNode", err)
+		return nil, err
+	}
+	out := make(map[string]int, len(nodes))
+	for _, node := range nodes {
+		fields, err := v.rdb.HGetAll(ctx, inflightKey(node)).Result()
+		if err == redis.Nil {
+			continue
+		}
+		if err != nil {
+			v.noteErr("inflightByNode", err)
+			return out, err
+		}
+		sum := 0
+		for inst, val := range fields {
+			if inst == selfInstanceID {
+				continue // exclude self: the caller adds its exact local count
+			}
+			n, _ := strconv.Atoi(val)
+			if n > 0 {
+				sum += n
+			}
+		}
+		if sum > 0 {
+			out[node] = sum
+		}
+	}
+	v.setUp(true)
+	return out, nil
+}
+
 // cacheKeyPrefix namespaces the response cache under the shared keyspace so it never
 // collides with another project (or with the rl:/node:/nodes keys this layer also
 // writes). Every cache key is rogerai:cache:<logical key>.
@@ -508,6 +683,172 @@ func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, err
 	}
 	v.setUp(true)
 	return set, nil
+}
+
+// --- PRE-SCALE Stage 2: the rendezvous bus on valkeyStore (Redis pub/sub). ---
+//
+// Channel namespaces (all under keyPrefix so they never collide on the shared Valkey):
+//
+//	rogerai:bus:job:<nodeID>   - jobs dispatched to a node (poller subscribes per node)
+//	rogerai:bus:res:<jobID>    - the non-stream result back to the originating instance
+//	rogerai:bus:strm:<jobID>   - the SSE stream frames back to the originating instance
+const (
+	busJobPrefix    = keyPrefix + "bus:job:"
+	busResultPrefix = keyPrefix + "bus:res:"
+	busStreamPrefix = keyPrefix + "bus:strm:"
+)
+
+// streamDoneMarker is the single-byte sentinel published on a job's stream channel to
+// signal end-of-stream. A real SSE chunk is never a bare 0x04, so it cannot be confused
+// with a chunk. (We also length-frame nothing else: pub/sub delivers each Publish as one
+// message, so a chunk is exactly the bytes published.)
+var streamDoneMarker = []byte{0x04}
+
+// busPublishTimeout bounds a single bus PUBLISH. It is independent of sharedOpTimeout
+// so a slow publish on the node-facing handler can never wedge a poller/streamer.
+const busPublishTimeout = sharedOpTimeout
+
+func (v *valkeyStore) busPublishJob(nodeID string, job []byte) (int, error) {
+	if v == nil || v.rdb == nil {
+		return 0, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	n, err := v.rdb.Publish(ctx, busJobPrefix+nodeID, job).Result()
+	if err != nil {
+		v.noteErr("busPublishJob", err)
+		return 0, err
+	}
+	v.setUp(true)
+	return int(n), nil
+}
+
+// busSubscribe is the shared subscribe helper: it opens a pub/sub subscription on
+// channel, hands back a []byte channel of the message payloads, and a cancel that
+// closes the subscription. A goroutine pumps messages until ctx is done or the
+// subscription closes. The buffered out channel (depth 64) absorbs a burst of stream
+// chunks without blocking the redis receive loop; if a slow consumer fills it we drop
+// the receive loop on the next ctx check (the consumer's own timeout is the backstop).
+func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (<-chan []byte, func(), error) {
+	if v == nil || v.rdb == nil {
+		return nil, func() {}, errNoSharedStore
+	}
+	subCtx, cancel := context.WithCancel(ctx)
+	ps := v.rdb.Subscribe(subCtx, channel)
+	// Wait for the subscription to be confirmed so a Publish racing the Subscribe is not
+	// missed: Receive blocks for the subscribe confirmation. Bound it so a hung backend
+	// cannot stall the caller.
+	recvCtx, recvCancel := context.WithTimeout(subCtx, sharedOpTimeout)
+	_, err := ps.Receive(recvCtx)
+	recvCancel()
+	if err != nil {
+		cancel()
+		_ = ps.Close()
+		v.noteErr("busSubscribe", err)
+		return nil, func() {}, err
+	}
+	v.setUp(true)
+	out := make(chan []byte, 64)
+	ch := ps.Channel()
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-subCtx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				select {
+				case out <- []byte(msg.Payload):
+				case <-subCtx.Done():
+					return
+				}
+			}
+		}
+	}()
+	closeFn := func() {
+		cancel()
+		_ = ps.Close()
+	}
+	return out, closeFn, nil
+}
+
+func (v *valkeyStore) busSubscribeJobs(ctx context.Context, nodeID string) (<-chan []byte, func(), error) {
+	return v.busSubscribe(ctx, busJobPrefix+nodeID)
+}
+
+func (v *valkeyStore) busPublishResult(jobID string, result []byte) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	if err := v.rdb.Publish(ctx, busResultPrefix+jobID, result).Err(); err != nil {
+		v.noteErr("busPublishResult", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) busSubscribeResult(ctx context.Context, jobID string) (<-chan []byte, func(), error) {
+	return v.busSubscribe(ctx, busResultPrefix+jobID)
+}
+
+func (v *valkeyStore) busPublishStreamChunk(jobID string, chunk []byte) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	if err := v.rdb.Publish(ctx, busStreamPrefix+jobID, chunk).Err(); err != nil {
+		v.noteErr("busPublishStreamChunk", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) busPublishStreamDone(jobID string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	if err := v.rdb.Publish(ctx, busStreamPrefix+jobID, streamDoneMarker).Err(); err != nil {
+		v.noteErr("busPublishStreamDone", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) busSubscribeStream(ctx context.Context, jobID string) (<-chan streamFrame, func(), error) {
+	raw, cancel, err := v.busSubscribe(ctx, busStreamPrefix+jobID)
+	if err != nil {
+		return nil, cancel, err
+	}
+	out := make(chan streamFrame, 64)
+	go func() {
+		defer close(out)
+		for payload := range raw {
+			if len(payload) == 1 && payload[0] == streamDoneMarker[0] {
+				select {
+				case out <- streamFrame{isDone: true}:
+				case <-ctx.Done():
+				}
+				return
+			}
+			select {
+			case out <- streamFrame{payload: payload}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, cancel, nil
 }
 
 // openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the

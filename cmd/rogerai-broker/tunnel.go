@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -679,6 +680,43 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.markSeen(node)
+
+	// MULTI-INSTANCE (Stage 2): a job for this node may have been dispatched on a PEER
+	// instance, so subscribe to the node's bus channel for the life of this long-poll.
+	// In multi-instance mode the relay dispatches ONLY over the bus (single delivery
+	// path - no double-serve), and a local poller receives its own instance's dispatch
+	// over the same bus, so we wait on the bus channel here. On a bus subscribe error we
+	// fall through to a 204 re-poll (the node simply re-polls; no job is lost because the
+	// dispatcher's publish would have reported 0 subscribers and failed that relay
+	// cleanly). The local t.jobs channel is still drained too, so a flag flip / mixed
+	// fleet can never strand a job already sitting in the in-memory queue.
+	if b.multiInstance && b.shared != nil {
+		busJobs, cancel, err := b.shared.busSubscribeJobs(r.Context(), node)
+		if err != nil {
+			w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll
+			return
+		}
+		defer cancel()
+		select {
+		case job := <-t.jobs: // drain any in-memory job (mixed-mode safety)
+			_ = json.NewEncoder(w).Encode(job)
+		case raw, ok := <-busJobs:
+			if !ok {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			var job protocol.Job
+			if json.Unmarshal(raw, &job) != nil {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(job)
+		case <-time.After(25 * time.Second):
+			w.WriteHeader(http.StatusNoContent) // re-poll
+		}
+		return
+	}
+
 	select {
 	case job := <-t.jobs:
 		_ = json.NewEncoder(w).Encode(job)
@@ -705,9 +743,24 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	var res protocol.JobResult
-	if err := json.NewDecoder(r.Body).Decode(&res); err != nil {
+	if err := json.Unmarshal(body, &res); err != nil {
 		jsonErr(w, http.StatusBadRequest, "bad result")
+		return
+	}
+	// MULTI-INSTANCE (Stage 2): the relay awaiting this result may be on a PEER
+	// instance, so publish the raw result bytes back on the per-job bus channel it is
+	// subscribed to. In multi-instance mode the relay ALWAYS awaits over the bus (even
+	// when it happens to be local), so this is the single delivery path - no
+	// double-serve. A bus publish error is surfaced to the node (the relay's own timeout
+	// is the backstop: it fails the request cleanly and refunds the hold).
+	if b.multiInstance && b.shared != nil {
+		if err := b.shared.busPublishResult(res.ID, body); err != nil {
+			jsonErr(w, http.StatusServiceUnavailable, "result bus unavailable")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
 	t.mu.Lock()
@@ -995,12 +1048,56 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// Concurrency at dispatch (includes self): drives the under-load capacity
 	// measurement (concurrentTPS is only sampled when this is >= 2).
 	concurrentAtDispatch := b.inflightOf(node.NodeID)
-	select {
-	case t.jobs <- job:
-	case <-time.After(3 * time.Second):
-		b.exitInflight(node.NodeID, false)
-		jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
-		return
+
+	// MULTI-INSTANCE (Stage 2): the poller for this node may be on a PEER instance, so
+	// dispatch + await the result over the Valkey bus. Subscribe to the per-job result
+	// channel BEFORE publishing the job so a fast peer result cannot race ahead of our
+	// subscription. busDispatch returns the result channel; on any bus error it fails
+	// the request cleanly (the deferred ReleaseHold refunds the pre-auth hold - never a
+	// double-charge). delivered==0 means no poller is listening on ANY instance, exactly
+	// like a full local job channel today -> "node busy".
+	var busRes <-chan []byte
+	if b.multiInstance && b.shared != nil {
+		ch, cancel, derr := b.busDispatchJob(r.Context(), node.NodeID, job)
+		if cancel != nil {
+			defer cancel()
+		}
+		if derr != nil {
+			b.exitInflight(node.NodeID, false)
+			if derr == errNoPoller {
+				jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
+			} else {
+				jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
+			}
+			return
+		}
+		busRes = ch
+	} else {
+		select {
+		case t.jobs <- job:
+		case <-time.After(3 * time.Second):
+			b.exitInflight(node.NodeID, false)
+			jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
+			return
+		}
+	}
+
+	// Unify the local and bus result channels into one resCh the select below waits on.
+	// In multi-instance mode a goroutine decodes the raw bus result and forwards it.
+	if busRes != nil {
+		go func() {
+			raw, ok := <-busRes
+			if !ok {
+				return // bus closed; the timeout below fails the request cleanly
+			}
+			var br protocol.JobResult
+			if json.Unmarshal(raw, &br) == nil {
+				select {
+				case resCh <- br:
+				default:
+				}
+			}
+		}()
 	}
 
 	select {
@@ -1134,6 +1231,39 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 // keeps the CF connection alive for the full 300s stream window.
 const nonStreamRelayWait = 90 * time.Second
 
+// errNoPoller is the dispatch sentinel for "no provider is long-polling this node on
+// ANY instance right now" - the cross-instance equivalent of a full local job channel.
+// The relay maps it to the same "node busy (no poller free)" 503 it returns today.
+var errNoPoller = fmt.Errorf("no poller listening")
+
+// busDispatchJob is the MULTI-INSTANCE non-stream dispatch: subscribe to the per-job
+// RESULT channel FIRST (so a peer's fast result cannot be published before we are
+// listening), then publish the job onto the node's bus channel. It returns the result
+// channel + a cancel for the subscription. delivered==0 (no subscriber) returns
+// errNoPoller so the relay reports "node busy" exactly as a full local queue would; any
+// other bus error returns that error so the relay fails the request cleanly. On any
+// error the subscription is torn down before returning.
+func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol.Job) (<-chan []byte, func(), error) {
+	raw, err := json.Marshal(job)
+	if err != nil {
+		return nil, nil, err
+	}
+	resCh, cancel, err := b.shared.busSubscribeResult(ctx, job.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	delivered, perr := b.shared.busPublishJob(nodeID, raw)
+	if perr != nil {
+		cancel()
+		return nil, nil, perr
+	}
+	if delivered == 0 {
+		cancel()
+		return nil, nil, errNoPoller
+	}
+	return resCh, cancel, nil
+}
+
 // relayStream handles the streaming path of POST /v1/chat/completions: it sends SSE
 // headers, registers the client as a sink, and enqueues the job. The node pipes
 // chunks via /agent/stream straight to this client; when it finishes it posts a
@@ -1169,11 +1299,93 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 
 	b.enterInflight(node.NodeID)
 	concurrentAtDispatch := b.inflightOf(node.NodeID)
-	select {
-	case t.jobs <- job:
-	case <-time.After(3 * time.Second):
-		b.exitInflight(node.NodeID, false)
-		return // headers already sent; the client just gets an empty stream
+
+	// MULTI-INSTANCE (Stage 2): the poller serving this stream may be on a PEER
+	// instance, which pipes its SSE chunks over the per-job stream bus channel and the
+	// final receipt over the per-job result channel. Subscribe to BOTH before dispatch
+	// (so a fast peer cannot publish ahead of our subscription), then publish the job. A
+	// pump goroutine writes each bus chunk to THIS client in order (and siphons a bounded
+	// copy into sink.cap for the L1 re-count, exactly as agentStream does locally), so
+	// the rest of this function - the receipt verify / void / settle block below - is
+	// IDENTICAL on both paths. On any bus error we fail cleanly: headers are already
+	// sent, so the client gets an empty/short stream and the deferred ReleaseHold refunds
+	// the hold (never a double-charge).
+	if b.multiInstance && b.shared != nil {
+		streamCtx, streamCancel := context.WithCancel(context.Background())
+		defer streamCancel()
+		busStream, scancel, serr := b.shared.busSubscribeStream(streamCtx, job.ID)
+		if serr != nil {
+			b.exitInflight(node.NodeID, false)
+			return
+		}
+		defer scancel()
+		ch, rcancel, derr := b.busDispatchJob(streamCtx, node.NodeID, job)
+		if rcancel != nil {
+			defer rcancel()
+		}
+		if derr != nil {
+			b.exitInflight(node.NodeID, false)
+			return // headers already sent; the client gets an empty stream
+		}
+		// Pump bus chunks -> client (+ capture). Runs until the done marker or the bus
+		// closes; relays each frame in order and flushes, mirroring agentStream's local
+		// write+flush+capture so settlement reads the same captured completion. pumpDone is
+		// closed when the pump exits; relayStream waits on it (bounded) BEFORE returning so
+		// no goroutine writes the client ResponseWriter after the handler has returned (a
+		// concurrent-write hazard on the real http.ResponseWriter, the same way the
+		// single-instance path's writer - agentStream - finishes before the receipt-driven
+		// return).
+		pumpDone := make(chan struct{})
+		defer func() {
+			select {
+			case <-pumpDone:
+			case <-time.After(2 * time.Second):
+				// The done marker never arrived (bus hiccup): cancel the subscription so the
+				// pump's range over busStream ends, then it closes pumpDone.
+				streamCancel()
+				<-pumpDone
+			}
+		}()
+		go func() {
+			defer close(pumpDone)
+			for fr := range busStream {
+				if fr.isDone {
+					return
+				}
+				sink.w.Write(fr.payload)
+				sink.flush()
+				if sink.cap != nil {
+					sink.capMu.Lock()
+					if sink.cap.Len()+sink.capRaw.Len() < maxRecountCapture {
+						sink.capRaw.Write(fr.payload)
+						drainSSEDeltas(&sink.capRaw, sink.cap)
+					}
+					sink.capMu.Unlock()
+				}
+			}
+		}()
+		// Forward the decoded bus result into resCh so the settlement select below is
+		// shared with the single-instance path.
+		go func() {
+			raw, ok := <-ch
+			if !ok {
+				return
+			}
+			var br protocol.JobResult
+			if json.Unmarshal(raw, &br) == nil {
+				select {
+				case resCh <- br:
+				default:
+				}
+			}
+		}()
+	} else {
+		select {
+		case t.jobs <- job:
+		case <-time.After(3 * time.Second):
+			b.exitInflight(node.NodeID, false)
+			return // headers already sent; the client just gets an empty stream
+		}
 	}
 	select {
 	case res := <-resCh:
@@ -1305,6 +1517,34 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+
+	// MULTI-INSTANCE (Stage 2): the waiting client's stream sink may live on a PEER
+	// instance (the relay that picked this node ran elsewhere), so forward each SSE chunk
+	// over the per-job stream bus channel in order, then publish the terminal done
+	// marker. Redis pub/sub preserves per-channel order from this single publisher, so
+	// the originating instance writes the chunks to its client in the same order. We do
+	// NOT also write a local sink in this mode: relayStream subscribes to the bus
+	// (regardless of co-location), so the bus is the single ordered path - writing both
+	// would double-deliver. A bus publish error ends the forward; the relay's stream
+	// timeout is the backstop (it fails/closes the client stream cleanly).
+	if b.multiInstance && b.shared != nil {
+		buf := make([]byte, 8192)
+		for {
+			n, err := r.Body.Read(buf)
+			if n > 0 {
+				if perr := b.shared.busPublishStreamChunk(jobID, buf[:n]); perr != nil {
+					break // bus down: stop forwarding; relay times out + closes cleanly
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		_ = b.shared.busPublishStreamDone(jobID)
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
+	}
+
 	b.streamMu.Lock()
 	sink := b.streams[jobID]
 	b.streamMu.Unlock()
@@ -1531,8 +1771,13 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 				}
 				haveRange = true
 			}
+			// Capacity-aware load is THIS instance's exact local inflight PLUS the merged
+			// peer-instance load (Stage 2). peerInflight is the in-memory cross-instance
+			// snapshot refreshed on the background loop; it is empty (adds 0) when
+			// multi-instance is off, so the single-instance load factor is unchanged.
+			inflight := b.inflight[n.NodeID] + b.peerInflight[n.NodeID]
 			cands = append(cands, cand{
-				node: n, offer: o, out: out, inflight: b.inflight[n.NodeID],
+				node: n, offer: o, out: out, inflight: inflight,
 				capacity: cap, rel: rel, fit: fit, radius: radius, tierA: tierA,
 			})
 		}
@@ -1599,7 +1844,9 @@ func maxInt(a, b int) int {
 func (b *broker) enterInflight(node string) {
 	b.metricsMu.Lock()
 	b.inflight[node]++
+	count := b.inflight[node]
 	b.metricsMu.Unlock()
+	b.writeThroughInflight(node, count)
 }
 
 func (b *broker) exitInflight(node string, ok bool) {
@@ -1607,6 +1854,7 @@ func (b *broker) exitInflight(node string, ok bool) {
 	if b.inflight[node] > 0 {
 		b.inflight[node]--
 	}
+	count := b.inflight[node]
 	sample := 0.0
 	if ok {
 		sample = 1.0
@@ -1616,6 +1864,53 @@ func (b *broker) exitInflight(node string, ok bool) {
 	} else {
 		b.success[node] = sample
 	}
+	b.metricsMu.Unlock()
+	b.writeThroughInflight(node, count)
+}
+
+// writeThroughInflight mirrors THIS instance's current inflight count for a node into
+// the shared hash (Stage 2), so a peer instance's capacity-aware pick sees this
+// instance's load. Best-effort + non-fatal: a failure only means a peer reads slightly
+// stale capacity (it falls back to its last merged value), never blocking a request. A
+// no-op when multi-instance is off (b.shared==nil / instanceID==""), so the
+// single-instance path is byte-for-byte unchanged.
+func (b *broker) writeThroughInflight(node string, count int) {
+	if !b.multiInstance || b.shared == nil || b.instanceID == "" {
+		return
+	}
+	_ = b.shared.markInflight(b.instanceID, node, count, time.Now())
+}
+
+// syncInflight runs only under multi-instance: it periodically pulls the cross-instance
+// inflight snapshot (the SUM of OTHER instances' counts per node, self excluded) and
+// swaps it into b.peerInflight, so the hot pick path reads a purely in-memory peer-load
+// view (no Valkey hop) exactly as the liveness merge does. On a backend error it keeps
+// the last merged value (degrade to local-only capacity) and retries next tick.
+func (b *broker) syncInflight() {
+	const interval = 5 * time.Second
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		if b.shared == nil || !b.multiInstance {
+			return
+		}
+		b.mergeSharedInflight()
+	}
+}
+
+// mergeSharedInflight refreshes b.peerInflight from the shared store (one round). Split
+// out so a test can drive it deterministically. On a snapshot error it leaves the prior
+// peerInflight intact (graceful degrade).
+func (b *broker) mergeSharedInflight() {
+	if b.shared == nil {
+		return
+	}
+	snap, err := b.shared.inflightByNode(b.instanceID)
+	if err != nil {
+		return
+	}
+	b.metricsMu.Lock()
+	b.peerInflight = snap
 	b.metricsMu.Unlock()
 }
 
