@@ -166,3 +166,59 @@ func TestMetricsStoreParity(t *testing.T) {
 		})
 	}
 }
+
+// TestWindowedEntriesParity covers the new windowed entry queries (EntriesByUser /
+// EntriesByAccount) that power the time-series + console feeds: the [since,until)
+// window boundary, node->account scoping, cross-account isolation, and Mem+Postgres
+// parity.
+func TestWindowedEntriesParity(t *testing.T) {
+	for name, db := range metricsStores(t) {
+		t.Run(name, func(t *testing.T) {
+			defer db.Close()
+			now := time.Now().UTC().Unix()
+			old := now - 400*24*3600 // far outside any sane window
+			user := "u_gh_7"
+			_ = db.BindNode("node-A", "pk_owner")
+			_ = db.BindNode("node-B", "pk_other") // a DIFFERENT account's node
+			serveAt(t, db, user, "node-A", "modelA", 10, 20, 0.50, 0.35, now)
+			serveAt(t, db, user, "node-A", "modelA", 5, 5, 0, 0, now)
+			serveAt(t, db, user, "node-B", "modelX", 1, 1, 0.20, 0.14, now) // user consumed on another's node
+			serveAt(t, db, user, "node-A", "old", 1, 1, 9.0, 6.0, old)      // outside window
+
+			since := now - 24*3600
+			until := now + 1
+
+			// Consumer side: the user's in-window receipts (3), the old one excluded.
+			ue, _ := db.EntriesByUser(user, since, until)
+			if len(ue) != 3 {
+				t.Fatalf("EntriesByUser = %d, want 3 (old excluded): %+v", len(ue), ue)
+			}
+			// Newest-first ordering.
+			for i := 1; i < len(ue); i++ {
+				if ue[i-1].TS < ue[i].TS {
+					t.Errorf("EntriesByUser not newest-first at %d", i)
+				}
+			}
+
+			// Provider side (account pk_owner = node-A only): 2 in-window receipts; the
+			// node-B consume (a different account's node) is NOT counted, old excluded.
+			ae, _ := db.EntriesByAccount("pk_owner", since, until)
+			if len(ae) != 2 {
+				t.Fatalf("EntriesByAccount(pk_owner) = %d, want 2: %+v", len(ae), ae)
+			}
+			for _, e := range ae {
+				if e.Node != "node-A" {
+					t.Errorf("EntriesByAccount leaked node %q (want node-A only)", e.Node)
+				}
+			}
+
+			// Cross-account isolation: a stranger account sees nothing.
+			if rows, _ := db.EntriesByAccount("pk_nobody", since, until); len(rows) != 0 {
+				t.Errorf("EntriesByAccount(stranger) = %d, want 0", len(rows))
+			}
+			if rows, _ := db.EntriesByUser("u_gh_999", since, until); len(rows) != 0 {
+				t.Errorf("EntriesByUser(stranger) = %d, want 0", len(rows))
+			}
+		})
+	}
+}

@@ -523,6 +523,59 @@ func (p *Postgres) recent(col, val string, limit int) ([]Entry, error) {
 	return out, rows.Err()
 }
 
+// EntriesByUser returns a wallet's receipts in the [since,until) ts window, newest
+// first (the consumer time-series + savings source). Bounded by the receipts_usr_ts
+// index; the handler buckets the rows by day/hour and model.
+func (p *Postgres) EntriesByUser(user string, since, until int64) ([]Entry, error) {
+	return p.windowed(`r.usr=$1 AND r.ts>=$2 AND r.ts<$3`, user, since, until)
+}
+
+// EntriesByAccount returns the receipts served by ALL nodes bound to an operator
+// account in the [since,until) ts window, newest first (the provider time-series +
+// owner console source). Joins the node->owner binding so cross-account nodes never
+// leak into the result.
+func (p *Postgres) EntriesByAccount(accountID string, since, until int64) ([]Entry, error) {
+	return p.windowedJoin(accountID, since, until)
+}
+
+// windowed scans receipts matching a fixed WHERE clause (the args are $1=key,
+// $2=since, $3=until), newest first.
+func (p *Postgres) windowed(where, key string, since, until int64) ([]Entry, error) {
+	rows, err := p.db.Query(`SELECT r.request_id,r.usr,r.node,r.model,r.prompt_tokens,r.completion_tokens,r.cost,r.owner_share,r.ts
+		FROM rogerai.receipts r WHERE `+where+` ORDER BY r.ts DESC`, key, since, until)
+	if err != nil {
+		return nil, err
+	}
+	return scanEntries(rows)
+}
+
+// windowedJoin scans the account's served receipts (joined to its node bindings) in
+// the [since,until) window, newest first.
+func (p *Postgres) windowedJoin(accountID string, since, until int64) ([]Entry, error) {
+	rows, err := p.db.Query(`SELECT r.request_id,r.usr,r.node,r.model,r.prompt_tokens,r.completion_tokens,r.cost,r.owner_share,r.ts
+		FROM rogerai.receipts r
+		JOIN rogerai.node_owner o ON o.node = r.node
+		WHERE o.account_id=$1 AND r.ts>=$2 AND r.ts<$3 ORDER BY r.ts DESC`, accountID, since, until)
+	if err != nil {
+		return nil, err
+	}
+	return scanEntries(rows)
+}
+
+// scanEntries drains a receipt result set into Entry rows.
+func scanEntries(rows *sql.Rows) ([]Entry, error) {
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		if err := rows.Scan(&e.RequestID, &e.User, &e.Node, &e.Model, &e.PromptTokens, &e.CompletionTokens, &e.Cost, &e.OwnerShare, &e.TS); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 func (p *Postgres) AddCredits(user string, amount float64) (float64, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
