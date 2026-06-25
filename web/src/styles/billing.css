@@ -52,3 +52,249 @@
   border-color: var(--live);
   box-shadow: 0 0 0 1px var(--live) inset;
 }
+
+/* a fourth preset can wrap on narrow screens without crowding. */
+@media (max-width: 380px) {
+  .amounts { flex-wrap: wrap; }
+  .amount { flex: 1 1 calc(50% - var(--s-2)); }
+}
+
+/* ---- the value line + secure-payment reassurance --------------------- */
+/* an explicit "Adds $X to your wallet" confirmation above the action. */
+.bx-pay {
+  margin: var(--s-4) 0 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+}
+/* the lock + Stripe note. A calm hairline plate, not an alarm banner. */
+.bx-secure {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin: var(--s-3) 0 0;
+  padding: var(--s-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  color: var(--ink-500);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+}
+.bx-secure__lock {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  color: var(--ink-500);
+}
+
+/* =====================================================================
+   SAVINGS vs FRONTIER - the value framing, front and center. One red
+   "you paid" bar against a muted frontier-estimate bar; the gap is the
+   story. Same plate language as the rest of the chrome.
+   ===================================================================== */
+.bx-save__hero {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-4);
+  flex-wrap: wrap;
+}
+.bx-save__amt {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: clamp(2rem, 1.4rem + 2.6vw, 2.75rem);
+  font-weight: var(--weight-semi);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--live);
+}
+.bx-save__cap {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.bx-save__bars { margin: 0 0 var(--s-4); }
+.bx-save__row {
+  display: grid;
+  grid-template-columns: minmax(64px, 26%) 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-1) 0;
+}
+.bx-save__lab {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bx-save__track {
+  height: 14px;
+  background: var(--paper-2);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+.bx-save__fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  transition: width var(--d-3) var(--ease-out-quint);
+}
+.bx-save__fill--paid { background: var(--live); }
+.bx-save__fill--frontier { background: var(--ink-300); }
+.bx-save__val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  white-space: nowrap;
+  text-align: right;
+}
+.bx-save__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4) var(--s-8);
+  margin: 0 0 var(--s-3);
+}
+.bx-save__legend dt {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin: 0;
+}
+.bx-save__legend dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+}
+
+/* =====================================================================
+   MONTHLY SPEND-CAP METER - a budget gauge. Ink fill while safe, then
+   the one red glint surfaces at 80% (near) and the bar fills at 100%
+   (over). Numbers stay mono; color is a signal, never decoration.
+   ===================================================================== */
+.bx-cap__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-3);
+  flex-wrap: wrap;
+}
+.bx-cap__mtd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: 1.5rem;
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+  line-height: 1.1;
+}
+.bx-cap__of { color: var(--ink-400); font-size: var(--t-sm); }
+.bx-cap__limit {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+}
+.bx-cap__pct {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-500);
+}
+.bx-cap__pct.is-near { color: var(--live); }
+.bx-cap__pct.is-over { color: var(--live); }
+
+.bx-gauge {
+  position: relative;
+  height: 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+/* the 80% threshold tick - a quiet hairline marker on the track. */
+.bx-gauge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 80%;
+  width: 1px;
+  background: var(--hairline-2);
+}
+.bx-gauge__fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ink-700); /* safe: sober ink */
+  transition: width var(--d-3) var(--ease-out-quint),
+              background var(--d-2) var(--ease-standard);
+}
+.bx-gauge.is-near .bx-gauge__fill { background: var(--live); }
+.bx-gauge.is-over .bx-gauge__fill { background: var(--live); }
+.bx-gauge.is-over { border-color: var(--live); }
+
+/* =====================================================================
+   SPEND VELOCITY - a hand-rolled SVG sparkline of recent daily spend.
+   Muted ink area, an ink trace, a single red dot on the live edge.
+   ===================================================================== */
+.bx-vel__chart {
+  margin: 0 0 var(--s-2);
+  height: 56px;
+}
+.bx-spark {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+.bx-spark__area { fill: var(--paper-2); }
+.bx-spark__line {
+  fill: none;
+  stroke: var(--ink-500);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.bx-spark__dot { fill: var(--live); }
+.bx-vel__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.bx-vel__span {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.bx-vel__peak {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+}
+
+/* reduced motion: hold the bars/gauge/trace still (the chrome guard in
+   account-base.css already covers .card *, this is an explicit belt). */
+@media (prefers-reduced-motion: reduce) {
+  .bx-save__fill, .bx-gauge__fill { transition: none; }
+}

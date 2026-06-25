@@ -8,28 +8,89 @@
   <div class="authwrap">
   <main class="card" id="card" hidden>
     <h1>Billing</h1>
-    <p class="sub">Top-ups and wallet balance.</p>
+    <p class="sub">Add money, watch it go further. Your wallet, your spend, and what RogerAI saves you against the name-brand labs.</p>
 
-    <section class="panel">
-      <h2>Balance</h2>
-      <dl class="stats">
-        <div><dt>Balance</dt><dd id="balance">-</dd></div>
-        <div><dt>Verified</dt><dd id="derived">-</dd></div>
+    <!-- ============================================================
+         VALUE FIRST: the savings-vs-frontier headline. The one place
+         the page leads with the why, not the how. Honest empty:
+         hidden until /metrics/series returns real spend.
+         ============================================================ -->
+    <section class="panel bx-save" id="saveBox" hidden>
+      <h2>Saved vs frontier labs</h2>
+      <p class="bx-save__hero">
+        <span class="bx-save__amt" id="saveAmt">-</span>
+        <span class="bx-save__cap">saved so far</span>
+      </p>
+      <div class="bx-save__bars" id="saveBars" aria-hidden="true"></div>
+      <dl class="bx-save__legend">
+        <div><dt>You paid</dt><dd id="saveSpend">-</dd></div>
+        <div><dt>Frontier estimate</dt><dd id="saveFrontier">-</dd></div>
       </dl>
-      <p class="fine">"Verified" re-derives your balance from the append-only ledger - it should match.</p>
+      <p class="fine" id="saveNote">-</p>
     </section>
 
+    <!-- ============================================================
+         WALLET: current balance + today's spend, the two numbers a
+         person checks before topping up.
+         ============================================================ -->
     <section class="panel">
-      <h2>Top up</h2>
-      <p>Add money to your wallet with Stripe. Payment methods are handled by Stripe; we never store your card.</p>
+      <h2>Wallet</h2>
+      <dl class="stats">
+        <div><dt>Balance</dt><dd id="balance">-</dd></div>
+        <div><dt>Spent today</dt><dd id="spendToday">-</dd></div>
+        <div><dt>Verified</dt><dd id="derived">-</dd></div>
+      </dl>
+      <p class="fine">"Verified" re-derives your balance from the append-only ledger - it should always match.</p>
+    </section>
+
+    <!-- ============================================================
+         MONTHLY CAP METER: a visual budget gauge. Hidden when no cap
+         is set (0 = unlimited); the bar turns the one red at 80% and
+         fills at 100% so the limit is felt, not just read.
+         ============================================================ -->
+    <section class="panel bx-cap" id="capBox" hidden>
+      <h2>Monthly spend cap</h2>
+      <div class="bx-cap__head">
+        <span class="bx-cap__mtd" id="capMtd">-</span>
+        <span class="bx-cap__of">of</span>
+        <span class="bx-cap__limit" id="capLimit">-</span>
+        <span class="bx-cap__pct" id="capPct"></span>
+      </div>
+      <div class="bx-gauge" role="img" id="capGaugeWrap" aria-label="Monthly spend against your cap">
+        <span class="bx-gauge__fill" id="capGauge"></span>
+      </div>
+      <p class="fine" id="capNote">A budget ceiling on captured spend this calendar month. Set or change it from the CLI: <code>rogerai limit</code>.</p>
+    </section>
+
+    <!-- ============================================================
+         SPEND VELOCITY: a hand-rolled SVG sparkline of recent daily
+         spend, so the trend is legible at a glance. Honest empty.
+         ============================================================ -->
+    <section class="panel bx-vel" id="velBox" hidden>
+      <h2>Spend velocity</h2>
+      <div class="bx-vel__chart" id="velChart"></div>
+      <div class="bx-vel__foot">
+        <span class="bx-vel__span" id="velSpan">-</span>
+        <span class="bx-vel__peak" id="velPeak"></span>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         TOP UP: the Stripe flow, unchanged in mechanics - presets,
+         custom amount, secure-payment reassurance.
+         ============================================================ -->
+    <section class="panel">
+      <h2>Add money</h2>
+      <p>Top up your wallet with a card. Stripe handles the payment end to end; your card details never reach our servers.</p>
 
       <!-- the in-app top-up control. Hidden until /billing says checkout_ready;
-           account.js shows either this or #topupDisabled. -->
+           billing.js shows either this or #topupDisabled. -->
       <div id="topupBox" hidden>
         <div class="amounts" id="topupPresets" role="group" aria-label="Top-up amount">
           <button type="button" class="amount" data-usd="5">$5</button>
           <button type="button" class="amount is-active" data-usd="20">$20</button>
           <button type="button" class="amount" data-usd="50">$50</button>
+          <button type="button" class="amount" data-usd="100">$100</button>
         </div>
         <label class="fine" for="topupCustom">Or a custom amount (USD)</label>
         <div class="amount-row">
@@ -37,19 +98,39 @@
           <input id="topupCustom" type="number" min="1" max="1000" step="1"
             inputmode="decimal" placeholder="20" aria-label="Custom top-up amount in dollars" />
         </div>
-        <button id="topup" class="primary">Top up</button>
+        <p class="bx-pay" id="topupValue" hidden></p>
+        <button id="topup" class="primary">Add money</button>
         <span class="fine" id="topupMsg"></span>
-        <p class="fine">Payments are processed securely by Stripe; your card details never touch our servers.</p>
+        <p class="bx-secure">
+          <span class="bx-secure__lock" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4">
+              <rect x="3" y="7" width="10" height="6.5" rx="1.2"></rect>
+              <path d="M5 7V5a3 3 0 0 1 6 0v2"></path>
+            </svg>
+          </span>
+          <span>Secured by Stripe. Card details never touch our servers, and no card is stored after a top-up.</span>
+        </p>
       </div>
 
       <p class="fine" id="topupDisabled" hidden>Top-ups are not enabled on this broker yet.</p>
       <p class="fine" id="topupNote">-</p>
     </section>
 
+    <!-- ============================================================
+         RECEIPTS: recent top-ups (the red receipt accent) plus recent
+         charges from the lineage console, so money in and money out
+         sit side by side.
+         ============================================================ -->
     <section class="panel">
-      <h2>Top-up history</h2>
+      <h2>Recent top-ups</h2>
       <ul class="recent" id="topups"></ul>
       <p class="fine" id="topupsEmpty" hidden>No top-ups yet.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Recent charges</h2>
+      <ul class="recent" id="charges"></ul>
+      <p class="fine" id="chargesEmpty" hidden>No charges yet. Free models cost nothing.</p>
     </section>
 
     <p class="fine"><a href="/account.html">Account</a> - <a href="/usage.html">Usage</a> - <a href="/dashboard.html">Dashboard</a></p>
