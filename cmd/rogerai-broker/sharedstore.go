@@ -74,6 +74,40 @@ type sharedStore interface {
 	// SET only means the next request recomputes. ttl<=0 is a no-op.
 	cacheSet(key string, val []byte, ttl time.Duration) error
 
+	// cacheDel removes a cached entry so the NEXT read misses and re-resolves from the
+	// source of truth. Used to invalidate an immutable-binding cache on a bind WRITE, so
+	// a re-bind is reflected at once instead of after the TTL. A non-nil err is non-fatal
+	// (the TTL is the backstop). A missing key is not an error.
+	cacheDel(key string) error
+
+	// counterGet reads a numeric counter (a stringified float) for key. found==false on a
+	// miss; a non-nil err means the backend was unreachable. It is a fast-path accelerator
+	// for a value the caller can always RECONCILE from Postgres (the source of truth) on a
+	// miss/error - NEVER the authority. key is the caller's logical key (impls namespace it
+	// under rogerai:ctr:).
+	counterGet(key string) (val float64, found bool, err error)
+
+	// counterSet seeds a counter to val with a TTL (reconciliation: writing the Postgres
+	// truth into the fast-path). ttl<=0 persists it. A non-nil err is non-fatal.
+	counterSet(key string, val float64, ttl time.Duration) error
+
+	// counterIncr atomically adds delta to a counter and returns the new value. It is used
+	// to keep a money fast-path (the monthly-spend counter) current at Finalize. A non-nil
+	// err means the increment did not land - the caller treats the counter as unreliable
+	// and reconciles from Postgres on the next read. A counter that does not yet exist
+	// starts at 0 before the add (so the FIRST increment after an eviction under-counts
+	// until the next reconcile - which is why a money read NEVER trusts a bare counter as
+	// authoritative without a reconcile path).
+	counterIncr(key string, delta float64) (val float64, err error)
+
+	// setIfAbsent sets key=val only if it does not already exist (SETNX), with a TTL, and
+	// reports whether THIS call set it (set==true) or it already existed (set==false). It
+	// backs idempotent fast-path flags (e.g. "seeded:<wallet>") whose REAL guard is a
+	// Postgres ON-CONFLICT - so a lost/evicted flag is harmless (the guard re-runs). A
+	// non-nil err means the backend was unreachable; the caller must fall back to doing
+	// the underlying (idempotent) work.
+	setIfAbsent(key, val string, ttl time.Duration) (set bool, err error)
+
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
 
@@ -104,6 +138,20 @@ func (m *memStore) cacheGet(string) ([]byte, bool, error) { return nil, false, e
 // cacheSet on memStore is a no-op (nothing to store); the caller already served the
 // freshly computed value.
 func (m *memStore) cacheSet(string, []byte, time.Duration) error { return errNoSharedStore }
+
+// cacheDel on memStore is a no-op (nothing cached to invalidate).
+func (m *memStore) cacheDel(string) error { return errNoSharedStore }
+
+// The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
+// every money/seed fast-path falls back to its Postgres-authoritative computation.
+func (m *memStore) counterGet(string) (float64, bool, error) { return 0, false, errNoSharedStore }
+func (m *memStore) counterSet(string, float64, time.Duration) error {
+	return errNoSharedStore
+}
+func (m *memStore) counterIncr(string, float64) (float64, error) { return 0, errNoSharedStore }
+func (m *memStore) setIfAbsent(string, string, time.Duration) (bool, error) {
+	return false, errNoSharedStore
+}
 
 func (m *memStore) healthy() bool { return false }
 func (m *memStore) Close() error  { return nil }
@@ -376,6 +424,92 @@ func (v *valkeyStore) cacheSet(key string, val []byte, ttl time.Duration) error 
 	return nil
 }
 
+// cacheDel removes a cached entry (DEL), so the next read misses and re-resolves. A
+// missing key is not an error (DEL returns 0). A backend error is noted + returned
+// (non-fatal: the TTL is the backstop).
+func (v *valkeyStore) cacheDel(key string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Del(ctx, cacheKeyPrefix+key).Err(); err != nil {
+		v.noteErr("cacheDel", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// counterKeyPrefix namespaces the numeric fast-path counters (the monthly-spend
+// accelerator, the seed-remaining mirror) under the shared keyspace so they never
+// collide with another project or with the rl:/node:/cache: keys.
+const counterKeyPrefix = keyPrefix + "ctr:"
+
+func (v *valkeyStore) counterGet(key string) (float64, bool, error) {
+	if v == nil || v.rdb == nil {
+		return 0, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.Get(ctx, counterKeyPrefix+key).Float64()
+	if err == redis.Nil {
+		v.setUp(true)
+		return 0, false, nil // clean miss -> caller reconciles from Postgres
+	}
+	if err != nil {
+		v.noteErr("counterGet", err)
+		return 0, false, err
+	}
+	v.setUp(true)
+	return val, true, nil
+}
+
+func (v *valkeyStore) counterSet(key string, val float64, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	// ttl<=0 means persist (no expiry); else set with the expiry in one call.
+	if err := v.rdb.Set(ctx, counterKeyPrefix+key, val, ttl).Err(); err != nil {
+		v.noteErr("counterSet", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) counterIncr(key string, delta float64) (float64, error) {
+	if v == nil || v.rdb == nil {
+		return 0, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.IncrByFloat(ctx, counterKeyPrefix+key, delta).Result()
+	if err != nil {
+		v.noteErr("counterIncr", err)
+		return 0, err
+	}
+	v.setUp(true)
+	return val, nil
+}
+
+func (v *valkeyStore) setIfAbsent(key, val string, ttl time.Duration) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	set, err := v.rdb.SetNX(ctx, counterKeyPrefix+key, val, ttl).Result()
+	if err != nil {
+		v.noteErr("setIfAbsent", err)
+		return false, err
+	}
+	v.setUp(true)
+	return set, nil
+}
+
 // openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
 // default + the fallback) returns nil: the broker uses its in-memory maps with ZERO
 // behavior change. SET connects a valkeyStore; a connection failure at startup
@@ -421,11 +555,13 @@ func cacheTTLJitter(ttl time.Duration) time.Duration {
 //   - any Valkey error on GET or SET falls through to a direct compute/serve: a cache
 //     failure can NEVER fail or stall a request.
 //
-// The key MUST already encode every input that changes the response. For an AUTHED
-// feed the key MUST include the authenticated identity so one account's cached payload
-// is NEVER served to another (the caller is responsible for that namespacing; this
-// helper just keys/stores the bytes it is given). compute returns the value to
-// JSON-encode; serveCachedJSON marshals it once and caches the serialized bytes.
+// The key MUST already encode every input that changes the response. For PUBLIC views
+// (/discover, /market) a single shared entry is safe. For an AUTHED, per-identity feed
+// DO NOT call this directly with a hand-built key - use serveCachedAuthedJSON, which
+// takes the resolved identity as typed arguments and builds the wallet-namespaced key
+// itself (and refuses to cache an anon caller), so one account's payload can never be
+// served to another. compute returns the value to JSON-encode; serveCachedJSON marshals
+// it once and caches the serialized bytes.
 func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
 	// Flag OFF / no shared backend: the existing direct path, byte-for-byte.
 	if b.shared == nil {
@@ -439,19 +575,71 @@ func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Dur
 		_, _ = w.Write(val)
 		return
 	}
-	// MISS (or a cache error): compute, serialize once, serve, then populate.
-	payload := compute()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		// Should never happen for these views; fall back to the standard encoder.
-		writeJSON(w, http.StatusOK, payload)
+	// MISS (or a cache error): compute under a per-KEY singleflight so a CONCURRENT
+	// miss/expiry on this one hot key collapses to ONE compute (+ one cache populate)
+	// instead of a thundering herd each re-running the full (b.mu-locked) recompute.
+	// Only one goroutine per key runs compute(); the rest share its serialized bytes.
+	body := b.computeCachedJSON(key, ttl, compute)
+	if body == nil {
+		// Marshal failed for this view (should never happen); fall back to the standard
+		// encoder on a fresh compute so the request still serves a body.
+		writeJSON(w, http.StatusOK, compute())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
-	// Populate for the next caller. A SET failure is non-fatal (we already served).
-	_ = b.shared.cacheSet(key, body, cacheTTLJitter(ttl))
+}
+
+// computeCachedJSON runs compute() under the broker's per-key singleflight, returning
+// the serialized JSON bytes (nil on a marshal error). The leader marshals once, serves
+// itself, and populates the cache; concurrent callers on the SAME key block on the
+// leader and receive the identical bytes WITHOUT recomputing - this is the dogpile fix
+// (B1). The cache SET is best-effort (a failure only means the next window recomputes).
+func (b *broker) computeCachedJSON(key string, ttl time.Duration, compute func() any) []byte {
+	v, _, _ := b.cacheFlight.Do(key, func() (any, error) {
+		body, err := json.Marshal(compute())
+		if err != nil {
+			return []byte(nil), nil
+		}
+		// Populate for the next caller. A SET failure is non-fatal (we already serve).
+		_ = b.shared.cacheSet(key, body, cacheTTLJitter(ttl))
+		return body, nil
+	})
+	body, _ := v.([]byte)
+	return body
+}
+
+// serveCachedAuthedJSON is the HARDENED read-through cache for a PER-IDENTITY (authed)
+// feed. Unlike serveCachedJSON it does NOT accept a free-form key: it takes the RESOLVED,
+// authenticated identity (the wallet and/or the operator pubkey, each only when that
+// side is present) plus a feed name + variant suffix, and BUILDS the cache key itself
+// via identityCacheKey. This makes cross-identity isolation STRUCTURAL: a caller can
+// never hand it a key that omits (or spoofs) the identity, so one account's cached
+// receipts/series/console can never be served to another (B2).
+//
+// REFUSE-TO-CACHE rule: when NEITHER identity side is present (an anon/empty caller),
+// it computes + serves directly and NEVER writes a cache entry keyed on "" - so an
+// unauthenticated response is never cached under (and later served from) an empty
+// identity key. Flag OFF (shared == nil) is the direct path, byte-for-byte unchanged.
+func (b *broker) serveCachedAuthedJSON(w http.ResponseWriter, feed, variant, wallet string, consumer bool, ownerPubkey string, provider bool, ttl time.Duration, compute func() any) {
+	// Resolve the namespaced identities exactly as the key builder would, so the
+	// refuse-when-anon decision matches the bytes that would be keyed.
+	cacheW, cacheO := "", ""
+	if consumer {
+		cacheW = wallet
+	}
+	if provider {
+		cacheO = ownerPubkey
+	}
+	// REFUSE to cache an anon/empty identity: no authenticated side -> never share an
+	// entry keyed on "". Serve directly (cache OFF for this request) so we can't leak.
+	if cacheW == "" && cacheO == "" {
+		writeJSON(w, http.StatusOK, compute())
+		return
+	}
+	key := identityCacheKey(feed, wallet, consumer, ownerPubkey, provider) + variant
+	b.serveCachedJSON(w, key, ttl, compute)
 }
 
 // Cache TTLs. The PUBLIC market views (/discover, /market) get a very short window:

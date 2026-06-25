@@ -87,11 +87,18 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
+	// W1: a (re)login can change the pubkey->wallet binding, so drop the cached mapping
+	// for this pubkey now rather than waiting out the TTL.
+	b.invalidateOwnerWallet(pubkey)
 	// Grant the starter balance to the GitHub ACCOUNT on first login, idempotent per
 	// github id (the "seed:<wallet>" idem key guards re-login). Seed credits attach to
 	// the account wallet, NOT to anonymous keypairs - those have no balance by design.
 	wallet := "u_gh_" + strconv.FormatInt(gu.ID, 10)
-	_, _, _ = b.db.SeedOnce(wallet, b.seedFunds)
+	_, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds)
+	if seeded {
+		// W6: a seed grant just landed, so refresh the seed-remaining promo mirror.
+		b.invalidateSeedRemaining()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "github_login": gu.Login, "github_id": gu.ID})
 }
 

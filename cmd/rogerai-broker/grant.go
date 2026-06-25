@@ -165,8 +165,14 @@ func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, 
 		// Custom-priced grant: the owner sponsors it from their own consumer wallet.
 		return pricingPlan{payer: ownerWallet(gc.grant.Owner), in: in, out: out, fixed: true}
 	}
-	// Signed self-use: consuming your OWN node is $0, automatically (metering only).
-	if acct, ok, _ := b.db.AccountOfNode(node.NodeID); ok && b.ownsNode(user, acct) {
+	// Signed self-use: consuming your OWN node is $0, automatically (metering only). W1:
+	// the node->owner-account binding is an immutable TOFU mapping, so cache it behind the
+	// flag to drop the per-request point read; Postgres stays authoritative on a miss/flag-
+	// off, and BindNode invalidates the entry.
+	if acct, ok := b.cachedAccountOfNode(node.NodeID, func() (string, bool) {
+		a, ok, _ := b.db.AccountOfNode(node.NodeID)
+		return a, ok
+	}); ok && b.ownsNode(user, acct) {
 		return pricingPlan{payer: wallet, free: true, fixed: true}
 	}
 	// Public market: the relay applies the active price + price-lock window itself
@@ -217,5 +223,13 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 		log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)
 		ownerShare = 0
 	}
-	return b.db.Finalize(payer, node, held, cost, ownerShare, rec)
+	bal, ferr := b.db.Finalize(payer, node, held, cost, ownerShare, rec)
+	if ferr == nil && cost > 0 {
+		// W2b: keep the monthly-spend fast-path counter current with the captured spend.
+		// The ledger row Finalize just wrote is the source of truth; this is a best-effort
+		// accelerator (a failed/absent increment is reconciled from the ledger SUM on the
+		// next cap read, fail-closed). Off when the flag is off / cost is $0.
+		b.recordMonthSpend(payer, cost, now)
+	}
+	return bal, ferr
 }
