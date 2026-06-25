@@ -48,6 +48,14 @@ type concierge struct {
 	client    *http.Client
 	maxTokens int
 
+	// relayTimeout bounds the wait for a dogfood relay RESULT (both the grant-dogfood
+	// path and the free-station path), from CONCIERGE_RELAY_TIMEOUT_SEC (default 30s).
+	// The flagship CONCIERGE_MODEL (gpt-oss-120b, 120B) is slow, so the old hardcoded
+	// 25s sometimes fired before it answered and Ping fell through to Groq. A generous
+	// default gives the flagship headroom; it is clamped to stay UNDER the Cloudflare
+	// ~100s edge cap (and the broker's own non-stream limits) so we never trip those.
+	relayTimeout time.Duration
+
 	rl *rateLimiter // per-IP token bucket (independent from the relay limiter)
 
 	// global daily message cap (in-memory; resets at UTC midnight).
@@ -118,6 +126,10 @@ func loadConcierge() *concierge {
 		// configured. CONCIERGE_MODEL defaults to gpt-oss-120b.
 		grantKey:   os.Getenv("CONCIERGE_GRANT_KEY"),
 		grantModel: envStr("CONCIERGE_MODEL", "gpt-oss-120b"),
+		// Relay result wait: default 30s (headroom for the 120B flagship), clamped to a
+		// sane 5..90s band so it stays UNDER Cloudflare's ~100s edge cap no matter what
+		// is configured. CONCIERGE_RELAY_TIMEOUT_SEC overrides the default.
+		relayTimeout: clampRelayTimeout(envInt("CONCIERGE_RELAY_TIMEOUT_SEC", 30)),
 	}
 	if c.groqKey == "" {
 		log.Printf("CONCIERGE: GROQ_API_KEY unset - Ping falls back to a free on-air station, else a canned 'off air' reply (no Groq).")
@@ -322,7 +334,7 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 			return "", false
 		}
 		return completionText(res.Body), true
-	case <-time.After(25 * time.Second):
+	case <-time.After(c.relayWait()):
 		return "", false
 	}
 }
@@ -392,6 +404,45 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 		return "", false
 	}
 
+	// One cheap reliability retry: a transient "no poller free" (the node's poller was
+	// momentarily between long-polls when we tried to enqueue) is worth a single
+	// re-pick+re-enqueue before falling through, since the flagship node is often the
+	// only one serving the model. We retry ONLY the enqueue-timeout case - NOT a result
+	// error / non-2xx (which may be a content/moderation rejection from the node) and
+	// NOT the result timeout. The dogfood is unbilled, so a retry never double-charges.
+	// Each attempt re-picks an on-air owner node (the first may have just gone off air).
+	const grantEnqueueAttempts = 2
+	for attempt := 1; attempt <= grantEnqueueAttempts; attempt++ {
+		reply, served, enqueued := b.grantRelayOnce(t, model, node, rawBody)
+		if enqueued {
+			return reply, served // got the job onto a poller; success or a real miss, no retry
+		}
+		// enqueue timed out (no poller free). Retry once with a fresh node pick.
+		if attempt < grantEnqueueAttempts {
+			if rn, rok := b.pickGrantStation(gc.nodeAllow, model); rok {
+				b.mu.Lock()
+				rt := b.tunnels[rn]
+				b.mu.Unlock()
+				if rt != nil {
+					t, node = rt, rn
+					log.Printf("CONCIERGE grant-dogfood retry: re-enqueue after no-poller-free model=%q node=%s", model, node)
+					continue
+				}
+			}
+		}
+		log.Printf("CONCIERGE grant-dogfood miss: relay-error (no poller free, enqueue timeout) model=%q node=%s", model, node)
+		return "", false // no poller free after the retry - fall through
+	}
+	return "", false
+}
+
+// grantRelayOnce performs a SINGLE enqueue+wait of the grant-dogfood job on tunnel t.
+// enqueued reports whether the job actually made it onto a poller: when false, the
+// enqueue timed out (no poller free) and the caller may retry once with a fresh pick;
+// when true, the relay ran to completion and (reply, served) is the final verdict for
+// THIS attempt (a non-2xx / result-timeout is a real miss, NOT retried). The job's
+// waiter is always cleaned up.
+func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byte) (reply string, served, enqueued bool) {
 	job := protocol.Job{ID: protocol.NewRequestID(), User: b.pseudonym("ping-concierge-grant", node), Body: rawBody}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
@@ -399,22 +450,22 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
+	c := b.concierge
 	select {
 	case t.jobs <- job:
 	case <-time.After(2 * time.Second):
-		log.Printf("CONCIERGE grant-dogfood miss: relay-error (no poller free, enqueue timeout) model=%q node=%s", model, node)
-		return "", false // no poller free
+		return "", false, false // no poller free - retryable
 	}
 	select {
 	case res := <-resCh:
 		if res.Status < 200 || res.Status >= 300 {
 			log.Printf("CONCIERGE grant-dogfood miss: relay-error (status %d) model=%q node=%s", res.Status, model, node)
-			return "", false
+			return "", false, true
 		}
-		return completionText(res.Body), true
-	case <-time.After(25 * time.Second):
+		return completionText(res.Body), true, true
+	case <-time.After(c.relayWait()):
 		log.Printf("CONCIERGE grant-dogfood miss: relay-error (result timeout) model=%q node=%s", model, node)
-		return "", false
+		return "", false, true
 	}
 }
 
@@ -497,6 +548,34 @@ func (b *broker) groqCall(messages []chatMsg) (reply string, ok bool) {
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return completionText(rb), true
+}
+
+// defaultRelayTimeout is the result-wait used when relayTimeout was never configured
+// (e.g. a concierge built directly in a test). It matches loadConcierge's default.
+const defaultRelayTimeout = 30 * time.Second
+
+// clampRelayTimeout turns the configured CONCIERGE_RELAY_TIMEOUT_SEC into a bounded
+// result-wait duration. It floors at 5s (never starve a fast model) and CAPS at 90s
+// so the wait stays comfortably UNDER Cloudflare's ~100s edge timeout and the broker's
+// own non-stream limits no matter what is set in the environment.
+func clampRelayTimeout(sec int) time.Duration {
+	if sec < 5 {
+		sec = 5
+	}
+	if sec > 90 {
+		sec = 90
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// relayWait is the effective relay result-wait: the configured relayTimeout, or the
+// 30s default when it was left unset (zero). Guards the zero value so a directly-built
+// concierge never relays with a 0s (immediate) timeout.
+func (c *concierge) relayWait() time.Duration {
+	if c.relayTimeout <= 0 {
+		return defaultRelayTimeout
+	}
+	return c.relayTimeout
 }
 
 // --- small helpers -------------------------------------------------------------

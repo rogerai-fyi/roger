@@ -581,3 +581,112 @@ func TestPickFreeStation(t *testing.T) {
 		t.Error("an offline free station must not be picked")
 	}
 }
+
+// TestConciergeRelayTimeoutConfig: CONCIERGE_RELAY_TIMEOUT_SEC sets the relay
+// result-wait, defaults to 30s, and is clamped to a 5..90s band so it can never be set
+// above Cloudflare's ~100s edge cap (or starve a fast model below 5s). An unset
+// relayTimeout falls back to the 30s default at use time (relayWait).
+func TestConciergeRelayTimeoutConfig(t *testing.T) {
+	t.Setenv("CONCIERGE_GRANT_KEY", "")
+	cases := []struct {
+		env  string
+		want time.Duration
+	}{
+		{"", 30 * time.Second},    // default
+		{"45", 45 * time.Second},  // honored
+		{"3", 5 * time.Second},    // floored
+		{"600", 90 * time.Second}, // capped under the CF ~100s edge cap
+	}
+	for _, tc := range cases {
+		t.Setenv("CONCIERGE_RELAY_TIMEOUT_SEC", tc.env)
+		c := loadConcierge()
+		if c.relayTimeout != tc.want {
+			t.Errorf("relayTimeout for env %q = %v, want %v", tc.env, c.relayTimeout, tc.want)
+		}
+		if got := c.relayTimeout; got >= 100*time.Second {
+			t.Errorf("relayTimeout %v must stay under the CF ~100s edge cap", got)
+		}
+	}
+	// relayWait guards a zero (never-configured) relayTimeout to the 30s default.
+	if (&concierge{}).relayWait() != defaultRelayTimeout {
+		t.Errorf("relayWait on an unset relayTimeout = %v, want %v", (&concierge{}).relayWait(), defaultRelayTimeout)
+	}
+}
+
+// TestConciergeRelayHonorsTimeout: a relay whose node never answers falls through
+// after the CONFIGURED relayTimeout (here a short 5s floor), not the old hardcoded
+// 25s - proving the knob bounds the wait. We measure that the miss returns well before
+// 25s.
+func TestConciergeRelayHonorsTimeout(t *testing.T) {
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	b := newConciergeBroker()
+	b.priv = brokerPriv
+	b.concierge.relayTimeout = clampRelayTimeout(1) // floored to 5s
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	b.nodes["freebie"] = protocol.NodeRegistration{
+		NodeID: "freebie", PubKey: hex.EncodeToString(nodePub),
+		Offers: []protocol.ModelOffer{{Model: "free-m"}},
+	}
+	// A poller that takes the job but NEVER answers -> the relay must time out on the wait.
+	tun := &nodeTunnel{jobs: make(chan protocol.Job, 1), waiters: map[string]chan protocol.JobResult{}}
+	b.tunnels["freebie"] = tun
+	b.lastSeen["freebie"] = time.Now()
+	go func() { <-tun.jobs }() // consume, never reply
+
+	start := time.Now()
+	reply, served := b.dogfoodRelay([]chatMsg{{Role: "user", Content: "hi"}})
+	elapsed := time.Since(start)
+	if served || reply != "" {
+		t.Errorf("a never-answering node must miss, got served=%v reply=%q", served, reply)
+	}
+	if elapsed >= 25*time.Second {
+		t.Errorf("relay waited %v - the configurable timeout did not bound it", elapsed)
+	}
+	if elapsed < 5*time.Second {
+		t.Errorf("relay returned in %v, before the floored 5s timeout", elapsed)
+	}
+}
+
+// TestConciergeGrantRetryOnNoPoller: when the FIRST grant enqueue finds no poller free
+// (the node's job buffer is full / no poller draining), the relay retries the enqueue
+// ONCE before falling through. The poller starts draining only AFTER the first 2s
+// enqueue-timeout fires, so the retry lands and the grant path serves rather than
+// degrading. An UNBUFFERED jobs channel makes "no poller free" deterministic: the send
+// blocks until a receiver exists.
+func TestConciergeGrantRetryOnNoPoller(t *testing.T) {
+	b, _, node := grantConciergeBroker(t, []string{"gpt-oss-120b"})
+	b.lastSeen[node] = time.Now()
+	b.concierge.relayTimeout = clampRelayTimeout(10)
+	// Unbuffered jobs channel: an enqueue with no poller receiving blocks, so the
+	// relay's 2s enqueue-timeout fires - the transient "no poller free" the retry is for.
+	tun := &nodeTunnel{jobs: make(chan protocol.Job), waiters: map[string]chan protocol.JobResult{}}
+	b.tunnels[node] = tun
+
+	freeCalled := false
+	b.concierge.dogfoodFn = func(msgs []chatMsg) (string, bool) { freeCalled = true; return "free", true }
+	b.concierge.groqFn = func(msgs []chatMsg) (string, bool) { return "groq", true }
+
+	// No poller for the first ~2.5s (first enqueue's 2s timeout fires -> single retry);
+	// then a poller arrives and answers the retried job.
+	go func() {
+		time.Sleep(2500 * time.Millisecond)
+		job := <-tun.jobs
+		tun.mu.Lock()
+		ch := tun.waiters[job.ID]
+		tun.mu.Unlock()
+		ch <- protocol.JobResult{ID: job.ID, Status: 200,
+			Body: []byte(`{"choices":[{"message":{"role":"assistant","content":"served on retry"}}]}`)}
+	}()
+
+	code, out := postConcierge(t, b, "7.7.9.1", "hi")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if out["reply"] != "served on retry" || out["via"] != "rogerai-grant" {
+		t.Errorf("grant retry reply=%q via=%q, want the grant path to serve on the retry", out["reply"], out["via"])
+	}
+	if freeCalled {
+		t.Error("grant retry served: the free-station fallback must NOT have been consulted")
+	}
+}

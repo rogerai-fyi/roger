@@ -248,6 +248,106 @@ func TestPrivateSelfUseFree(t *testing.T) {
 	}
 }
 
+// TestBandOffersCarryRealMetrics: a PRIVATE band offer must carry the SAME real,
+// enriched metrics the public /discover path computes - a non-zero signal + a
+// populated terms breakdown + the verified bit + ttft + ctx - not the degraded/empty
+// view the band path used to return. This asserts the shared enrichment ran on the
+// private path (the metrics are identical to what the same node yields on /discover).
+func TestBandOffersCarryRealMetrics(t *testing.T) {
+	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
+	// metricsMu-guarded maps the enrichment reads/writes. Seed a recently-probed,
+	// canary-passed, fast node so the signal is well above zero and verified is true.
+	b.trust = map[string]trustState{}
+	b.success = map[string]float64{}
+	b.inflight = map[string]int{}
+	b.concurrentTPS = map[string]float64{}
+	b.banned = map[string]bool{}
+	b.successCount = map[string]int{}
+
+	resp, code := registerPrivate(t, b, nodePriv, nodePubHex, userPriv, true)
+	if code != http.StatusOK {
+		t.Fatalf("register = %d", code)
+	}
+	realCode := resp["band_code"].(string)
+
+	now := time.Now()
+	b.mu.Lock()
+	b.lastSeen["priv1"] = now
+	b.mu.Unlock()
+	b.metricsMu.Lock()
+	b.trust["priv1"] = trustState{probed: true, probeOK: true, ttftMs: 250}
+	b.tps["priv1"] = 120
+	b.metricsMu.Unlock()
+
+	// Resolve the band and assert the enriched fields are populated.
+	body, _ := json.Marshal(map[string]string{"freq": realCode})
+	w := httptest.NewRecorder()
+	b.bandResolve(w, httptest.NewRequest(http.MethodPost, "/bands/resolve", bytes.NewReader(body)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("band resolve = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var out struct {
+		Offers []offerView `json:"offers"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Offers) != 1 {
+		t.Fatalf("got %d band offers, want 1", len(out.Offers))
+	}
+	o := out.Offers[0]
+	if o.NodeID != "priv1" {
+		t.Fatalf("offer node = %q, want priv1", o.NodeID)
+	}
+	if o.Signal <= 0 {
+		t.Errorf("private-band Signal = %d, want a non-zero enriched signal", o.Signal)
+	}
+	if o.Terms.Total != o.Signal || o.Terms == (signalTerms{}) {
+		t.Errorf("private-band Terms not enriched: terms=%+v signal=%d", o.Terms, o.Signal)
+	}
+	if !o.Verified {
+		t.Error("private-band Verified = false, want true (node has a passed canary)")
+	}
+	if !o.Online {
+		t.Error("private-band Online = false, want true")
+	}
+	if o.TTFTMs != 250 || o.TPS != 120 {
+		t.Errorf("private-band ttft=%v tps=%v, want 250/120", o.TTFTMs, o.TPS)
+	}
+	if o.Ctx != 4096 {
+		t.Errorf("private-band ctx = %d, want 4096 (carried from the offer)", o.Ctx)
+	}
+
+	// Equivalence: the SAME node on the public /discover path yields the same signal +
+	// verified, proving the band path reuses the shared enrichment, not a degraded copy.
+	b.mu.Lock()
+	b.private["priv1"] = false // expose it publicly just for this comparison
+	b.mu.Unlock()
+	dw := httptest.NewRecorder()
+	b.discover(dw, httptest.NewRequest(http.MethodGet, "/discover", nil))
+	var disc struct {
+		Offers []offerView `json:"offers"`
+	}
+	_ = json.Unmarshal(dw.Body.Bytes(), &disc)
+	var pub *offerView
+	for i := range disc.Offers {
+		if disc.Offers[i].NodeID == "priv1" {
+			pub = &disc.Offers[i]
+			break
+		}
+	}
+	if pub == nil {
+		t.Fatal("public /discover did not list the node for the equivalence check")
+	}
+	// Signal + verified must match exactly; Terms is float-valued and scaled by a recency
+	// factor computed at each path's own time.Now(), so it can differ by a sub-point
+	// rounding - assert the integer Total agrees rather than exact float equality.
+	if pub.Signal != o.Signal || pub.Verified != o.Verified || pub.Terms.Total != o.Terms.Total {
+		t.Errorf("band vs discover metrics differ: band(sig=%d ver=%v terms=%+v) discover(sig=%d ver=%v terms=%+v)",
+			o.Signal, o.Verified, o.Terms, pub.Signal, pub.Verified, pub.Terms)
+	}
+}
+
 // TestRegisterPriceCeiling: a public node whose price exceeds the hard ceiling is
 // rejected at register with copy steering to --private.
 func TestRegisterPriceCeiling(t *testing.T) {
