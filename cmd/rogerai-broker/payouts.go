@@ -372,6 +372,9 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 	pay.State = store.PayoutPaid
 	pay.StripeTransferID = transferID
 	log.Printf("payout %s: %.4f credits -> transfer %s (state=%s)", login, pay.Amount, transferID, pay.State)
+	// Flag-gated transactional notice (async, best-effort): tell the operator their
+	// payout is on its way. No-op when RESEND_API_KEY is unset or no email on file.
+	b.emailPayoutSent(o.Email, pay.Amount, transferID)
 	writeJSON(w, http.StatusOK, map[string]any{"payout": pay})
 }
 
@@ -504,6 +507,10 @@ func (b *broker) reversePaidLots(disputeID string, reversals []store.Reversal) {
 			continue
 		}
 		log.Printf("dispute %s: reversed %.4f credits of transfer %s (lot %d) -> %s", disputeID, rv.Amount, rv.TransferID, rv.LotID, revID)
+		// Flag-gated transactional notice (async, best-effort): tell the operator their
+		// paid-out earning was clawed back on a dispute. No-op when RESEND_API_KEY is
+		// unset or the owner has no email on file.
+		b.emailPayoutReversed(b.emailOf(rv.AccountID), rv.Amount, disputeID)
 	}
 }
 

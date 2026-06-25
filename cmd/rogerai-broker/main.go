@@ -95,6 +95,7 @@ type broker struct {
 	bill        billing
 	conn        connect
 	mod         moderation
+	mail        *mailer  // flag-gated (RESEND_API_KEY) transactional email; nil-safe no-op when disabled
 	payoutLocks sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
 	rl          *rateLimiter
 	grantRL     *rateLimiter // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
@@ -256,6 +257,7 @@ func main() {
 	b.bill = loadBilling()
 	b.conn = loadConnect()
 	b.mod = loadModeration()
+	b.mail = loadMailer()
 	b.rl = loadRateLimiter()
 	b.grantRL = loadRateLimiter() // independent bucket map keyed by grant id
 	b.anonRL = loadAnonRateLimiter()

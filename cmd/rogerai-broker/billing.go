@@ -244,6 +244,9 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			b.reversePaidLots(o.ID, res.Reversals)
+			// Flag-gated transactional notice (async, best-effort): tell the consumer
+			// whose charge was disputed. No-op when RESEND_API_KEY is unset or no email.
+			b.emailDisputeOpened(b.emailOf(user), amount, o.ID)
 			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from held/payable, %d paid-lot reversal(s), platform loss %.4f)",
 				o.ID, user, amount, res.Clawed, len(res.Reversals), res.PlatformLoss)
 		} else {

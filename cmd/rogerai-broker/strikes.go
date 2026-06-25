@@ -88,9 +88,15 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 	switch {
 	case zeroDoubt || n >= b.strikeBanAt:
 		b.banOwner(acct, kind, string(ev))
+		// Flag-gated transactional notice (async, best-effort): tell the owner the
+		// account was suspended, with the evidence that tripped it. No-op when
+		// RESEND_API_KEY is unset or the owner has no email on file.
+		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
 	case n >= b.strikeWarnAt:
 		log.Printf("STRIKE WARNING owner=%s kind=%s count=%d/%d - one more class of violation will ban this account",
 			acct, kind, n, b.strikeBanAt)
+		// Flag-gated transactional warning (async, best-effort). No-op when disabled.
+		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), n, b.strikeBanAt)
 	}
 }
 
