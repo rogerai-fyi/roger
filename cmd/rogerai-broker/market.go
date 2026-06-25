@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // normalizedMarketQuery builds the STABLE cache key suffix for the PUBLIC market
@@ -64,6 +66,72 @@ type offerView struct {
 	Radius   float64 `json:"radius"`
 }
 
+// enrichOffersForNode builds the fully-enriched offerView list for ONE node, with
+// the SAME multi-factor signal/terms/success/verified/ctx/in-flight machinery the
+// public /discover path uses, so a private band carries identical real metrics. It
+// is the single source of the per-offer enrichment math (no duplication): both
+// computeDiscover and the private-band bandOffers path call it.
+//
+// CONTRACT: the caller MUST already hold b.mu (node map is read here). This function
+// acquires b.metricsMu itself for the per-node metric reads. The optional model
+// filter `deny` (band's allow-list; nil for the public path) drops offers the band
+// does not permit. When probeOnBrowse is true and probing is enabled, a stale online
+// node is scheduled for a near-term demand probe (async; this read uses current data)
+// - the public path opts in; the band resolve/relay liveness probe opts out so it
+// stays a cheap read. The returned slice is appended to `out`.
+func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView {
+	age := time.Since(b.lastSeen[n.NodeID])
+	online := age < nodeTTL
+	b.metricsMu.Lock()
+	tq := b.trust[n.NodeID]
+	tps := b.tps[n.NodeID]
+	inflight := b.inflight[n.NodeID]
+	sr, srSeen := b.success[n.NodeID]
+	quality := tq.score()
+	ttft := tq.ttftMs
+	verified := tq.verifiedServing()
+	staleness := b.measurementStalenessLocked(n.NodeID, now)
+	capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
+	radius := 0.0
+	if tq.probed && tq.probeOK {
+		radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
+	}
+	if probeOnBrowse && online && b.probe.enabled() && staleness < 1.0 {
+		b.demandProbeSoonLocked(n.NodeID, now)
+	}
+	b.metricsMu.Unlock()
+
+	recency := recencyOf(age)
+	successRate := successFor(sr, srSeen, verified)
+	terms := signalTerms{}
+	if online {
+		terms = computeSignal(signalInput{
+			providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttft,
+			successRate: successRate, trust: quality, recency: recency, verified: verified,
+			staleness: staleness,
+		})
+	}
+	successSeen := srSeen || verified
+	for _, o := range n.Offers {
+		if deny != nil && deny(o.Model) {
+			continue
+		}
+		pin, pout, free, _ := o.ActivePrice(now)
+		out = append(out, offerView{
+			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
+			In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
+			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
+			TPS:    tps,
+			TTFTMs: ttft, Quality: quality,
+			SuccessRate: round6(successRate), SuccessSeen: successSeen, Verified: verified,
+			Signal:   terms.Total,
+			Terms:    terms,
+			InFlight: inflight, Capacity: capacity, Radius: round6(radius),
+		})
+	}
+	return out
+}
+
 // discover handles GET /discover: all model offers with live status, measured
 // throughput, and active (time-of-use) price, cheapest-now first.
 func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
@@ -115,64 +183,11 @@ func (b *broker) computeDiscover() any {
 		if b.private[n.NodeID] {
 			continue
 		}
-		age := time.Since(b.lastSeen[n.NodeID])
-		online := age < nodeTTL
-		// Per-node market metrics, read once under metricsMu, that feed BOTH the
-		// surfaced quality/tps fields AND the 0..100 signal. An offline node scores 0
-		// (offerSignal forces it); an online node with no traffic still earns its
-		// baseline from supply + verified-serving + trust, differentiated by probe
-		// evidence (ttft/verified) rather than an optimistic constant.
-		b.metricsMu.Lock()
-		tq := b.trust[n.NodeID]
-		tps := b.tps[n.NodeID]
-		inflight := b.inflight[n.NodeID]
-		sr, srSeen := b.success[n.NodeID]
-		quality := tq.score()
-		ttft := tq.ttftMs
-		verified := tq.verifiedServing()
-		staleness := b.measurementStalenessLocked(n.NodeID, now)
-		// Smart-router v2 selection fields (mirror pick): capacity from under-load TPS
-		// else hw-class prior; the UCB exploration lift (gated to canary-passed nodes).
-		capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
-		radius := 0.0
-		if tq.probed && tq.probeOK {
-			radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
-		}
-		// Demand-driven: a consumer is browsing this offer. If its measurement is stale,
-		// schedule a near-term probe so the NEXT browse/route reads fresh data (async;
-		// this browse uses the current reading). Only the online nodes are worth probing.
-		if online && b.probe.enabled() && staleness < 1.0 {
-			b.demandProbeSoonLocked(n.NodeID, now)
-		}
-		b.metricsMu.Unlock()
-		recency := recencyOf(age)
-		successRate := successFor(sr, srSeen, verified)
-		terms := signalTerms{}
-		if online {
-			terms = computeSignal(signalInput{
-				providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttft,
-				successRate: successRate, trust: quality, recency: recency, verified: verified,
-				staleness: staleness,
-			})
-		}
-		// successSeen is true when SuccessRate is REAL evidence (organic EWMA, or a
-		// probe-verified-OK node), false when it is the neutral no-evidence fallback - so
-		// the UI can show "no data yet" instead of a fabricated percentage.
-		successSeen := srSeen || verified
-		for _, o := range n.Offers {
-			pin, pout, free, _ := o.ActivePrice(now)
-			out = append(out, offerView{
-				NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
-				In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
-				Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
-				TPS:    tps,
-				TTFTMs: ttft, Quality: quality,
-				SuccessRate: round6(successRate), SuccessSeen: successSeen, Verified: verified,
-				Signal:   terms.Total,
-				Terms:    terms,
-				InFlight: inflight, Capacity: capacity, Radius: round6(radius),
-			})
-		}
+		// Per-offer enrichment (signal/terms/success/verified/ctx/in-flight + the
+		// smart-router selection fields) is the SAME machinery a private band uses; it
+		// lives in the shared enrichOffersForNode (b.mu held here, deny=nil for the public
+		// path, demand-probe scheduling on while browsing).
+		out = b.enrichOffersForNode(out, n, now, nil, true)
 	}
 	b.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].In < out[j].In })

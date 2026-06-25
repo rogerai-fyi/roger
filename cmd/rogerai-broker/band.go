@@ -200,20 +200,12 @@ func (b *broker) bandOffers(band store.Band, found bool, now time.Time) ([]offer
 	if time.Since(b.lastSeen[band.NodeID]) >= nodeTTL {
 		return nil, false // valid band, but the station is off air -> uniform negative
 	}
-	var out []offerView
-	online := true
-	for _, o := range n.Offers {
-		if band.ModelDenied(o.Model) {
-			continue
-		}
-		pin, pout, free, _ := o.ActivePrice(now)
-		out = append(out, offerView{
-			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
-			In: pin, Out: pout, Ctx: o.Ctx, Online: online,
-			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
-			TPS: b.tps[n.NodeID], TTFTMs: b.probeTTFT(n.NodeID), Quality: b.trustScore(n.NodeID),
-		})
-	}
+	// A private band carries the SAME real per-offer metrics as the public /discover
+	// path - signal/terms, success(+seen), verified, ttft, ctx(+estimated), hw,
+	// in-flight - via the shared enrichOffersForNode (b.mu held here). The band's
+	// model allow-list is applied as the deny filter; demand-probe scheduling is OFF
+	// (this is a tune-in/liveness read, kept cheap, not a market browse).
+	out := b.enrichOffersForNode(nil, n, now, band.ModelDenied, false)
 	if len(out) == 0 {
 		return nil, false // band's models are not currently offered -> uniform negative
 	}
