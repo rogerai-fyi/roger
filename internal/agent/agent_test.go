@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -99,6 +100,47 @@ func TestRegisterStatus(t *testing.T) {
 			t.Errorf("429 reject should surface the broker reason, got %v", err)
 		}
 	})
+}
+
+// TestRegisterSignsAtZeroPrice confirms a FREE (price 0/0) registration still carries
+// the owner-signing headers (X-Roger-Pubkey/-TS/-Sig) so a logged-in operator's free
+// node can be BOUND to their account broker-side. register() signs every registration
+// with the local user key regardless of price; the broker resolves the GitHub-linked
+// owner from that pubkey. Anonymous free sharing still works (the headers are present
+// but resolve to no owner) - this test only asserts the identity is always sent.
+func TestRegisterSignsAtZeroPrice(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate the user.key the signer creates
+	var gotPub, gotSig, gotTS string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPub = r.Header.Get("X-Roger-Pubkey")
+		gotSig = r.Header.Get("X-Roger-Sig")
+		gotTS = r.Header.Get("X-Roger-TS")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// A free node: a single offer at price 0/0 (the bug-2 case the founder hit).
+	reg := protocol.NodeRegistration{
+		NodeID: "brave-otter-gpt-oss-120b", PubKey: "deadbeef",
+		Offers: []protocol.ModelOffer{{Model: "gpt-oss-120b", PriceIn: 0, PriceOut: 0}},
+	}
+	if _, err := register(srv.URL, reg); err != nil {
+		t.Fatalf("register at price 0 should succeed, got %v", err)
+	}
+	if gotPub == "" || gotSig == "" || gotTS == "" {
+		t.Fatalf("free registration must carry owner-signing headers (pub=%q sig=%q ts=%q)", gotPub, gotSig, gotTS)
+	}
+	// The signature must verify over the exact body the broker received, proving the
+	// owner identity is genuinely bound to this free registration (not a stray header).
+	ts, err := strconv.ParseInt(gotTS, 10, 64)
+	if err != nil {
+		t.Fatalf("bad X-Roger-TS %q: %v", gotTS, err)
+	}
+	if _, ok := protocol.VerifyRequest(gotPub, gotSig, ts, http.MethodPost, "/nodes/register", gotBody); !ok {
+		t.Error("owner signature on the free registration did not verify")
+	}
 }
 
 func TestBrokerErrMsg(t *testing.T) {
