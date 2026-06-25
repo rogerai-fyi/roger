@@ -189,6 +189,15 @@ type Store interface {
 	FailPayout(payoutID int64) error
 	// PayoutsOf returns an operator's payout history, newest first.
 	PayoutsOf(accountID string, limit int) ([]Payout, error)
+	// SetNodeRecountHold flags (held=true) or clears (held=false) a node as having an
+	// OPEN L1 re-count discrepancy. While held, the sweep-on-read promotion holds that
+	// node's earning lots in `held` instead of auto-promoting them to `payable` (P0-2):
+	// an over-reporting node's earnings are kept un-cashable pending review rather than
+	// becoming payable on schedule. Idempotent. The flag is broker-fed from observeRecount.
+	SetNodeRecountHold(node string, held bool) error
+	// RecountHeldNodes returns the set of nodes currently flagged with an open re-count
+	// discrepancy, so the broker can re-hydrate the in-memory view after a restart.
+	RecountHeldNodes() (map[string]bool, error)
 	// Chargeback records a consumer dispute: a chargeback ledger row against the
 	// consumer wallet, and a clawback against the operator's still-held/payable lots
 	// derived from that consumer. Idempotent on the Stripe dispute id. When requestID
@@ -196,6 +205,21 @@ type Store interface {
 	// is empty the clawback targets lots attributed to `wallet` (via the request
 	// receipts) by recency, up to the disputed amount. Returns the credits clawed.
 	Chargeback(disputeID, wallet, requestID string, amount float64, now time.Time) (clawed float64, err error)
+	// ChargebackLineage is the lineage-attributed dispute clawback (P0-3 + P0-4). It
+	// resolves the disputed charge to its consumer wallet's OWN earning lots (the
+	// checkout_charges -> receipts -> earning_lots link) and claws those EXACT lots up
+	// to the disputed amount, newest first - never unrelated honest operators' lots:
+	//   - held/payable lots are clawed in-place (adjustment -gross), counted in Clawed;
+	//   - ALREADY-PAID lots are marked clawed with a payout_reversed ledger row and
+	//     RETURNED as Reversals so the broker can issue the Stripe Transfer Reversal
+	//     against the operator's connected account (6.4 step 4);
+	//   - any disputed amount NOT covered by this consumer's lots is recorded as a
+	//     platform_loss ledger row (the platform is liable) instead of clawing other
+	//     operators.
+	// All store mutations happen in ONE transaction, idempotent on the dispute id
+	// (a redelivery returns AlreadyHandled=true and does nothing). With an explicit
+	// requestID it targets that one request's lots (legacy/precise path).
+	ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error)
 	// LinkCharge persists the mapping from a Stripe payment_intent / charge id to the
 	// (wallet, credits) of a completed checkout, so a later charge.dispute.created
 	// (which carries NONE of the checkout metadata) can resolve the wallet to claw
@@ -313,6 +337,7 @@ type NodeRecord struct {
 type Mem struct {
 	mu         sync.Mutex
 	wallet     map[string]float64
+	seedRemain map[string]float64 // per-wallet UNSPENT seed (free) credits; drained first on spend
 	earnings   map[string]float64
 	spend      map[string]float64
 	entries    []Entry
@@ -321,19 +346,20 @@ type Mem struct {
 	policy     PayoutPolicy
 	monthlyCap map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
 
-	ledger   []LedgerRow           // append-only money events
-	ledgerID int64                 // monotonic ledger id
-	idem     map[string]bool       // ledger idem keys seen
-	lots     []EarningLot          // operator earning lifecycle lots
-	lotID    int64                 // monotonic lot id
-	payouts  []Payout              // payout history
-	payoutID int64                 // monotonic payout id
-	disputes map[string]bool       // seen stripe dispute ids (idempotency)
-	nodeAcct map[string]string     // node id -> owner pubkey (TOFU)
-	charges  map[string]charge     // stripe payment_intent/charge id -> checkout mapping
-	gs       *grantStore           // grant keys + per-grant usage rollups
-	bs       *bandStore            // private bands ("frequency codes": private discovery)
-	nodes    map[string]NodeRecord // persisted node registry (re-hydrated on restart)
+	ledger      []LedgerRow           // append-only money events
+	ledgerID    int64                 // monotonic ledger id
+	idem        map[string]bool       // ledger idem keys seen
+	lots        []EarningLot          // operator earning lifecycle lots
+	lotID       int64                 // monotonic lot id
+	payouts     []Payout              // payout history
+	payoutID    int64                 // monotonic payout id
+	disputes    map[string]bool       // seen stripe dispute ids (idempotency)
+	recountHold map[string]bool       // node id -> open L1 re-count discrepancy (holds promotion, P0-2)
+	nodeAcct    map[string]string     // node id -> owner pubkey (TOFU)
+	charges     map[string]charge     // stripe payment_intent/charge id -> checkout mapping
+	gs          *grantStore           // grant keys + per-grant usage rollups
+	bs          *bandStore            // private bands ("frequency codes": private discovery)
+	nodes       map[string]NodeRecord // persisted node registry (re-hydrated on restart)
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
 	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
@@ -362,9 +388,9 @@ type charge struct {
 
 func NewMem() *Mem {
 	return &Mem{
-		wallet: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
+		wallet: map[string]float64{}, seedRemain: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
-		idem: map[string]bool{}, disputes: map[string]bool{}, nodeAcct: map[string]string{},
+		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]bool{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		banned: map[string]string{},
 	}
@@ -434,12 +460,55 @@ func (m *Mem) grantSeedLocked(wallet string, seed float64) bool {
 		return false // cap exhausted: this new wallet gets no seed
 	}
 	m.wallet[wallet] += seed
+	// Track the seed-funded portion of the balance separately so the earning path can
+	// tell free (seed) spend from real (cleared-topup) spend: an operator must NOT be
+	// able to mint a payable earning from another account's free seed credits (P0-1).
+	if m.seedRemain == nil {
+		m.seedRemain = map[string]float64{}
+	}
+	m.seedRemain[wallet] += seed
 	m.seedCount++
 	// Seed credits are a real balance, so they get a ledger row too (else the
 	// re-derivation drift check would flag every seeded wallet). The idem key also
 	// marks this wallet as seeded so neither seed path re-grants it.
 	m.appendLedgerLocked(wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0)
 	return true
+}
+
+// consumeSeedLocked draws `cost` against the wallet's UNSPENT seed credits first and
+// returns the portion funded by seed. Caller holds m.mu. Seed is spent BEFORE real
+// (cleared-topup) credits so the operator earning path only accrues on the real
+// remainder (seed-funded traffic earns the operator nothing - it is treated like a
+// free request on the operator side). This does NOT change the consumer's spend.
+func (m *Mem) consumeSeedLocked(wallet string, cost float64) float64 {
+	if cost <= 0 {
+		return 0
+	}
+	rem := m.seedRemain[wallet]
+	if rem <= 0 {
+		return 0
+	}
+	used := cost
+	if used > rem {
+		used = rem
+	}
+	m.seedRemain[wallet] = rem - used
+	return used
+}
+
+// realEarnShare scales an owner share down to the REAL (non-seed) funded fraction of
+// the cost: if part of the cost was paid from seed credits, that part earns the
+// operator nothing. cost<=0 (free/self) earns nothing. Caller holds m.mu.
+func (m *Mem) realEarnShare(wallet string, cost, ownerShare float64) float64 {
+	if cost <= 0 || ownerShare <= 0 {
+		return 0
+	}
+	seedUsed := m.consumeSeedLocked(wallet, cost)
+	realFrac := (cost - seedUsed) / cost
+	if realFrac <= 0 {
+		return 0
+	}
+	return ownerShare * realFrac
 }
 
 func (m *Mem) BalanceOf(user string, seed float64) (float64, error) {
@@ -482,15 +551,19 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.wallet[user] -= cost
-	m.earnings[node] += ownerShare
 	m.spend[user] += cost
+	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
+	// lot: free seed credits must never mint a payout (P0-1). consumeSeed is called
+	// EXACTLY ONCE here, via realEarnShare. The consumer's spend (cost) is unchanged.
+	earnShare := m.realEarnShare(user, cost, ownerShare)
+	m.earnings[node] += earnShare
 	m.entries = append(m.entries, Entry{
 		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
 		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
-		Cost: cost, OwnerShare: ownerShare, TS: rec.TS,
+		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
-	m.addLotLocked(node, rec.RequestID, ownerShare, time.Now())
+	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
 	return m.wallet[user], nil
 }
 
@@ -509,18 +582,22 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.wallet[user] += held - cost // refund the unused reservation
-	m.earnings[node] += ownerShare
 	m.spend[user] += cost
+	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
+	// lot (P0-1): seed-funded spend records the metering receipt but mints no earning.
+	// consumeSeed runs EXACTLY ONCE here via realEarnShare. Consumer spend is unchanged.
+	earnShare := m.realEarnShare(user, cost, ownerShare)
+	m.earnings[node] += earnShare
 	m.entries = append(m.entries, Entry{
 		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
 		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
-		Cost: cost, OwnerShare: ownerShare, TS: rec.TS,
+		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
 	// Capture the hold into ledger: release the full reservation, then debit the
 	// actual spend. Net wallet delta == held-cost, matching the cache above.
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
-	m.addLotLocked(node, rec.RequestID, ownerShare, time.Now())
+	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
 	return m.wallet[user], nil
 }
 
@@ -789,10 +866,15 @@ func (m *Mem) DeriveBalance(holder string) (float64, error) {
 }
 
 // promoteLocked sweeps held lots to payable when their release time has passed.
-// Caller holds m.mu.
+// Caller holds m.mu. A lot on a node with an OPEN L1 re-count discrepancy
+// (recountHold) is NOT promoted (P0-2): an over-reporting node's earnings stay held
+// pending review instead of auto-promoting to payable on schedule.
 func (m *Mem) promoteLocked(now time.Time) {
 	for i := range m.lots {
 		l := &m.lots[i]
+		if m.recountHold[l.Node] {
+			continue // node under re-count review: hold this lot, don't promote
+		}
 		if l.State == LotHeld && now.Unix() >= l.ReleaseAt {
 			l.State = LotPayable
 			payable := l.Gross - l.Reserve
@@ -948,6 +1030,30 @@ func (m *Mem) FailPayout(payoutID int64) error {
 	return nil
 }
 
+func (m *Mem) SetNodeRecountHold(node string, held bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.recountHold == nil {
+		m.recountHold = map[string]bool{}
+	}
+	if held {
+		m.recountHold[node] = true
+	} else {
+		delete(m.recountHold, node)
+	}
+	return nil
+}
+
+func (m *Mem) RecountHeldNodes() (map[string]bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]bool, len(m.recountHold))
+	for n := range m.recountHold {
+		out[n] = true
+	}
+	return out, nil
+}
+
 func (m *Mem) PayoutsOf(accountID string, limit int) ([]Payout, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -963,30 +1069,39 @@ func (m *Mem) PayoutsOf(accountID string, limit int) ([]Payout, error) {
 	return out, nil
 }
 
+// Chargeback is the back-compat wrapper: it runs the lineage clawback and returns just
+// the amount clawed from still-held/payable lots (the legacy return). It does NOT issue
+// Stripe transfer reversals - callers that need to reverse already-paid lots must use
+// ChargebackLineage and act on the returned Reversals.
 func (m *Mem) Chargeback(disputeID, wallet, requestID string, amount float64, now time.Time) (float64, error) {
+	res, err := m.ChargebackLineage(disputeID, wallet, requestID, amount, now)
+	return res.Clawed, err
+}
+
+func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.disputes[disputeID] {
-		return 0, nil // idempotent on the stripe dispute id
+		return ChargebackResult{AlreadyHandled: true}, nil // idempotent on the stripe dispute id
 	}
 	m.disputes[disputeID] = true
 	m.wallet[wallet] -= amount
 	m.appendLedgerLocked(wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix())
 
-	// Clawable lots: still held/payable (not yet paid out or already clawed). When a
-	// requestID is given we target that one request (legacy path); otherwise we target
-	// the request ids attributed to this consumer wallet (via the receipts), newest
-	// first, capped at the disputed amount.
-	clawable := func(l *EarningLot) bool { return l.State != LotPaid && l.State != LotClawed }
-	var order []int // indexes into m.lots to consider, in claw order
+	// Lineage: target THIS consumer wallet's OWN lots (via the receipts/entries link),
+	// never unrelated operators'. With an explicit requestID we target that one request
+	// (precise path); otherwise the wallet's lots newest-first, capped at the disputed
+	// amount. Already-clawed lots are skipped; held/payable AND paid lots are eligible
+	// (a paid lot is reversed via Stripe rather than escaping the clawback).
+	notClawed := func(l *EarningLot) bool { return l.State != LotClawed }
+	var order []int
 	if requestID != "" {
 		for i := range m.lots {
-			if m.lots[i].RequestID == requestID && clawable(&m.lots[i]) {
+			if m.lots[i].RequestID == requestID && notClawed(&m.lots[i]) {
 				order = append(order, i)
 			}
 		}
 	} else {
-		// request ids this consumer paid for, newest first.
 		reqTS := map[string]int64{}
 		for _, e := range m.entries {
 			if e.User == wallet {
@@ -994,7 +1109,7 @@ func (m *Mem) Chargeback(disputeID, wallet, requestID string, amount float64, no
 			}
 		}
 		for i := range m.lots {
-			if _, ok := reqTS[m.lots[i].RequestID]; ok && clawable(&m.lots[i]) {
+			if _, ok := reqTS[m.lots[i].RequestID]; ok && notClawed(&m.lots[i]) {
 				order = append(order, i)
 			}
 		}
@@ -1003,19 +1118,49 @@ func (m *Mem) Chargeback(disputeID, wallet, requestID string, amount float64, no
 		})
 	}
 
-	// Claw lots up to the disputed amount (the platform is liable only for what it
-	// lost on this charge). With an explicit requestID we claw all its lots.
-	var clawed float64
+	// transfer id a paid lot was paid out on (for the reversal).
+	transferOf := func(payoutID int64) string {
+		for _, p := range m.payouts {
+			if p.ID == payoutID {
+				return p.StripeTransferID
+			}
+		}
+		return ""
+	}
+
+	var res ChargebackResult
+	recovered := 0.0 // held/payable clawed + paid reversed (everything attributed to a lot)
 	for _, i := range order {
-		if requestID == "" && clawed >= amount {
+		if requestID == "" && recovered >= amount {
 			break
 		}
 		l := &m.lots[i]
-		clawed += l.Gross
-		l.State = LotClawed
-		m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -l.Gross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+		switch l.State {
+		case LotPaid:
+			// Already paid out: claw the lot AND emit a payout_reversed ledger row; the
+			// broker reverses the Stripe transfer for the operator's share (6.4 step 4).
+			l.State = LotClawed
+			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -l.Gross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			res.Reversals = append(res.Reversals, Reversal{
+				DisputeID: disputeID, LotID: l.ID, AccountID: l.AccountID,
+				TransferID: transferOf(l.PayoutID), Amount: l.Gross,
+			})
+			recovered += l.Gross
+		default: // held / payable: claw in place, no Stripe action.
+			l.State = LotClawed
+			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -l.Gross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			res.Clawed += l.Gross
+			recovered += l.Gross
+		}
 	}
-	return clawed, nil
+
+	// Any disputed amount NOT covered by this consumer's lots is a PLATFORM LOSS - the
+	// platform eats it rather than clawing unrelated, honest operators' earnings.
+	if remainder := amount - recovered; remainder > 1e-9 {
+		res.PlatformLoss = remainder
+		m.appendLedgerLocked("platform", "platform", KindPlatformLoss, -remainder, "loss:"+disputeID, StatePosted, disputeID, now.Unix())
+	}
+	return res, nil
 }
 
 func (m *Mem) LinkCharge(sessionID, paymentIntent, charge_, wallet string, credits float64) error {

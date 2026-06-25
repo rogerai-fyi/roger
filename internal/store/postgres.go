@@ -159,6 +159,16 @@ ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;
 CREATE TABLE IF NOT EXISTS rogerai.seed_grants (wallet TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
 CREATE TABLE IF NOT EXISTS rogerai.seed_counter (id INT PRIMARY KEY, count BIGINT NOT NULL DEFAULT 0);
 INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0) ON CONFLICT (id) DO NOTHING;
+-- seed_remaining tracks the UNSPENT seed (free) portion of each wallet's balance, so
+-- the earning path can separate free (seed) spend from real (cleared-topup) spend: an
+-- operator must NOT be able to mint a payable earning from another account's free seed
+-- credits (P0-1). Seed is drained BEFORE real credits on spend; only the real
+-- remainder mints an operator earning lot. Additive; defaults to 0 for existing rows.
+ALTER TABLE rogerai.wallet ADD COLUMN IF NOT EXISTS seed_remaining DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- recount_holds: nodes with an OPEN L1 re-count discrepancy. While a node is held its
+-- earning lots are NOT promoted held->payable (P0-2), so an over-reporting node's
+-- earnings stay un-cashable pending review. One row per held node (idempotent).
+CREATE TABLE IF NOT EXISTS rogerai.recount_holds (node TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
 -- persisted node registry: the durable copy of the broker's in-memory node table,
 -- so a broker restart/redeploy RE-HYDRATES who is registered instead of wiping it
 -- (older provider binaries that don't auto-re-register would otherwise 404 forever).
@@ -284,6 +294,40 @@ func (p *Postgres) addLot(tx *sql.Tx, node, requestID string, ownerShare float64
 	return nil
 }
 
+// realEarnShareTx draws `cost` against the wallet's UNSPENT seed credits first and
+// returns the operator share scaled to the REAL (non-seed) funded fraction of the
+// cost. Seed-funded spend earns the operator NOTHING (P0-1) - it is treated like a
+// free request on the operator side while the consumer still pays in full. cost<=0 or
+// ownerShare<=0 returns 0 (and consumes no seed). Runs inside the caller's tx so the
+// seed drawdown and the lot mint are atomic with the spend. Must be called EXACTLY
+// once per settle (it mutates seed_remaining).
+func (p *Postgres) realEarnShareTx(tx *sql.Tx, wallet string, cost, ownerShare float64) (float64, error) {
+	if cost <= 0 || ownerShare <= 0 {
+		return 0, nil
+	}
+	// Draw down the seed-funded remainder by min(cost, seed_remaining) and return how
+	// much of this cost was seed-funded. A CTE captures the OLD seed_remaining so the
+	// returned seedUsed is exact; LEAST clamps so seed_remaining never goes negative.
+	var seedUsed float64
+	if err := tx.QueryRow(`
+		WITH cur AS (SELECT usr, seed_remaining AS old FROM rogerai.wallet WHERE usr=$1 FOR UPDATE),
+		upd AS (
+			UPDATE rogerai.wallet w SET seed_remaining = w.seed_remaining - LEAST(w.seed_remaining, $2)
+			FROM cur WHERE w.usr = cur.usr RETURNING cur.old
+		)
+		SELECT LEAST(old, $2) FROM upd`, wallet, cost).Scan(&seedUsed); err != nil {
+		if err == sql.ErrNoRows {
+			return ownerShare, nil // no wallet row (shouldn't happen post-debit): treat as fully real
+		}
+		return 0, err
+	}
+	realFrac := (cost - seedUsed) / cost
+	if realFrac <= 0 {
+		return 0, nil
+	}
+	return ownerShare * realFrac, nil
+}
+
 func (p *Postgres) SetSeedLimit(limit int) { p.seedLimit = limit }
 
 // grantSeedTx applies the starter seed to a wallet at most once, enforcing the seed
@@ -322,8 +366,10 @@ func (p *Postgres) grantSeedTx(tx *sql.Tx, wallet string, seed float64) (bool, e
 		return false, nil // already seeded, or the cap is exhausted: no credit
 	}
 	// Cap allowed it: credit the wallet and post the seed ledger row (idem-keyed so the
-	// re-derivation drift check matches and the row is unique per wallet).
-	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1`, wallet, seed); err != nil {
+	// re-derivation drift check matches and the row is unique per wallet). Track the
+	// seed-funded portion separately (seed_remaining) so the earning path can tell free
+	// (seed) spend from real spend - seed credits must never mint a payout (P0-1).
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2, seed_remaining=seed_remaining+$2 WHERE usr=$1`, wallet, seed); err != nil {
 		return false, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", KindAdjustment, seed, "seed:"+wallet, StatePosted, "seed", 0); err != nil {
@@ -402,21 +448,27 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 RETURNING balance`, user, cost).Scan(&bal); err != nil {
 		return 0, err
 	}
+	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
+	// realEarnShareTx draws down seed_remaining and scales the owner share. Called once.
+	earnShare, err := p.realEarnShareTx(tx, user, cost, ownerShare)
+	if err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(`INSERT INTO rogerai.earnings(node,balance) VALUES($1,$2)
-		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, ownerShare); err != nil {
+		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil {
 		return 0, err
 	}
 	rj, _ := json.Marshal(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
 		return 0, err
 	}
-	if err := p.addLot(tx, node, rec.RequestID, ownerShare, time.Now()); err != nil {
+	if err := p.addLot(tx, node, rec.RequestID, earnShare, time.Now()); err != nil {
 		return 0, err
 	}
 	return bal, tx.Commit()
@@ -554,15 +606,21 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
 		return 0, err
 	}
+	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
+	// realEarnShareTx draws down seed_remaining and scales the owner share. Called once.
+	earnShare, err := p.realEarnShareTx(tx, user, cost, ownerShare)
+	if err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(`INSERT INTO rogerai.earnings(node,balance) VALUES($1,$2)
-		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, ownerShare); err != nil {
+		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil {
 		return 0, err
 	}
 	rj, _ := json.Marshal(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, ownerShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	// Capture: release the full reservation then debit the actual spend. Net wallet
@@ -573,7 +631,7 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
 		return 0, err
 	}
-	if err := p.addLot(tx, node, rec.RequestID, ownerShare, time.Now()); err != nil {
+	if err := p.addLot(tx, node, rec.RequestID, earnShare, time.Now()); err != nil {
 		return 0, err
 	}
 	return bal, tx.Commit()
@@ -839,8 +897,9 @@ func (p *Postgres) MonthSpendOf(holder string, now time.Time) (float64, error) {
 }
 
 // promoteLots sweeps held lots to payable when their release time has passed, in
-// one transaction (sweep-on-read). Emits a reserve_release ledger row when the
-// reserve tail also clears.
+// one transaction (sweep-on-read). A lot whose NODE has an OPEN L1 re-count
+// discrepancy (rogerai.recount_holds) is NOT promoted (P0-2): an over-reporting
+// node's earnings stay held pending review instead of auto-promoting on schedule.
 func (p *Postgres) promoteLots(now time.Time) error {
 	tx, err := p.db.Begin()
 	if err != nil {
@@ -848,10 +907,38 @@ func (p *Postgres) promoteLots(now time.Time) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='payable'
-		WHERE state='held' AND release_at<=$1`, now.Unix()); err != nil {
+		WHERE state='held' AND release_at<=$1
+		AND node NOT IN (SELECT node FROM rogerai.recount_holds)`, now.Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (p *Postgres) SetNodeRecountHold(node string, held bool) error {
+	if held {
+		_, err := p.db.Exec(`INSERT INTO rogerai.recount_holds(node) VALUES($1)
+			ON CONFLICT (node) DO NOTHING`, node)
+		return err
+	}
+	_, err := p.db.Exec(`DELETE FROM rogerai.recount_holds WHERE node=$1`, node)
+	return err
+}
+
+func (p *Postgres) RecountHeldNodes() (map[string]bool, error) {
+	rows, err := p.db.Query(`SELECT node FROM rogerai.recount_holds`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		out[n] = true
+	}
+	return out, rows.Err()
 }
 
 func (p *Postgres) splitQuery(col, val string, now time.Time) (EarningSplit, error) {
@@ -1002,86 +1089,121 @@ func (p *Postgres) PayoutsOf(accountID string, limit int) ([]Payout, error) {
 	return out, rows.Err()
 }
 
+// Chargeback is the back-compat wrapper: it runs the lineage clawback and returns just
+// the amount clawed from still-held/payable lots. It does NOT issue Stripe transfer
+// reversals - use ChargebackLineage and act on the returned Reversals for that.
 func (p *Postgres) Chargeback(disputeID, wallet, requestID string, amount float64, now time.Time) (float64, error) {
+	res, err := p.ChargebackLineage(disputeID, wallet, requestID, amount, now)
+	return res.Clawed, err
+}
+
+func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error) {
 	tx, err := p.db.Begin()
 	if err != nil {
-		return 0, err
+		return ChargebackResult{}, err
 	}
 	defer tx.Rollback()
 	// Idempotent on the stripe dispute id: a fresh insert means first delivery.
 	res, err := tx.Exec(`INSERT INTO rogerai.disputes(id,request_id,wallet,amount,state,created_at)
 		VALUES($1,$2,$3,$4,'open',$5) ON CONFLICT (id) DO NOTHING`, disputeID, requestID, wallet, amount, now.Unix())
 	if err != nil {
-		return 0, err
+		return ChargebackResult{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return 0, tx.Commit() // already processed
+		return ChargebackResult{AlreadyHandled: true}, tx.Commit() // already processed
 	}
 	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, wallet, amount); err != nil {
-		return 0, err
+		return ChargebackResult{}, err
 	}
 	if err := appendLedger(tx, wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
-		return 0, err
+		return ChargebackResult{}, err
 	}
-	// Clawable operator lots, still held/payable (not yet paid out). With an explicit
-	// requestID we claw that one request's lots; otherwise (the dispute path, which
-	// carries no request id) we claw the lots attributed to this consumer wallet via
-	// the request receipts, NEWEST FIRST, capped at the disputed amount.
+	// Lineage: target THIS consumer wallet's OWN lots (checkout_charges resolved the
+	// wallet; receipts attribute its lots), NEVER unrelated operators'. With an explicit
+	// requestID we claw that one request; otherwise the wallet's lots newest first,
+	// capped at the disputed amount. Held/payable AND already-paid lots are eligible (a
+	// paid lot is reversed via Stripe rather than escaping the clawback). The LEFT JOIN
+	// to payouts carries the transfer id needed to reverse a paid lot.
 	type claw struct {
-		id    int64
-		acct  string
-		gross float64
+		id       int64
+		acct     string
+		gross    float64
+		state    string
+		transfer string
 	}
 	var claws []claw
-	if requestID != "" {
-		rows, err := tx.Query(`SELECT id,account_id,gross FROM rogerai.earning_lots
-			WHERE request_id=$1 AND state IN ('held','payable')`, requestID)
-		if err != nil {
-			return 0, err
-		}
+	scan := func(rows *sql.Rows) error {
+		defer rows.Close()
 		for rows.Next() {
 			var c claw
-			if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
-				rows.Close()
-				return 0, err
+			var tr sql.NullString
+			if err := rows.Scan(&c.id, &c.acct, &c.gross, &c.state, &tr); err != nil {
+				return err
 			}
+			c.transfer = tr.String
 			claws = append(claws, c)
 		}
-		rows.Close()
+		return rows.Err()
+	}
+	if requestID != "" {
+		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id
+			FROM rogerai.earning_lots l
+			LEFT JOIN rogerai.payouts po ON po.id=l.payout_id
+			WHERE l.request_id=$1 AND l.state IN ('held','payable','paid')`, requestID)
+		if err != nil {
+			return ChargebackResult{}, err
+		}
+		if err := scan(rows); err != nil {
+			return ChargebackResult{}, err
+		}
 	} else {
-		// Join lots to the receipts that attribute them to this consumer wallet, newest
-		// first; the caller caps the total clawed at the disputed amount below.
-		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross FROM rogerai.earning_lots l
+		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id
+			FROM rogerai.earning_lots l
 			JOIN rogerai.receipts r ON r.request_id=l.request_id
-			WHERE r.usr=$1 AND l.state IN ('held','payable')
+			LEFT JOIN rogerai.payouts po ON po.id=l.payout_id
+			WHERE r.usr=$1 AND l.state IN ('held','payable','paid')
 			ORDER BY r.ts DESC, l.id DESC`, wallet)
 		if err != nil {
-			return 0, err
+			return ChargebackResult{}, err
 		}
-		for rows.Next() {
-			var c claw
-			if err := rows.Scan(&c.id, &c.acct, &c.gross); err != nil {
-				rows.Close()
-				return 0, err
-			}
-			claws = append(claws, c)
+		if err := scan(rows); err != nil {
+			return ChargebackResult{}, err
 		}
-		rows.Close()
 	}
-	var clawed float64
+	var out ChargebackResult
+	recovered := 0.0
 	for _, c := range claws {
-		if requestID == "" && clawed >= amount {
+		if requestID == "" && recovered >= amount {
 			break
 		}
 		if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
-			return 0, err
+			return ChargebackResult{}, err
 		}
-		if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -c.gross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
-			return 0, err
+		if c.state == LotPaid {
+			// Already paid out: payout_reversed ledger row + a returned Reversal so the
+			// broker issues the Stripe Transfer Reversal (6.4 step 4).
+			if err := appendLedger(tx, c.acct, "operator", KindPayoutReversed, -c.gross, "reverse:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
+				return ChargebackResult{}, err
+			}
+			out.Reversals = append(out.Reversals, Reversal{
+				DisputeID: disputeID, LotID: c.id, AccountID: c.acct, TransferID: c.transfer, Amount: c.gross,
+			})
+		} else {
+			if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -c.gross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
+				return ChargebackResult{}, err
+			}
+			out.Clawed += c.gross
 		}
-		clawed += c.gross
+		recovered += c.gross
 	}
-	return clawed, tx.Commit()
+	// Unrecovered remainder is a PLATFORM LOSS (don't claw unrelated operators).
+	if remainder := amount - recovered; remainder > 1e-9 {
+		out.PlatformLoss = remainder
+		if err := appendLedger(tx, "platform", "platform", KindPlatformLoss, -remainder, "loss:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
+			return ChargebackResult{}, err
+		}
+	}
+	return out, tx.Commit()
 }
 
 func (p *Postgres) LinkCharge(sessionID, paymentIntent, charge, wallet string, credits float64) error {

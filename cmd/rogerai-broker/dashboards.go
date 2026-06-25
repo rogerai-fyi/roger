@@ -154,8 +154,15 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 }
 
 // earnings handles GET /earnings?node=<id>: a node owner's dashboard - accrued
-// (unpaid) owner credits and recent settled requests for that node. The node id
-// is the source of truth (a serving node knows its own id).
+// (unpaid) owner credits and recent settled requests for that node.
+//
+// AUTHENTICATED (ACCOUNT-PAYOUTS-DESIGN section 6.7 / AUTH-DESIGN section 3): node
+// ids are PUBLIC (they appear in the market view + receipts), so this endpoint is NOT
+// a public read - it would leak any operator's earnings and customer history. The
+// caller MUST be the OWNER of the node: we resolve the signed/session owner via the
+// same payoutOwner path the rest of the payout surface uses, then require the
+// node->owner binding (AccountOfNode) to name that owner's pubkey. An unauthenticated
+// request gets 401; an authenticated request for a node it does not own gets 403.
 func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -169,6 +176,25 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "node query param required")
 		return
 	}
+	// Resolve the authenticated owner (web session cookie OR signed CLI request). A GET
+	// carries no body, so the signature is verified over nil (matching payoutOwner).
+	login, o, ok := b.payoutOwner(r, nil)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to view earnings")
+		return
+	}
+	if o.GitHubID == 0 {
+		jsonErr(w, http.StatusForbidden, "no operator account for this login")
+		return
+	}
+	// Ownership gate: the node must be bound to THIS owner's account (pubkey). Node ids
+	// are public, so without this an operator could read any node's earnings + customer
+	// activity. A node with no binding, or bound to a different account, is 403.
+	acct, bound, _ := b.db.AccountOfNode(node)
+	if !bound || acct != o.Pubkey {
+		jsonErr(w, http.StatusForbidden, "you do not own this node")
+		return
+	}
 	accrued, _ := b.db.EarningsOf(node)
 	recent, _ := b.db.RecentByNode(node, recentLimit(r))
 	if recent == nil {
@@ -177,7 +203,6 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	online := time.Since(b.lastSeen[node]) < nodeTTL
 	b.mu.Unlock()
-	login, _, _ := b.webSession(r)
 	// Earnings lifecycle split (held -> reserved -> payable -> paid) for this node,
 	// promoting any lots whose hold has cleared as of now (sweep-on-read).
 	split, _ := b.db.EarningSplitOfNode(node, time.Now())

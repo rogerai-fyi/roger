@@ -399,6 +399,79 @@ func TestDisputeResolvesWalletAndClawsLots(t *testing.T) {
 	}
 }
 
+// TestDisputeReversesPaidLot locks P0-3 at the webhook layer: when the lot behind a
+// disputed charge has ALREADY been paid out, the dispute webhook must issue a Stripe
+// Transfer Reversal (here a stubbed reverseTransfer hook) for the operator's share
+// against the payout's transfer id - the post-payout dispute is not silently lost.
+func TestDisputeReversesPaidLot(t *testing.T) {
+	t.Setenv("STRIPE_SECRET_KEY", "sk_test_dummy")
+	t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+	t.Setenv("ROGERAI_CREDIT_USD", "1")
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0") // lot is immediately payable -> can be paid out
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	mem := store.NewMem()
+	b := &broker{db: mem, bill: loadBilling(), conn: loadConnect()}
+	b.bill.creditUSD = 1
+
+	_ = mem.BindOwner(store.Owner{GitHubID: 9, Login: "op", Pubkey: "pk1"})
+	_ = mem.BindNode("n", "pk1")
+
+	// Top up $50 (real) via the webhook, then spend 30 so pk1 earns a 30 lot, real-funded.
+	csPayload, _ := json.Marshal(map[string]any{
+		"type": "checkout.session.completed",
+		"data": map[string]any{"object": map[string]any{
+			"id": "cs_rev", "amount_total": 5000, "payment_intent": "pi_rev",
+			"metadata": map[string]any{"user": "u_gh_9"},
+		}},
+	})
+	rcs := httptest.NewRequest(http.MethodPost, "/billing/webhook", bytes.NewReader(csPayload))
+	rcs.Header.Set("Stripe-Signature", stripeSig(csPayload, "whsec_test", time.Now().Unix()))
+	b.webhook(httptest.NewRecorder(), rcs)
+	_, _ = mem.Hold("u_gh_9", 30)
+	_, _ = mem.Finalize("u_gh_9", "n", 30, 30, 30, rec("rq1"))
+
+	// Pay the lot out (it is immediately payable) so the dispute lands POST-payout.
+	pay, ok, _, _ := mem.RequestPayout("pk1", time.Now(), 25)
+	if !ok {
+		t.Fatal("payout should debit the payable lot")
+	}
+	if err := mem.SettlePayout(pay.ID, "tr_paid_rev"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture the reversal the webhook issues via the injectable hook.
+	var revTransfer string
+	var revCents int64
+	b.conn.reverseTransfer = func(transferID string, cents int64, idem string) (string, error) {
+		revTransfer, revCents = transferID, cents
+		return "trr_1", nil
+	}
+
+	p, _ := json.Marshal(map[string]any{
+		"type": "charge.dispute.created",
+		"data": map[string]any{"object": map[string]any{
+			"id": "dp_rev", "amount": 3000, "payment_intent": "pi_rev", "charge": "ch_rev",
+		}},
+	})
+	r := httptest.NewRequest(http.MethodPost, "/billing/webhook", bytes.NewReader(p))
+	r.Header.Set("Stripe-Signature", stripeSig(p, "whsec_test", time.Now().Unix()))
+	w := httptest.NewRecorder()
+	b.webhook(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("dispute = %d, want 200", w.Code)
+	}
+	// The webhook reversed the operator's paid share against the payout's transfer id.
+	if revTransfer != "tr_paid_rev" || revCents != 3000 {
+		t.Errorf("reversal hook got transfer=%q cents=%d, want tr_paid_rev / 3000", revTransfer, revCents)
+	}
+	// The paid lot is now clawed (paid balance gone), with a payout_reversed ledger row.
+	led, _ := mem.LedgerOf("pk1", []string{store.KindPayoutReversed}, 10)
+	if len(led) != 1 {
+		t.Errorf("payout_reversed ledger rows = %d, want 1", len(led))
+	}
+}
+
 // stripeSig builds a valid Stripe-Signature header (t=<ts>,v1=<hmac>) for payload.
 func stripeSig(payload []byte, secret string, ts int64) string {
 	mac := hmac.New(sha256.New, []byte(secret))

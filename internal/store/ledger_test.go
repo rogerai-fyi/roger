@@ -12,6 +12,14 @@ func rec(id string) protocol.UsageReceipt {
 	return protocol.UsageReceipt{RequestID: id, Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: time.Now().Unix()}
 }
 
+// fundReal credits a consumer wallet with REAL (cleared-topup) credits, NOT seed.
+// After the P0-1 fix, only real-funded spend mints an operator earning lot, so the
+// earnings/payout tests must fund consumers with real money (a seed-funded consumer
+// correctly earns the operator nothing). AddCredits is the real topup path.
+func fundReal(m *Mem, user string, amount float64) {
+	_, _ = m.AddCredits(user, amount)
+}
+
 // TestLedgerBalanceDerivation: every wallet mutation appends a ledger row, so the
 // re-derived balance must equal the cached balance (the nightly drift check).
 func TestLedgerBalanceDerivation(t *testing.T) {
@@ -68,7 +76,7 @@ func TestHoldPromotionAt90d(t *testing.T) {
 	m := NewMem()
 	m.policy = LoadPayoutPolicy()
 	_ = m.BindNode("n", "acct1")
-	_, _ = m.BalanceOf("u", 100)
+	fundReal(m, "u", 100) // REAL credits (P0-1: seed-funded spend earns nothing)
 	if ok, _ := m.Hold("u", 10); !ok {
 		t.Fatal("hold")
 	}
@@ -90,8 +98,8 @@ func TestHoldPromotionAt90d(t *testing.T) {
 }
 
 // TestOptionADefaultNoReserve: the founder-approved Option A defaults (no env set)
-// are a 90-day hold with NO separate reserve. An earning must therefore land fully
-// in held (nothing reserved), and at +90d the whole gross becomes payable - no stuck
+// are a 120-day hold with NO separate reserve. An earning must therefore land fully
+// in held (nothing reserved), and at +120d the whole gross becomes payable - no stuck
 // reserved bucket, no withholding past the hold.
 func TestOptionADefaultNoReserve(t *testing.T) {
 	// Exercise the shipped defaults: clear any ROGERAI_PAYOUT_* the developer's shell
@@ -104,13 +112,13 @@ func TestOptionADefaultNoReserve(t *testing.T) {
 	if p.Reserve != 0 {
 		t.Fatalf("default Reserve = %v, want 0 (Option A: no separate reserve)", p.Reserve)
 	}
-	if p.HoldDays != 90 || p.MinPayout != 25 || p.Schedule != "monthly" {
-		t.Fatalf("default policy = %+v, want hold 90 / min 25 / monthly", p)
+	if p.HoldDays != 120 || p.MinPayout != 25 || p.Schedule != "monthly" {
+		t.Fatalf("default policy = %+v, want hold 120 / min 25 / monthly", p)
 	}
 	m := NewMem()
 	m.policy = p
 	_ = m.BindNode("n", "acct1")
-	_, _ = m.BalanceOf("u", 100)
+	fundReal(m, "u", 100) // REAL credits (P0-1: seed-funded spend earns nothing)
 	if ok, _ := m.Hold("u", 10); !ok {
 		t.Fatal("hold")
 	}
@@ -123,10 +131,10 @@ func TestOptionADefaultNoReserve(t *testing.T) {
 	if !approx(s.Held, 10) || s.Reserved != 0 || s.Payable != 0 {
 		t.Errorf("day 0 split = held %v reserved %v payable %v, want 10/0/0", s.Held, s.Reserved, s.Payable)
 	}
-	// day 91: the full 10 is payable, nothing stuck in reserved.
-	s2, _ := m.EarningSplitOf("acct1", now.Add(91*24*time.Hour))
+	// day 121: the full 10 is payable, nothing stuck in reserved.
+	s2, _ := m.EarningSplitOf("acct1", now.Add(121*24*time.Hour))
 	if s2.Held != 0 || s2.Reserved != 0 || !approx(s2.Payable, 10) {
-		t.Errorf("day 91 split = held %v reserved %v payable %v, want 0/0/10", s2.Held, s2.Reserved, s2.Payable)
+		t.Errorf("day 121 split = held %v reserved %v payable %v, want 0/0/10", s2.Held, s2.Reserved, s2.Payable)
 	}
 }
 
@@ -138,7 +146,7 @@ func TestPayoutMin(t *testing.T) {
 	m := NewMem()
 	m.policy = LoadPayoutPolicy()
 	_ = m.BindNode("n", "acct1")
-	_, _ = m.BalanceOf("u", 1000)
+	fundReal(m, "u", 1000) // REAL credits (P0-1: seed-funded spend earns nothing)
 	// one earning of 20 -> after 91d, payable 20 (< 25 minimum)
 	_, _ = m.Hold("u", 20)
 	_, _ = m.Finalize("u", "n", 20, 20, 20, rec("r1"))
@@ -172,7 +180,7 @@ func TestDisputeClawback(t *testing.T) {
 	m := NewMem()
 	m.policy = LoadPayoutPolicy()
 	_ = m.BindNode("n", "acct1")
-	_, _ = m.BalanceOf("u", 100)
+	fundReal(m, "u", 100) // REAL credits (P0-1: seed-funded spend earns nothing)
 	_, _ = m.Hold("u", 10)
 	_, _ = m.Finalize("u", "n", 10, 10, 10, rec("r1")) // owner held 10 (request r1)
 
@@ -229,7 +237,7 @@ func TestAccountAnonymize(t *testing.T) {
 // clock that the EarningSplit/RequestPayout reads sweep against.
 func payableAccrue(t *testing.T, m *Mem, acct, node, reqID string, amount float64) {
 	t.Helper()
-	_, _ = m.BalanceOf("u", amount+1000)
+	fundReal(m, "u", amount+1000) // REAL credits: seed-funded spend earns the operator nothing (P0-1)
 	_, _ = m.Hold("u", amount)
 	if _, err := m.Finalize("u", node, amount, amount, amount, rec(reqID)); err != nil {
 		t.Fatalf("finalize %s: %v", reqID, err)
@@ -368,5 +376,138 @@ func TestSettleAndFailPayout(t *testing.T) {
 	s2, _ := m.EarningSplitOf("acct1", late)
 	if s2.Payable != 0 || !approx(s2.Paid, 60) {
 		t.Errorf("after settle split payable=%v paid=%v, want 0/60", s2.Payable, s2.Paid)
+	}
+}
+
+// TestRecountHoldBlocksPromotion locks P0-2 (b): a node flagged with an OPEN re-count
+// discrepancy must NOT have its earning lots auto-promote held->payable on schedule;
+// clearing the hold lets the next sweep promote them.
+func TestRecountHoldBlocksPromotion(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0") // would be immediately payable but for the hold
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+	fundReal(m, "u", 100)
+	_, _ = m.Hold("u", 30)
+	_, _ = m.Finalize("u", "n", 30, 30, 30, rec("r1")) // operator earns 30, releasable now
+
+	// Flag the node: the sweep-on-read must keep the lot HELD, not promote to payable.
+	if err := m.SetNodeRecountHold("n", true); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if s, _ := m.EarningSplitOf("acct1", now); s.Payable != 0 || !approx(s.Held, 30) {
+		t.Errorf("held node split = payable %v held %v, want 0/30 (promotion held)", s.Payable, s.Held)
+	}
+	// A payout request finds nothing payable while the hold stands.
+	if _, ok, _, _ := m.RequestPayout("acct1", now, 25); ok {
+		t.Error("a held node must have nothing payable")
+	}
+
+	// Clear the hold: the next sweep promotes the lot to payable.
+	if err := m.SetNodeRecountHold("n", false); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := m.EarningSplitOf("acct1", now); !approx(s.Payable, 30) {
+		t.Errorf("after clearing hold payable = %v, want 30", s.Payable)
+	}
+}
+
+// TestChargebackReversesPaidLot locks P0-3a: a dispute whose attributable lot was
+// ALREADY PAID OUT is clawed (state->clawed) AND returned as a Reversal (with the
+// payout's transfer id) so the broker can issue a Stripe Transfer Reversal, and a
+// payout_reversed ledger row is written. Idempotent on the dispute id.
+func TestChargebackReversesPaidLot(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+	fundReal(m, "u", 100)
+	_, _ = m.Hold("u", 30)
+	_, _ = m.Finalize("u", "n", 30, 30, 30, rec("r1")) // operator earns 30 (real-funded)
+
+	// Pay the lot out so it is PAID before the dispute lands (the post-payout case).
+	now := time.Now()
+	pay, ok, _, _ := m.RequestPayout("acct1", now, 25)
+	if !ok {
+		t.Fatal("payout should debit the payable lot")
+	}
+	if err := m.SettlePayout(pay.ID, "tr_paid_1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dispute the funding charge for 30: the paid lot must be reversed, not skipped.
+	res, err := m.ChargebackLineage("dp_paid", "u", "", 30, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Reversals) != 1 {
+		t.Fatalf("want 1 reversal for the paid lot, got %d (res=%+v)", len(res.Reversals), res)
+	}
+	rv := res.Reversals[0]
+	if rv.TransferID != "tr_paid_1" || !approx(rv.Amount, 30) || rv.AccountID != "acct1" {
+		t.Errorf("reversal = %+v, want transfer tr_paid_1 / amount 30 / acct1", rv)
+	}
+	// Clawed (from held/payable) is 0 here - the recovery came via the reversal.
+	if res.Clawed != 0 {
+		t.Errorf("Clawed = %v, want 0 (the lot was paid, recovered via reversal)", res.Clawed)
+	}
+	if res.PlatformLoss != 0 {
+		t.Errorf("PlatformLoss = %v, want 0 (the disputed amount was fully recovered)", res.PlatformLoss)
+	}
+	// A payout_reversed ledger row was written against the operator.
+	led, _ := m.LedgerOf("acct1", []string{KindPayoutReversed}, 10)
+	if len(led) != 1 || !approx(led[0].Amount, -30) {
+		t.Errorf("payout_reversed ledger = %+v, want one -30 row", led)
+	}
+	// Idempotent: a redelivery does nothing.
+	res2, _ := m.ChargebackLineage("dp_paid", "u", "", 30, now)
+	if !res2.AlreadyHandled || len(res2.Reversals) != 0 {
+		t.Errorf("redelivered dispute = %+v, want AlreadyHandled / no reversals", res2)
+	}
+}
+
+// TestChargebackLineageNotUnrelatedOperators locks P0-4: a dispute claws the DISPUTING
+// consumer's OWN lots only and records the unrecovered remainder as a PLATFORM LOSS -
+// it never claws an unrelated, honest operator's earnings to cover the shortfall.
+func TestChargebackLineageNotUnrelatedOperators(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("nA", "acctA") // alice's spend lands here
+	_ = m.BindNode("nB", "acctB") // an UNRELATED operator bob never served alice
+
+	fundReal(m, "alice", 100)
+	_, _ = m.Hold("alice", 10)
+	_, _ = m.Finalize("alice", "nA", 10, 10, 7, rec("a1")) // operator acctA earns 7
+
+	fundReal(m, "carol", 100)
+	_, _ = m.Hold("carol", 50)
+	_, _ = m.Finalize("carol", "nB", 50, 50, 35, rec("c1")) // unrelated operator acctB earns 35
+
+	// alice disputes a $40 charge. Only her one lot (gross 7) is attributable; the rest
+	// ($33) is a PLATFORM LOSS. acctB (carol's operator) must be untouched.
+	now := time.Now()
+	res, err := m.ChargebackLineage("dp_lin", "alice", "", 40, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approx(res.Clawed, 7) {
+		t.Errorf("clawed = %v, want 7 (only alice's own lot)", res.Clawed)
+	}
+	if !approx(res.PlatformLoss, 33) {
+		t.Errorf("platform loss = %v, want 33 (uncovered remainder)", res.PlatformLoss)
+	}
+	// The unrelated operator's earnings are fully intact.
+	if s, _ := m.EarningSplitOf("acctB", now); !approx(s.Payable, 35) {
+		t.Errorf("unrelated operator payable = %v, want 35 (untouched)", s.Payable)
+	}
+	// A platform_loss ledger row records the shortfall.
+	led, _ := m.LedgerOf("platform", []string{KindPlatformLoss}, 10)
+	if len(led) != 1 || !approx(led[0].Amount, -33) {
+		t.Errorf("platform_loss ledger = %+v, want one -33 row", led)
 	}
 }

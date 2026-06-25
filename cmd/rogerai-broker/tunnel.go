@@ -809,7 +809,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.GrantID = grantID
 			rec.SignBroker(b.priv)
-			cost := rec.Cost()
+			// P0-2: settle on min(nodeClaim, brokerRecount) for the completion when an
+			// exact broker re-count exists, so an over-reporting node is billed on the
+			// verified count, not its unverified claim. settleRecount does the single
+			// sidecar call + folds trust/promotion-hold off the hot path; the node-signed
+			// receipt is left intact (we only change the billed completion, via CostWith).
+			billedCompletion := b.settleRecount(node.NodeID, recountModel(rec, req.Model), completionText(res.Body), rec.CompletionTokens)
+			cost := rec.CostWith(billedCompletion)
 			if maxCost > 0 && cost > maxCost {
 				cost = maxCost // never capture more than was authorized
 			}
@@ -840,9 +846,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
 				w.Header().Set("X-RogerAI-Quality", ftoa(round6(b.trustScore(node.NodeID))))
 				log.Printf("relay user=%s node=%s in=%d out=%d price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, rec.PromptTokens, rec.CompletionTokens, pin, pout, cost, tps)
-				// L1 independent re-count, OFF the hot path: reconcile the node's
-				// claimed completion tokens against our own tokenizer count.
-				go b.recountAsync(node.NodeID, recountModel(rec, req.Model), completionText(res.Body), rec.CompletionTokens)
+				// The L1 re-count (trust scoring + the P0-2 promotion-hold flag) already
+				// ran via settleRecount above (single sidecar call), so it is not repeated
+				// here - that also makes the billed completion the re-counted one.
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -912,7 +918,17 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.GrantID = grantID
 			rec.SignBroker(b.priv)
-			cost := rec.Cost()
+			// P0-2: the stream has finished (the receipt arrived), so the captured
+			// completion text is complete. Bill on min(nodeClaim, brokerRecount) when an
+			// exact re-count exists; settleRecount also folds trust + the promotion-hold.
+			completion := ""
+			if sink.cap != nil {
+				sink.capMu.Lock()
+				completion = sink.cap.String()
+				sink.capMu.Unlock()
+			}
+			billedCompletion := b.settleRecount(node.NodeID, recountModel(rec, model), completion, rec.CompletionTokens)
+			cost := rec.CostWith(billedCompletion)
 			if maxCost > 0 && cost > maxCost {
 				cost = maxCost
 			}
@@ -928,14 +944,6 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				}
 			}
 			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
-			// L1 independent re-count, OFF the hot path: reconcile the node's
-			// claimed completion tokens against the text we captured streaming.
-			if sink.cap != nil {
-				sink.capMu.Lock()
-				completion := sink.cap.String()
-				sink.capMu.Unlock()
-				go b.recountAsync(node.NodeID, recountModel(rec, model), completion, rec.CompletionTokens)
-			}
 		}
 	case <-time.After(300 * time.Second):
 		b.exitInflight(node.NodeID, false)

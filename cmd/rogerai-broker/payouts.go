@@ -36,6 +36,11 @@ type connect struct {
 	// idemKey, returning the transfer id. nil = the real Stripe API call. Injectable so
 	// the payout flow is testable without real money / network.
 	transfer func(destination string, amountCents int64, idemKey string) (string, error)
+	// reverseTransfer reverses amountCents of a prior Stripe Transfer (transferID),
+	// idempotent on idemKey, returning the reversal id. Used on a post-payout dispute
+	// (ACCOUNT-PAYOUTS-DESIGN 6.4 step 4) to pull an already-paid operator share back
+	// from their connected account. nil = the real Stripe API call. Injectable for tests.
+	reverseTransfer func(transferID string, amountCents int64, idemKey string) (string, error)
 }
 
 func loadConnect() connect {
@@ -427,6 +432,79 @@ func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey
 		return "", errStripeTransfer
 	}
 	return tr.ID, nil
+}
+
+// payoutTransferReversal reverses `amount` credits of a prior Stripe Transfer (the
+// operator's already-paid share on a disputed charge - ACCOUNT-PAYOUTS-DESIGN 6.4 step
+// 4), idempotent on idemKey, returning the reversal id. Uses the injectable
+// conn.reverseTransfer when set (tests), then a dev stub when Stripe is unconfigured /
+// the transfer id is a dev stub, else the real Stripe transfer_reversals API. Best
+// effort on the money rail: the store already recorded the payout_reversed ledger row,
+// so a transient Stripe failure here is logged for reconciliation, not lost.
+func (b *broker) payoutTransferReversal(transferID string, amount float64, idemKey string) (string, error) {
+	cents := int64(amount*b.bill.creditUSD*100 + 0.5)
+	if b.conn.reverseTransfer != nil {
+		return b.conn.reverseTransfer(transferID, cents, idemKey)
+	}
+	// Fail-closed in production: never run the dev stub under REQUIRE_LIVE without a real
+	// live key + a real transfer id. A stub/empty transfer id can't be reversed for real.
+	if requireLive() && (!strings.HasPrefix(b.conn.secretKey, "sk_live") || transferID == "" || strings.HasPrefix(transferID, "tr_dev_stub_")) {
+		log.Printf("CONNECT: REFUSING transfer reversal - REQUIRE_LIVE set but key/transfer is not live (transfer=%q)", transferID)
+		return "", errStripeTransfer
+	}
+	if b.conn.secretKey == "" || transferID == "" || strings.HasPrefix(transferID, "tr_dev_stub_") {
+		id := "trr_dev_stub_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+		log.Printf("CONNECT(STUB): reverse %.4f credits of transfer %s -> %s (no real money moved)", amount, transferID, id)
+		return id, nil
+	}
+	var rev struct {
+		ID string `json:"id"`
+	}
+	form := url.Values{}
+	form.Set("amount", strconv.FormatInt(cents, 10))
+	req, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers/"+transferID+"/reversals", strings.NewReader(form.Encode()))
+	req.Header.Set("Authorization", "Bearer "+b.conn.secretKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Idempotency-Key", idemKey)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	rb, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		log.Printf("stripe transfer reversal error %d: %s", resp.StatusCode, rb)
+		return "", errStripeTransfer
+	}
+	_ = json.Unmarshal(rb, &rev)
+	if rev.ID == "" {
+		return "", errStripeTransfer
+	}
+	return rev.ID, nil
+}
+
+// reversePaidLots issues a Stripe Transfer Reversal for each already-paid earning lot
+// a dispute clawed (ACCOUNT-PAYOUTS-DESIGN 6.4 step 4). The store already recorded the
+// payout_reversed ledger row + marked the lots clawed atomically; this pulls the money
+// back from the operator's connected account. Idempotent per (dispute, lot) via the
+// Stripe Idempotency-Key, so a webhook redelivery never double-reverses. A reversal
+// whose transfer id is unknown (e.g. a legacy paid lot with no recorded transfer) is
+// logged and skipped - the ledger clawback stands and it is reconciled out of band.
+func (b *broker) reversePaidLots(disputeID string, reversals []store.Reversal) {
+	for _, rv := range reversals {
+		if rv.TransferID == "" {
+			log.Printf("dispute %s: paid lot %d has no recorded Stripe transfer id - reversal skipped (ledger clawback stands; reconcile manually)", disputeID, rv.LotID)
+			continue
+		}
+		idem := "reverse:" + disputeID + ":" + strconv.FormatInt(rv.LotID, 10)
+		revID, err := b.payoutTransferReversal(rv.TransferID, rv.Amount, idem)
+		if err != nil {
+			log.Printf("dispute %s: transfer reversal FAILED for lot %d (transfer %s, %.4f credits): %v - ledger clawback stands, reconcile",
+				disputeID, rv.LotID, rv.TransferID, rv.Amount, err)
+			continue
+		}
+		log.Printf("dispute %s: reversed %.4f credits of transfer %s (lot %d) -> %s", disputeID, rv.Amount, rv.TransferID, rv.LotID, revID)
+	}
 }
 
 // payoutsHistory handles GET /payouts/history: the operator's payout + clawback log.

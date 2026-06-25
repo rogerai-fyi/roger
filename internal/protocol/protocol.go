@@ -267,6 +267,14 @@ func (r UsageReceipt) Cost() float64 {
 	return (float64(r.PromptTokens)*r.PriceIn + float64(r.CompletionTokens)*r.PriceOut) / 1e6
 }
 
+// CostWith is Cost but billing `completionTokens` instead of the receipt's claimed
+// CompletionTokens, used to settle on a broker-verified (re-counted) completion count
+// without mutating the node-signed receipt (P0-2: cap an over-reporting node's
+// completion at min(claim, recount) for billing while the lineage receipt stays intact).
+func (r UsageReceipt) CostWith(completionTokens int) float64 {
+	return (float64(r.PromptTokens)*r.PriceIn + float64(completionTokens)*r.PriceOut) / 1e6
+}
+
 func (r *UsageReceipt) SignNode(priv ed25519.PrivateKey) {
 	r.NodeSig = hex.EncodeToString(ed25519.Sign(priv, r.signingBytes()))
 }
