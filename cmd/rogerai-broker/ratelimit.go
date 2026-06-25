@@ -17,6 +17,19 @@ type rateLimiter struct {
 	buckets map[string]*tokenBucket
 	rpm     float64
 	burst   float64
+	// shared is an optional cross-instance backend (DO Valkey) for this limiter's
+	// buckets. nil (the default) = purely in-memory, byte-for-byte today's behavior.
+	// When non-nil, allowAt consults the shared token bucket so multiple broker
+	// instances enforce ONE limit; on ANY shared-backend error it falls back to the
+	// local in-memory bucket (graceful degrade - a Valkey outage never blocks the
+	// broker). Only the SAFE limiters get a shared backend (anon + concierge); the
+	// per-identity + per-grant limiters stay local in this stage. See sharedstore.go.
+	shared sharedStore
+	// name sub-namespaces this limiter's SHARED keys so two limiters that happen to be
+	// keyed on the same value (e.g. anon + concierge are both keyed on the client IP)
+	// do NOT collide on one Valkey bucket - each gets rogerai:rl:<name>:<key>. Empty
+	// when shared is nil (local-only limiters never touch Valkey). See allowAt.
+	name string
 }
 
 type tokenBucket struct {
@@ -91,6 +104,15 @@ func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (
 		burst = rpm // a sane default depth when none is set
 	}
 	now := time.Now()
+	// Shared (multi-instance) path: when a Valkey backend is wired in, consume the
+	// token from the SHARED bucket so one limit is enforced across broker instances.
+	// On ANY backend error we fall through to the local in-memory bucket below, so a
+	// Valkey outage degrades to today's single-instance behavior rather than failing.
+	if rl.shared != nil {
+		if ok, retry, err := rl.shared.rateAllow(rl.name+":"+key, rpm, burst, now); err == nil {
+			return ok, retry
+		}
+	}
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 	// Opportunistic prune so the map cannot grow without bound under churn.
