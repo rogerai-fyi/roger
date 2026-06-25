@@ -510,10 +510,27 @@ func conciergeCORS(w http.ResponseWriter) {
 	h.Set("Access-Control-Allow-Headers", "Content-Type")
 }
 
-// clientIP extracts the caller IP for rate-limiting, preferring the first hop in
-// X-Forwarded-For (DO App Platform sits behind a proxy) and falling back to the
-// remote address.
+// clientIP extracts the TRUE caller IP for rate-limiting AND the abuse/CSAM legal
+// record. Trust order, most-trustworthy first:
+//
+//  1. CF-Connecting-IP - set by Cloudflare for every proxied request to the single
+//     real client address. We sit behind CF in production, and a client CANNOT spoof
+//     this header: CF strips any inbound CF-Connecting-IP and rewrites it from the
+//     observed TCP peer, so it is the only IP source safe to feed a CyberTipline
+//     record (a forged IP there poisons a legal report, 18 USC 2258A). When CF is in
+//     front this is authoritative.
+//  2. X-Forwarded-For (first hop) - the fallback when CF is absent (a non-CF proxy
+//     such as DO App Platform's edge). This IS client-appendable, so it is used ONLY
+//     when CF-Connecting-IP is missing - never preferred over it.
+//  3. RemoteAddr - the raw TCP peer when no proxy header is present (direct/dev).
+//
+// Preferring CF-Connecting-IP closes the old spoof: previously X-Forwarded-For was
+// trusted first, so a client could forge the IP that keys the rate limiter and the
+// preserved abuse record. Behind CF, XFF is no longer the leading source.
 func clientIP(r *http.Request) string {
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+		return cf
+	}
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if i := strings.IndexByte(xff, ','); i >= 0 {
 			return strings.TrimSpace(xff[:i])
