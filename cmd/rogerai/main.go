@@ -519,12 +519,37 @@ func cmdUse(cfg config, args []string) error {
 	})
 }
 
+// shareModelArg pulls an optional LEADING positional model token out of `share`'s
+// args, mirroring how `cmdUse` treats its first positional. If args[0] is a non-flag
+// token (does not start with "-"), it is returned as the model and stripped from the
+// remaining args the flag parser sees; otherwise model is "" and args pass through
+// unchanged. This lets `rogerai share gpt-oss-120b` expose that exact model instead of
+// silently dropping the positional and falling back to the saved/first-detected one.
+// A bare "-"/"--" (or any flag) is left for the flag parser, never treated as a model.
+func shareModelArg(args []string) (model string, rest []string) {
+	if len(args) > 0 && args[0] != "" && !strings.HasPrefix(args[0], "-") {
+		return args[0], args[1:]
+	}
+	return "", args
+}
+
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
 	// so `rogerai share` after the wizard Just Works with the choices already made.
 	defModel, defIn, defOut := "", 0.0, 0.0
 	if cfg.Share != nil {
 		defModel, defIn, defOut = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
+	}
+	// A leading POSITIONAL model arg (e.g. `rogerai share gpt-oss-120b`) is honored the
+	// same way `cmdUse` honors its first positional: if args[0] is a non-flag token it IS
+	// the model to expose, OVERRIDING the saved-config --model default, and the remaining
+	// args are what we hand to the flag parser. Without it, a bare `rogerai share` keeps
+	// falling back to the saved/first-detected model, and an explicit `--model` still works
+	// (and still wins when both are given, since flag parsing runs after this).
+	posModel, rest := shareModelArg(args)
+	defModelFlag := defModel
+	if posModel != "" {
+		defModelFlag = posModel
 	}
 	fs := flag.NewFlagSet("share", flag.ExitOnError)
 	broker := fs.String("broker", cfg.Broker, "broker URL")
@@ -533,7 +558,7 @@ func cmdShare(cfg config, args []string) error {
 	// given --node is REMEMBERED as the station so it sticks across restarts and the TUI.
 	// The broker node id is then `<station>-<model-slug>` (no hostname, no port leak).
 	node := fs.String("node", "", "station callsign (e.g. brave-otter); persisted. default: your saved/auto station")
-	model := fs.String("model", defModel, "model to expose (default: first detected)")
+	model := fs.String("model", defModelFlag, "model to expose (default: first detected)")
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
 	region := fs.String("region", "home", "region")
@@ -549,7 +574,7 @@ func cmdShare(cfg config, args []string) error {
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
-	fs.Parse(args)
+	fs.Parse(rest)
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --free-window --schedule")
 	}
@@ -692,7 +717,16 @@ func cmdShare(cfg config, args []string) error {
 	}
 
 	if *priceIn == 0 && *priceOut == 0 && len(sched) == 0 {
-		fmt.Println("sharing FREE (price 0/0) - on air with no login. set --price-out to earn (needs `rogerai login`).")
+		// A free share carries the owner-signed registration whenever the user is logged
+		// in (register() always signs with the local user key, and the broker resolves the
+		// GitHub-linked owner from that pubkey), so a logged-in free node is BOUND to the
+		// account - do not falsely say "no login". Only the genuinely anonymous case (no
+		// GitHub link) is the "on air with no login" path.
+		if login := client.LinkedLogin(); login != "" {
+			fmt.Printf("sharing FREE (price 0/0) - on air as @%s (bound to your account). set --price-out to earn.\n", login)
+		} else {
+			fmt.Println("sharing FREE (price 0/0) - on air with no login (anonymous). `rogerai login` to bind this node to your account, or set --price-out to earn.")
+		}
 	}
 	if *private {
 		// A private band requires login (the broker 401s an anonymous private register).

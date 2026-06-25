@@ -1,12 +1,83 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
+
+// TestShareModelArg covers the positional-model parsing for `rogerai share`: a leading
+// non-flag token is the model (and is stripped from the args the flag parser sees),
+// while a leading flag (or no args) leaves model "" and args untouched.
+func TestShareModelArg(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        []string
+		wantModel string
+		wantRest  []string
+	}{
+		{"bare positional model", []string{"gpt-oss-120b"}, "gpt-oss-120b", []string{}},
+		{"positional then flags", []string{"gpt-oss-120b", "--price-out", "0.5"}, "gpt-oss-120b", []string{"--price-out", "0.5"}},
+		{"leading flag, no positional", []string{"--model", "x"}, "", []string{"--model", "x"}},
+		{"no args", nil, "", nil},
+		{"leading dash only", []string{"-"}, "", []string{"-"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotModel, gotRest := shareModelArg(c.in)
+			if gotModel != c.wantModel {
+				t.Errorf("model = %q, want %q", gotModel, c.wantModel)
+			}
+			if len(gotRest) != len(c.wantRest) {
+				t.Fatalf("rest = %v, want %v", gotRest, c.wantRest)
+			}
+			for i := range gotRest {
+				if gotRest[i] != c.wantRest[i] {
+					t.Errorf("rest[%d] = %q, want %q", i, gotRest[i], c.wantRest[i])
+				}
+			}
+		})
+	}
+}
+
+// TestSharePositionalPrecedence mirrors cmdShare's resolution order: the positional
+// model overrides the saved-config default, but an explicit --model (parsed from the
+// remaining args) still wins over both - exactly as the flagset default + Parse(rest)
+// behave in cmdShare.
+func TestSharePositionalPrecedence(t *testing.T) {
+	resolve := func(savedDefault string, args []string) string {
+		posModel, rest := shareModelArg(args)
+		defModelFlag := savedDefault
+		if posModel != "" {
+			defModelFlag = posModel
+		}
+		fs := flag.NewFlagSet("share", flag.ContinueOnError)
+		model := fs.String("model", defModelFlag, "")
+		_ = fs.Parse(rest)
+		return *model
+	}
+	// Positional overrides the saved-config default (the founder's bug: `share gpt-oss-120b`
+	// must expose gpt-oss-120b, not the saved gpt-oss-20b).
+	if got := resolve("gpt-oss-20b", []string{"gpt-oss-120b"}); got != "gpt-oss-120b" {
+		t.Errorf("positional should override saved default: got %q, want gpt-oss-120b", got)
+	}
+	// No positional -> the saved-config default still applies.
+	if got := resolve("gpt-oss-20b", nil); got != "gpt-oss-20b" {
+		t.Errorf("no positional should keep saved default: got %q, want gpt-oss-20b", got)
+	}
+	// Explicit --model still works (and wins, as it is parsed last).
+	if got := resolve("gpt-oss-20b", []string{"--model", "qwen3-coder"}); got != "qwen3-coder" {
+		t.Errorf("--model should be honored: got %q, want qwen3-coder", got)
+	}
+	// Positional AND --model: the explicit flag wins (parsed after the positional seeds
+	// the default).
+	if got := resolve("", []string{"gpt-oss-120b", "--model", "qwen3-coder"}); got != "qwen3-coder" {
+		t.Errorf("--model should override the positional: got %q, want qwen3-coder", got)
+	}
+}
 
 func TestNormalizeUpstream(t *testing.T) {
 	const want = "http://127.0.0.1:8060/v1/chat/completions"
