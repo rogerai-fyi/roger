@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -56,6 +57,22 @@ type broker struct {
 	inflight     map[string]int        // in-flight (active) requests per node
 	success      map[string]float64    // EWMA success rate per node (0..1)
 	trust        map[string]trustState // L1 re-count + probe trust/quality per node
+	// successCount is the count of QUALITY-VALIDATED served completions per node (a
+	// non-empty body with output tokens, status<500), feeding the UCB exploration
+	// radius (smart-router v2): it is the evidence for the reward dimension that only
+	// real traffic exercises, so it is weighted higher than probes/recounts in N.
+	// Guarded by metricsMu.
+	successCount map[string]int
+	// concurrentTPS is an EWMA of served tok/s recorded ONLY while inflight>=2 at the
+	// time the request settled - capacity derived UNDER LOAD, not from the idle probe
+	// canary. It is the incentive-compatible capacity input for the load factor: a
+	// node cannot win a larger concurrency allotment by being fast on an idle probe
+	// then queueing real traffic. Guarded by metricsMu. 0 = never observed under load
+	// (capacity falls back to a conservative hw-class prior).
+	concurrentTPS map[string]float64
+	// totalReqs is a broker-wide relay counter for the UCB exploration radius
+	// (ln(1+totalReqs)). Atomic so the hot relay path bumps it without metricsMu.
+	totalReqs atomic.Int64
 	// probeSched is the per-node ADAPTIVE performance-probe schedule (next-due +
 	// exponential backoff level + last-measured). Guarded by metricsMu. It makes IDLE
 	// performance probing lazy (floor -> doubling -> ceiling) while real traffic and
@@ -165,6 +182,7 @@ func main() {
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
+		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
 		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,

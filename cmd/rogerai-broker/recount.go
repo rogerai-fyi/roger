@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -233,6 +234,31 @@ func completionText(body []byte) string {
 		}
 	}
 	return out.String()
+}
+
+// qualityOK is the lightweight output-quality validation for the smart-router v2
+// reward signal (spec 3): a served response counts as a quality success only when it
+// carries real assistant content. A 200-with-empty-body (or a body we can't parse to
+// any completion text) does NOT count, so junk can never increment successCount and
+// shrink a node's UCB exploration radius. Best-effort + fail-OPEN-ish: an unparseable
+// body that still has bytes is treated as content (we do not penalize a node for a
+// response shape we don't model), but a structurally-empty completion is rejected.
+func qualityOK(body []byte) bool {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return false
+	}
+	if txt := completionText(body); txt != "" {
+		return qualityOKText(txt)
+	}
+	// No parseable completion text but a non-trivial body: don't reject (unknown shape).
+	return len(bytes.TrimSpace(body)) > 2
+}
+
+// qualityOKText reports whether a completion string is non-trivial (has at least one
+// non-whitespace character). The empty/whitespace-only completion is the leech the
+// reward signal must reject.
+func qualityOKText(s string) bool {
+	return strings.TrimSpace(s) != ""
 }
 
 // recountModel is the model id to tokenize under: prefer the receipt's claimed

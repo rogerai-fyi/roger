@@ -67,9 +67,10 @@ func TestPickAlternative(t *testing.T) {
 	}
 }
 
-// TestPickAlternativeRanksByComposite: failover ranks by the broker's signal per
-// credit (value-per-credit), not price or tps alone - a higher-signal node wins even
-// when a competitor is a touch cheaper, matching the broker's composite pick.
+// TestPickAlternativeRanksByComposite: failover ranks by the smart-router v2
+// composite - the reliability/speed Signal, nudged (NOT divided) by a BOUNDED price
+// modifier within the user's range. A stronger-signal node wins even when a
+// competitor is a touch cheaper, matching the broker's composite pick.
 func TestPickAlternativeRanksByComposite(t *testing.T) {
 	offers := []Offer{
 		// cheaper but weak signal
@@ -77,14 +78,39 @@ func TestPickAlternativeRanksByComposite(t *testing.T) {
 		// slightly pricier but a much stronger (probe-verified, fast) signal
 		{NodeID: "strong", Model: "m", PriceIn: 0.20, PriceOut: 0.20, Online: true, TPS: 280, Signal: 82, Verified: true},
 	}
-	// value-per-credit: strong 82/0.20=410 vs cheap 35/0.18=194 -> strong wins.
+	// Composite: strong's 0.82 base, only mildly discounted at the top of a tiny price
+	// range, still beats cheap's 0.35 base - the reliability/speed spine wins, price
+	// only nudges within the user's range.
 	if id, ok := PickBest(offers, "m"); !ok || id != "strong" {
-		t.Errorf("composite pick = %q ok=%v, want strong (higher signal-per-credit)", id, ok)
+		t.Errorf("composite pick = %q ok=%v, want strong (stronger composite)", id, ok)
 	}
-	// A FREE high-signal offer outranks any paid one.
-	free := append(offers, Offer{NodeID: "free", Model: "m", PriceIn: 0, PriceOut: 0, Online: true, TPS: 100, Signal: 60})
-	if id, ok := PickBest(free, "m"); !ok || id != "free" {
-		t.Errorf("free pick = %q ok=%v, want free (price 0 ranks top)", id, ok)
+	// Smart-router v2: a FREE node is NEUTRAL on price (modifier 1.0), NOT auto-top.
+	// A flaky/weaker free node (Signal 60) does NOT outrank a strong paid node (Signal
+	// 82) - the spec's flaky-free-wins fix (price can't buy back the reliability spine).
+	freeWeak := append(append([]Offer{}, offers...),
+		Offer{NodeID: "free", Model: "m", PriceIn: 0, PriceOut: 0, Online: true, TPS: 100, Signal: 60})
+	if id, ok := PickBest(freeWeak, "m"); !ok || id != "strong" {
+		t.Errorf("weak-free pick = %q ok=%v, want strong (free is neutral, not auto-top)", id, ok)
+	}
+	// A free node that is ALSO the strongest on merit wins (neutral price mod, top base).
+	freeStrong := append(append([]Offer{}, offers...),
+		Offer{NodeID: "freebest", Model: "m", PriceIn: 0, PriceOut: 0, Online: true, TPS: 300, Signal: 90, Verified: true})
+	if id, ok := PickBest(freeStrong, "m"); !ok || id != "freebest" {
+		t.Errorf("strong-free pick = %q ok=%v, want freebest (wins on merit, not price)", id, ok)
+	}
+}
+
+// TestPickAlternativeLoadFactor: with equal signal + price, the LESS congested node
+// (lower inflight/capacity) wins - the client mirrors the broker's capacity-aware
+// load factor so failover spreads load the same way normal routing does.
+func TestPickAlternativeLoadFactor(t *testing.T) {
+	offers := []Offer{
+		// same composite + price; "busy" carries 6 in-flight on 2 slots, "free" 0 on 2.
+		{NodeID: "busy", Model: "m", PriceOut: 0.3, PriceIn: 0.3, Online: true, TPS: 200, Signal: 80, InFlight: 6, Capacity: 2},
+		{NodeID: "free", Model: "m", PriceOut: 0.3, PriceIn: 0.3, Online: true, TPS: 200, Signal: 80, InFlight: 0, Capacity: 2},
+	}
+	if id, ok := PickBest(offers, "m"); !ok || id != "free" {
+		t.Errorf("load-factor pick = %q ok=%v, want free (least congested wins)", id, ok)
 	}
 }
 

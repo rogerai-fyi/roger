@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -88,6 +89,15 @@ type streamSink struct {
 	capMu  sync.Mutex
 	cap    *bytes.Buffer
 	capRaw bytes.Buffer // carry for SSE lines split across reads
+	// Organic first-byte-latency capture (smart-router v2): nodeID + the dispatch
+	// time so agentStream can fold time-to-first-MEANINGFUL-chunk into the node's
+	// ttftMs EWMA. ttftDone guards a single sample per stream. A bare first chunk
+	// (< MIN_FIRST_TOKENS of text) is NOT recorded - a node can't win TTFT by
+	// streaming a space then stalling.
+	nodeID   string
+	start    time.Time
+	ttftDone bool
+	ttftSeen int // running count of meaningful chars observed before the sample lands
 }
 
 // register handles POST /nodes/register: a node announces itself + its offers
@@ -651,6 +661,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
 	maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
+	// Smart-router v2 request shape: the user-preference knob (cheap/balanced/fast/
+	// reliable; default balanced), and a prompt-size estimate that makes speedFit
+	// request-size-aware (a long prompt evicts weak hardware). totalReqs feeds the UCB
+	// exploration radius. None of these touch the hard filters.
+	routePref := parsePref(r.Header.Get("X-Roger-Pref"))
+	promptTokens := len(body)/4 + 1 // ~chars/4 tokens; over-estimates from JSON (safe)
+	b.totalReqs.Add(1)
 	// Consumer out-price cap. Defense in depth: even if the client omits the header (a
 	// hand-rolled API caller, not the first-party CLI/TUI which always injects it), the
 	// broker applies the DEFAULT consumer out-cap server-side so no consume path can
@@ -678,8 +695,14 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Request id is minted up front so the routing PRNG can be seeded from it
+	// deterministically (the same id keys the relayed job below). Power-of-two-choices
+	// spread is reproducible per request; a fixed pin / single candidate / cheap profile
+	// still resolves to the deterministic best.
+	requestID := protocol.NewRequestID()
 	b.mu.Lock()
-	node, offer, ok := b.pick(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow)
+	node, offer, ok := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
+		pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
@@ -753,7 +776,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// The provider never sees the real user identity - only a pseudonym that is
 	// stable per (user, node) so the owner can count repeat customers but cannot
 	// link a person, nor correlate the same user across different providers.
-	job := protocol.Job{ID: protocol.NewRequestID(), User: b.pseudonym(user, node.NodeID), Body: body}
+	job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh
@@ -774,6 +797,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	b.enterInflight(node.NodeID)
+	// Concurrency at dispatch (includes self): drives the under-load capacity
+	// measurement (concurrentTPS is only sampled when this is >= 2).
+	concurrentAtDispatch := b.inflightOf(node.NodeID)
 	select {
 	case t.jobs <- job:
 	case <-time.After(3 * time.Second):
@@ -834,6 +860,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 						b.updateTPS(node.NodeID, tps)
 					}
 				}
+				// Smart-router v2 reward + capacity evidence: a quality-validated completion
+				// (status<500, non-empty, output tokens > 0) increments successCount (shrinks
+				// the UCB radius) and - when served under load - folds tps into the capacity
+				// estimate. A 200-with-empty-body does NOT count.
+				qOK := res.Status < 500 && rec.CompletionTokens > 0 && qualityOK(res.Body)
+				b.recordServed(node.NodeID, qOK, tps, concurrentAtDispatch)
 				// We just measured this node for FREE off real traffic: reset its probe
 				// backoff + push the next probe out, so an actively-used node is barely
 				// probed (and reads as freshly verified, not stale).
@@ -881,7 +913,8 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		jsonErr(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	sink := &streamSink{w: w, flush: flusher.Flush}
+	start := time.Now()
+	sink := &streamSink{w: w, flush: flusher.Flush, nodeID: node.NodeID, start: start}
 	if b.recount.enabled() {
 		sink.cap = &bytes.Buffer{} // capture completion text for the L1 re-count
 	}
@@ -896,8 +929,8 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	start := time.Now()
 	b.enterInflight(node.NodeID)
+	concurrentAtDispatch := b.inflightOf(node.NodeID)
 	select {
 	case t.jobs <- job:
 	case <-time.After(3 * time.Second):
@@ -942,11 +975,18 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			} else {
 				settled = true
 			}
+			streamTPS := 0.0
 			if rec.CompletionTokens > 0 {
 				if el := time.Since(start).Seconds(); el > 0 {
-					b.updateTPS(node.NodeID, float64(rec.CompletionTokens)/el)
+					streamTPS = float64(rec.CompletionTokens) / el
+					b.updateTPS(node.NodeID, streamTPS)
 				}
 			}
+			// Smart-router v2 reward + capacity evidence (streamed). qualityOK keys off
+			// the captured completion when available (recount on), else the receipt's
+			// token count - a non-empty, output-bearing stream counts; an empty one does not.
+			qOK := res.Status < 500 && rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
+			b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
 			// Free measurement off real (streamed) traffic: reset the probe backoff so
 			// an actively-used node is barely probed and reads as freshly verified.
 			b.markMeasured(node.NodeID)
@@ -1010,10 +1050,23 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			sink.w.Write(buf[:n])
 			sink.flush()
+			// Organic first-byte latency (smart-router v2): record time-to-first-token
+			// the moment we have streamed at least minFirstTokens worth of MEANINGFUL
+			// text - a node can't win TTFT by emitting a bare space then stalling. One
+			// sample per stream, folded into the node's ttftMs EWMA (the same EWMA the
+			// probe feeds), so a busy node's latency reads organically, not probe-only.
+			sink.capMu.Lock()
+			if !sink.ttftDone && !sink.start.IsZero() {
+				sink.ttftSeen += meaningfulChars(buf[:n])
+				if sink.ttftSeen >= minFirstTokens {
+					sink.ttftDone = true
+					ttftMs := float64(time.Since(sink.start).Microseconds()) / 1000.0
+					b.observeOrganicTTFT(sink.nodeID, ttftMs)
+				}
+			}
 			// Capture the streamed completion text (off-band, for the L1 re-count
 			// at stream end). The bytes still go straight to the client above; this
 			// only siphons a copy when capture is enabled.
-			sink.capMu.Lock()
 			if sink.cap != nil {
 				sink.capRaw.Write(buf[:n])
 				drainSSEDeltas(&sink.capRaw, sink.cap)
@@ -1027,62 +1080,113 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// pick: cheapest-RIGHT-NOW online node offering the model, ranked by the active
-// (time-of-use) OUTPUT price - what we headline and bill the most on, and what the
-// client quotes, so the quoted station is the routed station; optionally restricted
-// to confidential nodes. When pin
-// is set, only that node is eligible (client failover pinning); nodes in exclude
-// are skipped (the providers a client just saw fail). maxPriceIn / maxPriceOut are
-// the user's spend caps: a station whose active input price exceeds maxPriceIn, or
-// whose active OUTPUT price exceeds maxPriceOut, is filtered out (0 = no cap on
-// that side). We bill primarily on output, so the out-price cap is the one the
-// pricing UX surfaces; both are enforced. Caller holds lock.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
-	var best protocol.NodeRegistration
-	var bestOffer protocol.ModelOffer
-	found := false
-	var bestC pickCand // the running winner's composite (health gate + score + load)
-	now := time.Now()
+// minFirstTokens is the meaningful-character floor a stream must emit before its
+// time-to-first-token is recorded - a node can't game organic TTFT by streaming a
+// bare space then stalling.
+const minFirstTokens = 4
 
-	// Snapshot the per-node market metrics once under metricsMu (rather than calling
-	// the per-id helper methods in the loop, which each re-lock and would also race
-	// across reads). isBanned / probeFailing are inlined off these snapshots.
-	b.metricsMu.Lock()
-	type metric struct {
-		tps      float64
-		inflight int
-		success  float64
-		sseen    bool
-		trust    float64
-		ttftMs   float64
-		verified bool
-		failing  bool
-		banned   bool
-	}
-	mget := func(id string) metric {
-		tq := b.trust[id]
-		sr, sseen := b.success[id]
-		return metric{
-			tps: b.tps[id], inflight: b.inflight[id], success: sr, sseen: sseen,
-			trust: tq.score(), ttftMs: tq.ttftMs, verified: tq.verifiedServing(),
-			failing: tq.probeFails >= 3, banned: b.banned[id],
+// meaningfulChars counts the non-whitespace assistant delta characters in a slab of
+// SSE bytes (best-effort, line-split-tolerant). Used only as a guard for the organic
+// TTFT sample, so an exact count is unnecessary.
+func meaningfulChars(p []byte) int {
+	n := 0
+	for _, line := range bytes.Split(p, []byte{'\n'}) {
+		for _, r := range sseDelta(line) {
+			if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+				n++
+			}
 		}
 	}
+	return n
+}
+
+// observeOrganicTTFT folds an organically-measured first-byte latency (ms) into the
+// node's ttftMs EWMA - the same field the probe feeds - so a busy node's latency
+// stays fresh from real traffic, not just idle probes. Same 0.3 weight as the probe.
+func (b *broker) observeOrganicTTFT(nodeID string, ttftMs float64) {
+	if ttftMs <= 0 {
+		return
+	}
+	b.metricsMu.Lock()
+	tq := b.trust[nodeID]
+	if tq.ttftMs > 0 {
+		tq.ttftMs = 0.3*ttftMs + 0.7*tq.ttftMs
+	} else {
+		tq.ttftMs = ttftMs
+	}
+	b.trust[nodeID] = tq
+	b.metricsMu.Unlock()
+}
+
+// pickReq carries the request-shaped routing inputs the smart-router v2 score uses
+// on top of the hard-filter args: the user-preference knob, the prompt size (drives
+// the request-size-aware speedFit), and a seeded PRNG for power-of-two-choices
+// spread. The zero value (prefBalanced, no prompt, nil rng) reproduces the legacy
+// deterministic top-1 route, so callers/tests that don't supply it are unchanged.
+type pickReq struct {
+	pref         pref
+	promptTokens int
+	rng          *rand.Rand // nil => deterministic top-1 (no P2C spread)
+}
+
+// pick is the back-compat entry point (existing signature): cheapest-RIGHT-NOW
+// online node offering the model, now ranked by the smart-router v2 composite
+// instead of value-per-credit. It delegates to pickFor with the default balanced,
+// deterministic profile so every existing caller/test keeps its behaviour. Caller
+// holds b.mu.
+func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+	return b.pickFor(model, confidentialOnly, minTPS, maxPriceIn, maxPriceOut, pin, exclude, allow, privateAllow, pickReq{})
+}
+
+// pickFor is the smart-router v2 selection (the winning spec). For each ELIGIBLE
+// candidate it computes
+//
+//	score = ucb( reliability * speedFit * priceMod ) * loadFactor
+//
+// with a multiplicative reliability spine (price can only nudge within the user's
+// range), capacity-normalized load, and a UCB exploration radius for cold-start;
+// then it selects with capacity-aware power-of-two-choices over a reliability-bounded
+// top band (no all-to-one pile-up). A two-tier health gate is the absolute floor:
+// only Tier-A (probeFails<2 and success>=0.55-or-unmeasured) candidates compete;
+// Tier-B is used only when Tier-A is empty (a transient blip never blanks a model).
+//
+// All hard filters (price caps, min-tps, confidential, private/freq, banned, grant
+// allow-list, pin/exclude) and the adaptive-probe refresh are PRESERVED unchanged.
+// Caller holds b.mu.
+func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
+	now := time.Now()
+	w := req.pref.weights()
+
+	// Per-candidate evidence collected during the single eligibility pass. We score
+	// in a SECOND pass once rangeMin/rangeMax (the cheapest/dearest eligible out-price)
+	// are known, since priceMod is range-relative.
+	type cand struct {
+		node     protocol.NodeRegistration
+		offer    protocol.ModelOffer
+		out      float64
+		inflight int
+		capacity int
+		rel      float64 // reliability spine
+		fit      float64 // speedFit
+		radius   float64 // UCB exploration lift
+		tierA    bool    // passes the two-tier health gate
+	}
+
+	b.metricsMu.Lock()
+	totalReqs := b.totalReqs.Load()
+	var cands []cand
+	rangeMin, rangeMax := 0.0, 0.0
+	haveRange := false
 
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
-		m := mget(n.NodeID)
-		// A reported/banned node is ejected from routing entirely (reuses the eject
-		// idea: treated as not-serving), so a flagged node stops being handed out.
-		if m.banned {
+		// --- HARD FILTERS (unchanged): banned, private/freq, pin, exclude, allow,
+		// confidential, min-tps. None of these are score-able; they gate eligibility. ---
+		if b.banned[n.NodeID] {
 			continue
 		}
-		// A PRIVATE (freq-code) node is only eligible when the caller resolved its
-		// band: privateAllow holds exactly the node(s) a valid X-Roger-Freq mapped to.
-		// Without that, a private node is invisible to pick - so the public market path
-		// (no freq) can never accidentally route to a hidden station.
 		if b.private[n.NodeID] && !privateAllow[n.NodeID] {
 			continue
 		}
@@ -1092,19 +1196,33 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 		if exclude[n.NodeID] {
 			continue
 		}
-		// allow (when set) confines the candidate set, e.g. a grant request may only
-		// reach the issuing owner's nodes (server-derived, never caller-supplied).
 		if allow != nil && !allow[n.NodeID] {
 			continue
 		}
 		if confidentialOnly && !b.confidential[n.NodeID] {
 			continue
 		}
-		// min-TPS: only exclude nodes we've MEASURED as too slow (unmeasured nodes
-		// get a chance, so new providers aren't permanently locked out).
-		if minTPS > 0 && m.tps > 0 && m.tps < minTPS {
+		tq := b.trust[n.NodeID]
+		tps := b.tps[n.NodeID]
+		if minTPS > 0 && tps > 0 && tps < minTPS {
 			continue
 		}
+		sr, sseen := b.success[n.NodeID]
+		// Two-tier health gate (spec 1.4): Tier A = probeFails<2 AND (success unmeasured
+		// OR >=0.55). Everything else still on-air is Tier B (probation), used only when
+		// Tier A is empty. probeFails>=2 is the raised bar (was 3-strikes) but graded, not
+		// a hard zero, inside the reliability spine.
+		tierA := tq.probeFails < 2 && (!sseen || sr >= 0.55)
+		rel := reliabilityFactor(tq.probed, tq.probeOK, tq.probeFails, sr, sseen, tq.score())
+		fit := speedFit(tps, tq.ttftMs, req.promptTokens, w.speedMul)
+		// UCB radius is GATED to canary-passed nodes (spec 1.1e): we explore honest-
+		// capable nodes, never unproven-flaky ones.
+		radius := 0.0
+		if tq.probed && tq.probeOK {
+			radius = ucbRadius(w.c, totalReqs, tq.recounts, tq.probes, b.successCount[n.NodeID])
+		}
+		cap := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
+
 		for _, o := range n.Offers {
 			if o.Model != model {
 				continue
@@ -1116,113 +1234,79 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			if maxPriceOut > 0 && out > maxPriceOut {
 				continue
 			}
-			c := pickCand{
-				failing:  m.failing,
-				score:    offerQuality(m.tps, m.ttftMs, m.trust, m.success, m.sseen, m.verified),
-				priceOut: out,
-				inflight: m.inflight,
+			// Running min/max of the eligible OUTPUT price - the user's effective range
+			// for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
+			// the market input-price min). Free (out<=0) offers don't move the min/max.
+			if out > 0 {
+				if !haveRange || out < rangeMin {
+					rangeMin = out
+				}
+				if !haveRange || out > rangeMax {
+					rangeMax = out
+				}
+				haveRange = true
 			}
-			if !found || c.beats(bestC) {
-				best, bestOffer, bestC, found = n, o, c, true
-			}
+			cands = append(cands, cand{
+				node: n, offer: o, out: out, inflight: b.inflight[n.NodeID],
+				capacity: cap, rel: rel, fit: fit, radius: radius, tierA: tierA,
+			})
 		}
 	}
-	// Demand-driven / just-in-time: we are about to route to `best`. If its performance
-	// reading is STALE (last probe/traffic older than the staleness horizon), schedule a
-	// near-term probe so the NEXT request routes on fresh data. We do NOT block this
-	// request on it - it routes on the current reading; the probe refreshes async.
-	if found && b.probe.enabled() {
-		if st := b.probeSched[best.NodeID]; st == nil || b.probe.measurementStale(st.lastMeasured, now) {
-			b.demandProbeSoonLocked(best.NodeID, now)
+
+	if len(cands) == 0 {
+		b.metricsMu.Unlock()
+		return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
+	}
+	// User price cap (when given) widens the range ceiling so "I'll pay up to X but
+	// reward me below it" is expressible; else the eligible max is the ceiling.
+	rmax := rangeMax
+	if maxPriceOut > 0 && maxPriceOut > rmax {
+		rmax = maxPriceOut
+	}
+
+	// Score each candidate; partition into Tier A (eligible) and Tier B (probation).
+	var tierA, tierB []scoredCand
+	for i, c := range cands {
+		pm := priceMod(c.out, rangeMin, rmax, w.kPrice, w.priceExp)
+		s := ucb(c.rel*c.fit*pm, c.radius) * loadFactor(c.inflight, c.capacity)
+		load := float64(c.inflight) / float64(maxInt(c.capacity, 1))
+		sc := scoredCand{idx: i, score: s, load: load}
+		if c.tierA {
+			tierA = append(tierA, sc)
+		} else {
+			tierB = append(tierB, sc)
+		}
+	}
+	// Healthy-beats-failing as an absolute gate: select from Tier A; fall back to Tier
+	// B ONLY when Tier A is empty (availability - a transient blip never blanks a model).
+	pool := tierA
+	if len(pool) == 0 {
+		pool = tierB
+	}
+	chosen := selectP2C(pool, w.beta, req.rng)
+	if chosen < 0 {
+		b.metricsMu.Unlock()
+		return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
+	}
+	best := cands[chosen]
+
+	// Demand-driven / just-in-time staleness refresh (PRESERVED unchanged): if the
+	// routed node's reading is stale, schedule a near-term async probe so the NEXT
+	// request routes on fresh data. This request still routes on the current reading.
+	if b.probe.enabled() {
+		if st := b.probeSched[best.node.NodeID]; st == nil || b.probe.measurementStale(st.lastMeasured, now) {
+			b.demandProbeSoonLocked(best.node.NodeID, now)
 		}
 	}
 	b.metricsMu.Unlock()
-	return best, bestOffer, found
+	return best.node, best.offer, true
 }
 
-// pickCand is a candidate offer's routing composite: the absolute health gate
-// (a probe-failing node never beats a healthy one), a 0..1 quality score
-// (speed/latency/trust/reliability), the active OUTPUT price, and current load.
-type pickCand struct {
-	failing  bool
-	score    float64 // 0..1 measured quality (offerQuality)
-	priceOut float64 // active output price (the billed/quoted side)
-	inflight int     // in-flight requests on this node right now
-}
-
-// valuePerCredit is the composite ranking key: quality earned per credit of output
-// price. A node that is faster / better-verified / more reliable wins at equal
-// price, and a cheaper node wins at equal quality - so pick is defensible on BOTH
-// price and measured performance, not price alone. Free nodes (price 0) are scored
-// on raw quality (no division by zero) and naturally sort to the top.
-func (c pickCand) valuePerCredit() float64 {
-	if c.priceOut <= 0 {
-		return c.score + 1 // free: rank above any paid node, ordered by quality
+func maxInt(a, b int) int {
+	if a > b {
+		return a
 	}
-	return c.score / c.priceOut
-}
-
-// beats reports whether c should replace the running winner `cur`. Ordering:
-//  1. HEALTH GATE (absolute): a healthy node always beats a probe-failing one,
-//     regardless of price/score - a failing node is only chosen when nothing
-//     healthy serves the model (so a transient probe blip never blanks a model).
-//  2. value-per-credit: higher composite (quality per credit) wins.
-//  3. LOAD tie-break: when value is within tolerance, the LEAST in-flight node wins
-//     so concurrent traffic spreads instead of piling onto one node.
-//  4. final tie-break: cheaper output price.
-func (c pickCand) beats(cur pickCand) bool {
-	if c.failing != cur.failing {
-		return !c.failing // healthy beats failing
-	}
-	cv, curv := c.valuePerCredit(), cur.valuePerCredit()
-	const tol = 0.02 // within ~2% value: treat as a tie, break on load
-	if rel := relDiff(cv, curv); rel > tol {
-		return cv > curv
-	}
-	if c.inflight != cur.inflight {
-		return c.inflight < cur.inflight // spread load: least-loaded wins
-	}
-	return c.priceOut < cur.priceOut // final tie-break: cheaper
-}
-
-// relDiff is the relative gap between two non-negative values (0 when equal).
-func relDiff(a, x float64) float64 {
-	hi := a
-	if x > hi {
-		hi = x
-	}
-	if hi <= 0 {
-		return 0
-	}
-	d := a - x
-	if d < 0 {
-		d = -d
-	}
-	return d / hi
-}
-
-// offerQuality is the per-node 0..1 measured-quality score pick ranks on (the same
-// factors the market signal uses, minus supply/congestion which are channel-level).
-// Unmeasured terms are NEUTRAL (0.5/verified-0) so a brand-new node still competes
-// instead of scoring 0 - it just doesn't out-rank a proven-fast node until measured.
-func offerQuality(tps, ttftMs, trust, success float64, sseen, verified bool) float64 {
-	speed := 0.5 // neutral until measured
-	if tps > 0 {
-		speed = clamp01(tps / 300.0)
-	}
-	latency := 0.5 // neutral until probed
-	if ttftMs > 0 {
-		latency = 1 - clamp01(ttftMs/ttftCap)
-	}
-	rel := successFor(success, sseen, verified) // organic EWMA, else verified/neutral
-	ver := 0.0
-	if verified {
-		ver = 1.0
-	}
-	// Re-use the signal's speed/latency/verified/success/trust split, renormalised to
-	// 1.0 (supply/congestion are not per-node). Weights: speed .25, latency .15,
-	// verified .25, success .15, trust .20.
-	return clamp01(0.25*speed + 0.15*latency + 0.25*ver + 0.15*rel + 0.20*clamp01(trust))
+	return b
 }
 
 // enterInflight / exitInflight track active requests per node (concurrency-safe).
@@ -1248,6 +1332,49 @@ func (b *broker) exitInflight(node string, ok bool) {
 		b.success[node] = sample
 	}
 	b.metricsMu.Unlock()
+}
+
+// recordServed folds the smart-router v2 reward + capacity evidence from one
+// QUALITY-VALIDATED served request (spec 3): it increments successCount (the
+// reward-dimension evidence the UCB radius shrinks on) ONLY when the completion
+// passed quality validation (non-empty, output tokens > 0, status<500) - a
+// 200-with-empty-body never counts, closing the leech where junk would shrink the
+// exploration radius. When the request was served UNDER LOAD (concurrentAtDispatch
+// >= 2) it also folds the served tok/s into the concurrentTPS EWMA, the
+// incentive-compatible capacity input (a node can't win a bigger concurrency
+// allotment from an idle canary). concurrentAtDispatch is the inflight count at
+// dispatch time, captured before exitInflight decremented it.
+func (b *broker) recordServed(node string, qualityOK bool, servedTPS float64, concurrentAtDispatch int) {
+	b.metricsMu.Lock()
+	if b.successCount == nil {
+		b.successCount = map[string]int{}
+	}
+	if b.concurrentTPS == nil {
+		b.concurrentTPS = map[string]float64{}
+	}
+	if qualityOK {
+		b.successCount[node]++
+	}
+	// Capacity is measured UNDER LOAD only: fold the served throughput into the
+	// concurrent-TPS EWMA when at least one other request shared the node at dispatch.
+	if concurrentAtDispatch >= 2 && servedTPS > 0 {
+		if cur, ok := b.concurrentTPS[node]; ok {
+			b.concurrentTPS[node] = 0.3*servedTPS + 0.7*cur
+		} else {
+			b.concurrentTPS[node] = servedTPS
+		}
+	}
+	b.metricsMu.Unlock()
+}
+
+// inflightOf reads the current in-flight count for a node (snapshot under
+// metricsMu). Used to capture the concurrency at dispatch for the under-load
+// capacity measurement.
+func (b *broker) inflightOf(node string) int {
+	b.metricsMu.Lock()
+	n := b.inflight[node]
+	b.metricsMu.Unlock()
+	return n
 }
 
 // updateTPS folds a throughput sample into the node's EWMA (output tokens/sec).

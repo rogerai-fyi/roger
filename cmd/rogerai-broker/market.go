@@ -31,6 +31,14 @@ type offerView struct {
 	// Terms is the per-factor breakdown (supply/speed/latency/verified/success/trust
 	// + the congestion discount) so the UI can explain the number.
 	Terms signalTerms `json:"terms"`
+	// Smart-router v2 selection fields, surfaced so the client's failover ranking can
+	// mirror the broker's capacity-aware load factor + UCB exploration lift (the
+	// failover<->broker alignment contract). InFlight is current load; Capacity is the
+	// node's concurrency capacity (under-load TPS, else hw-class prior); Radius is the
+	// UCB exploration lift (0..1).
+	InFlight int     `json:"in_flight"`
+	Capacity int     `json:"capacity"`
+	Radius   float64 `json:"radius"`
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -73,6 +81,13 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 		ttft := tq.ttftMs
 		verified := tq.verifiedServing()
 		staleness := b.measurementStalenessLocked(n.NodeID, now)
+		// Smart-router v2 selection fields (mirror pick): capacity from under-load TPS
+		// else hw-class prior; the UCB exploration lift (gated to canary-passed nodes).
+		capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
+		radius := 0.0
+		if tq.probed && tq.probeOK {
+			radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
+		}
 		// Demand-driven: a consumer is browsing this offer. If its measurement is stale,
 		// schedule a near-term probe so the NEXT browse/route reads fresh data (async;
 		// this browse uses the current reading). Only the online nodes are worth probing.
@@ -99,8 +114,9 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 				TPS:    tps,
 				TTFTMs: ttft, Quality: quality,
 				SuccessRate: round6(successRate), Verified: verified,
-				Signal: terms.Total,
-				Terms:  terms,
+				Signal:   terms.Total,
+				Terms:    terms,
+				InFlight: inflight, Capacity: capacity, Radius: round6(radius),
 			})
 		}
 	}
