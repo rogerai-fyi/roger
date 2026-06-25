@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
@@ -180,6 +181,25 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	days := metricsDays(r)
+
+	// Per-AUTHED-IDENTITY hot-path cache (flag-gated). This feed reads + aggregates the
+	// caller's receipts/ledger per request; a 10-30s window collapses repeated loads.
+	// SECURITY: the key is namespaced by BOTH resolved, AUTHENTICATED identities (the
+	// wallet AND the operator pubkey) plus the window, so one account's cached series can
+	// NEVER be served to another - the response depends on exactly these inputs. The
+	// identities come from dashIdentity/payoutOwner (verified), not from spoofable input.
+	// Flag OFF => direct compute (zero behavior change).
+	key := identityCacheKey("series", wallet, consumer, owner.Pubkey, provider) + "|d=" + strconv.Itoa(days)
+	b.serveCachedJSON(w, key, authedFeedTTL, func() any {
+		return b.computeMetricsSeries(now, days, wallet, consumer, owner.Pubkey, provider)
+	})
+}
+
+// computeMetricsSeries builds the /metrics/series payload for the resolved identities.
+// READ-ONLY: it reads receipts/ledger rows and aggregates them; it never mutates money
+// state, so its serialized result is safe to cache for the short authed window. The
+// caller has already authenticated wallet/owner; this only consumes those ids.
+func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, consumer bool, ownerPubkey string, provider bool) any {
 	since, until := metricsWindowUTC(now, days)
 
 	var consEntries, provEntries []store.Entry
@@ -187,7 +207,7 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 		consEntries, _ = b.db.EntriesByUser(wallet, since, until)
 	}
 	if provider {
-		provEntries, _ = b.db.EntriesByAccount(owner.Pubkey, since, until)
+		provEntries, _ = b.db.EntriesByAccount(ownerPubkey, since, until)
 	}
 
 	// Per-day series. Buckets are keyed by UTC day; both sides fold into the same map
@@ -221,7 +241,7 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 	totFrontier = round6(totFrontier)
 	totSavings = round6(totSavings)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"period_days": days,
 		"is_consumer": consumer,
 		"is_provider": provider,
@@ -235,7 +255,26 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 			"reference":      frontierTable,
 			"reference_note": "Estimate only: published list prices, not a live or contractual quote.",
 		},
-	})
+	}
+}
+
+// identityCacheKey builds the per-AUTHED-IDENTITY cache key for an own-data feed. It
+// folds in BOTH the wallet (consumer side) and the operator pubkey (provider side) -
+// each only when that side is actually present/authenticated - so the key uniquely
+// identifies WHOSE data this is. A caller who is both consumer and provider gets a key
+// distinct from a pure consumer or pure provider with the same wallet/pubkey, because
+// the response itself differs. This is the cross-user isolation guarantee: two
+// different identities can NEVER collide on one key, so one account's cached bytes are
+// never returned to another.
+func identityCacheKey(feed, wallet string, consumer bool, ownerPubkey string, provider bool) string {
+	w, o := "", ""
+	if consumer {
+		w = wallet
+	}
+	if provider {
+		o = ownerPubkey
+	}
+	return feed + ":w=" + w + "|o=" + o
 }
 
 // windowEntries filters newest-first entries to those at/after `since`.
@@ -362,6 +401,20 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	limit := recentLimit(r)
+
+	// Per-AUTHED-IDENTITY hot-path cache (flag-gated). SECURITY: keyed by BOTH resolved,
+	// AUTHENTICATED identities (wallet + operator pubkey) plus the row limit, so one
+	// account's cached console is NEVER served to another. Flag OFF => direct compute.
+	key := identityCacheKey("console", wallet, consumer, owner.Pubkey, provider) + "|n=" + strconv.Itoa(limit)
+	b.serveCachedJSON(w, key, authedFeedTTL, func() any {
+		return b.computeConsole(now, limit, wallet, consumer, owner, provider)
+	})
+}
+
+// computeConsole builds the /console payload (recent lineage feed + live counters) for
+// the resolved identities. READ-ONLY over receipts/ledger, so its serialized result is
+// safe to cache for the short authed window.
+func (b *broker) computeConsole(now time.Time, limit int, wallet string, consumer bool, owner store.Owner, provider bool) any {
 	dayStart := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC).Unix()
 	dayUntil := now.UTC().Unix() + 1
 
@@ -413,11 +466,11 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 		counters["spend_today"] = round6(spendToday)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"role":     role, // "owner" | "consumer"
 		"events":   events,
 		"counters": counters,
-	})
+	}
 }
 
 // entriesForOwner returns the most-recent receipts served by ALL nodes bound to the

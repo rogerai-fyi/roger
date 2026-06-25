@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"math/rand"
+	"net/http"
 	"sync"
 	"time"
 
@@ -57,6 +60,20 @@ type sharedStore interface {
 	// purely in-memory. A non-nil err means the snapshot is unavailable this round.
 	liveness() (map[string]time.Time, error)
 
+	// cacheGet returns the cached bytes for key (found == true) or a miss
+	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
+	// paths (/discover + /market, /metrics/series + /console): NEVER a money/mutating
+	// path. A non-nil err means the backend was unreachable - the caller MUST treat it
+	// as a miss and recompute directly (a cache failure never fails a request). key is
+	// the caller's logical key; impls prepend the rogerai:cache: namespace.
+	cacheGet(key string) (val []byte, found bool, err error)
+
+	// cacheSet stores val for key with the given TTL (a short window: 2-3s for the
+	// public market views, 10-30s for the per-identity feeds). A non-nil err is
+	// non-fatal - the caller already served the freshly computed value, so a failed
+	// SET only means the next request recomputes. ttl<=0 is a no-op.
+	cacheSet(key string, val []byte, ttl time.Duration) error
+
 	// healthy reports whether the backend currently looks reachable (best-effort).
 	healthy() bool
 
@@ -80,8 +97,16 @@ func (m *memStore) rateAllow(string, float64, float64, time.Time) (bool, int, er
 }
 func (m *memStore) markSeen(string, time.Time) error        { return errNoSharedStore }
 func (m *memStore) liveness() (map[string]time.Time, error) { return nil, errNoSharedStore }
-func (m *memStore) healthy() bool                           { return false }
-func (m *memStore) Close() error                            { return nil }
+
+// cacheGet on memStore is always a MISS (no backend), so call sites compute directly.
+func (m *memStore) cacheGet(string) ([]byte, bool, error) { return nil, false, errNoSharedStore }
+
+// cacheSet on memStore is a no-op (nothing to store); the caller already served the
+// freshly computed value.
+func (m *memStore) cacheSet(string, []byte, time.Duration) error { return errNoSharedStore }
+
+func (m *memStore) healthy() bool { return false }
+func (m *memStore) Close() error  { return nil }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -303,6 +328,54 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 	return out, nil
 }
 
+// cacheKeyPrefix namespaces the response cache under the shared keyspace so it never
+// collides with another project (or with the rl:/node:/nodes keys this layer also
+// writes). Every cache key is rogerai:cache:<logical key>.
+const cacheKeyPrefix = keyPrefix + "cache:"
+
+// cacheGet fetches the cached bytes for a logical key. A miss (key absent) returns
+// found=false with a nil error so the caller recomputes WITHOUT logging a backend
+// error. Any real backend error returns err (caller treats it as a miss + recompute);
+// it never fails the request.
+func (v *valkeyStore) cacheGet(key string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	val, err := v.rdb.Get(ctx, cacheKeyPrefix+key).Bytes()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil, false, nil // clean miss
+	}
+	if err != nil {
+		v.noteErr("cacheGet", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return val, true, nil
+}
+
+// cacheSet stores val under the logical key with a TTL via SETEX (atomic set+expire),
+// so a stale entry can never outlive its short window. ttl<=0 is a no-op. A failure is
+// non-fatal: the caller already served the fresh value, so we only note the error.
+func (v *valkeyStore) cacheSet(key string, val []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	if ttl <= 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Set(ctx, cacheKeyPrefix+key, val, ttl).Err(); err != nil {
+		v.noteErr("cacheSet", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
 // openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
 // default + the fallback) returns nil: the broker uses its in-memory maps with ZERO
 // behavior change. SET connects a valkeyStore; a connection failure at startup
@@ -325,3 +398,68 @@ func openSharedStore() sharedStore {
 	log.Printf("shared-state: valkey connected (keys namespaced under %q) - sharing anon/concierge rate limits + node liveness across instances", keyPrefix)
 	return vs
 }
+
+// cacheTTLJitter adds a small (+0..15%) random jitter to a cache TTL so many entries
+// written in the same burst do not all expire on the same tick (a thundering-herd /
+// stampede where every instance recomputes at once). The jitter only ever LENGTHENS
+// the TTL within the same small order, so the freshness window stays within spec.
+func cacheTTLJitter(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return ttl
+	}
+	return ttl + time.Duration(rand.Int63n(int64(ttl/100*15)+1))
+}
+
+// serveCachedJSON is the read-through cache wrapper for the hot, expensive, READ-ONLY
+// market/metrics paths. It NEVER touches a money/mutating path - callers pass it only
+// idempotent read computations. Flow:
+//
+//   - flag OFF (b.shared == nil): compute() and write directly - ZERO behavior change.
+//   - flag ON, cache HIT (bytes within TTL): serve the cached JSON, skip compute.
+//   - flag ON, cache MISS: compute(), serve it, then populate the cache with the SHORT
+//     TTL (jittered) for the next caller. Shared across instances.
+//   - any Valkey error on GET or SET falls through to a direct compute/serve: a cache
+//     failure can NEVER fail or stall a request.
+//
+// The key MUST already encode every input that changes the response. For an AUTHED
+// feed the key MUST include the authenticated identity so one account's cached payload
+// is NEVER served to another (the caller is responsible for that namespacing; this
+// helper just keys/stores the bytes it is given). compute returns the value to
+// JSON-encode; serveCachedJSON marshals it once and caches the serialized bytes.
+func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
+	// Flag OFF / no shared backend: the existing direct path, byte-for-byte.
+	if b.shared == nil {
+		writeJSON(w, http.StatusOK, compute())
+		return
+	}
+	// Cache HIT: serve the stored JSON verbatim (already serialized, small payload).
+	if val, found, err := b.shared.cacheGet(key); err == nil && found {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(val)
+		return
+	}
+	// MISS (or a cache error): compute, serialize once, serve, then populate.
+	payload := compute()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		// Should never happen for these views; fall back to the standard encoder.
+		writeJSON(w, http.StatusOK, payload)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+	// Populate for the next caller. A SET failure is non-fatal (we already served).
+	_ = b.shared.cacheSet(key, body, cacheTTLJitter(ttl))
+}
+
+// Cache TTLs. The PUBLIC market views (/discover, /market) get a very short window:
+// they change at most every probe round or as traffic shifts, so a 2-3s window is
+// invisible to users while collapsing repeated full-market recomputes. The AUTHED
+// feeds (/metrics/series, /console) get a longer window since a single user's
+// receipts/series move slowly and the payload is per-identity.
+const (
+	publicMarketTTL = 3 * time.Second
+	authedFeedTTL   = 20 * time.Second
+)

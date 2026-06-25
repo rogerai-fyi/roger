@@ -4,8 +4,25 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// normalizedMarketQuery builds the STABLE cache key suffix for the PUBLIC market
+// views from the request's filter params. It reads only the KNOWN filter keys
+// (model / confidential / freq) - never the whole raw query - so unrelated or
+// cache-busting params can't fragment (or poison) the shared cache, and two
+// equivalent requests map to one entry. Values are lowercased + the parts joined in
+// a fixed order so "?model=x&confidential=1" and "?confidential=1&model=x" key alike.
+// /discover + /market do not filter today, so this is normally "" (one shared entry);
+// it is here so any future filter is correctly keyed from day one.
+func normalizedMarketQuery(r *http.Request) string {
+	q := r.URL.Query()
+	model := strings.ToLower(strings.TrimSpace(q.Get("model")))
+	conf := strings.ToLower(strings.TrimSpace(q.Get("confidential")))
+	freq := strings.ToLower(strings.TrimSpace(q.Get("freq")))
+	return "m=" + model + "|c=" + conf + "|f=" + freq
+}
 
 type offerView struct {
 	NodeID       string  `json:"node_id"`
@@ -66,6 +83,24 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cors(w) // public market data - let the website (rogerai.fyi) fetch it
+
+	// Hot-path cache (flag-gated, behind ROGERAI_REDIS_URL). /discover recomputes every
+	// offer + its multi-factor signal per request; this collapses repeated full-market
+	// recomputes into one within a tiny window, shared across instances. PUBLIC, no-auth
+	// data, so a single cache entry is safely shared across all callers - keyed by the
+	// normalized query so a future filtered view never reuses another's bytes. Flag OFF
+	// => serveCachedJSON computes directly (zero behavior change). Note: on a cache HIT
+	// the demand-probe scheduling below is skipped, but a miss recomputes every ~few
+	// seconds (the TTL), so demand probing still fires steadily under browsing load.
+	b.serveCachedJSON(w, "discover:"+normalizedMarketQuery(r), publicMarketTTL, b.computeDiscover)
+}
+
+// computeDiscover builds the /discover payload (all model offers with live status,
+// measured throughput, and active price, cheapest-now first). It is a READ of broker
+// state (no money/ledger mutation), so its serialized result is safe to cache for a
+// short window. The only side effect is demand-probe scheduling, which is a best-effort
+// hint and still fires on every cache miss.
+func (b *broker) computeDiscover() any {
 	b.mu.Lock()
 	now := time.Now()
 	var out []offerView
@@ -141,7 +176,7 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	}
 	b.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].In < out[j].In })
-	writeJSON(w, http.StatusOK, map[string]any{"offers": out})
+	return map[string]any{"offers": out}
 }
 
 // marketView is the per-model market summary surfaced by GET /market.
@@ -173,6 +208,20 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cors(w) // public market data - let the website (rogerai.fyi) fetch it
+
+	// Hot-path cache (flag-gated). /market aggregates per-model signal across every live
+	// node per request; the cache collapses repeated aggregations into one within a tiny
+	// window, shared across instances. PUBLIC, no-auth data - a single entry is safe to
+	// share across all callers (keyed by the normalized query). Flag OFF => direct
+	// compute (zero behavior change).
+	b.serveCachedJSON(w, "market:"+normalizedMarketQuery(r), publicMarketTTL, b.computeMarket)
+}
+
+// computeMarket builds the /market payload: a per-model marketplace view aggregated
+// from live node state (online providers, in-flight load, cheapest active price, best
+// measured throughput, mean success, and a 0..100 signal). Pure read of broker state,
+// so its serialized result is safe to cache briefly.
+func (b *broker) computeMarket() any {
 	type acc struct {
 		providers     int
 		inflight      int
@@ -287,7 +336,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
-	writeJSON(w, http.StatusOK, map[string]any{"market": out})
+	return map[string]any{"market": out}
 }
 
 // signalInput is the full per-channel evidence the multi-factor signal scores. It
