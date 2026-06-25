@@ -11,23 +11,23 @@ func TestBandSignalMeterUsesBrokerSignal(t *testing.T) {
 	flat := signalFlat()
 
 	// Online, broker signal 43, zero tps -> non-blank (the regression case).
-	raw := signalBarsRaw(0, 43, 0, true, 1)
+	raw := signalBarsRaw(0, 43, 0, true, 0, 1)
 	if raw == flat {
 		t.Fatalf("online signal=43 tps=0 rendered the blank tower %q; an on-air band must meter", raw)
 	}
 
 	// Offline -> the flat no-signal tower regardless of any signal value.
-	if got := signalBarsRaw(0, 43, 0, false, 1); got != flat {
+	if got := signalBarsRaw(0, 43, 0, false, 0, 1); got != flat {
 		t.Errorf("offline band tower = %q, want the flat no-signal tower %q", got, flat)
 	}
 
 	// No broker signal but measured tps still meters (legacy fallback).
-	if got := signalBarsRaw(0, 0, 120, true, 1); got == flat {
+	if got := signalBarsRaw(0, 0, 120, true, 0, 1); got == flat {
 		t.Errorf("online tps=120 with no broker signal should meter, got blank")
 	}
 
 	// Online with neither signal nor tps -> a faint carrier, never fully blank.
-	if got := signalBarsRaw(0, 0, 0, true, 1); got == flat {
+	if got := signalBarsRaw(0, 0, 0, true, 0, 1); got == flat {
 		t.Errorf("online with no reading should show a faint carrier, got the blank tower")
 	}
 }
