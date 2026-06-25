@@ -252,7 +252,10 @@ func tuiHooks(cfg config) tui.Hooks {
 		// persists a rename (the TUI does no disk I/O itself).
 		Station:     loadOrCreateStation(),
 		SaveStation: saveStation,
-		HW:          detectHW(),
+		// HW is the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu), not the
+		// raw rig string, so the TUI share path advertises the same honest, leak-free class
+		// the CLI does.
+		HW:          detectHWClass(),
 		GitHubID:    gitHubClientID(),
 		LinkedLogin: client.LinkedLogin(), // "" when not logged in -> header shows the /login prompt
 		Login:       client.LoginReturn,
@@ -539,6 +542,9 @@ func cmdShare(cfg config, args []string) error {
 	up := *upstream
 	mdl := *model
 	ctxLen := *ctx
+	// ctxEstimated tracks whether ctxLen is the real detected window or the last-resort
+	// default. A user-pinned --ctx (ctxLen>0 here) is authoritative, never estimated.
+	ctxEstimated := false
 	// A saved/verified upstream (from the guided fallback) is the (e) source: probe
 	// it first so a non-default / custom-port server is remembered, not re-hunted.
 	savedUp := ""
@@ -572,11 +578,12 @@ func cmdShare(cfg config, args []string) error {
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
 		}
-		// Auto-detect --ctx from the upstream's /v1/models when the user didn't pin it.
+		// Auto-detect --ctx from the upstream when the user didn't pin it: detect.ResolveCtx
+		// prefers the REAL per-model window (Ollama /api/show + /api/ps, llama.cpp /props,
+		// LM Studio /api/v0/models, then /v1/models) and only falls back to the estimated
+		// default - flagging that so the offer is honest about a guess.
 		if ctxLen == 0 {
-			if c, ok := pick.Ctx[mdl]; ok && c > 0 {
-				ctxLen = c
-			}
+			ctxLen, ctxEstimated = detect.ResolveCtx(pick.Ctx, mdl)
 		}
 		fmt.Printf("detected %s at %s - exposing model %q\n", pick.Name, pick.BaseURL, mdl)
 		// Remember the verified upstream so a custom-port / guided-fallback endpoint is
@@ -594,9 +601,10 @@ func cmdShare(cfg config, args []string) error {
 		return fmt.Errorf("could not determine a model; pass --model")
 	}
 	// ctx fallback: auto-detect (above) or the safe default when the upstream did
-	// not report a context length and the user didn't pass --ctx.
+	// not report a context length and the user didn't pass --ctx. The --upstream branch
+	// skips the auto-detect block, so resolve here too; an explicit --ctx stays real.
 	if ctxLen <= 0 {
-		ctxLen = 32768
+		ctxLen, ctxEstimated = detect.ResolveCtx(nil, mdl)
 	}
 	// Accept --upstream as a base URL (http://host:port), a /v1 URL, or the full
 	// /v1/chat/completions URL - normalize to the chat-completions endpoint the
@@ -661,8 +669,11 @@ func cmdShare(cfg config, args []string) error {
 	}
 	cfgRun := agent.Config{
 		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
-		NodeID: nodeID, Region: *region, HW: detectHW(), Model: mdl,
-		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, Parallel: *parallel,
+		// HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
+		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
+		// node leaking its exact rig.
+		NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl,
+		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
 	if !*private {

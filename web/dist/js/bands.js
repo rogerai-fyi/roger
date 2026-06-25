@@ -98,9 +98,12 @@
     s += CS_CONS[n % CS_CONS.length];
     return "@" + s;
   }
+  // coarseRegion buckets a free-text region to a macro-region label, or "" when it
+  // is missing/unmatched. "" renders as a dim em-dash ("not provided"), NEVER the
+  // literal "??" - a missing region is honestly absent, not a glitch.
   function coarseRegion(region) {
     var r = String(region || "").toLowerCase();
-    if (!r) return "??";
+    if (!r) return "";
     var map = [
       [/(us-?w|usw|west|sf|sjc|lax|sea|pdx|california|oregon|us-west)/, "US-W"],
       [/(us-?e|use|east|nyc|iad|atl|mia|virginia|us-east)/, "US-E"],
@@ -121,17 +124,33 @@
     ];
     for (var i = 0; i < map.length; i++) if (map[i][0].test(r)) return map[i][1];
     if (/asia/.test(r)) return "ASIA";
-    return "??";
+    return "";
   }
-  // Coarse, BUCKETED hardware class only (never the raw `hw` string, which can
-  // carry PII / a fingerprint). We map to a broad family: GPU / Apple silicon /
-  // CPU. Unknown stays blank.
+  // fmtCtx renders a context window: detected windows solid ("131k"), the estimated
+  // default dim with a leading "~" ("~32k") via the caller's class. Returns the text;
+  // the caller decides the dim styling from the est flag.
+  function fmtCtx(ctx) {
+    if (!ctx || ctx <= 0) return "-";
+    if (ctx >= 1000) return Math.round(ctx / 1000) + "k";
+    return String(ctx);
+  }
+  // hwClass normalizes a node's advertised hardware to a coarse, BUCKETED class label
+  // for the chip - NEVER the raw rig string (which can fingerprint / carry PII). Nodes
+  // now advertise a privacy-bucketed class (multi-gpu / single-gpu / apple / cpu); we
+  // relabel those directly, and still map any LEGACY raw string (rtx, threadripper, ...)
+  // to a broad family so older nodes render a class too. Unknown stays blank (no chip).
   function hwClass(hw) {
-    var s = String(hw || "").toLowerCase();
+    var s = String(hw || "").toLowerCase().trim();
     if (!s || s === "unknown") return "";
-    if (/(nvidia|geforce|rtx|gtx|tesla|a100|h100|l40|radeon|\brx ?\d|instinct|mi\d{2,3}|gpu)/.test(s)) return "GPU";
-    if (/(apple|\bm[1-4]\b|m[1-4] (pro|max|ultra)|mac studio|macbook)/.test(s)) return "Apple";
-    if (/(ryzen|threadripper|epyc|xeon|core i[3579]|intel|amd|cpu|authenticamd|genuineintel)/.test(s)) return "CPU";
+    // New bucketed classes (the node's authoritative, leak-free advertisement).
+    if (s === "multi-gpu") return "multi-gpu";
+    if (s === "single-gpu") return "single-gpu";
+    if (s === "apple") return "apple";
+    if (s === "cpu") return "cpu";
+    // Legacy raw strings -> broad family.
+    if (/(apple|\bm[1-4]\b|m[1-4] (pro|max|ultra)|mac studio|macbook)/.test(s)) return "apple";
+    if (/(nvidia|geforce|rtx|gtx|tesla|a100|h100|l40|radeon|\brx ?\d|instinct|mi\d{2,3}|gpu|cuda|rocm)/.test(s)) return "single-gpu";
+    if (/(ryzen|threadripper|epyc|xeon|core i[3579]|intel|amd|cpu|authenticamd|genuineintel)/.test(s)) return "cpu";
     return "";
   }
 
@@ -229,7 +248,10 @@
       var providers = +m.providers || 0;
       var live = providers > 0;
       var sig = m.signal != null ? Math.max(0, Math.min(100, +m.signal)) : 0;
-      var sr = m.success_rate != null ? +m.success_rate : 1;
+      // success_rate is REAL evidence only when the broker says so (success_seen). With
+      // no field, treat as unseen so the UI shows "no data" rather than inventing 100%.
+      var seen = m.success_seen != null ? !!m.success_seen : (m.success_rate != null);
+      var sr = m.success_rate != null ? +m.success_rate : 0;
       if (sr > 1) sr = sr / 100;
       var terms = normTerms(m.terms);
       return {
@@ -245,10 +267,12 @@
         tps: +(m.best_tps || m.tps) || 0,
         ttft: +m.ttft_ms || 0,
         success: sr,
+        successSeen: seen,
         verified: !!m.verified,     // SERVING-PROBE pass (distinct from TEE)
         confidential: false,        // TEE-confidential tier (from /discover)
         freeNow: false,
         ctx: 0,
+        ctxEstimated: true,
         hwClass: "",
         stations: []
       };
@@ -261,10 +285,10 @@
       if (!o || !o.model) return;
       var b = by[o.model] || (by[o.model] = {
         model: o.model, live: 0, total: 0, minIn: Infinity, minOut: Infinity,
-        tps: 0, ttft: Infinity, conf: false, free: false, ctx: 0,
+        tps: 0, ttft: Infinity, conf: false, free: false, ctx: 0, ctxEst: true,
         ver: false, sched: false,
         // band signal/terms = the strongest online station's broker numbers
-        signal: 0, terms: null, hwClass: "", success: 0,
+        signal: 0, terms: null, hwClass: "", success: 0, successSeen: false,
         stations: []
       });
       var online = o.online !== false;
@@ -280,15 +304,21 @@
       if (o.free_now) b.free = true;
       if (online && o.verified) b.ver = true;       // serving-probe pass (distinct from TEE)
       if (o.scheduled) b.sched = true;
-      if (+o.ctx > b.ctx) b.ctx = +o.ctx;
+      // ctx: prefer the largest DETECTED window. A band stays "estimated" only if EVERY
+      // contributing station is estimated, so one real window de-flags the band.
+      var oEst = !!o.ctx_estimated;
+      if (+o.ctx > b.ctx) { b.ctx = +o.ctx; }
+      if (!oEst) b.ctxEst = false;
       var oSig = online && o.signal != null ? Math.max(0, Math.min(100, +o.signal)) : 0;
       var oSucc = o.success != null ? +o.success : 0;
+      var oSeen = !!o.success_seen;
       // adopt the broker's authoritative signal + term breakdown from the
       // strongest online station; never recompute it locally.
       if (online && oSig >= b.signal) {
         b.signal = oSig;
         b.terms = normTerms(o.terms);
         b.success = oSucc > 1 ? oSucc / 100 : oSucc;
+        b.successSeen = oSeen;
       }
       var cls = hwClass(o.hw);
       if (online && cls && !b.hwClass) b.hwClass = cls;
@@ -300,11 +330,17 @@
         priceIn: pin, priceOut: pout,
         tps: tps, ttft: tt,
         quality: o.quality != null ? +o.quality : null,
+        // REAL success EWMA, and whether it is measured at all. successSeen=false ->
+        // the QSL renders "no data" (never a fabricated %). quality stays a SEPARATE
+        // trust signal, no longer masquerading as the success rate.
+        success: oSucc > 1 ? oSucc / 100 : oSucc,
+        successSeen: oSeen,
         confidential: !!o.confidential,
         verified: online && !!o.verified,
         free: !!o.free_now,
         scheduled: !!o.scheduled,
         ctx: +o.ctx || 0,
+        ctxEstimated: oEst,
         signal: oSig,
         hwClass: cls
       });
@@ -322,8 +358,9 @@
         priceIn: b.minIn === Infinity ? null : b.minIn,
         priceOut: b.minOut === Infinity ? null : b.minOut,
         tps: b.tps, ttft: b.ttft === Infinity ? 0 : b.ttft,
-        success: b.success || 0,
-        verified: b.ver, confidential: b.conf, freeNow: b.free, ctx: b.ctx,
+        success: b.success || 0, successSeen: b.successSeen,
+        verified: b.ver, confidential: b.conf, freeNow: b.free,
+        ctx: b.ctx, ctxEstimated: b.ctx > 0 ? b.ctxEst : true,
         scheduled: b.sched, hwClass: b.hwClass,
         stations: b.stations
       };
@@ -344,8 +381,13 @@
         b.verified = b.verified || d.verified;
         b.freeNow = d.freeNow;
         b.ctx = d.ctx;
+        b.ctxEstimated = d.ctxEstimated;
         b.scheduled = d.scheduled;
         b.hwClass = b.hwClass || d.hwClass;
+        // success: /discover carries the per-station REAL rate + seen flag. Prefer a
+        // SEEN value (from either source) so an honest "no data" is only shown when
+        // neither source has measured evidence.
+        if (d.successSeen) { b.success = d.success; b.successSeen = true; }
         // /market is authoritative for signal+terms; only fall back to the
         // /discover-derived values if /market did not carry them.
         if ((!b.terms || !b.terms._any) && d.terms && d.terms._any) b.terms = d.terms;
@@ -371,10 +413,10 @@
           signal: 0, terms: normTerms(null),
           priceIn: e.priceIn != null ? e.priceIn : null,
           priceOut: e.priceOut != null ? e.priceOut : null,
-          tps: e.tps || 0, ttft: 0, success: 0,
+          tps: e.tps || 0, ttft: 0, success: 0, successSeen: false,
           verified: false, confidential: !!e.conf, freeNow: false,
           scheduled: false, hwClass: "",
-          ctx: e.ctx || 0, stations: []
+          ctx: e.ctx || 0, ctxEstimated: true, stations: []
         };
       });
   }
@@ -435,14 +477,22 @@
     if (b.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
     if (b.freeNow) marks += ' <span class="band-tag band-tag--free">FREE</span>';
     if (b.seen) marks += ' <span class="band-tag band-tag--seen" title="seen before, offline now">SEEN</span>';
-    var ctx = b.ctx ? '<span class="band-ctx mono">' + fmtCtx(b.ctx) + ' ctx</span>' : "";
+    // ctx: detected window solid; the estimated default dim + "~" (a guess, labeled
+    // as one). band-ctx--est carries the dim styling.
+    var ctx = "";
+    if (b.ctx) {
+      ctx = b.ctxEstimated
+        ? '<span class="band-ctx band-ctx--est mono" title="estimated - no real context window detected">~' + fmtCtx(b.ctx) + ' ctx</span>'
+        : '<span class="band-ctx mono" title="detected context window">' + fmtCtx(b.ctx) + ' ctx</span>';
+    }
     var hwc = b.live && b.hwClass ? '<span class="band-hw mono" title="coarse hardware class (bucketed, no exact model)">' + esc(b.hwClass) + '</span>' : "";
-    // real probe metrics, only when live
+    // real probe metrics, only when live. success shows the REAL EWMA only when SEEN;
+    // unseen renders an honest "ok no data" - never a fabricated percentage.
     var perf = "";
     if (b.live) {
       var parts = [];
       if (b.ttft) parts.push('ttft ' + fmtTtft(b.ttft));
-      if (b.success) parts.push('ok ' + fmtPct(b.success));
+      parts.push(b.successSeen ? 'ok ' + fmtPct(b.success) : 'ok no data');
       if (parts.length) perf = '<span class="band-perf mono">' + parts.join(' · ') + '</span>';
     }
     var prov = b.live
@@ -931,20 +981,31 @@
         var dot = s.online ? '<span class="band-dot--on">◉</span>' : '<span class="band-dot--off">○</span>';
         var pin = s.priceIn != null ? fmtPrice(s.priceIn) : "-";
         var pout = s.priceOut != null ? fmtPrice(s.priceOut) : "-";
-        var ok = s.quality != null ? Math.round(Math.min(1, s.quality) * 100) + "%" : "-";
+        // ok% is the REAL success EWMA, only when measured. successSeen=false renders an
+        // honest "no data" - NOT s.quality (a trust signal) masquerading as a success %.
+        var ok = s.successSeen
+          ? Math.round(Math.min(1, Math.max(0, s.success)) * 100) + "%"
+          : '<span class="qsl-nodata">no data</span>';
         var ttft = fmtTtft(s.ttft);
-        // real per-station context window + coarse hardware class (no PII)
+        // real per-station context window + coarse hardware class (no PII). An estimated
+        // ctx is dimmed + prefixed "~" so a guess never reads as a detected value.
         var meta = [];
-        if (s.ctx) meta.push(fmtCtx(s.ctx) + " ctx");
-        if (s.online && s.hwClass) meta.push(s.hwClass);
-        var metaHtml = meta.length ? '<span class="qsl-cs__meta mono">' + esc(meta.join(" · ")) + '</span>' : "";
+        if (s.ctx) {
+          meta.push(s.ctxEstimated
+            ? '<span class="qsl-ctx--est">~' + esc(fmtCtx(s.ctx)) + ' ctx</span>'
+            : esc(fmtCtx(s.ctx)) + " ctx");
+        }
+        if (s.online && s.hwClass) meta.push(esc(s.hwClass));
+        var metaHtml = meta.length ? '<span class="qsl-cs__meta mono">' + meta.join(" · ") + '</span>' : "";
+        // region "" renders a dim em-dash ("not provided"), never the literal "??".
+        var regHtml = s.region ? esc(s.region) : '<span class="qsl-nodata">—</span>';
         var row = el("li", "qsl-row",
           '<span class="qsl-cs"><span class="qsl-cs__sign mono">' + dot + ' ' + esc(s.callsign) + marks +
             '<button type="button" class="report-btn" data-report-node="' + esc(s.nodeId || "") +
               '" data-report-callsign="' + esc(s.callsign) + '" aria-label="Report ' + esc(s.callsign) +
               '">report</button>' +
             '</span>' +
-            '<span class="qsl-cs__reg mono">' + esc(s.region) + metaHtml + '</span></span>' +
+            '<span class="qsl-cs__reg mono">' + regHtml + metaHtml + '</span></span>' +
           '<span class="mono">' + pin + '<span class="band-unit"> · ' + pout + '</span></span>' +
           '<span class="mono">' + (s.online && s.tps ? Math.round(s.tps) : '-') + '</span>' +
           '<span class="mono">' + ttft + '</span>' +

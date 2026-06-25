@@ -147,6 +147,13 @@ func detectWith(priority []candidate) []Found {
 		// /api/ps, which list models installed-but-swapped-out (a fresh /v1/models
 		// only shows what is loaded). Union those in so the whole fleet is offerable.
 		mergeOllamaNative(&f, base)
+		// Real per-model CONTEXT detection beyond /v1/models. Ollama reports its true
+		// trained window on /api/show + the loaded num_ctx on /api/ps; llama.cpp reports
+		// the real loaded n_ctx on /props; LM Studio reports loaded/max ctx on
+		// /api/v0/models. These are more accurate than the optional /v1/models keys (and
+		// Ollama omits ctx from /v1/models entirely), so a node advertises the REAL
+		// served window instead of falling back to the 32768 last-resort default.
+		enrichCtx(&f, base)
 		out = append(out, f)
 	}
 	return out
@@ -265,6 +272,171 @@ func mergeOllamaNative(f *Found, base string) {
 	addNames("/api/tags") // every installed model (the full fleet)
 	addNames("/api/ps")   // currently-loaded (already in tags, but harmless)
 	sort.Strings(f.Models)
+}
+
+// DefaultCtx is the last-resort context length used ONLY when no upstream reports
+// a real per-model window. A node that falls back to this advertises CtxEstimated
+// so the UI can render it as an estimate (~32k, dim) rather than a detected value.
+const DefaultCtx = 32768
+
+// ResolveCtx returns the real per-model context window for model, and whether it
+// is the estimated DefaultCtx fallback (estimated=true) versus a value actually
+// detected from the upstream (estimated=false). It is the ONE resolver both the CLI
+// (`rogerai share`) and the TUI share table route through, so a detection improvement
+// lands in both and the duplicated 32768 literal lives in exactly one place.
+func ResolveCtx(ctx map[string]int, model string) (n int, estimated bool) {
+	if ctx != nil {
+		if c, ok := ctx[model]; ok && c > 0 {
+			return c, false
+		}
+	}
+	return DefaultCtx, true
+}
+
+// enrichCtx fills f.Ctx with the REAL per-model context window from each server's
+// native endpoint, preferring the loaded/served window over the trained max. It is
+// best-effort: a server that does not expose the endpoint is left as-is (the
+// /v1/models value, else the DefaultCtx fallback at share time). Only fills a model
+// that does not already have a (non-zero) ctx, so a /v1/models-reported window is
+// not clobbered.
+func enrichCtx(f *Found, base string) {
+	if f.Ctx == nil {
+		f.Ctx = map[string]int{}
+	}
+	root := strings.TrimSuffix(base, "/v1")
+	enrichOllamaCtx(f, root)
+	enrichLlamaCppCtx(f, root)
+	enrichLMStudioCtx(f, root)
+}
+
+// enrichOllamaCtx reads Ollama's real per-model context: the loaded runtime num_ctx
+// from GET /api/ps (the window the model is ACTUALLY served at right now), else the
+// trained window from POST /api/show .model_info["<arch>.context_length"]. A
+// non-Ollama base simply has neither endpoint and is left untouched.
+func enrichOllamaCtx(f *Found, root string) {
+	// /api/ps: currently-loaded models carry context_length = the live num_ctx.
+	if resp, err := httpClient.Get(root + "/api/ps"); err == nil && resp.StatusCode == 200 {
+		var d struct {
+			Models []struct {
+				Name      string `json:"name"`
+				Model     string `json:"model"`
+				ContextLn int    `json:"context_length"`
+			} `json:"models"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&d)
+		resp.Body.Close()
+		for _, m := range d.Models {
+			if m.ContextLn <= 0 {
+				continue
+			}
+			for _, id := range []string{m.Name, m.Model} {
+				if id != "" && f.Ctx[id] <= 0 {
+					f.Ctx[id] = m.ContextLn
+				}
+			}
+		}
+	} else if resp != nil {
+		resp.Body.Close()
+	}
+	// /api/show: the model's trained context window, keyed under "<arch>.context_length"
+	// in model_info. Used for installed-but-not-loaded models (no live num_ctx yet).
+	for _, id := range f.Models {
+		if f.Ctx[id] > 0 {
+			continue
+		}
+		body := strings.NewReader(`{"model":` + strconv.Quote(id) + `}`)
+		resp, err := httpClient.Post(root+"/api/show", "application/json", body)
+		if err != nil || resp.StatusCode != 200 {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+		var d struct {
+			ModelInfo map[string]json.RawMessage `json:"model_info"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&d)
+		resp.Body.Close()
+		if c := ollamaContextFromInfo(d.ModelInfo); c > 0 {
+			f.Ctx[id] = c
+		}
+	}
+}
+
+// ollamaContextFromInfo pulls the context window out of Ollama's model_info map,
+// whose key is architecture-specific ("llama.context_length", "qwen2.context_length",
+// ...). We accept any "*.context_length" key so it works across architectures without
+// hardcoding each one.
+func ollamaContextFromInfo(info map[string]json.RawMessage) int {
+	for k, v := range info {
+		if !strings.HasSuffix(k, ".context_length") {
+			continue
+		}
+		var n int
+		if json.Unmarshal(v, &n) == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// enrichLlamaCppCtx reads llama.cpp's real LOADED context from GET /props
+// .default_generation_settings.n_ctx (the live window, more reliable than the
+// optional /v1/models n_ctx). llama.cpp serves a single model, so the value applies
+// to every model id this base advertises that lacks a detected ctx.
+func enrichLlamaCppCtx(f *Found, root string) {
+	resp, err := httpClient.Get(root + "/props")
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	var d struct {
+		DefaultGen struct {
+			NCtx int `json:"n_ctx"`
+		} `json:"default_generation_settings"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&d)
+	resp.Body.Close()
+	if d.DefaultGen.NCtx <= 0 {
+		return
+	}
+	for _, id := range f.Models {
+		if f.Ctx[id] <= 0 {
+			f.Ctx[id] = d.DefaultGen.NCtx
+		}
+	}
+}
+
+// enrichLMStudioCtx reads LM Studio's per-model context from GET /api/v0/models,
+// preferring loaded_context_length (the live window) over max_context_length (the
+// model cap). A non-LM-Studio base has no /api/v0/models and is left untouched.
+func enrichLMStudioCtx(f *Found, root string) {
+	resp, err := httpClient.Get(root + "/api/v0/models")
+	if err != nil || resp.StatusCode != 200 {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return
+	}
+	var d struct {
+		Data []struct {
+			ID        string `json:"id"`
+			LoadedCtx int    `json:"loaded_context_length"`
+			MaxCtx    int    `json:"max_context_length"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&d)
+	resp.Body.Close()
+	for _, m := range d.Data {
+		if m.ID == "" || f.Ctx[m.ID] > 0 {
+			continue
+		}
+		if c := firstPositive(m.LoadedCtx, m.MaxCtx); c > 0 {
+			f.Ctx[m.ID] = c
+		}
+	}
 }
 
 // toV1Base normalizes a user/env/port URL to its .../v1 base (the form probeModels

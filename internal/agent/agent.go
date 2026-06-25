@@ -44,10 +44,14 @@ type Config struct {
 	NodeID, Region, HW, Model     string
 	PriceIn, PriceOut             float64
 	Ctx, Parallel                 int
-	BridgeToken                   string
-	Confidential                  bool
-	Private                       bool // go on air as a PRIVATE band (hidden; freq-code only)
-	Schedule                      []protocol.PriceWindow
+	// CtxEstimated marks Ctx as the last-resort default (no real per-model window was
+	// detected), so the offer carries an honest "estimated" flag instead of presenting
+	// a guess as a measured value.
+	CtxEstimated bool
+	BridgeToken  string
+	Confidential bool
+	Private      bool // go on air as a PRIVATE band (hidden; freq-code only)
+	Schedule     []protocol.PriceWindow
 }
 
 var (
@@ -309,7 +313,7 @@ func Start(cfg Config) (*Session, error) {
 		cfg.Parallel = 4
 	}
 
-	offer := protocol.ModelOffer{Model: cfg.Model, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut, Ctx: cfg.Ctx, Schedule: cfg.Schedule}
+	offer := protocol.ModelOffer{Model: cfg.Model, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut, Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule}
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
