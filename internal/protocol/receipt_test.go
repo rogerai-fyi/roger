@@ -74,6 +74,49 @@ func TestSignBrokerIndependent(t *testing.T) {
 	}
 }
 
+// TestCostWith2CapsBothAxes: CostWith2 bills the supplied prompt + completion counts,
+// so the settle path can cap an over-reporting node at min(claim, recount) on BOTH the
+// input and output axes. CostWith stays the completion-only shim.
+func TestCostWith2CapsBothAxes(t *testing.T) {
+	r := sampleReceipt() // PriceIn 0.20, PriceOut 0.30, claim in=100 out=250
+	// Bill on the lesser counts on both axes: in=40, out=80.
+	if got, want := r.CostWith2(40, 80), (40*0.20+80*0.30)/1e6; got != want {
+		t.Errorf("CostWith2(40,80) = %v, want %v", got, want)
+	}
+	// The shim bills the receipt's claimed input but the supplied completion.
+	if got, want := r.CostWith(80), (100*0.20+80*0.30)/1e6; got != want {
+		t.Errorf("CostWith(80) = %v, want %v", got, want)
+	}
+	// Full-claim CostWith2 equals Cost.
+	if got := r.CostWith2(r.PromptTokens, r.CompletionTokens); got != r.Cost() {
+		t.Errorf("CostWith2(claim) = %v, want Cost() = %v", got, r.Cost())
+	}
+}
+
+// TestBrokerCountsExcludedFromNodeSig: the broker assigns BrokerPromptTokens /
+// BrokerCompletionTokens AFTER the node signs, so they MUST be excluded from the
+// node-signed canonical bytes - otherwise setting them would break VerifyNode.
+func TestBrokerCountsExcludedFromNodeSig(t *testing.T) {
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	r := sampleReceipt()
+	r.SignNode(nodePriv)
+	if !r.VerifyNode(hex.EncodeToString(nodePub)) {
+		t.Fatal("freshly node-signed receipt must verify")
+	}
+	hBefore := r.Hash()
+	// Broker assigns its own re-counts + counter-signs (mirrors the settle path order).
+	r.BrokerPromptTokens = 40
+	r.BrokerCompletionTokens = 80
+	r.SignBroker(brokerPriv)
+	if !r.VerifyNode(hex.EncodeToString(nodePub)) {
+		t.Error("node sig must STILL verify after the broker sets its counts + counter-signs")
+	}
+	if r.Hash() != hBefore {
+		t.Error("Hash must be independent of the broker-set counts (excluded from signingBytes)")
+	}
+}
+
 // TestHashChain mirrors the node's per-receipt chaining: each receipt's PrevHash
 // is the prior receipt's Hash, and any edit to an earlier link changes the chain.
 func TestHashChain(t *testing.T) {

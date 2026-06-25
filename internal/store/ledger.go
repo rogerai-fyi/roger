@@ -26,6 +26,8 @@ const (
 	KindAdjustment     = "adjustment"      // manual/clawback correction (signed)
 	KindPayoutReversed = "payout_reversed" // operator: an ALREADY-PAID lot clawed via a Stripe transfer reversal (-amount)
 	KindPlatformLoss   = "platform_loss"   // platform: disputed amount NOT recoverable from operator lots (platform eats it)
+	KindAdjust         = "adjust"          // audit: broker billed LESS than the node claimed (claim-vs-billed delta, $0 money, platform-favoring)
+	KindVoid           = "void"            // audit: request produced no usable output - charged $0, minted no earning, hold refunded
 )
 
 // Ledger row states. Rows are append-only; the only mutation is a single state

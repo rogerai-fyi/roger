@@ -106,6 +106,16 @@ type broker struct {
 	banned        map[string]bool
 	reportEjectAt int
 
+	// bannedOwners is the in-memory DURABLE owner-ban set (owner pubkey -> true),
+	// guarded by metricsMu. Re-hydrated from the store at startup and refreshed on a
+	// ban. Unlike `banned` (node_id, a cheap callsign), this binds to the owner account
+	// so a banned operator can't return under a fresh node id / callsign / grant key;
+	// consulted at register, relay pick, and settle. strikeWarnAt/strikeBanAt are the
+	// owner-strike escalation thresholds (warn, then ban) for the accumulating signals.
+	bannedOwners map[string]bool
+	strikeWarnAt int
+	strikeBanAt  int
+
 	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
 	// on-air nodes a single owner account may have live (within nodeTTL) across all of
 	// their machines. Enforced at register (the (limit+1)th owner-bound node is
@@ -189,8 +199,12 @@ func main() {
 		banned:           map[string]bool{},
 		reportEjectAt:    reportEjectThreshold(),
 		maxNodesPerOwner: maxNodesPerOwnerLimit(),
+		bannedOwners:     map[string]bool{},
+		strikeWarnAt:     strikeWarnAt(),
+		strikeBanAt:      strikeBanAt(),
 	}
 	b.rehydrateBans()
+	b.rehydrateOwnerBans()
 	// Re-hydrate the in-memory node registry from the store so a restart/redeploy
 	// does NOT wipe registrations: a still-running provider reappears once its next
 	// heartbeat re-confirms liveness, instead of being gone until a manual restart.

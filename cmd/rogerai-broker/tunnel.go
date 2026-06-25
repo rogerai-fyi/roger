@@ -167,6 +167,14 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = uid
 		regOwner = owner
+		// DURABLE OWNER BAN (anti-rotation): a banned operator must not be able to return
+		// under a fresh node id / callsign / grant key. Reject the registration if the
+		// signing owner account is banned, BEFORE binding the node. This blocks the ban at
+		// the on-air gate; the relay pick/settle gates below are the in-flight backstop.
+		if b.isOwnerBanned(owner.Pubkey) {
+			jsonErr(w, http.StatusForbidden, "this account is banned from serving on RogerAI")
+			return
+		}
 		// Attribute this node's future earnings to the owner account (TOFU: the first
 		// account to register a node id owns it), so earning lots + payouts resolve.
 		_ = b.db.BindNode(reg.NodeID, owner.Pubkey)
@@ -834,14 +842,42 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.GrantID = grantID
+			completion := completionText(res.Body)
+			// VOID-ON-NO-OUTPUT (P0): a request that produced NO usable output must not
+			// be charged and must mint no earning, regardless of input consumed. "No
+			// usable output" = the node errored (status>=400), OR the completion is
+			// empty/whitespace, OR it claimed completion tokens but emitted no text. We
+			// leave settled=false so the deferred ReleaseHold refunds the consumer's
+			// pre-auth hold in FULL, and flag the owner for evidence (Part 4). A $0
+			// metering receipt is still recorded so the request is auditable.
+			producedOutput := producedUsableOutput(res.Status, completion, rec.CompletionTokens)
+			if !producedOutput {
+				b.flagEmptyOutput(node.NodeID, rec, res.Status)
+				log.Printf("VOID no-output user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
+					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
+				if b.db != nil {
+					rec.SignBroker(b.priv)
+					_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec) // $0 metering receipt for lineage
+				}
+				w.Header().Set("X-RogerAI-Cost", "0")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(res.Status)
+				_, _ = w.Write(res.Body)
+				return
+			}
+			// P0-2 (symmetric): settle on min(nodeClaim, brokerRecount) on BOTH axes when
+			// an exact broker re-count exists, so an over-reporting node is billed (and
+			// earns) on the verified counts, not its unverified claim. The input axis adds
+			// a hard fail-closed byte floor (claimed prompt tokens > body bytes is
+			// impossible -> clamp + strike). The node-signed receipt is left intact; we
+			// only change the BILLED counts (via CostWith2 + the Broker*Tokens fields).
+			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, req.Model), promptText(body), rec.PromptTokens, len(body))
+			billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, req.Model), completion, rec.CompletionTokens)
+			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
+			// SignBroker is called AFTER the broker counts are assigned so the broker
+			// counter-signature covers them (the node-sig excludes them via signingBytes).
 			rec.SignBroker(b.priv)
-			// P0-2: settle on min(nodeClaim, brokerRecount) for the completion when an
-			// exact broker re-count exists, so an over-reporting node is billed on the
-			// verified count, not its unverified claim. settleRecount does the single
-			// sidecar call + folds trust/promotion-hold off the hot path; the node-signed
-			// receipt is left intact (we only change the billed completion, via CostWith).
-			billedCompletion := b.settleRecount(node.NodeID, recountModel(rec, req.Model), completionText(res.Body), rec.CompletionTokens)
-			cost := rec.CostWith(billedCompletion)
+			cost := rec.CostWith2(billedPrompt, billedCompletion)
 			if maxCost > 0 && cost > maxCost {
 				cost = maxCost // never capture more than was authorized
 			}
@@ -881,7 +917,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-RogerAI-Price", fmt.Sprintf("in=%.4f;out=%.4f;locked_until=%d", pin, pout, lockedUntil))
 				w.Header().Set("X-RogerAI-TPS", fmt.Sprintf("%.1f", tps))
 				w.Header().Set("X-RogerAI-Quality", ftoa(round6(b.trustScore(node.NodeID))))
-				log.Printf("relay user=%s node=%s in=%d out=%d price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, rec.PromptTokens, rec.CompletionTokens, pin, pout, cost, tps)
+				log.Printf("relay user=%s node=%s in=%d/%d out=%d/%d (billed/claim) price=%.3f/%.3f cost=%.6f tps=%.1f", user, node.NodeID, billedPrompt, rec.PromptTokens, billedCompletion, rec.CompletionTokens, pin, pout, cost, tps)
 				// The L1 re-count (trust scoring + the P0-2 promotion-hold flag) already
 				// ran via settleRecount above (single sidecar call), so it is not repeated
 				// here - that also makes the billed completion the re-counted one.
@@ -954,18 +990,48 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
 			rec.GrantID = grantID
-			rec.SignBroker(b.priv)
-			// P0-2: the stream has finished (the receipt arrived), so the captured
-			// completion text is complete. Bill on min(nodeClaim, brokerRecount) when an
-			// exact re-count exists; settleRecount also folds trust + the promotion-hold.
+			// The stream has finished (the receipt arrived), so the captured completion
+			// text is complete. (cap is non-nil only when the L1 re-count is enabled; on
+			// a no-recount broker we fall back to the receipt's token count for the void
+			// + reward signals.)
 			completion := ""
 			if sink.cap != nil {
 				sink.capMu.Lock()
 				completion = sink.cap.String()
 				sink.capMu.Unlock()
 			}
-			billedCompletion := b.settleRecount(node.NodeID, recountModel(rec, model), completion, rec.CompletionTokens)
-			cost := rec.CostWith(billedCompletion)
+			// VOID-ON-NO-OUTPUT (P0), stream path. When capture is enabled we know the
+			// stream was empty if the captured text is blank; without capture we fall
+			// back to the receipt's claimed completion tokens + status. An errored or
+			// no-output stream charges $0, mints no earning, and the deferred ReleaseHold
+			// refunds the consumer's hold in full.
+			var producedOutput bool
+			if sink.cap != nil {
+				// Capture on: use the same predicate as the relay path off the captured text.
+				producedOutput = producedUsableOutput(res.Status, completion, rec.CompletionTokens)
+			} else {
+				// No capture: fall back to status + the receipt's claimed completion tokens.
+				producedOutput = res.Status < 400 && rec.CompletionTokens > 0
+			}
+			if !producedOutput {
+				b.flagEmptyOutput(node.NodeID, rec, res.Status)
+				log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
+					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
+				if b.db != nil {
+					rec.SignBroker(b.priv)
+					_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
+				}
+				return // settled stays false -> deferred ReleaseHold refunds the hold
+			}
+			// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
+			// prompt text is the request body (job.Body), available on this path too, so
+			// the input byte-floor + recount apply identically to the relay path.
+			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), promptText(job.Body), rec.PromptTokens, len(job.Body))
+			billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
+			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
+			// SignBroker AFTER the broker counts are assigned (covers them).
+			rec.SignBroker(b.priv)
+			cost := rec.CostWith2(billedPrompt, billedCompletion)
 			if maxCost > 0 && cost > maxCost {
 				cost = maxCost
 			}
@@ -982,10 +1048,10 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					b.updateTPS(node.NodeID, streamTPS)
 				}
 			}
-			// Smart-router v2 reward + capacity evidence (streamed). qualityOK keys off
-			// the captured completion when available (recount on), else the receipt's
-			// token count - a non-empty, output-bearing stream counts; an empty one does not.
-			qOK := res.Status < 500 && rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
+			// Smart-router v2 reward + capacity evidence (streamed). This block only runs
+			// when producedOutput is true (an errored/empty stream returned above), so a
+			// leech can never shrink its UCB radius off a no-output stream.
+			qOK := rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
 			b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
 			// Free measurement off real (streamed) traffic: reset the probe backoff so
 			// an actively-used node is barely probed and reads as freshly verified.
@@ -1186,6 +1252,18 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		// confidential, min-tps. None of these are score-able; they gate eligibility. ---
 		if b.banned[n.NodeID] {
 			continue
+		}
+		// DURABLE OWNER BAN (anti-rotation): drop nodes whose resolved owner account is
+		// banned, so a banned operator's fresh node id / callsign is never routed to. We
+		// hold metricsMu here, so read b.bannedOwners directly (like b.banned). Resolving
+		// the owner is a store lookup, so SKIP the whole resolution when no owner is
+		// banned (the common case = zero overhead); only pay the lookup when the ban set
+		// is non-empty. (For Mem, AccountOfNode is a map read; for Postgres a small
+		// indexed query, bounded to the rare banned-owner case.)
+		if len(b.bannedOwners) > 0 {
+			if acct, found, _ := b.db.AccountOfNode(n.NodeID); found && b.bannedOwners[acct] {
+				continue
+			}
 		}
 		if b.private[n.NodeID] && !privateAllow[n.NodeID] {
 			continue

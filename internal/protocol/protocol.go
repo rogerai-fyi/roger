@@ -237,8 +237,15 @@ type UsageReceipt struct {
 	// count is an outlier gate only, never a discrepancy trigger. Settlement
 	// still bills the node's count for now; enforced re-bill is the next step
 	// (see docs-internal/VERIFICATION-DESIGN.md). 0 = not re-counted.
-	BrokerCompletionTokens int  `json:"broker_completion_tokens,omitempty"`
-	TokenizerExact         bool `json:"tokenizer_exact,omitempty"`
+	BrokerCompletionTokens int `json:"broker_completion_tokens,omitempty"`
+	// BrokerPromptTokens is the broker's OWN re-count of the prompt (input) tokens,
+	// the symmetric twin of BrokerCompletionTokens. Settlement bills the LESSER of the
+	// node's claimed prompt tokens and this broker count, closing the input billing
+	// axis that completion-only verification left open. Broker-set AFTER the node signs
+	// (so it is zeroed in signingBytes, like GrantID/BrokerCompletionTokens). 0 = not
+	// re-counted.
+	BrokerPromptTokens int  `json:"broker_prompt_tokens,omitempty"`
+	TokenizerExact     bool `json:"tokenizer_exact,omitempty"`
 	// GrantID tags a receipt with the owner grant key that served it (empty for
 	// public-market traffic), so the owner's dashboard can group usage per grant.
 	// Broker-set after the node signs (the node never sees the grant), so it is
@@ -252,9 +259,21 @@ type UsageReceipt struct {
 // broker-set GrantID is also excluded: the node signs before the broker resolves
 // the grant (the node never sees it), so including it would break node-sig
 // verification. The grant tag is a billing/dashboard annotation, not lineage.
+//
+// BrokerPromptTokens + BrokerCompletionTokens are the broker's own re-counts,
+// assigned AFTER the node signs and BEFORE the broker counter-signs. They MUST be
+// zeroed here for the same reason as GrantID: they are not present when the node
+// computes its NodeSig, so leaving them in would break VerifyNode. The broker's
+// SignBroker (called after they are set) DOES cover them - it re-includes them via
+// the same zeroing applied symmetrically, so a broker sig is over the same canonical
+// shape but is computed once the broker counts are stable. (The broker counts live
+// in the receipt JSON for the audit/lineage trail; they are simply excluded from the
+// signed canonical bytes so both signatures verify regardless of count order.)
 func (r UsageReceipt) signingBytes() []byte {
 	c := r
 	c.GrantID = ""
+	c.BrokerPromptTokens = 0
+	c.BrokerCompletionTokens = 0
 	c.NodeSig = ""
 	c.BrokerSig = ""
 	b, _ := json.Marshal(c)
@@ -272,12 +291,20 @@ func (r UsageReceipt) Cost() float64 {
 	return (float64(r.PromptTokens)*r.PriceIn + float64(r.CompletionTokens)*r.PriceOut) / 1e6
 }
 
-// CostWith is Cost but billing `completionTokens` instead of the receipt's claimed
-// CompletionTokens, used to settle on a broker-verified (re-counted) completion count
-// without mutating the node-signed receipt (P0-2: cap an over-reporting node's
-// completion at min(claim, recount) for billing while the lineage receipt stays intact).
+// CostWith2 is Cost but billing the SUPPLIED prompt + completion token counts instead
+// of the receipt's claimed PromptTokens/CompletionTokens, used to settle on
+// broker-verified (re-counted) counts on BOTH axes without mutating the node-signed
+// receipt. The settle path passes min(claim, recount) for each axis, so an
+// over-reporting node is billed (and earns) on the verified lesser count on input AND
+// output - closing the input billing gap that the completion-only CostWith left open.
+func (r UsageReceipt) CostWith2(promptTokens, completionTokens int) float64 {
+	return (float64(promptTokens)*r.PriceIn + float64(completionTokens)*r.PriceOut) / 1e6
+}
+
+// CostWith is the back-compat completion-only shim (input billed at the receipt's
+// claimed PromptTokens). New call sites use CostWith2 to cap both axes.
 func (r UsageReceipt) CostWith(completionTokens int) float64 {
-	return (float64(r.PromptTokens)*r.PriceIn + float64(completionTokens)*r.PriceOut) / 1e6
+	return r.CostWith2(r.PromptTokens, completionTokens)
 }
 
 func (r *UsageReceipt) SignNode(priv ed25519.PrivateKey) {

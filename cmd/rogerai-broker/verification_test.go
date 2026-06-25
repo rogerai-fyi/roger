@@ -34,26 +34,26 @@ func TestObserveRecountTolerance(t *testing.T) {
 	b.recount = recountConfig{tolerance: 0.02}
 
 	// Within 2%: 102 claimed vs 100 recount -> no discrepancy.
-	b.observeRecount("n", 102, 100, true)
+	b.observeRecount("n", "", 102, 100, true)
 	if d := b.trust["n"].discrepancies; d != 0 {
 		t.Errorf("within-band discrepancies = %d, want 0", d)
 	}
 
 	// Over 2%: 110 claimed vs 100 recount -> flagged.
-	b.observeRecount("n", 110, 100, true)
+	b.observeRecount("n", "", 110, 100, true)
 	if d := b.trust["n"].discrepancies; d != 1 {
 		t.Errorf("over-band discrepancies = %d, want 1", d)
 	}
 
 	// Under-reporting never flags (the node only hurts itself).
-	b.observeRecount("n", 50, 100, true)
+	b.observeRecount("n", "", 50, 100, true)
 	if d := b.trust["n"].discrepancies; d != 1 {
 		t.Errorf("under-report discrepancies = %d, want still 1", d)
 	}
 
 	// A HEURISTIC (non-exact) re-count never flags, even far over band.
 	before := b.trust["n"].discrepancies
-	b.observeRecount("n", 1000, 100, false)
+	b.observeRecount("n", "", 1000, 100, false)
 	if d := b.trust["n"].discrepancies; d != before {
 		t.Errorf("heuristic re-count flagged a discrepancy (%d->%d), want no change", before, d)
 	}
@@ -134,7 +134,7 @@ func TestSettleRecountCapsInflatedCompletion(t *testing.T) {
 		b := newTrustBroker()
 		b.db = mem
 		b.recount = loadRecountWith(srv.URL, 0.02)
-		if got := b.settleRecount("n", "gpt-4o", "some completion", 500); got != 100 {
+		if got := b.settleRecount("n", "rq", "gpt-4o", "some completion", 500); got != 100 {
 			t.Errorf("billed completion = %d, want 100 (min of claim 500 / recount 100)", got)
 		}
 		waitFor(t, func() bool { held, _ := mem.RecountHeldNodes(); return held["n"] })
@@ -147,7 +147,7 @@ func TestSettleRecountCapsInflatedCompletion(t *testing.T) {
 		b := newTrustBroker()
 		b.db = store.NewMem()
 		b.recount = loadRecountWith(srv.URL, 0.02)
-		if got := b.settleRecount("n", "gpt-4o", "x", 80); got != 80 {
+		if got := b.settleRecount("n", "rq", "gpt-4o", "x", 80); got != 80 {
 			t.Errorf("under-report billed = %d, want 80 (never inflate the claim)", got)
 		}
 	})
@@ -159,7 +159,7 @@ func TestSettleRecountCapsInflatedCompletion(t *testing.T) {
 		b := newTrustBroker()
 		b.db = store.NewMem()
 		b.recount = loadRecountWith(srv.URL, 0.02)
-		if got := b.settleRecount("n", "gpt-4o", "x", 300); got != 300 {
+		if got := b.settleRecount("n", "rq", "gpt-4o", "x", 300); got != 300 {
 			t.Errorf("heuristic billed = %d, want 300 (too coarse to bill on)", got)
 		}
 	})
@@ -169,7 +169,7 @@ func TestSettleRecountCapsInflatedCompletion(t *testing.T) {
 		b := newTrustBroker()
 		b.db = store.NewMem()
 		b.recount = recountConfig{}
-		if got := b.settleRecount("n", "gpt-4o", "x", 777); got != 777 {
+		if got := b.settleRecount("n", "rq", "gpt-4o", "x", 777); got != 777 {
 			t.Errorf("disabled re-count billed = %d, want 777 (claim unchanged)", got)
 		}
 	})
@@ -384,7 +384,7 @@ func TestMarketSurfacesTTFTAndQuality(t *testing.T) {
 	b.recount = recountConfig{tolerance: 0.02}
 	// One good probe (sets ttft) + one token discrepancy (drops quality).
 	b.recordProbe("n", probePass, 120, 50, true)
-	b.observeRecount("n", 200, 100, true)
+	b.observeRecount("n", "", 200, 100, true)
 
 	// /market
 	rec := httptest.NewRecorder()

@@ -82,7 +82,7 @@ func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool,
 // ALSO folds the sample into the node's trust state + the promotion-hold flag in a
 // goroutine (OFF the hot path), reusing this single sidecar result so the relay path
 // never double-calls the sidecar. Returns `claimed` immediately when re-count is off.
-func (b *broker) settleRecount(nodeID, model, completion string, claimed int) int {
+func (b *broker) settleRecount(nodeID, requestID, model, completion string, claimed int) int {
 	if !b.recount.enabled() || completion == "" || claimed <= 0 {
 		return claimed
 	}
@@ -92,11 +92,86 @@ func (b *broker) settleRecount(nodeID, model, completion string, claimed int) in
 	}
 	// Trust scoring + the P0-2 promotion-hold flag, off the hot path (observeRecount
 	// takes the lock + may write the recount_holds row).
-	go b.observeRecount(nodeID, claimed, recounted, exact)
+	go b.observeRecount(nodeID, requestID, claimed, recounted, exact)
 	if exact && recounted > 0 && recounted < claimed {
 		return recounted // settle on the smaller, broker-verified count
 	}
 	return claimed
+}
+
+// settleRecountPrompt is the INPUT twin of settleRecount: it returns the prompt
+// (input) token count to BILL, capping an over-reporting node on the input axis the
+// same way settleRecount caps the output axis. It has TWO defenses:
+//
+//  1. A HARD, fail-CLOSED byte floor independent of the sidecar: no tokenizer can emit
+//     more tokens than the prompt has UTF-8 bytes, so a claim ABOVE len(body) bytes is
+//     arithmetically impossible. We clamp it to the byte count AND flag the owner for an
+//     immediate (zero-doubt) strike. This holds even with NO tokenizer sidecar, closing
+//     the largest input-inflation case outright.
+//  2. When a sidecar is configured, the same exact-recount cap as the output axis:
+//     bill min(claimed, brokerRecount) and fold the discrepancy into the SAME trust /
+//     promotion-hold path (observeRecountInput), so an input over-report trips the hold
+//     exactly like a completion over-report.
+//
+// It never inflates a claim (we only ever bill the lesser count), and it returns the
+// claim unchanged when re-count is off and the byte floor was not breached.
+func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, claimed, bodyLen int) int {
+	// Defense 1: the zero-doubt byte floor (no sidecar needed).
+	if bodyLen > 0 && claimed > bodyLen {
+		b.flagImpossibleInput(nodeID, requestID, claimed, bodyLen)
+		claimed = bodyLen // clamp to the only physically-possible upper bound
+	}
+	// Defense 2: the sidecar input re-count (when configured).
+	if !b.recount.enabled() || prompt == "" || claimed <= 0 {
+		return claimed
+	}
+	recounted, exact, ok := b.recount.sidecarCount(model, prompt)
+	if !ok {
+		return claimed // sidecar down: the byte floor above is the fail-closed backstop
+	}
+	go b.observeRecountInput(nodeID, requestID, claimed, recounted, exact)
+	if exact && recounted > 0 && recounted < claimed {
+		return recounted // settle on the smaller, broker-verified input count
+	}
+	return claimed
+}
+
+// observeRecountInput folds one INPUT re-count into the node's trust state, mirroring
+// observeRecount but on the prompt axis. Only an EXACT re-count can flag a discrepancy.
+// An input over-report past tolerance records a discrepancy, holds the node's lots from
+// promotion (the SAME machinery as the output axis), and accrues an owner strike.
+func (b *broker) observeRecountInput(nodeID, requestID string, claimed, recounted int, exact bool) {
+	b.metricsMu.Lock()
+	tq := b.trust[nodeID]
+	tq.recounts++
+	tq.lastClaimed = claimed
+	tq.lastRecount = recounted
+	tq.lastExact = exact
+	flagged := false
+	if exact && recounted > 0 && claimed > 0 {
+		over := float64(claimed-recounted) / float64(recounted)
+		if over > b.recount.tolerance {
+			tq.discrepancies++
+			flagged = true
+		}
+	}
+	b.trust[nodeID] = tq
+	disc := tq.discrepancies
+	total := tq.recounts
+	b.metricsMu.Unlock()
+
+	if flagged {
+		if b.db != nil {
+			if err := b.db.SetNodeRecountHold(nodeID, true); err != nil {
+				log.Printf("L1: SetNodeRecountHold(%s) failed: %v (lots may still auto-promote)", nodeID, err)
+			}
+		}
+		// Owner-keyed strike (anti-rotation): an input over-report is an accumulating
+		// signal toward warn/ban, with the claimed-vs-recount evidence bound to the owner.
+		b.flagRecountOver(nodeID, requestID, "input", claimed, recounted)
+		log.Printf("L1 INPUT DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged + earnings HELD from promotion pending review",
+			nodeID, claimed, recounted, b.recount.tolerance*100, disc, total)
+	}
 }
 
 // recountAsync re-counts the completion off the hot path and reconciles it
@@ -111,14 +186,14 @@ func (b *broker) recountAsync(nodeID, model, completion string, claimed int) {
 	if !ok {
 		return // sidecar down/unreachable: fail open, do not penalize the node
 	}
-	b.observeRecount(nodeID, claimed, tokens, exact)
+	b.observeRecount(nodeID, "", claimed, tokens, exact)
 }
 
 // observeRecount folds one re-count into the node's trust state. Only EXACT
 // re-counts can flag a discrepancy (the heuristic is an outlier gate, too coarse
 // to penalize on). A discrepancy is recorded when the node's claimed completion
 // tokens exceed the re-count by more than the tolerance band.
-func (b *broker) observeRecount(nodeID string, claimed, recounted int, exact bool) {
+func (b *broker) observeRecount(nodeID, requestID string, claimed, recounted int, exact bool) {
 	b.metricsMu.Lock()
 	tq := b.trust[nodeID]
 	tq.recounts++
@@ -147,6 +222,12 @@ func (b *broker) observeRecount(nodeID string, claimed, recounted int, exact boo
 			if err := b.db.SetNodeRecountHold(nodeID, true); err != nil {
 				log.Printf("L1: SetNodeRecountHold(%s) failed: %v (lots may still auto-promote)", nodeID, err)
 			}
+		}
+		// Owner-keyed strike (anti-rotation): an output over-report accrues toward
+		// warn/ban with the claimed-vs-recount evidence bound to the owner account. A
+		// requestID is present on the settle path (the async probe path passes "").
+		if requestID != "" {
+			b.flagRecountOver(nodeID, requestID, "output", claimed, recounted)
 		}
 		log.Printf("L1 DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged + earnings HELD from promotion pending review",
 			nodeID, claimed, recounted, b.recount.tolerance*100, disc, total)
@@ -259,6 +340,28 @@ func qualityOK(body []byte) bool {
 // reward signal must reject.
 func qualityOKText(s string) bool {
 	return strings.TrimSpace(s) != ""
+}
+
+// producedUsableOutput is the VOID gate predicate (P0): a request produced usable
+// output ONLY when the node did not error AND a non-empty completion was returned. It
+// is false - so the charge is VOIDED ($0, no earning, hold refunded) - when ANY of:
+//   - the node returned an error (status >= 400),
+//   - the completion is empty/whitespace, OR
+//   - the completion is empty yet the node CLAIMED completion tokens (claim-without-text).
+//
+// claimedCompletion is the node's self-reported completion_tokens; completion is the
+// extracted assistant text (relay: completionText(body); stream: the captured text).
+func producedUsableOutput(status int, completion string, claimedCompletion int) bool {
+	if status >= 400 {
+		return false
+	}
+	if strings.TrimSpace(completion) == "" {
+		return false
+	}
+	if completion == "" && claimedCompletion > 0 {
+		return false
+	}
+	return true
 }
 
 // recountModel is the model id to tokenize under: prefer the receipt's claimed

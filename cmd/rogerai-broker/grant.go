@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -206,5 +207,15 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
 		// earning lot and a $0 spend row) so the owner still sees usage.
 		return b.db.Settle(payer, node, 0, 0, rec)
 	}
-	return b.db.Finalize(payer, node, held, cost, cost*(1-b.feeRate), rec)
+	// Settle-time owner-ban backstop (anti-rotation): if the node's owner was banned
+	// between pick and settle, the consumer is still billed for the output they received,
+	// but the banned operator mints NO earning (ownerShare 0 -> no lot). The pick filter
+	// is the primary gate; this closes the in-flight race so a banned owner can't earn on
+	// a request already in progress.
+	ownerShare := cost * (1 - b.feeRate)
+	if b.nodeOwnerBanned(node) {
+		log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)
+		ownerShare = 0
+	}
+	return b.db.Finalize(payer, node, held, cost, ownerShare, rec)
 }
