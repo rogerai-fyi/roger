@@ -441,7 +441,55 @@
             <div class="man-note">
               <span class="man-note__tag">the secret is shown once</span>
               The grant secret prints exactly once at create time - copy it then. The
-              dashboard stores only its hash.
+              dashboard stores only its hash. Lost it? You cannot recover it - mint a new
+              key and revoke the old one.
+            </div>
+            <p class="fine">Prefer a screen? Mint, list, edit caps and revoke keys on the
+              web <a href="/keys.html">API keys</a> page - same endpoints, same one-time
+              secret.</p>
+
+            <h3>Headless and bots: how a key is used</h3>
+            <p>A grant key <b>is</b> an OpenAI-style API key. There is nothing to install on
+              the consuming side and no login: a headless bot points an OpenAI-compatible
+              client at the broker's <code>/v1</code> endpoint and sends the grant secret
+              as its bearer token. The broker recognises the <code>rog-grant_</code> prefix,
+              resolves the key to you, routes only to your nodes, and bills per the grant
+              (free, $0 self, or your sponsored price). The two lines printed at create are
+              all a bot needs:</p>
+            <pre><span class="c"># printed once by `grant create` (and on the web keys page)</span>
+OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
+            <p>That is the whole mechanism: set those two env vars (or the equivalent
+              <code>base_url</code> + <code>api_key</code> in your SDK) and every
+              <code>POST /v1/chat/completions</code> the bot makes is authenticated by the
+              key alone. No <code>rogerai login</code>, no wallet, no signed identity on the
+              bot box. A worked example - a Petlings or Minecraft chat bot calling your home
+              GPU from a cheap VPS:</p>
+            <pre><span class="c"># 1) you, once, on your logged-in machine: mint a capped key</span>
+<span class="p">$</span> rogerai grant create --name petlings-bot --self --monthly-cap 20000000
+  created grant "petlings-bot"  (self ($0 on your own boxes))
+  <b>rog-grant_3f9a...c10b</b>
+  save it now - it is shown only once.
+
+<span class="c"># 2) on the bot box (anywhere): set the two lines and run your bot</span>
+<span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+<span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b
+<span class="p">$</span> python petlings_bot.py        <span class="c"># any OpenAI client - openai-python, curl, llama-index...</span></pre>
+            <pre><span class="c"># the raw call your bot makes - just a bearer token</span>
+<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'</pre>
+            <p>Use <code>--self</code> (above) when the bot calls <i>your own</i> GPU - it is
+              metering-only, $0. Drop <code>--self</code> for a plain free key you hand a
+              friend, or set <code>--price-out</code> to sponsor a paid key billed to your
+              wallet. The bot never sees a price; it just calls the endpoint.</p>
+            <div class="man-note">
+              <span class="man-note__tag">rotation</span>
+              To rotate, mint a fresh key, swap the one <code>OPENAI_API_KEY</code> line on
+              the bot box, then <code>rogerai grant revoke &lt;old-name&gt;</code> (or Revoke
+              on the <a href="/keys.html">keys page</a>). Revocation takes effect on the next
+              request. A leaked key cannot be re-shown, so rotate rather than recover.
             </div>
 
             <h3>Self-use is $0</h3>
@@ -466,6 +514,13 @@
             <pre><span class="p">$</span> rogerai grant list              <span class="c"># your keys + usage per label</span>
 <span class="p">$</span> rogerai grant show my-bots       <span class="c"># one key's scope, caps, usage</span>
 <span class="p">$</span> rogerai grant revoke my-bots     <span class="c"># kill it (effective next request)</span></pre>
+            <div class="man-note">
+              <span class="man-note__tag">second guardrail</span>
+              Per-key caps bound one key. Your <b>account-wide monthly spend cap</b> (§6, on
+              the <a href="/billing.html">Billing</a> page) bounds what every sponsored key
+              can cost you put together - so even a runaway fleet of priced grants can never
+              exceed the one number you set for the account.
+            </div>
 
             <h3>A private band: two boxes, one frequency code</h3>
             <p>Sometimes you do not want a band on the public dial at all - you just want

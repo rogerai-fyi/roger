@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="API keys - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>API keys</h1>
+    <p class="sub">Grant keys - private, labeled bearer keys (<code>rog-grant_...</code>) your
+      bots, family, friends, or your own headless boxes use as their API key, with no
+      login of their own. They route only to your nodes, free or at a price you sponsor,
+      under the caps you set. See the <a href="/manual.html#s5">manual</a>.</p>
+
+    <!-- ============ CREATE A KEY ============ -->
+    <section class="panel">
+      <h2>Mint a key</h2>
+      <p class="fine">The secret is shown <b>once</b>, at create. Only its hash is stored,
+        so it can never be re-displayed - copy it then.</p>
+
+      <form id="createForm" class="kf" autocomplete="off">
+        <div class="kf__field">
+          <label class="kf__k" for="kName">Name</label>
+          <input id="kName" class="kf__in" type="text" required maxlength="64"
+            placeholder="petlings-bot" />
+          <span class="kf__hint">A label only you see, on your dashboard.</span>
+        </div>
+
+        <div class="kf__field">
+          <span class="kf__k">Billing</span>
+          <div class="kf__opts" role="radiogroup" aria-label="Billing">
+            <button type="button" class="kf__opt is-active" data-bill="free" aria-pressed="true">Free</button>
+            <button type="button" class="kf__opt" data-bill="self" aria-pressed="false">Self ($0)</button>
+            <button type="button" class="kf__opt" data-bill="priced" aria-pressed="false">Sponsored</button>
+          </div>
+          <span class="kf__hint" id="billHint">Free - costs nobody. Your nodes serve it at $0.</span>
+        </div>
+
+        <!-- sponsored price-out, only when "Sponsored" is chosen -->
+        <div class="kf__field" id="priceField" hidden>
+          <label class="kf__k" for="kPriceOut">Price out ($/1M tokens)</label>
+          <div class="kf__money">
+            <span class="kf__money-pre">$</span>
+            <input id="kPriceOut" class="kf__in" type="number" min="0" step="0.01"
+              inputmode="decimal" placeholder="0.30" />
+          </div>
+          <span class="kf__hint">You sponsor it: usage bills to your own wallet at this rate.</span>
+        </div>
+
+        <div class="kf__field">
+          <label class="kf__k" for="kExpiry">Expiry</label>
+          <select id="kExpiry" class="kf__in kf__sel">
+            <option value="never">Never</option>
+            <option value="30d">30 days</option>
+            <option value="90d">90 days</option>
+            <option value="date">Pick a date...</option>
+          </select>
+          <input id="kExpiryDate" class="kf__in" type="date" hidden style="margin-top:8px" />
+        </div>
+
+        <div class="kf__grid">
+          <div class="kf__field">
+            <label class="kf__k" for="kDaily">Daily cap (tokens)</label>
+            <input id="kDaily" class="kf__in kf__num" type="number" min="0" step="1"
+              inputmode="numeric" value="2000000" />
+            <span class="kf__hint">0 = unlimited. Default self-limits a leaked key.</span>
+          </div>
+          <div class="kf__field">
+            <label class="kf__k" for="kMonthly">Monthly cap (tokens)</label>
+            <input id="kMonthly" class="kf__in kf__num" type="number" min="0" step="1"
+              inputmode="numeric" value="0" placeholder="0" />
+            <span class="kf__hint">0 = unlimited.</span>
+          </div>
+        </div>
+
+        <div class="kf__field">
+          <span class="kf__k">Node scope</span>
+          <div class="kf__opts" role="radiogroup" aria-label="Node scope">
+            <button type="button" class="kf__opt is-active" data-scope="all" aria-pressed="true">All my nodes</button>
+            <button type="button" class="kf__opt" data-scope="pick" aria-pressed="false">Pick nodes</button>
+          </div>
+          <input id="kNodes" class="kf__in" type="text" hidden style="margin-top:8px"
+            placeholder="node-id-a, node-id-b" />
+          <span class="kf__hint" id="scopeHint">The key reaches every node you put on air.</span>
+        </div>
+
+        <button type="submit" class="primary" id="createBtn">Mint key</button>
+        <p class="kf__err" id="createErr" hidden></p>
+      </form>
+
+      <!-- the one-time secret reveal -->
+      <div class="kf__reveal" id="reveal" hidden>
+        <div class="kf__reveal-head">
+          <span class="kf__reveal-tag">shown once</span>
+          <span class="kf__reveal-msg">Save this now. You will not see it again.</span>
+        </div>
+        <div class="kf__secret">
+          <code id="secretVal" class="kf__secret-val">rog-grant_...</code>
+          <button type="button" class="kf__copy" id="copySecret" data-copy="">Copy</button>
+        </div>
+        <div class="kf__paste">
+          <span class="kf__paste-k">Use it as an OpenAI key, no login:</span>
+          <pre class="cmd"><code id="envLines"></code></pre>
+        </div>
+        <p class="fine">Headless setup, a worked bot example, rotation and caps are in the
+          <a href="/manual.html#s5">manual &sect;5</a>.</p>
+      </div>
+    </section>
+
+    <!-- ============ EXISTING KEYS ============ -->
+    <section class="panel">
+      <h2>Your keys</h2>
+
+      <div class="kf__tablewrap" id="keysWrap" hidden>
+        <table class="mx-table kf__table">
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Price</th>
+              <th scope="col">Expiry</th>
+              <th scope="col" class="num">Daily cap</th>
+              <th scope="col" class="num">Used (day/mo)</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="vh">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="keysRows"></tbody>
+        </table>
+      </div>
+
+      <p class="mx-state" id="keysLoading">Loading your keys...</p>
+      <p class="mx-state" id="keysEmpty" hidden>No keys yet. Mint one above, or run
+        <code>rogerai grant create --name my-bots</code>.</p>
+      <p class="mx-state" id="keysError" hidden>Could not load your keys. Try again shortly.</p>
+    </section>
+
+    <div class="man-note kf__guard">
+      <span class="man-note__tag">second guardrail</span>
+      Per-key caps limit one key. A single <b>account-wide monthly spend cap</b> bounds what
+      every sponsored key can cost you together - set it on <a href="/billing.html">Billing</a>.
+    </div>
+
+    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/usage.html">Metrics</a> - <a href="/billing.html">Billing</a> - <a href="/account.html">Account</a></p>
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+
+  <!-- Logged-out gate: shown when the broker says we are not signed in. -->
+  <main class="card" id="gate" hidden>
+    <h1>API keys</h1>
+    <p class="sub">Log in to mint and manage your grant keys.</p>
+    <section class="panel">
+      <h2>Signed out</h2>
+      <p>Grant keys are owner-issued: you sign in once with GitHub, then mint private bearer
+        keys for your bots, family, or your own headless boxes. Each key is shown only once.</p>
+      <p style="margin-top:16px"><a class="gh" href="/login.html">Log in</a></p>
+    </section>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/keys.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+</body>
+</html>
