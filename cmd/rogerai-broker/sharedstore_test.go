@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -42,11 +44,211 @@ func TestSharedStoreInterface(t *testing.T) {
 	if _, err := m.liveness(); err == nil {
 		t.Error("memStore.liveness should return a non-nil error")
 	}
+	if _, found, err := m.cacheGet("k"); found || err == nil {
+		t.Error("memStore.cacheGet must be a miss with a non-nil error so the caller computes")
+	}
+	if err := m.cacheSet("k", []byte("v"), time.Second); err == nil {
+		t.Error("memStore.cacheSet is a no-op and should report unavailable")
+	}
 	if m.healthy() {
 		t.Error("memStore is never healthy (no backend)")
 	}
 	if err := m.Close(); err != nil {
 		t.Errorf("memStore.Close: %v", err)
+	}
+}
+
+// TestValkeyCacheGetSet exercises the cache primitive: a miss returns found=false with
+// a nil error (so the caller recomputes WITHOUT a logged backend error), a set+get
+// round-trips the exact bytes, every key is namespaced under rogerai:cache:, and the
+// entry expires after its TTL.
+func TestValkeyCacheGetSet(t *testing.T) {
+	vs, mr := newTestValkey(t)
+
+	// Clean miss: found=false, err=nil.
+	if val, found, err := vs.cacheGet("disco"); found || err != nil || val != nil {
+		t.Fatalf("miss = (val=%v found=%v err=%v), want (nil,false,nil)", val, found, err)
+	}
+
+	// Set then get returns the exact bytes.
+	want := []byte(`{"offers":[]}`)
+	if err := vs.cacheSet("disco", want, 3*time.Second); err != nil {
+		t.Fatalf("cacheSet: %v", err)
+	}
+	got, found, err := vs.cacheGet("disco")
+	if err != nil || !found || string(got) != string(want) {
+		t.Fatalf("hit = (val=%q found=%v err=%v), want (%q,true,nil)", got, found, err, want)
+	}
+
+	// Every cache key is namespaced (shared-instance safety).
+	for _, k := range mr.Keys() {
+		if !strings.HasPrefix(k, cacheKeyPrefix) {
+			t.Errorf("cache key %q is NOT under %q - would collide on the shared instance", k, cacheKeyPrefix)
+		}
+	}
+
+	// TTL: advancing past the window expires the entry -> back to a miss.
+	mr.FastForward(4 * time.Second)
+	if _, found, _ := vs.cacheGet("disco"); found {
+		t.Error("cache entry should have expired after its TTL")
+	}
+
+	// ttl<=0 is a no-op (no key written, no error).
+	if err := vs.cacheSet("noop", []byte("x"), 0); err != nil {
+		t.Errorf("cacheSet ttl=0 should be a no-op nil, got %v", err)
+	}
+	if _, found, _ := vs.cacheGet("noop"); found {
+		t.Error("cacheSet with ttl<=0 must not write a key")
+	}
+}
+
+// TestValkeyCacheDegradesOnClose proves a dead backend surfaces cacheGet/cacheSet
+// errors (so serveCachedJSON treats it as a miss and computes directly) instead of
+// panicking - a cache failure never fails a request.
+func TestValkeyCacheDegradesOnClose(t *testing.T) {
+	vs, mr := newTestValkey(t)
+	mr.Close()
+	if _, _, err := vs.cacheGet("k"); err == nil {
+		t.Error("cacheGet on a dead backend should error so the caller computes")
+	}
+	if err := vs.cacheSet("k", []byte("v"), time.Second); err == nil {
+		t.Error("cacheSet on a dead backend should error (non-fatal to the caller)")
+	}
+}
+
+// TestServeCachedJSONFlagOff proves the flag-OFF invariant: with b.shared == nil,
+// serveCachedJSON computes + serves DIRECTLY every call (no caching), byte-for-byte
+// today's behavior.
+func TestServeCachedJSONFlagOff(t *testing.T) {
+	b := &broker{} // shared == nil
+	calls := 0
+	h := func(w http.ResponseWriter, r *http.Request) {
+		b.serveCachedJSON(w, "k", 3*time.Second, func() any {
+			calls++
+			return map[string]any{"n": calls}
+		})
+	}
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		h(w, httptest.NewRequest(http.MethodGet, "/x", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("code = %d", w.Code)
+		}
+	}
+	if calls != 3 {
+		t.Errorf("flag-off must compute every call, computed %d/3 times", calls)
+	}
+}
+
+// TestServeCachedJSONHitMiss proves the flag-ON behavior: the first call MISSES
+// (computes + populates), subsequent calls within the TTL HIT (serve cached bytes,
+// skip compute), and after the TTL it recomputes.
+func TestServeCachedJSONHitMiss(t *testing.T) {
+	vs, mr := newTestValkey(t)
+	b := &broker{shared: vs}
+	calls := 0
+	serve := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		b.serveCachedJSON(w, "k", 5*time.Second, func() any {
+			calls++
+			return map[string]any{"n": calls}
+		})
+		return w
+	}
+
+	w1 := serve() // miss -> compute #1 + populate
+	if calls != 1 {
+		t.Fatalf("first call should compute once, calls=%d", calls)
+	}
+	w2 := serve() // hit -> no compute
+	if calls != 1 {
+		t.Errorf("second call within TTL should HIT (no recompute), calls=%d", calls)
+	}
+	if w1.Body.String() != w2.Body.String() {
+		t.Errorf("hit body %q != miss body %q", w2.Body.String(), w1.Body.String())
+	}
+	if ct := w2.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("cached hit Content-Type = %q, want application/json", ct)
+	}
+
+	// After the TTL the entry is gone -> recompute.
+	mr.FastForward(7 * time.Second)
+	_ = serve()
+	if calls != 2 {
+		t.Errorf("after TTL expiry the value should recompute, calls=%d", calls)
+	}
+}
+
+// TestServeCachedJSONPerKeyIsolation is the cross-user isolation guarantee at the
+// helper level: two DIFFERENT keys (e.g. two authed identities) never share an entry,
+// so one account's cached payload is never served to another.
+func TestServeCachedJSONPerKeyIsolation(t *testing.T) {
+	vs, _ := newTestValkey(t)
+	b := &broker{shared: vs}
+	serve := func(key, who string) string {
+		w := httptest.NewRecorder()
+		b.serveCachedJSON(w, key, 30*time.Second, func() any {
+			return map[string]any{"secret_owner": who}
+		})
+		return w.Body.String()
+	}
+	a := serve("series:w=userA|o=", "userA")  // populate A
+	bb := serve("series:w=userB|o=", "userB") // different key -> userB's own data
+	if strings.Contains(bb, "userA") {
+		t.Fatalf("user B response %q leaked user A's cached data", bb)
+	}
+	// A re-fetch of A's key still returns A's data (and never B's).
+	if a2 := serve("series:w=userA|o=", "userA-DIFFERENT-IGNORED"); a2 != a {
+		t.Errorf("user A key should keep returning A's cached payload, got %q want %q", a2, a)
+	}
+}
+
+// TestServeCachedJSONCacheErrorDegrades proves a Valkey error degrades to a direct
+// compute: with a dead backend, every call computes (the cache GET errors -> miss,
+// the SET errors -> non-fatal) and the request still succeeds.
+func TestServeCachedJSONCacheErrorDegrades(t *testing.T) {
+	vs, mr := newTestValkey(t)
+	mr.Close() // backend is down
+	b := &broker{shared: vs}
+	calls := 0
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		b.serveCachedJSON(w, "k", 5*time.Second, func() any {
+			calls++
+			return map[string]any{"ok": true}
+		})
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "ok") {
+			t.Fatalf("a cache error must still serve a computed 200, got %d %q", w.Code, w.Body.String())
+		}
+	}
+	if calls != 3 {
+		t.Errorf("with a dead cache every call must compute directly, computed %d/3", calls)
+	}
+}
+
+// TestIdentityCacheKeyDistinct locks the key scheme that gives the per-user isolation:
+// every distinct authenticated identity (consumer-only, provider-only, both, and a
+// different identity) maps to a DISTINCT key, so no two accounts can collide.
+func TestIdentityCacheKeyDistinct(t *testing.T) {
+	keys := map[string]string{
+		"consumerA":  identityCacheKey("series", "walletA", true, "", false),
+		"consumerB":  identityCacheKey("series", "walletB", true, "", false),
+		"providerA":  identityCacheKey("series", "", false, "pkA", true),
+		"providerB":  identityCacheKey("series", "", false, "pkB", true),
+		"bothA":      identityCacheKey("series", "walletA", true, "pkA", true),
+		"console_cA": identityCacheKey("console", "walletA", true, "", false),
+	}
+	seen := map[string]string{}
+	for name, k := range keys {
+		if other, dup := seen[k]; dup {
+			t.Errorf("identities %q and %q collide on cache key %q", name, other, k)
+		}
+		seen[k] = name
+	}
+	// A pure consumer's key must NOT embed an unauthenticated owner pubkey: even if a
+	// stray pubkey is passed, provider=false zeroes it out (no cross-side leakage).
+	if got := identityCacheKey("series", "walletA", true, "pk-NOT-AUTHED", false); strings.Contains(got, "pk-NOT-AUTHED") {
+		t.Errorf("an unauthenticated pubkey must not enter the key: %q", got)
 	}
 }
 

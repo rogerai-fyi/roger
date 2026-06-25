@@ -379,3 +379,58 @@ func TestConsoleAuth(t *testing.T) {
 		t.Errorf("unbound console = %d, want 401", w2.Code)
 	}
 }
+
+// TestMetricsSeriesCachePerUserIsolation is the end-to-end security guarantee for the
+// authed-feed cache: with a SHARED Valkey wired in, user A loading /metrics/series
+// (which populates the cache) must NEVER cause user B to receive A's data. Each
+// identity keys its own cache entry, so B always sees B's own spend.
+func TestMetricsSeriesCachePerUserIsolation(t *testing.T) {
+	vs, _ := newTestValkey(t)
+
+	// Two pure consumers (distinct github-scoped wallets) with DIFFERENT spend.
+	db := store.NewMem()
+	_, bpriv, _ := ed25519.GenerateKey(nil)
+	now := time.Now().Unix()
+	settle := func(wallet, model string, cost float64, id string) {
+		_, _ = db.AddCredits(wallet, cost)
+		_, _ = db.Settle(wallet, "", cost, 0, protocol.UsageReceipt{
+			RequestID: id, Model: model, PromptTokens: 10, CompletionTokens: 10, TS: now,
+		})
+	}
+	settle("u_gh_7", "modelA", 0.50, "a1") // user A: $0.50
+	settle("u_gh_8", "modelB", 7.00, "b1") // user B: $7.00
+
+	b := &broker{priv: bpriv, db: db, seedFunds: 0, conn: loadConnect(),
+		pubOfUser: map[string]string{}, shared: vs}
+	b.bill.creditUSD = 1
+
+	spendOf := func(login string, gid int64) float64 {
+		w := httptest.NewRecorder()
+		b.metricsSeries(w, sessionReq(b, http.MethodGet, "/metrics/series?days=30", login, gid))
+		if w.Code != http.StatusOK {
+			t.Fatalf("series for %s = %d (%s)", login, w.Code, w.Body.String())
+		}
+		var resp struct {
+			Savings struct {
+				SpendUSD float64 `json:"spend_usd"`
+			} `json:"savings"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp.Savings.SpendUSD
+	}
+
+	// A loads first (populates A's cache entry).
+	if got := spendOf("alice", 7); got < 0.4999 || got > 0.5001 {
+		t.Fatalf("user A spend = %v, want 0.50", got)
+	}
+	// B must see B's OWN spend, never A's cached 0.50.
+	if got := spendOf("bob", 8); got < 6.9999 || got > 7.0001 {
+		t.Errorf("user B spend = %v, want 7.00 - A's cached data must NOT leak to B", got)
+	}
+	// A again -> still A's own data (served from A's cache entry).
+	if got := spendOf("alice", 7); got < 0.4999 || got > 0.5001 {
+		t.Errorf("user A re-fetch spend = %v, want 0.50", got)
+	}
+}
