@@ -98,6 +98,85 @@
 }
 .kf__opt:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 
+/* ---- the common-path "Free key" toggle: a hairline switch, red when on. ---- */
+.kf__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  cursor: pointer;
+  user-select: none;
+}
+.kf__toggle-in {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.kf__toggle-box {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px; height: 22px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 999px;
+  background: var(--paper);
+  transition: border-color var(--d-1) var(--ease-standard),
+              background var(--d-1) var(--ease-standard);
+}
+.kf__toggle-box::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--ink-400);
+  transition: transform var(--d-1) var(--ease-standard),
+              background var(--d-1) var(--ease-standard);
+}
+.kf__toggle-in:checked + .kf__toggle-box {
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.kf__toggle-in:checked + .kf__toggle-box::after {
+  background: var(--live);
+  transform: translateX(16px);
+}
+.kf__toggle-in:focus-visible + .kf__toggle-box {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+.kf__toggle-txt {
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+}
+
+/* ---- Advanced: everything past Name + Free, folded away by default. ---- */
+.kf__adv {
+  margin: 0 0 var(--s-4);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+.kf__adv-sum {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--s-3) 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  transition: color var(--d-1) var(--ease-standard);
+}
+.kf__adv-sum::-webkit-details-marker { display: none; }
+.kf__adv-sum::before {
+  content: "+ ";
+  color: var(--ink-400);
+}
+.kf__adv[open] > .kf__adv-sum::before { content: "- "; }
+.kf__adv-sum:hover { color: var(--ink-900); }
+.kf__adv-sum:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.kf__adv-body { padding: var(--s-2) 0 var(--s-4); }
+
 .kf__err {
   margin: var(--s-3) 0 0;
   font-size: var(--t-sm);

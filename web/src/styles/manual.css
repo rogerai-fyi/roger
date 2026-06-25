@@ -24,6 +24,47 @@
 }
 .man-cover__meta b { color: var(--ink-700); font-weight: var(--weight-semi); }
 
+/* ---- quickstart: the 30-second path, above the full reference ---- */
+.man-quick { padding-block: 0 clamp(40px, 6vw, 72px); border-bottom: 1px solid var(--hairline); }
+.man-quick__eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt);
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
+}
+.man-quick__h { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900); margin-top: var(--s-3); }
+.man-quick__lead { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
+.man-quick__grid {
+  margin-top: var(--s-6); display: grid; gap: var(--s-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 880px) { .man-quick__grid { grid-template-columns: 1fr; } }
+.man-quick__card {
+  border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
+  background: var(--white); box-shadow: var(--e-1);
+  padding: clamp(18px, 2vw, 24px);
+}
+.man-quick__step {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.man-quick__card p { margin-top: var(--s-3); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
+.man-quick__card pre {
+  margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto;
+  background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
+}
+.man-quick__card pre .c { color: var(--ink-400); }
+.man-quick__card pre .p { color: var(--volt); }
+.man-quick__card code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+}
+.man-quick__more { margin-top: var(--s-6); color: var(--ink-500); font-size: var(--t-sm); }
+.man-quick__ref { color: var(--volt); font-weight: var(--weight-medium); }
+.man-quick__ref:hover { text-decoration: underline; }
+
 /* the document body: a contents rail beside the flowing sections */
 .man-doc { padding-block: var(--s-8) var(--section-y); }
 .man-doc__grid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
