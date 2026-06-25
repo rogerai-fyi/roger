@@ -259,6 +259,8 @@
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
 .demo__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+/* the demoted technical detail: smaller + quieter than the plain promise above it */
+.demo__head p.demo__fine { margin-top: var(--s-3); color: var(--ink-400); font-size: var(--t-sm); }
 
 .term {
   max-width: 820px; margin: 0; background: var(--white);

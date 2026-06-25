@@ -20,6 +20,7 @@
         so it can never be re-displayed - copy it then.</p>
 
       <form id="createForm" class="kf" autocomplete="off">
+        <!-- ===== common path: just Name + Free ===== -->
         <div class="kf__field">
           <label class="kf__k" for="kName">Name</label>
           <input id="kName" class="kf__in" type="text" required maxlength="64"
@@ -28,62 +29,78 @@
         </div>
 
         <div class="kf__field">
-          <span class="kf__k">Billing</span>
-          <div class="kf__opts" role="radiogroup" aria-label="Billing">
-            <button type="button" class="kf__opt is-active" data-bill="free" aria-pressed="true">Free</button>
-            <button type="button" class="kf__opt" data-bill="self" aria-pressed="false">Self ($0)</button>
-            <button type="button" class="kf__opt" data-bill="priced" aria-pressed="false">Sponsored</button>
-          </div>
-          <span class="kf__hint" id="billHint">Free - costs nobody. Your nodes serve it at $0.</span>
+          <label class="kf__toggle">
+            <input id="kFree" class="kf__toggle-in" type="checkbox" checked />
+            <span class="kf__toggle-box" aria-hidden="true"></span>
+            <span class="kf__toggle-txt">Free key</span>
+          </label>
+          <span class="kf__hint" id="freeHint">Costs nobody. Your nodes serve it at $0.
+            Turn off to sponsor or scope it.</span>
         </div>
 
-        <!-- sponsored price-out, only when "Sponsored" is chosen -->
-        <div class="kf__field" id="priceField" hidden>
-          <label class="kf__k" for="kPriceOut">Price out ($/1M tokens)</label>
-          <div class="kf__money">
-            <span class="kf__money-pre">$</span>
-            <input id="kPriceOut" class="kf__in" type="number" min="0" step="0.01"
-              inputmode="decimal" placeholder="0.30" />
-          </div>
-          <span class="kf__hint">You sponsor it: usage bills to your own wallet at this rate.</span>
-        </div>
+        <!-- ===== everything else: folded away by default ===== -->
+        <details class="kf__adv" id="advBlock">
+          <summary class="kf__adv-sum">Advanced</summary>
+          <div class="kf__adv-body">
+            <div class="kf__field">
+              <span class="kf__k">Billing</span>
+              <div class="kf__opts" role="radiogroup" aria-label="Billing">
+                <button type="button" class="kf__opt is-active" data-bill="free" aria-pressed="true">Free</button>
+                <button type="button" class="kf__opt" data-bill="self" aria-pressed="false">Self ($0)</button>
+                <button type="button" class="kf__opt" data-bill="priced" aria-pressed="false">Sponsored</button>
+              </div>
+              <span class="kf__hint" id="billHint">Free - costs nobody. Your nodes serve it at $0.</span>
+            </div>
 
-        <div class="kf__field">
-          <label class="kf__k" for="kExpiry">Expiry</label>
-          <select id="kExpiry" class="kf__in kf__sel">
-            <option value="never">Never</option>
-            <option value="30d">30 days</option>
-            <option value="90d">90 days</option>
-            <option value="date">Pick a date...</option>
-          </select>
-          <input id="kExpiryDate" class="kf__in" type="date" hidden style="margin-top:8px" />
-        </div>
+            <!-- sponsored price-out, only when "Sponsored" is chosen -->
+            <div class="kf__field" id="priceField" hidden>
+              <label class="kf__k" for="kPriceOut">Price out ($/1M tokens)</label>
+              <div class="kf__money">
+                <span class="kf__money-pre">$</span>
+                <input id="kPriceOut" class="kf__in" type="number" min="0" step="0.01"
+                  inputmode="decimal" placeholder="0.30" />
+              </div>
+              <span class="kf__hint">You sponsor it: usage bills to your own wallet at this rate.</span>
+            </div>
 
-        <div class="kf__grid">
-          <div class="kf__field">
-            <label class="kf__k" for="kDaily">Daily cap (tokens)</label>
-            <input id="kDaily" class="kf__in kf__num" type="number" min="0" step="1"
-              inputmode="numeric" value="2000000" />
-            <span class="kf__hint">0 = unlimited. Default self-limits a leaked key.</span>
-          </div>
-          <div class="kf__field">
-            <label class="kf__k" for="kMonthly">Monthly cap (tokens)</label>
-            <input id="kMonthly" class="kf__in kf__num" type="number" min="0" step="1"
-              inputmode="numeric" value="0" placeholder="0" />
-            <span class="kf__hint">0 = unlimited.</span>
-          </div>
-        </div>
+            <div class="kf__field">
+              <label class="kf__k" for="kExpiry">Expiry</label>
+              <select id="kExpiry" class="kf__in kf__sel">
+                <option value="never">Never</option>
+                <option value="30d">30 days</option>
+                <option value="90d">90 days</option>
+                <option value="date">Pick a date...</option>
+              </select>
+              <input id="kExpiryDate" class="kf__in" type="date" hidden style="margin-top:8px" />
+            </div>
 
-        <div class="kf__field">
-          <span class="kf__k">Node scope</span>
-          <div class="kf__opts" role="radiogroup" aria-label="Node scope">
-            <button type="button" class="kf__opt is-active" data-scope="all" aria-pressed="true">All my nodes</button>
-            <button type="button" class="kf__opt" data-scope="pick" aria-pressed="false">Pick nodes</button>
+            <div class="kf__grid">
+              <div class="kf__field">
+                <label class="kf__k" for="kDaily">Daily cap (tokens)</label>
+                <input id="kDaily" class="kf__in kf__num" type="number" min="0" step="1"
+                  inputmode="numeric" value="2000000" />
+                <span class="kf__hint">0 = unlimited. Default self-limits a leaked key.</span>
+              </div>
+              <div class="kf__field">
+                <label class="kf__k" for="kMonthly">Monthly cap (tokens)</label>
+                <input id="kMonthly" class="kf__in kf__num" type="number" min="0" step="1"
+                  inputmode="numeric" value="0" placeholder="0" />
+                <span class="kf__hint">0 = unlimited.</span>
+              </div>
+            </div>
+
+            <div class="kf__field">
+              <span class="kf__k">Node scope</span>
+              <div class="kf__opts" role="radiogroup" aria-label="Node scope">
+                <button type="button" class="kf__opt is-active" data-scope="all" aria-pressed="true">All my nodes</button>
+                <button type="button" class="kf__opt" data-scope="pick" aria-pressed="false">Pick nodes</button>
+              </div>
+              <input id="kNodes" class="kf__in" type="text" hidden style="margin-top:8px"
+                placeholder="node-id-a, node-id-b" />
+              <span class="kf__hint" id="scopeHint">The key reaches every node you put on air.</span>
+            </div>
           </div>
-          <input id="kNodes" class="kf__in" type="text" hidden style="margin-top:8px"
-            placeholder="node-id-a, node-id-b" />
-          <span class="kf__hint" id="scopeHint">The key reaches every node you put on air.</span>
-        </div>
+        </details>
 
         <button type="submit" class="primary" id="createBtn">Mint key</button>
         <p class="kf__err" id="createErr" hidden></p>

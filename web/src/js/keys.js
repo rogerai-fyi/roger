@@ -69,10 +69,25 @@
     }
   }
 
+  // Reflect the current billMode onto the Billing segmented control (keeps the
+  // simple "Free key" toggle and the Advanced radiogroup in sync).
+  function syncBillButtons() {
+    var opts = document.querySelectorAll('[role="radiogroup"][aria-label="Billing"] .kf__opt');
+    for (var i = 0; i < opts.length; i++) {
+      var on = opts[i].getAttribute("data-bill") === billMode;
+      opts[i].classList.toggle("is-active", on);
+      opts[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    if (billMode === "priced") { show("priceField"); } else { hide("priceField"); }
+  }
+
   function initForm() {
     pickGroup('[role="radiogroup"][aria-label="Billing"]', "data-bill", function (m) {
       billMode = m;
       if (m === "priced") { show("priceField"); } else { hide("priceField"); }
+      // keep the simple toggle honest: free <-> the Free key checkbox
+      var fc = $("kFree");
+      if (fc) fc.checked = (m === "free");
       var hint = $("billHint");
       if (hint) {
         hint.textContent = m === "free"
@@ -81,6 +96,17 @@
             ? "Self - a $0 key for your OWN headless boxes and agents."
             : "Sponsored - usage bills to your own wallet at the price below.";
       }
+    });
+    // The common-path "Free key" toggle: on => free; off => open Advanced so the
+    // user can pick Self/Sponsored/caps (defaults to Self, still a working $0 key).
+    on("kFree", "change", function (e) {
+      if (e.target.checked) {
+        billMode = "free";
+      } else {
+        if (billMode === "free") billMode = "self";
+        var adv = $("advBlock"); if (adv) adv.open = true;
+      }
+      syncBillButtons();
     });
     pickGroup('[role="radiogroup"][aria-label="Node scope"]', "data-scope", function (m) {
       scopeMode = m;
@@ -162,8 +188,11 @@
       }
       revealSecret(res.j);
       var f = $("createForm"); if (f) f.reset();
-      // restore defaults the .reset() does not (toggles, hidden fields)
+      // restore defaults the .reset() does not (JS state, hidden fields, toggle)
+      billMode = "free"; scopeMode = "all";
+      syncBillButtons();
       hide("priceField");
+      var adv = $("advBlock"); if (adv) adv.open = false;
       loadKeys();
     }).catch(function () {
       if (btn) { btn.disabled = false; btn.textContent = "Mint key"; }

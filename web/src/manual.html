@@ -43,6 +43,48 @@
     </div>
   </section>
 
+  <!-- ============================ QUICKSTART ============================ -->
+  <!-- The 30-second path, front and center. The full 80-section reference
+       lives below, behind the "Full reference" link. A newcomer hits this
+       first, not 1000 lines. -->
+  <section class="man-quick" id="quickstart">
+    <div class="wrap">
+      <span class="man-quick__eyebrow">Quickstart - the 30-second path</span>
+      <h2 class="man-quick__h">Three commands, no account.</h2>
+      <p class="man-quick__lead">Install the set, then tune in to a model or put your
+        GPU on air. Browsing the band and opening a free endpoint need no login - you
+        only sign in to spend from a wallet or to earn as a provider.</p>
+
+      <div class="man-quick__grid">
+        <div class="man-quick__card">
+          <span class="man-quick__step">1 · Install</span>
+          <p>macOS or Linux, one line (Windows: <code>install.ps1</code> in PowerShell).</p>
+          <pre><span class="p">$</span> curl -fsSL https://rogerai.fyi/install.sh | sh</pre>
+        </div>
+
+        <div class="man-quick__card">
+          <span class="man-quick__step">2 · Use a model</span>
+          <p>Open a local OpenAI-compatible endpoint for your bots, or just run
+            <code>rogerai</code> to browse the band.</p>
+          <pre><span class="p">$</span> rogerai use qwen3-coder-30b
+  BASE URL  http://127.0.0.1:4141/v1
+  API KEY   roger-local
+  MODEL     qwen3-coder-30b</pre>
+        </div>
+
+        <div class="man-quick__card">
+          <span class="man-quick__step">3 · Share your GPU</span>
+          <p>Free, no login: the radio detects your local model and puts it on air.</p>
+          <pre><span class="p">$</span> rogerai onboard --free   <span class="c"># set up to share, no login</span>
+<span class="p">$</span> rogerai share             <span class="c"># go on air with the detected model</span></pre>
+        </div>
+      </div>
+
+      <p class="man-quick__more">Want every command, flag, and the full field manual?
+        <a href="#s0" class="man-quick__ref">Read the full reference &darr;</a></p>
+    </div>
+  </section>
+
   <!-- ============================ DOC BODY ============================ -->
   <section class="man-doc">
     <div class="wrap">
