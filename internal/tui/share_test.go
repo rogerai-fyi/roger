@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -637,5 +638,136 @@ func TestShareLoadingSpinnerAnimates(t *testing.T) {
 	}
 	if len(seen) < 2 {
 		t.Errorf("loading indicator should animate across frames, got %d distinct frames", len(seen))
+	}
+}
+
+// TestShareEditorValidationBlocksBadInput: the pricing editor blocks save on a
+// malformed HH:MM window, an unparseable price, and an over-ceiling price - each with
+// an inline error - instead of silently persisting a dead window / stale price.
+func TestShareEditorValidationBlocksBadInput(t *testing.T) {
+	// Keep the fat-finger guard off the network (no market signal -> no warn).
+	old := marketMedianOut
+	marketMedianOut = func(broker, model string) (float64, bool) { return 0, false }
+	defer func() { marketMedianOut = old }()
+
+	// Malformed HH:MM window time ("25:99" never matches at runtime).
+	t.Run("bad-hhmm", func(t *testing.T) {
+		var saved *Pricing
+		m := New("http://broker.local", "tester")
+		m.hooks = Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }}
+		m.edModel = "m"
+		m.edPriceOut = "1"
+		m.edWindows = []SchedWindow{{Start: "25:99", End: "03:30"}}
+		if m.commitShareEditor() {
+			t.Fatal("commit should fail on malformed HH:MM")
+		}
+		if saved != nil {
+			t.Fatal("nothing should be saved when validation fails")
+		}
+		if !strings.Contains(m.edErr, "HH:MM") {
+			t.Errorf("edErr = %q, want an HH:MM message", m.edErr)
+		}
+	})
+
+	// Unparseable price buffer.
+	t.Run("bad-price", func(t *testing.T) {
+		m := New("http://broker.local", "tester")
+		m.edModel = "m"
+		m.edPriceOut = "1.2.3"
+		if m.commitShareEditor() {
+			t.Fatal("commit should fail on an unparseable price")
+		}
+		if !strings.Contains(m.edErr, "number") {
+			t.Errorf("edErr = %q, want a number-parse message", m.edErr)
+		}
+	})
+
+	// Over the public output ceiling ($100/1M).
+	t.Run("over-ceiling", func(t *testing.T) {
+		m := New("http://broker.local", "tester")
+		m.edModel = "m"
+		m.edPriceOut = "250"
+		if m.commitShareEditor() {
+			t.Fatal("commit should fail over the $100/1M ceiling")
+		}
+		if !strings.Contains(m.edErr, "ceiling") {
+			t.Errorf("edErr = %q, want a ceiling message", m.edErr)
+		}
+	})
+
+	// A clean price + valid window saves and clears the error.
+	t.Run("clean-saves", func(t *testing.T) {
+		var saved *Pricing
+		m := New("http://broker.local", "tester")
+		m.hooks = Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }}
+		m.edModel = "m"
+		m.edPriceOut = "0.7"
+		m.edWindows = []SchedWindow{{Start: "03:00", End: "03:30", Free: true}}
+		if !m.commitShareEditor() {
+			t.Fatalf("clean commit should succeed; edErr=%q", m.edErr)
+		}
+		if saved == nil || saved.Out != 0.7 || len(saved.Windows) != 1 {
+			t.Errorf("saved = %+v, want out 0.7 + one window", saved)
+		}
+		if m.edErr != "" {
+			t.Errorf("edErr should clear on a clean commit, got %q", m.edErr)
+		}
+	})
+}
+
+// TestShareEditorFatFingerWarn: a price far above the market median (>3x) warns on
+// commit (the TUI mirror of the CLI softPriceWarn), even though it is under the hard
+// ceiling. A normal price does not warn.
+func TestShareEditorFatFingerWarn(t *testing.T) {
+	old := marketMedianOut
+	marketMedianOut = func(broker, model string) (float64, bool) { return 1.0, true } // median $1/1M
+	defer func() { marketMedianOut = old }()
+
+	// $50/1M out is 50x the $1 median (under the $100 ceiling) -> warn.
+	m := New("http://broker.local", "tester")
+	m.edModel = "m"
+	m.edPriceOut = "50"
+	if !m.commitShareEditor() {
+		t.Fatalf("commit should succeed (under ceiling); edErr=%q", m.edErr)
+	}
+	if !strings.Contains(stripANSI(m.status), "typo") {
+		t.Errorf("status should carry the fat-finger warn, got %q", stripANSI(m.status))
+	}
+
+	// A normal $2/1M (2x median) does not warn.
+	m2 := New("http://broker.local", "tester")
+	m2.edModel = "m"
+	m2.edPriceOut = "2"
+	if !m2.commitShareEditor() {
+		t.Fatalf("commit should succeed; edErr=%q", m2.edErr)
+	}
+	if strings.Contains(stripANSI(m2.status), "typo") {
+		t.Errorf("a 2x price should not warn, got %q", stripANSI(m2.status))
+	}
+}
+
+// TestShareEditorLivePreview: the editor's live-preview line reflects ActivePrice(now)
+// - showing FREE inside an all-day free window, the base price with no window.
+func TestShareEditorLivePreview(t *testing.T) {
+	// No window -> base price.
+	m := New("http://broker.local", "tester")
+	m.edModel = "m"
+	m.edPriceOut = "0.7"
+	m.edPriceIn = "0.3"
+	prev := stripANSI(m.editorLivePreview())
+	if !strings.Contains(prev, "right now you would charge") || !strings.Contains(prev, "base") {
+		t.Errorf("base preview = %q, want a base-price line", prev)
+	}
+	if !strings.Contains(prev, "0.70") {
+		t.Errorf("base preview should show the out price, got %q", prev)
+	}
+
+	// A FREE window covering exactly the current minute (start = now, end = now+1min)
+	// -> FREE right now, regardless of the wall clock.
+	now := time.Now().UTC()
+	m.edWindows = []SchedWindow{{Start: now.Format("15:04"), End: now.Add(time.Minute).Format("15:04"), Free: true}}
+	prev = stripANSI(m.editorLivePreview())
+	if !strings.Contains(prev, "FREE") {
+		t.Errorf("wrapping free window preview = %q, want FREE", prev)
 	}
 }
