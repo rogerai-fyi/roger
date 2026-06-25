@@ -56,24 +56,30 @@ type broker struct {
 	inflight     map[string]int        // in-flight (active) requests per node
 	success      map[string]float64    // EWMA success rate per node (0..1)
 	trust        map[string]trustState // L1 re-count + probe trust/quality per node
-	streamMu     sync.Mutex
-	streams      map[string]*streamSink // jobID -> waiting client (streaming)
-	authMu       sync.Mutex
-	pubOfUser    map[string]string // TOFU: verified user id -> first pubkey that claimed it
-	db           store.Store
-	priv         ed25519.PrivateKey
-	feeRate      float64
-	seedFunds    float64
-	lockWin      time.Duration
-	bill         billing
-	conn         connect
-	mod          moderation
-	payoutLocks  sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
-	rl           *rateLimiter
-	grantRL      *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
-	concierge    *concierge    // "Ping" homepage chatbot (public LLM surface)
-	recount      recountConfig // L1 independent token re-count (tokenizer-sidecar)
-	probe        probeConfig   // active canary + latency probe
+	// probeSched is the per-node ADAPTIVE performance-probe schedule (next-due +
+	// exponential backoff level + last-measured). Guarded by metricsMu. It makes IDLE
+	// performance probing lazy (floor -> doubling -> ceiling) while real traffic and
+	// fresh demand pull it back to the floor; liveness/heartbeat is untouched. See
+	// probe.go (probeState). Reset-on-restart is fine (cold-start re-probes at floor).
+	probeSched  map[string]*probeState
+	streamMu    sync.Mutex
+	streams     map[string]*streamSink // jobID -> waiting client (streaming)
+	authMu      sync.Mutex
+	pubOfUser   map[string]string // TOFU: verified user id -> first pubkey that claimed it
+	db          store.Store
+	priv        ed25519.PrivateKey
+	feeRate     float64
+	seedFunds   float64
+	lockWin     time.Duration
+	bill        billing
+	conn        connect
+	mod         moderation
+	payoutLocks sync.Map // accountID -> *sync.Mutex: single-flight per account around payout
+	rl          *rateLimiter
+	grantRL     *rateLimiter  // per-grant-key bucket (GRANT-KEYS-DESIGN section 3.5)
+	concierge   *concierge    // "Ping" homepage chatbot (public LLM surface)
+	recount     recountConfig // L1 independent token re-count (tokenizer-sidecar)
+	probe       probeConfig   // active canary + latency probe
 
 	// banned is the in-memory ejected-node set (node id -> true), guarded by metricsMu.
 	// Re-hydrated from the store at startup and updated on a ban; pick/discover/market
@@ -159,6 +165,7 @@ func main() {
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
+		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
 		banned:           map[string]bool{},

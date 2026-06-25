@@ -72,6 +72,13 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 		quality := tq.score()
 		ttft := tq.ttftMs
 		verified := tq.verifiedServing()
+		staleness := b.measurementStalenessLocked(n.NodeID, now)
+		// Demand-driven: a consumer is browsing this offer. If its measurement is stale,
+		// schedule a near-term probe so the NEXT browse/route reads fresh data (async;
+		// this browse uses the current reading). Only the online nodes are worth probing.
+		if online && b.probe.enabled() && staleness < 1.0 {
+			b.demandProbeSoonLocked(n.NodeID, now)
+		}
 		b.metricsMu.Unlock()
 		recency := recencyOf(age)
 		successRate := successFor(sr, srSeen, verified)
@@ -80,6 +87,7 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 			terms = computeSignal(signalInput{
 				providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttft,
 				successRate: successRate, trust: quality, recency: recency, verified: verified,
+				staleness: staleness,
 			})
 		}
 		for _, o := range n.Offers {
@@ -131,18 +139,19 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	}
 	cors(w) // public market data - let the website (rogerai.fyi) fetch it
 	type acc struct {
-		providers   int
-		inflight    int
-		minPrice    float64
-		havePrice   bool
-		bestTPS     float64
-		bestTTFT    float64 // lowest non-zero probe TTFT (ms)
-		haveTTFT    bool
-		qualitySum  float64
-		successSum  float64 // sum of per-node time-decayed success evidence
-		successSeen int
-		bestRecency float64 // freshest heartbeat recency across providers
-		anyVerified bool    // at least one provider has a recent PASSED canary
+		providers     int
+		inflight      int
+		minPrice      float64
+		havePrice     bool
+		bestTPS       float64
+		bestTTFT      float64 // lowest non-zero probe TTFT (ms)
+		haveTTFT      bool
+		qualitySum    float64
+		successSum    float64 // sum of per-node time-decayed success evidence
+		successSeen   int
+		bestRecency   float64 // freshest heartbeat recency across providers
+		anyVerified   bool    // at least one provider has a recent PASSED canary
+		bestStaleness float64 // freshest measurement-confidence across providers (0.7..1.0)
 	}
 	now := time.Now()
 	agg := map[string]*acc{}
@@ -175,6 +184,13 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		// neutral) - NOT the old constant 1.0, so an unproven idle node doesn't inflate
 		// the channel's reliability.
 		nodeSuccess := successFor(sr, srSeen, verified)
+		// Measurement-staleness confidence for this node + demand-driven refresh: a
+		// consumer is browsing the market for this model, so if this provider's reading
+		// is stale, schedule a near-term probe (async; this view uses the current data).
+		staleness := b.measurementStalenessLocked(n.NodeID, now)
+		if b.probe.enabled() && staleness < 1.0 {
+			b.demandProbeSoonLocked(n.NodeID, now)
+		}
 		for _, o := range n.Offers {
 			a := agg[o.Model]
 			if a == nil {
@@ -195,6 +211,9 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 			}
 			if recency > a.bestRecency {
 				a.bestRecency = recency
+			}
+			if staleness > a.bestStaleness {
+				a.bestStaleness = staleness // freshest measurement across providers
 			}
 			if verified {
 				a.anyVerified = true
@@ -220,6 +239,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 		terms := computeSignal(signalInput{
 			providers: a.providers, inflight: a.inflight, bestTPS: a.bestTPS, ttftMs: a.bestTTFT,
 			successRate: successRate, trust: quality, recency: a.bestRecency, verified: a.anyVerified,
+			staleness: a.bestStaleness,
 		})
 		out = append(out, marketView{
 			Model: model, Providers: a.providers, InFlight: a.inflight,
@@ -252,6 +272,14 @@ type signalInput struct {
 	trust       float64 // 0..1 broker trust/quality (L1 + canary)
 	recency     float64 // 1 - clamp(age/nodeTTL); 1 = just heartbeat'd, 0 = at TTL edge
 	verified    bool    // a recent PASSED canary (probe-verified serving)
+	// staleness is a gentle 0.7..1.0 recency-of-MEASUREMENT confidence factor: 1.0 when
+	// the node was probed/served within the probe ceiling, modestly lower the longer it
+	// has gone UNMEASURED (a long-idle node we deliberately stopped probing reads as
+	// "not recently verified" rather than us burning a probe to keep it at 1.0). It
+	// discounts only the MEASURED terms (speed/latency/verified) - heartbeat liveness +
+	// supply are untouched. 0 (the zero value) is treated as 1.0 so callers that don't
+	// set it (and the legacy shims/tests) keep full confidence.
+	staleness float64
 }
 
 // signalTerms is the per-term breakdown surfaced to /market + /discover so the UI
@@ -352,13 +380,24 @@ func computeSignal(in signalInput) signalTerms {
 	// toward the TTL is a weaker signal than one that just checked in. Continuous, so
 	// the meter sags smoothly instead of staying pinned until it snaps to 0 at TTL.
 	recency := clamp01(in.recency)
+	// Staleness-of-MEASUREMENT confidence (0.7..1.0): a node we deliberately stopped
+	// probing (long idle, no traffic) reads as "not recently verified" with a MODEST
+	// haircut on the measured terms, instead of us burning a probe to keep it at 1.0.
+	// 0 (unset) => 1.0, so callers/tests that don't supply it keep full confidence. It
+	// touches ONLY speed/latency/verified (the probe-measured terms); supply, success,
+	// trust, recency are unaffected. A fresh measurement restores it to 1.0 at once.
+	staleness := 1.0
+	if in.staleness > 0 {
+		staleness = clamp01(in.staleness)
+	}
 
-	// Per-term point contributions (post-weight, pre-congestion, scaled to 100).
+	// Per-term point contributions (post-weight, pre-congestion, scaled to 100). The
+	// measured terms (speed/latency/verified) carry the staleness confidence factor.
 	t := signalTerms{
 		Supply:   100 * wSupply * supply,
-		Speed:    100 * wSpeed * speed,
-		Latency:  100 * wLatency * latency,
-		Verified: 100 * wVerified * verified,
+		Speed:    100 * wSpeed * speed * staleness,
+		Latency:  100 * wLatency * latency * staleness,
+		Verified: 100 * wVerified * verified * staleness,
 		Success:  100 * wSuccess * success,
 		Trust:    100 * wTrust * trust,
 	}
