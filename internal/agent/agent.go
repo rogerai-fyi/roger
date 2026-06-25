@@ -10,16 +10,17 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -714,57 +715,104 @@ func randHex(n int) string {
 // of truth for both `rogerai share` (CLI) and the in-TUI [2] SHARE / h HIDE flows so
 // that every model a host shares becomes a DISTINCT broker node.
 //
-// History: the node id used to be the bare hostname. One `share` process serves one
-// model, so running several bands/models on one host registered them all under the
-// SAME node id. The broker keys nodes/tunnels/lastSeen/bridge-token by node id, so
-// each register overwrote the prior sibling's token; the clobbered sibling's
-// heartbeat then 401'd, its self-healing re-registrar fired and overwrote back - an
-// infinite token-war / on-air "flapping" storm where only the last-registered band
-// stayed visible.
+// PRIVACY: the node id is PUBLIC - it is echoed verbatim in /discover and /market to
+// every consumer. It MUST NOT leak anything sensitive about the host. The scheme is
+// therefore `<station>-<model-slug>`, where `station` is a friendly, non-sensitive
+// CALLSIGN the owner picks or that is auto-generated once and persisted (e.g.
+// `brave-otter`), and `model-slug` is the model name (public, fine). NO hostname and
+// NO upstream port ever appear in the node id.
 //
-// The scheme is `<hostname>-<model-slug>` (readable + lowercased, e.g.
-// `larrys-mac-studio-qwen3-coder-next`), which already makes DIFFERENT models on one
-// host distinct nodes. When the SAME model is shared twice on one host we still must
-// not collide, so a DETERMINISTIC disambiguator derived from the upstream (its
-// host:port, which is unique per local server / process) is appended. This is STABLE
-// across a restart of the same (host, model, upstream) share, so it re-registers as
-// the same node (no orphan churn) instead of minting a new id each launch. Only when
-// no upstream is available at all do we fall back to a short random suffix.
-func ShareNodeID(hostname, model, upstream string) string {
-	host := slugify(hostname)
-	if host == "" {
-		host = "node"
+// History (why this is the single chokepoint): the node id used to be the bare
+// hostname, then `<hostname>-<model-slug>-<upstream-port>`. One `share` process serves
+// one model, so running several bands/models on one host registered them all under the
+// SAME node id. The broker keys nodes/tunnels/lastSeen/bridge-token by node id, so each
+// register overwrote the prior sibling's token; the clobbered sibling's heartbeat then
+// 401'd, its self-healing re-registrar fired and overwrote back - an infinite
+// token-war / on-air "flapping" storm where only the last-registered band stayed
+// visible. The per-model slug already makes DIFFERENT models on one host distinct
+// nodes.
+//
+// instance disambiguates the RARE case of the SAME model shared twice from one station
+// (e.g. two local servers): instance 0/1 yield the bare `<station>-<model-slug>`;
+// instance 2,3,... append `-2`, `-3`. This is the per-process index, NOT the upstream
+// port - no port ever leaks. The id is STABLE across a restart (persisted station +
+// deterministic model slug + the same instance index), so a node re-registers as the
+// same id (no orphan churn), and works with the per-band uniqueness from the
+// multi-on-air work.
+func ShareNodeID(station, model string, instance int) string {
+	st := slugify(station)
+	if st == "" {
+		st = GenerateStation() // never emit a bare/hostnameless id; fall back to a fresh callsign
 	}
-	slug := slugify(model)
-	id := host
-	if slug != "" {
-		id = host + "-" + slug
+	id := st
+	if slug := slugify(model); slug != "" {
+		id = st + "-" + slug
 	}
-	if d := upstreamDisambig(upstream); d != "" {
-		id += "-" + d
+	if instance >= 2 {
+		id += "-" + strconv.Itoa(instance)
 	}
 	return id
 }
 
-// upstreamDisambig turns a local upstream URL into a short, STABLE, readable
-// disambiguator so two shares of the SAME model on one host (but different local
-// servers) get distinct, restart-stable node ids. It prefers the upstream port (the
-// natural per-process key, e.g. `8080`); if the URL carries no port it falls back to
-// a short deterministic hash of the (normalized) upstream; an empty upstream yields a
-// short random suffix (the only non-deterministic case, and the rarest).
-func upstreamDisambig(upstream string) string {
-	upstream = strings.TrimSpace(upstream)
-	if upstream == "" {
-		return randHex(2)
+// stationAdjectives / stationAnimals are the friendly, non-sensitive callsign
+// vocabulary. A station name is one of each plus a small number (e.g. `brave-otter-37`),
+// picked once with crypto/rand and persisted, so it is stable, readable, and reveals
+// NOTHING about the host (no hostname, no network, no port). The number widens the combo
+// space so independent installs rarely collide; collisions are harmless anyway (the
+// broker keys on node id + owner pubkey) and an owner can always rename.
+var (
+	stationAdjectives = []string{
+		"amber", "azure", "blithe", "bold", "brave", "bright", "brisk", "calm",
+		"clever", "cosmic", "crimson", "dapper", "deft", "eager", "early", "easy",
+		"electric", "fancy", "fleet", "fond", "gentle", "giant", "golden", "grand",
+		"happy", "hardy", "hidden", "jolly", "keen", "kind", "lively", "lucky",
+		"lunar", "merry", "mighty", "nimble", "noble", "polar", "prime", "proud",
+		"quick", "quiet", "rapid", "royal", "ruby", "rustic", "sage", "scarlet",
+		"sharp", "shy", "silent", "silver", "sleek", "snug", "solar", "spry",
+		"steady", "stellar", "sunny", "swift", "tidy", "vivid", "warm", "witty",
 	}
-	if u, err := url.Parse(upstream); err == nil {
-		if p := u.Port(); p != "" {
-			return p
-		}
+	stationAnimals = []string{
+		"otter", "falcon", "lynx", "heron", "marten", "badger", "raven", "fox",
+		"wolf", "bison", "moose", "elk", "hawk", "crane", "ibex", "puma",
+		"jay", "wren", "robin", "finch", "owl", "kite", "tern", "swan",
+		"seal", "orca", "narwhal", "walrus", "panda", "tapir", "civet", "genet",
+		"koala", "lemur", "gibbon", "okapi", "quokka", "dingo", "ocelot", "serval",
+		"caracal", "jaguar", "cougar", "marmot", "ermine", "stoat", "weasel", "mink",
+		"beaver", "muskox", "gazelle", "impala", "kudu", "oryx", "addax", "saiga",
+		"pika", "agouti", "coati", "kinkajou", "fennec", "jackal", "meerkat", "mongoose",
 	}
-	sum := sha256.Sum256([]byte(upstream))
-	return hex.EncodeToString(sum[:])[:6]
+)
+
+// GenerateStation returns a fresh, friendly, NON-SENSITIVE station callsign like
+// `brave-otter-37`, chosen with crypto/rand. It is meant to be called ONCE per install
+// and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
+// so the node re-registers as the same id across restarts. It reveals nothing about the
+// host.
+func GenerateStation() string {
+	adj := stationAdjectives[randIndex(len(stationAdjectives))]
+	animal := stationAnimals[randIndex(len(stationAnimals))]
+	return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
 }
+
+// randIndex returns a uniform crypto/rand index in [0,n) (n>0). Falls back to 0 only if
+// the system RNG fails, which never happens in practice.
+func randIndex(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	bn, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return int(bn.Int64())
+}
+
+// SlugStation normalizes a station callsign to the SAME broker-safe slug the node id
+// uses (lowercased, non-alphanumerics collapsed to single dashes, trimmed). The CLI +
+// TUI call this so what the owner types, what is persisted, and what appears in
+// /discover all match. An input that slugs to nothing returns "" (callers then
+// auto-generate), distinct from ShareNodeID which never returns a bare/empty id.
+func SlugStation(s string) string { return slugify(s) }
 
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
