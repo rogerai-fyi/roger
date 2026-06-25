@@ -8,18 +8,45 @@
   <div class="authwrap">
   <main class="card" id="card" hidden>
     <h1>Console</h1>
-    <p class="sub">Signed in as <b id="who">-</b></p>
+    <p class="sub">Signed in as <b id="who">-</b> &middot; <span id="role">live activity</span></p>
 
-    <section class="panel">
-      <h2>Earnings</h2>
-      <dl class="stats">
-        <div><dt>Accrued</dt><dd id="earnings">-</dd></div>
-        <div><dt>Status</dt><dd id="status">-</dd></div>
-      </dl>
-      <ul class="recent" id="recent" hidden></ul>
-      <p class="fine" id="note">Pass <code>?node=&lt;id&gt;</code> to view a node's accrued earnings. A per-account node list lands with GPU binding.</p>
+    <p class="cn-state" id="cnLoading">Tuning in...</p>
+    <p class="cn-state" id="cnError" hidden>Could not reach the console. Try again shortly.</p>
+
+    <!-- ============ LIVE COUNTERS (today) ============ -->
+    <dl class="stats cn-counters" id="counters" hidden>
+      <div><dt>Requests today</dt><dd id="ctrReq">-</dd></div>
+      <div><dt id="ctrMoneyK">Today</dt><dd id="ctrMoney">-</dd></div>
+      <div id="tileNodes" hidden><dt>Active nodes</dt><dd id="ctrNodes">-</dd></div>
+      <div id="tileBands" hidden><dt>Active bands</dt><dd id="ctrBands">-</dd></div>
+    </dl>
+
+    <!-- ============ RECENT LINEAGE LOG ============ -->
+    <section class="panel" id="logWrap" hidden>
+      <h2>Recent activity</h2>
+      <div class="cn-tablewrap">
+        <table class="cn-table">
+          <thead>
+            <tr>
+              <th scope="col" class="cn-st" aria-label="Status"></th>
+              <th scope="col">Model</th>
+              <th scope="col" class="cn-node">Node</th>
+              <th scope="col" class="num">Tokens in/out</th>
+              <th scope="col" class="num" id="colMoney">Cost</th>
+              <th scope="col">Receipt</th>
+              <th scope="col" class="num">When</th>
+            </tr>
+          </thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+      <p class="fine">Each row is a settled receipt: model, node callsign, tokens, the ledger amount, its receipt id and how long ago. Newest first.</p>
     </section>
 
+    <p class="cn-state" id="logEmptyConsumer" hidden>No requests yet. Tune in with <code>rogerai use &lt;model&gt;</code> and your lineage lands here.</p>
+    <p class="cn-state" id="logEmptyOwner" hidden>No requests served yet. Put a GPU on air with <code>rogerai share</code> and the traffic it serves shows here, receipt by receipt.</p>
+
+    <!-- ============ Put a GPU on air ============ -->
     <section class="panel">
       <h2>Put a GPU on air</h2>
       <pre class="cmd">curl -fsSL https://rogerai.fyi/install.sh | sh
@@ -27,12 +54,12 @@ rogerai login
 rogerai share</pre>
     </section>
 
-    <p class="fine"><a href="/payouts.html">Payouts &amp; withdrawals</a> - <a href="/account.html">Account</a> - <a href="/dashboard.html">Back to dashboard</a></p>
+    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/usage.html">Metrics</a> - <a href="/payouts.html">Payouts</a> - <a href="/account.html">Account</a></p>
     <button id="logout" class="ghost">Sign out</button>
   </main>
   </div>
   <!-- include: footer.html anchors=/ -->
-  <script src="js/auth.js"></script>
+  <script src="js/console.js"></script>
   <script src="js/site.js"></script>
   <script src="js/session.js"></script>
   <script src="js/promo.js"></script>
