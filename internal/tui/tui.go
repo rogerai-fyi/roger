@@ -1406,9 +1406,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 			return m.connect()
-		case "i", "right", "l":
+		case "i":
 			// Expanded per-station view (the QSL equivalent): every station's real metrics
-			// + the signal-term breakdown for the band under the cursor. esc/left/h/i closes.
+			// + the signal-term breakdown for the band under the cursor. esc/i closes.
+			// i is the ONE inspect key: right/l were removed so arrow-right stays section
+			// navigation (the preset cycle), not a surprise panel-open for newcomers.
 			vis := m.visibleBands()
 			if len(vis) == 0 {
 				return m, nil
@@ -4036,20 +4038,16 @@ func (m model) sectionName() string {
 // `s` toggle is self-evident. SHARE is ember (provide = money), TUNE IN is volt
 // (consume). At narrow widths it collapses to just the ACTIVE section so it never
 // overflows the (already stacked) header line.
+// sectionBadge is the SINGLE "where am I" indicator: it names the CURRENT section
+// (TUNE IN vs SHARE) once, and is the one home for that status (audit #9). The
+// preset bar above is the keyboard nav MENU (all sections + their keys); this badge
+// is the "you are here" readout, so it no longer restates the whole TUNE IN│SHARE
+// toggle pair - that lived in two places at once. `[s]` still teaches the switch key.
 func (m model) sectionBadge() string {
-	if m.narrow() {
-		if m.inShareSection() {
-			return stEmber.Bold(true).Render("SHARE") + stDim.Render(" [s]")
-		}
-		return stSelText.Render("TUNE IN") + stDim.Render(" [s]")
-	}
-	tune, share := stDim.Render("tune in"), stDim.Render("share")
 	if m.inShareSection() {
-		share = stEmber.Bold(true).Render("SHARE")
-	} else {
-		tune = stSelText.Render("TUNE IN")
+		return stEmber.Bold(true).Render("SHARE") + stDim.Render(" [s]")
 	}
-	return tune + stDim.Render(" │ ") + share + stDim.Render(" ([s])")
+	return stSelText.Render("TUNE IN") + stDim.Render(" [s]")
 }
 
 // toggleSection flips between the TUNE IN and SHARE sections - the one obvious key
@@ -4235,7 +4233,10 @@ func (m model) header(w int) string {
 	// Narrow: just the section + ON AIR (the screen "mode X" detail is dropped so the
 	// stacked badge line fits the real width). Wide: section + screen mode.
 	badge := m.sectionBadge()
-	if !m.narrow() {
+	// The "mode X" screen detail only rides along on actual SUB-screens (confirm /
+	// limits / provider table / ...). On the resting BROWSE screen it just restated the
+	// section, so it is dropped there - the section badge alone is the "where am I".
+	if !m.narrow() && m.modeName() != "BROWSE" {
 		badge += stDim.Render("  ·  ") + stDim.Render("mode ") + stSelText.Render(m.modeName())
 	}
 	if m.onAir && m.share != nil {
@@ -4605,18 +4606,25 @@ func (m model) browseView(w int) string {
 				return "  " + stDim.Render(beaconDot()+" no stations on air - press [2] to share a model and put one up · r to re-scan") + "\n"
 			}
 		}
-		// Three empty cases, all filled with Ping in the dead space (never over
-		// real content): the broker dropped -> Ping "...static"; still scanning
-		// (no fetch back yet) -> the ((•)) scanning indicator (mirrors SHARE); scanned
-		// but quiet -> Ping idle with a rotating "scanning the band" hint so the empty
-		// band feels like a DJ working the dial, not dead space.
+		// Three empty cases: the broker dropped -> Ping "...static"; still scanning (no
+		// fetch back yet) -> the ((•)) scanning indicator (mirrors SHARE); scanned but
+		// quiet -> ONE static actionable line (audit #10). The empty band no longer runs a
+		// rotating motivational carousel (it read as "loading forever" to a newcomer who
+		// just needs the next move) - just the live signal-bar shimmer (kept, the
+		// informative "live, not frozen" cue) over a single clear CTA.
 		switch {
 		case m.scanErr:
 			return "\n" + pingPose(pingStatic, m.frame, w, "…static. the broker went off air - press r to retune") + "\n"
 		case loading:
 			return "\n  " + m.transmitLineFor(0) + "\n  " + stDim.Render("scanning the band…") + "\n"
 		default:
-			return "\n" + pingPose(pingIdle, m.frame, w, idleHintFor(m.frame, m.narrow())) + "\n"
+			shimmer := tintSignal(signalBarsRaw(m.frame, 0, 0, true, 0, 0), 0, 0, true)
+			if m.narrow() {
+				// Slim: stack the shimmer above the trimmed CTA so neither overflows the
+				// real width (the empty-band line is not width-clamped).
+				return "\n  " + shimmer + "\n  " + emptyBandCTA(true) + "\n"
+			}
+			return "\n  " + shimmer + "  " + emptyBandCTA(false) + "\n"
 		}
 	}
 	var b strings.Builder
@@ -5362,48 +5370,17 @@ func (m model) chatView(w int) string {
 	return b.String()
 }
 
-// idleHints rotate in the empty-band ("no stations on air") view so the dead space
-// reads as a DJ scanning the band, not a blank screen. They cycle the two-way-radio
-// affordances (tune in / go on air / config) the preset bar also exposes.
-var idleHints = []string{
-	"no stations on air - press [2] to share a model and put one up",
-	"the band is quiet - [2] go on air and share your GPU",
-	"press [2] to put a model up, or [1] to tune in",
-	"reading the band… nothing on air yet",
-}
-
-// idleHintsNarrow is the slim-terminal rotation: the same standing-by-with-a-share-move
-// voice, trimmed so it never overflows a ~40-col width (the empty-band caption is not
-// width-clamped, so the hints themselves stay short).
-var idleHintsNarrow = []string{
-	"no stations on air - [2] to share",
-	"band is quiet - [2] go on air",
-	"[2] share a model · [1] tune in",
-	"reading the band…",
-}
-
-// idleHint returns the empty-band hint for a frame, advancing every ~4.5s (28
-// frames at the 160ms tick) so each line reads before the next. quiet (NO_COLOR /
-// non-TTY) freezes to the first hint so a pipe sees one stable line.
-func idleHint(frame int) string {
-	if quiet {
-		return idleHints[0]
-	}
-	return idleHints[(frame/28)%len(idleHints)]
-}
-
-// idleHintFor is the width-aware empty-band hint: the slim rotation on a narrow
-// terminal (the caption isn't width-clamped, so the strings must fit), the full one
-// otherwise. quiet freezes to the first phase so a pipe sees a stable line.
-func idleHintFor(frame int, narrow bool) string {
-	hints := idleHints
+// emptyBandCTA is the single static actionable line for the quiet empty band (audit
+// #10): one clear "what do I do next" instead of a rotating motivational carousel
+// (which read as "loading forever" to a newcomer). The live signal-bar shimmer beside
+// it carries the "live, not frozen" cue; this line carries the action. Stable across
+// frames so it never reads as a spinner of its own. The narrow form trims the prose so
+// the (non-clamped) line never overflows a slim ~40-col terminal.
+func emptyBandCTA(narrow bool) string {
 	if narrow {
-		hints = idleHintsNarrow
+		return stDim.Render("No stations on air · ") + stKey.Render("[2]") + stDim.Render(" share")
 	}
-	if quiet {
-		return hints[0]
-	}
-	return hints[(frame/28)%len(hints)]
+	return stDim.Render("No stations on air - ") + stKey.Render("[2]") + stDim.Render(" to share, ") + stKey.Render("[1]") + stDim.Render(" to tune in")
 }
 
 // workingPhrases is the rotating radio voice of the working spinner - one coherent
@@ -6337,7 +6314,7 @@ func (m model) footer(w int) string {
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeShare:
-		left = stDim.Render("↑↓/jk move  ·  ⏎/a on-air  ·  p price+schedule  ·  r re-detect  ·  s/esc tune in")
+		left = stDim.Render("↑↓ move  ·  ⏎/a on-air  ·  p price+schedule  ·  r re-detect  ·  s/esc tune in")
 		if m.narrow() {
 			left = stDim.Render("↑↓ · ⏎/a air · p · r · esc")
 		}
@@ -6423,7 +6400,7 @@ func (m model) footer(w int) string {
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab/c channel · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab channel · s share")
 	} else if m.tuneFreq != "" {
 		// On a PRIVATE FREQ: the load-bearing key is esc (back to OPEN MARKET). Teach it
 		// up front so leaving the hidden channel is always discoverable.
@@ -6438,7 +6415,9 @@ func (m model) footer(w int) string {
 	if m.confidentialOnly {
 		confMode = stGold.Render("◆conf-only") + "  "
 	}
-	right := confMode + m.accountTag(true) + "  " + stDim.Render(m.broker)
+	// Footer right half = balance only. The broker URL was dead weight here (it lives in
+	// /config), so the footer stays rule + one key-hint line + balance (audit #9 de-clutter).
+	right := confMode + m.accountTag(true)
 	st := ""
 	if m.status != "" {
 		st = "\n" + stDim.Render("  ") + m.status
@@ -6455,13 +6434,9 @@ func (m model) footer(w int) string {
 	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
-		// Wide-ish but the broker URL pushes past the edge: drop it (keep the
-		// balance, which is the load-bearing half) so the line fits.
-		right = confMode + m.accountTag(true)
-		gap = w - lipgloss.Width(left) - lipgloss.Width(right)
-		if gap < 1 {
-			return rule + "\n" + left + "\n" + right + st // last resort: stack
-		}
+		// The key-hint line + balance can't share one row at this width: stack them so
+		// neither half overflows (balance is the load-bearing half on its own line).
+		return rule + "\n" + left + "\n" + right + st
 	}
 	return rule + "\n" + left + strings.Repeat(" ", gap) + right + st
 }
@@ -6519,6 +6494,36 @@ func (m model) helpView() string {
 		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
 	b.WriteString("  " + stDim.Render("view: ") + stKey.Render("m") +
 		stDim.Render(" toggles COMPACT - the calm, dense, animation-free windowshade") + "\n")
+	b.WriteString("  " + stDim.Render("vim extras (also work): ") + stKey.Render("j/k") + stDim.Render(" move · ") +
+		stKey.Render("c") + stDim.Render(" channel · ") + stKey.Render("l/h") + stDim.Render(" inspect/back") + "\n")
+
+	// GLOSSARY (audit #6): the radio identity stays - this teaches it in plain language
+	// instead of renaming anything. The jargon map first, then one plain line per signal
+	// factor so the raw "signal 82 = supply 15 · speed 14 · …" breakdown is interpretable.
+	glossary := [][2]string{
+		{"band", "a model (e.g. gpt-oss-20b) - one band groups every station serving it"},
+		{"station", "a provider: someone's GPU serving that model"},
+		{"on air", "serving right now (a station is live + taking requests)"},
+		{"confidential", "hardware-private (TEE): route only to attested secure nodes"},
+		{"frequency code", "a private-band key - tune onto a hidden band instead of the open market"},
+	}
+	signalGloss := [][2]string{
+		{"supply", "how many healthy stations are on the band"},
+		{"speed", "tokens/sec throughput"},
+		{"latency", "response time (lower is better)"},
+		{"verified", "stations passing the broker's live serving probe"},
+		{"success", "historical share of requests that completed"},
+		{"trust", "operator reputation"},
+	}
+	b.WriteString("\n" + stBrand.Render("  glossary") + stDim.Render("  (the radio words, in plain language)") + "\n\n")
+	for _, g := range glossary {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", g[0])) + stDim.Render(g[1]) + "\n")
+	}
+	b.WriteString("\n  " + stDim.Render("signal X/100 breaks down into six factors:") + "\n")
+	for _, g := range signalGloss {
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", g[0])) + stDim.Render(g[1]) + "\n")
+	}
+
 	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
 	return b.String()
 }

@@ -206,25 +206,17 @@ func withMotion(fn func()) {
 	fn()
 }
 
-// TestIdleHintRotates: the empty-band hint advances over time (a "scanning the band"
-// feel), cycling through the tune-in / go-on-air / config affordances.
-func TestIdleHintRotates(t *testing.T) {
+// TestEmptyBandCTAStatic (audit #10): the empty-band line is now ONE static CTA, not a
+// rotating carousel - the CTA text is identical across frames (only the signal-bar
+// shimmer beside it animates, carrying the "live, not frozen" cue).
+func TestEmptyBandCTAStatic(t *testing.T) {
 	withMotion(func() {
-		seen := map[string]bool{}
-		for f := 0; f < 28*len(idleHints); f += 28 {
-			seen[idleHint(f)] = true
-		}
-		if len(seen) != len(idleHints) {
-			t.Errorf("idle hint should rotate through all %d hints over time, saw %d: %v", len(idleHints), len(seen), seen)
-		}
-		// Two distinct frames far apart should differ (not a frozen line on a TTY).
-		if idleHint(0) == idleHint(28) {
-			t.Errorf("idle hint did not advance: %q == %q", idleHint(0), idleHint(28))
+		if emptyBandCTA(false) != emptyBandCTA(false) {
+			t.Errorf("empty-band CTA must be stable, not a rotation")
 		}
 	})
-	// Under quiet (non-TTY / NO_COLOR) it freezes to the first hint - a stable pipe.
-	if idleHint(0) != idleHints[0] || idleHint(28) != idleHints[0] {
-		t.Errorf("under quiet the idle hint must freeze to the first line")
+	if !strings.Contains(stripANSI(emptyBandCTA(false)), "No stations on air") {
+		t.Errorf("empty-band CTA should name the empty band: %q", stripANSI(emptyBandCTA(false)))
 	}
 }
 

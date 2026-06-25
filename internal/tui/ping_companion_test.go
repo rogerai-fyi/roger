@@ -40,31 +40,41 @@ func TestMascotRepertoire(t *testing.T) {
 	}
 }
 
-// TestMascotPhrasesRotate: the empty-band caption draws from several distinct
-// standing-by phrases (the rotation itself freezes to phrase 0 under quiet / NO_COLOR,
-// which the non-TTY test harness is). We assert the bank is rich + distinct, the lead
-// phrase names the empty band + the share move, and narrow phrases stay slim.
-func TestMascotPhrasesRotate(t *testing.T) {
-	if len(idleHints) < 3 {
-		t.Errorf("idle phrase bank should rotate (>=3 distinct), got %d", len(idleHints))
+// TestEmptyBandStaticCTA (audit #10): the quiet empty band shows ONE static
+// actionable line - "No stations on air - [2] to share, [1] to tune in" - not a
+// rotating motivational carousel (which read as "loading forever" to a newcomer). The
+// line names both the share AND the tune-in move, and is stable frame-to-frame.
+func TestEmptyBandStaticCTA(t *testing.T) {
+	cta := stripANSI(emptyBandCTA(false))
+	if !strings.Contains(cta, "No stations on air") {
+		t.Errorf("empty-band CTA should name the empty band: %q", cta)
 	}
-	seen := map[string]bool{}
-	for _, h := range idleHints {
-		seen[h] = true
+	if !strings.Contains(cta, "[2]") || !strings.Contains(cta, "[1]") {
+		t.Errorf("empty-band CTA should teach both [2] share and [1] tune in: %q", cta)
 	}
-	if len(seen) != len(idleHints) {
-		t.Errorf("idle phrases should be distinct, got dups in %v", idleHints)
-	}
-	// The first phrase names the empty band AND the actionable share move.
-	if !strings.Contains(idleHints[0], "no stations on air") || !strings.Contains(idleHints[0], "[2]") {
-		t.Errorf("the lead idle phrase should name the empty band + the [2] share move: %q", idleHints[0])
-	}
-	// Narrow phrases stay short so the (non-clamped) caption never overflows ~40 cols.
-	for _, h := range idleHintsNarrow {
-		if utf8.RuneCountInString(h) > 36 {
-			t.Errorf("narrow idle phrase too wide (%d): %q", utf8.RuneCountInString(h), h)
+	// Static: identical across frames (no carousel rotation).
+	withMotion(func() {
+		m := New("http://broker.local", "tester")
+		m.width, m.height = 100, 40
+		m.scanned = true
+		m.frame = 0
+		a := stripANSI(m.browseView(100))
+		m.frame = 28
+		b := stripANSI(m.browseView(100))
+		// The CTA text is the same on both frames (only the signal shimmer may animate).
+		if !strings.Contains(a, "No stations on air") || !strings.Contains(b, "No stations on air") {
+			t.Errorf("empty band should carry the static CTA on every frame:\n%q\n%q", a, b)
 		}
-	}
+		// Slim width: the CTA must not overflow a ~40-col terminal.
+		nm := New("http://broker.local", "tester")
+		nm.width, nm.height = 44, 40
+		nm.scanned = true
+		for _, line := range strings.Split(stripANSI(nm.browseView(44)), "\n") {
+			if utf8.RuneCountInString(line) > 44 {
+				t.Errorf("narrow empty band overflows width 44 (%d): %q", utf8.RuneCountInString(line), line)
+			}
+		}
+	})
 }
 
 // TestCornerWordsPerState: the corner Ping carries a distinct status word per turn
