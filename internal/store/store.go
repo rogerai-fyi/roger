@@ -50,6 +50,12 @@ type Store interface {
 	// pre-cap behavior). The seeded-user count is tracked durably and incremented
 	// ATOMICALLY with each grant so the cap holds under concurrency (no over-grant).
 	SetSeedLimit(limit int)
+	// SeedStatus reports the durable seed-grant accounting: `seeded` distinct wallets
+	// have received a non-zero starter seed, out of `limit` (0 = unlimited). `remaining`
+	// is the seeds left before the cap (max(limit-seeded,0); -1 when unlimited). It reads
+	// the authoritative seed_counter (Postgres) / seedCount (Mem) so a homepage promo can
+	// show "free credits remaining" and auto-hide at 0.
+	SeedStatus() (seeded, limit, remaining int, err error)
 	// Settle atomically debits the user by cost, credits the node's owner share,
 	// and appends the lineage receipt. Returns the user's new balance.
 	Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
@@ -509,6 +515,22 @@ func (m *Mem) SetSeedLimit(limit int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.seedLimit = limit
+}
+
+// SeedStatus reports the in-memory seed accounting (the Mem twin of the Postgres
+// seed_counter read). remaining is -1 when unlimited.
+func (m *Mem) SeedStatus() (seeded, limit, remaining int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seeded, limit = m.seedCount, m.seedLimit
+	if limit <= 0 {
+		return seeded, limit, -1, nil
+	}
+	remaining = limit - seeded
+	if remaining < 0 {
+		remaining = 0
+	}
+	return seeded, limit, remaining, nil
 }
 
 // grantSeedLocked applies the starter seed to a wallet at most once, enforcing the

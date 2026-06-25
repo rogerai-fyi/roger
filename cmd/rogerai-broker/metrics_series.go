@@ -184,13 +184,13 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 
 	// Per-AUTHED-IDENTITY hot-path cache (flag-gated). This feed reads + aggregates the
 	// caller's receipts/ledger per request; a 10-30s window collapses repeated loads.
-	// SECURITY: the key is namespaced by BOTH resolved, AUTHENTICATED identities (the
-	// wallet AND the operator pubkey) plus the window, so one account's cached series can
-	// NEVER be served to another - the response depends on exactly these inputs. The
-	// identities come from dashIdentity/payoutOwner (verified), not from spoofable input.
-	// Flag OFF => direct compute (zero behavior change).
-	key := identityCacheKey("series", wallet, consumer, owner.Pubkey, provider) + "|d=" + strconv.Itoa(days)
-	b.serveCachedJSON(w, key, authedFeedTTL, func() any {
+	// SECURITY (B2): the hardened wrapper takes the RESOLVED, AUTHENTICATED identities
+	// (wallet + operator pubkey, each only when that side is present) as typed arguments
+	// and BUILDS the wallet-namespaced key itself, so one account's cached series can
+	// NEVER be served to another, and it REFUSES to cache an anon caller. The identities
+	// come from dashIdentity/payoutOwner (verified), not from spoofable input. Flag OFF
+	// => direct compute (zero behavior change).
+	b.serveCachedAuthedJSON(w, "series", "|d="+strconv.Itoa(days), wallet, consumer, owner.Pubkey, provider, authedFeedTTL, func() any {
 		return b.computeMetricsSeries(now, days, wallet, consumer, owner.Pubkey, provider)
 	})
 }
@@ -402,11 +402,12 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	limit := recentLimit(r)
 
-	// Per-AUTHED-IDENTITY hot-path cache (flag-gated). SECURITY: keyed by BOTH resolved,
-	// AUTHENTICATED identities (wallet + operator pubkey) plus the row limit, so one
-	// account's cached console is NEVER served to another. Flag OFF => direct compute.
-	key := identityCacheKey("console", wallet, consumer, owner.Pubkey, provider) + "|n=" + strconv.Itoa(limit)
-	b.serveCachedJSON(w, key, authedFeedTTL, func() any {
+	// Per-AUTHED-IDENTITY hot-path cache (flag-gated). SECURITY (B2): the hardened wrapper
+	// takes the RESOLVED, AUTHENTICATED identities (wallet + operator pubkey) as typed
+	// arguments and builds the wallet-namespaced key itself, so one account's cached
+	// console is NEVER served to another, and it refuses to cache an anon caller. Flag
+	// OFF => direct compute.
+	b.serveCachedAuthedJSON(w, "console", "|n="+strconv.Itoa(limit), wallet, consumer, owner.Pubkey, provider, authedFeedTTL, func() any {
 		return b.computeConsole(now, limit, wallet, consumer, owner, provider)
 	})
 }

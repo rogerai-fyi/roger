@@ -269,6 +269,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		// Attribute this node's future earnings to the owner account (TOFU: the first
 		// account to register a node id owns it), so earning lots + payouts resolve.
 		_ = b.db.BindNode(reg.NodeID, owner.Pubkey)
+		// W1: drop any stale cached node->account binding so the (new) TOFU binding is
+		// reflected at once rather than after the TTL.
+		b.invalidateAccountOfNode(reg.NodeID)
 	}
 	// Real TEE attestation - done BEFORE taking b.mu so the signature-chain check and
 	// (cached) AMD KDS fetch never hold the broker lock during network IO. A
@@ -947,7 +950,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, st, msg)
 			return
 		}
-		_, _ = b.db.BalanceOf(payer, b.seedFunds) // seed new users so the hold can land
+		b.ensureSeeded(payer) // seed new users so the hold can land (W4: skip the upsert
+		// tx for an already-seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT
+		// stays the real guard, so a lost flag just re-runs the harmless no-op upsert)
 		held, herr := b.db.Hold(payer, maxCost)
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")

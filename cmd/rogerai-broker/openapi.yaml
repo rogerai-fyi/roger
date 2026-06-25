@@ -223,6 +223,27 @@ paths:
                 properties:
                   market: { type: array, items: { $ref: '#/components/schemas/MarketModel' } }
 
+  /promo:
+    get:
+      tags: [consumer]
+      summary: Free-credit seed promo state (public)
+      description: |
+        Public, no-auth read of the starter-credit promo so the homepage can show
+        "free credits remaining" and auto-hide the banner at 0. seeds_remaining is
+        the number of new wallets that can still receive the starter seed before the
+        cap (-1 when the cap is unlimited); active is true while seeds remain.
+      responses:
+        "200":
+          description: Promo state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seeds_remaining: { type: integer, description: "Seeds left before the cap (-1 = unlimited)." }
+                  unlimited: { type: boolean }
+                  active: { type: boolean, description: "True while the promo should be shown (seeds remain)." }
+
   /v1/chat/completions:
     post:
       tags: [consumer]

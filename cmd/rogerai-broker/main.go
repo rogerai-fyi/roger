@@ -29,6 +29,7 @@ import (
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/store"
+	"golang.org/x/sync/singleflight"
 )
 
 // version is the broker's reported version (also in ServiceInfo + logs).
@@ -118,6 +119,14 @@ type broker struct {
 	// in-memory maps remain the authoritative hot-read path; the shared layer only
 	// write-throughs liveness and feeds a background merge loop. See sharedstore.go.
 	shared sharedStore
+
+	// cacheFlight collapses a CONCURRENT cache miss/expiry on a single hot key into ONE
+	// compute (a dogpile/thundering-herd guard for serveCachedJSON). Without it, every
+	// in-flight request on the one hot key (e.g. the single discover:/market: entry)
+	// recomputes the full market under b.mu when the TTL window rolls; the singleflight
+	// makes the herd share one recompute and one cache populate. It is allocated lazily
+	// so a flag-OFF broker (shared == nil) is byte-for-byte unchanged. See serveCachedJSON.
+	cacheFlight singleflight.Group
 
 	// banned is the in-memory ejected-node set (node id -> true), guarded by metricsMu.
 	// Re-hydrated from the store at startup and updated on a ban; pick/discover/market
@@ -291,6 +300,7 @@ func main() {
 	mux.HandleFunc("/me", b.me)                                   // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)                       // owner dashboard: accrued earnings, recent
 	mux.HandleFunc("/market", b.market)                           // per-model market metrics + signal
+	mux.HandleFunc("/promo", b.promo)                             // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
 	mux.HandleFunc("/auth/github", b.authGitHub)                  // bind a GitHub owner to the signing pubkey (CLI device flow)
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)       // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
@@ -555,8 +565,18 @@ func (b *broker) walletOf(r *http.Request, id string) string {
 	if pub == "" {
 		return id
 	}
-	if o, ok, err := b.db.OwnerByPubkey(pub); err == nil && ok && !o.Anonymized && o.GitHubID != 0 {
-		return "u_gh_" + strconv.FormatInt(o.GitHubID, 10)
+	// W1: cache the (immutable per session) pubkey->github-wallet mapping behind the
+	// flag, so the per-request OwnerByPubkey point read collapses to one Redis GET on a
+	// hit. Postgres stays authoritative on a miss/flag-off (resolve below); the bind
+	// write (auth.go) invalidates the entry so a re-login is reflected at once. A non-
+	// logged-in/anon pubkey is cached as a negative result so it doesn't re-hit Postgres.
+	if w, ok := b.cachedOwnerWallet(pub, func() (string, bool) {
+		if o, ok, err := b.db.OwnerByPubkey(pub); err == nil && ok && !o.Anonymized && o.GitHubID != 0 {
+			return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
+		}
+		return "", false
+	}); ok {
+		return w
 	}
 	return id
 }

@@ -357,6 +357,29 @@ func (p *Postgres) realEarnShareTx(tx *sql.Tx, wallet string, cost, ownerShare f
 
 func (p *Postgres) SetSeedLimit(limit int) { p.seedLimit = limit }
 
+// SeedStatus reads the authoritative seed_counter (the durable count of distinct
+// seeded wallets) and derives how many seeds remain under the configured cap.
+// remaining is -1 when unlimited (seedLimit<=0).
+func (p *Postgres) SeedStatus() (seeded, limit, remaining int, err error) {
+	var count int64
+	if err := p.db.QueryRow(`SELECT count FROM rogerai.seed_counter WHERE id=1`).Scan(&count); err != nil {
+		if err == sql.ErrNoRows {
+			count = 0
+		} else {
+			return 0, p.seedLimit, 0, err
+		}
+	}
+	seeded, limit = int(count), p.seedLimit
+	if limit <= 0 {
+		return seeded, limit, -1, nil
+	}
+	remaining = limit - seeded
+	if remaining < 0 {
+		remaining = 0
+	}
+	return seeded, limit, remaining, nil
+}
+
 // grantSeedTx applies the starter seed to a wallet at most once, enforcing the seed
 // cap atomically, inside the caller's transaction. It returns granted=true only when
 // THIS call actually credited a non-zero seed (a new wallet AND the cap allowed it).

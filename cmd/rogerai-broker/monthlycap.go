@@ -29,7 +29,15 @@ type capState struct {
 // flags. An unlimited cap (0) reports near=false/atLimit=false.
 func (b *broker) monthlyCapState(holder string, now time.Time) capState {
 	cap, _ := b.db.MonthlyCapOf(holder)
-	spend, _ := b.db.MonthSpendOf(holder, now)
+	spend := b.monthSpend(holder, now)
+	return capStateFrom(cap, spend)
+}
+
+// capStateFrom derives the cap snapshot from ALREADY-READ cap + spend values (no query),
+// so a caller that already has both can build the headers/notices without re-querying.
+// An unlimited cap (0) reports near=false/atLimit=false. This is the W2a refactor: it
+// lets monthlyCapCheck reuse the spend/cap it already read instead of re-summing them.
+func capStateFrom(cap, spend float64) capState {
 	s := capState{cap: cap, spend: spend}
 	if cap > 0 {
 		s.pct = spend / cap
@@ -50,7 +58,7 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	if cap <= 0 {
 		return 0, "" // unlimited (opt-in feature; default off)
 	}
-	spend, _ := b.db.MonthSpendOf(holder, now)
+	spend := b.monthSpend(holder, now)
 	// Reject when even this request's worst-case (the hold amount) would exceed the cap.
 	// Using the upper-bound cost mirrors the hold: we never authorize spend we couldn't
 	// also have to capture. A request that exactly fits is allowed.
@@ -62,8 +70,10 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 			"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `rogerai limit --monthly` (or [3] CONFIG), or wait until next month",
 			round6(spend), round6(cap))
 	}
-	// Allowed: emit the near/at notice headers (projected post-spend percentage).
-	setCapHeaders(w, b.monthlyCapState(holder, now))
+	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read
+	// (W2a) - monthlyCapState would re-query both, doubling the work; capStateFrom
+	// reuses the values, so the hot paid path runs exactly ONE cap read + ONE spend read.
+	setCapHeaders(w, capStateFrom(cap, spend))
 	return 0, ""
 }
 
