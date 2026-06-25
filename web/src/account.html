@@ -16,19 +16,35 @@
         <div><dt>Handle</dt><dd id="handle">-</dd></div>
         <div><dt>Balance</dt><dd id="balance">-</dd></div>
       </dl>
-      <p class="fine">GitHub id <span id="ghid">-</span> - payout status <b id="connect">-</b></p>
-      <p style="margin-top:16px">
-        <label class="fine" for="email">Contact email (optional)</label><br />
-        <input id="email" type="email" placeholder="you@example.com"
-          style="width:100%;margin-top:6px;padding:10px 12px;border:1px solid var(--hairline-2);border-radius:var(--r-sm);background:var(--paper);color:var(--ink-900)" />
+      <dl class="ac-meta">
+        <div><dt>GitHub id</dt><dd id="ghid">-</dd></div>
+        <div><dt>Payout status</dt><dd id="connect">-</dd></div>
+        <div><dt>Member since</dt><dd id="since">-</dd></div>
+      </dl>
+
+      <div class="ac-field">
+        <label class="ac-field__k" for="email">Contact email <span class="ac-field__opt">optional</span></label>
+        <input id="email" class="ac-field__in" type="email" placeholder="you@example.com" autocomplete="email" />
+        <span class="ac-field__hint">Used only for payout and account notices. Never shared.</span>
+        <div class="ac-field__act">
+          <button id="saveEmail" class="ghost">Save email</button>
+          <span class="fine" id="saveMsg"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>API keys</h2>
+      <p>Grant keys (<code>rog-grant_...</code>) are the home for programmatic access -
+        labeled bearer keys your bots, scripts and headless boxes use, with their own caps.</p>
+      <p class="ac-keys">
+        <a href="/keys.html" class="primary ac-keys__btn">Manage API keys</a>
       </p>
-      <button id="saveEmail" class="ghost">Save email</button>
-      <span class="fine" id="saveMsg"></span>
     </section>
 
     <section class="panel">
       <h2>Your data</h2>
-      <p>Download a copy of your profile, ledger and receipts, or delete your account.</p>
+      <p>Download a portable copy of your profile, ledger and receipts as JSON, any time.</p>
       <button id="export" class="ghost">Export my data</button>
     </section>
 
@@ -41,7 +57,7 @@
       <span class="fine" id="delMsg"></span>
     </section>
 
-    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/billing.html">Billing</a> - <a href="/usage.html">Usage</a> - <a href="/payouts.html">Payouts</a></p>
+    <p class="fine"><a href="/dashboard.html">Dashboard</a> - <a href="/billing.html">Billing</a> - <a href="/usage.html">Usage</a> - <a href="/payouts.html">Payouts</a> - <a href="/keys.html">API keys</a></p>
     <button id="logout" class="ghost">Sign out</button>
   </main>
   </div>
