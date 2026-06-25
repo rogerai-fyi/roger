@@ -192,6 +192,69 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   }
 }
 
+/* ============================ PROMO STRIP ====================== */
+/* thin dismissible launch band above the nav: the $1 starter seed for the
+   first 1000 accounts. Monochrome + the one red dot; mono numerals. Ships
+   hidden ([hidden]); promo.js reveals it unless dismissed. */
+.promo {
+  border-bottom: 1px solid var(--hairline);
+  background: var(--paper-2, var(--paper));
+}
+.promo[hidden] { display: none; }
+.promo__inner {
+  display: flex; align-items: center; gap: var(--s-4, 14px);
+  min-height: 38px; padding-top: 6px; padding-bottom: 6px;
+}
+.promo__msg {
+  display: flex; align-items: center; gap: 9px; margin: 0; min-width: 0;
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-700);
+  letter-spacing: -.005em;
+}
+.promo__copy { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.promo__msg b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.promo__sep { color: var(--ink-400); margin: 0 2px; }
+.promo__dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
+  animation: promoPulse 2.6s ease-in-out infinite;
+}
+@keyframes promoPulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--live-wash); }
+  50%      { box-shadow: 0 0 0 5px transparent; }
+}
+.promo__cta {
+  flex-shrink: 0; margin-left: auto;
+  font-family: var(--font-mono); font-size: var(--t-xs);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--paper); background: var(--live);
+  padding: 5px 12px; border-radius: var(--r-pill); text-decoration: none;
+  transition: filter var(--d-2) var(--ease-standard), transform var(--d-2) var(--ease-standard);
+}
+.promo__cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.promo__cta:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--live-wash); }
+.promo__close {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; margin-right: -6px;
+  border: 0; background: transparent; color: var(--ink-400); cursor: pointer;
+  border-radius: var(--r-pill);
+  transition: color var(--d-2) var(--ease-standard), background var(--d-2) var(--ease-standard);
+}
+.promo__close:hover { color: var(--ink-900); background: var(--live-wash); }
+.promo__close:focus-visible { outline: none; color: var(--ink-900); box-shadow: 0 0 0 3px var(--live-wash); }
+@media (prefers-reduced-motion: reduce) {
+  .promo__dot { animation: none; box-shadow: 0 0 0 3px var(--live-wash); }
+  .promo__cta:hover { transform: none; }
+}
+/* narrow: trim to the essentials, keep the CTA + close reachable */
+@media (max-width: 560px) {
+  .promo__inner { gap: 10px; }
+  .promo__msg { font-size: var(--t-xs); }
+  .promo__cta { padding: 5px 10px; }
+}
+@media (max-width: 400px) {
+  .promo__sep { display: none; }
+}
+
 /* ============================ NAV ============================== */
 .nav {
   position: sticky; top: 0; z-index: var(--z-nav);
@@ -478,27 +541,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400); }
 .install__alt { color: var(--ink-500); font-weight: var(--weight-medium); }
 .install__alt:hover { color: var(--live); }
-
-/* sign-up beacon: a quiet one-liner under the command (the $1 seed for the
-   first 1000 accounts). One red dot is the only color; numerals are mono. */
-.install__beacon {
-  display: flex; align-items: center; gap: 8px;
-  margin: 2px 0 0; font-family: var(--font-mono); font-size: var(--t-xs);
-  color: var(--ink-500); letter-spacing: -.005em;
-}
-.install__beacon b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.install__beacon-dot {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
-  animation: beaconPulse 2.6s ease-in-out infinite;
-}
-@keyframes beaconPulse {
-  0%, 100% { box-shadow: 0 0 0 3px var(--live-wash); }
-  50%      { box-shadow: 0 0 0 5px transparent; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .install__beacon-dot { animation: none; box-shadow: 0 0 0 3px var(--live-wash); }
-}
 
 @media (max-width: 560px) {
   .install__code { font-size: .8125rem; white-space: normal; }
