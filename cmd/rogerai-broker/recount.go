@@ -180,6 +180,13 @@ func (b *broker) trustScore(nodeID string) float64 {
 	return tq.score()
 }
 
+// verifiedServing reports whether the node has a recent PASSED canary - hard
+// evidence it is actually answering correctly (not just heartbeat-alive). Feeds the
+// signal's verified-serving term and pick's reliability.
+func (t trustState) verifiedServing() bool {
+	return t.probed && t.probeOK && t.probeFails == 0
+}
+
 func (t trustState) score() float64 {
 	s := 1.0
 	// L1: each discrepancy as a fraction of re-counts pulls the score down.
