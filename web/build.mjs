@@ -28,6 +28,47 @@ const DIST = join(ROOT, "dist");
 const INCLUDE_RE = /<!--\s*include:\s*([^\s]+)\s*(.*?)\s*-->/g;
 const MAX_DEPTH = 12;
 
+// Per-page stylesheet manifest. Each page links exactly these CSS modules, in
+// order, so editing one page's styles never touches a file another page needs.
+// tokens.css (design tokens) + base.css (shared chrome) lead EVERY page; account
+// pages then load account-base.css before their own account module. The order
+// matches the original site.css / auth.css source cascade, so the rendered
+// cascade is byte-for-byte unchanged from the old monolithic files. The
+// head.html `<!-- css-bundle -->` marker is expanded into one <link> per entry
+// below (see emitCssBundle). Keep this in sync when adding a page.
+const CSS_MARKETING = ["tokens.css", "base.css"];                   // shared lead, marketing
+const CSS_ACCOUNT = ["tokens.css", "base.css", "account-base.css"]; // shared lead, account
+const CSS_BUNDLES = {
+  // marketing pages
+  "index.html":     [...CSS_MARKETING, "home.css"],
+  "manual.html":    [...CSS_MARKETING, "manual.css"],
+  "models.html":    [...CSS_MARKETING, "models.css"],
+  "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
+  "404.html":       [...CSS_MARKETING, "notfound.css"],
+  // account (chrome) pages
+  "account.html":   [...CSS_ACCOUNT, "account.css"],
+  "billing.html":   [...CSS_ACCOUNT, "billing.css"],
+  "payouts.html":   [...CSS_ACCOUNT],                    // shared account plates only
+  "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
+  "dashboard.html": [...CSS_ACCOUNT],                    // shared account plates only
+  "console.html":   [...CSS_ACCOUNT],                    // shared account plates only
+  "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
+  "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
+  "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "security.html":  [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "tos.html":       [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+};
+
+const CSS_MARKER_RE = /^([ \t]*)<!--\s*css-bundle\s*-->[ \t]*$/m;
+
+// Expand head.html's `<!-- css-bundle -->` marker into this page's <link> set.
+function emitCssBundle(html, page) {
+  const bundle = CSS_BUNDLES[page];
+  if (!bundle) throw new Error(`no CSS bundle for page ${page} (add it to CSS_BUNDLES in build.mjs)`);
+  return html.replace(CSS_MARKER_RE, (_, indent) =>
+    bundle.map((f) => `${indent}<link rel="stylesheet" href="styles/${f}" />`).join("\n"));
+}
+
 // "k=v k2=v2" -> { k: "v", k2: "v2" }
 function parseArgs(s) {
   const out = {};
@@ -101,8 +142,10 @@ function build() {
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
-    const out = resolveIncludes(raw, 0);
+    let out = resolveIncludes(raw, 0);
+    out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
+    if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeFileSync(join(DIST, page), out);
   }
 

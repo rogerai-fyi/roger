@@ -1,7 +1,7 @@
-// Account page glue for /account. Split out of the old multi-route account.js so
-// each account page loads only its own logic (billing.js + payouts.js are siblings).
+// Billing page glue for /billing: wallet balance + Stripe Checkout top-up. Split out
+// of the old multi-route account.js so each account page loads only its own logic.
 // Thin reads over the broker behind the credentialed session cookie (no tokens ever
-// touch JS), matching js/auth.js. Logged-out visitors are routed to /login.
+// touch JS). Logged-out visitors are routed to /login.
 // Account-hub glue for /account, /billing, /usage and /payouts. Thin reads over the
 // broker behind the credentialed session cookie (no tokens ever touch JS), matching
 // the pattern in js/auth.js. Logged-out visitors are routed to /login.
@@ -74,44 +74,79 @@
   // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
-  if (path.endsWith("/account")) {
-    get("/account").then(function (a) {
-      if (!a) { location.replace("/login.html"); return; }
-      text("who", "@" + (a.github_login || "you"));
-      text("handle", "@" + (a.github_login || "you"));
-      text("balance", cr(a.balance));
-      text("ghid", a.github_id || "-");
-      text("connect", (a.connect && a.connect.status) || "none");
-      var em = document.getElementById("email");
-      if (em && a.email) em.value = a.email;
+  if (path.endsWith("/billing")) {
+    get("/billing").then(function (d) {
+      if (!d) { location.replace("/login.html"); return; }
+      text("balance", cr(d.balance));
+      text("derived", cr(d.derived));
+      if (d.checkout_ready) {
+        text("topupNote", "Top up below, or from the CLI: rogerai topup.");
+        show("topupBox");
+        wireTopup();
+      } else {
+        text("topupNote", "Top up from the CLI: rogerai topup.");
+        show("topupDisabled");
+      }
+      fill("topups", "topupsEmpty", d.topups, function (t) {
+        return li(when(t.ts) + " - session", cr(t.amount));
+      });
       show("card");
       wireLogout();
-      on("saveEmail", "click", function () {
-        var email = (document.getElementById("email") || {}).value || "";
-        api("/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
-          .then(function (r) { text("saveMsg", r ? " saved" : " could not save"); });
-      });
-      on("export", "click", function () {
-        // POST then download the JSON the browser receives.
-        fetch(BROKER + "/account/export", { method: "POST", credentials: "include" })
-          .then(function (r) { return r.ok ? r.blob() : null; })
-          .then(function (blob) {
-            if (!blob) return;
-            var url = URL.createObjectURL(blob);
-            var a2 = document.createElement("a");
-            a2.href = url; a2.download = "rogerai-export.json"; a2.click();
-            URL.revokeObjectURL(url);
-          });
-      });
-      on("del", "click", function () {
-        if (!confirm("Delete your account? Identity is anonymized; financial records are retained de-identified.")) return;
-        fetch(BROKER + "/account/delete", { method: "POST", credentials: "include" }).then(function (r) {
-          if (r.ok) { location.replace("/login.html"); return; }
-          r.json().then(function (e) {
-            text("delMsg", " " + ((e && e.error && e.error.message) || "could not delete"));
-          });
+    });
+
+    // Top-up control: a chosen preset OR a custom amount -> Stripe Checkout.
+    function wireTopup() {
+      var presets = document.getElementById("topupPresets");
+      var custom = document.getElementById("topupCustom");
+      var btn = document.getElementById("topup");
+
+      // selecting a preset clears the custom field; typing a custom clears presets.
+      if (presets) {
+        presets.addEventListener("click", function (ev) {
+          var b = ev.target.closest("button[data-usd]");
+          if (!b) return;
+          var btns = presets.querySelectorAll(".amount");
+          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
+          b.classList.add("is-active");
+          if (custom) custom.value = "";
+        });
+      }
+      if (custom) {
+        custom.addEventListener("input", function () {
+          if (!custom.value) return;
+          var btns = presets ? presets.querySelectorAll(".amount") : [];
+          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
+        });
+      }
+
+      function chosenUsd() {
+        if (custom && custom.value) {
+          var v = parseFloat(custom.value);
+          return isFinite(v) ? v : NaN;
+        }
+        var active = presets && presets.querySelector(".amount.is-active");
+        return active ? parseFloat(active.getAttribute("data-usd")) : NaN;
+      }
+
+      on("topup", "click", function () {
+        var usd = chosenUsd();
+        if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
+        usd = Math.round(usd * 100) / 100;
+        if (btn) btn.disabled = true;
+        text("topupMsg", " redirecting to Stripe...");
+        api("/billing/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ usd: usd })
+        }).then(function (r) {
+          if (r && r.url) { window.location = r.url; return; }
+          if (btn) btn.disabled = false;
+          text("topupMsg", " could not start checkout");
+        }).catch(function () {
+          if (btn) btn.disabled = false;
+          text("topupMsg", " could not start checkout");
         });
       });
-    });
+    }
   }
 })();

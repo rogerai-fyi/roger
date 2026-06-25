@@ -1,0 +1,827 @@
+/* =====================================================================
+   RogerAI - home.css : the homepage (/index.html) body.
+   Hero + the Ping concierge deck, the terminal demo, the two-way
+   share/tune plates, the spec sheet, operating notes, the money meter,
+   monetize, the CTA strip, the live signal tower / market, the money row,
+   the homepage hero-foundation overrides, the band teaser (FIG.1) and the
+   small /models entry link. The shared eyebrow line, the .ping mascot
+   shape + animations, the install command box, .market__refresh, the
+   ((.)) beacon and .hero__dot live in base.css. Consumes tokens.css +
+   base.css. Rules MOVED verbatim from site.css, in source order.
+   ===================================================================== */
+
+/* ============================ HERO =============================
+   Left-bound document hero (inherits the manual cover), command = hero
+   object, no gradient, one red on-air underline. */
+.hero { position: relative; }
+.hero__inner {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; text-align: left;
+  padding-top: clamp(56px, 11vh, 104px); padding-bottom: var(--s-16);
+}
+/* the hero is now one left-bound column: eyebrow -> title -> subhead -> Ping ->
+   FIG.1 command -> FIG.2 teaser, all in the document grid. */
+.hero__inner { padding-bottom: var(--s-16); }
+.hero__title {
+  font-size: var(--t-display); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display); font-weight: var(--weight-semi);
+  color: var(--ink-900); max-width: 16ch;
+}
+/* the operative phrase: ink + a single red on-air underline, no gradient */
+.hero__op {
+  position: relative; color: var(--ink-900); white-space: nowrap;
+}
+.hero__op::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -0.04em;
+  height: 3px; background: var(--live);
+}
+.hero__sub {
+  margin-top: var(--s-6); max-width: 56ch;
+  font-size: var(--t-lead); color: var(--ink-500); line-height: 1.5;
+}
+.hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---------- Ping: the on-air receiver, standing by the dial -----
+   A small, quiet mascot in the hero's right margin. It idle-bobs and
+   its on-air eye pulses on the SHARED --carrier beat, so it joins the
+   page's one heartbeat instead of introducing a new rhythm. Tucked into
+   margin whitespace so it never crowds the centered hero; it folds away
+   on narrow screens. Body inherits ink via currentColor; only the eye +
+   glow are fixed live-red, matching the logo beacon. */
+.hero__ping {
+  z-index: 1; pointer-events: none;
+  display: flex; flex-direction: row; align-items: center; gap: 12px;
+  margin: clamp(20px, 3.5vh, 34px) auto 0;
+  color: var(--ink-300);
+}
+
+/* ---------- Ping concierge: the record-player / tape-deck chat ----
+   Clicking Ping opens a small, collapsible "deck" anchored to the dock.
+   It NEVER covers the hero: it starts closed (hidden), opens below Ping,
+   and is monochrome + one red. All motion is transform/opacity only and
+   has a full reduced-motion fallback. */
+.hero__ping { position: relative; }              /* anchor for the absolutely-placed deck */
+.hero__ping-trigger {
+  appearance: none; background: none; border: 0; padding: 0; margin: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: inherit; cursor: pointer; pointer-events: auto;
+  border-radius: var(--r-md); flex-shrink: 0;
+  transition: filter var(--d-2) var(--ease-out-quint);
+}
+.hero__ping-trigger:hover { filter: drop-shadow(0 0 6px var(--live-glow)); }
+.hero__ping-trigger:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; }
+
+/* ---------- the ALWAYS-ON scrolling LED banner, beside the mascot ----
+   A small marquee window framed like a station's now-playing display.
+   Idle: flavor phrases roll. On a reply: the reply scrolls across. It is
+   part of the mascot (not the popup) and clicking it opens the chat. It
+   carries NO status words - #pingTag is the single status. */
+.pingband {
+  appearance: none; cursor: pointer; pointer-events: auto; flex-shrink: 1;
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: clamp(150px, 22vw, 260px);
+  padding: 6px 10px; margin: 0;
+  background: var(--paper-2); color: var(--ink-700);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  text-align: left;
+  transition: border-color var(--d-2), filter var(--d-2);
+}
+.pingband:hover { border-color: var(--live); }
+.pingband:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* a tiny LED grille dot, echoing the on-air beacon */
+.pingband__grille {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--live); box-shadow: 0 0 5px var(--live-glow);
+  animation: pingLed var(--carrier) var(--ease-in-out) infinite;
+}
+.pingband__window {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; position: relative;
+}
+.pingband__text {
+  display: inline-block; font-size: var(--t-xs); letter-spacing: -.01em;
+  color: var(--ink-700); will-change: transform;
+}
+/* the reply/phrase scrolls right-to-left once, then rests (the LED roll) */
+.pingband.is-rolling .pingband__text { animation: pingRoll 9s linear 1; }
+@keyframes pingRoll { from { transform: translateX(100%); } to { transform: translateX(-110%); } }
+
+/* the deck panel */
+.pingdeck {
+  position: absolute; top: calc(100% + 12px); left: 50%; transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  /* .hero__ping sets pointer-events:none (so the mascot never blocks the hero);
+     the popup is interactive, so it MUST opt back in or clicks fall through to
+     the page beneath it (the "input only reachable by Tab" bug). */
+  pointer-events: auto;
+  width: min(340px, 86vw);
+  background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
+  box-shadow: var(--e-4);
+  display: flex; flex-direction: column; overflow: hidden;
+  text-align: left;
+}
+.pingdeck[hidden] { display: none; }
+/* .hero__ping carries z-index:1 (a stacking context to sit over the dial), which
+   would otherwise trap the open popup BELOW later page sections. While open, lift
+   the dock's whole context above the page so the popup paints on top + stays
+   clickable. */
+.hero__ping.is-open { z-index: var(--z-overlay); }
+/* dragged: switch to viewport-fixed positioning driven by JS left/top */
+.pingdeck.is-dragged { position: fixed; }
+/* a quiet open reveal (skip it once dragged so it doesn't fight the JS pos) */
+.hero__ping.is-open .pingdeck:not(.is-dragged) { animation: pingDeckIn var(--d-3) var(--ease-out-quint); }
+@keyframes pingDeckIn { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+.pingdeck__head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--hairline);
+  background: var(--paper-2);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.pingdeck__head.is-grabbing { cursor: grabbing; }
+.pingdeck__onair {
+  display: inline-flex; align-items: center; gap: 6px; flex: 1;
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-500);
+}
+.pingdeck__led {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ink-300);
+  flex-shrink: 0;
+}
+.pingdeck[data-ping-state="onair"] .pingdeck__led,
+.pingdeck[data-ping-state="transmit"] .pingdeck__led { background: var(--live); box-shadow: 0 0 6px var(--live-glow); }
+.pingdeck[data-ping-state="transmit"] .pingdeck__led { animation: pingLed var(--carrier) var(--ease-in-out) infinite; }
+@keyframes pingLed { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+/* the drag grip affordance (decorative) */
+.pingdeck__grip { color: var(--ink-300); letter-spacing: 2px; font-size: var(--t-micro); pointer-events: none; }
+.pingdeck__close {
+  appearance: none; background: none; border: 0; padding: 4px; margin: -4px -2px -4px 0;
+  color: var(--ink-400); cursor: pointer; border-radius: var(--r-sm); display: inline-flex;
+  pointer-events: auto;
+}
+.pingdeck__close:hover { color: var(--ink-900); }
+.pingdeck__close:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+
+/* the deck: twin reels (spin while transmitting) + a static caption.
+   This whole strip is DECORATION - pointer-events: none so a click lands on
+   the input below it, not on the reels/caption. */
+.pingdeck__deck {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px; border-bottom: 1px solid var(--hairline);
+  color: var(--ink-400); background: var(--paper);
+  pointer-events: none;
+}
+.pingdeck__reel { width: 40px; height: 40px; flex-shrink: 0; color: var(--ink-300); pointer-events: none; }
+.pingdeck[data-ping-state="transmit"] .pingdeck__reel { animation: pingSpin 1.6s linear infinite; }
+.pingdeck__reel--r { animation-direction: reverse; }
+@keyframes pingSpin { to { transform: rotate(360deg); } }
+.pingdeck__deckline {
+  flex: 1; min-width: 0; text-align: center; pointer-events: none;
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-300); line-height: 1.4;
+}
+.pingdeck[data-ping-state="transmit"] .pingdeck__deckline { color: var(--live); }
+
+/* the chat log */
+.pingdeck__log {
+  max-height: 200px; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.pingdeck__line { display: flex; flex-direction: column; gap: 2px; }
+.pingdeck__line--you { align-items: flex-end; }
+.pingdeck__who { font-size: var(--t-micro); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+.pingdeck__line--you .pingdeck__who { color: var(--live); }
+.pingdeck__msg {
+  font-size: var(--t-sm); line-height: 1.45; color: var(--ink-700);
+  max-width: 90%; padding: 7px 10px; border-radius: var(--r-md);
+  border: 1px solid var(--hairline); background: var(--paper);
+}
+.pingdeck__line--you .pingdeck__msg { background: var(--paper-3); color: var(--ink-900); }
+
+/* the input bar */
+.pingdeck__form { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--hairline); background: var(--paper-2); }
+.pingdeck__input {
+  flex: 1; min-width: 0; font-size: var(--t-sm); color: var(--ink-900);
+  padding: 8px 10px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--white);
+}
+.pingdeck__input:focus { outline: none; border-color: var(--live); }
+.pingdeck__send {
+  appearance: none; cursor: pointer; flex-shrink: 0;
+  width: 38px; border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
+  background: var(--white); color: var(--ink-900); display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color var(--d-2), color var(--d-2);
+}
+.pingdeck__send:hover:not(:disabled) { border-color: var(--live); color: var(--live); }
+.pingdeck__send:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+.pingdeck__send:disabled { opacity: .5; cursor: default; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__ping-trigger { transform: none !important; }
+  .hero__ping.is-open .pingdeck { animation: none; }
+  .pingdeck__reel, .pingdeck[data-ping-state] .pingdeck__reel,
+  .pingdeck[data-ping-state] .pingdeck__led { animation: none; }
+  /* the always-on banner: no marquee roll, no grille pulse - just show the
+     latest text (truncated with an ellipsis so it stays readable). */
+  .pingband.is-rolling .pingband__text { animation: none; }
+  .pingband__text { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .pingband__grille { animation: none; }
+}
+
+/* Narrow screens: the dock folds (Ping hides), so the deck never crowds the
+   hero. On the smallest widths the open deck pins near the bottom, fixed, so
+   it can't cover the headline. */
+@media (max-width: 640px) {
+  /* the popup pins near the bottom (fixed) so it never covers the headline.
+     The .is-dragged class lets JS reposition it; an undragged open popup uses
+     this safe default. */
+  .pingdeck:not(.is-dragged) {
+    position: fixed; top: auto; bottom: 16px; left: 50%; transform: translateX(-50%);
+    width: min(360px, 92vw);
+  }
+  /* keep the always-on banner from crowding the hero on narrow widths */
+  .pingband { max-width: min(58vw, 240px); }
+}
+
+
+/* tune-in group: the live band (dial) and the install command read as ONE
+   move - "here's the band; tune in." A short bridge line connects them. */
+.tunein { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start;
+  gap: var(--s-4); max-width: 640px; width: 100%; }
+.tunein__bridge {
+  margin: 2px 0; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.4;
+  max-width: 56ch;
+}
+
+/* ===================== TERMINAL DEMO =========================== */
+.demo { padding-top: var(--s-12); padding-bottom: var(--section-y2); }
+.demo__head { text-align: left; max-width: 62ch; margin: 0 0 var(--head-gap); }
+.demo__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.demo__head h2 .inline { font-size: .72em; vertical-align: middle; }
+.demo__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+
+.term {
+  max-width: 820px; margin: 0; background: var(--white);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  box-shadow: var(--e-3); overflow: hidden;   /* the ONE allowed soft shadow */
+}
+.term__bar {
+  display: flex; align-items: center; gap: 12px;
+  height: 38px; padding-inline: 14px;
+  background: var(--paper-2); border-bottom: 1px solid var(--hairline);
+}
+.term__dots { display: inline-flex; gap: 6px; }
+.term__dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-300); }
+.term__title { flex: 1; text-align: left; font-size: var(--t-xs); color: var(--ink-400);
+  font-family: var(--font-mono); }
+
+/* station-preset bar: switchable demos, the current one lit red (a radio
+   preset row). LED dot + mono label; the active preset gets a red 2px under-rule. */
+.term__presets {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  padding: 8px 12px; background: var(--paper-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.term__preset {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: -.01em;
+  color: var(--ink-500); padding: 5px 11px;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
+  background: var(--white); cursor: pointer;
+  transition: color var(--d-2), border-color var(--d-2), background var(--d-2);
+}
+.term__preset:hover { color: var(--ink-900); border-color: var(--ink-400); }
+.term__preset:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.term__preset-led {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-300); box-shadow: inset 0 0 0 1px var(--hairline-2);
+  transition: background var(--d-2), box-shadow var(--d-2);
+}
+.term__preset.is-on {
+  color: var(--ink-900); border-color: var(--ink-400);
+  box-shadow: inset 0 -2px 0 var(--live);
+}
+.term__preset.is-on .term__preset-led {
+  background: var(--live); box-shadow: 0 0 0 3px var(--live-tint);
+}
+
+.term__screen {
+  margin: 0; padding: 18px 20px;
+  font-size: 13px; line-height: 1.55; color: var(--ink-700);
+  min-height: 420px; white-space: pre; overflow-x: auto;
+  font-variant-numeric: tabular-nums; tab-size: 2;
+}
+
+/* transport: tape-deck play / pause / replay + a tuning-bar progress readout */
+.term__transport {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; background: var(--paper-2);
+  border-top: 1px solid var(--hairline);
+}
+.term__btn {
+  display: inline-grid; place-items: center;
+  width: 30px; height: 26px; flex-shrink: 0;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1; color: var(--ink-500);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
+  background: var(--white); cursor: pointer;
+  transition: color var(--d-2), border-color var(--d-2);
+}
+.term__btn:hover { color: var(--live); border-color: var(--live); }
+.term__btn:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+.term__btn--replay { font-size: 14px; }
+/* the tuning bar: a hairline track with a red fill scaled by progress */
+.term__bar-track {
+  flex: 1 1 auto; height: 3px; position: relative;
+  background: var(--hairline); border-radius: var(--r-pill); overflow: hidden;
+}
+.term__bar-fill {
+  position: absolute; inset: 0; transform-origin: left center; transform: scaleX(0);
+  background: var(--live);
+}
+@media (prefers-reduced-motion: reduce) { .term__bar-fill { transform: scaleX(1); } }
+
+@media (max-width: 560px) {
+  .term__screen { font-size: 11px; padding: 14px; min-height: 320px; }
+  .term__presets { padding: 7px 10px; gap: 5px; }
+  .term__preset { padding: 4px 9px; }
+}
+
+/* terminal token colors (quiet mono, one red glint) */
+.t-dim   { color: var(--ink-400); }
+.t-prompt{ color: var(--live); font-weight: var(--weight-semi); }
+.t-user  { color: var(--ink-900); }
+.t-ok    { color: var(--ink-900); font-weight: var(--weight-semi); }
+.t-live  { color: var(--live); }
+.t-money { color: var(--ink-900); }
+.t-gold  { color: var(--ink-900); }
+.t-volt  { color: var(--ink-900); }
+.t-head  { color: var(--ink-900); font-weight: var(--weight-semi); }
+.t-sel   { background: var(--live-tint); color: var(--ink-900); }
+.t-cursor{ background: var(--live); color: var(--live); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .t-cursor { animation: none; } }
+
+/* ---------- two-way (share / tune): flat hairline plates -------- */
+.twoway { display: grid; grid-template-columns: 1fr auto 1fr; gap: var(--s-6); align-items: stretch; }
+.twoway__side {
+  background: var(--paper); border: 1px solid var(--hairline);
+  padding: var(--s-6); box-shadow: none;
+}
+.twoway__tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  margin-bottom: var(--s-4); color: var(--ink-500);
+}
+.twoway__tag--air  { color: var(--ink-500); }
+.twoway__tag--tune { color: var(--ink-500); }
+.twoway__ico { width: 14px; height: 14px; overflow: visible; }
+.twoway__ico path { opacity: .75; transition: opacity var(--d-3); transform-origin: 8px 8px; }
+.twoway__side:hover .twoway__ico path { animation: icoWave 1.7s var(--ease-in-out) infinite; }
+.twoway__side:hover .twoway__ico path:last-child { animation-delay: .22s; }
+@media (prefers-reduced-motion: reduce) {
+  .twoway__side:hover .twoway__ico path { animation: none; opacity: .9; }
+}
+.twoway__side h3 { font-size: var(--t-h3); color: var(--ink-900); font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
+.twoway__side p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.twoway__cmd {
+  display: block; margin-top: var(--s-5); padding: 11px 14px;
+  background: var(--paper-2); border: 0; border-left: 2px solid var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm); color: var(--ink-900); overflow-x: auto;
+}
+.twoway__cmd::before { content: "$ "; color: var(--ink-300); }
+.twoway__link { display: grid; place-items: center; width: 80px; }
+.twoway__beam {
+  width: 70px; height: 1px;
+  background: var(--hairline-2);
+  position: relative; overflow: visible;
+}
+.twoway__beam::after {
+  content: ""; position: absolute; top: 50%; left: 0; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--live); transform: translate(-50%,-50%);
+  box-shadow: 0 0 6px var(--live-glow);
+  animation: beam var(--carrier-2x) var(--ease-in-out) infinite;
+}
+@keyframes beam { 0% { left: 0; opacity: 0; } 12% { opacity: 1; } 80% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .twoway__beam::after { animation: none; left: 50%; } }
+@media (max-width: 820px) {
+  .twoway { grid-template-columns: 1fr; }
+  .twoway__link { width: auto; height: 44px; }
+  .twoway__beam { width: 1px; height: 36px; background: var(--hairline-2); }
+  .twoway__beam::after { animation: none; top: auto; bottom: 0; left: 50%; }
+}
+
+/* ---------- specifications plate ------------------------------- */
+/* The trust block: a printed spec sheet. Mono keys left, values right,
+   a hairline between every row, tabular numbers. No cards, no shadows. */
+.spec {
+  margin: 0; max-width: 820px;
+  border-top: 1px solid var(--ink-900); border-bottom: 1px solid var(--ink-900);
+}
+.spec__row {
+  display: grid; grid-template-columns: minmax(120px, 0.32fr) 1fr;
+  gap: var(--s-4) var(--s-8); align-items: baseline;
+  padding: var(--s-4) 0; border-bottom: 1px solid var(--hairline);
+}
+.spec__row:last-child { border-bottom: 0; }
+.spec dt {
+  font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-400); font-weight: var(--weight-medium);
+}
+.spec dd {
+  margin: 0; color: var(--ink-900); font-size: var(--t-body);
+  font-weight: var(--weight-medium); font-variant-numeric: tabular-nums;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+}
+.spec dd .mono { color: var(--ink-900); }
+.spec__note {
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-weight: var(--weight-regular); letter-spacing: 0;
+}
+@media (max-width: 560px) {
+  .spec__row { grid-template-columns: 1fr; gap: 4px; padding: var(--s-3) 0; }
+}
+
+/* ---------- operating notes (numbered list on hairlines) -------- */
+.opnotes { display: block; }
+.opnote {
+  display: grid; grid-template-columns: 56px 1fr; gap: var(--s-4);
+  padding: var(--s-4) 0; border: 0; border-top: 1px solid var(--hairline);
+  background: none; border-radius: 0;
+}
+.opnote:first-child { border-top: 0; }
+.opnote__no {
+  font-family: var(--font-mono); font-size: 1.1rem; font-weight: var(--weight-medium);
+  color: var(--ink-400); font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  position: relative; padding-left: var(--s-3);
+}
+.opnote__no::before {
+  content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; background: var(--live);
+}
+.opnote h3 { margin: 0; font-size: 1.05rem; color: var(--ink-900);
+  font-weight: var(--weight-semi); letter-spacing: var(--tracking-h3); }
+.opnote p { margin-top: 2px; color: var(--ink-500); font-size: var(--t-sm); line-height: 1.45; }
+
+/* ---------- the money meter line (replaces the 3 cards) -------- */
+.meter {
+  max-width: 880px; margin: var(--s-6) 0 0;
+  display: flex; flex-wrap: wrap; gap: var(--s-6) var(--s-8);
+  padding-top: var(--s-4); border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500);
+}
+.meter span b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.meter__k { color: var(--ink-400); letter-spacing: 0.08em; margin-right: var(--s-2); text-transform: uppercase; font-size: var(--t-xs); }
+
+/* ---------- monetize ------------------------------------------- */
+.monetize { display: grid; grid-template-columns: 1.1fr .9fr; gap: var(--s-16); align-items: center; }
+@media (max-width: 880px) { .monetize { grid-template-columns: 1fr; gap: var(--s-10); } }
+.monetize__copy .eyebrow { margin-bottom: var(--s-3); }
+.monetize__copy h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.monetize__copy > p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+.checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
+.checks li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); color: var(--ink-700); }
+.tick { color: var(--live); flex-shrink: 0; font-weight: var(--weight-bold); }
+
+.earn {
+  background: var(--paper); border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  padding: var(--s-6); box-shadow: none;
+}
+.earn .fig { margin-bottom: var(--s-4); }
+.earn__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-5);
+  padding-bottom: var(--s-4); border-bottom: 1px solid var(--hairline); }
+.earn__tag { font-family: var(--font-mono); font-weight: var(--weight-semi); color: var(--ink-900); }
+.earn__onair { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-micro);
+  font-weight: var(--weight-semi); letter-spacing: var(--tracking-label); color: var(--live); }
+.earn__onair .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-tint); animation: pulseDot 2s ease-in-out infinite; }
+@keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .earn__onair .dot { animation: none; } }
+.earn__row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0;
+  font-size: var(--t-sm); color: var(--ink-500); border-bottom: 1px solid var(--hairline); }
+.earn__row b { color: var(--ink-900); font-weight: var(--weight-medium); }
+.earn__spark { display: flex; align-items: center; gap: 10px; padding: var(--s-5) 0 var(--s-3); }
+.earn__label { font-size: var(--t-xs); color: var(--ink-400); }
+.earn__bars { flex: 1; display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; }
+.earn__bars i { flex: 1; background: var(--ember-tint); border-radius: 2px 2px 0 0; }
+.earn__bars i.on { background: var(--ember); }
+.earn__amt { font-size: var(--t-body); }
+.earn__foot { font-size: var(--t-xs); color: var(--ink-400); text-align: center; }
+
+/* ---------- CTA strip ------------------------------------------ */
+.cta { padding-block: var(--section-y); border-top: 1px solid var(--hairline); }
+.cta__inner { text-align: left; display: flex; flex-direction: column; align-items: flex-start; }
+.cta h2 { font-size: var(--t-h1); letter-spacing: var(--tracking-h1); color: var(--ink-900); font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.cta p { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-lead); }
+.install__box--lg { margin-top: var(--s-8); padding: 18px 20px; }
+.install__box--lg .install__code { font-size: 1.05rem; }
+@media (max-width: 560px) { .install__box--lg .install__code { font-size: .8125rem; } }
+
+/* ===================== LIVE SIGNAL TOWER / MARKET ============== */
+.market { padding-block: var(--section-y2) var(--section-y2); position: relative; }
+.market__head { text-align: left; max-width: 62ch; margin: 0 0 var(--head-gap); }
+.market__head h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  font-weight: var(--weight-bold); line-height: var(--lh-snug); }
+.market__head p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+.market__head p b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---------- signal-sweep radar (premium animated asset) -------- */
+.radar { display: block; width: 64px; height: 64px; margin: var(--s-2) auto var(--s-5); }
+.radar__svg { width: 100%; height: 100%; overflow: visible; }
+.radar__ring { stroke: var(--hairline-2); stroke-width: 1; fill: none; }
+.radar__cross { stroke: var(--hairline-2); stroke-width: 1; opacity: .7; }
+/* sweep runs on the carrier octave so the radar shares the page's rhythm.
+   Each blip is phase-locked to the moment the arm passes its bearing, then
+   decays like scope phosphor - so the sweep visibly PAINTS the contacts. */
+.radar__sweep { transform-origin: 32px 32px; animation: radarSpin var(--carrier-2x) linear infinite; }
+@keyframes radarSpin { to { transform: rotate(360deg); } }
+.radar__blip { fill: var(--live); opacity: 0; transform-box: fill-box; transform-origin: center; }
+.radar__blip--1 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: .61s; }
+.radar__blip--3 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 1.78s; }
+.radar__blip--2 { animation: radarBlip var(--carrier-2x) linear infinite; animation-delay: 2.75s; }
+@keyframes radarBlip {
+  0%   { opacity: 0;   transform: scale(.4); }
+  2%   { opacity: 1;   transform: scale(1.25); }  /* the arm hits: hard ping */
+  10%  { opacity: .9;  transform: scale(1); }
+  60%  { opacity: .22; }                          /* phosphor decay */
+  88%,100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar__sweep { animation: none; opacity: .5; }
+  .radar__blip { animation: none; opacity: .8; transform: none; }
+}
+
+.market__panel {
+  max-width: 880px; margin: 0 auto; background: var(--paper);
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  box-shadow: none; overflow: hidden;
+}
+
+/* top bar: ((•)) on-air pulse + live status + refresh */
+.market__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: 13px 18px; border-bottom: 1px solid var(--hairline);
+  background: var(--paper-2); flex-wrap: wrap;
+}
+.market__status { display: inline-flex; align-items: center; gap: 9px;
+  font-size: var(--t-sm); color: var(--ink-500); font-weight: var(--weight-medium); }
+.market__status .onair { color: var(--ink-300); font-size: var(--t-sm); transition: color var(--d-3); }
+.market__status.is-live .onair { color: var(--live); }
+.market__status.is-demo .onair { color: var(--ink-400); }
+.market__status.is-off  .onair { color: var(--ink-300); }
+.market__status.is-live { color: var(--ink-700); }
+.market__meta { display: inline-flex; align-items: center; gap: var(--s-5); }
+.market__legend { display: inline-flex; align-items: center; gap: 7px; font-size: var(--t-xs);
+  color: var(--ink-400); }
+.market__legbar { width: 16px; height: 12px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--live-tint), var(--live)); display: inline-block; }
+@media (max-width: 620px) { .market__legend { display: none; } }
+
+/* the grid: rows of channels */
+.mkt-row, .mkt-row--head {
+  display: grid;
+  grid-template-columns: minmax(0,2.3fr) minmax(96px,1.5fr) 0.9fr 1fr 1.05fr;
+  align-items: center; gap: var(--s-3);
+  padding: 14px 18px; border-bottom: 1px solid var(--hairline);
+}
+.mkt-row--head {
+  padding-block: 9px; background: var(--white);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--ink-400); font-weight: var(--weight-semi);
+}
+.mkt-list { list-style: none; margin: 0; padding: 0; }
+.mkt-row {
+  font-size: var(--t-sm);
+  opacity: 0; transform: translateY(8px);
+  animation: mktIn var(--d-4) var(--ease-out-quint) forwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes mktIn { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .mkt-row { animation: none; opacity: 1; transform: none; } }
+.mkt-row:last-child { border-bottom: 0; }
+.mkt-row--idle { opacity: .62; }
+.mkt-row--idle { animation-name: mktInIdle; }
+@keyframes mktInIdle { to { opacity: .62; transform: none; } }
+
+/* honest empty state: no station on air -> no fabricated rows */
+.mkt-quiet {
+  display: block; padding: var(--s-6) var(--s-4); text-align: center;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.mkt-quiet__txt { display: inline-block; max-width: 48ch; }
+.mkt-quiet code { color: var(--ink-900); }
+.mkt-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
+.mkt-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }
+
+.mkt-cell { min-width: 0; }
+.mkt-cell--speed, .mkt-cell--quality, .mkt-cell--price { text-align: right; }
+.mkt-row--head .mkt-cell--speed, .mkt-row--head .mkt-cell--quality,
+.mkt-row--head .mkt-cell--price { text-align: right; }
+
+/* station cell: ● dot, model name, ◆, provider count */
+.mkt-cell--model { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.mkt-dot { font-size: 10px; line-height: 1; }
+.mkt-dot--on { color: var(--live); }
+.mkt-dot--off { color: var(--ink-300); }
+.mkt-model { font-weight: var(--weight-semi); color: var(--ink-900); letter-spacing: -.01em;
+  font-family: var(--font-mono); font-size: .9375rem; overflow: hidden; text-overflow: ellipsis; }
+.mkt-model .cs { color: var(--gold); }
+.mkt-prov { flex-basis: 100%; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); }
+.mkt-prov--idle { color: var(--ink-400); }
+
+/* signal tower bars ▁▂▃▄▅▆▇█ */
+.sig { font-family: var(--font-mono); letter-spacing: 1px; white-space: nowrap; line-height: 1; }
+.sigbar { display: inline-block; }
+.sigbar--on  { color: var(--live); }
+.sigbar--off { color: var(--ink-300); opacity: .55; }
+.sigbar--head { will-change: opacity; }
+
+/* speed / price */
+.mkt-tps { color: var(--ink-900); font-size: .9375rem; }
+.mkt-unit { color: var(--ink-400); font-size: var(--t-xs); }
+.mkt-unit--idle { color: var(--ink-300); }
+.mkt-cell--price b { font-size: .9375rem; }
+
+/* quality dots ●○ */
+.qdots { font-size: 10px; letter-spacing: 1px; color: var(--volt); white-space: nowrap; }
+.qdots--idle { color: var(--ink-300); }
+
+/* skeleton shimmer while first fetch resolves */
+.mkt-skel { height: 52px; border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, var(--paper-2) 25%, var(--paper-3) 37%, var(--paper-2) 63%);
+  background-size: 400% 100%; animation: mktSkel 1.4s ease infinite; }
+.mkt-skel:last-child { border-bottom: 0; }
+@keyframes mktSkel { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .mkt-skel { animation: none; } }
+
+
+@media (max-width: 680px) {
+  .mkt-row, .mkt-row--head {
+    grid-template-columns: minmax(0,1.6fr) 1fr 1fr;
+  }
+  .mkt-cell--quality { display: none; }
+  .mkt-cell--speed { display: none; }
+  .mkt-row--head .mkt-cell--speed, .mkt-row--head .mkt-cell--quality { display: none; }
+}
+
+/* ---------- money row (glanceable economics) ------------------- */
+.money {
+  max-width: 880px; margin: var(--s-8) auto 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4);
+}
+@media (max-width: 680px) { .money { grid-template-columns: 1fr; } }
+.money__card {
+  background: var(--white); border: 1px solid var(--hairline); border-radius: var(--r-md);
+  padding: var(--s-6); box-shadow: var(--e-1); display: flex; flex-direction: column; gap: 6px;
+}
+.money__label { font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--ink-400); font-weight: var(--weight-semi); }
+.money__big { font-size: 1.5rem; color: var(--ink-900); line-height: 1.1; letter-spacing: -.02em; }
+.money__sub { font-size: var(--t-xs); color: var(--ink-500); line-height: 1.45; }
+
+
+/* homepage hero-foundation overrides */
+.hero__inner .fig { margin-top: var(--s-8); }
+.hero__ping {
+  z-index: 1; pointer-events: none;
+  flex-direction: row; align-items: center; gap: var(--s-3);
+  margin: var(--s-8) 0 0;
+  color: var(--ink-700);
+}
+.hero__ping-tag { color: var(--ink-500); }
+
+/* =====================================================================
+   /models - the live model directory: the interactive dial centerpiece
+   (see THE DIAL above + .dialwrap below), the directory table, and the QSL
+   detail card. Same monochrome + one-red foundation; flat hairline plates;
+   mono for all machine truth.
+   ===================================================================== */
+
+/* the small homepage entry into /models (single, non-disruptive link) */
+.market__tune { margin-top: var(--s-3); font-size: var(--t-xs); }
+.market__tune a { color: var(--ink-500); border-bottom: 1px solid transparent; }
+.market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
+
+/* =====================================================================
+   FIG.1 (homepage) - the BAND TEASER. A COMPACT fake-dial tuner: a short
+   frequency strip (notches + labels) under a fixed center needle, that
+   AUTO-sweeps + re-locks band to band (teaser.js, shared rAF on --carrier).
+   It links into /models.html (where the full INTERACTIVE dial lives, real
+   data). Marketing surface: representative data, gentle motion. Whole thing
+   is one <a>. Flat hairline plate, monochrome + the one red lock line. The
+   --lock (0..1, detent glow) + --sig (0..1, signal meter) vars are driven by
+   teaser.js; pre-seeded inline so JS-off / reduced-motion looks locked.
+   ===================================================================== */
+/* FIG.2 sits BELOW the install command and shares its left edge + max-width
+   (640px, left-bound, no auto-centering). It is smaller than the old full-bleed
+   teaser: a short strip + compact rows. */
+.teaser {
+  display: block; max-width: 640px; width: 100%; margin: var(--s-8) 0 0;
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  background: var(--paper); text-decoration: none; color: inherit;
+  transition: border-color var(--d-2), box-shadow var(--d-2);
+}
+.teaser:hover { border-color: var(--ink-400); }
+.teaser:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--paper), 0 0 0 4px var(--live-glow); border-top-color: var(--live); }
+.teaser__fig { display: block; padding: var(--s-3) var(--s-4) 0; }
+/* the honest, casual bridge line (these are representative models, not strictly
+   live) - sits under the FIG label, inside the plate's left padding. */
+.teaser__bridge {
+  margin: 0; padding: 2px var(--s-4) 0;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-500);
+  letter-spacing: -.01em; line-height: 1.4;
+}
+.teaser__face { padding: var(--s-2) 0 0; --lock: 1; --sig: 0.87; }
+.teaser__top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--hairline);
+}
+.teaser__locked { font-size: 0.82rem; color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em; transition: color var(--d-2); }
+.teaser__locked b { color: var(--live); font-weight: var(--weight-semi); }
+.teaser__sig { font-size: 0.74rem; color: var(--ink-500); white-space: nowrap;
+  font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__sig b { color: var(--live); font-weight: var(--weight-semi); }
+
+/* the dial face: the auto-sweeping spectrum strip + fixed needle + glass +
+   a bottom signal meter that reacts to --sig. Compact (short height). */
+.teaser__dial { position: relative; background: var(--paper-2);
+  border-bottom: 1px solid var(--hairline); }
+.teaser__svgwrap { position: relative; overflow: hidden; padding: var(--s-2) 0 0;
+  background: linear-gradient(var(--paper) 0, var(--paper-2) 100%); }
+.teaser__svg { display: block; width: 100%; height: 58px; }
+@media (max-width: 560px) { .teaser__svg { height: 52px; } }
+.teaser__tick { transition: stroke .25s ease; }
+.teaser__pip { transition: fill .25s ease; }
+.teaser__lbl { opacity: .5; transition: opacity .25s ease, fill .2s ease; }
+.teaser__lbl--on { opacity: 1; fill: var(--live); font-weight: var(--weight-semi); }
+/* fixed red needle, dead center, with a soft lock-glow that brightens at a
+   detent (--lock -> 1). transform/opacity only. */
+.teaser__needle {
+  position: absolute; left: 50%; top: var(--s-2); bottom: 20px;
+  width: 2px; margin-left: -1px; background: var(--live);
+  box-shadow: 0 0 calc(2px + var(--lock) * 6px) var(--live-glow);
+  pointer-events: none;
+}
+.teaser__needle::before, .teaser__needle::after {
+  content: ""; position: absolute; left: 50%; width: 8px; height: 8px;
+  margin-left: -4px; background: var(--live); transform: rotate(45deg);
+  opacity: calc(.35 + var(--lock) * .65);
+}
+.teaser__needle::before { top: -4px; }
+.teaser__needle::after  { bottom: -4px; }
+/* glass: a center detent column + faint scanlines + side vignette */
+.teaser__glass { position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 20px), var(--live-wash) 50%, transparent calc(50% + 20px)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0,0,0,.018) 3px),
+    linear-gradient(90deg, var(--paper) 0, transparent 10%, transparent 90%, var(--paper) 100%);
+  opacity: calc(.5 + var(--lock) * .5);
+}
+/* the signal meter along the dial bottom, reacting to --sig */
+.teaser__dial::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  background:
+    linear-gradient(90deg, var(--live) 0, var(--live) calc(var(--sig) * 100%), transparent calc(var(--sig) * 100%)),
+    var(--hairline-2);
+  background-clip: padding-box;
+}
+
+.teaser__list { list-style: none; margin: 0; padding: 4px 0; }
+.teaser__band {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4);
+  padding: 4px var(--s-4); font-family: var(--font-mono); font-size: 0.72rem;
+  color: var(--ink-500); border-left: 2px solid transparent;
+  transition: color var(--d-2), background var(--d-2), border-color var(--d-2);
+}
+.teaser__band .teaser__bm { color: var(--ink-700); letter-spacing: -0.01em; }
+.teaser__band .teaser__bd { color: var(--ink-400); font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__band--idle { opacity: .6; }
+.teaser__band--idle .teaser__bd { font-style: italic; }
+.teaser__band.is-locked {
+  background: var(--live-tint); border-left-color: var(--live);
+}
+.teaser__band.is-locked .teaser__bm { color: var(--ink-900); font-weight: var(--weight-semi); }
+.teaser__band.is-locked .teaser__bd { color: var(--live); }
+
+.teaser__foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--s-2) var(--s-4); padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--hairline); font-family: var(--font-mono); font-size: 0.7rem;
+}
+.teaser__chip { display: inline-flex; gap: var(--s-3); align-items: center; color: var(--ink-500);
+  font-variant-numeric: tabular-nums slashed-zero; }
+.teaser__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.teaser__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.teaser__open { color: var(--ink-700); border-bottom: 1px solid transparent; transition: color var(--d-2), border-color var(--d-2); }
+.teaser:hover .teaser__open { color: var(--live); border-bottom-color: var(--live); }
+@media (max-width: 480px) { .teaser__open { display: none; } }
+
+/* reduced-motion: static, pre-locked on the strongest band (teaser.js does not
+   start the sweep). No transitions / no lock-glow pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .teaser__tick, .teaser__pip, .teaser__lbl, .teaser__locked { transition: none; }
+  .teaser__needle { box-shadow: none; }
+}

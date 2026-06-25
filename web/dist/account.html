@@ -6,11 +6,15 @@
        title    = full <title> text
        desc     = meta description (optional)
        theme    = "inline" (homepage only - CSP sha256-locked bytes) | "external"
-       css      = "site" (marketing) | "chrome" (account: site + auth shells)
        robots   = "noindex" to add the robots meta (optional)
        og       = "1" to emit the marketing Open Graph block (optional)
-     The shared nav/footer need tokens.css + site.css on EVERY page, so account
-     pages load the chrome plus auth.css for the card. -->
+     Stylesheets are wired PER PAGE: build.mjs expands the css-bundle marker
+     below into one <link> per CSS module for this page, from the
+     CSS_BUNDLES manifest in build.mjs (keyed by page filename). Every page gets
+     tokens.css + base.css first (tokens + shared chrome); account pages also get
+     account-base.css; then each page's own modules. The old monolithic site.css
+     and auth.css were split into per-page modules so editing one page's styles
+     never touches a file another page needs. -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- Mark JS as available BEFORE first paint. The reveal primitive only hides
@@ -54,10 +58,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="styles/tokens.css" />
-  <link rel="stylesheet" href="styles/site.css" />
-
-  <link rel="stylesheet" href="styles/auth.css" />
-
+  <link rel="stylesheet" href="styles/base.css" />
+  <link rel="stylesheet" href="styles/account-base.css" />
+  <link rel="stylesheet" href="styles/account.css" />
 
 </head>
 <body class="auth">
