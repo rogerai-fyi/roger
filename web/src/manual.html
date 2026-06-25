@@ -66,6 +66,7 @@
             <li><a href="#s10"><span class="man-toc__no">§10</span>Verification</a></li>
             <li><a href="#s11"><span class="man-toc__no">§11</span>Troubleshooting</a></li>
             <li><a href="#sAPI"><span class="man-toc__no">B</span>The API</a></li>
+            <li><a href="#sTOOLS"><span class="man-toc__no">B2</span>In your editors</a></li>
             <li><a href="#schangelog"><span class="man-toc__no">C</span>Changelog</a></li>
           </ol>
         </nav>
@@ -863,6 +864,57 @@
             <p class="man-lead" style="margin-top:32px">Roger that. The band is open.</p>
           </section>
 
+          <!-- ============== APPENDIX B2: IN YOUR EDITORS ============== -->
+          <section class="man-sec" id="sTOOLS">
+            <span class="man-sec__no">Appendix B2 · Use RogerAI in opencode (and other OpenAI-compatible tools)</span>
+            <h2>Point your editor at the band</h2>
+            <p class="man-lead"><code>rogerai use &lt;model&gt;</code> runs a local
+              OpenAI-compatible endpoint at <code>http://127.0.0.1:4141/v1</code> (key
+              <code>roger-local</code>), so any tool that speaks the OpenAI API can route
+              through RogerAI to whatever station you tuned in to - your spend cap, your
+              max-out, and the broker's routing all still apply.</p>
+
+            <h3>Wire up opencode</h3>
+            <p>Three steps: pin the port so the URL is stable, tell opencode about the
+              provider, then pick the model.</p>
+            <p><b>1.</b> Tune in and pin the port:</p>
+            <pre><span class="p">$</span> rogerai use Qwen3-Coder-Next --port 4141</pre>
+            <p><b>2.</b> Add this to <code>~/.config/opencode/opencode.json</code>:</p>
+            <pre>{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "roger": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "RogerAI (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:4141/v1",
+        "apiKey": "roger-local"
+      },
+      "models": {
+        "Qwen3-Coder-Next": {
+          "name": "Qwen3-Coder-Next (local)",
+          "tool_call": true
+        }
+      }
+    }
+  }
+}</pre>
+            <p><b>3.</b> In opencode, pick the <code>roger/Qwen3-Coder-Next</code> model.
+              Requests now flow through RogerAI to the station you tuned in to.</p>
+
+            <h3>Any OpenAI-compatible client</h3>
+            <p>It is always the same three things - a base URL, a key, and a model:</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">baseURL</span><span class="man-plate__v"><code>http://127.0.0.1:4141/v1</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">api key</span><span class="man-plate__v"><code>roger-local</code></span></div>
+              <div class="man-plate__row"><span class="man-plate__k">model</span><span class="man-plate__v">the band you ran <code>rogerai use</code> with, e.g. <code>Qwen3-Coder-Next</code></span></div>
+            </div>
+            <p>Cursor, Continue, Cline, a raw SDK - they all take those same three values.
+              Two notes: keep <code>rogerai use</code> running (it <i>is</i> the proxy), and
+              <code>tool_call: true</code> turns on tool / function calling for models that
+              support it.</p>
+          </section>
+
           <!-- ============== APPENDIX C: CHANGELOG ============== -->
           <!--
             HOW TO APPEND (per release): add ONE <div class="man-plate__row"> at the TOP
@@ -878,7 +930,7 @@
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.5.2</span><span class="man-plate__v">Reliable multi-on-air: unique node id per band (fixes the re-register storm / flapping when several bands share a host); on-air slot limits (soft 4 via share.max_on_air, hard 20/account server-enforced); SHARE slot meter + multi-band tune-in display.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.5.2</span><span class="man-plate__v">Reliable multi-on-air: unique node id per band (fixes the re-register storm / flapping when several bands share a host); on-air slot limits (soft 4 via share.max_on_air, hard 20/account server-enforced); SHARE slot meter + multi-band tune-in display. Manual: a new "use RogerAI in opencode (and other OpenAI-compatible tools)" section (Appendix B2).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.1</span><span class="man-plate__v">Monthly spend cap (Groq-style budget): set a max $/month with <code>rogerai limit --monthly</code>; 80% and 100% notices; server-side enforced on every paid path (over budget -> 402 before dispatch); shown in balance + [3] CONFIG.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.0</span><span class="man-plate__v">Real SEV-SNP TEE confidential tier; private bands (frequency codes); payouts from the CLI; global price-safety; self-healing share + truthful ON AIR/RECONNECTING; Windows-ready (cmd /C, self-update, glyph fallback); report-a-station + moderation; /support; $1 starter credit.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> (or <kbd>h</kbd> in SHARE) prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (or <kbd>Shift</kbd>+<kbd>F</kbd> / <code>/freq</code> in-app; same account = $0, or hand the code to a friend). Login-gated, 1 free band (broker-enforced), $5 packs in Phase 2 (see §5). <b>Real TEE confidential tier</b>: the gold <span class="cs">&#9670;</span> now means a node passed live AMD SEV-SNP remote attestation - nonce-bound (no replay), measurement-allowlisted, re-attested on a cadence, fail-closed; <code>share --confidential</code> needs real TEE hardware and refuses honestly otherwise (§4, §10). <b>Trust + safety surface</b>: a pre-dispatch Groq Llama Guard moderation screen on the relay and the public Ping concierge, a report-a-station control on every Models card (POSTs to the broker, auto-ejects on enough reports), <a href="mailto:abuse@rogerai.fyi">abuse@</a> + a real ToS/AUP + <code>security.txt</code> (§10). <b>Wallet</b>: a one-time $1 starter credit for the first 1000 accounts; consumer price-safety guards (a $10/1M default cap even with <code>--yes</code>, type-the-price above $20/1M) and operator ceilings ($100/1M out, $50/1M in) (§4, §6). <b>Self-healing SHARE</b>: a provider auto-re-registers when the broker restarts (the registry is persisted and re-hydrated; no manual restart), with truthful ON AIR vs RECONNECTING status. <code>rogerai support</code> opens the site/Discord. Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
