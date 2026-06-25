@@ -347,6 +347,55 @@
               every station on the band is exhausted you get one clear error, not a silent
               hang.</p>
 
+            <h3>Many models at once: two sets, or call the broker direct</h3>
+            <p>One <code>rogerai use</code> is <b>one set tuned to one channel</b>. It opens
+              a single local endpoint (default <code>http://127.0.0.1:4141/v1</code>) and
+              that endpoint always speaks to the one band you tuned. Re-tuning the same set
+              to another band <b>reuses that port and drops the first channel</b> - so a
+              single <code>rogerai</code> process never serves two models at once (in the
+              app it is the same: the open channel is singular - tuning a new band replaces
+              it). To consume several models simultaneously, pick one of two ways.</p>
+
+            <p><b>(a) Run a second set on its own port.</b> Each instance binds its own local
+              endpoint, so two models live side by side. Pin the port with <code>--port</code>
+              so the URLs are stable for your tools:</p>
+            <pre><span class="c"># terminal 1 - a coder on 4141</span>
+<span class="p">$</span> rogerai use qwen3-coder-30b --port 4141   <span class="c"># http://127.0.0.1:4141/v1</span>
+
+<span class="c"># terminal 2 - a general model on 4142, at the same time</span>
+<span class="p">$</span> rogerai use gpt-oss-120b --port 4142      <span class="c"># http://127.0.0.1:4142/v1</span></pre>
+            <p>Point one tool at <code>:4141</code> and another at <code>:4142</code> and
+              both bands run concurrently, each with its own spend caps. This is the simplest
+              path when you want a couple of fixed endpoints. (Each set is one blocking
+              process - keep both running, one per model.)</p>
+
+            <p><b>(b) Skip the local proxy - point straight at the broker.</b> The cleaner
+              path when you want <i>many</i> models from <b>one</b> endpoint: with a grant key
+              (§5), aim any OpenAI client at the broker's own <code>/v1</code> and switch
+              models by setting the <code>model</code> field per request. No local proxy, no
+              per-model process, no ports to juggle - the broker routes each request to a
+              station for whatever model you named.</p>
+            <pre><span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+<span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b   <span class="c"># a grant key - see §5</span>
+
+<span class="c"># same endpoint, same key, different model per call - all at once</span>
+<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'
+<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
+    -d '{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}'</pre>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">(a) second set</span><span class="man-plate__v">one extra <code>rogerai use --port</code> per model; fixed local URLs; per-model spend caps; no login or grant needed for free bands</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">(b) broker direct</span><span class="man-plate__v">one endpoint serves every model; set <code>model</code> per request; needs a grant key (§5) but no local proxy at all - the right call for a fleet of bots</span></div>
+            </div>
+            <div class="man-note">
+              <span class="man-note__tag">note</span>
+              Path (b) routes a grant only to <b>your own</b> nodes. To consume the open
+              public market across many models from one endpoint, use a funded wallet via the
+              local proxy (path a). See §5 for minting a grant and §6 for the wallet.
+            </div>
+
 
           <!-- ============== §4 GO ON AIR ============== -->
           <section class="man-sec" id="s4">
@@ -499,6 +548,26 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               bot box anywhere, set the grant as its key, and it talks to your home GPU
               free, over the same broker, with no inbound port on either side.</p>
 
+            <h3>It survives restarts - the always-on path</h3>
+            <p>A grant key is bound to your <b>account</b> (plus any optional model/node
+              scope), <b>not</b> to a session, a process, or a particular share. That is the
+              whole point for an always-on service: the key keeps working across every kind
+              of restart, with nothing to regenerate.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">stop sharing</span><span class="man-plate__v">the key stays valid; requests just wait for a station - it is not revoked by going off air</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">restart sharing</span><span class="man-plate__v">your station re-registers under the <b>same stable node id</b> (the <code>&lt;station&gt;-&lt;model&gt;</code> callsign, persisted - never the hostname/port), so the same key reaches it again with no change on the bot box</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">restart the bot</span><span class="man-plate__v">nothing to re-issue - the two env lines are all the bot needs; reboot it whenever</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">broker redeploys</span><span class="man-plate__v">the node registry is persisted and re-hydrated (§4), so a broker restart does not invalidate the key or your station</span></div>
+            </div>
+            <p>Because the broker resolves a grant to <b>you</b> and routes only to
+              <b>your</b> nodes (it intersects the issuing account's nodes with the grant's
+              optional <code>--nodes</code> allow-list, server-side - a grant can never name
+              or reach a node you do not own), a leaked key cannot be pointed at someone
+              else's GPU, and your own services find your GPU again the moment it comes back
+              on air. This is the recommended path for petlings, a Minecraft chat bot, a
+              Ping-style concierge, or any service that should outlive a reboot - mint the
+              key once, set the two env lines, and never touch it again.</p>
+
             <h3>Caps, scope, and revoke</h3>
             <p>A fresh grant gets a conservative daily token cap by default so a forgotten
               or leaked key is self-limiting. Everything beyond <code>--name</code> and
@@ -562,8 +631,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <b>code card</b> where <kbd>c</kbd> copies the frequency code (shown once) and
               the broker keeps only its hash. Press <kbd>h</kbd> again to put the model back
               on the open market. To consume a private band from the app, tune in with the
-              code: from <b>[1] TUNE IN</b> press <kbd>Shift</kbd>+<kbd>F</kbd> (a guarded
-              key, deliberately not <kbd>f</kbd>) or run <code>/freq &lt;code&gt;</code>. The
+              code: from <b>[1] TUNE IN</b> press <kbd>~</kbd> (a guarded key, deliberately
+              not <kbd>f</kbd> - it pre-seeds the prompt with <code>/freq&nbsp;</code> so you
+              just paste the code) or run <code>/freq &lt;code&gt;</code> yourself. The
               band list then shows ONLY that frequency and the header reads
               <b>FREQ &lt;display&gt;</b> instead of <b>OPEN MARKET</b>; <kbd>esc</kbd> (or a
               bare <code>/freq</code>) clears the tune back to the open market.</p>
@@ -985,11 +1055,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>rogerai upgrade</code> pulls the
               latest, <code>rogerai upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.6.0</span><span class="man-plate__v"><b>Smart routing v2</b>: best bang-for-buck within your price range - reliability and speed now count, not just price (a flaky free node no longer wins on cost alone), load spreads across stations so no one node piles up and queues, new honest stations get a fair shot, and an <code>X-Roger-Pref</code> preference (cheap / fast / reliable / balanced). <b>Real signal + a kinder probe</b>: the 0-100 signal now reflects measured speed, latency, verified-serving, success and trust (idle stations stop hammering their GPUs - probing eases from 30s out to every 15min and snaps fresh on demand), and reasoning models (gpt-oss etc.) verify correctly instead of reading falsely low. <b>Real station data, no placeholders</b>: real per-model context window, a privacy-bucketed hardware class (<code>multi-gpu</code> / <code>single-gpu</code> / <code>apple</code> / <code>cpu</code>, never your exact rig), the real success rate (or an honest "no data"), and a new <kbd>i</kbd> station-detail view in the TUI with a "why is this signal a 71?" breakdown. <b>Privacy callsigns</b>: your station now shows a friendly callsign (e.g. <code>rustic-mink-92</code>) instead of your hostname and port; rename it with <code>rogerai share --node &lt;name&gt;</code> or <kbd>n</kbd> in SHARE. <b>API keys for bots</b>: generate, list and revoke grant keys on the website (<a href="/keys.html">/keys.html</a>) - a <code>rog-grant_</code> key is a drop-in <code>OPENAI_API_KEY</code> for headless bots (no login, no browser), with expiry and daily/monthly caps. <b>Payouts hardened</b>: starter credits are non-earning, a longer 120-day hold, dispute reversal on paid earnings, lineage-attributed clawback, and authenticated earnings.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.6.0</span><span class="man-plate__v"><b>Smart routing v2</b>: best bang-for-buck within your price range - reliability and speed now count, not just price (a flaky free node no longer wins on cost alone), load spreads across stations so no one node piles up and queues, new honest stations get a fair shot, and an <code>X-Roger-Pref</code> preference (cheap / fast / reliable / balanced). <b>Real signal + a kinder probe</b>: the 0-100 signal now reflects measured speed, latency, verified-serving, success and trust (idle stations stop hammering their GPUs - probing eases from 30s out to every 15min and snaps fresh on demand), and reasoning models (gpt-oss etc.) verify correctly instead of reading falsely low. <b>Real station data, no placeholders</b>: real per-model context window, a privacy-bucketed hardware class (<code>multi-gpu</code> / <code>single-gpu</code> / <code>apple</code> / <code>cpu</code>, never your exact rig), the real success rate (or an honest "no data"), and a new <kbd>i</kbd> station-detail view in the TUI with a "why is this signal a 71?" breakdown. <b>Privacy callsigns</b>: your station now shows a friendly callsign (e.g. <code>rustic-mink-92</code>) instead of your hostname and port; rename it with <code>rogerai share --node &lt;name&gt;</code> or <kbd>n</kbd> in SHARE. <b>API keys for bots</b>: generate, list and revoke grant keys on the website (<a href="/keys.html">/keys.html</a>) - a <code>rog-grant_</code> key is a drop-in <code>OPENAI_API_KEY</code> for headless bots (no login, no browser), with expiry and daily/monthly caps. <b>Payouts hardened</b>: starter credits are non-earning, a longer 120-day hold, dispute reversal on paid earnings, lineage-attributed clawback, and authenticated earnings. <b>Manual</b>: worked use cases - running many models at once (a second <code>rogerai use --port</code> or calling the broker direct with a grant key, §3), the grant-key "survives restarts" guarantee for always-on bots (§5), and private end-to-end frequencies (§5).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.2</span><span class="man-plate__v">Reliable multi-on-air: unique node id per band (fixes the re-register storm / flapping when several bands share a host); on-air slot limits (soft 4 via share.max_on_air, hard 20/account server-enforced); SHARE slot meter + multi-band tune-in display. Manual: a new "use RogerAI in opencode (and other OpenAI-compatible tools)" section (Appendix B2).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.1</span><span class="man-plate__v">Monthly spend cap (Groq-style budget): set a max $/month with <code>rogerai limit --monthly</code>; 80% and 100% notices; server-side enforced on every paid path (over budget -> 402 before dispatch); shown in balance + [3] CONFIG.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.5.0</span><span class="man-plate__v">Real SEV-SNP TEE confidential tier; private bands (frequency codes); payouts from the CLI; global price-safety; self-healing share + truthful ON AIR/RECONNECTING; Windows-ready (cmd /C, self-update, glyph fallback); report-a-station + moderation; /support; $1 starter credit.</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> (or <kbd>h</kbd> in SHARE) prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (or <kbd>Shift</kbd>+<kbd>F</kbd> / <code>/freq</code> in-app; same account = $0, or hand the code to a friend). Login-gated, 1 free band (broker-enforced), $5 packs in Phase 2 (see §5). <b>Real TEE confidential tier</b>: the gold <span class="cs">&#9670;</span> now means a node passed live AMD SEV-SNP remote attestation - nonce-bound (no replay), measurement-allowlisted, re-attested on a cadence, fail-closed; <code>share --confidential</code> needs real TEE hardware and refuses honestly otherwise (§4, §10). <b>Trust + safety surface</b>: a pre-dispatch Groq Llama Guard moderation screen on the relay and the public Ping concierge, a report-a-station control on every Models card (POSTs to the broker, auto-ejects on enough reports), <a href="mailto:abuse@rogerai.fyi">abuse@</a> + a real ToS/AUP + <code>security.txt</code> (§10). <b>Wallet</b>: a one-time $1 starter credit for the first 1000 accounts; consumer price-safety guards (a $10/1M default cap even with <code>--yes</code>, type-the-price above $20/1M) and operator ceilings ($100/1M out, $50/1M in) (§4, §6). <b>Self-healing SHARE</b>: a provider auto-re-registers when the broker restarts (the registry is persisted and re-hydrated; no manual restart), with truthful ON AIR vs RECONNECTING status. <code>rogerai support</code> opens the site/Discord. Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.4.0</span><span class="man-plate__v"><b>private bands</b>: <code>rogerai share --private</code> (or <kbd>h</kbd> in SHARE) prints a one-time frequency code (<code>147.520 MHz · 8F3K-9M2Q</code>) and keeps the band off the public dial; a box tunes in with <code>rogerai use &lt;model&gt; --freq &lt;code&gt;</code> (or <kbd>~</kbd> / <code>/freq</code> in-app; same account = $0, or hand the code to a friend). Login-gated, 1 free band (broker-enforced), $5 packs in Phase 2 (see §5). <b>Real TEE confidential tier</b>: the gold <span class="cs">&#9670;</span> now means a node passed live AMD SEV-SNP remote attestation - nonce-bound (no replay), measurement-allowlisted, re-attested on a cadence, fail-closed; <code>share --confidential</code> needs real TEE hardware and refuses honestly otherwise (§4, §10). <b>Trust + safety surface</b>: a pre-dispatch Groq Llama Guard moderation screen on the relay and the public Ping concierge, a report-a-station control on every Models card (POSTs to the broker, auto-ejects on enough reports), <a href="mailto:abuse@rogerai.fyi">abuse@</a> + a real ToS/AUP + <code>security.txt</code> (§10). <b>Wallet</b>: a one-time $1 starter credit for the first 1000 accounts; consumer price-safety guards (a $10/1M default cap even with <code>--yes</code>, type-the-price above $20/1M) and operator ceilings ($100/1M out, $50/1M in) (§4, §6). <b>Self-healing SHARE</b>: a provider auto-re-registers when the broker restarts (the registry is persisted and re-hydrated; no manual restart), with truthful ON AIR vs RECONNECTING status. <code>rogerai support</code> opens the site/Discord. Shell-style Up/Down input history in chat + the [0] agent. Clearer surfacing when the broker is down, a top-up hint on a 402, and a free-port fallback</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.3.0</span><span class="man-plate__v">web-parity visual redesign: one palette, signal meters, the compact "windowshade" [m], a band-browser with filter / sort / FREE-confidential-on-air toggles + a virtualized list, [d] disconnect from the list, and a clean GitHub device-login panel with a confirmed [L] logout</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.2.x</span><span class="man-plate__v">payout command group (<code>rogerai payout status|onboard|request|history</code>) - headless cash-out for Stripe Connect earnings; the in-app preset bank ([0]-[3], [L], [?]) with arrow-key navigation</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.0.0</span><span class="man-plate__v">the v4 line: the "Live Operating Manual" redesign across the CLI and web, and the <b>[0] AGENT</b> harness - an in-app tool-use loop with a <code>dj.md</code> persona, a <code>/model</code> picker, auto read/list/fetch + confirm-gated write/run, cwd-sandboxed, session-only</span></div>
