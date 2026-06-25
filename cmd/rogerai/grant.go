@@ -33,10 +33,31 @@ func cmdGrant(cfg config, args []string) error {
 		}
 		return client.GrantRevoke(cfg.Broker, args[1])
 	case "show":
-		if len(args) < 2 {
-			return fmt.Errorf("usage: rogerai grant show <name>")
+		// `grant show <name>`           -> scope/caps/usage (no secret).
+		// `grant show --secret <name>`  -> RECOVER a usable key (F4). The broker stores
+		//    only a hash of the secret (it is never recoverable), so recovery ROTATES:
+		//    the old key is revoked and a fresh one minted under the same name + free/
+		//    priced status. The new secret is printed once.
+		rest := args[1:]
+		secret := false
+		var name string
+		for _, a := range rest {
+			switch a {
+			case "--secret", "-secret":
+				secret = true
+			default:
+				if name == "" {
+					name = a
+				}
+			}
 		}
-		return client.GrantShow(cfg.Broker, args[1])
+		if name == "" {
+			return fmt.Errorf("usage: rogerai grant show [--secret] <name>")
+		}
+		if secret {
+			return grantRecoverSecret(cfg, name)
+		}
+		return client.GrantShow(cfg.Broker, name)
 	case "-h", "--help", "help":
 		grantUsage()
 		return nil
@@ -94,6 +115,11 @@ forgotten key is self-limiting; override with --daily-cap (or 0 to disable).
 		}
 		expiresAt = t
 	}
+	// Echo the effective daily cap up front (F4) so a later rate-limit is never a
+	// mystery: a fresh key is self-limiting at the default unless --daily-cap overrode it.
+	if *dailyCap > 0 {
+		fmt.Printf("daily cap: %d tokens/UTC-day (override with --daily-cap, or 0 to disable).\n", *dailyCap)
+	}
 	// --free was explicitly passed iff it appears in args (so a price can flip the
 	// default to priced, but an explicit --free always wins).
 	freeSet := flagPassed(fs, "free")
@@ -104,6 +130,45 @@ forgotten key is self-limiting; override with --daily-cap (or 0 to disable).
 		RPM: *rpm, DailyCap: *dailyCap, MonthlyCap: *monthlyCap,
 		ExpiresAt: expiresAt, Self: *self,
 	})
+}
+
+// grantRecoverSecret implements `grant show --secret <name>` (F4): recover a usable
+// key for a grant whose secret was lost. The broker keeps only a HASH of the secret
+// (it can never be re-displayed), so recovery ROTATES the key: the named grant is
+// revoked and a fresh FREE key is minted under the same name, printing the new secret
+// once. A priced/scoped grant is NOT rotated here (we cannot reconstruct its caps /
+// price / node scope from the CLI without silently dropping them) - the user is
+// pointed at `grant revoke` + `grant create` so nothing is lost by surprise.
+func grantRecoverSecret(cfg config, name string) error {
+	rows, err := client.GrantListRows(cfg.Broker)
+	if err != nil {
+		return err
+	}
+	var found *client.GrantInfo
+	for i := range rows {
+		if rows[i].Name == name {
+			found = &rows[i]
+			break
+		}
+	}
+	if found == nil {
+		return fmt.Errorf("no grant named %q (run `rogerai grant list`)", name)
+	}
+	if found.Price != "free" {
+		return fmt.Errorf("%q is a %s key - its caps/scope can't be reconstructed here. To re-key it: `rogerai grant revoke %s` then `rogerai grant create --name %s ...`", name, found.Price, name, name)
+	}
+	fmt.Printf("recovering %q: the old key is unrecoverable (only its hash is stored), so this ROTATES it -\n", name)
+	fmt.Println("the previous secret stops working and a fresh one is minted under the same name.")
+	if err := client.GrantRevoke(cfg.Broker, name); err != nil {
+		return err
+	}
+	secret, err := client.GrantCreateSecret(cfg.Broker, name, true)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\n  %s\n", secret)
+	fmt.Println("  save it now - it is shown only once.")
+	return nil
 }
 
 // parseExpires accepts a Go duration (30d / 720h) or an absolute date
@@ -157,6 +222,7 @@ func grantUsage() {
   rogerai grant create --name my-bots     a free key (they use your models, no login)
   rogerai grant list                      your keys + usage
   rogerai grant show <name>               one key's scope, caps, usage
+  rogerai grant show --secret <name>      lost a free key? rotate + reprint a fresh one
   rogerai grant revoke <name>             kill a key (effective next request)
 
   rogerai grant create --self --name hermes-box   a $0 key for your own remote box

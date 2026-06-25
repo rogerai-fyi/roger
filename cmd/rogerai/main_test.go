@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -255,5 +256,52 @@ func TestSeedSharePricing(t *testing.T) {
 	}
 	if len(sched) != 1 || !sched[0].Free {
 		t.Errorf("mixed schedule = %+v, want the saved FREE window appended", sched)
+	}
+}
+
+// TestOnAirLine verifies the single go-live success line (audit #5): the model,
+// station, and a free-vs-earning mode, ending at the website.
+func TestOnAirLine(t *testing.T) {
+	free := onAirLine("gpt-oss-120b", "brave-otter-37", 0, 0)
+	for _, want := range []string{"on air", "gpt-oss-120b", "brave-otter-37", "free", "rogerai.fyi"} {
+		if !strings.Contains(free, want) {
+			t.Errorf("free on-air line %q missing %q", free, want)
+		}
+	}
+	earn := onAirLine("qwen3-coder", "calm-fox-9", 0.20, 0.30)
+	for _, want := range []string{"qwen3-coder", "calm-fox-9", "earning", "$0.20", "$0.30", "rogerai.fyi"} {
+		if !strings.Contains(earn, want) {
+			t.Errorf("earning on-air line %q missing %q", earn, want)
+		}
+	}
+	if strings.Contains(earn, "free") {
+		t.Errorf("earning line should not say free: %q", earn)
+	}
+}
+
+// TestBalanceTopupAlias verifies the retired-but-still-working topup spellings under
+// `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and the
+// `--topup=<usd>` form, plus the bare `balance` (no alias).
+func TestBalanceTopupAlias(t *testing.T) {
+	cases := []struct {
+		args    []string
+		wantUSD float64
+		wantOK  bool
+	}{
+		{nil, 0, false},                        // bare balance -> show, no topup
+		{[]string{"topup"}, 10, true},          // positional, default $10
+		{[]string{"topup", "25"}, 25, true},    // positional + amount
+		{[]string{"topup", "$25"}, 25, true},   // $ prefix tolerated
+		{[]string{"--topup"}, 10, true},        // flag, default $10
+		{[]string{"--topup", "40"}, 40, true},  // flag + amount
+		{[]string{"--topup=15"}, 15, true},     // flag=value
+		{[]string{"--topup=$15"}, 15, true},    // flag=$value
+		{[]string{"topup", "bogus"}, 10, true}, // bad amount -> default $10
+	}
+	for _, c := range cases {
+		gotUSD, gotOK := balanceTopupAlias(c.args)
+		if gotOK != c.wantOK || (gotOK && gotUSD != c.wantUSD) {
+			t.Errorf("balanceTopupAlias(%v) = ($%.0f, %v), want ($%.0f, %v)", c.args, gotUSD, gotOK, c.wantUSD, c.wantOK)
+		}
 	}
 }
