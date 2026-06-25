@@ -834,6 +834,10 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 						b.updateTPS(node.NodeID, tps)
 					}
 				}
+				// We just measured this node for FREE off real traffic: reset its probe
+				// backoff + push the next probe out, so an actively-used node is barely
+				// probed (and reads as freshly verified, not stale).
+				b.markMeasured(node.NodeID)
 				w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
 				w.Header().Set("X-RogerAI-Provider", node.NodeID)
 				w.Header().Set("X-RogerAI-Cost", ftoa(round6(cost)))
@@ -943,6 +947,9 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 					b.updateTPS(node.NodeID, float64(rec.CompletionTokens)/el)
 				}
 			}
+			// Free measurement off real (streamed) traffic: reset the probe backoff so
+			// an actively-used node is barely probed and reads as freshly verified.
+			b.markMeasured(node.NodeID)
 			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
 		}
 	case <-time.After(300 * time.Second):
@@ -1118,6 +1125,15 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			if !found || c.beats(bestC) {
 				best, bestOffer, bestC, found = n, o, c, true
 			}
+		}
+	}
+	// Demand-driven / just-in-time: we are about to route to `best`. If its performance
+	// reading is STALE (last probe/traffic older than the staleness horizon), schedule a
+	// near-term probe so the NEXT request routes on fresh data. We do NOT block this
+	// request on it - it routes on the current reading; the probe refreshes async.
+	if found && b.probe.enabled() {
+		if st := b.probeSched[best.NodeID]; st == nil || b.probe.measurementStale(st.lastMeasured, now) {
+			b.demandProbeSoonLocked(best.NodeID, now)
 		}
 	}
 	b.metricsMu.Unlock()

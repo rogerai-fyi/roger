@@ -72,8 +72,18 @@ func nextCanary(round uint64) canaryFingerprint {
 // Active-probe defaults. The probe is ON by default now (nodes get MEASURED before
 // consumer traffic arrives, so the signal/pick are grounded the moment a node comes
 // on air). Operators can still tune the cadence or turn it fully off via env.
+// The PERFORMANCE probe (a real inference) is ADAPTIVE. A freshly-on-air node is
+// probed at the FLOOR (ROGERAI_PROBE_INTERVAL); each idle round it survives without
+// real traffic or fresh demand DOUBLES its personal interval up to the CEILING
+// (ROGERAI_PROBE_CEILING), so a persistently-idle GPU collapses toward one probe
+// every ~15m instead of every 30s. Real served traffic (a free measurement) and
+// fresh demand (a /discover, /market, or a stale-candidate pick for the model) reset
+// the backoff toward the floor so an actively-used or actively-browsed node stays
+// fresh. NOTE: this is ONLY the expensive performance probe - cheap liveness (the
+// heartbeat + nodeTTL) is fully decoupled and unchanged.
 const (
-	defaultProbeInterval = 30 * time.Second // ROGERAI_PROBE_INTERVAL default (seconds)
+	defaultProbeInterval = 30 * time.Second // ROGERAI_PROBE_INTERVAL default - the adaptive backoff FLOOR
+	defaultProbeCeiling  = 15 * time.Minute // ROGERAI_PROBE_CEILING default - the idle backoff CAP
 	defaultProbePerOwner = 4                // ROGERAI_PROBE_PER_OWNER default
 	// canaryMaxTokens is the per-probe completion budget. Sized so a reasoning model
 	// can emit its reasoning channel AND still land a short answer; a small budget
@@ -83,16 +93,17 @@ const (
 
 // probeConfig holds the active-probe wiring (env, see .env.example).
 type probeConfig struct {
-	interval time.Duration // ROGERAI_PROBE_INTERVAL seconds (0 = OFF; default 30s)
-	// perOwner caps how many of a single owner's nodes are probed per round, so a
-	// 20-node owner is sampled (a few nodes/round, rotating) instead of hammered.
-	// 0 = no per-owner cap.
-	perOwner int
+	interval time.Duration // ROGERAI_PROBE_INTERVAL seconds (0 = OFF; default 30s) - the backoff FLOOR
+	// ceiling is the maximum per-node probe interval an idle node backs off to. The
+	// loop still TICKS at the floor (the scheduling resolution); a backed-off node is
+	// simply skipped until its much later next-due lands. Default 15m. Clamped >= floor.
+	ceiling  time.Duration
+	perOwner int    // max nodes of a single owner probed per round (0 = no cap)
 	round    uint64 // monotonic round counter (rotates the canary + the per-owner sample)
 }
 
-// loadProbe reads the active-probe config. ON by default (30s); set
-// ROGERAI_PROBE_INTERVAL=0 to disable.
+// loadProbe reads the active-probe config. ON by default (30s floor -> 15m ceiling);
+// set ROGERAI_PROBE_INTERVAL=0 to disable.
 func loadProbe() probeConfig {
 	interval := defaultProbeInterval
 	if v := os.Getenv("ROGERAI_PROBE_INTERVAL"); v != "" {
@@ -100,15 +111,24 @@ func loadProbe() probeConfig {
 			interval = time.Duration(n) * time.Second // 0 = explicitly OFF
 		}
 	}
+	ceiling := defaultProbeCeiling
+	if v := os.Getenv("ROGERAI_PROBE_CEILING"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ceiling = time.Duration(n) * time.Second
+		}
+	}
+	if ceiling < interval {
+		ceiling = interval // a ceiling below the floor is meaningless: no backoff room
+	}
 	perOwner := defaultProbePerOwner
 	if v := os.Getenv("ROGERAI_PROBE_PER_OWNER"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			perOwner = n
 		}
 	}
-	c := probeConfig{interval: interval, perOwner: perOwner}
+	c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner}
 	if c.enabled() {
-		log.Printf("active probe: ENABLED (every %s; canary + TTFT + clean tok/s, unbilled; per-owner cap %d/round)", c.interval, c.perOwner)
+		log.Printf("active probe: ENABLED (adaptive %s floor -> %s ceiling, doubling while idle; canary + TTFT + clean tok/s, unbilled; per-owner cap %d/round)", c.interval, c.ceiling, c.perOwner)
 	} else {
 		log.Printf("active probe: DISABLED (ROGERAI_PROBE_INTERVAL=0)")
 	}
@@ -117,9 +137,161 @@ func loadProbe() probeConfig {
 
 func (c probeConfig) enabled() bool { return c.interval > 0 }
 
-// proberLoop runs every interval and probes the idle nodes once per round. Started
-// from main when the probe is enabled. Each round is jittered (see probeOnce) so a
-// fleet that all came on air together is not probed in a synchronized burst.
+// measurementStale reports whether a node's last measurement (probe or real traffic)
+// is old enough to count as "not recently verified": older than the ceiling, the
+// horizon an idle node backs off to. A never-measured node (zero time) is stale.
+func (c probeConfig) measurementStale(lastMeasured, now time.Time) bool {
+	if lastMeasured.IsZero() {
+		return true
+	}
+	return now.Sub(lastMeasured) > c.ceiling
+}
+
+// stalenessFactor is a gentle recency/confidence multiplier (0.7..1.0) on the
+// MEASURED signal terms. A node measured within the ceiling reads at full confidence
+// (1.0); past the ceiling it earns a MODEST haircut that deepens linearly to a floor
+// of 0.7 over one further ceiling-span, so a long-unmeasured node honestly reads "not
+// recently verified" without cratering an otherwise-good idle node. A fresh
+// measurement restores it to 1.0 immediately. A zero ceiling (probe off) => 1.0 (no
+// staleness notion). age is now - lastMeasured.
+func (c probeConfig) stalenessFactor(age time.Duration) float64 {
+	if c.ceiling <= 0 || age <= c.ceiling {
+		return 1.0
+	}
+	const floor = 0.7
+	over := float64(age-c.ceiling) / float64(c.ceiling) // 0 at the horizon, 1 a ceiling later
+	if over > 1 {
+		over = 1
+	}
+	return 1.0 - (1.0-floor)*over
+}
+
+// backoffInterval is the per-node probe interval at backoff level lvl: the floor
+// doubled lvl times, clamped to the ceiling. Level 0 = floor (freshly on air / just
+// served real traffic / just demanded). Each idle round that passes a node over
+// increments its level, so its effective cadence walks floor -> 2x -> 4x -> ... ->
+// ceiling.
+func (c probeConfig) backoffInterval(lvl int) time.Duration {
+	d := c.interval
+	for i := 0; i < lvl && d < c.ceiling; i++ {
+		d *= 2
+		if d <= 0 || d > c.ceiling { // overflow guard / clamp
+			return c.ceiling
+		}
+	}
+	if d > c.ceiling {
+		d = c.ceiling
+	}
+	return d
+}
+
+// probeState is the per-node ADAPTIVE schedule for the expensive performance probe.
+// It is the only state that makes idle probing lazy; liveness is untouched.
+//
+//   - nextDue: the earliest time this node is eligible for another performance probe.
+//     The loop ticks at the floor but only probes nodes whose nextDue has passed.
+//   - backoff: the current exponential level (0 = floor). Each idle probe round
+//     increments it (so the interval doubles); real traffic or demand resets it to 0.
+//   - lastMeasured: when this node's performance was last established by a PASSED probe
+//     OR a real served request. Drives the staleness factor in the signal (market.go).
+//
+// Guarded by metricsMu (same lock as trust/tps), so it is consistent with the metrics
+// it schedules around. Reset-on-restart is fine: a fresh broker just re-probes every
+// node at the floor once and re-backs-off, which is the correct cold-start behaviour.
+type probeState struct {
+	nextDue      time.Time
+	backoff      int
+	lastMeasured time.Time
+}
+
+// probeSched returns the per-node schedule map, lazily initialised. Caller holds
+// metricsMu.
+func (b *broker) probeSchedLocked() map[string]*probeState {
+	if b.probeSched == nil {
+		b.probeSched = map[string]*probeState{}
+	}
+	return b.probeSched
+}
+
+// markMeasured records that a node's performance was just established for FREE by a
+// real served request (the relay/stream settle path): reset its backoff to the floor
+// and push the next probe out by one floor interval, so an actively-used node is
+// barely probed. Also stamps lastMeasured so the signal reads it as freshly verified.
+// Cheap + concurrency-safe; a no-op when the probe is disabled.
+func (b *broker) markMeasured(nodeID string) {
+	if !b.probe.enabled() {
+		return
+	}
+	now := time.Now()
+	b.metricsMu.Lock()
+	sched := b.probeSchedLocked()
+	st := sched[nodeID]
+	if st == nil {
+		st = &probeState{}
+		sched[nodeID] = st
+	}
+	st.backoff = 0
+	st.lastMeasured = now
+	// We just measured it for free; the next probe is unnecessary until at least a
+	// floor interval of silence, and is extended further as traffic keeps arriving.
+	if due := now.Add(b.probe.interval); due.After(st.nextDue) {
+		st.nextDue = due
+	}
+	b.metricsMu.Unlock()
+}
+
+// demandProbeSoon is the just-in-time hook: a consumer is actively interested in a
+// node (a /discover or /market browse, or a pick about to route to it on a STALE
+// reading), so pull its next performance probe back toward the floor and reset the
+// backoff. The probe is asynchronous - the in-flight browse/route is NOT blocked on
+// it; it just refreshes the data for the next one. A node already due sooner is left
+// alone. No-op when the probe is disabled.
+func (b *broker) demandProbeSoon(nodeID string) {
+	if !b.probe.enabled() {
+		return
+	}
+	b.metricsMu.Lock()
+	b.demandProbeSoonLocked(nodeID, time.Now())
+	b.metricsMu.Unlock()
+}
+
+// demandProbeSoonLocked is demandProbeSoon's body; caller holds metricsMu (pick reads
+// metrics under that lock and schedules in the same critical section).
+func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
+	sched := b.probeSchedLocked()
+	st := sched[nodeID]
+	if st == nil {
+		st = &probeState{}
+		sched[nodeID] = st
+	}
+	st.backoff = 0
+	if st.nextDue.IsZero() || st.nextDue.After(now) {
+		st.nextDue = now // eligible on the next round (floor resolution)
+	}
+}
+
+// measurementStalenessLocked returns the node's signal staleness-confidence factor
+// (0.7..1.0; 1.0 = freshly measured within the ceiling). It folds the last-measured
+// time through probeConfig.stalenessFactor so the market/discover signal MODESTLY
+// discounts a long-unmeasured node. A node we have never measured (or a disabled
+// probe) reads at full confidence here - it has no probe evidence to discount; the
+// signal's neutral handling of unmeasured speed/latency already covers that case.
+// Caller holds metricsMu.
+func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float64 {
+	if !b.probe.enabled() {
+		return 1.0
+	}
+	st := b.probeSched[nodeID]
+	if st == nil || st.lastMeasured.IsZero() {
+		return 1.0 // never measured: nothing to discount (unmeasured terms are neutral)
+	}
+	return b.probe.stalenessFactor(now.Sub(st.lastMeasured))
+}
+
+// proberLoop ticks at the FLOOR interval - the scheduling resolution - and probes the
+// nodes whose adaptive next-due has arrived. Started from main when the probe is
+// enabled. Each round is jittered (see probeOnce) so a fleet that all came on air
+// together is not probed in a synchronized burst.
 func (b *broker) proberLoop() {
 	for range time.Tick(b.probe.interval) {
 		b.probeOnce()
@@ -167,15 +339,29 @@ func (b *broker) probeOnce() {
 		model string
 		owner string
 	}
+	now := time.Now()
 	var cands []cand
 	b.mu.Lock()
 	b.metricsMu.Lock()
+	sched := b.probeSchedLocked()
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
 		if b.inflight[n.NodeID] > 0 {
 			continue // skip a node that is currently serving real traffic
+		}
+		// Adaptive schedule: a node is only probed when its personal next-due has
+		// arrived. A freshly-seen node has no state yet => due immediately (floor); an
+		// idle node backs off (nextDue pushed out each round it is probed) toward the
+		// ceiling; real traffic / demand reset it (markMeasured / demandProbeSoon).
+		st := sched[n.NodeID]
+		if st == nil {
+			st = &probeState{} // first sight: due now (zero nextDue), backoff 0
+			sched[n.NodeID] = st
+		}
+		if !st.nextDue.IsZero() && st.nextDue.After(now) {
+			continue // backed off: not due yet this round
 		}
 		var model string
 		for _, o := range n.Offers {
@@ -232,6 +418,26 @@ func (b *broker) probeOnce() {
 			targets = append(targets, target{node: c.node, model: c.model})
 		}
 	}
+
+	// Advance the adaptive backoff for the nodes we are about to probe THIS round
+	// (only the ones that survived the per-owner cap - a node deferred by the cap keeps
+	// its earlier next-due and is picked up on a following round). Each probe round a
+	// node sits through without real traffic doubles its personal interval up to the
+	// ceiling, so a persistently-idle node collapses toward the ~15m cap. markMeasured
+	// (real traffic) and demandProbeSoon (browse/route) reset this.
+	b.metricsMu.Lock()
+	for _, t := range targets {
+		st := sched[t.node.NodeID]
+		if st == nil {
+			st = &probeState{}
+			sched[t.node.NodeID] = st
+		}
+		st.nextDue = now.Add(b.probe.backoffInterval(st.backoff))
+		if st.backoff < 64 { // cap the level (backoffInterval already clamps to ceiling)
+			st.backoff++
+		}
+	}
+	b.metricsMu.Unlock()
 
 	// Probe nodes concurrently: each probeNode blocks waiting for its result, so
 	// running them in parallel keeps one slow/dead node from stalling the round.
@@ -458,7 +664,17 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 		if tps > 0 {
 			tq.probeTPS = ewma(tq.probeTPS, tps, 0.3)
 		}
-	} else {
+		// A live probe is a fresh measurement: stamp lastMeasured so the signal's
+		// staleness factor restores this node to full confidence (market.go).
+		sched := b.probeSchedLocked()
+		st := sched[nodeID]
+		if st == nil {
+			st = &probeState{}
+			sched[nodeID] = st
+		}
+		st.lastMeasured = time.Now()
+	}
+	if !alive {
 		tq.probeFails++
 	}
 	b.trust[nodeID] = tq
