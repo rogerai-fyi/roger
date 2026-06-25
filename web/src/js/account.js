@@ -82,6 +82,7 @@
       text("balance", cr(a.balance));
       text("ghid", a.github_id || "-");
       text("connect", (a.connect && a.connect.status) || "none");
+      text("since", a.created_at ? when(a.created_at) : "-");
       var em = document.getElementById("email");
       if (em && a.email) em.value = a.email;
       show("card");
