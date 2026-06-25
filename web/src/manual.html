@@ -743,7 +743,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <span class="man-fig">FIG. 3 - EARNINGS LIFECYCLE</span>
             <pre>serve request  &rarr;  credits your 70% share
       &darr;
-   [HELD]      held through the 90-day window (covers the chargeback tail)
+   [HELD]      held through the 120-day window (covers the chargeback tail)
       &darr;
   [PAYABLE]    hold cleared, no open dispute, Stripe KYC complete
       &darr;
@@ -751,14 +751,14 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
 
             <h3>The policy</h3>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">90 days from a request's settlement before earnings become payable - the hold itself covers the late-chargeback tail, so no separate reserve is withheld</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">Minimum hold</span><span class="man-plate__v">120 days from a request's settlement before earnings become payable - the hold itself covers the late-chargeback tail, so no separate reserve is withheld</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Minimum payout</span><span class="man-plate__v">$25 - below this, transfer and reporting overhead is not worth it</span></div>
               <div class="man-plate__row"><span class="man-plate__k">Schedule</span><span class="man-plate__v">you request; payable balances are released on a monthly batch</span></div>
               <div class="man-plate__row"><span class="man-plate__k">KYC gate</span><span class="man-plate__v">Stripe Connect onboarding (transfers capability active) before any payout</span></div>
             </div>
-            <p>One line: a 90-day hold, a $25 minimum, monthly batched payouts, and
+            <p>One line: a 120-day hold, a $25 minimum, monthly batched payouts, and
               mandatory Connect KYC before any payout. There is no separate reserve - the
-              90-day hold is the protection. Earnings still accrue (to held) for an
+              120-day hold is the protection. Earnings still accrue (to held) for an
               un-onboarded operator, so supply is not discouraged - they are just not
               transferable until KYC clears.</p>
 

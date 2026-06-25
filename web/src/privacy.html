@@ -31,11 +31,16 @@
 
     <section class="panel">
       <h2>Payments and payouts</h2>
-      <p>Stripe is the payments provider and money transmitter. Top-ups run through Stripe
-        Checkout and payouts through Stripe Connect. We never see, store, or process your
-        card number, bank details, or KYC identity documents - Stripe holds all of that. On
-        our side we keep only a wallet balance, a ledger of top-ups and spend, accrued
-        earnings, and the Stripe account/reference ids needed to reconcile a payment.</p>
+      <p>Stripe is the payments provider and the regulated money services business that moves
+        the funds. Top-ups run through Stripe Checkout and operator payouts through Stripe
+        Connect after a 120-day hold and Stripe KYC. We never see, store, or process your card
+        number, bank details, or KYC identity documents - Stripe holds all of that. On our side
+        we keep only a wallet balance, a ledger of top-ups and spend, accrued earnings (your 70%
+        share after the 30% platform fee), and the Stripe account/reference ids needed to
+        reconcile a payment. For operators, tax and reporting obligations (for example a US Form
+        1099) may require Stripe and/or us to collect tax information and report earnings to the
+        relevant tax authority; the money, fee, and tax terms are in the
+        <a href="/tos.html">Terms</a>.</p>
     </section>
 
     <section class="panel">
@@ -59,6 +64,14 @@
         for it - but it does mean the text is read by the screen at dispatch time, and is
         sent to <b>Groq</b> (below), our moderation provider, as a third party for that
         check.</p>
+      <p><b>The one mandatory exception: child sexual abuse material (CSAM).</b> If the safety
+        screen flags a prompt as apparent CSAM, US law (18 USC 2258A) requires us to preserve
+        the offending request and report it to the National Center for Missing &amp; Exploited
+        Children (NCMEC). In that single case the flagged request is preserved encrypted and
+        access-controlled for a limited period, under a pseudonym, solely to meet that legal
+        obligation and to distinguish repeat offenders. This is the only situation in which we
+        retain prompt content, and we have zero tolerance for CSAM (see the Acceptable Use
+        Policy in the Terms).</p>
       <p><b>Ping, the on-site concierge.</b> The little chat assistant on the website answers
         questions about RogerAI. It first tries a free on-air community station; if none is
         available it falls back to <b>Groq</b>. So a message you type into Ping may be sent to
@@ -80,7 +93,8 @@
       <p>Operationally we keep request and billing records (above), plus standard server logs
         needed to run and secure the service - for example error traces and abuse/fraud
         signals. We retain de-identified financial records for the legal retention window
-        (tax and anti-money-laundering rules) even after an account is deleted.</p>
+        (tax and anti-money-laundering rules - typically up to 7 years) even after an account
+        is deleted.</p>
     </section>
 
     <section class="panel">
