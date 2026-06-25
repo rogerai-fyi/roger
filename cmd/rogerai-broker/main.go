@@ -13,9 +13,11 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -120,6 +122,33 @@ type broker struct {
 	// in-memory maps remain the authoritative hot-read path; the shared layer only
 	// write-throughs liveness and feeds a background merge loop. See sharedstore.go.
 	shared sharedStore
+
+	// multiInstance turns on the PRE-SCALE Stage 2 cross-instance job/result/stream
+	// RENDEZVOUS bus (sharedstore.go): a job picked on THIS instance can be served by a
+	// provider long-polling a PEER instance, and the result/stream flows back over the
+	// Valkey bus to this (originating) instance, which relays it to the waiting consumer.
+	// It is gated behind ROGERAI_MULTI_INSTANCE=1 AND requires a wired shared backend
+	// (ROGERAI_REDIS_URL); UNSET (the default + the DO single-instance deploy) leaves it
+	// false and EVERY relay/poll/stream path uses the in-memory channels EXACTLY as
+	// today (byte-for-byte, zero allocation). When true, the relay dispatch, the poll,
+	// the non-stream result, and the SSE stream all additionally go over the bus so the
+	// rendezvous works across instances. The pre-dispatch credit Hold and the Postgres
+	// Finalize are unchanged (already durable/shared) - the bus only carries the
+	// transient handoff, and a bus error fails the request cleanly (never double-charge).
+	multiInstance bool
+
+	// instanceID identifies THIS broker process in the shared inflight hash (each
+	// instance write-throughs its own count under this field; a peer sums the others).
+	// Random per process - reset-on-restart is fine (a crashed instance's stale field
+	// ages out via inflightTTL). Empty when multi-instance is off.
+	instanceID string
+
+	// peerInflight is the merged SUM of OTHER instances' in-flight counts per node
+	// (cross-instance capacity), refreshed on the same background loop as liveness via
+	// mergeSharedInflight. pickFor adds it to this instance's exact local b.inflight so
+	// the load factor is capacity-aware across instances. Guarded by metricsMu. Empty /
+	// unused when multi-instance is off (zero behavior change).
+	peerInflight map[string]int
 
 	// cacheFlight collapses a CONCURRENT cache miss/expiry on a single hot key into ONE
 	// compute (a dogpile/thundering-herd guard for serveCachedJSON). Without it, every
@@ -278,6 +307,25 @@ func main() {
 		b.anonRL.name, b.anonRL.shared = "anon", b.shared
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
 		go b.syncLiveness()
+		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
+		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
+		// Valkey backend (the only place jobs/results/chunks can rendezvous across
+		// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
+		// in-memory single-instance fast-path, byte-for-byte unchanged. The DO spec stays
+		// instance_count:1, so this is off in production until we deliberately scale out.
+		if multiInstanceEnabled() {
+			b.multiInstance = true
+			b.instanceID = newInstanceID()
+			b.peerInflight = map[string]int{}
+			go b.syncInflight() // merge peer inflight on the same cadence as liveness
+			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
+		}
+	} else if multiInstanceEnabled() {
+		// Fail SAFE, not closed: the flag was set but there is no shared backend to
+		// rendezvous over, so we CANNOT do cross-instance handoff. Stay single-instance
+		// in-memory (the correct behavior for one instance) and warn loudly rather than
+		// half-enabling a broken bus. This keeps a misconfig from silently dropping jobs.
+		log.Printf("multi-instance: ROGERAI_MULTI_INSTANCE set but ROGERAI_REDIS_URL is not wired - staying single-instance in-memory (set ROGERAI_REDIS_URL to enable the cross-instance bus)")
 	}
 	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
 	// station, then Groq). Stored as fields so tests can stub each branch
@@ -434,12 +482,68 @@ func (b *broker) lockedPrice(user, node, model string, curIn, curOut float64) (i
 	defer b.mu.Unlock()
 	key := user + "|" + node + "|" + model
 	now := time.Now()
+
+	// MULTI-INSTANCE (Stage 2): the 24h price-lock must be honored on ANY instance, so
+	// the quote is shared in Valkey. Read the SHARED quote first (a quote locked on a
+	// peer instance must win here); fall back to the local in-memory quote on a miss or
+	// any bus error (graceful degrade to per-instance locking - never blocks the
+	// request). The in-memory b.quotes stays the authoritative path when the flag is off
+	// (b.shared==nil), so the single-instance behavior is byte-for-byte unchanged.
+	if b.multiInstance && b.shared != nil {
+		if sq, ok := b.sharedQuoteGet(key); ok && now.Before(sq.until) {
+			b.quotes[key] = sq // mirror locally so a later bus outage still honors it
+			return min(sq.in, curIn), min(sq.out, curOut), sq.until
+		}
+	}
+
 	q, ok := b.quotes[key]
 	if !ok || now.After(q.until) {
 		q = priceQuote{in: curIn, out: curOut, until: now.Add(b.lockWin)}
 		b.quotes[key] = q
+		// Write the new lock through to the shared store so peers honor it. Best-effort:
+		// a failure just means a peer mints its own (equal) quote until the next write.
+		if b.multiInstance && b.shared != nil {
+			b.sharedQuoteSet(key, q)
+		}
 	}
 	return min(q.in, curIn), min(q.out, curOut), q.until
+}
+
+// sharedQuoteKey namespaces a shared price-lock under the cache keyspace (distinct from
+// the market/metrics cache via the "quote:" infix). The quote is small + JSON-encoded.
+func sharedQuoteKey(key string) string { return "quote:" + key }
+
+// sharedQuoteGet reads a cross-instance price-lock. Any miss/bus error returns ok=false
+// so the caller falls back to the local quote (never fails the request).
+func (b *broker) sharedQuoteGet(key string) (priceQuote, bool) {
+	val, found, err := b.shared.cacheGet(sharedQuoteKey(key))
+	if err != nil || !found {
+		return priceQuote{}, false
+	}
+	var w struct {
+		In, Out float64
+		Until   int64
+	}
+	if json.Unmarshal(val, &w) != nil {
+		return priceQuote{}, false
+	}
+	return priceQuote{in: w.In, out: w.Out, until: time.Unix(w.Until, 0)}, true
+}
+
+// sharedQuoteSet write-throughs a price-lock with a TTL == the remaining lock window, so
+// the shared entry expires exactly when the lock would. Best-effort (non-fatal).
+func (b *broker) sharedQuoteSet(key string, q priceQuote) {
+	ttl := time.Until(q.until)
+	if ttl <= 0 {
+		return
+	}
+	w := struct {
+		In, Out float64
+		Until   int64
+	}{q.in, q.out, q.until.Unix()}
+	if body, err := json.Marshal(w); err == nil {
+		_ = b.shared.cacheSet(sharedQuoteKey(key), body, ttl)
+	}
 }
 
 // requireBrokerKey mirrors requireLive (see billing.go): when set on the live broker
@@ -453,6 +557,30 @@ func requireBrokerKey() bool {
 		return true
 	}
 	return false
+}
+
+// multiInstanceEnabled reports whether ROGERAI_MULTI_INSTANCE requests the Stage 2
+// cross-instance rendezvous bus. It is the SECOND gate (after a wired shared backend):
+// main only sets b.multiInstance when this is true AND b.shared != nil. Off by default
+// (the in-memory single-instance fast-path). Accepts 1/true/yes/on.
+func multiInstanceEnabled() bool {
+	switch strings.ToLower(os.Getenv("ROGERAI_MULTI_INSTANCE")) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// newInstanceID returns a random per-process id used as this instance's field in the
+// shared inflight hash. Derived from the broker key seed is unnecessary (it is not a
+// secret), so a fresh random hex is enough; reset-on-restart is fine (a crashed
+// instance's stale inflight field ages out via inflightTTL).
+func newInstanceID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // resolveBrokerKey returns the broker's stable signing identity from the hex
