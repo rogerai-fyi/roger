@@ -101,11 +101,14 @@
               <option value="signal">strongest signal</option>
               <option value="cheapest">cheapest</option>
               <option value="fastest">fastest</option>
+              <option value="latency">lowest latency (ttft)</option>
+              <option value="success">highest success</option>
               <option value="stations">most stations</option>
               <option value="ctx">largest context</option>
             </select>
           </label>
           <button class="tuner__chip" id="fltFree"  type="button" aria-pressed="false">free now</button>
+          <button class="tuner__chip" id="fltVer"   type="button" aria-pressed="false">verified serving <span aria-hidden="true">&#10003;</span></button>
           <button class="tuner__chip" id="fltConf"  type="button" aria-pressed="false">confidential <span class="cs" aria-hidden="true">&#9670;</span></button>
           <button class="tuner__chip is-on" id="fltOn" type="button" aria-pressed="true">on air</button>
           <button class="tuner__chip" id="fltSeen" type="button" aria-pressed="false">include offline / seen</button>
@@ -148,7 +151,8 @@
         <p class="bands-panel__empty mono" id="bandEmpty" hidden>no models match - widen the search or clear the filters.</p>
 
         <p class="market__foot mono" id="bandFoot">
-          <span class="ember">◉</span> on air · <span class="cs">&#9670;</span> TEE-verified confidential (real hardware attestation; others are standard) ·
+          <span class="ember">◉</span> on air · <span class="band-tag band-tag--ver">&#10003; verified</span> passed the broker live serving probe ·
+          <span class="cs">&#9670;</span> TEE-verified confidential (real hardware attestation; others are standard) ·
           <span class="band-glyph">▁▂▃▄▅▆▇█</span> signal · prices in $ / 1M tokens · real data only
         </p>
       </div>
@@ -192,16 +196,22 @@
             </p>
           </div>
 
-          <!-- right: lineage / schedule / how to tune in -->
+          <!-- right: why-this-signal / lineage / schedule / how to tune in -->
           <aside class="qsl__col qsl__col--meta">
+            <!-- the marquee transparency feature: the broker's authoritative
+                 signal breakdown (terms{} summing to total). Real data only;
+                 rendered by bands.js renderTermBar(). -->
+            <div class="qsl__block">
+              <span class="qsl__bk mono">WHY THIS SIGNAL</span>
+              <div class="qsl-terms" id="qslTerms" aria-label="Signal breakdown by term"></div>
+            </div>
             <div class="qsl__block">
               <span class="qsl__bk mono">LINEAGE</span>
               <p class="mono qsl__line"><span class="cs">&#9670;</span> ed25519 co-signed - weights · shard · token</p>
               <p class="mono qsl__line" id="qslVerify">verification: -</p>
             </div>
             <div class="qsl__block">
-              <span class="qsl__bk mono">TIME-OF-USE</span>
-              <div class="qsl__hours" id="qslHours" aria-label="Time-of-use availability, 24h"></div>
+              <span class="qsl__bk mono">SCHEDULE</span>
               <p class="mono qsl__line" id="qslSched">schedule: continuous</p>
             </div>
             <div class="qsl__block">

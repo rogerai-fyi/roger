@@ -99,6 +99,8 @@
 }
 .dial__chip b { color: var(--ink-900); font-weight: var(--weight-semi); }
 .dial__chip .meter__k { margin-right: 4px; color: var(--ink-400); }
+.dial__ver { color: var(--ink-900); font-weight: var(--weight-semi); margin-left: 2px; }
+.dial__tee { margin-left: 2px; }
 .dial__cue { font-size: 0.68rem; color: var(--ink-400); letter-spacing: 0; }
 
 @media (max-width: 560px) {
@@ -239,9 +241,16 @@
 .band-prov { display: block; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); margin-top: 2px; }
 .band-prov--idle { color: var(--ink-400); font-weight: var(--weight-regular); }
 .band-ctx { display: inline-block; font-size: var(--t-xs); color: var(--ink-400); margin-top: 2px; }
+/* real probe metrics + coarse hardware class under the model name */
+.band-meta { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: 3px; align-items: baseline; }
+.band-perf { font-size: var(--t-xs); color: var(--ink-500); letter-spacing: 0; }
+.band-hw { font-size: 0.625rem; letter-spacing: 0.06em; color: var(--ink-500);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs); padding: 0 5px; text-transform: uppercase; }
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--free { color: var(--live); border-color: var(--live); }
+/* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
+.band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
 /* previously-seen, now-offline rows: real history, dimmed (never invented) */
 .band-row--seen { opacity: .5; }
@@ -321,6 +330,8 @@
 .qsl-cs__sign .band-dot--on { color: var(--live); }
 .qsl-cs__sign .band-dot--off { color: var(--ink-300); }
 .qsl-cs__reg { font-size: var(--t-xs); color: var(--ink-400); letter-spacing: 0.04em; }
+.qsl-cs__meta { display: inline; margin-left: var(--s-2); font-size: var(--t-xs); color: var(--ink-400); }
+.qsl-mark--ver { color: var(--ink-900); font-weight: var(--weight-semi); }
 .qsl__priv { margin-top: var(--s-4); font-size: var(--t-xs); color: var(--ink-400); line-height: 1.5; }
 .qsl__priv b { color: var(--ink-700); }
 
@@ -334,9 +345,38 @@
 .qsl__endpoint { margin: 0; font-size: var(--t-xs); color: var(--ink-900); }
 .qsl__epnote { color: var(--ink-400); }
 
-.qsl__hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
-.qsl-hr { height: 14px; background: var(--hairline); border-radius: 1px; }
-.qsl-hr--on { background: var(--live); opacity: .85; }
+/* ---------- "why this signal": the broker term breakdown -------------
+   A stacked horizontal equalizer summing to `total` (the marquee transparency
+   feature). Monochrome graduated ink + one red accent (verified = the trust
+   tier reads red), matching the ▁▂▃▄▅▆▇█ tower language. Real data only. */
+.qsl-terms { display: flex; flex-direction: column; gap: var(--s-3); }
+.qsl-terms__bar {
+  display: flex; width: 100%; height: 14px; overflow: hidden;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs); background: var(--paper-2);
+}
+.qsl-terms__seg { display: block; height: 100%; min-width: 1px; border-right: 1px solid var(--paper);
+  transition: filter var(--d-1); }
+.qsl-terms__seg:last-child { border-right: 0; }
+.qsl-terms__seg:hover { filter: brightness(1.08); }
+/* graduated ink ramp; verified is the one red accent (trust made visible) */
+.qsl-terms__seg--supply     { background: var(--ink-900); }
+.qsl-terms__seg--speed      { background: var(--ink-700); }
+.qsl-terms__seg--latency    { background: var(--ink-500); }
+.qsl-terms__seg--verified   { background: var(--live); }
+.qsl-terms__seg--success    { background: var(--ink-400); }
+.qsl-terms__seg--trust      { background: var(--ink-700); }
+.qsl-terms__seg--congestion { background: var(--hairline-2); }
+.qsl-terms__cap { margin: 0; font-size: var(--t-xs); color: var(--ink-400); }
+.qsl-terms__cap b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.qsl-terms__legend { list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 2px var(--s-4); }
+.qsl-terms__li { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2);
+  font-size: var(--t-xs); color: var(--ink-500); padding: 1px 0; cursor: help;
+  border-bottom: 1px dotted transparent; }
+.qsl-terms__li:hover { border-bottom-color: var(--hairline-2); color: var(--ink-900); }
+.qsl-terms__key { letter-spacing: 0.02em; }
+.qsl-terms__val { color: var(--ink-900); font-weight: var(--weight-medium); }
+.qsl-terms__empty { color: var(--ink-400); }
 
 .qsl__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
   padding: var(--s-4) var(--s-6); border-top: 1px solid var(--hairline); background: var(--paper-2); }
