@@ -1,0 +1,126 @@
+/* Admin Ops portal styles. Monochrome receipt aesthetic on the shared tokens: ink +
+   hairlines, the ONE red (--live) reserved for live/alarm/primary. Scoped with the
+   `ad-` prefix so it never collides with the account-page modules. Loaded after
+   tokens.css + base.css + account-base.css (see CSS_BUNDLES in build.mjs). */
+
+.ad-wrap { max-width: 1180px; }
+.ad-main { width: 100%; }
+
+/* ---- header ---- */
+.ad-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+  padding-bottom: 0.9rem; border-bottom: 1px solid var(--hairline-2);
+}
+.ad-head h1 { margin: 0; }
+.ad-head .sub { margin: 0.2rem 0 0; }
+.ad-head__ctl { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.ad-win { font: 500 0.8rem/1 var(--font-mono); color: var(--ink-500); display: inline-flex; gap: 0.4rem; align-items: center; }
+.ad-win select {
+  font: 500 0.8rem var(--font-mono); padding: 0.35rem 0.5rem;
+  border: 1px solid var(--hairline-2); border-radius: 6px; background: var(--white); color: var(--ink-900);
+}
+.ad-fresh { color: var(--ink-400); font: 400 0.72rem/1 var(--font-mono); }
+.ad-badge { font: 600 0.6em var(--font-mono); color: var(--live); vertical-align: middle; letter-spacing: 0.04em; }
+
+/* ---- sections ---- */
+.ad-sec { margin: 1.6rem 0; }
+.ad-sec__h {
+  font: 600 0.78rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--ink-500); margin: 0 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--hairline);
+}
+.ad-sub { font: 600 0.8rem var(--font-ui); color: var(--ink-700); margin: 1.25rem 0 0.6rem; }
+
+/* ---- data tiles ---- */
+.ad-tiles {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.6rem; margin: 0;
+}
+.ad-tiles--4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.ad-tile {
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 0.75rem 0.85rem;
+}
+.ad-tile dt {
+  font: 500 0.68rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-400); margin: 0 0 0.35rem;
+}
+.ad-tile dd {
+  margin: 0; font: 600 1.35rem/1 var(--font-mono); color: var(--ink-900);
+  word-break: break-word;
+}
+.ad-tile--accent { border-color: var(--live); background: var(--live-tint); }
+.ad-tile--accent dd { color: var(--ink-900); }
+
+/* status dot */
+.ad-dot { display: inline-block; width: 0.6em; height: 0.6em; border-radius: 50%; margin-right: 0.45em; vertical-align: 0.04em; }
+.ad-dot--ok { background: var(--ink-700); }
+.ad-dot--bad { background: var(--live); box-shadow: 0 0 0 3px var(--live-wash); }
+.ad-alarm { color: var(--live) !important; }
+
+/* ---- stacked bar (earnings ledger) ---- */
+.ad-bars { margin: 0.5rem 0 0.9rem; }
+.ad-bar {
+  display: flex; height: 18px; width: 100%; border-radius: 5px; overflow: hidden;
+  border: 1px solid var(--hairline-2); background: var(--paper-3);
+}
+.ad-bar__seg { height: 100%; }
+.ad-bar__seg--held { background: var(--ink-300); }
+.ad-bar__seg--payable { background: var(--ink-700); }
+.ad-bar__seg--paid { background: var(--ink-900); }
+.ad-bar__seg--claw { background: var(--live); }
+.ad-legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-top: 0.5rem; }
+.ad-legend__i { font: 400 0.72rem/1 var(--font-mono); color: var(--ink-500); display: inline-flex; align-items: center; gap: 0.35rem; }
+.ad-sw { display: inline-block; width: 0.7em; height: 0.7em; border-radius: 2px; }
+.ad-sw--held { background: var(--ink-300); }
+.ad-sw--payable { background: var(--ink-700); }
+.ad-sw--paid { background: var(--ink-900); }
+.ad-sw--claw { background: var(--live); }
+
+/* ---- tables ---- */
+.ad-tablewrap { overflow-x: auto; border: 1px solid var(--hairline); border-radius: 8px; }
+.ad-table { width: 100%; border-collapse: collapse; font: 400 0.82rem/1.4 var(--font-mono); }
+.ad-table th, .ad-table td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--hairline); white-space: nowrap; }
+.ad-table thead th {
+  font: 600 0.66rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--ink-400); background: var(--paper-2); position: sticky; top: 0;
+}
+.ad-table tbody tr:last-child td { border-bottom: none; }
+.ad-table tbody tr:hover { background: var(--paper-2); }
+.ad-table .num { text-align: right; }
+.ad-mono { font-family: var(--font-mono); color: var(--ink-500); }
+.ad-strong { font-weight: 600; color: var(--ink-900); }
+.ad-neg { color: var(--live); }
+.ad-kind { color: var(--ink-700); }
+.ad-empty { padding: 0.9rem; margin: 0; color: var(--ink-400); font: 400 0.82rem var(--font-mono); }
+
+/* state pills (payout state) */
+.ad-pill {
+  font: 600 0.66rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.2rem 0.45rem; border-radius: 4px; background: var(--paper-3); color: var(--ink-700);
+}
+.ad-pill--paid { background: var(--ink-900); color: var(--white); }
+.ad-pill--pending { background: var(--paper-3); color: var(--ink-700); }
+.ad-pill--failed, .ad-pill--reversed { background: var(--live-tint); color: var(--live); }
+
+/* ---- forms (unhold control) ---- */
+.ad-form { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 0.5rem 0; }
+.ad-in {
+  font: 400 0.82rem var(--font-mono); padding: 0.45rem 0.6rem; min-width: 240px;
+  border: 1px solid var(--hairline-2); border-radius: 6px; background: var(--white); color: var(--ink-900);
+}
+.ad-in:focus { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-wash); }
+.ad-check { font: 400 0.8rem var(--font-mono); color: var(--ink-700); display: inline-flex; gap: 0.4rem; align-items: center; }
+
+.ad-logout { margin-top: 2rem; }
+
+/* gate plates */
+.ad-gate { text-align: center; }
+.ad-state { color: var(--ink-500); font: 400 0.95rem var(--font-ui); }
+.ad-deny { color: var(--ink-700); }
+.ad-err { color: var(--live); }
+
+@media (max-width: 640px) {
+  .ad-head { align-items: flex-start; }
+  .ad-tile dd { font-size: 1.15rem; }
+}

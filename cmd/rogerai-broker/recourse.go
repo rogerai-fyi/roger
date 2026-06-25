@@ -66,21 +66,51 @@ func validAdminKey(h string) string {
 	return ""
 }
 
-// requireAdmin gates an admin op on the broker secret presented in X-Roger-Admin. It is
-// CLOSED-by-default: if no admin key is configured (ephemeral / unset broker key) every
-// admin request is rejected. The compare is constant-time. Returns true once it has
-// already written the 403 to w, so the caller just returns.
+// requireAdmin gates an admin op on EITHER of two single-super-admin credentials, so the
+// founder can drive the admin surface from the CLI/curl OR just log into the website:
+//
+//  1. The broker secret presented in X-Roger-Admin (the BROKER_PRIVATE_KEY hex seed),
+//     constant-time compared - the headless/CLI path (/admin/unhold uses this).
+//  2. A valid GitHub web SESSION whose github_id equals the configured ADMIN_GITHUB_ID -
+//     the browser path, so the founder logs in normally and the admin portal works off
+//     the same session cookie every other account page uses (no key paste in the UI).
+//
+// It is CLOSED-by-default and fail-closed: if NEITHER credential is configured (no
+// adminKey AND no adminGitHubID) every admin request is rejected, so the surface can
+// never be hit anonymously. A request that presents neither a matching key nor a
+// matching admin session is rejected. Returns true once it has written the 403, so the
+// caller just returns.
 func (b *broker) requireAdmin(w http.ResponseWriter, r *http.Request) (denied bool) {
-	if b.adminKey == "" {
-		jsonErr(w, http.StatusForbidden, "admin surface disabled (set BROKER_PRIVATE_KEY to enable)")
+	if b.adminKey == "" && b.adminGitHubID == 0 {
+		jsonErr(w, http.StatusForbidden, "admin surface disabled (set BROKER_PRIVATE_KEY and/or ADMIN_GITHUB_ID to enable)")
 		return true
 	}
-	got := r.Header.Get("X-Roger-Admin")
-	if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(b.adminKey)) != 1 {
-		jsonErr(w, http.StatusForbidden, "admin auth required")
-		return true
+	// Path 1: the broker-key header (CLI/curl).
+	if b.adminKey != "" {
+		got := r.Header.Get("X-Roger-Admin")
+		if got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(b.adminKey)) == 1 {
+			return false
+		}
 	}
-	return false
+	// Path 2: the configured super-admin GitHub session (browser).
+	if b.isAdminSession(r) {
+		return false
+	}
+	jsonErr(w, http.StatusForbidden, "admin auth required")
+	return true
+}
+
+// isAdminSession reports whether the request carries a valid GitHub web session whose
+// github_id matches the single configured super-admin (ADMIN_GITHUB_ID). False when no
+// admin id is configured, or when there is no valid session / the id does not match - so
+// an ordinary logged-in owner is NEVER an admin. This is the browser half of requireAdmin
+// and is the ONLY identity check the admin portal page itself needs.
+func (b *broker) isAdminSession(r *http.Request) bool {
+	if b.adminGitHubID == 0 {
+		return false
+	}
+	_, gid, _, ok := b.sessionOwner(r)
+	return ok && gid == b.adminGitHubID
 }
 
 // ownerStrikes handles GET /owner/strikes: the CALLER's own strike evidence. Owner-authed
@@ -144,6 +174,13 @@ type adminUnholdRequest struct {
 // owner ban (refreshing the in-memory ban cache). This is the recourse for a false
 // positive: an honest operator frozen by a bad recount is unfrozen here after review.
 func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) {
+	// Credentialed CORS so the admin web portal (a logged-in super-admin session, OR a
+	// pasted broker key) can POST this cross-origin. The preflight is answered before the
+	// admin gate; the gate still rejects any non-admin on the real request.
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
