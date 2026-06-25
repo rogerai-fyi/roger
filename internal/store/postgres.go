@@ -213,6 +213,33 @@ CREATE TABLE IF NOT EXISTS rogerai.banned_nodes (
     node_id    TEXT PRIMARY KEY,
     reason     TEXT,
     created_at TIMESTAMPTZ DEFAULT now());
+-- owner-keyed durable bans (anti-rotation): a node_id is a cheap callsign, so the
+-- enforcement that must survive rotation binds to the OWNER ACCOUNT (owner pubkey).
+-- A banned owner is blocked at register + relay pick + settle for every current and
+-- future node. Re-hydrated at startup so the ban survives a restart. evidence holds
+-- the provable record (signed-claim vs broker-recount) the operator can be shown.
+CREATE TABLE IF NOT EXISTS rogerai.banned_owners (
+    account_id TEXT PRIMARY KEY,
+    reason     TEXT,
+    evidence   JSONB,
+    created_at TIMESTAMPTZ DEFAULT now());
+-- owner strikes: append-only evidence-bound anti-abuse marks against an owner account.
+-- At a threshold the owner is warned then banned. The evidence is provable (the node's
+-- own signed claim vs the broker recount / the empty body / the impossible byte-floor)
+-- so the operator can be SHOWN exactly why. idem_key (when set) makes a retried request
+-- non-double-striking. Bound to the durable owner pubkey, NOT the cheap node id.
+CREATE TABLE IF NOT EXISTS rogerai.owner_strikes (
+    id         BIGSERIAL PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    evidence   JSONB,
+    idem_key   TEXT UNIQUE,
+    created_at BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS owner_strikes_acct ON rogerai.owner_strikes (account_id, id DESC);
+-- account_recount_holds: OWNER-level promotion hold (the owner twin of recount_holds).
+-- While an owner is held, ALL of its earning lots are kept from held->payable, so the
+-- hold survives a node-id rotation. One row per held owner (idempotent).
+CREATE TABLE IF NOT EXISTS rogerai.account_recount_holds (account_id TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
 -- per-account settings (the monthly spend cap = a budget limit, modeled on Groq's
 -- "set a max you'll pay per month"). monthly_cap is a $ ceiling on captured spend per
 -- CALENDAR month (0 = unlimited). One row per wallet; the cap is durable and per
@@ -459,13 +486,17 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	rj, _ := json.Marshal(rec)
+	bpt, bct := billedTokens(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
+		return 0, err
+	}
+	if err := appendAdjust(tx, user, rec, cost); err != nil {
 		return 0, err
 	}
 	if err := p.addLot(tx, node, rec.RequestID, earnShare, time.Now()); err != nil {
@@ -670,10 +701,11 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	rj, _ := json.Marshal(rec)
+	bpt, bct := billedTokens(rec)
 	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
 		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, rec.PromptTokens, rec.CompletionTokens, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
 		return 0, err
 	}
 	// Capture: release the full reservation then debit the actual spend. Net wallet
@@ -684,10 +716,24 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
 		return 0, err
 	}
+	if err := appendAdjust(tx, user, rec, cost); err != nil {
+		return 0, err
+	}
 	if err := p.addLot(tx, node, rec.RequestID, earnShare, time.Now()); err != nil {
 		return 0, err
 	}
 	return bal, tx.Commit()
+}
+
+// appendAdjust writes the KindAdjust audit row inside tx when the broker billed less
+// than the node claimed on either axis (the postgres twin of appendAdjustLocked). $0
+// money delta; idempotent on the request id (a redelivery is a no-op).
+func appendAdjust(tx *sql.Tx, holder string, rec protocol.UsageReceipt, cost float64) error {
+	bpt, bct := billedTokens(rec)
+	if bpt >= rec.PromptTokens && bct >= rec.CompletionTokens {
+		return nil // no downward adjustment: nothing to audit
+	}
+	return appendLedger(tx, holder, "consumer", KindAdjust, 0, "adjust:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
 }
 
 func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
@@ -961,7 +1007,8 @@ func (p *Postgres) promoteLots(now time.Time) error {
 	defer tx.Rollback()
 	if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='payable'
 		WHERE state='held' AND release_at<=$1
-		AND node NOT IN (SELECT node FROM rogerai.recount_holds)`, now.Unix()); err != nil {
+		AND node NOT IN (SELECT node FROM rogerai.recount_holds)
+		AND account_id NOT IN (SELECT account_id FROM rogerai.account_recount_holds)`, now.Unix()); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -306,8 +306,60 @@ type Store interface {
 	// a ban survives a broker restart.
 	BannedNodes() (map[string]string, error)
 
+	// --- owner-keyed durable bans + strikes (anti-abuse, OWNER not node_id) ----
+	//
+	// A node_id is a cheap-to-rotate callsign; enforcement that must SURVIVE rotation
+	// binds to the OWNER ACCOUNT (the GitHub-bound owner pubkey, AccountOfNode). These
+	// accrue evidence-bound strikes and, at a threshold, durably ban the owner so a
+	// banned operator cannot return under a fresh node id / callsign / grant key.
+
+	// OwnerStrike appends ONE evidence-bound strike to an owner account and returns the
+	// owner's resulting TOTAL strike count. `kind` is the violation class
+	// (impossible-input | empty-output | recount-discrepancy); `evidenceJSON` is the
+	// provable record (the signed receipt's claim vs the broker recount, request id,
+	// axis, delta) the operator can be SHOWN. Append-only (every strike is kept as
+	// evidence). Idempotent on idemKey when non-empty (so the same request can't
+	// double-strike on a retry); pass "" to always append.
+	OwnerStrike(accountID, kind, evidenceJSON, idemKey string) (count int, err error)
+	// StrikesByOwner returns an owner's strike evidence rows, newest first (the
+	// surface that SHOWS the operator exactly why they were warned/banned).
+	StrikesByOwner(accountID string, limit int) ([]Strike, error)
+	// BanOwner durably bans an operator account (owner pubkey) with a reason +
+	// evidence. The ban blocks register + relay pick + settle for EVERY current and
+	// future node under that owner. Idempotent (first ban wins, evidence preserved).
+	BanOwner(accountID, reason, evidenceJSON string) error
+	// IsOwnerBanned reports whether an owner account is durably banned, with the reason.
+	IsOwnerBanned(accountID string) (banned bool, reason string, err error)
+	// BannedOwners returns the banned owner set (account id -> reason), re-hydrated at
+	// startup so an owner ban survives a broker restart.
+	BannedOwners() (map[string]string, error)
+	// SetAccountRecountHold flags (held=true) or clears (held=false) an OWNER ACCOUNT
+	// as under review: while held, ALL of the owner's earning lots are kept from
+	// promoting held->payable (the owner-level twin of SetNodeRecountHold, surviving
+	// node-id rotation). Idempotent.
+	SetAccountRecountHold(accountID string, held bool) error
+
 	Close() error
 }
+
+// Strike is one evidence-bound anti-abuse mark against an owner account. The
+// evidence is provable (the operator's own node-signed claim vs the broker's recount
+// / the empty body / the impossible byte-floor) so the operator can be SHOWN exactly
+// why they were warned or banned (non-repudiable: node signature vs broker signature).
+type Strike struct {
+	ID        int64  `json:"id"`
+	AccountID string `json:"account_id"` // owner pubkey (the durable identity)
+	Kind      string `json:"kind"`       // impossible-input | empty-output | recount-discrepancy
+	Evidence  string `json:"evidence"`   // JSON: claim-vs-billed, request id, axis, delta
+	CreatedAt int64  `json:"created_at"`
+}
+
+// Strike kinds (the violation classes that accrue evidence + drive the owner ban).
+const (
+	StrikeImpossibleInput    = "impossible-input"    // claimed prompt tokens > body bytes (zero-doubt)
+	StrikeEmptyOutput        = "empty-output"        // billed input but produced no usable output (voided)
+	StrikeRecountDiscrepancy = "recount-discrepancy" // node over-reported past the recount tolerance
+)
 
 // Owner is a monetizing account: a GitHub identity bound to the CLI's signing
 // pubkey. Consumers never need one; it gates earning (priced node registration,
@@ -377,6 +429,15 @@ type Mem struct {
 	reportID int64             // monotonic report id
 	banned   map[string]string // node id -> ban reason (ejected from pick/market/discover)
 
+	// owner-keyed durable anti-abuse (anti-rotation): strikes carry provable evidence
+	// bound to the OWNER ACCOUNT (owner pubkey), bannedOwners is the durable owner ban
+	// set, accountHold holds ALL of an owner's lots from promotion. Rare, off the hot
+	// path; guarded by m.mu.
+	strikes      []Strike          // append-only evidence-bound owner strikes
+	strikeID     int64             // monotonic strike id
+	bannedOwners map[string]string // owner pubkey -> ban reason (durable, anti-rotation)
+	accountHold  map[string]bool   // owner pubkey -> all lots held from promotion
+
 	// Seed cap: bound free-credit liability. seedLimit is the max number of distinct
 	// wallets ever seeded with non-zero starter credits (<=0 = unlimited); seedCount
 	// is how many have been seeded so far. Both are guarded by mu and the count is
@@ -400,7 +461,7 @@ func NewMem() *Mem {
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]bool{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
-		banned: map[string]string{},
+		banned: map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]bool{},
 	}
 }
 
@@ -555,6 +616,42 @@ func (m *Mem) PeekBalance(wallet string) (float64, error) {
 	return m.wallet[wallet], nil
 }
 
+// billedTokens returns the token counts to RECORD for a settled request: the broker's
+// own re-count when present (nonzero), else the node's claimed count. Settlement bills
+// (and earns) on these adjusted, platform-favoring numbers, so dashboards and clawback
+// reflect the verified counts, not the node's unverified claim. The broker re-count is
+// only ever <= the claim on each axis (we never inflate a claim), so this can only
+// lower a count, never raise it.
+func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) {
+	promptTok = rec.PromptTokens
+	if rec.BrokerPromptTokens > 0 && rec.BrokerPromptTokens < promptTok {
+		promptTok = rec.BrokerPromptTokens
+	}
+	completionTok = rec.CompletionTokens
+	if rec.BrokerCompletionTokens > 0 && rec.BrokerCompletionTokens < completionTok {
+		completionTok = rec.BrokerCompletionTokens
+	}
+	return promptTok, completionTok
+}
+
+// appendAdjustLocked writes the KindAdjust AUDIT row when the broker billed less than
+// the node claimed on EITHER axis - the audit trail the enforcement mandate requires.
+// It records, for `requestID`, the claimed-vs-billed counts on BOTH axes and the dollar
+// the platform (and consumer) saved by billing the lesser count. The money delta is 0
+// (the consumer was already charged only the adjusted `cost`); the row exists purely as
+// the provable, queryable record of the adjustment. Caller holds m.mu.
+func (m *Mem) appendAdjustLocked(holder string, rec protocol.UsageReceipt, cost float64) {
+	bpt, bct := billedTokens(rec)
+	if bpt >= rec.PromptTokens && bct >= rec.CompletionTokens {
+		return // no downward adjustment on either axis: nothing to audit
+	}
+	// $0 money delta (the consumer was already charged only the adjusted `cost`); the
+	// row IS the audit trail. The Entry written by the caller carries the adjusted
+	// (broker) counts, and the per-request strike evidence carries the full
+	// claimed-vs-billed-vs-saved detail (saved = claimCost - cost, recorded there).
+	m.appendLedgerLocked(holder, "consumer", KindAdjust, 0, "adjust:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
+}
+
 func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -565,12 +662,14 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 	// EXACTLY ONCE here, via realEarnShare. The consumer's spend (cost) is unchanged.
 	earnShare := m.realEarnShare(user, cost, ownerShare)
 	m.earnings[node] += earnShare
+	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
 		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
-		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
+		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
+	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
 	return m.wallet[user], nil
 }
@@ -596,15 +695,17 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 	// consumeSeed runs EXACTLY ONCE here via realEarnShare. Consumer spend is unchanged.
 	earnShare := m.realEarnShare(user, cost, ownerShare)
 	m.earnings[node] += earnShare
+	bpt, bct := billedTokens(rec)
 	m.entries = append(m.entries, Entry{
 		RequestID: rec.RequestID, User: user, Node: node, Model: rec.Model,
-		PromptTokens: rec.PromptTokens, CompletionTokens: rec.CompletionTokens,
+		PromptTokens: bpt, CompletionTokens: bct,
 		Cost: cost, OwnerShare: earnShare, TS: rec.TS,
 	})
 	// Capture the hold into ledger: release the full reservation, then debit the
 	// actual spend. Net wallet delta == held-cost, matching the cache above.
 	m.appendLedgerLocked(user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS)
 	m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
+	m.appendAdjustLocked(user, rec, cost)
 	m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
 	return m.wallet[user], nil
 }
@@ -916,6 +1017,9 @@ func (m *Mem) promoteLocked(now time.Time) {
 		l := &m.lots[i]
 		if m.recountHold[l.Node] {
 			continue // node under re-count review: hold this lot, don't promote
+		}
+		if m.accountHold[l.AccountID] {
+			continue // OWNER under review (survives node-id rotation): hold this lot
 		}
 		if l.State == LotHeld && now.Unix() >= l.ReleaseAt {
 			l.State = LotPayable

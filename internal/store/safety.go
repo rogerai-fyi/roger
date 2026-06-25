@@ -142,6 +142,114 @@ func (m *Mem) BannedNodes() (map[string]string, error) {
 	return out, nil
 }
 
+// --- owner-keyed durable bans + strikes (anti-rotation) -------------------
+
+func (m *Mem) OwnerStrike(accountID, kind, evidenceJSON, idemKey string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if accountID == "" {
+		return 0, nil
+	}
+	// Idempotency: a retried request must not double-strike. The idem key is recorded
+	// in the same map the ledger uses, so a duplicate is a no-op (the count is returned
+	// as-is so callers stay deterministic).
+	if idemKey != "" {
+		if m.idem["strike:"+idemKey] {
+			return m.ownerStrikeCountLocked(accountID), nil
+		}
+		m.idem["strike:"+idemKey] = true
+	}
+	m.strikeID++
+	m.strikes = append(m.strikes, Strike{
+		ID: m.strikeID, AccountID: accountID, Kind: kind, Evidence: evidenceJSON,
+		CreatedAt: time.Now().Unix(),
+	})
+	return m.ownerStrikeCountLocked(accountID), nil
+}
+
+func (m *Mem) ownerStrikeCountLocked(accountID string) int {
+	n := 0
+	for _, s := range m.strikes {
+		if s.AccountID == accountID {
+			n++
+		}
+	}
+	return n
+}
+
+func (m *Mem) StrikesByOwner(accountID string, limit int) ([]Strike, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Strike
+	for i := len(m.strikes) - 1; i >= 0; i-- {
+		if m.strikes[i].AccountID == accountID {
+			out = append(out, m.strikes[i])
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *Mem) BanOwner(accountID, reason, evidenceJSON string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if accountID == "" {
+		return nil
+	}
+	if m.bannedOwners == nil {
+		m.bannedOwners = map[string]string{}
+	}
+	if _, ok := m.bannedOwners[accountID]; !ok {
+		m.bannedOwners[accountID] = reason // first ban wins; evidence preserved in strikes
+		// Record the ban itself as a (terminal) strike so the evidence trail shows it.
+		m.strikeID++
+		m.strikes = append(m.strikes, Strike{
+			ID: m.strikeID, AccountID: accountID, Kind: "ban:" + reason,
+			Evidence: evidenceJSON, CreatedAt: time.Now().Unix(),
+		})
+	}
+	return nil
+}
+
+func (m *Mem) IsOwnerBanned(accountID string) (bool, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if accountID == "" {
+		return false, "", nil
+	}
+	r, ok := m.bannedOwners[accountID]
+	return ok, r, nil
+}
+
+func (m *Mem) BannedOwners() (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]string, len(m.bannedOwners))
+	for k, v := range m.bannedOwners {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *Mem) SetAccountRecountHold(accountID string, held bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if accountID == "" {
+		return nil
+	}
+	if m.accountHold == nil {
+		m.accountHold = map[string]bool{}
+	}
+	if held {
+		m.accountHold[accountID] = true
+	} else {
+		delete(m.accountHold, accountID)
+	}
+	return nil
+}
+
 // ReportsByNode lists reports for a node, newest first (admin/dashboard helper).
 func (m *Mem) ReportsByNode(nodeID string, limit int) ([]Report, error) {
 	m.mu.Lock()
