@@ -617,3 +617,131 @@ func TestPayoutLedgerRollbackEndToEnd(t *testing.T) {
 		t.Errorf("transferred %d cents, recorded amount = %d cents - must match", gotCents, wantCents)
 	}
 }
+
+// TestPayoutsEarningsEndpoint: GET /payouts/earnings returns the split (held/payable/
+// paid) PLUS a dated release ladder bucketed from the still-held lots, plus rollups.
+// Signed-CLI auth; an anonymous request is rejected 401.
+func TestPayoutsEarningsEndpoint(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "120")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	t.Setenv("ROGERAI_PAYOUT_MIN", "25")
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(pub)
+	_, bpriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	_ = db.BindOwner(store.Owner{GitHubID: 7, Login: "octocat", Pubkey: pubHex})
+	_ = db.BindNode("n", pubHex)
+	b := &broker{priv: bpriv, db: db, seedFunds: 0, conn: loadConnect(), pubOfUser: map[string]string{}}
+	b.bill.creditUSD = 1
+	// Two held lots clearing on DIFFERENT days + one cleared (payable) lot.
+	now := time.Now()
+	db.SeedLotsForTest([]store.EarningLot{
+		{ID: 1, Node: "n", AccountID: pubHex, RequestID: "r1", Gross: 10, State: store.LotHeld, ReleaseAt: now.Add(20 * 24 * time.Hour).Unix(), ReserveReleaseAt: now.Add(20 * 24 * time.Hour).Unix()},
+		{ID: 2, Node: "n", AccountID: pubHex, RequestID: "r2", Gross: 7, State: store.LotHeld, ReleaseAt: now.Add(40 * 24 * time.Hour).Unix(), ReserveReleaseAt: now.Add(40 * 24 * time.Hour).Unix()},
+		{ID: 3, Node: "n", AccountID: pubHex, RequestID: "r3", Gross: 5, State: store.LotPayable, ReleaseAt: now.Add(-time.Hour).Unix(), ReserveReleaseAt: now.Add(-time.Hour).Unix()},
+	})
+
+	w := httptest.NewRecorder()
+	b.payoutsEarnings(w, signedReq(http.MethodGet, "/payouts/earnings", nil, priv))
+	if w.Code != http.StatusOK {
+		t.Fatalf("payouts/earnings = %d, want 200 (body=%s)", w.Code, w.Body.String())
+	}
+	var out struct {
+		Held     float64 `json:"held"`
+		Payable  float64 `json:"payable"`
+		Paid     float64 `json:"paid"`
+		Releases []struct {
+			Date     int64   `json:"date"`
+			Amount   float64 `json:"amount"`
+			LotCount int     `json:"lot_count"`
+		} `json:"releases"`
+		ByModel []struct {
+			Key string `json:"key"`
+		} `json:"by_model"`
+		ByNode []struct {
+			Key string `json:"key"`
+		} `json:"by_node"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Payable != 5 || out.Held != 17 {
+		t.Errorf("split held=%v payable=%v, want 17/5", out.Held, out.Payable)
+	}
+	if len(out.Releases) != 2 {
+		t.Fatalf("releases = %+v, want a 2-rung ladder", out.Releases)
+	}
+	if out.Releases[0].Date >= out.Releases[1].Date {
+		t.Errorf("ladder not ascending: %+v", out.Releases)
+	}
+	if out.Releases[0].Amount != 10 || out.Releases[1].Amount != 7 {
+		t.Errorf("ladder amounts = %v,%v, want 10,7", out.Releases[0].Amount, out.Releases[1].Amount)
+	}
+
+	// Anonymous request -> 401.
+	wa := httptest.NewRecorder()
+	b.payoutsEarnings(wa, httptest.NewRequest(http.MethodGet, "/payouts/earnings", nil))
+	if wa.Code != http.StatusUnauthorized {
+		t.Errorf("anon payouts/earnings = %d, want 401", wa.Code)
+	}
+}
+
+// TestPayoutLotsEndpoint: GET /payouts/{id}/lots returns the funding receipts for the
+// caller's payout, and rejects a DIFFERENT account's payout id with 404 (no leak).
+func TestPayoutLotsEndpoint(t *testing.T) {
+	b, db, priv := newSignedPayoutBroker(t)
+	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
+	b.conn.transfer = func(dest string, cents int64, idem string) (string, error) { return "tr_1", nil }
+	_, _ = db.AddCredits("u", 1000)
+	_, _ = db.Hold("u", 30)
+	_, _ = db.Finalize("u", "n", 30, 30, 30, rec("r1")) // hold=0 -> immediately payable
+	w := httptest.NewRecorder()
+	b.payoutsRequest(w, signedReq(http.MethodPost, "/payouts/request", []byte("{}"), priv))
+	if w.Code != http.StatusOK {
+		t.Fatalf("payout = %d (body=%s)", w.Code, w.Body.String())
+	}
+	var pr struct {
+		Payout store.Payout `json:"payout"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &pr)
+	id := pr.Payout.ID
+
+	// Owner reads the funding lots.
+	path := "/payouts/" + strconv.FormatInt(id, 10) + "/lots"
+	wl := httptest.NewRecorder()
+	b.payoutsSubtree(wl, signedReq(http.MethodGet, path, nil, priv))
+	if wl.Code != http.StatusOK {
+		t.Fatalf("payout lots = %d, want 200 (body=%s)", wl.Code, wl.Body.String())
+	}
+	var lo struct {
+		PayoutID int64 `json:"payout_id"`
+		Lots     []struct {
+			RequestID string  `json:"request_id"`
+			Node      string  `json:"node"`
+			Gross     float64 `json:"gross"`
+		} `json:"lots"`
+	}
+	if err := json.Unmarshal(wl.Body.Bytes(), &lo); err != nil {
+		t.Fatal(err)
+	}
+	if lo.PayoutID != id || len(lo.Lots) != 1 || lo.Lots[0].RequestID != "r1" || lo.Lots[0].Gross != 30 {
+		t.Errorf("lots = %+v, want one r1/30 receipt for payout %d", lo, id)
+	}
+
+	// Cross-account: a different signed owner asking for THIS payout id -> 404 (no leak).
+	otherPub, otherPriv, _ := ed25519.GenerateKey(nil)
+	_ = db.BindOwner(store.Owner{GitHubID: 9, Login: "mallory", Pubkey: hex.EncodeToString(otherPub)})
+	_ = db.BindNode("n2", hex.EncodeToString(otherPub))
+	wx := httptest.NewRecorder()
+	b.payoutsSubtree(wx, signedReq(http.MethodGet, path, nil, otherPriv))
+	if wx.Code != http.StatusNotFound {
+		t.Errorf("cross-account payout lots = %d, want 404 (body=%s)", wx.Code, wx.Body.String())
+	}
+
+	// Anonymous -> 401.
+	wn := httptest.NewRecorder()
+	b.payoutsSubtree(wn, httptest.NewRequest(http.MethodGet, path, nil))
+	if wn.Code != http.StatusUnauthorized {
+		t.Errorf("anon payout lots = %d, want 401", wn.Code)
+	}
+}

@@ -1212,6 +1212,111 @@ func (p *Postgres) PayoutsOf(accountID string, limit int) ([]Payout, error) {
 	return out, rows.Err()
 }
 
+// ReleaseSchedule buckets the account's still-held lots by their release calendar day
+// (UTC midnight) into an ascending dated ladder. It sweeps held->payable first so an
+// already-cleared lot is not shown as upcoming. Reads off earning_lots (lots_account).
+func (p *Postgres) ReleaseSchedule(accountID string, now time.Time) ([]ReleaseBucket, error) {
+	if err := p.promoteLots(now); err != nil {
+		return nil, err
+	}
+	// Bucket by UTC-midnight of release_at; sum gross-minus-reserve releasing that day.
+	rows, err := p.db.Query(`SELECT
+		(date_trunc('day', to_timestamp(release_at) AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')::date,
+		COALESCE(SUM(gross-reserve),0), COUNT(*)
+		FROM rogerai.earning_lots
+		WHERE account_id=$1 AND state='held' AND gross-reserve>0
+		GROUP BY 1 ORDER BY 1 ASC`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReleaseBucket
+	for rows.Next() {
+		var day time.Time
+		var b ReleaseBucket
+		if err := rows.Scan(&day, &b.Amount, &b.LotCount); err != nil {
+			return nil, err
+		}
+		b.Date = day.UTC().Unix()
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// EarningRollups returns the account's earnings per model and per node across its
+// non-clawed lots (held+payable+paid gross), joining the request receipt for the model.
+func (p *Postgres) EarningRollups(accountID string) (byModel, byNode []EarningRollup, err error) {
+	scan := func(rows *sql.Rows) ([]EarningRollup, error) {
+		defer rows.Close()
+		var out []EarningRollup
+		for rows.Next() {
+			var r EarningRollup
+			var key sql.NullString
+			if err := rows.Scan(&key, &r.Amount, &r.Lots); err != nil {
+				return nil, err
+			}
+			r.Key = key.String
+			out = append(out, r)
+		}
+		return out, rows.Err()
+	}
+	mRows, err := p.db.Query(`SELECT COALESCE(r.model,''), COALESCE(SUM(l.gross),0), COUNT(*)
+		FROM rogerai.earning_lots l
+		LEFT JOIN rogerai.receipts r ON r.request_id=l.request_id
+		WHERE l.account_id=$1 AND l.state<>'clawed'
+		GROUP BY 1 ORDER BY 2 DESC, 1 ASC`, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if byModel, err = scan(mRows); err != nil {
+		return nil, nil, err
+	}
+	nRows, err := p.db.Query(`SELECT COALESCE(node,''), COALESCE(SUM(gross),0), COUNT(*)
+		FROM rogerai.earning_lots
+		WHERE account_id=$1 AND state<>'clawed'
+		GROUP BY 1 ORDER BY 2 DESC, 1 ASC`, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if byNode, err = scan(nRows); err != nil {
+		return nil, nil, err
+	}
+	return byModel, byNode, nil
+}
+
+// PayoutLots returns the funding earning lots behind a payout (request-level lineage),
+// owner-scoped: ok=false if the payout id is not the caller's (no cross-account leak).
+func (p *Postgres) PayoutLots(accountID string, payoutID int64) ([]PayoutLot, bool, error) {
+	// Ownership gate: the payout must exist AND belong to this account.
+	var owner string
+	switch err := p.db.QueryRow(`SELECT account_id FROM rogerai.payouts WHERE id=$1`, payoutID).Scan(&owner); {
+	case err == sql.ErrNoRows:
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
+	}
+	if owner != accountID {
+		return nil, false, nil
+	}
+	rows, err := p.db.Query(`SELECT l.id, l.request_id, l.node, COALESCE(r.model,''), l.gross, l.created_at
+		FROM rogerai.earning_lots l
+		LEFT JOIN rogerai.receipts r ON r.request_id=l.request_id
+		WHERE l.payout_id=$1 ORDER BY l.created_at DESC, l.id DESC`, payoutID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var out []PayoutLot
+	for rows.Next() {
+		var pl PayoutLot
+		if err := rows.Scan(&pl.LotID, &pl.RequestID, &pl.Node, &pl.Model, &pl.Gross, &pl.CreatedAt); err != nil {
+			return nil, false, err
+		}
+		out = append(out, pl)
+	}
+	return out, true, rows.Err()
+}
+
 // Chargeback is the back-compat wrapper: it runs the lineage clawback and returns just
 // the amount clawed from still-held/payable lots. It does NOT issue Stripe transfer
 // reversals - use ChargebackLineage and act on the returned Reversals for that.

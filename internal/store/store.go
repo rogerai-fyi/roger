@@ -203,6 +203,26 @@ type Store interface {
 	FailPayout(payoutID int64) error
 	// PayoutsOf returns an operator's payout history, newest first.
 	PayoutsOf(accountID string, limit int) ([]Payout, error)
+	// ReleaseSchedule returns the operator's UPCOMING earning releases as a dated ladder:
+	// the still-held lots (gross-minus-reserve) grouped by their release calendar day, so
+	// the Payouts page can render "$X clears Jun 30, $Y clears Jul 15" instead of only the
+	// single soonest date EarningSplit.NextRelease carries. Sweeps held->payable first (so
+	// a lot whose hold already cleared is not shown as upcoming), then buckets the
+	// remaining held lots by UTC midnight of release_at, ascending. accountID is the owner
+	// pubkey; reads off earning_lots (indexed lots_account).
+	ReleaseSchedule(accountID string, now time.Time) ([]ReleaseBucket, error)
+	// EarningRollups returns the account's earnings attributed per MODEL and per NODE
+	// across all its non-clawed lots (held+payable+paid gross), so the earnings view can
+	// show where the money came from. Cheap rollup off the same lots+receipts the split
+	// reads. accountID is the owner pubkey.
+	EarningRollups(accountID string) (byModel, byNode []EarningRollup, err error)
+	// PayoutLots returns the funding earning lots behind a payout (the request-level
+	// lineage a payout-history row expands into): {request_id, node, model, gross,
+	// created_at} per lot. Owner-scoped: ok=false if the payout id is not the caller's
+	// (cross-account access is rejected, never leaking another operator's receipts).
+	// Reads off earning_lots by payout_id, joining the request receipt for the model.
+	// accountID is the owner pubkey.
+	PayoutLots(accountID string, payoutID int64) (lots []PayoutLot, ok bool, err error)
 	// SetNodeRecountHold flags (held=true) or clears (held=false) a node as having an
 	// OPEN L1 re-count discrepancy. While held, the sweep-on-read promotion holds that
 	// node's earning lots in `held` instead of auto-promoting them to `payable` (P0-2):
@@ -508,6 +528,21 @@ func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.
 	m.appendLedgerLocked(acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix())
 	if reserve > 0 {
 		m.appendLedgerLocked(acct, "operator", KindReserveHold, -reserve, "reserve:"+requestID, StatePending, requestID, now.Unix())
+	}
+}
+
+// SeedLotsForTest replaces the in-memory earning lots wholesale. It is a deliberate
+// test seam (exported so cross-package handler tests in package main can stage lots
+// with precise release dates the time.Now()-stamped Finalize path can't produce); it is
+// never called in production.
+func (m *Mem) SeedLotsForTest(lots []EarningLot) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lots = append([]EarningLot(nil), lots...)
+	for _, l := range lots {
+		if l.ID > m.lotID {
+			m.lotID = l.ID
+		}
 	}
 }
 
@@ -1235,6 +1270,137 @@ func (m *Mem) PayoutsOf(accountID string, limit int) ([]Payout, error) {
 		}
 	}
 	return out, nil
+}
+
+// dayUTC returns the unix midnight (UTC) of the day containing the unix instant ts -
+// the bucket key for the release ladder so lots clearing the same day group together.
+func dayUTC(ts int64) int64 {
+	t := time.Unix(ts, 0).UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).Unix()
+}
+
+func (m *Mem) ReleaseSchedule(accountID string, now time.Time) ([]ReleaseBucket, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.promoteLocked(now) // sweep first: an already-cleared lot is no longer "upcoming"
+	type agg struct {
+		amount float64
+		count  int
+	}
+	buckets := map[int64]*agg{}
+	for _, l := range m.lots {
+		if l.AccountID != accountID || l.State != LotHeld {
+			continue
+		}
+		payable := l.Gross - l.Reserve
+		if payable <= 0 {
+			continue
+		}
+		key := dayUTC(l.ReleaseAt)
+		b := buckets[key]
+		if b == nil {
+			b = &agg{}
+			buckets[key] = b
+		}
+		b.amount += payable
+		b.count++
+	}
+	out := make([]ReleaseBucket, 0, len(buckets))
+	for day, b := range buckets {
+		out = append(out, ReleaseBucket{Date: day, Amount: b.amount, LotCount: b.count})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out, nil
+}
+
+func (m *Mem) EarningRollups(accountID string) (byModel, byNode []EarningRollup, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// request id -> model, from the receipts (the source of truth for the model served).
+	modelOf := map[string]string{}
+	for _, e := range m.entries {
+		if e.RequestID != "" {
+			modelOf[e.RequestID] = e.Model
+		}
+	}
+	type agg struct {
+		amount float64
+		lots   int
+	}
+	mAgg := map[string]*agg{}
+	nAgg := map[string]*agg{}
+	bump := func(t map[string]*agg, key string, gross float64) {
+		a := t[key]
+		if a == nil {
+			a = &agg{}
+			t[key] = a
+		}
+		a.amount += gross
+		a.lots++
+	}
+	for _, l := range m.lots {
+		if l.AccountID != accountID || l.State == LotClawed {
+			continue
+		}
+		bump(mAgg, modelOf[l.RequestID], l.Gross)
+		bump(nAgg, l.Node, l.Gross)
+	}
+	flat := func(t map[string]*agg) []EarningRollup {
+		out := make([]EarningRollup, 0, len(t))
+		for k, a := range t {
+			out = append(out, EarningRollup{Key: k, Amount: a.amount, Lots: a.lots})
+		}
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Amount != out[j].Amount {
+				return out[i].Amount > out[j].Amount
+			}
+			return out[i].Key < out[j].Key
+		})
+		return out
+	}
+	return flat(mAgg), flat(nAgg), nil
+}
+
+func (m *Mem) PayoutLots(accountID string, payoutID int64) ([]PayoutLot, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Owner scope: the payout must belong to this account, else reject (no leak).
+	found := false
+	for _, p := range m.payouts {
+		if p.ID == payoutID {
+			if p.AccountID != accountID {
+				return nil, false, nil
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, false, nil
+	}
+	modelOf := map[string]string{}
+	for _, e := range m.entries {
+		if e.RequestID != "" {
+			modelOf[e.RequestID] = e.Model
+		}
+	}
+	var out []PayoutLot
+	for _, l := range m.lots {
+		if l.PayoutID != payoutID {
+			continue
+		}
+		out = append(out, PayoutLot{
+			LotID: l.ID, RequestID: l.RequestID, Node: l.Node,
+			Model: modelOf[l.RequestID], Gross: l.Gross, CreatedAt: l.CreatedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt > out[j].CreatedAt
+		}
+		return out[i].LotID > out[j].LotID
+	})
+	return out, true, nil
 }
 
 // Chargeback is the back-compat wrapper: it runs the lineage clawback and returns just

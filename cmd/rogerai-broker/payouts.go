@@ -543,3 +543,138 @@ func (b *broker) payoutsHistory(w http.ResponseWriter, r *http.Request) {
 		"ledger":  nonNilLedger(led),
 	})
 }
+
+// payoutsEarnings handles GET /payouts/earnings: the operator's full earnings split
+// (held/reserved/payable/paid) PLUS a dated release ladder (releases[]) bucketed from
+// the still-held lots' release dates - so the Payouts page renders a real "$X clears
+// Jun 30, $Y clears Jul 15" schedule instead of only the single soonest date the split
+// carries. Includes cheap per-model + per-node earning rollups (where the money came
+// from). Owner-authed (web session OR signed CLI, see payoutOwner); a logged-in caller
+// only ever sees its OWN account's lots (keyed by the owner pubkey), exactly like
+// /earnings - there is no node/account query param to scope across accounts.
+func (b *broker) payoutsEarnings(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	corsCreds(w, r)
+	_, o, ok := b.payoutOwner(r, nil)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		return
+	}
+	if o.GitHubID == 0 {
+		jsonErr(w, http.StatusForbidden, "no operator account for this login")
+		return
+	}
+	now := time.Now()
+	split, _ := b.db.EarningSplitOf(o.Pubkey, now)
+	rel, _ := b.db.ReleaseSchedule(o.Pubkey, now)
+	releases := make([]map[string]any, 0, len(rel))
+	for _, rb := range rel {
+		releases = append(releases, map[string]any{
+			"date":      rb.Date,
+			"amount":    round6(rb.Amount),
+			"lot_count": rb.LotCount,
+		})
+	}
+	byModel, byNode, _ := b.db.EarningRollups(o.Pubkey)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"held":         round6(split.Held),
+		"reserved":     round6(split.Reserved),
+		"payable":      round6(split.Payable),
+		"paid":         round6(split.Paid),
+		"next_release": split.NextRelease,
+		"releases":     releases,
+		"by_model":     roundRollups(byModel),
+		"by_node":      roundRollups(byNode),
+	})
+}
+
+// roundRollups rounds each rollup amount for display (never nil, so the JSON array is
+// honest-empty []), preserving the store's sort (highest-earning first).
+func roundRollups(rs []store.EarningRollup) []store.EarningRollup {
+	out := make([]store.EarningRollup, 0, len(rs))
+	for _, r := range rs {
+		r.Amount = round6(r.Amount)
+		out = append(out, r)
+	}
+	return out
+}
+
+// payoutsSubtree dispatches the /payouts/{id}/... subtree. Exact paths (/payouts/request,
+// /payouts/history, /payouts/earnings) are registered as their own (more specific) mux
+// patterns and never reach here; this only sees /payouts/{id}/lots (or an unknown
+// subpath -> 404).
+func (b *broker) payoutsSubtree(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/payouts/")
+	if strings.HasSuffix(rest, "/lots") {
+		b.payoutLots(w, r)
+		return
+	}
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	jsonErr(w, http.StatusNotFound, "not found")
+}
+
+// payoutLots handles GET /payouts/{id}/lots: the funding earning lots behind one of the
+// caller's payouts - {request_id, node, model, gross, created_at} per lot - so a
+// payout-history row can expand into the EXACT request-level receipts that funded the
+// transfer (request-level lineage). Owner-authed; the store is owner-scoped, so a payout
+// id that is not the caller's (or unknown) is rejected 404 - never leaking another
+// operator's receipts.
+func (b *broker) payoutLots(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	corsCreds(w, r)
+	// Path: /payouts/{id}/lots
+	rest := strings.TrimPrefix(r.URL.Path, "/payouts/")
+	idStr := strings.TrimSuffix(rest, "/lots")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || idStr == rest {
+		jsonErr(w, http.StatusBadRequest, "bad payout id")
+		return
+	}
+	_, o, ok := b.payoutOwner(r, nil)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		return
+	}
+	if o.GitHubID == 0 {
+		jsonErr(w, http.StatusForbidden, "no operator account for this login")
+		return
+	}
+	lots, found, err := b.db.PayoutLots(o.Pubkey, id)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if !found {
+		// Unknown OR not the caller's payout: a single 404 (no oracle on whether the id
+		// exists for another operator).
+		jsonErr(w, http.StatusNotFound, "payout not found")
+		return
+	}
+	out := make([]map[string]any, 0, len(lots))
+	for _, l := range lots {
+		out = append(out, map[string]any{
+			"request_id": l.RequestID,
+			"node":       l.Node,
+			"model":      l.Model,
+			"gross":      round6(l.Gross),
+			"created_at": l.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"payout_id": id,
+		"lots":      out,
+	})
+}

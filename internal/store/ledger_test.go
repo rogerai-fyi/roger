@@ -511,3 +511,127 @@ func TestChargebackLineageNotUnrelatedOperators(t *testing.T) {
 		t.Errorf("platform_loss ledger = %+v, want one -33 row", led)
 	}
 }
+
+// recM is rec with an explicit model id (the per-model rollup needs distinct models).
+func recM(id, model string) protocol.UsageReceipt {
+	return protocol.UsageReceipt{RequestID: id, Model: model, PromptTokens: 1, CompletionTokens: 1, TS: time.Now().Unix()}
+}
+
+// TestReleaseSchedule: still-held lots bucket into a dated, ascending release ladder
+// keyed by their release day; an already-cleared lot is swept to payable and drops out
+// of the upcoming ladder. White-box: set distinct ReleaseAt on the lots directly.
+func TestReleaseSchedule(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "120")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	day1 := now.Add(30 * 24 * time.Hour) // ~Jul 1
+	day2 := now.Add(45 * 24 * time.Hour) // ~Jul 16
+	// Three held lots: two clearing the SAME day (bucket together), one later, plus one
+	// already-cleared lot that the sweep promotes (must NOT appear in the ladder).
+	m.lots = []EarningLot{
+		{ID: 1, Node: "n", AccountID: "acct1", RequestID: "r1", Gross: 5, State: LotHeld, ReleaseAt: day1.Unix(), ReserveReleaseAt: day1.Unix()},
+		{ID: 2, Node: "n", AccountID: "acct1", RequestID: "r2", Gross: 3, State: LotHeld, ReleaseAt: day1.Add(2 * time.Hour).Unix(), ReserveReleaseAt: day1.Unix()},
+		{ID: 3, Node: "n", AccountID: "acct1", RequestID: "r3", Gross: 7, State: LotHeld, ReleaseAt: day2.Unix(), ReserveReleaseAt: day2.Unix()},
+		{ID: 4, Node: "n", AccountID: "acct1", RequestID: "r4", Gross: 9, State: LotHeld, ReleaseAt: now.Add(-time.Hour).Unix(), ReserveReleaseAt: now.Add(-time.Hour).Unix()},
+		{ID: 5, Node: "n", AccountID: "other", RequestID: "r5", Gross: 99, State: LotHeld, ReleaseAt: day1.Unix(), ReserveReleaseAt: day1.Unix()},
+	}
+	rel, err := m.ReleaseSchedule("acct1", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rel) != 2 {
+		t.Fatalf("ladder = %+v, want 2 buckets (the cleared lot + other account excluded)", rel)
+	}
+	if rel[0].Date >= rel[1].Date {
+		t.Errorf("ladder not ascending: %+v", rel)
+	}
+	if !approx(rel[0].Amount, 8) || rel[0].LotCount != 2 {
+		t.Errorf("bucket 0 = %+v, want amount 8 / 2 lots (the same-day pair)", rel[0])
+	}
+	if !approx(rel[1].Amount, 7) || rel[1].LotCount != 1 {
+		t.Errorf("bucket 1 = %+v, want amount 7 / 1 lot", rel[1])
+	}
+	if rel[0].Date != dayUTC(day1.Unix()) {
+		t.Errorf("bucket 0 date = %d, want UTC midnight of release day %d", rel[0].Date, dayUTC(day1.Unix()))
+	}
+}
+
+// TestEarningRollups: earnings roll up per model and per node across non-clawed lots,
+// joined to the request receipts for the model, highest-earning first.
+func TestEarningRollups(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "120")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("nodeA", "acct1")
+	_ = m.BindNode("nodeB", "acct1")
+	fundReal(m, "u", 1000)
+	_, _ = m.Hold("u", 5)
+	_, _ = m.Finalize("u", "nodeA", 5, 5, 5, recM("r1", "gpt-oss"))
+	_, _ = m.Hold("u", 3)
+	_, _ = m.Finalize("u", "nodeA", 3, 3, 3, recM("r2", "gpt-oss"))
+	_, _ = m.Hold("u", 4)
+	_, _ = m.Finalize("u", "nodeB", 4, 4, 4, recM("r3", "gemma"))
+	byModel, byNode, err := m.EarningRollups("acct1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byModel) != 2 || byModel[0].Key != "gpt-oss" || !approx(byModel[0].Amount, 8) || byModel[0].Lots != 2 {
+		t.Errorf("byModel = %+v, want gpt-oss(8,2) first", byModel)
+	}
+	if byModel[1].Key != "gemma" || !approx(byModel[1].Amount, 4) {
+		t.Errorf("byModel[1] = %+v, want gemma(4)", byModel[1])
+	}
+	if len(byNode) != 2 || byNode[0].Key != "nodeA" || !approx(byNode[0].Amount, 8) {
+		t.Errorf("byNode = %+v, want nodeA(8) first", byNode)
+	}
+}
+
+// TestPayoutLots: a payout's funding lots resolve to their request-level receipts
+// (model from the receipt), owner-scoped - a foreign account's id is rejected ok=false.
+func TestPayoutLots(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "90")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("nodeA", "acct1")
+	fundReal(m, "u", 1000)
+	_, _ = m.Hold("u", 20)
+	_, _ = m.Finalize("u", "nodeA", 20, 20, 20, recM("r1", "gpt-oss"))
+	_, _ = m.Hold("u", 15)
+	_, _ = m.Finalize("u", "nodeA", 15, 15, 15, recM("r2", "gemma"))
+	future := time.Now().Add(91 * 24 * time.Hour)
+	pay, ok, _, _ := m.RequestPayout("acct1", future, 25)
+	if !ok {
+		t.Fatal("payout should succeed (35 >= 25)")
+	}
+	lots, found, err := m.PayoutLots("acct1", pay.ID)
+	if err != nil || !found {
+		t.Fatalf("PayoutLots(acct1) found=%v err=%v, want found", found, err)
+	}
+	if len(lots) != 2 {
+		t.Fatalf("lots = %+v, want 2 funding receipts", lots)
+	}
+	var total float64
+	models := map[string]bool{}
+	for _, l := range lots {
+		total += l.Gross
+		models[l.Model] = true
+		if l.RequestID == "" || l.Node != "nodeA" {
+			t.Errorf("lot missing lineage: %+v", l)
+		}
+	}
+	if !approx(total, 35) || !models["gpt-oss"] || !models["gemma"] {
+		t.Errorf("lots total=%v models=%v, want 35 over gpt-oss+gemma", total, models)
+	}
+	// Cross-account: a different account asking for this payout id is rejected.
+	if _, found2, _ := m.PayoutLots("acctOTHER", pay.ID); found2 {
+		t.Error("cross-account PayoutLots should reject (found=false)")
+	}
+	// Unknown payout id: also not found.
+	if _, found3, _ := m.PayoutLots("acct1", 99999); found3 {
+		t.Error("unknown payout id should be found=false")
+	}
+}
