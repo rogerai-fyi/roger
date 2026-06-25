@@ -76,6 +76,7 @@ func Search(broker string) error {
 			Confidential bool    `json:"confidential"`
 			FreeNow      bool    `json:"free_now"`
 			TPS          float64 `json:"tps"`
+			Signal       int     `json:"signal"`
 		} `json:"offers"`
 	}
 	if err := getJSON(broker, "/discover", "", &d); err != nil {
@@ -108,7 +109,7 @@ func Search(broker string) error {
 			flags += "FREE-now"
 		}
 		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-7s %-7d %-7s %-7s %s\n",
-			status, signalTower(o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut, tps, o.Ctx, o.Region, o.NodeID, flags)
+			status, signalTower(o.Signal, o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut, tps, o.Ctx, o.Region, o.NodeID, flags)
 	}
 	return nil
 }
@@ -125,41 +126,76 @@ var (
 	glyphVerify = glyphs.Current().Verify
 )
 
-// signalTower renders a 5-cell ▁▂▃▄▅▆▇█ signal bar driven by tok/s, mirroring the
-// TUI band table's inline meter (same tps thresholds). Offline / unmeasured shows
-// a flat low tower. No color - the glyph heights carry the reading in a pipe.
-func signalTower(tps float64, online bool) string {
+// signalTower renders a 5-cell ▁▂▃▄▅▆▇█ signal bar driven by the broker's 0..100
+// channel signal, mirroring the TUI band table's inline meter. The signal carries
+// even when tok/s is 0 (an online-but-untrafficked node still scores its baseline),
+// so an on-air band never reads blank. When the broker signal is absent (legacy /
+// pre-signal offers, signal<=0) we fall back to the old tps-derived bar. Offline
+// shows the flat "no signal" tower. No color - the glyph heights carry the reading
+// in a pipe (NO_COLOR safe).
+func signalTower(signal int, tps float64, online bool) string {
 	if !online {
 		return glyphs.Current().SigOff
 	}
-	ramp := glyphs.Current().Signal
-	base := 0
-	switch {
-	case tps >= 600:
-		base = 6
-	case tps >= 300:
-		base = 5
-	case tps >= 150:
-		base = 4
-	case tps >= 60:
-		base = 3
-	case tps >= 20:
-		base = 2
-	case tps > 0:
-		base = 1
+	base := signalLevel(signal)
+	if base == 0 {
+		// No broker signal (legacy offer) - fall back to the tps-derived level so a
+		// node that DOES report throughput still meters.
+		base = tpsLevel(tps)
 	}
 	if base == 0 {
-		return glyphs.Current().SigOff
+		// Online with neither a broker signal nor measured tps: show one bar, never a
+		// fully blank tower (online always reads as at least faint carrier).
+		base = 1
 	}
+	ramp := glyphs.Current().Signal
 	var b strings.Builder
 	for i := 0; i < 5; i++ {
 		lvl := base - (i % 2)
 		if lvl < 0 {
 			lvl = 0
 		}
+		if lvl >= len(ramp) {
+			lvl = len(ramp) - 1
+		}
 		b.WriteRune(ramp[lvl])
 	}
 	return b.String()
+}
+
+// signalLevel maps the broker's 0..100 signal onto the 0..7 glyph ramp (▁..█). An
+// online node's baseline signal (~43 with no traffic) lands mid-tower; 100 pins
+// the top. 0 means "no broker signal" (the caller then falls back to tps).
+func signalLevel(signal int) int {
+	if signal <= 0 {
+		return 0
+	}
+	// 1..100 -> 1..7 (never 0 for a positive signal, so an online node always meters).
+	lvl := 1 + (signal*6+99)/100 // ceil((signal/100)*6), then +1 base; ~43 -> 4
+	if lvl > 7 {
+		lvl = 7
+	}
+	return lvl
+}
+
+// tpsLevel is the legacy tok/s -> level mapping, kept as the fallback meter when an
+// offer carries no broker signal.
+func tpsLevel(tps float64) int {
+	switch {
+	case tps >= 600:
+		return 6
+	case tps >= 300:
+		return 5
+	case tps >= 150:
+		return 4
+	case tps >= 60:
+		return 3
+	case tps >= 20:
+		return 2
+	case tps > 0:
+		return 1
+	}
+	return 0
 }
 
 // Balance prints the caller's wallet credits (GET /balance as `user`). When the

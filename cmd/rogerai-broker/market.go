@@ -21,6 +21,11 @@ type offerView struct {
 	TPS          float64 `json:"tps"`     // measured output tokens/sec (0 = not yet measured)
 	TTFTMs       float64 `json:"ttft_ms"` // probe-measured time-to-first-token (ms; 0 = unmeasured)
 	Quality      float64 `json:"quality"` // 0..1 broker-measured trust/verification signal
+	// Signal is the SAME 0..100 health score /market exposes per model, computed
+	// here per OFFER (providers=1) so the band list has a meter to show even when
+	// the node has zero traffic yet: an online node still scores its baseline from
+	// supply + quality (no tps required). Offline offers are scored 0 (no supply).
+	Signal int `json:"signal"`
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -48,14 +53,31 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		online := time.Since(b.lastSeen[n.NodeID]) < nodeTTL
+		// Per-node market metrics, read once under metricsMu, that feed BOTH the
+		// surfaced quality/tps fields AND the 0..100 signal. An offline node scores 0
+		// (offerSignal forces it); an online node with no traffic still earns its
+		// baseline from supply + quality (success defaults optimistic until measured).
+		b.metricsMu.Lock()
+		tps := b.tps[n.NodeID]
+		inflight := b.inflight[n.NodeID]
+		sr, srSeen := b.success[n.NodeID]
+		quality := b.trust[n.NodeID].score()
+		ttft := b.trust[n.NodeID].ttftMs
+		b.metricsMu.Unlock()
+		successRate := 1.0 // optimistic until we have evidence (same as /market)
+		if srSeen {
+			successRate = sr
+		}
+		signal := offerSignal(online, inflight, tps, successRate, quality)
 		for _, o := range n.Offers {
 			pin, pout, free, _ := o.ActivePrice(now)
 			out = append(out, offerView{
 				NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
 				In: pin, Out: pout, Ctx: o.Ctx, Online: online,
 				Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
-				TPS:    b.tps[n.NodeID],
-				TTFTMs: b.probeTTFT(n.NodeID), Quality: b.trustScore(n.NodeID),
+				TPS:    tps,
+				TTFTMs: ttft, Quality: quality,
+				Signal: signal,
 			})
 		}
 	}
@@ -174,6 +196,18 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Signal > out[j].Signal })
 	writeJSON(w, http.StatusOK, map[string]any{"market": out})
+}
+
+// offerSignal scores a SINGLE offer 0..100 using the exact same blend /market
+// uses (marketSignal), so the band list's meter and the /market view agree for the
+// same node. providers=1 for one offer. An offline offer is 0 (no supply); an
+// online offer with no traffic still earns its baseline (supply + quality), which
+// is the whole fix: a freshly-on-air band reads NON-blank instead of tps==0 blank.
+func offerSignal(online bool, inflight int, tps, successRate, trust float64) int {
+	if !online {
+		return 0
+	}
+	return marketSignal(1, inflight, tps, successRate, trust)
 }
 
 // marketSignal scores a model 0..100. Higher = a healthier channel: more online

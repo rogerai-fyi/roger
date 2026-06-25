@@ -30,6 +30,10 @@ type Offer struct {
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
 	TPS          float64 `json:"tps"`
+	// Signal is the broker's 0..100 channel-health score for this offer (online +
+	// quality + tps + reliability). It carries even when TPS==0, so the meter shows
+	// a freshly-on-air node's baseline strength instead of a blank tps-driven bar.
+	Signal int `json:"signal"`
 }
 
 // failoverPolicy bounds the auto-recovery loop. Defaults are conservative so a
