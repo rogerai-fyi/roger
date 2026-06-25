@@ -348,20 +348,31 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 	}
 	gc, ok, gerr := b.resolveGrantToken(c.grantKey)
 	if !ok || gerr != "" {
+		log.Printf("CONCIERGE grant-dogfood miss: grant-unresolved (key sha not found / revoked / expired) model=%q", c.grantModel)
 		return "", false // invalid/revoked/expired grant - fall through, never break Ping
 	}
 	model := c.grantModel
 	if gc.modelDenied(model) {
+		log.Printf("CONCIERGE grant-dogfood miss: model-denied (CONCIERGE_MODEL not in grant scope) model=%q", model)
 		return "", false // grant does not scope this model - fall through
+	}
+	// Key diagnostic: an empty nodeAllow means the grant owner has NO bound nodes,
+	// so the model's node is not bound to the owner's account (e.g. it is shared
+	// anonymously). That is distinct from "bound but not currently on air".
+	if len(gc.nodeAllow) == 0 {
+		log.Printf("CONCIERGE grant-dogfood miss: no-owner-node (grant owner has NO bound nodes; %q node not bound to the grant account) model=%q nodes=0", model, model)
+		return "", false
 	}
 	node, nok := b.pickGrantStation(gc.nodeAllow, model)
 	if !nok {
+		log.Printf("CONCIERGE grant-dogfood miss: no-onair-node (owner has bound nodes but none on air offering the model) model=%q nodes=%d", model, len(gc.nodeAllow))
 		return "", false // no on-air owner node serving the model - fall through
 	}
 	b.mu.Lock()
 	t := b.tunnels[node]
 	b.mu.Unlock()
 	if t == nil {
+		log.Printf("CONCIERGE grant-dogfood miss: relay-error (picked node has no live tunnel) model=%q node=%s", model, node)
 		return "", false
 	}
 
@@ -391,15 +402,18 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 	select {
 	case t.jobs <- job:
 	case <-time.After(2 * time.Second):
+		log.Printf("CONCIERGE grant-dogfood miss: relay-error (no poller free, enqueue timeout) model=%q node=%s", model, node)
 		return "", false // no poller free
 	}
 	select {
 	case res := <-resCh:
 		if res.Status < 200 || res.Status >= 300 {
+			log.Printf("CONCIERGE grant-dogfood miss: relay-error (status %d) model=%q node=%s", res.Status, model, node)
 			return "", false
 		}
 		return completionText(res.Body), true
 	case <-time.After(25 * time.Second):
+		log.Printf("CONCIERGE grant-dogfood miss: relay-error (result timeout) model=%q node=%s", model, node)
 		return "", false
 	}
 }
