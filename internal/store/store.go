@@ -232,6 +232,15 @@ type Store interface {
 	// RecountHeldNodes returns the set of nodes currently flagged with an open re-count
 	// discrepancy, so the broker can re-hydrate the in-memory view after a restart.
 	RecountHeldNodes() (map[string]bool, error)
+	// ExpireRecountHolds clears every node AND account recount hold first placed at or
+	// before `olderThan` (OPERATOR RECOURSE / auto-expiry): a hold is a freeze pending
+	// review, not a permanent sentence, so a held-for-review state auto-clears after a
+	// configurable window if no further discrepancy re-arms it. It returns how many holds
+	// (nodes+accounts) it cleared. The broker re-arms a hold the instant a fresh
+	// discrepancy lands, so an actually-abusive operator never escapes - only an honest
+	// operator hit by a false positive is unfrozen. Idempotent (clearing a clear hold is
+	// a no-op).
+	ExpireRecountHolds(olderThan time.Time) (cleared int, err error)
 	// Chargeback records a consumer dispute: a chargeback ledger row against the
 	// consumer wallet, and a clawback against the operator's still-held/payable lots
 	// derived from that consumer. Idempotent on the Stripe dispute id. When requestID
@@ -364,6 +373,35 @@ type Store interface {
 	// promoting held->payable (the owner-level twin of SetNodeRecountHold, surviving
 	// node-id rotation). Idempotent.
 	SetAccountRecountHold(accountID string, held bool) error
+	// ForgiveOwner is the ADMIN-reviewed recourse primitive (OPERATOR RECOURSE): it
+	// reverses ALL durable anti-abuse state against an owner account after a human
+	// review clears them - it deletes the owner's strikes, lifts the durable owner ban,
+	// and clears the account recount hold, in one call. It returns how many strikes were
+	// forgiven (for the audit log). Idempotent: forgiving a clean account is a no-op.
+	// The broker also refreshes its in-memory owner-ban cache after calling this.
+	ForgiveOwner(accountID string) (forgiven int, err error)
+
+	// --- failed-reversal retry (silent-money-leak guard) ---------------------
+	// RecordPendingReversal durably records the intent to reverse an already-paid,
+	// disputed lot's Stripe Transfer. Idempotent on pr.Key (= "reverse:<dispute>:<lot>"):
+	// a re-record of an existing key is a no-op (it never resurrects a Done row nor resets
+	// attempts), so a webhook redelivery is safe. The ledger clawback is already recorded
+	// synchronously; this captures the money-rail intent so a transient Stripe failure is
+	// retried instead of silently dropped.
+	RecordPendingReversal(pr PendingReversal) error
+	// OpenPendingReversals returns the reversals still owed (not Done, not dead-lettered),
+	// up to limit (0 = all), oldest first, so the background sweep can re-attempt them.
+	OpenPendingReversals(limit int) ([]PendingReversal, error)
+	// MarkReversalAttempt records ONE reversal attempt's outcome for key: it bumps the
+	// attempt count + last-attempt time, sets done=true on success (terminal), or records
+	// the error and parks the row as a dead-letter once attempts reach maxAttempts (so it
+	// stops being swept and is surfaced for manual handling). Idempotent per call.
+	MarkReversalAttempt(key string, success bool, errMsg string, maxAttempts int, now time.Time) error
+
+	// Healthy is a cheap liveness/readiness probe of the store backend: nil = reachable.
+	// Mem always returns nil; Postgres pings the connection. Used by the /ready endpoint
+	// so the load balancer only routes to a broker whose store is actually answering.
+	Healthy() error
 
 	Close() error
 }
@@ -440,7 +478,7 @@ type Mem struct {
 	payouts     []Payout              // payout history
 	payoutID    int64                 // monotonic payout id
 	disputes    map[string]bool       // seen stripe dispute ids (idempotency)
-	recountHold map[string]bool       // node id -> open L1 re-count discrepancy (holds promotion, P0-2)
+	recountHold map[string]int64      // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
 	nodeAcct    map[string]string     // node id -> owner pubkey (TOFU)
 	charges     map[string]charge     // stripe payment_intent/charge id -> checkout mapping
 	gs          *grantStore           // grant keys + per-grant usage rollups
@@ -462,7 +500,12 @@ type Mem struct {
 	strikes      []Strike          // append-only evidence-bound owner strikes
 	strikeID     int64             // monotonic strike id
 	bannedOwners map[string]string // owner pubkey -> ban reason (durable, anti-rotation)
-	accountHold  map[string]bool   // owner pubkey -> all lots held from promotion
+	accountHold  map[string]int64  // owner pubkey -> unix when all-lots hold was placed (auto-expires)
+
+	// pendingReversals are the durable Stripe Transfer Reversal intents still owed on
+	// disputed already-paid lots, keyed on "reverse:<dispute>:<lot>". The background
+	// sweep retries each open row until it succeeds or dead-letters. Guarded by m.mu.
+	pendingReversals map[string]PendingReversal
 
 	// Seed cap: bound free-credit liability. seedLimit is the max number of distinct
 	// wallets ever seeded with non-zero starter credits (<=0 = unlimited); seedCount
@@ -485,9 +528,10 @@ func NewMem() *Mem {
 	return &Mem{
 		wallet: map[string]float64{}, seedRemain: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
-		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]bool{}, nodeAcct: map[string]string{},
+		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
-		banned: map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]bool{},
+		banned: map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
+		pendingReversals: map[string]PendingReversal{},
 	}
 }
 
@@ -1072,10 +1116,10 @@ func (m *Mem) DeriveBalance(holder string) (float64, error) {
 func (m *Mem) promoteLocked(now time.Time) {
 	for i := range m.lots {
 		l := &m.lots[i]
-		if m.recountHold[l.Node] {
+		if _, held := m.recountHold[l.Node]; held {
 			continue // node under re-count review: hold this lot, don't promote
 		}
-		if m.accountHold[l.AccountID] {
+		if _, held := m.accountHold[l.AccountID]; held {
 			continue // OWNER under review (survives node-id rotation): hold this lot
 		}
 		if l.State == LotHeld && now.Unix() >= l.ReleaseAt {
@@ -1237,10 +1281,12 @@ func (m *Mem) SetNodeRecountHold(node string, held bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.recountHold == nil {
-		m.recountHold = map[string]bool{}
+		m.recountHold = map[string]int64{}
 	}
 	if held {
-		m.recountHold[node] = true
+		// Record (or refresh) the held-at time. A re-flagged discrepancy re-arms the
+		// auto-expiry window, so an actually-abusive node never ages out of its hold.
+		m.recountHold[node] = time.Now().Unix()
 	} else {
 		delete(m.recountHold, node)
 	}
@@ -1255,6 +1301,30 @@ func (m *Mem) RecountHeldNodes() (map[string]bool, error) {
 		out[n] = true
 	}
 	return out, nil
+}
+
+// ExpireRecountHolds clears every node + account hold first placed at or before
+// olderThan (auto-expiry recourse): an honest operator hit by a false-positive hold is
+// unfrozen after the window, while an abusive one is kept held because every fresh
+// discrepancy refreshes its held-at time above the cutoff. Returns the count cleared.
+func (m *Mem) ExpireRecountHolds(olderThan time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cut := olderThan.Unix()
+	n := 0
+	for node, at := range m.recountHold {
+		if at <= cut {
+			delete(m.recountHold, node)
+			n++
+		}
+	}
+	for acct, at := range m.accountHold {
+		if at <= cut {
+			delete(m.accountHold, acct)
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *Mem) PayoutsOf(accountID string, limit int) ([]Payout, error) {
@@ -1529,3 +1599,72 @@ func (m *Mem) OpenDisputeCount(accountID string) (int, error) {
 }
 
 func (m *Mem) Close() error { return nil }
+
+// Healthy is always nil for the in-memory store (no backend to be unreachable).
+func (m *Mem) Healthy() error { return nil }
+
+// RecordPendingReversal durably records a Stripe Transfer Reversal intent. Idempotent
+// on pr.Key: a re-record of an existing key is a no-op (never resurrects a Done row nor
+// resets attempts), so a webhook redelivery is safe.
+func (m *Mem) RecordPendingReversal(pr PendingReversal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.pendingReversals == nil {
+		m.pendingReversals = map[string]PendingReversal{}
+	}
+	if pr.Key == "" {
+		return nil
+	}
+	if _, ok := m.pendingReversals[pr.Key]; ok {
+		return nil // already recorded; do not reset attempts/done
+	}
+	if pr.CreatedAt == 0 {
+		pr.CreatedAt = time.Now().Unix()
+	}
+	m.pendingReversals[pr.Key] = pr
+	return nil
+}
+
+// OpenPendingReversals returns reversals still owed (not Done, not dead-lettered),
+// oldest first, capped at limit (0 = all).
+func (m *Mem) OpenPendingReversals(limit int) ([]PendingReversal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []PendingReversal
+	for _, pr := range m.pendingReversals {
+		if pr.Done || pr.DeadLetter {
+			continue
+		}
+		out = append(out, pr)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// MarkReversalAttempt records one reversal attempt outcome for key: bump attempts +
+// last-attempt, mark done on success, or record the error and dead-letter once attempts
+// reach maxAttempts. A no-op if the key is unknown or already terminal.
+func (m *Mem) MarkReversalAttempt(key string, success bool, errMsg string, maxAttempts int, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pr, ok := m.pendingReversals[key]
+	if !ok || pr.Done || pr.DeadLetter {
+		return nil
+	}
+	pr.Attempts++
+	pr.LastAttempt = now.Unix()
+	if success {
+		pr.Done = true
+		pr.LastError = ""
+	} else {
+		pr.LastError = errMsg
+		if maxAttempts > 0 && pr.Attempts >= maxAttempts {
+			pr.DeadLetter = true
+		}
+	}
+	m.pendingReversals[key] = pr
+	return nil
+}

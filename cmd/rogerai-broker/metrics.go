@@ -40,7 +40,10 @@ func metricsDays(r *http.Request) int {
 // request + token counts, a free-vs-paid split, and the owner's earnings (the 70%
 // net share), plus summed totals and the period. Account-scoped (the owner pubkey),
 // so it accepts a web session OR a signed CLI request (see payoutOwner). An owner
-// with no operator account / no served traffic gets empty rows + zero totals.
+// with no operator account / no served traffic gets empty rows + zero totals, plus an
+// explicit "is_provider" flag so the UI can distinguish "you have no nodes yet" (a
+// not-yet-provider) from "your nodes had no traffic this period" instead of spinning on
+// an ambiguous empty body.
 func (b *broker) metricsProvider(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -58,11 +61,25 @@ func (b *broker) metricsProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	days := metricsDays(r)
 	var rows []store.ProviderModelMetric
+	// is_provider is an EXPLICIT honesty signal for the UI: true once the account has
+	// ever bound a node (it is an operator, even if this window is empty), false for a
+	// logged-in consumer who has never registered a node. Without it the web client
+	// can't tell "no nodes yet" from "nodes but no traffic", so it spins on the empty
+	// body forever. Default false; flipped true below when a node binding exists.
+	isProvider := false
 	// A logged-in identity that is not (yet) a bound operator account has no served
 	// traffic - return an empty, well-formed body rather than a 403.
 	if o.Pubkey != "" {
+		if nodes, err := b.db.NodesOfAccount(o.Pubkey); err == nil && len(nodes) > 0 {
+			isProvider = true
+		}
 		since, until := metricsWindowUTC(time.Now(), days)
 		rows, _ = b.db.ProviderMetrics(o.Pubkey, since, until)
+		// Served traffic this window also proves provider-hood (covers a legacy node
+		// whose binding row is gone but whose receipts remain).
+		if len(rows) > 0 {
+			isProvider = true
+		}
 	}
 	if rows == nil {
 		rows = []store.ProviderModelMetric{}
@@ -71,6 +88,7 @@ func (b *broker) metricsProvider(w http.ResponseWriter, r *http.Request) {
 		"models":      rows,
 		"totals":      providerTotals(rows),
 		"period_days": days,
+		"is_provider": isProvider,
 	})
 }
 

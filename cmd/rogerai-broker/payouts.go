@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 //     uses) whose pubkey is bound to a non-anonymized GitHub owner.
 //
 // Both paths converge on the owner's GitHub login + owner record, so every downstream
-// gate (KYC / 90-day hold / $25 min / debit-first transfer rail / dispute clawback)
+// gate (KYC / 120-day hold / $25 min / debit-first transfer rail / dispute clawback)
 // is identical no matter how the caller authenticated. This is purely an additional
 // AUTH path - it changes no policy. A signed-but-UNBOUND keypair (not logged in via
 // `rogerai login`) is rejected here: payouts are KYC + GitHub-linked only, so a
@@ -500,17 +501,87 @@ func (b *broker) reversePaidLots(disputeID string, reversals []store.Reversal) {
 			continue
 		}
 		idem := "reverse:" + disputeID + ":" + strconv.FormatInt(rv.LotID, 10)
+		// SILENT-MONEY-LEAK GUARD: record the reversal INTENT durably BEFORE the Stripe
+		// call, idempotent on idem (the Stripe Idempotency-Key). If the API call then
+		// fails (or the process dies mid-call), the intent survives and the retry sweep
+		// re-attempts it - the money is no longer dropped on the floor. A redelivered
+		// webhook re-recording the same key is a no-op (ON CONFLICT DO NOTHING).
+		if err := b.db.RecordPendingReversal(store.PendingReversal{
+			Key: idem, DisputeID: disputeID, LotID: rv.LotID, AccountID: rv.AccountID,
+			TransferID: rv.TransferID, Amount: rv.Amount,
+		}); err != nil {
+			log.Printf("dispute %s: could not record pending reversal for lot %d: %v (will still attempt now)", disputeID, rv.LotID, err)
+		}
 		revID, err := b.payoutTransferReversal(rv.TransferID, rv.Amount, idem)
 		if err != nil {
-			log.Printf("dispute %s: transfer reversal FAILED for lot %d (transfer %s, %.4f credits): %v - ledger clawback stands, reconcile",
+			// Do NOT drop it: mark the failed attempt (the sweep retries it). The ledger
+			// clawback stands; only the money-rail pull-back is deferred to the sweep.
+			_ = b.db.MarkReversalAttempt(idem, false, err.Error(), b.reversalMaxAttempts(), time.Now())
+			log.Printf("dispute %s: transfer reversal FAILED for lot %d (transfer %s, %.4f credits): %v - recorded for retry (ledger clawback stands)",
 				disputeID, rv.LotID, rv.TransferID, rv.Amount, err)
 			continue
 		}
+		_ = b.db.MarkReversalAttempt(idem, true, "", b.reversalMaxAttempts(), time.Now())
 		log.Printf("dispute %s: reversed %.4f credits of transfer %s (lot %d) -> %s", disputeID, rv.Amount, rv.TransferID, rv.LotID, revID)
 		// Flag-gated transactional notice (async, best-effort): tell the operator their
 		// paid-out earning was clawed back on a dispute. No-op when RESEND_API_KEY is
 		// unset or the owner has no email on file.
 		b.emailPayoutReversed(b.emailOf(rv.AccountID), rv.Amount, disputeID)
+	}
+}
+
+// defaultReversalMaxAttempts caps how many times the retry sweep re-attempts a failed
+// Stripe transfer reversal before parking it as a dead-letter for manual handling.
+// Overridable via ROGERAI_REVERSAL_MAX_ATTEMPTS. <=0 means never dead-letter (retry
+// forever) - safest for not losing money, but a permanently-bad transfer id then logs
+// each sweep until an admin intervenes.
+const defaultReversalMaxAttempts = 10
+
+func (b *broker) reversalMaxAttempts() int {
+	if v := os.Getenv("ROGERAI_REVERSAL_MAX_ATTEMPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return defaultReversalMaxAttempts
+}
+
+// reversalRetrySweep re-attempts the durable pending Stripe transfer-reversals on a
+// ticker (silent-money-leak guard). Each open intent (recorded by reversePaidLots before
+// its Stripe call) is re-attempted until it succeeds (marked done, terminal) or it hits
+// ROGERAI_REVERSAL_MAX_ATTEMPTS and is parked as a dead-letter (logged loudly for manual
+// handling). Idempotent on the Stripe Idempotency-Key, so a re-attempt of a reversal
+// that actually went through at Stripe is a safe no-op. Cheap: only OPEN rows are read.
+func (b *broker) reversalRetrySweep() {
+	if b.db == nil {
+		return
+	}
+	const interval = 5 * time.Minute
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		open, err := b.db.OpenPendingReversals(100)
+		if err != nil {
+			log.Printf("reversal-retry: list failed: %v", err)
+			continue
+		}
+		for _, pr := range open {
+			revID, rerr := b.payoutTransferReversal(pr.TransferID, pr.Amount, pr.Key)
+			if rerr != nil {
+				max := b.reversalMaxAttempts()
+				_ = b.db.MarkReversalAttempt(pr.Key, false, rerr.Error(), max, time.Now())
+				if max > 0 && pr.Attempts+1 >= max {
+					log.Printf("reversal-retry: DEAD-LETTER %s (lot %d, transfer %s, %.4f credits) after %d attempts: %v - MANUAL HANDLING REQUIRED (ledger clawback already stands)",
+						pr.Key, pr.LotID, pr.TransferID, pr.Amount, pr.Attempts+1, rerr)
+				} else {
+					log.Printf("reversal-retry: %s still failing (attempt %d): %v - will retry", pr.Key, pr.Attempts+1, rerr)
+				}
+				continue
+			}
+			_ = b.db.MarkReversalAttempt(pr.Key, true, "", b.reversalMaxAttempts(), time.Now())
+			log.Printf("reversal-retry: recovered %s - reversed %.4f credits of transfer %s (lot %d) -> %s", pr.Key, pr.Amount, pr.TransferID, pr.LotID, revID)
+			b.emailPayoutReversed(b.emailOf(pr.AccountID), pr.Amount, pr.DisputeID)
+		}
 	}
 }
 

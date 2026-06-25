@@ -240,14 +240,39 @@ func (m *Mem) SetAccountRecountHold(accountID string, held bool) error {
 		return nil
 	}
 	if m.accountHold == nil {
-		m.accountHold = map[string]bool{}
+		m.accountHold = map[string]int64{}
 	}
 	if held {
-		m.accountHold[accountID] = true
+		// Record (or refresh) the held-at time so a re-flagged owner re-arms auto-expiry.
+		m.accountHold[accountID] = time.Now().Unix()
 	} else {
 		delete(m.accountHold, accountID)
 	}
 	return nil
+}
+
+// ForgiveOwner reverses all durable anti-abuse state against an owner after admin
+// review: deletes its strikes, lifts the owner ban, and clears the account hold.
+// Returns the number of strikes forgiven. Idempotent.
+func (m *Mem) ForgiveOwner(accountID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if accountID == "" {
+		return 0, nil
+	}
+	kept := m.strikes[:0]
+	forgiven := 0
+	for _, s := range m.strikes {
+		if s.AccountID == accountID {
+			forgiven++
+			continue
+		}
+		kept = append(kept, s)
+	}
+	m.strikes = kept
+	delete(m.bannedOwners, accountID)
+	delete(m.accountHold, accountID)
+	return forgiven, nil
 }
 
 // ReportsByNode lists reports for a node, newest first (admin/dashboard helper).

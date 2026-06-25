@@ -149,6 +149,31 @@ type Reversal struct {
 	Amount     float64 `json:"amount"`      // operator share to reverse (credits)
 }
 
+// PendingReversal is a DURABLE record of a Stripe Transfer Reversal the broker still
+// owes on a disputed, already-paid lot. The ledger clawback is recorded synchronously
+// in the store, but the money rail (the Stripe API call that pulls the operator share
+// back) can transiently fail; without a durable intent that failure silently leaks
+// money (the clawback stands but the cash is never recovered). One row per (dispute,
+// lot) keyed on Key (= "reverse:<disputeID>:<lotID>"), so it is idempotent with the
+// Stripe Idempotency-Key the reversal uses: a webhook redelivery or a retry never
+// double-records or double-reverses. A background sweep re-attempts each open row until
+// it succeeds (Done) or hits MaxAttempts and is parked as a dead-letter for manual
+// handling (logged loudly). Amount is the operator share to reverse (credits).
+type PendingReversal struct {
+	Key         string  `json:"key"`          // "reverse:<disputeID>:<lotID>" (idempotency key)
+	DisputeID   string  `json:"dispute_id"`   // the Stripe dispute that triggered the clawback
+	LotID       int64   `json:"lot_id"`       // the already-paid earning lot
+	AccountID   string  `json:"account_id"`   // owner pubkey (for the reversal email + audit)
+	TransferID  string  `json:"transfer_id"`  // the Stripe transfer to reverse
+	Amount      float64 `json:"amount"`       // operator share to reverse (credits)
+	Attempts    int     `json:"attempts"`     // reversal attempts so far
+	Done        bool    `json:"done"`         // the Stripe reversal succeeded (terminal)
+	DeadLetter  bool    `json:"dead_letter"`  // exhausted MaxAttempts; parked for manual handling
+	LastError   string  `json:"last_error"`   // last failure message (for the dead-letter log)
+	CreatedAt   int64   `json:"created_at"`   // unix: when the intent was first recorded
+	LastAttempt int64   `json:"last_attempt"` // unix: when the reversal was last attempted
+}
+
 // ChargebackResult is the outcome of a lineage-attributed dispute clawback: how much
 // was clawed from still-held/payable lots, the set of ALREADY-PAID lots that need a
 // Stripe Transfer Reversal, and the platform-loss remainder (disputed amount that no

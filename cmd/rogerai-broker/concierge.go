@@ -36,11 +36,12 @@ import (
 //  3. CANNED reply ("the DJ is off air") when there is no free station AND no
 //     Groq key - never an error, so the widget never shows a broken state.
 //
-// NOTE (deferred P0): the broker's content-filter P0 (CSAM/illegal pre-dispatch
-// screen, e.g. Llama Guard) is still DEFERRED. This is the first PUBLIC LLM
-// surface, so until that lands we run a lightweight keyword precheck here AND the
-// existing moderation hook still applies on the dogfood relay path. The keyword
-// precheck is a stopgap, NOT the real screen.
+// CONTENT FILTER: the real screen IS wired here. Every path below runs b.mod.screen(...)
+// (moderation.go) before any model dispatch - conciergeHandler screens the latest user
+// turn, and the dogfood/grant relay paths re-screen defensively. The lightweight keyword
+// precheck is a CHEAP first gate layered IN FRONT of that real screen (a fast reject for
+// the obvious cases on this first PUBLIC LLM surface), NOT a substitute for it: both run,
+// and the keyword gate never replaces b.mod.screen.
 type concierge struct {
 	groqKey   string
 	groqURL   string
