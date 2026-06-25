@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 func TestNormalizeUpstream(t *testing.T) {
@@ -131,5 +133,56 @@ func TestLimitsLoadSaveBackCompat(t *testing.T) {
 	}
 	if got, _ := c2.resolve("unpinned-model"); got.MaxOut != 0.40 {
 		t.Errorf("default resolve = %+v, want max-out 0.40", got)
+	}
+}
+
+// TestSeedSharePricing covers the P0-A parity fix: `rogerai share` honors the TUI
+// editor's saved per-model price + schedule (cfg.Prices) when no explicit flags are
+// passed, and explicit flags still override.
+func TestSeedSharePricing(t *testing.T) {
+	cfg := config{Prices: map[string]SharePrice{
+		"gpt-oss-20b": {
+			PriceIn:  0.3,
+			PriceOut: 0.7,
+			Windows:  []SchedWindow{{Start: "03:00", End: "03:30", Free: true}},
+		},
+	}}
+
+	// No flags passed -> seed price + windows from the saved profile (parity).
+	in, out, sched := seedSharePricing(cfg, "gpt-oss-20b", 0, 0, nil, sharePricingFlags{})
+	if in != 0.3 || out != 0.7 {
+		t.Errorf("no-flag price = %v/%v, want 0.3/0.7 (saved profile)", in, out)
+	}
+	if len(sched) != 1 || sched[0].Start != "03:00" || !sched[0].Free {
+		t.Errorf("no-flag schedule = %+v, want the saved 03:00-03:30 FREE window", sched)
+	}
+
+	// Explicit price flags override the saved profile; explicit schedule flag means the
+	// saved windows are NOT appended (the one-off owns the schedule).
+	flagSched := []protocol.PriceWindow{{Start: "18:00", End: "22:00", Out: 1.0}}
+	in, out, sched = seedSharePricing(cfg, "gpt-oss-20b", 5.0, 9.0, flagSched,
+		sharePricingFlags{in: true, out: true, schedule: true})
+	if in != 5.0 || out != 9.0 {
+		t.Errorf("flag override price = %v/%v, want 5/9 (explicit flags win)", in, out)
+	}
+	if len(sched) != 1 || sched[0].Start != "18:00" {
+		t.Errorf("flag schedule = %+v, want only the explicit window (saved not appended)", sched)
+	}
+
+	// A model with no saved profile leaves the inputs untouched (free stays free).
+	in, out, sched = seedSharePricing(cfg, "no-profile", 0, 0, nil, sharePricingFlags{})
+	if in != 0 || out != 0 || len(sched) != 0 {
+		t.Errorf("no-profile model = %v/%v/%+v, want 0/0/nil", in, out, sched)
+	}
+
+	// Mixed: explicit price-out only -> out from flag, in from saved profile, and (no
+	// schedule flag) the saved window IS appended.
+	in, out, sched = seedSharePricing(cfg, "gpt-oss-20b", 0, 2.5, nil,
+		sharePricingFlags{out: true})
+	if in != 0.3 || out != 2.5 {
+		t.Errorf("mixed price = %v/%v, want in=0.3 (saved) out=2.5 (flag)", in, out)
+	}
+	if len(sched) != 1 || !sched[0].Free {
+		t.Errorf("mixed schedule = %+v, want the saved FREE window appended", sched)
 	}
 }

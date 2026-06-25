@@ -267,6 +267,13 @@ func rowSel(sel bool, plain string, width int) string {
 // ports). Production uses detect.DetectWith.
 var detectShares = func(extra ...string) []detect.Found { return detect.DetectWith(extra...) }
 
+// marketMedianOut is the indirection over the live per-model market-median lookup
+// used by the editor's fat-finger guard (the TUI mirror of the CLI softPriceWarn),
+// so tests can make it deterministic. Production reads /discover via the client.
+var marketMedianOut = func(broker, model string) (float64, bool) {
+	return client.MarketMedianOut(broker, model)
+}
+
 // detectSharesCmd runs detectShares in a goroutine (a tea.Cmd) so the SHARE flows
 // detect local models WITHOUT blocking the Bubble Tea event loop - probing a busy
 // host's open ports can take a few seconds, which would otherwise freeze every
@@ -630,6 +637,7 @@ type model struct {
 	edWinSub   int                // focused sub-field within a window (see winSub* consts)
 	edWinBuf   string             // in-progress digit buffer for the focused window price sub-field
 	edModel    string             // the model this editor is pricing
+	edErr      string             // inline validation error in the editor (blocks save; "" = none)
 	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
 	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
 	// one-liner, or paste a URL we verify with detect.Probe.
@@ -2181,6 +2189,7 @@ func (m model) enterShareEditor() (tea.Model, tea.Cmd) {
 	m.edWindows = append([]SchedWindow(nil), p.Windows...)
 	m.edField = edFieldOut // out-price is the headline knob
 	m.edWinSub = winSubStart
+	m.edErr = ""
 	m.mode = modeShareEditor
 	m.status = stDim.Render("tab field · ←→ window start/end/in/out · a add · d del · f free · ⏎ save · esc")
 	return m, nil
@@ -2198,8 +2207,13 @@ func (m *model) onShareEditorKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("cancelled - price unchanged")
 		return m, nil
 	case "enter":
-		m.commitShareEditor()
-		m.mode = modeShare
+		// Validation failures (bad HH:MM, unparseable price, over the public ceiling)
+		// BLOCK the save and keep the editor open with an inline error, instead of
+		// silently persisting a window that never matches or a stale price. Only a clean
+		// commit returns to the provider table.
+		if m.commitShareEditor() {
+			m.mode = modeShare
+		}
 		return m, nil
 	case "tab", "down":
 		m.edField = (m.edField + 1) % nFields
@@ -2327,15 +2341,103 @@ func (m *model) syncWinBuf() {
 	}
 }
 
-// commitShareEditor writes the edited price + schedule into m.prices, persists it
-// via the host SavePrice hook (if any), and re-prices a live share so an on-air
-// model reflects the new base price immediately.
-func (m *model) commitShareEditor() {
+// Public price ceilings the editor enforces INLINE (at edit time, where the typo
+// happens) so a bad price is caught at the cause, not only far away at broker
+// register. These MIRROR the broker's hard public ceilings (cmd/rogerai-broker
+// pricesafety.go: ROGERAI_MAX_PRICE_OUT default $100/1M, ROGERAI_MAX_PRICE_IN
+// default $50/1M), which remain the marketplace invariant no matter which client
+// registered the node. Kept as plain constants here to avoid the TUI importing the
+// broker; the broker is still the source of truth that actually rejects.
+const (
+	editorMaxPriceOut = 100.0 // $/1M out public ceiling
+	editorMaxPriceIn  = 50.0  // $/1M in public ceiling
+)
+
+// validHHMM reports whether s is a well-formed "HH:MM" 24h time (00:00..23:59). A
+// malformed window time ("25:99", "6pm") silently NEVER matches at runtime, so we
+// block it at save time instead of letting the operator publish a dead window.
+func validHHMM(s string) bool {
+	s = strings.TrimSpace(s)
+	p := strings.SplitN(s, ":", 2)
+	if len(p) != 2 {
+		return false
+	}
+	h, e1 := strconv.Atoi(p[0])
+	min, e2 := strconv.Atoi(p[1])
+	if e1 != nil || e2 != nil {
+		return false
+	}
+	return h >= 0 && h <= 23 && min >= 0 && min <= 59 && len(p[0]) > 0 && len(p[1]) > 0
+}
+
+// validateEditor checks the in-progress editor state and returns a human inline
+// error (or "" when clean). It surfaces the failures the editor used to swallow:
+// an unparseable base/window price (ParseFloat error kept a stale value), a
+// malformed HH:MM window time (never matches), and a price over the public ceiling
+// (previously only caught at broker register, far from the typo). On success it
+// returns the parsed base in/out so commit doesn't re-parse.
+func (m *model) validateEditor() (in, out float64, errMsg string) {
+	in, err := strconv.ParseFloat(strings.TrimSpace(orZero(m.edPriceIn)), 64)
+	if err != nil {
+		return 0, 0, "input price must be a number (e.g. 0.5) - got " + strconv.Quote(m.edPriceIn)
+	}
+	out, err = strconv.ParseFloat(strings.TrimSpace(orZero(m.edPriceOut)), 64)
+	if err != nil {
+		return 0, 0, "output price must be a number (e.g. 0.7) - got " + strconv.Quote(m.edPriceOut)
+	}
+	if in < 0 || out < 0 {
+		return 0, 0, "prices cannot be negative"
+	}
+	if out > editorMaxPriceOut {
+		return 0, 0, fmt.Sprintf("output price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", out, editorMaxPriceOut)
+	}
+	if in > editorMaxPriceIn {
+		return 0, 0, fmt.Sprintf("input price $%.2f/1M is over the $%.0f/1M public ceiling - lower it, or share PRIVATE", in, editorMaxPriceIn)
+	}
+	for i, w := range m.edWindows {
+		if !validHHMM(w.Start) || !validHHMM(w.End) {
+			return 0, 0, fmt.Sprintf("window %d time must be HH:MM (00:00-23:59) - got %q-%q", i+1, w.Start, w.End)
+		}
+		if w.Free {
+			continue
+		}
+		if w.In < 0 || w.Out < 0 {
+			return 0, 0, fmt.Sprintf("window %d prices cannot be negative", i+1)
+		}
+		if w.Out > editorMaxPriceOut {
+			return 0, 0, fmt.Sprintf("window %d output $%.2f/1M is over the $%.0f/1M public ceiling", i+1, w.Out, editorMaxPriceOut)
+		}
+		if w.In > editorMaxPriceIn {
+			return 0, 0, fmt.Sprintf("window %d input $%.2f/1M is over the $%.0f/1M public ceiling", i+1, w.In, editorMaxPriceIn)
+		}
+	}
+	return in, out, ""
+}
+
+// orZero maps an empty edit buffer to "0" so a blank price field reads as free
+// rather than a parse error.
+func orZero(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "0"
+	}
+	return s
+}
+
+// commitShareEditor validates the edited price + schedule and, when clean, writes it
+// into m.prices, persists it via the host SavePrice hook (if any), and re-prices a
+// live share so an on-air model reflects the new base price immediately. It returns
+// false (keeping the editor open with an inline error) when validation fails, so a
+// malformed time / unparseable price / over-ceiling price never saves silently.
+func (m *model) commitShareEditor() bool {
+	in, out, errMsg := m.validateEditor()
+	if errMsg != "" {
+		m.edErr = errMsg
+		return false
+	}
+	m.edErr = ""
 	if m.prices == nil {
 		m.prices = map[string]Pricing{}
 	}
-	in, _ := strconv.ParseFloat(strings.TrimSpace(m.edPriceIn), 64)
-	out, _ := strconv.ParseFloat(strings.TrimSpace(m.edPriceOut), 64)
 	p := Pricing{In: in, Out: out, Windows: append([]SchedWindow(nil), m.edWindows...)}
 	m.prices[m.edModel] = p
 	if m.hooks.SavePrice != nil {
@@ -2350,6 +2452,34 @@ func (m *model) commitShareEditor() {
 		win = stDim.Render(" · " + plural(len(p.Windows), "window"))
 	}
 	m.status = stLive.Render("saved ") + stKey.Render(m.edModel) + stDim.Render(" at ") + stEmber.Render(kind) + win
+	// Fat-finger guard: mirror the CLI's softPriceWarn (>3x the live market median is
+	// likely a typo) into the TUI commit path, so a $300 fumble warns instead of going
+	// on air with only the hard $100 ceiling as a backstop. Best-effort + non-blocking:
+	// no market signal = no warn, and it never fails the save (the price is already
+	// persisted above). It augments the saved-status line rather than replacing it.
+	if warn := m.softPriceWarn(out); warn != "" {
+		m.status += "  " + stEmber.Render(warn)
+	}
+	return true
+}
+
+// softPriceWarn returns a non-blocking fat-finger warning when out is well above the
+// live per-model market median (>3x) - mirroring cmd/rogerai's softPriceWarn so the
+// TUI commit path gets the same typo guard the headless `share` path has. Returns ""
+// when there is no signal (price 0, no market data, or within range). Best-effort: a
+// market-fetch miss is silent.
+func (m *model) softPriceWarn(out float64) string {
+	if out <= 0 {
+		return ""
+	}
+	med, ok := marketMedianOut(m.broker, m.edModel)
+	if !ok || med <= 0 {
+		return ""
+	}
+	if out > 3*med {
+		return fmt.Sprintf("! %.2f $/1M out is %.1fx the market median (%.2f) - typo?", out, out/med, med)
+	}
+	return ""
 }
 
 // pricingFor returns the saved (edited) pricing for a model, falling back to the
@@ -3743,6 +3873,10 @@ func (m model) limitsView(w int) string {
 		b.WriteString("\n  " + stPanel.Render(stDim.Render("edit "+m.limModels[m.limCursor]+"   "+field+"  ")+stSelText.Render("▏"+m.editBuf+"▏")+stDim.Render("   ⏎ save   tab next field   esc cancel")) + "\n")
 	}
 	b.WriteString("\n    " + stDim.Render("↑↓ move   ⏎ edit   tab next field   d clear   esc done") + "\n")
+	// Cross-link the two split "config" surfaces: this screen is what you PAY as a
+	// consumer; the provider PRICING editor (what you EARN, with time-of-use windows)
+	// lives on a SHARE row. Signpost it so the operator isn't left hunting for it.
+	b.WriteString("    " + stDim.Render("(this is what you PAY · to set what you EARN, go to ") + stKey.Render("[2] SHARE") + stDim.Render(" and press ") + stKey.Render("p") + stDim.Render(" on a row)") + "\n")
 	return b.String()
 }
 
@@ -5894,7 +6028,70 @@ func (m model) shareEditorView(w int) string {
 	if !narrow {
 		b.WriteString("\n  " + stDim.Render("a window's price applies in its hours; the base price applies outside them.") + "\n")
 	}
+
+	// Live preview: what this schedule charges RIGHT NOW, computed from the same
+	// ActivePrice the broker uses, so the operator sees the schedule's effect at a
+	// glance (e.g. a FREE 03:00-03:30 window reads FREE at 03:15, the base price
+	// otherwise) instead of having to reason about whether a window is active.
+	b.WriteString("\n  " + m.editorLivePreview() + "\n")
+
+	// Inline validation error (blocks save): a malformed HH:MM, an unparseable price,
+	// or a price over the public ceiling - shown at the cause, not only at broker
+	// register. Cleared on a clean commit / re-open.
+	if m.edErr != "" {
+		b.WriteString("  " + stEmber.Render("⚠ "+m.edErr) + "\n")
+	}
 	return b.String()
+}
+
+// editorLivePreview renders the "right now you would charge ..." line from the
+// editor's current (in-progress) price + windows, using the SAME protocol.ActivePrice
+// the broker evaluates - so the preview is honest about which window (if any) is live.
+func (m model) editorLivePreview() string {
+	in, _ := strconv.ParseFloat(strings.TrimSpace(orZero(m.edPriceIn)), 64)
+	out, _ := strconv.ParseFloat(strings.TrimSpace(orZero(m.edPriceOut)), 64)
+	offer := protocol.ModelOffer{
+		PriceIn:  in,
+		PriceOut: out,
+		Schedule: schedToProtocol(m.edWindows),
+	}
+	now := time.Now()
+	aIn, aOut, free, scheduled := offer.ActivePrice(now)
+	// Name the source so the operator knows WHY: which window, FREE, or the flat base.
+	src := "base"
+	if scheduled {
+		// Find the first matching window to label it HH:MM-HH:MM (first match wins,
+		// same as ActivePrice).
+		for _, w := range offer.Schedule {
+			if w.Matches(now) {
+				src = "window " + w.Start + "-" + w.End + " UTC"
+				break
+			}
+		}
+	}
+	// Narrow terminals get a compact form (no "in" leg, terse prefix) so the preview
+	// never overflows the SHARE column at <=64 cols.
+	narrow := m.narrow()
+	prefix := "right now you would charge "
+	if narrow {
+		prefix = "now: "
+		// Compact the source label too (drop "window "/" UTC").
+		switch {
+		case scheduled && !free:
+			src = "win"
+		case free && scheduled:
+			src = "win"
+		}
+	}
+	label := stDim.Render(prefix)
+	if free {
+		return label + stLive.Render("FREE") + stDim.Render("  ("+src+")")
+	}
+	body := stEmber.Render(dollars(aOut) + "/1M out")
+	if !narrow {
+		body += stDim.Render(" · ") + stEmber.Render(dollars(aIn)+"/1M in")
+	}
+	return label + body + stDim.Render("  ("+src+")")
 }
 
 // shareSetupView is the in-TUI guided fallback when no local model was detected: a

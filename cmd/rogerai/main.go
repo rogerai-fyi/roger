@@ -347,6 +347,21 @@ func toTUIWindows(ws []SchedWindow) []tui.SchedWindow {
 	return out
 }
 
+// toProtocolWindows converts the persisted config schedule windows (what the TUI
+// editor saved into cfg.Prices) into the wire protocol.PriceWindow the agent
+// publishes - so the headless `rogerai share` daemon advertises exactly the
+// time-of-use schedule the in-TUI editor produced (P0-A parity).
+func toProtocolWindows(ws []SchedWindow) []protocol.PriceWindow {
+	if len(ws) == 0 {
+		return nil
+	}
+	out := make([]protocol.PriceWindow, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, protocol.PriceWindow{Start: w.Start, End: w.End, In: w.In, Out: w.Out, Free: w.Free})
+	}
+	return out
+}
+
 func main() {
 	cfg := loadConfig()
 	tui.SetVersion(Version) // help/about surfaces match `rogerai version`
@@ -538,6 +553,25 @@ func cmdShare(cfg config, args []string) error {
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --free-window --schedule")
 	}
+	// Record which pricing/schedule flags the user EXPLICITLY passed. The single source
+	// of truth for a station's per-model price is cfg.Prices (what the TUI editor saves):
+	// when the user gives none of these flags we seed price-in/out + schedule from it
+	// below, so "set it in the TUI, it applies when you `share` headless" actually holds.
+	// An explicit flag is always honored as an override (never clobbered by the saved
+	// profile). fs.Visit only reports flags that were set on the command line.
+	var setIn, setOut, setFreeWin, setSched bool
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "price-in":
+			setIn = true
+		case "price-out":
+			setOut = true
+		case "free-window":
+			setFreeWin = true
+		case "schedule":
+			setSched = true
+		}
+	})
 
 	up := *upstream
 	mdl := *model
@@ -629,6 +663,8 @@ func cmdShare(cfg config, args []string) error {
 	// two local servers).
 	nodeID := agent.ShareNodeID(station, mdl, 0)
 
+	// Build the flag-derived schedule first (an explicit --free-window / --schedule is
+	// a deliberate one-off that fully owns the schedule for this run).
 	var sched []protocol.PriceWindow
 	if *freeWindow != "" {
 		p := strings.SplitN(*freeWindow, "-", 2)
@@ -644,6 +680,10 @@ func cmdShare(cfg config, args []string) error {
 		}
 		sched = append(sched, ws...)
 	}
+	// P0-A parity: seed price + schedule from the TUI editor's saved per-model profile
+	// (cfg.Prices) when the user passed no explicit flags, so the headless daemon serves
+	// exactly what the editor produced. Explicit flags always win.
+	*priceIn, *priceOut, sched = seedSharePricing(cfg, mdl, *priceIn, *priceOut, sched, sharePricingFlags{setIn, setOut, setFreeWin, setSched})
 	if *confidential {
 		// Fail FAST and CLEARLY on hardware without a TEE, rather than sending a fake
 		// claim: the node-side attestation generates a REAL SEV-SNP quote at register
@@ -694,6 +734,42 @@ func cmdShare(cfg config, args []string) error {
 		fmt.Printf("\n  on air on your existing private band: %s (code shown only at first creation)\n", display)
 	}
 	select {} // serve forever
+}
+
+// sharePricingFlags records which pricing/schedule flags the user EXPLICITLY passed
+// to `share` (so a deliberate one-off override is never clobbered by the saved
+// profile).
+type sharePricingFlags struct {
+	in, out, freeWindow, schedule bool
+}
+
+// seedSharePricing applies the TUI editor's saved per-model price + schedule
+// (cfg.Prices[model], the single source of truth both surfaces read) on top of the
+// flag-derived values for `rogerai share`. It is the P0-A parity fix: "set it in the
+// TUI, it applies when you `share` headless".
+//
+//   - price-in/out: seeded from the saved profile ONLY when the user did not pass that
+//     explicit flag (an explicit --price-in/--price-out fully overrides).
+//   - schedule: the saved time-of-use windows are APPENDED to the flag-derived schedule
+//     ONLY when the user passed NEITHER --free-window nor --schedule (an explicit
+//     schedule flag is a deliberate one-off that owns the schedule for this run).
+//
+// A model with no saved profile returns the inputs unchanged (free stays free).
+func seedSharePricing(cfg config, model string, priceIn, priceOut float64, sched []protocol.PriceWindow, set sharePricingFlags) (float64, float64, []protocol.PriceWindow) {
+	saved, ok := cfg.Prices[model]
+	if !ok {
+		return priceIn, priceOut, sched
+	}
+	if !set.in {
+		priceIn = saved.PriceIn
+	}
+	if !set.out {
+		priceOut = saved.PriceOut
+	}
+	if !set.freeWindow && !set.schedule {
+		sched = append(sched, toProtocolWindows(saved.Windows)...)
+	}
+	return priceIn, priceOut, sched
 }
 
 // softPriceWarn returns a non-blocking warning when out-price is well above the live
