@@ -597,6 +597,97 @@ paths:
                   period_days: { type: integer }
         "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
 
+  /metrics/series:
+    get:
+      tags: [account]
+      summary: Per-day (+ recent hourly) time-series + savings-vs-frontier
+      description: |
+        The caller's TIME-SERIES over a trailing UTC window: a per-day array (and a
+        short last-48h hourly array) of requests, tokens in/out, consumer spend, and
+        provider earned, each with a nested per-model split. A self-served receipt (the
+        caller both consumed AND served it) counts as ONE request while still
+        attributing spend + earned. This is what the Dashboard + Metrics CHARTS render
+        over time (the point-in-time /metrics/{provider,usage} have no time axis).
+
+        Also returns a `savings` rollup: what the consumed tokens WOULD have cost at a
+        reference frontier-lab list price (a hard-coded REFERENCE ESTIMATE, not a live
+        quote) vs what the caller actually paid. `savings.reference` is the small static
+        price table; `savings.savings_est` is floored at 0.
+
+        Auth: a logged-in web session cookie OR a signed request (`signedUser`). Serves
+        whichever sides the caller has (consumer wallet -> spend/savings; bound operator
+        account -> earned). A logged-in identity with neither side is 401.
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-day + hourly series + savings rollup
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period_days: { type: integer }
+                  is_consumer: { type: boolean }
+                  is_provider: { type: boolean }
+                  daily:
+                    type: array
+                    items: { $ref: '#/components/schemas/SeriesPoint' }
+                  hourly:
+                    type: array
+                    items: { $ref: '#/components/schemas/SeriesPoint' }
+                  savings: { $ref: '#/components/schemas/SavingsRollup' }
+        "401": { description: not logged in (no session, no valid signature, or no consumer/provider side) }
+
+  /console:
+    get:
+      tags: [account]
+      summary: Recent lineage activity feed + live counters
+      description: |
+        The recent activity a "console" page shows: the last N settled requests with
+        their lineage receipt (model, node callsign [the hostname-free node id], tokens
+        in/out, cost, earned, the receipt/chain `request_id`, timestamp, success), plus
+        live counters. An OWNER (a bound operator account) sees the activity their NODES
+        served (earned per row; `earned_today`, `active_nodes`, `active_bands`); a
+        CONSUMER sees their consumption (cost per row; `spend_today`). Real receipts only
+        with an honest empty state (events is `[]`, counters zero). Alias: /activity.
+
+        Auth: a logged-in web session cookie OR a signed request (`signedUser`). Own-data
+        only; an anonymous / unbound keypair is 401.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+          description: Max events returned (default 20, clamped to [1,100]).
+      responses:
+        "200":
+          description: Recent events + live counters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role: { type: string, enum: [owner, consumer] }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsoleEvent' }
+                  counters:
+                    type: object
+                    description: requests_today plus owner (earned_today, active_nodes, active_bands) or consumer (spend_today) figures.
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
+  /activity:
+    get:
+      tags: [account]
+      summary: Alias of /console
+      description: Identical to GET /console (the recent lineage feed + live counters).
+      responses:
+        "200": { description: see /console }
+        "401": { description: not logged in }
+
   /auth/logout:
     post:
       tags: [auth]
@@ -933,3 +1024,64 @@ components:
         free_requests: { type: integer }
         paid_requests: { type: integer }
         spend_usd: { type: number }
+    SeriesPoint:
+      type: object
+      description: One time bucket (a UTC day "2006-01-02", or an hour "2006-01-02T15") of the GET /metrics/series time-series.
+      properties:
+        bucket: { type: string, description: UTC day (daily) or UTC hour (hourly) key }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        spend: { type: number, description: consumer $ paid in the bucket }
+        earned: { type: number, description: provider owner-share $ in the bucket }
+        frontier_est: { type: number, description: est. cost of the consumed tokens at the baseline frontier list price }
+        savings_est: { type: number, description: frontier_est - spend, floored at 0 }
+        models:
+          type: array
+          items: { $ref: '#/components/schemas/SeriesModelPoint' }
+    SeriesModelPoint:
+      type: object
+      description: One model's slice of a SeriesPoint bucket.
+      properties:
+        model: { type: string }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        spend: { type: number }
+        earned: { type: number }
+    SavingsRollup:
+      type: object
+      description: |
+        Savings-vs-frontier rollup on GET /metrics/series. A REFERENCE ESTIMATE: what
+        the consumed tokens would have cost at a name-brand lab's published list price vs
+        what the caller actually paid on RogerAI. Not a live or contractual quote.
+      properties:
+        baseline_model: { type: string, description: the frontier model driving the headline figure (e.g. gpt-4o) }
+        spend_usd: { type: number, description: what the caller actually paid }
+        frontier_est: { type: number, description: est. cost at the baseline frontier list price }
+        savings_est: { type: number, description: frontier_est - spend_usd, floored at 0 }
+        reference:
+          type: array
+          description: the small static reference price table (USD per 1M tokens).
+          items: { $ref: '#/components/schemas/FrontierRef' }
+        reference_note: { type: string, description: a human-readable "estimate only" disclaimer }
+    FrontierRef:
+      type: object
+      description: One reference frontier-lab model's published list price (USD per 1,000,000 tokens).
+      properties:
+        model: { type: string }
+        in_per_1m: { type: number, description: input list price, USD / 1M tokens }
+        out_per_1m: { type: number, description: output list price, USD / 1M tokens }
+    ConsoleEvent:
+      type: object
+      description: One lineage row on GET /console - a settled receipt projected to the fields a live feed renders.
+      properties:
+        request_id: { type: string, description: the receipt / hash-chain id }
+        ts: { type: integer, description: unix seconds }
+        model: { type: string }
+        node: { type: string, description: the node callsign (hostname-free node id) }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        cost: { type: number, description: consumer $ paid }
+        earned: { type: number, description: provider owner-share $ (0 on the consumer view) }
+        success: { type: boolean, description: true for any settled receipt }

@@ -61,6 +61,14 @@ type Store interface {
 	RecentByUser(user string, limit int) ([]Entry, error)
 	// RecentByNode returns a node's most-recent settled requests (newest first).
 	RecentByNode(node string, limit int) ([]Entry, error)
+	// EntriesByUser returns a user's settled requests within the [since,until) unix
+	// window (newest first). Powers the consumer time-series + savings rollups, which
+	// bucket the receipts by day/hour and model in the handler. Receipt-derived.
+	EntriesByUser(user string, since, until int64) ([]Entry, error)
+	// EntriesByAccount returns the settled requests served by ALL nodes bound to an
+	// operator account (owner pubkey) within the [since,until) unix window (newest
+	// first). Powers the provider earnings time-series + the owner console feed.
+	EntriesByAccount(accountID string, since, until int64) ([]Entry, error)
 	// AddCredits tops a user up (Stripe webhook in P1).
 	AddCredits(user string, amount float64) (float64, error)
 	// MarkProcessed records an idempotency key (e.g. a Stripe session id) and
@@ -627,6 +635,40 @@ func (m *Mem) RecentByUser(user string, limit int) ([]Entry, error) {
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) {
 	return m.recent(func(e Entry) bool { return e.Node == node }, limit), nil
+}
+
+// windowed returns the entries matching pred whose ts is in [since,until), newest
+// first. The window is half-open (the same convention the metrics rollups use).
+func (m *Mem) windowed(pred func(Entry) bool, since, until int64) []Entry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Entry
+	for _, e := range m.entries {
+		if e.TS < since || e.TS >= until {
+			continue
+		}
+		if pred(e) {
+			out = append(out, e)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].TS > out[j].TS })
+	return out
+}
+
+func (m *Mem) EntriesByUser(user string, since, until int64) ([]Entry, error) {
+	return m.windowed(func(e Entry) bool { return e.User == user }, since, until), nil
+}
+
+func (m *Mem) EntriesByAccount(accountID string, since, until int64) ([]Entry, error) {
+	m.mu.Lock()
+	owned := map[string]bool{}
+	for n, a := range m.nodeAcct {
+		if a == accountID {
+			owned[n] = true
+		}
+	}
+	m.mu.Unlock()
+	return m.windowed(func(e Entry) bool { return owned[e.Node] }, since, until), nil
 }
 
 // recent returns the most-recent entries matching pred, newest first, capped.

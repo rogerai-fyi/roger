@@ -239,6 +239,9 @@ func main() {
 	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
 	mux.HandleFunc("/metrics/provider", b.metricsProvider)        // per-model SERVE metrics (free/paid + earnings)
 	mux.HandleFunc("/metrics/usage", b.metricsUsage)              // per-model CONSUME metrics (free/paid + spend)
+	mux.HandleFunc("/metrics/series", b.metricsSeries)            // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
+	mux.HandleFunc("/console", b.console)                         // recent lineage feed + live counters (Console page)
+	mux.HandleFunc("/activity", b.console)                        // alias for /console
 	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
 	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
 	mux.HandleFunc("/bands", b.bands)                             // owner private bands: list + revoke by id
