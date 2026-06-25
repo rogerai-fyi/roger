@@ -32,7 +32,7 @@ import (
 
 // Version is the client version (compared against the latest GitHub release for
 // the update check / `rogerai upgrade`). Keep in sync with releases.
-const Version = "4.6.2"
+const Version = "4.6.3"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
@@ -588,7 +588,7 @@ func cmdShare(cfg config, args []string) error {
   --advanced          reveal: --node --region --parallel --upstream --ctx --confidential --free-window --schedule
 
 Earning needs a GitHub-linked owner: run ` + "`rogerai login`" + ` first. Free sharing
-needs no login. When you earn, payouts are 90-day hold, $25 min, monthly.
+needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 `)
 	}
 	fs.Parse(rest)
@@ -603,10 +603,10 @@ needs no login. When you earn, payouts are 90-day hold, $25 min, monthly.
 	if (*priceIn > 0 || *priceOut > 0) && client.LinkedLogin() == "" {
 		return fmt.Errorf("earning needs a GitHub-linked owner - run `rogerai login` to earn (free sharing needs no login)")
 	}
-	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 90-day
+	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 120-day
 	// hold / $25 min / monthly cadence is never a surprise at cash-out time (F3).
 	if *priceIn > 0 || *priceOut > 0 {
-		fmt.Println("earning: payouts are 90-day hold, $25 min, monthly (`rogerai payout status` for details).")
+		fmt.Println("earning: payouts are 120-day hold, $25 min, monthly (`rogerai payout status` for details).")
 	}
 	// Record which pricing/schedule flags the user EXPLICITLY passed. The single source
 	// of truth for a station's per-model price is cfg.Prices (what the TUI editor saves):
@@ -939,7 +939,7 @@ func cmdTopup(cfg config, args []string) error {
 // terminal. Every call is Ed25519-signed (the same identity the rest of the client
 // uses), so a headless `rogerai share` provider can withdraw + see KYC status without
 // a browser session. Requires a GitHub-linked account (run `rogerai login`); the
-// broker enforces the unchanged policy (90-day hold, $25 min, monthly, Connect-KYC).
+// broker enforces the unchanged policy (120-day hold, $25 min, monthly, Connect-KYC).
 // Amounts are shown in dollars (1 credit == $1).
 //
 //	rogerai payout            -> status (default)
@@ -987,7 +987,7 @@ func payoutUsage() {
   rogerai payout request      request a payout of your payable balance
   rogerai payout history      past payouts and their states
 
-  Policy: 90-day hold, $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
+  Policy: 120-day hold, $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
 }
 
 // payoutPolicyLine is the single one-liner describing the unchanged policy, reused by
@@ -995,7 +995,7 @@ func payoutUsage() {
 func payoutPolicyLine(st client.PayoutStatus) string {
 	hold := st.HoldDays
 	if hold == 0 {
-		hold = 90
+		hold = 120
 	}
 	min := st.MinPayout
 	if min == 0 {
@@ -1070,7 +1070,7 @@ func payoutStatus(cfg config) error {
 
 func holdOr90(st client.PayoutStatus) int {
 	if st.HoldDays == 0 {
-		return 90
+		return 120
 	}
 	return st.HoldDays
 }
