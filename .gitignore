@@ -11,3 +11,6 @@ dist/
 /rogerai
 *.exe
 CLAUDE.md
+
+# agent worktrees + local claude state
+.claude/
