@@ -362,6 +362,7 @@ type ProxyOptions struct {
 	MaxPriceIn   float64   // X-Roger-Max-Price cap on input price (0 = none)
 	MaxPriceOut  float64   // X-Roger-Max-Price-Out cap on output price (0 = none)
 	Freq         string    // X-Roger-Freq private band code (empty = open market)
+	Pref         string    // X-Roger-Pref routing knob: cheap/balanced/fast/reliable (empty = balanced)
 	Alert        AlertFunc // surfaced when failover is exhausted (nil = silent)
 }
 
@@ -380,7 +381,7 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 			Model string `json:"model"`
 		}
 		_ = json.Unmarshal(body, &model)
-		crit := Criteria{Model: model.Model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut}
+		crit := Criteria{Model: model.Model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
 		relayWithFailover(w, opts, crit, body, httpClient, policy)
 	})
 	return mux
@@ -429,6 +430,11 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 		// a freq channel simply has no public alternative to fail over to (by design).
 		if opts.Freq != "" {
 			req.Header.Set("X-Roger-Freq", opts.Freq)
+		}
+		// Routing knob: forward the user's cheap/fast/reliable preference so the broker
+		// reshapes the SCORE accordingly (default balanced when unset).
+		if opts.Pref != "" {
+			req.Header.Set("X-Roger-Pref", opts.Pref)
 		}
 		if pin != "" {
 			req.Header.Set("X-Roger-Node", pin)
