@@ -574,9 +574,39 @@ func cmdShare(cfg config, args []string) error {
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
+	fs.Usage = func() {
+		fmt.Print(`rogerai share - go on air as a provider (auto-detects your local model)
+
+  rogerai share                       go on air FREE - no login needed
+  rogerai share <model>               expose a specific model
+  rogerai share --price-out 0.30      EARN: set a price (needs ` + "`rogerai login`" + `)
+  rogerai login                       link GitHub - only needed to EARN
+
+  --model <name>      model to expose (default: first detected)
+  --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
+  --private           hidden band, frequency-code only (needs ` + "`rogerai login`" + `)
+  --advanced          reveal: --node --region --parallel --upstream --ctx --confidential --free-window --schedule
+
+Earning needs a GitHub-linked owner: run ` + "`rogerai login`" + ` first. Free sharing
+needs no login. When you earn, payouts are 90-day hold, $25 min, monthly.
+`)
+	}
 	fs.Parse(rest)
 	if *advanced {
 		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --free-window --schedule")
+	}
+	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
+	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
+	// detection / upstream probe / register - so a would-be earner is not led all the way
+	// to a late 403. Catches the flag (--price-*) and the wizard's saved earn price
+	// (cfg.Share.Price*, the defaults above). Free sharing (price 0/0) needs no login.
+	if (*priceIn > 0 || *priceOut > 0) && client.LinkedLogin() == "" {
+		return fmt.Errorf("earning needs a GitHub-linked owner - run `rogerai login` to earn (free sharing needs no login)")
+	}
+	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 90-day
+	// hold / $25 min / monthly cadence is never a surprise at cash-out time (F3).
+	if *priceIn > 0 || *priceOut > 0 {
+		fmt.Println("earning: payouts are 90-day hold, $25 min, monthly (`rogerai payout status` for details).")
 	}
 	// Record which pricing/schedule flags the user EXPLICITLY passed. The single source
 	// of truth for a station's per-model price is cfg.Prices (what the TUI editor saves):
@@ -644,7 +674,6 @@ func cmdShare(cfg config, args []string) error {
 		if ctxLen == 0 {
 			ctxLen, ctxEstimated = detect.ResolveCtx(pick.Ctx, mdl)
 		}
-		fmt.Printf("detected %s at %s - exposing model %q\n", pick.Name, pick.BaseURL, mdl)
 		// Remember the verified upstream so a custom-port / guided-fallback endpoint is
 		// not re-hunted next launch (the (e) saved-config source).
 		if pick.BaseURL != "" && pick.BaseURL != savedUp {
@@ -716,18 +745,6 @@ func cmdShare(cfg config, args []string) error {
 		fmt.Println("confidential: generating a real TEE attestation quote at registration (needs AMD SEV-SNP hardware) - the broker verifies it before granting the badge.")
 	}
 
-	if *priceIn == 0 && *priceOut == 0 && len(sched) == 0 {
-		// A free share carries the owner-signed registration whenever the user is logged
-		// in (register() always signs with the local user key, and the broker resolves the
-		// GitHub-linked owner from that pubkey), so a logged-in free node is BOUND to the
-		// account - do not falsely say "no login". Only the genuinely anonymous case (no
-		// GitHub link) is the "on air with no login" path.
-		if login := client.LinkedLogin(); login != "" {
-			fmt.Printf("sharing FREE (price 0/0) - on air as @%s (bound to your account). set --price-out to earn.\n", login)
-		} else {
-			fmt.Println("sharing FREE (price 0/0) - on air with no login (anonymous). `rogerai login` to bind this node to your account, or set --price-out to earn.")
-		}
-	}
 	if *private {
 		// A private band requires login (the broker 401s an anonymous private register).
 		// Fail clearly here rather than after a detection/upstream probe.
@@ -751,7 +768,20 @@ func cmdShare(cfg config, args []string) error {
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
 	if !*private {
-		return agent.Run(cfgRun)
+		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
+		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential
+		// Printlns around a blind go-live. Then block forever.
+		sess, err := agent.Start(cfgRun)
+		if err != nil {
+			return err
+		}
+		// Wait briefly for the broker to ACK our first heartbeat (LinkOnAir) so the single
+		// success line is TRUTHFUL - we are genuinely routable, not blindly "on air". If the
+		// ACK does not land in a couple seconds we still print it (the agent keeps
+		// self-healing in the background and the line points the operator at the website).
+		waitOnAir(sess, 3*time.Second)
+		fmt.Println(onAirLine(mdl, station, *priceIn, *priceOut))
+		select {} // serve forever
 	}
 	// Private: start (not Run) so we can surface the one-time frequency code, then block.
 	sess, err := agent.Start(cfgRun)
@@ -768,6 +798,32 @@ func cmdShare(cfg config, args []string) error {
 		fmt.Printf("\n  on air on your existing private band: %s (code shown only at first creation)\n", display)
 	}
 	select {} // serve forever
+}
+
+// onAirLine is the SINGLE go-live success line for a public share (audit #5): the one
+// thing a new provider needs to see - what's live, under which station, and where to
+// view it - instead of several sequential status Printlns. A price/free suffix tells
+// the operator at a glance whether they are earning.
+func onAirLine(model, station string, priceIn, priceOut float64) string {
+	mode := "free"
+	if priceIn > 0 || priceOut > 0 {
+		mode = fmt.Sprintf("earning $%s/$%s per 1M", trimAmt(priceIn), trimAmt(priceOut))
+	}
+	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fyi", model, station, mode)
+}
+
+// waitOnAir blocks until the session's link reaches LinkOnAir (the broker has ACKed a
+// heartbeat) or the timeout elapses, so the on-air line is keyed to a real ACK rather
+// than a blind go-live. Returns whether we observed the ACK in time.
+func waitOnAir(sess *agent.Session, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if sess.Link() == agent.LinkOnAir {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return sess.Link() == agent.LinkOnAir
 }
 
 // sharePricingFlags records which pricing/schedule flags the user EXPLICITLY passed
@@ -1099,32 +1155,45 @@ func payoutHistory(cfg config) error {
 	return nil
 }
 
-// cmdBalance is the one money verb (C4): `balance` shows credits; `balance --topup
-// [usd]` (or `balance topup [usd]`) opens checkout. Folds the old top-level `topup`
-// into balance so a user has one noun for money.
+// cmdBalance is the money-IN verb (C7 - ONE money grammar): bare `rogerai balance`
+// shows credits; `rogerai topup <amt>` adds funds. The older `balance --topup` and
+// `balance topup` spellings still WORK as hidden aliases (so nothing breaks) but are
+// out of help - one documented form, `topup`.
 func cmdBalance(cfg config, args []string) error {
-	fs := flag.NewFlagSet("balance", flag.ExitOnError)
-	topup := fs.Float64("topup", -1, "add this many $ to your wallet (opens checkout); bare --topup uses $10")
-	fs.Parse(args)
-	// Allow `rogerai balance topup [usd]` too (positional spelling).
-	rest := fs.Args()
-	if len(rest) > 0 && rest[0] == "topup" {
-		usd := 10.0
-		if len(rest) > 1 {
-			if f, e := strconv.ParseFloat(rest[1], 64); e == nil {
-				usd = f
-			}
-		}
-		return client.Topup(cfg.Broker, cfg.User, usd)
-	}
-	if *topup >= 0 {
-		usd := *topup
-		if usd == 0 {
-			usd = 10
-		}
+	// Hidden aliases, parsed by hand so they do NOT appear in `balance -h`:
+	//   rogerai balance topup [usd]   /   rogerai balance --topup[=usd]
+	if usd, ok := balanceTopupAlias(args); ok {
 		return client.Topup(cfg.Broker, cfg.User, usd)
 	}
 	return client.Balance(cfg.Broker, cfg.User)
+}
+
+// balanceTopupAlias recognizes the retired-but-still-working topup spellings under
+// `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and
+// `balance --topup <usd>` / `--topup=<usd>`. Returns the dollar amount (defaulting to
+// $10) and true when one matched, else (_, false). The documented form is the
+// top-level `rogerai topup <amt>`.
+func balanceTopupAlias(args []string) (float64, bool) {
+	usd := 10.0
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "topup" || a == "--topup" || a == "-topup":
+			if i+1 < len(args) {
+				if f, e := strconv.ParseFloat(strings.TrimPrefix(args[i+1], "$"), 64); e == nil && f > 0 {
+					usd = f
+				}
+			}
+			return usd, true
+		case strings.HasPrefix(a, "--topup=") || strings.HasPrefix(a, "-topup="):
+			v := a[strings.IndexByte(a, '=')+1:]
+			if f, e := strconv.ParseFloat(strings.TrimPrefix(v, "$"), 64); e == nil && f > 0 {
+				usd = f
+			}
+			return usd, true
+		}
+	}
+	return 0, false
 }
 
 // cmdLimit is the per-account MONTHLY SPEND CAP verb (a budget limit, modeled on
@@ -1373,21 +1442,17 @@ func usage() {
   rogerai                       open the app (browse, tune in, chat)
   rogerai search                list models, cheapest first
   rogerai use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
-  rogerai balance               your wallet balance  (balance --topup [usd] to add funds)
+  rogerai balance               your wallet balance
+  rogerai topup <amt>           add funds to your wallet
   rogerai limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
 
 providers (share your GPU):
-  rogerai share                 go on air - FREE by default, no login (auto-detects your model)
+  rogerai share <model>         go on air - FREE by default, no login (auto-detects your model)
   rogerai login                 link GitHub - only needed to EARN
   rogerai payout                cash out your earnings (status · onboard · request · history)
   rogerai grant create --name my-bots   a free private key for your bots/family
 
-more:
-  rogerai account               who you are (login / logout)
-  rogerai onboard               re-run the first-run setup
-  rogerai config ...            broker, spend limits (rogerai config --help)
-  rogerai support               open rogerai.fyi - community + Discord
-  rogerai upgrade · version · ping
+more: account · config · support · upgrade
 
 advanced flags live behind --advanced (e.g. rogerai use <model> --advanced,
 rogerai share --advanced, rogerai grant create --advanced).

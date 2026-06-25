@@ -153,8 +153,13 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 
 	sh := Share{Model: model, Port: port, Upstream: pick.BaseURL}
 	if earn {
-		// Earn path: collect a price (default the platform suggestion). Login is a
-		// separate explicit step we point the user at - we never block here.
+		// Earn path: tell the user UP FRONT that earning needs a GitHub login and
+		// pre-disclose the payout terms (F3 / #2) - BEFORE collecting a price - so the
+		// login requirement is never a surprise 403 after they've set everything up.
+		fmt.Println("earning needs a linked GitHub: you'll run `rogerai login` once before going on air.")
+		fmt.Println("payouts when you earn: 90-day hold, $25 min, monthly (`rogerai payout status` for details).")
+		// Collect a price (default the platform suggestion). Login is a separate
+		// explicit step we point the user at - we never block here.
 		in, out := "0.20", "0.30"
 		if interactive() && !opts.yes {
 			_ = huh.NewInput().Title("Price per 1M OUTPUT tokens ($)").Value(&out).Run()
@@ -164,12 +169,9 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		sh.PriceOut = parsePrice(out)
 	}
 
-	// Preflight: broker reachable + the upstream is actually serving the model.
-	if reachable(cfg.Broker) {
-		fmt.Printf("preflight: broker %s reachable\n", cfg.Broker)
-	} else {
-		fmt.Printf("preflight: WARNING broker %s not reachable right now (you can still go on air later)\n", cfg.Broker)
-	}
+	// Preflight: confirm the upstream is serving the model. A broker hiccup is NOT a
+	// warning at setup time (#5) - the agent self-heals and you go on air later - so we
+	// no longer print a scary "broker unreachable" line on a perfectly healthy first run.
 	fmt.Printf("preflight: serving %q at %s\n", model, pick.BaseURL)
 
 	cfg.Share = &sh
