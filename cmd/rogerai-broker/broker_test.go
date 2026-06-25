@@ -561,6 +561,94 @@ func TestMarketEndpoint(t *testing.T) {
 	}
 }
 
+// TestDiscoverSignal verifies the band-list fix: every /discover offer carries the
+// same 0..100 signal /market computes (so the TUI/CLI meter never reads blank for an
+// on-air band). An online node with NO traffic still earns its baseline (~43 from
+// supply + quality, tps not required); an offline node scores 0; and /market and
+// /discover agree for the same node (one shared formula).
+func TestDiscoverSignal(t *testing.T) {
+	now := time.Now()
+	b := &broker{
+		nodes: map[string]protocol.NodeRegistration{
+			// fresh on-air node, zero traffic (no tps, no inflight, no success seen)
+			"fresh": {NodeID: "fresh", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.2}}},
+			// offline node (aged out)
+			"down": {NodeID: "down", Offers: []protocol.ModelOffer{{Model: "m", PriceIn: 0.1}}},
+		},
+		lastSeen:     map[string]time.Time{"fresh": now, "down": now.Add(-2 * nodeTTL)},
+		confidential: map[string]bool{},
+		tps:          map[string]float64{},
+		inflight:     map[string]int{},
+		success:      map[string]float64{},
+		trust:        map[string]trustState{},
+		private:      map[string]bool{},
+		banned:       map[string]bool{},
+	}
+
+	rec := httptest.NewRecorder()
+	b.discover(rec, httptest.NewRequest(http.MethodGet, "/discover", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var resp struct {
+		Offers []offerView `json:"offers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byNode := map[string]offerView{}
+	for _, o := range resp.Offers {
+		byNode[o.NodeID] = o
+	}
+	fresh, ok := byNode["fresh"]
+	if !ok {
+		t.Fatalf("fresh node missing from /discover: %+v", resp.Offers)
+	}
+	// The whole fix: an on-air node with tps==0 still carries a NON-zero signal.
+	if fresh.TPS != 0 {
+		t.Errorf("fresh tps = %v want 0 (no traffic)", fresh.TPS)
+	}
+	if fresh.Signal <= 0 {
+		t.Fatalf("on-air no-traffic offer signal = %d want > 0 (baseline supply+quality)", fresh.Signal)
+	}
+	// baseline = marketSignal(1 provider, idle, 0 tps, optimistic success+trust) = 43.
+	wantBaseline := marketSignal(1, 0, 0, 1.0, 1.0)
+	if fresh.Signal != wantBaseline {
+		t.Errorf("fresh signal = %d want %d (per-offer == shared formula)", fresh.Signal, wantBaseline)
+	}
+	// Offline node: no supply -> signal 0 (the meter renders blank, correctly).
+	down, ok := byNode["down"]
+	if !ok {
+		t.Fatalf("down node missing from /discover")
+	}
+	if down.Online {
+		t.Errorf("down node should be offline")
+	}
+	if down.Signal != 0 {
+		t.Errorf("offline offer signal = %d want 0", down.Signal)
+	}
+
+	// /market and /discover must agree for the SAME node: a single-provider model's
+	// market signal equals that one node's per-offer discover signal.
+	mrec := httptest.NewRecorder()
+	// drop the offline node so model "m" has exactly one online provider (fresh).
+	delete(b.nodes, "down")
+	b.market(mrec, httptest.NewRequest(http.MethodGet, "/market", nil))
+	var mresp struct {
+		Market []marketView `json:"market"`
+	}
+	if err := json.Unmarshal(mrec.Body.Bytes(), &mresp); err != nil {
+		t.Fatalf("decode market: %v", err)
+	}
+	if len(mresp.Market) != 1 {
+		t.Fatalf("market has %d models want 1: %+v", len(mresp.Market), mresp.Market)
+	}
+	if mresp.Market[0].Signal != fresh.Signal {
+		t.Errorf("market signal %d != discover signal %d for the same single-provider node",
+			mresp.Market[0].Signal, fresh.Signal)
+	}
+}
+
 func TestInflightAndSuccess(t *testing.T) {
 	b := &broker{inflight: map[string]int{}, success: map[string]float64{}}
 	b.enterInflight("n")

@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
 // TestChatSendsRaisedMaxTokens: the in-channel chat must request the shared raised
@@ -149,5 +151,60 @@ func TestChat402MapsToTopupHint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), TopupHint) {
 		t.Errorf("402 chat error = %q, want it to contain the topup hint %q", err.Error(), TopupHint)
+	}
+}
+
+// TestSignalTowerUsesBrokerSignal verifies the band-list fix in the plain CLI: an
+// online node with NO traffic (tps==0) but a broker signal (43) renders a NON-blank
+// tower (it would have been blank when driven by tps alone). Offline renders the flat
+// "no signal" tower. The glyph heights carry the reading (NO_COLOR / pipe safe).
+func TestSignalTowerUsesBrokerSignal(t *testing.T) {
+	off := glyphs.Current().SigOff
+
+	// Online, signal 43, zero tps -> non-blank, mid-tower (the regression case).
+	got := signalTower(43, 0, true)
+	if got == off {
+		t.Fatalf("online signal=43 tps=0 rendered the blank tower %q; the on-air band must meter", got)
+	}
+	if len([]rune(got)) != 5 {
+		t.Errorf("tower = %q, want 5 cells", got)
+	}
+
+	// Offline -> blank tower regardless of signal.
+	if got := signalTower(43, 0, false); got != off {
+		t.Errorf("offline tower = %q, want the flat no-signal tower %q", got, off)
+	}
+
+	// No broker signal but measured tps still meters (legacy fallback path).
+	if got := signalTower(0, 120, true); got == off {
+		t.Errorf("online tps=120 with no broker signal should still meter, got blank")
+	}
+
+	// Online with neither signal nor tps -> at least one bar, never fully blank.
+	if got := signalTower(0, 0, true); got == off {
+		t.Errorf("online with no reading should show a faint carrier, got the blank tower")
+	}
+}
+
+// TestSignalLevelMapping checks the 0..100 -> 0..7 ramp: 0 yields the "no signal"
+// sentinel (0), any positive signal is >= 1 (online never fully blank), ~43 lands
+// mid-tower, and 100 pins the top of the 8-glyph ramp.
+func TestSignalLevelMapping(t *testing.T) {
+	if signalLevel(0) != 0 {
+		t.Errorf("signalLevel(0) = %d want 0 (no signal sentinel)", signalLevel(0))
+	}
+	if l := signalLevel(1); l < 1 {
+		t.Errorf("signalLevel(1) = %d want >= 1 (online never blank)", l)
+	}
+	if l := signalLevel(43); l < 3 || l > 5 {
+		t.Errorf("signalLevel(43) = %d want mid-tower (~4)", l)
+	}
+	top := len(glyphs.Current().Signal) - 1 // 7 for the ▁..█ ramp
+	if l := signalLevel(100); l != top {
+		t.Errorf("signalLevel(100) = %d want %d (top of ramp)", l, top)
+	}
+	// Monotonic: stronger signal never reads shorter.
+	if signalLevel(20) > signalLevel(80) {
+		t.Error("signalLevel should be non-decreasing in signal")
 	}
 }

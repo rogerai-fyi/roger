@@ -166,7 +166,7 @@ func TestSignalGrading(t *testing.T) {
 	// A high-tps online tower has a peaking (▇/█) cell -> the tinted form differs
 	// from the all-dim offline form (color present when not quiet is hard to assert
 	// portably, so we assert the raw glyph levels reach the peak band).
-	raw := signalBarsRaw(1, 700, true, 4) // fast + 4 stations -> tall tower
+	raw := signalBarsRaw(1, 0, 700, true, 4) // no broker signal -> tps fallback: fast + 4 stations -> tall tower
 	peak := false
 	for _, r := range raw {
 		if r == '▇' || r == '█' {
@@ -178,8 +178,8 @@ func TestSignalGrading(t *testing.T) {
 	}
 	// More stations lift the floor: a 4-station band reads taller than a 1-station
 	// one at the same tps.
-	one := signalBarsRaw(1, 60, true, 1)
-	many := signalBarsRaw(1, 60, true, 4)
+	one := signalBarsRaw(1, 0, 60, true, 1)
+	many := signalBarsRaw(1, 0, 60, true, 4)
 	if one == many {
 		t.Errorf("station count should lift the signal tower: %q == %q", one, many)
 	}

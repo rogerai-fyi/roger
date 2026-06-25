@@ -283,6 +283,10 @@ type offer struct {
 	Confidential bool    `json:"confidential"`
 	FreeNow      bool    `json:"free_now"`
 	TPS          float64 `json:"tps"`
+	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
+	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
+	// its baseline strength instead of a blank tps-driven bar.
+	Signal int `json:"signal"`
 }
 
 // alertBox is a tiny thread-safe mailbox: the relay's failover callback (running
@@ -2504,7 +2508,7 @@ func (m model) doFreq(arg string) (tea.Model, tea.Cmd) {
 		for _, o := range offs {
 			out = append(out, offer{
 				NodeID: o.NodeID, Model: o.Model, PriceIn: o.PriceIn, PriceOut: o.PriceOut,
-				Online: o.Online, Confidential: o.Confidential, TPS: o.TPS,
+				Online: o.Online, Confidential: o.Confidential, TPS: o.TPS, Signal: o.Signal,
 			})
 		}
 		return freqResolvedMsg{freq: arg, label: display, offers: out, ok: true}
@@ -3747,7 +3751,7 @@ func (m model) header(w int) string {
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
 			stDim.Render(" · ") + m.accountTag(true) +
-			"  " + tintSignal(signalBarsRaw(m.frame, o.TPS, true), o.TPS, true)
+			"  " + tintSignal(signalBarsRaw(m.frame, o.Signal, o.TPS, true), o.Signal, o.TPS, true)
 		return bar + "\n" + rule
 	}
 
@@ -3981,13 +3985,18 @@ func sortLabel(mode int) string {
 	}
 }
 
-// bandSignal is the same 0-ish proxy the signal tower uses (cheapest station's
-// measured tok/s), so the "strongest signal" sort orders by what the meter shows.
+// bandSignal is the same proxy the signal tower uses, so the "strongest signal"
+// sort orders by what the meter shows: the broker's 0..100 signal (cheapest
+// station) when carried, else the legacy measured tok/s. An on-air band with no
+// traffic still sorts by its baseline signal instead of dropping to 0.
 func bandSignal(b band) float64 {
-	if b.cheapest != nil {
-		return b.cheapest.TPS
+	if b.cheapest == nil {
+		return 0
 	}
-	return 0
+	if b.cheapest.Signal > 0 {
+		return float64(b.cheapest.Signal)
+	}
+	return b.cheapest.TPS
 }
 
 // visibleBands is the DERIVED browse list: m.bands run through the active name
@@ -4284,24 +4293,28 @@ func (m model) browseView(w int) string {
 				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + freeTag + "\n")
 			continue
 		}
-		// Signal from the cheapest station's measured tps (fixed 5-cell equalizer).
+		// Signal from the cheapest station: the broker's 0..100 signal drives the
+		// meter (so an on-air band with no traffic still reads non-blank), with tps as
+		// the legacy fallback. Fixed 5-cell equalizer.
 		var sigTPS float64
+		var sigSignal int
 		online := bd.online
 		if bd.cheapest != nil {
 			sigTPS = bd.cheapest.TPS
+			sigSignal = bd.cheapest.Signal
 		}
 		if sel {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
-			rawSig := pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8)
+			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
-		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigTPS, online, bd.stations), 8), sigTPS, online)
+		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, bd.stations), 8), sigSignal, sigTPS, online)
 		nameCell := stDim.Render(pad(bd.model, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
 		if connected {
@@ -5720,32 +5733,55 @@ func indentBlock(s, pad string) string {
 // legacy Windows console. signalPeak indexes into either ramp identically.
 func signalRamp() []rune { return glyphs.Current().Signal }
 
+// signalLevel maps the broker's 0..100 signal onto the 0..7 glyph-ramp level (▁..█).
+// A positive signal always returns >= 1, so an online node never reads fully blank;
+// ~43 (an on-air node with no traffic) lands mid-tower; 100 pins the top. 0 means
+// "no broker signal carried" so the caller can fall back to the tps-derived level.
+// Kept in lock-step with client.signalLevel (the plain-CLI tower) so both agree.
+func signalLevel(signal int) int {
+	if signal <= 0 {
+		return 0
+	}
+	lvl := 1 + (signal*6+99)/100 // ceil((signal/100)*6) + 1 base; ~43 -> 4
+	if lvl > 7 {
+		lvl = 7
+	}
+	return lvl
+}
+
 // signalFlat is the 5-cell "no signal" tower (offline / unmeasured) for the resolved
 // glyph set.
 func signalFlat() string { return glyphs.Current().SigOff }
 
-func signalBarsRaw(frame int, tps float64, online bool, stations ...int) string {
+func signalBarsRaw(frame, signal int, tps float64, online bool, stations ...int) string {
 	set := signalRamp()
 	if !online {
 		return signalFlat()
 	}
-	base := 0
-	switch {
-	case tps >= 600:
-		base = 6
-	case tps >= 300:
-		base = 5
-	case tps >= 150:
-		base = 4
-	case tps >= 60:
-		base = 3
-	case tps >= 20:
-		base = 2
-	case tps > 0:
-		base = 1
+	// The broker's 0..100 signal is the primary driver: an online node earns a
+	// baseline (supply + quality) even at tps==0, so the band never reads blank
+	// while on air. Fall back to the legacy tps level only when no signal is carried.
+	base := signalLevel(signal)
+	if base == 0 {
+		switch {
+		case tps >= 600:
+			base = 6
+		case tps >= 300:
+			base = 5
+		case tps >= 150:
+			base = 4
+		case tps >= 60:
+			base = 3
+		case tps >= 20:
+			base = 2
+		case tps > 0:
+			base = 1
+		}
 	}
 	if base == 0 {
-		return signalFlat() // online but not yet measured
+		// Online with neither a broker signal nor measured tps: one faint bar, never
+		// a fully blank tower (online always reads as at least a carrier).
+		base = 1
 	}
 	// More stations on the band -> a stronger carrier: +1 notch per extra station
 	// beyond the first, capped at +2 so a single fast node and a crowded band stay
@@ -5784,8 +5820,11 @@ const signalPeak = 6
 // driven by tok/s. Offline / unmeasured is flat dim. Padding spaces stay bare
 // (no visible color), so column alignment is unaffected. Under NO_COLOR lipgloss
 // strips every color and the ▁..█ glyphs alone still read the signal.
-func tintSignal(raw string, tps float64, online bool) string {
-	if !(online && tps > 0) {
+func tintSignal(raw string, signal int, tps float64, online bool) string {
+	// Grade (mono ink + a red peak glint) whenever the band is online with ANY
+	// reading - a broker signal OR measured tps. An on-air node with no traffic still
+	// carries a baseline signal, so its meter lights instead of going flat-dim.
+	if !(online && (signal > 0 || tps > 0)) {
 		return stDim.Render(raw)
 	}
 	ramp := signalRamp()
