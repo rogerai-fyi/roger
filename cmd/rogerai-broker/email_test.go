@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -273,6 +274,57 @@ func TestCapNoticeDeduped(t *testing.T) {
 	got := drain(sends, 200*time.Millisecond)
 	if got != 3 {
 		t.Errorf("cap notices sent = %d, want 3 (80 once, 100 once, next-month 80 once)", got)
+	}
+}
+
+// TestTouchpointHTMLIsBrandedAndHasCTA proves every touchpoint emits the table-based
+// branded shell (the email-safe constraint) AND a bulletproof CTA pointing at the right
+// page, plus a matching plain-text fallback. This guards the on-brand HTML so a future
+// edit can't silently drop the layout or the action button.
+func TestTouchpointHTMLIsBrandedAndHasCTA(t *testing.T) {
+	cases := []struct {
+		name string
+		fire func(b *broker)
+		cta  string // expected CTA href substring
+	}{
+		{"payout-sent", func(b *broker) { b.emailPayoutSent("op@example.com", 12.34, "tr_abc") }, "rogerai.fyi/payouts.html"},
+		{"payout-reversed", func(b *broker) { b.emailPayoutReversed("op@example.com", 5, "dp_1") }, "rogerai.fyi/payouts.html"},
+		{"dispute-opened", func(b *broker) { b.emailDisputeOpened("op@example.com", 5, "dp_2") }, "rogerai.fyi/account.html"},
+		{"account-warning", func(b *broker) { b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5) }, "rogerai.fyi/account.html"},
+		{"account-banned", func(b *broker) { b.emailAccountBanned("op@example.com", "impossible_input", `{"x":1}`) }, "rogerai.fyi/account.html"},
+		{"cap-80", func(b *broker) { b.emailCapNotice("ownerpk", "80", 8, 10, time.Now()) }, "rogerai.fyi/billing.html"},
+		{"cap-100", func(b *broker) { b.emailCapNotice("ownerpk", "100", 10, 10, time.Now()) }, "rogerai.fyi/billing.html"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, sends := brokerWithMailer(t, "op@example.com")
+			tc.fire(b)
+			select {
+			case got := <-sends:
+				htmlBody, _ := got["html"].(string)
+				textBody, _ := got["text"].(string)
+				// Email-safe table shell + 600px container.
+				if !strings.Contains(htmlBody, `role="presentation"`) {
+					t.Errorf("%s: HTML missing the table shell (role=presentation)", tc.name)
+				}
+				if !strings.Contains(htmlBody, "max-width:600px") {
+					t.Errorf("%s: HTML missing the 600px container", tc.name)
+				}
+				// Branded beacon header (ROGERAI wordmark).
+				if !strings.Contains(htmlBody, "ROGERAI") {
+					t.Errorf("%s: HTML missing the ROGERAI brand mark", tc.name)
+				}
+				// Bulletproof CTA to the right page, in both HTML and text.
+				if !strings.Contains(htmlBody, tc.cta) {
+					t.Errorf("%s: HTML missing CTA href %q", tc.name, tc.cta)
+				}
+				if !strings.Contains(textBody, tc.cta) {
+					t.Errorf("%s: text fallback missing CTA URL %q", tc.name, tc.cta)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s: email was not sent", tc.name)
+			}
+		})
 	}
 }
 
