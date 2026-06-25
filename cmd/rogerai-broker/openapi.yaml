@@ -547,6 +547,73 @@ paths:
                   ledger: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
         "403": { description: no operator account for this login }
 
+  /payouts/earnings:
+    get:
+      tags: [payouts]
+      summary: Earnings split + dated release ladder + per-model/per-node rollups
+      description: |
+        The caller's full earnings split (held/reserved/payable/paid) PLUS a dated
+        release ladder (`releases[]`): the still-held lots grouped by their release
+        calendar day so the page renders a real "$X clears Jun 30, $Y clears Jul 15"
+        schedule instead of only the single soonest date `next_release` carries. Also
+        returns cheap per-model + per-node earning rollups (where the money came from).
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - the SAME dual-auth as the rest
+        of the payout surface. Returns ONLY the caller's own account (keyed by the owner
+        pubkey); there is no cross-account query param. 401 when neither is present/valid.
+      responses:
+        "200":
+          description: Split + release ladder + rollups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  held: { type: number }
+                  reserved: { type: number }
+                  payable: { type: number }
+                  paid: { type: number }
+                  next_release: { type: integer, description: unix of the soonest upcoming release }
+                  releases: { type: array, items: { $ref: '#/components/schemas/ReleaseBucket' } }
+                  by_model: { type: array, items: { $ref: '#/components/schemas/EarningRollup' } }
+                  by_node: { type: array, items: { $ref: '#/components/schemas/EarningRollup' } }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: no operator account for this login }
+
+  /payouts/{id}/lots:
+    get:
+      tags: [payouts]
+      summary: The funding earning lots behind a payout (request-level lineage)
+      description: |
+        The exact earning lots a payout's transfer was drawn from - {request_id, node,
+        model, gross, created_at} per lot - so a payout-history row can expand into the
+        receipts that funded it (request-level provenance).
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme). Owner-scoped: a payout id that is not the caller's (or unknown) returns
+        404 - never leaking another operator's receipts.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+          description: The payout id (from /payouts/history).
+      responses:
+        "200":
+          description: The payout's funding lots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payout_id: { type: integer }
+                  lots: { type: array, items: { $ref: '#/components/schemas/PayoutLot' } }
+        "400": { description: bad payout id }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: no operator account for this login }
+        "404": { description: payout not found (unknown, or not the caller's) }
+
   /metrics/provider:
     get:
       tags: [payouts]
@@ -997,6 +1064,29 @@ components:
         amount: { type: number }
         stripe_transfer_id: { type: string }
         state: { type: string, description: "pending|paid|reversed|failed" }
+        created_at: { type: integer }
+    ReleaseBucket:
+      type: object
+      description: One upcoming earning release on the dated ladder (GET /payouts/earnings releases[]).
+      properties:
+        date: { type: integer, description: unix midnight UTC of the release day (bucket key) }
+        amount: { type: number, description: credits releasing that day (gross-minus-reserve) }
+        lot_count: { type: integer, description: number of held lots in this bucket }
+    EarningRollup:
+      type: object
+      description: Per-model or per-node earnings total across the account's non-clawed lots.
+      properties:
+        key: { type: string, description: the model id (by_model) or node id (by_node) }
+        amount: { type: number, description: total attributed gross }
+        lots: { type: integer, description: number of lots contributing }
+    PayoutLot:
+      type: object
+      description: One funding earning lot behind a payout (GET /payouts/{id}/lots) - request-level lineage.
+      properties:
+        request_id: { type: string }
+        node: { type: string }
+        model: { type: string, description: resolved from the lot's request receipt ("" if unknown) }
+        gross: { type: number, description: owner share for this request (credits) }
         created_at: { type: integer }
     ProviderModelMetric:
       type: object

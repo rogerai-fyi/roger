@@ -184,6 +184,105 @@
   word-break: break-all;
 }
 
+/* ---- the release ladder: each upcoming clear date, the amount releasing that day and
+   how many lots it covers. A dated schedule under the timeline, not just the soonest
+   date. Each step is a hairline row; the amount carries the mono reading. ---- */
+.po-ladder { margin: var(--s-4) 0 0; }
+.po-ladder__title {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+}
+.po-ladder__list { list-style: none; margin: 0; padding: 0; }
+.po-ladder__step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline-2);
+}
+.po-ladder__step:first-child { border-top: none; }
+.po-ladder__date {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+}
+.po-ladder__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+}
+.po-ladder__amount {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  white-space: nowrap;
+}
+
+/* ---- expandable payout-history row: a header button that toggles a drawer of the
+   funding receipts (the lineage). The chevron rotates on open; the drawer is the same
+   recent-list register, indented under the rail. ---- */
+.po-payout { display: block; padding: 0; }
+.po-payout__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  width: 100%;
+  padding: var(--s-2) 0;
+  margin: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.po-payout__head:hover .r-model { color: var(--ink-900); }
+.po-payout__chev {
+  display: inline-block;
+  margin-right: var(--s-2);
+  color: var(--ink-400);
+  transition: transform var(--d-1, 140ms) var(--ease-out-quint);
+}
+.po-payout.is-open .po-payout__chev { transform: rotate(90deg); }
+.po-payout__drawer {
+  padding: 0 0 var(--s-2) var(--s-4);
+  border-left: 1px solid var(--hairline-2);
+  margin-left: 3px;
+}
+.po-payout__loading { color: var(--ink-400); }
+.po-lots { margin: 0; }
+.po-lots__left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.po-lots__left b {
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-lots__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .po-meter__seg { transition: none; }
+  .po-payout__chev { transition: none; }
 }

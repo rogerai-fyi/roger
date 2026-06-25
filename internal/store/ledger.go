@@ -85,6 +85,37 @@ type EarningSplit struct {
 	NextRelease int64   `json:"next_release"` // unix of the soonest upcoming release (0 = none)
 }
 
+// ReleaseBucket is one upcoming earning release: the credits (gross-minus-reserve of
+// the still-held lots) clearing on a given calendar day, plus how many lots make up
+// that bucket. The Payouts page renders these as a dated release ladder ("$X clears
+// Jun 30") instead of only the single soonest date the split's NextRelease carries.
+type ReleaseBucket struct {
+	Date     int64   `json:"date"`      // unix: midnight UTC of the release day (bucket key)
+	Amount   float64 `json:"amount"`    // credits releasing that day (gross-minus-reserve)
+	LotCount int     `json:"lot_count"` // number of held lots in this bucket
+}
+
+// EarningRollup is a per-model or per-node earnings total across an account's lots
+// (held + payable + paid, the full attributed share). It powers the cheap provenance
+// rollups on the earnings view (where the money came from, by model / by node).
+type EarningRollup struct {
+	Key    string  `json:"key"`    // the model id (per-model rollup) or node id (per-node rollup)
+	Amount float64 `json:"amount"` // total attributed gross across the account's lots
+	Lots   int     `json:"lots"`   // number of lots contributing
+}
+
+// PayoutLot is one funding earning lot behind a payout: the request-level receipt that
+// the payout's money was drawn from. It is the lineage a payout-history row expands
+// into - exactly which requests (model, node, gross, when) funded the transfer.
+type PayoutLot struct {
+	LotID     int64   `json:"lot_id"`
+	RequestID string  `json:"request_id"`
+	Node      string  `json:"node"`
+	Model     string  `json:"model"` // resolved from the lot's request receipt ("" if unknown)
+	Gross     float64 `json:"gross"` // owner share for this request (credits)
+	CreatedAt int64   `json:"created_at"`
+}
+
 // Payout is one requested transfer (one Stripe Transfer per operator per run).
 type Payout struct {
 	ID               int64   `json:"id"`

@@ -367,6 +367,8 @@ func main() {
 	mux.HandleFunc("/connect/status", b.connectStatus)            // Connect capability status (KYC gate)
 	mux.HandleFunc("/payouts/request", b.payoutsRequest)          // request a payout (KYC + min gated)
 	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
+	mux.HandleFunc("/payouts/earnings", b.payoutsEarnings)        // earnings split + dated release ladder + rollups
+	mux.HandleFunc("/payouts/", b.payoutsSubtree)                 // /payouts/{id}/lots: a payout's funding lineage
 	mux.HandleFunc("/metrics/provider", b.metricsProvider)        // per-model SERVE metrics (free/paid + earnings)
 	mux.HandleFunc("/metrics/usage", b.metricsUsage)              // per-model CONSUME metrics (free/paid + spend)
 	mux.HandleFunc("/metrics/series", b.metricsSeries)            // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)

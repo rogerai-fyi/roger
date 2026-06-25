@@ -175,9 +175,47 @@
     show("card");
     wireLogout();
     refreshConnect();
+    loadEarnings();
     loadHistory();
     loadBreakdown();
   });
+
+  // ---- the release LADDER. /payouts/earnings carries releases[] - the still-held lots
+  // bucketed by clear date - so we render a real dated ladder ("$X clears Jun 30, $Y
+  // clears Jul 15") instead of only the single soonest date the split's next_release
+  // carries. Honest-empty: no held money -> no ladder. ----
+  function renderLadder(releases) {
+    var rows = (releases || []).filter(function (r) { return (r.amount || 0) > 0; });
+    if (!rows.length) return;
+    var ul = document.getElementById("ladder");
+    if (!ul) return;
+    rows.forEach(function (r) {
+      var el = document.createElement("li");
+      el.className = "po-ladder__step";
+      var left = document.createElement("span");
+      left.className = "po-ladder__date";
+      left.textContent = when(r.date);
+      var meta = document.createElement("span");
+      meta.className = "po-ladder__meta";
+      var lots = r.lot_count || 0;
+      meta.textContent = rel(r.date) + " - " + lots + (lots === 1 ? " lot" : " lots");
+      left.appendChild(meta);
+      var right = document.createElement("span");
+      right.className = "po-ladder__amount";
+      right.textContent = cr(r.amount || 0);
+      el.appendChild(left);
+      el.appendChild(right);
+      ul.appendChild(el);
+    });
+    show("ladderWrap");
+  }
+
+  function loadEarnings() {
+    get("/payouts/earnings").then(function (e) {
+      if (!e) return;
+      renderLadder(e.releases);
+    });
+  }
 
   // /connect/status carries the live split AND the policy (hold days, min, schedule),
   // so it both confirms the KYC gate and labels the hold/minimum facts truthfully.
@@ -197,15 +235,99 @@
     });
   }
 
+  // ---- one EXPANDABLE payout-history row. The header is the date/state/amount; click
+  // (or keyboard) toggles a drawer that lazily fetches /payouts/{id}/lots - the exact
+  // earning receipts (model, node, gross, request id, date) that funded the transfer -
+  // the request-level lineage. Fetched once, then cached on the row. ----
+  function payoutRow(p) {
+    var el = document.createElement("li");
+    el.className = "po-payout";
+
+    var head = document.createElement("button");
+    head.type = "button";
+    head.className = "po-payout__head";
+    head.setAttribute("aria-expanded", "false");
+    var label = document.createElement("span");
+    label.className = "r-model";
+    var chev = document.createElement("span");
+    chev.className = "po-payout__chev";
+    chev.setAttribute("aria-hidden", "true");
+    chev.textContent = "›"; // single right-pointing angle
+    label.appendChild(chev);
+    label.appendChild(document.createTextNode(when(p.created_at) + " - " + p.state));
+    var amount = document.createElement("span");
+    amount.className = "r-cost";
+    amount.textContent = cr(p.amount);
+    head.appendChild(label);
+    head.appendChild(amount);
+    if (p.stripe_transfer_id) head.title = "Stripe transfer " + p.stripe_transfer_id;
+
+    var drawer = document.createElement("div");
+    drawer.className = "po-payout__drawer";
+    drawer.hidden = true;
+
+    var loaded = false;
+    function expand() {
+      el.classList.add("is-open");
+      head.setAttribute("aria-expanded", "true");
+      drawer.hidden = false;
+      if (loaded) return;
+      loaded = true;
+      var note = document.createElement("p");
+      note.className = "fine po-payout__loading";
+      note.textContent = "loading receipts...";
+      drawer.appendChild(note);
+      get("/payouts/" + p.id + "/lots").then(function (res) {
+        drawer.removeChild(note);
+        var lots = (res && res.lots) || [];
+        if (!lots.length) {
+          var empty = document.createElement("p");
+          empty.className = "fine";
+          empty.textContent = "No funding receipts found for this payout.";
+          drawer.appendChild(empty);
+          return;
+        }
+        var ul = document.createElement("ul");
+        ul.className = "recent po-lots";
+        lots.forEach(function (l) {
+          var row = document.createElement("li");
+          var left = document.createElement("span");
+          left.className = "r-model po-lots__left";
+          var name = document.createElement("b");
+          name.textContent = l.model || "model";
+          var meta = document.createElement("span");
+          meta.className = "po-lots__meta";
+          meta.textContent = (l.node || "node") + " - " + (l.request_id || "?") + " - " + when(l.created_at);
+          left.appendChild(name);
+          left.appendChild(meta);
+          var right = document.createElement("span");
+          right.className = "r-cost";
+          right.textContent = cr(l.gross || 0);
+          row.appendChild(left);
+          row.appendChild(right);
+          ul.appendChild(row);
+        });
+        drawer.appendChild(ul);
+      });
+    }
+    function collapse() {
+      el.classList.remove("is-open");
+      head.setAttribute("aria-expanded", "false");
+      drawer.hidden = true;
+    }
+    head.addEventListener("click", function () {
+      if (el.classList.contains("is-open")) collapse(); else expand();
+    });
+
+    el.appendChild(head);
+    el.appendChild(drawer);
+    return el;
+  }
+
   function loadHistory() {
     get("/payouts/history").then(function (h) {
       if (!h) return;
-      fill("payouts", "payoutsEmpty", h.payouts, function (p) {
-        var label = when(p.created_at) + " - " + p.state;
-        var row = li(label, cr(p.amount));
-        if (p.stripe_transfer_id) row.title = "Stripe transfer " + p.stripe_transfer_id;
-        return row;
-      });
+      fill("payouts", "payoutsEmpty", h.payouts, payoutRow);
       fill("ledger", "ledgerEmpty", h.ledger, function (g) {
         var label = when(g.ts) + " - " + kindLabel(g.kind);
         var row = li(label, cr(g.amount));
