@@ -21,7 +21,13 @@ import (
 // short replies, a per-IP rate limit, a global daily message cap, a hard
 // max_tokens, and a lightweight unsafe-input precheck.
 //
-// Serving order (dogfood-first, then graceful degrade):
+// Serving order (grant-dogfood first when configured, then graceful degrade):
+//  0. GRANT DOGFOOD (opt-in via CONCIERGE_GRANT_KEY): authenticate AS the founder's
+//     own `rog-grant_` key exactly like an external bot would, and PIN Ping to the
+//     granted model (CONCIERGE_MODEL, default gpt-oss-120b) on the grant owner's
+//     node. This dogfoods the real grant->relay path end to end. If the grant's
+//     node is offline or the relay errors, fall through to step 1 so Ping never
+//     breaks. (Disabled when CONCIERGE_GRANT_KEY is unset.)
 //  1. DOGFOOD the marketplace - relay the chat to a FREE, on-air rogerai model
 //     server-side (the broker picks a free station and enqueues a job on its
 //     tunnel under a server identity, no wallet, content-blind as always).
@@ -50,10 +56,19 @@ type concierge struct {
 	dayCount int
 	dayKey   string // "2026-06-24" - the UTC day the count belongs to
 
-	// Injectable for tests. In production these are the real dogfood relay + Groq
-	// call; tests stub them to exercise each branch without a network.
-	dogfoodFn func(messages []chatMsg) (reply string, served bool)
-	groqFn    func(messages []chatMsg) (reply string, ok bool)
+	// grantKey is the founder's own `rog-grant_` secret (CONCIERGE_GRANT_KEY). When
+	// set, Ping dogfoods the marketplace AS this grant before the free-station pick:
+	// it routes the chat to grantModel on the grant owner's node, exactly like an
+	// external bot would. Empty disables the grant path. NEVER logged.
+	grantKey   string
+	grantModel string // CONCIERGE_MODEL (default gpt-oss-120b) - the model Ping pins to
+
+	// Injectable for tests. In production these are the real grant-dogfood relay, the
+	// free-station dogfood relay, and the Groq call; tests stub them to exercise each
+	// branch without a network. grantDogfoodFn is nil when CONCIERGE_GRANT_KEY is unset.
+	grantDogfoodFn func(messages []chatMsg) (reply string, served bool)
+	dogfoodFn      func(messages []chatMsg) (reply string, served bool)
+	groqFn         func(messages []chatMsg) (reply string, ok bool)
 }
 
 // chatMsg is one OpenAI-style chat message {role, content}.
@@ -99,11 +114,19 @@ func loadConcierge() *concierge {
 		// Per-IP: ~6 msgs/min (burst 6). Independent of the relay limiter.
 		rl:     &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: envFloat("ROGERAI_CONCIERGE_RPM", 6), burst: envFloat("ROGERAI_CONCIERGE_BURST", 6)},
 		dayCap: int(envFloat("ROGERAI_CONCIERGE_DAILY_CAP", 5000)),
+		// Grant dogfood: pin Ping to the founder's own granted model when a grant key is
+		// configured. CONCIERGE_MODEL defaults to gpt-oss-120b.
+		grantKey:   os.Getenv("CONCIERGE_GRANT_KEY"),
+		grantModel: envStr("CONCIERGE_MODEL", "gpt-oss-120b"),
 	}
 	if c.groqKey == "" {
 		log.Printf("CONCIERGE: GROQ_API_KEY unset - Ping falls back to a free on-air station, else a canned 'off air' reply (no Groq).")
 	} else {
 		log.Printf("CONCIERGE: enabled (dogfood free station -> Groq %s -> canned).", c.groqModel)
+	}
+	// Log only that grant-dogfood is ON and which model - NEVER the secret.
+	if c.grantKey != "" {
+		log.Printf("CONCIERGE: grant-dogfood enabled - Ping pins to model %q via CONCIERGE_GRANT_KEY (falls through to free station -> Groq -> canned when its node is off air).", c.grantModel)
 	}
 	return c
 }
@@ -172,6 +195,15 @@ func (b *broker) conciergeHandler(w http.ResponseWriter, r *http.Request) {
 	// user/assistant turns. We never trust an incoming system message.
 	msgs := buildConciergeMessages(req.Messages)
 
+	// 0) Grant dogfood (opt-in): authenticate AS the founder's own grant key and pin
+	// Ping to the granted model on the owner's node - exactly like an external bot.
+	// On any miss (node off air, relay error), fall through so Ping never breaks.
+	if c.grantDogfoodFn != nil {
+		if reply, served := c.grantDogfoodFn(msgs); served && strings.TrimSpace(reply) != "" {
+			writeJSON(w, http.StatusOK, map[string]string{"reply": reply, "via": "rogerai-grant"})
+			return
+		}
+	}
 	// 1) Dogfood a FREE on-air station.
 	if reply, served := c.dogfoodFn(msgs); served && strings.TrimSpace(reply) != "" {
 		writeJSON(w, http.StatusOK, map[string]string{"reply": reply, "via": "rogerai"})
@@ -293,6 +325,107 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 	case <-time.After(25 * time.Second):
 		return "", false
 	}
+}
+
+// dogfoodGrantRelay is the production grant-dogfood path: it authenticates AS the
+// founder's own CONCIERGE_GRANT_KEY (the same sha256 -> stored grant -> owner
+// nodeAllow resolution resolveGrant does for an HTTP caller) and routes the chat to
+// the grant's scoped model (CONCIERGE_MODEL) on one of the owner's on-air nodes -
+// exactly like an external bot consuming the grant. It enqueues a Job on that node's
+// tunnel and extracts the assistant text. Returns served=false on ANY miss (key
+// unset/invalid/revoked/expired, model not allowed by the grant, no on-air node in
+// the grant's allow-list, busy, timeout, relay error) so the caller falls through to
+// the free-station pick -> Groq -> canned chain and the widget never breaks.
+//
+// The grant SECRET is never logged here (only loadConcierge logs that the path is on
+// and which model). The mandatory moderation screen + per-IP rate limit + global
+// daily cap all run in conciergeHandler BEFORE this is reached, so they wrap this
+// path too; this method is a no-spend dogfood relay, not a public auth surface.
+func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served bool) {
+	c := b.concierge
+	if c.grantKey == "" {
+		return "", false
+	}
+	gc, ok, gerr := b.resolveGrantToken(c.grantKey)
+	if !ok || gerr != "" {
+		return "", false // invalid/revoked/expired grant - fall through, never break Ping
+	}
+	model := c.grantModel
+	if gc.modelDenied(model) {
+		return "", false // grant does not scope this model - fall through
+	}
+	node, nok := b.pickGrantStation(gc.nodeAllow, model)
+	if !nok {
+		return "", false // no on-air owner node serving the model - fall through
+	}
+	b.mu.Lock()
+	t := b.tunnels[node]
+	b.mu.Unlock()
+	if t == nil {
+		return "", false
+	}
+
+	payload := map[string]any{
+		"model":       model,
+		"messages":    messages,
+		"max_tokens":  c.maxTokens,
+		"temperature": 0.6,
+		"stream":      false,
+	}
+	rawBody, _ := json.Marshal(payload)
+
+	// Defensive second screen (belt-and-suspenders; conciergeHandler already screened
+	// the user input). A screen rejection degrades to "not served" so Ping falls
+	// through rather than echoing a 451 to the widget.
+	if res := b.mod.screen(promptText(rawBody)); !res.allow() {
+		return "", false
+	}
+
+	job := protocol.Job{ID: protocol.NewRequestID(), User: b.pseudonym("ping-concierge-grant", node), Body: rawBody}
+	resCh := make(chan protocol.JobResult, 1)
+	t.mu.Lock()
+	t.waiters[job.ID] = resCh
+	t.mu.Unlock()
+	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
+
+	select {
+	case t.jobs <- job:
+	case <-time.After(2 * time.Second):
+		return "", false // no poller free
+	}
+	select {
+	case res := <-resCh:
+		if res.Status < 200 || res.Status >= 300 {
+			return "", false
+		}
+		return completionText(res.Body), true
+	case <-time.After(25 * time.Second):
+		return "", false
+	}
+}
+
+// pickGrantStation returns an on-air node from the grant's nodeAllow set that
+// currently offers the requested model. Confines routing to the grant owner's nodes
+// (allow is already owner's nodes ∩ grant.Nodes). Returns ok=false when none is on
+// air, so the grant dogfood falls through. Caller need not hold the lock.
+func (b *broker) pickGrantStation(allow map[string]bool, model string) (node string, ok bool) {
+	if len(allow) == 0 {
+		return "", false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id := range allow {
+		n, exists := b.nodes[id]
+		if !exists || time.Since(b.lastSeen[id]) >= nodeTTL {
+			continue
+		}
+		for _, o := range n.Offers {
+			if o.Model == model {
+				return id, true
+			}
+		}
+	}
+	return "", false
 }
 
 // pickFreeStation returns an online station + model whose ACTIVE price is free

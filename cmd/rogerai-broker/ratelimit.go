@@ -33,6 +33,14 @@ func envFloat(key string, def float64) float64 {
 	return def
 }
 
+// envStr returns the env var or def when unset/empty.
+func envStr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
 func loadRateLimiter() *rateLimiter {
 	return &rateLimiter{
 		buckets: map[string]*tokenBucket{},
