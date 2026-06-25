@@ -48,10 +48,10 @@ const CSS_BUNDLES = {
   // account (chrome) pages
   "account.html":   [...CSS_ACCOUNT, "account.css"],
   "billing.html":   [...CSS_ACCOUNT, "billing.css"],
-  "payouts.html":   [...CSS_ACCOUNT],                    // shared account plates only
+  "payouts.html":   [...CSS_ACCOUNT, "payouts.css"],
   "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
-  "dashboard.html": [...CSS_ACCOUNT],                    // shared account plates only
-  "console.html":   [...CSS_ACCOUNT],                    // shared account plates only
+  "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
+  "console.html":   [...CSS_ACCOUNT, "console.css"],
   "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
   "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
