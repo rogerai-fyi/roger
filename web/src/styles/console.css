@@ -1,2 +1,96 @@
-/* Console page styles. Builds on account-base.css (shared account plates).
-   Owned by the Console redesign. */
+/* =====================================================================
+   RogerAI - console.css : the live operational view (recent lineage log +
+   today's counters). Builds on account-base.css (plate, .stats, .panel,
+   .cmd). Same plate language as metrics.css - warm monochrome, hairlines,
+   mono numerals, ONE red glint (the on-air / fail dot). Owned by the
+   Console redesign. Consumes tokens.css + base.css + account-base.css.
+   ===================================================================== */
+
+/* loading / empty / error notices - the quiet, fine register. */
+.cn-state {
+  margin: var(--s-5) 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+  line-height: 1.6;
+}
+
+/* counters reuse .stats; just open spacing under the lead. */
+.cn-counters { margin-top: var(--s-6); }
+
+/* ---- the lineage table: hairline rows, mono numerals, scrolls on narrow. ---- */
+.cn-tablewrap {
+  margin: var(--s-4) 0 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.cn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+.cn-table th,
+.cn-table td {
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--hairline);
+  text-align: left;
+  white-space: nowrap;
+}
+.cn-table thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--hairline-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.cn-table td.num,
+.cn-table th.num { text-align: right; }
+
+/* status dot column: ◉ ok (sober ink) / ○ fail (the one red glint). */
+.cn-st { width: 1.4em; text-align: center; padding-left: var(--s-2); padding-right: var(--s-2); }
+.cn-dot { font-size: 0.7em; line-height: 1; }
+.cn-dot--ok   { color: var(--ink-500); }
+.cn-dot--fail { color: var(--live); }
+
+/* model + node callsign: mono, the model in primary ink. */
+.cn-model {
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.cn-node {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+}
+
+/* numeric cells: tabular mono. */
+.cn-tok,
+.cn-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-700);
+}
+.cn-money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+}
+.cn-time { color: var(--ink-400); font-size: var(--t-xs); }
+
+/* receipt id: the lineage chain id, mono + dimmed (full id on hover title). */
+.cn-id {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  letter-spacing: -0.02em;
+}
+
+/* narrow: tighten padding so the seven columns still scroll cleanly. */
+@media (max-width: 560px) {
+  .cn-table th, .cn-table td { padding: var(--s-2); }
+  .cn-node { display: none; }            /* node callsign is the first to fold */
+}
