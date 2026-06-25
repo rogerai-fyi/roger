@@ -53,6 +53,7 @@
   var clearEl  = document.getElementById("bandClear");
   var sortEl   = document.getElementById("bandSort");
   var fltFree  = document.getElementById("fltFree");
+  var fltVer   = document.getElementById("fltVer");
   var fltConf  = document.getElementById("fltConf");
   var fltOn    = document.getElementById("fltOn");
   var fltSeen  = document.getElementById("fltSeen");
@@ -122,6 +123,17 @@
     if (/asia/.test(r)) return "ASIA";
     return "??";
   }
+  // Coarse, BUCKETED hardware class only (never the raw `hw` string, which can
+  // carry PII / a fingerprint). We map to a broad family: GPU / Apple silicon /
+  // CPU. Unknown stays blank.
+  function hwClass(hw) {
+    var s = String(hw || "").toLowerCase();
+    if (!s || s === "unknown") return "";
+    if (/(nvidia|geforce|rtx|gtx|tesla|a100|h100|l40|radeon|\brx ?\d|instinct|mi\d{2,3}|gpu)/.test(s)) return "GPU";
+    if (/(apple|\bm[1-4]\b|m[1-4] (pro|max|ultra)|mac studio|macbook)/.test(s)) return "Apple";
+    if (/(ryzen|threadripper|epyc|xeon|core i[3579]|intel|amd|cpu|authenticamd|genuineintel)/.test(s)) return "CPU";
+    return "";
+  }
 
   /* ---- local history of REAL models we've seen ------------------ */
   // shape: { "<model>": { lastSeen: ms, priceIn, priceOut, ctx, signal, tps, conf } }
@@ -182,6 +194,36 @@
   }
 
   /* ---- normalize ------------------------------------------------ */
+  // The broker's authoritative `terms{}` breakdown - the 7 weighted factors
+  // that sum to `total` (== signal). We keep the labels + order fixed so the
+  // QSL equalizer + tooltips read consistently. REAL DATA ONLY: rendered
+  // straight from the broker, never synthesized.
+  var TERM_KEYS = ["supply", "speed", "latency", "verified", "success", "trust", "congestion"];
+  var TERM_DESC = {
+    supply: "how many stations are on air for this band",
+    speed: "throughput (tokens / second) of the fastest station",
+    latency: "time-to-first-token responsiveness",
+    verified: "stations passing the broker's live serving probe",
+    success: "share of recent requests that completed cleanly",
+    trust: "operator standing (history, lineage receipts)",
+    congestion: "headroom penalty when stations are saturated"
+  };
+  function normTerms(t) {
+    var out = {}, any = false;
+    if (t && typeof t === "object") {
+      TERM_KEYS.forEach(function (k) {
+        var v = +t[k];
+        out[k] = isFinite(v) ? v : 0;
+        if (out[k]) any = true;
+      });
+    } else {
+      TERM_KEYS.forEach(function (k) { out[k] = 0; });
+    }
+    out.total = (t && +t.total) || 0;
+    out._any = any;
+    return out;
+  }
+
   function fromMarket(rows) {
     return rows.map(function (m) {
       var providers = +m.providers || 0;
@@ -189,6 +231,7 @@
       var sig = m.signal != null ? Math.max(0, Math.min(100, +m.signal)) : 0;
       var sr = m.success_rate != null ? +m.success_rate : 1;
       if (sr > 1) sr = sr / 100;
+      var terms = normTerms(m.terms);
       return {
         model: m.model || m.band || "unknown",
         providers: providers,
@@ -196,15 +239,17 @@
         seen: false,            // real history-only row?
         lastSeen: 0,
         signal: live ? sig : 0,
+        terms: terms,           // the broker's authoritative breakdown
         priceIn: m.min_price != null ? +m.min_price : null,
         priceOut: null,
         tps: +(m.best_tps || m.tps) || 0,
         ttft: +m.ttft_ms || 0,
         success: sr,
-        verified: false,
-        confidential: false,
+        verified: !!m.verified,     // SERVING-PROBE pass (distinct from TEE)
+        confidential: false,        // TEE-confidential tier (from /discover)
         freeNow: false,
         ctx: 0,
+        hwClass: "",
         stations: []
       };
     }).filter(function (b) { return b.model && b.model !== "unknown"; });
@@ -217,7 +262,10 @@
       var b = by[o.model] || (by[o.model] = {
         model: o.model, live: 0, total: 0, minIn: Infinity, minOut: Infinity,
         tps: 0, ttft: Infinity, conf: false, free: false, ctx: 0,
-        success: 1, stations: []
+        ver: false, sched: false,
+        // band signal/terms = the strongest online station's broker numbers
+        signal: 0, terms: null, hwClass: "", success: 0,
+        stations: []
       });
       var online = o.online !== false;
       b.total++;
@@ -230,7 +278,20 @@
       var tt = +o.ttft_ms || 0; if (tt > 0 && tt < b.ttft) b.ttft = tt;
       if (o.confidential) b.conf = true;
       if (o.free_now) b.free = true;
+      if (online && o.verified) b.ver = true;       // serving-probe pass (distinct from TEE)
+      if (o.scheduled) b.sched = true;
       if (+o.ctx > b.ctx) b.ctx = +o.ctx;
+      var oSig = online && o.signal != null ? Math.max(0, Math.min(100, +o.signal)) : 0;
+      var oSucc = o.success != null ? +o.success : 0;
+      // adopt the broker's authoritative signal + term breakdown from the
+      // strongest online station; never recompute it locally.
+      if (online && oSig >= b.signal) {
+        b.signal = oSig;
+        b.terms = normTerms(o.terms);
+        b.success = oSucc > 1 ? oSucc / 100 : oSucc;
+      }
+      var cls = hwClass(o.hw);
+      if (online && cls && !b.hwClass) b.hwClass = cls;
       b.stations.push({
         callsign: callsign(o.node_id),
         nodeId: o.node_id,
@@ -240,26 +301,30 @@
         tps: tps, ttft: tt,
         quality: o.quality != null ? +o.quality : null,
         confidential: !!o.confidential,
+        verified: online && !!o.verified,
         free: !!o.free_now,
         scheduled: !!o.scheduled,
-        ctx: +o.ctx || 0
+        ctx: +o.ctx || 0,
+        signal: oSig,
+        hwClass: cls
       });
     });
     return Object.keys(by).map(function (k) {
       var b = by[k];
-      var supply = Math.min(1, Math.log2(b.live + 1) / 3.5);
-      var speed = Math.min(1, b.tps / 90);
-      var sig = b.live > 0 ? Math.max(8, Math.round((0.62 * supply + 0.38 * speed) * 100)) : 0;
       b.stations.sort(function (a, c) {
         if (a.online !== c.online) return a.online ? -1 : 1;
-        return (a.priceIn || 1e9) - (c.priceIn || 1e9);
+        return (c.signal || 0) - (a.signal || 0);
       });
       return {
-        model: b.model, providers: b.live, live: b.live > 0, seen: false, lastSeen: 0, signal: sig,
+        model: b.model, providers: b.live, live: b.live > 0, seen: false, lastSeen: 0,
+        signal: b.signal,
+        terms: b.terms || normTerms(null),
         priceIn: b.minIn === Infinity ? null : b.minIn,
         priceOut: b.minOut === Infinity ? null : b.minOut,
-        tps: b.tps, ttft: b.ttft === Infinity ? 0 : b.ttft, success: 1,
-        verified: b.conf, confidential: b.conf, freeNow: b.free, ctx: b.ctx,
+        tps: b.tps, ttft: b.ttft === Infinity ? 0 : b.ttft,
+        success: b.success || 0,
+        verified: b.ver, confidential: b.conf, freeNow: b.free, ctx: b.ctx,
+        scheduled: b.sched, hwClass: b.hwClass,
         stations: b.stations
       };
     });
@@ -274,10 +339,17 @@
         b.stations = d.stations;
         b.priceIn = b.priceIn != null ? b.priceIn : d.priceIn;
         b.priceOut = d.priceOut;
+        // verified = serving-probe pass; confidential = TEE tier. Distinct flags.
         b.confidential = d.confidential;
-        b.verified = d.confidential;
+        b.verified = b.verified || d.verified;
         b.freeNow = d.freeNow;
         b.ctx = d.ctx;
+        b.scheduled = d.scheduled;
+        b.hwClass = b.hwClass || d.hwClass;
+        // /market is authoritative for signal+terms; only fall back to the
+        // /discover-derived values if /market did not carry them.
+        if ((!b.terms || !b.terms._any) && d.terms && d.terms._any) b.terms = d.terms;
+        if (!b.signal && d.signal) b.signal = d.signal;
         if (!b.tps && d.tps) b.tps = d.tps;
         if (!b.ttft && d.ttft) b.ttft = d.ttft;
         delete dByModel[b.model];
@@ -296,11 +368,12 @@
         var e = hist[k];
         return {
           model: k, providers: 0, live: false, seen: true, lastSeen: e.lastSeen || 0,
-          signal: 0,
+          signal: 0, terms: normTerms(null),
           priceIn: e.priceIn != null ? e.priceIn : null,
           priceOut: e.priceOut != null ? e.priceOut : null,
-          tps: e.tps || 0, ttft: 0, success: 1,
-          verified: !!e.conf, confidential: !!e.conf, freeNow: false,
+          tps: e.tps || 0, ttft: 0, success: 0,
+          verified: false, confidential: !!e.conf, freeNow: false,
+          scheduled: false, hwClass: "",
           ctx: e.ctx || 0, stations: []
         };
       });
@@ -334,15 +407,44 @@
     if (c >= 1000) return Math.round(c / 1024) + "k";
     return String(c);
   }
+  function fmtTtft(ms) {
+    if (!ms) return "-";
+    return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
+  }
+  function fmtPct(x) {
+    if (x == null || !isFinite(x)) return "-";
+    var v = x > 1 ? x : x * 100;
+    return Math.round(v) + "%";
+  }
+  // The strongest 2-3 contributing terms, as a plain "why this signal" string.
+  function topTermsText(terms) {
+    if (!terms || !terms._any) return "";
+    var rank = TERM_KEYS.filter(function (k) { return terms[k] > 0; })
+      .sort(function (a, b) { return terms[b] - terms[a]; }).slice(0, 3);
+    if (!rank.length) return "";
+    return "why this signal: " + rank.map(function (k) {
+      return k + " " + Math.round(terms[k]);
+    }).join(" · ") + " (of " + Math.round(terms.total || 0) + ")";
+  }
   function rowHTML(b) {
     var dot = b.live
       ? '<span class="band-dot band-dot--on" aria-hidden="true">◉</span>'
       : '<span class="band-dot band-dot--off" aria-hidden="true">○</span>';
     var marks = "";
+    if (b.live && b.verified) marks += ' <span class="band-tag band-tag--ver" title="verified serving: a station passed the broker live serving probe">✓ verified</span>';
     if (b.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
     if (b.freeNow) marks += ' <span class="band-tag band-tag--free">FREE</span>';
     if (b.seen) marks += ' <span class="band-tag band-tag--seen" title="seen before, offline now">SEEN</span>';
     var ctx = b.ctx ? '<span class="band-ctx mono">' + fmtCtx(b.ctx) + ' ctx</span>' : "";
+    var hwc = b.live && b.hwClass ? '<span class="band-hw mono" title="coarse hardware class (bucketed, no exact model)">' + esc(b.hwClass) + '</span>' : "";
+    // real probe metrics, only when live
+    var perf = "";
+    if (b.live) {
+      var parts = [];
+      if (b.ttft) parts.push('ttft ' + fmtTtft(b.ttft));
+      if (b.success) parts.push('ok ' + fmtPct(b.success));
+      if (parts.length) perf = '<span class="band-perf mono">' + parts.join(' · ') + '</span>';
+    }
     var prov = b.live
       ? '<span class="band-prov">' + b.providers + ' station' + (b.providers === 1 ? '' : 's') + ' on air</span>'
       : (b.seen
@@ -364,15 +466,18 @@
       ? '<span class="band-stat band-stat--on">◉ on air</span>'
       : '<span class="band-stat band-stat--off">○ idle</span>';
 
+    var meta = perf || hwc ? '<span class="band-meta">' + perf + hwc + '</span>' : "";
+    var sigTip = b.live ? topTermsText(b.terms) : "";
+
     return (
       '<span class="band-cell band-cell--name">' +
         '<span class="band-name-line">' + dot + '<span class="band-name">' + esc(b.model) + marks + '</span>' +
           '<button type="button" class="report-btn report-btn--row" data-report-model="' + esc(b.model) +
             '" aria-label="Report a station on ' + esc(b.model) + '">report</button>' +
         '</span>' +
-        prov + ctx +
+        prov + ctx + meta +
       '</span>' +
-      '<span class="band-cell band-cell--sig"><span class="sig" aria-hidden="true">' + towerBars(b.signal, b.live) + '</span>' +
+      '<span class="band-cell band-cell--sig"' + (sigTip ? ' title="' + esc(sigTip) + '"' : '') + '><span class="sig" aria-hidden="true">' + towerBars(b.signal, b.live) + '</span>' +
         '<span class="band-signum mono">' + (b.live ? b.signal : '--') + '</span></span>' +
       '<span class="band-cell band-cell--price">' + price + '</span>' +
       '<span class="band-cell band-cell--tps">' + tps + '</span>' +
@@ -390,6 +495,7 @@
       if (q && b.model.toLowerCase().indexOf(q) === -1) return false;
       if (filters.free && !b.freeNow) return false;
       if (filters.conf && !b.confidential) return false;
+      if (filters.ver && !b.verified) return false;
       return true;
     });
     out.sort(function (a, b) {
@@ -399,6 +505,9 @@
         case "cheapest":
           return (a.priceIn == null ? 1e9 : a.priceIn) - (b.priceIn == null ? 1e9 : b.priceIn);
         case "fastest": return (b.tps || 0) - (a.tps || 0);
+        case "latency": // lowest TTFT first; bands with no probe (0) sink
+          return (a.ttft || 1e9) - (b.ttft || 1e9);
+        case "success": return (b.success || 0) - (a.success || 0);
         case "stations": return (b.providers || 0) - (a.providers || 0);
         case "ctx": return (b.ctx || 0) - (a.ctx || 0);
         default:
@@ -461,12 +570,21 @@
     strip = document.createElementNS(ns, "g"); svg.appendChild(strip);
   }
 
+  // Pin the SVG coordinate space to 1 user-unit == 1 CSS px on BOTH axes, so
+  // the strip center (faceW/2) lands exactly under the CSS needle at left:50%.
+  // Returns false if the element has not laid out yet (caller should DEFER, not
+  // fall back to a guessed width - a wrong width is what shifts the needle off
+  // the locked band on first paint).
   function dialMeasure() {
-    if (!hasDial) return;
+    if (!hasDial) return false;
     var r = svg.getBoundingClientRect();
-    faceW = r.width || 1000;
+    if (!r.width) return false;               // not laid out yet: defer (no silent guess)
+    faceW = r.width;
+    VBH = Math.round(r.height) || VBH;        // viewBox height == pixel height -> 1:1, no aspect distortion
     svg.setAttribute("viewBox", "0 0 " + faceW + " " + VBH);
-    MIDY = faceW / 2;
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    MIDY = faceW / 2;                          // strip horizontal center == CSS 50%
+    return true;
   }
   function buildRuler() {
     if (!hasDial) return;
@@ -546,7 +664,10 @@
     if (chipEl) chipEl.innerHTML =
       '<span class="meter__k">RATE</span><b>' + fmtPrice(b.priceIn) + ' /1M</b>' +
       '<span class="meter__k">SPEED</span><b>' + (b.live && b.tps ? Math.round(b.tps) + ' t/s' : '-') + '</b>' +
-      '<span class="meter__k">STN</span><b>' + b.providers + '</b>';
+      '<span class="meter__k">TTFT</span><b>' + (b.live ? fmtTtft(b.ttft) : '-') + '</b>' +
+      '<span class="meter__k">STN</span><b>' + b.providers + '</b>' +
+      (b.live && b.verified ? '<span class="dial__ver" title="verified serving probe">✓</span>' : '') +
+      (b.confidential ? '<span class="dial__tee cs" title="TEE-confidential">◆</span>' : '');
     dial.style.setProperty("--sig", (b.live ? b.signal / 100 : 0).toFixed(3));
     dial.setAttribute("aria-valuenow", String(lastIdx));
     dial.setAttribute("aria-valuetext", b.model + (b.live ? ", signal " + b.signal + " of 100" : ", offline"));
@@ -576,11 +697,14 @@
       if (chipEl) chipEl.innerHTML =
         '<span class="meter__k">RATE</span><b>-</b>' +
         '<span class="meter__k">SPEED</span><b>-</b>' +
+        '<span class="meter__k">TTFT</span><b>-</b>' +
         '<span class="meter__k">STN</span><b>0</b>';
       dial.style.setProperty("--sig", "0");
       return;
     }
-    dialMeasure();
+    // If the SVG has not laid out yet, DEFER to the next frame instead of
+    // building the strip against a guessed width (which mis-centers the needle).
+    if (!dialMeasure()) { requestAnimationFrame(function () { applyDialBands(next); }); return; }
     buildStrip();
     var best = 0; // sorted so the strongest live (or most-recent seen) is first
     lastIdx = -1;
@@ -632,14 +756,21 @@
       if (Math.abs(vel) < 0.0008) snapNearest();
       if (!running && visible) startRAF();
     }
+    // Passive hover should NOT drag the dial across the whole face - that drifts
+    // the readout off the locked (strongest) band on a mere mouse-over. We only
+    // nudge toward a neighbour when the cursor is within ~half a band-spacing of
+    // the needle, and even then we DAMP it so the resting state stays locked.
     function onHoverMove(e) {
       if (dragging || REDUCED || !dialBands.length) return;
       var r = svg.getBoundingClientRect();
-      var rel = clamp((e.clientX - r.left) / (r.width || 1), 0, 1);
-      var span = Math.max(1, dialBands.length - 1);
-      var c = (rel - 0.5) * 2;
-      var shaped = Math.sign(c) * c * c;
-      target = clamp((shaped * 0.5 + 0.5) * span, 0, span);
+      if (!r.width) return;
+      // cursor X measured from the needle (face center), in band units
+      var cursorBand = (e.clientX - r.left - r.width / 2) / SPACING;
+      // ignore tiny jitter; only engage within +/- 0.5 band of the needle
+      if (Math.abs(cursorBand) > 0.5) { target = clamp(Math.round(pos), 0, dialBands.length - 1); return; }
+      var locked = clamp(Math.round(pos), 0, dialBands.length - 1);
+      // damp: pull only 35% toward the cursor's band off the locked one
+      target = clamp(locked + cursorBand * 0.35, 0, dialBands.length - 1);
     }
     function onHoverEnter() { hovering = true; if (!running && visible) startRAF(); }
     function onHoverLeave() { hovering = false; if (!dragging) snapNearest(); }
@@ -672,7 +803,24 @@
       if (!ready || moved) return;
       if (Math.abs(pos - dialBandIndex()) < 0.12 && Math.abs(vel) < 0.01) dialOpenLocked();
     });
-    window.addEventListener("resize", function () { dialMeasure(); buildRuler(); dialApply(); });
+    // Re-measure + rebuild the whole strip (ruler + ticks + labels) on any size
+    // change so the SVG center keeps tracking the CSS needle. buildStrip() also
+    // re-runs dialApply() so the locked band stays under the needle.
+    function reflow() {
+      if (!dialMeasure()) { requestAnimationFrame(reflow); return; }
+      if (dialBands.length) { buildStrip(); } else { buildRuler(); }
+      dialApply();
+    }
+    window.addEventListener("resize", reflow);
+    // ResizeObserver catches the cases window.resize misses: the full-bleed
+    // .dialwrap (100vw) settling after first paint, font-load reflow, scrollbar
+    // appearance, and container changes. This is the root-cause fix for the
+    // off-center needle on initial paint.
+    if ("ResizeObserver" in window) {
+      var ro = new ResizeObserver(function () { reflow(); });
+      ro.observe(svg);
+      if (dial) ro.observe(dial);
+    }
   }
 
   /* ---- one shared rAF (dial sweep) ------------------------------ */
@@ -700,14 +848,57 @@
 
   /* ---- QSL detail card (hash route #band=<model>) --------------- */
   var detailEl = document.getElementById("detail");
-  function qhrs(b) {
-    var scheduled = (b.stations || []).some(function (s) { return s.scheduled; });
-    var cells = [];
-    for (var h = 0; h < 24; h++) {
-      var on = !scheduled || (h >= 18 || h < 8 || (b.live && (hashStr(b.model + h) % 3 !== 0)));
-      cells.push(on);
+
+  // "Why this signal": the broker's term breakdown rendered as a stacked
+  // horizontal equalizer that sums to `total`. REAL DATA ONLY - straight from
+  // /market terms{}, never synthesized. Each segment is width-proportional to
+  // its contribution, labelled, and carries a per-term tooltip.
+  function renderTermBar(b) {
+    var wrap = document.getElementById("qslTerms");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    var t = b.terms;
+    if (!b.live || !t || !t._any) {
+      wrap.innerHTML = '<p class="qsl__line mono qsl-terms__empty">' +
+        (b.live ? "no signal breakdown reported for this band yet"
+                : "offline - no live signal to break down") + '</p>';
+      return;
     }
-    return { cells: cells, scheduled: scheduled };
+    var total = t.total || TERM_KEYS.reduce(function (s, k) { return s + (t[k] || 0); }, 0);
+    if (total <= 0) { wrap.innerHTML = '<p class="qsl__line mono qsl-terms__empty">no signal breakdown</p>'; return; }
+
+    // the stacked bar
+    var bar = el("div", "qsl-terms__bar");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", "signal breakdown, total " + Math.round(total) + " of 100");
+    var legend = el("ul", "qsl-terms__legend");
+    TERM_KEYS.forEach(function (k, i) {
+      var v = t[k] || 0;
+      if (v <= 0) return;
+      var pct = (v / total) * 100;
+      var seg = el("span", "qsl-terms__seg qsl-terms__seg--" + k);
+      seg.style.width = pct.toFixed(2) + "%";
+      seg.title = k + ": " + Math.round(v) + " of " + Math.round(total) + " - " + (TERM_DESC[k] || "");
+      bar.appendChild(seg);
+      var li = el("li", "qsl-terms__li",
+        '<span class="qsl-terms__key">' + esc(k) + '</span>' +
+        '<span class="qsl-terms__val mono">' + Math.round(v) + '</span>');
+      li.title = TERM_DESC[k] || "";
+      legend.appendChild(li);
+    });
+    wrap.appendChild(bar);
+    var cap = el("p", "qsl-terms__cap mono",
+      'sums to <b>' + Math.round(total) + '</b>/100 signal · hover a segment for what it means');
+    wrap.appendChild(cap);
+    wrap.appendChild(legend);
+  }
+
+  // Honest schedule note: drive ONLY from the real `scheduled` flag. We do NOT
+  // synthesize a fabricated 24h availability grid (that would be invented data).
+  function scheduleNote(b) {
+    if (b.seen || !b.live) return "schedule: offline - tune back in when a station returns";
+    if (b.scheduled) return "schedule: operator-set windows (time-of-use). Tune in to see current availability.";
+    return "schedule: continuous - on air whenever a station is up";
   }
   function renderQSL(model) {
     var b = null;
@@ -734,20 +925,26 @@
     } else {
       stations.forEach(function (s) {
         var marks = "";
+        if (s.online && s.verified) marks += ' <span class="qsl-mark qsl-mark--ver" title="verified serving: passed the broker live serving probe">✓</span>';
         if (s.confidential) marks += ' <span class="cs" title="TEE-verified confidential (real hardware attestation)">◆</span>';
         if (s.free) marks += ' <span class="band-tag band-tag--free">FREE</span>';
         var dot = s.online ? '<span class="band-dot--on">◉</span>' : '<span class="band-dot--off">○</span>';
         var pin = s.priceIn != null ? fmtPrice(s.priceIn) : "-";
         var pout = s.priceOut != null ? fmtPrice(s.priceOut) : "-";
         var ok = s.quality != null ? Math.round(Math.min(1, s.quality) * 100) + "%" : "-";
-        var ttft = s.ttft ? (s.ttft >= 1000 ? (s.ttft / 1000).toFixed(1) + "s" : Math.round(s.ttft) + "ms") : "-";
+        var ttft = fmtTtft(s.ttft);
+        // real per-station context window + coarse hardware class (no PII)
+        var meta = [];
+        if (s.ctx) meta.push(fmtCtx(s.ctx) + " ctx");
+        if (s.online && s.hwClass) meta.push(s.hwClass);
+        var metaHtml = meta.length ? '<span class="qsl-cs__meta mono">' + esc(meta.join(" · ")) + '</span>' : "";
         var row = el("li", "qsl-row",
           '<span class="qsl-cs"><span class="qsl-cs__sign mono">' + dot + ' ' + esc(s.callsign) + marks +
             '<button type="button" class="report-btn" data-report-node="' + esc(s.nodeId || "") +
               '" data-report-callsign="' + esc(s.callsign) + '" aria-label="Report ' + esc(s.callsign) +
               '">report</button>' +
             '</span>' +
-            '<span class="qsl-cs__reg mono">' + esc(s.region) + '</span></span>' +
+            '<span class="qsl-cs__reg mono">' + esc(s.region) + metaHtml + '</span></span>' +
           '<span class="mono">' + pin + '<span class="band-unit"> · ' + pout + '</span></span>' +
           '<span class="mono">' + (s.online && s.tps ? Math.round(s.tps) : '-') + '</span>' +
           '<span class="mono">' + ttft + '</span>' +
@@ -756,23 +953,19 @@
       });
     }
 
-    var nVer = stations.filter(function (s) { return s.confidential; }).length;
-    document.getElementById("qslVerify").textContent = b.confidential
-      ? "verification: " + nVer + " TEE-attested confidential route" + (nVer === 1 ? "" : "s") + " (hardware-verified)"
-      : "verification: standard - signed lineage receipts, no TEE attestation";
+    // verification line: SERVING-PROBE pass (distinct) + TEE-confidential tier
+    var nVerProbe = stations.filter(function (s) { return s.online && s.verified; }).length;
+    var nTee = stations.filter(function (s) { return s.confidential; }).length;
+    var vparts = [];
+    if (nVerProbe) vparts.push(nVerProbe + " verified-serving route" + (nVerProbe === 1 ? "" : "s") + " (live probe)");
+    if (nTee) vparts.push(nTee + " TEE-attested confidential route" + (nTee === 1 ? "" : "s") + " (hardware-verified)");
+    document.getElementById("qslVerify").textContent = vparts.length
+      ? "verification: " + vparts.join(" · ")
+      : "verification: standard - signed lineage receipts, no live probe pass or TEE attestation";
 
-    var hrsWrap = document.getElementById("qslHours");
-    var h = qhrs(b);
-    hrsWrap.innerHTML = "";
-    h.cells.forEach(function (on, idx) {
-      var c = el("span", "qsl-hr" + (on ? " qsl-hr--on" : ""));
-      c.title = idx + ":00 " + (on ? "on air" : "off");
-      hrsWrap.appendChild(c);
-    });
-    document.getElementById("qslSched").textContent = h.scheduled
-      ? "schedule: time-of-use windows set by operators"
-      : (b.seen ? "schedule: offline - tune back in when a station returns"
-                : "schedule: continuous - on air whenever a station is up");
+    // "Why this signal": the broker's authoritative term breakdown
+    renderTermBar(b);
+    document.getElementById("qslSched").textContent = scheduleNote(b);
 
     document.getElementById("qslCmdCode").textContent = "rogerai use " + b.model;
     document.getElementById("qslStamp").textContent = "RogerAI · QSL · " + b.model;
@@ -905,7 +1098,7 @@
       renderList();
     });
   }
-  bindChip(fltFree, "free"); bindChip(fltConf, "conf");
+  bindChip(fltFree, "free"); bindChip(fltVer, "ver"); bindChip(fltConf, "conf");
   if (fltOn) fltOn.addEventListener("click", function () {
     filters.on = true; filters.seen = false; syncOnSeenButtons(); renderList();
   });
@@ -941,6 +1134,12 @@
   // Paint from local history immediately (real, dimmed) so the page is usable
   // before the first fetch; the live fetch then enriches/replaces it. If there
   // is no history, the honest empty state shows until data arrives.
+  function recenterDial() {
+    if (!hasDial) return;
+    if (!dialMeasure()) { requestAnimationFrame(recenterDial); return; }
+    if (dialBands.length) buildStrip(); else buildRuler();
+    dialApply();
+  }
   (function initialPaint() {
     var hist = loadHistory();
     var seenBands = bandsFromHistory(hist, []);
@@ -948,7 +1147,13 @@
     renderList();
     applyDialBands(bands);
     setStatus("tuning in to the broker...", "live");
-    dialMeasure();
+    // Re-measure once layout settles (rAF) and again once the mono labels have
+    // loaded (fonts change metrics), so the strip center keeps tracking the
+    // fixed CSS needle. ResizeObserver covers later reflows.
+    requestAnimationFrame(recenterDial);
+    if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+      document.fonts.ready.then(recenterDial);
+    }
     startRAF();
   })();
   load();
