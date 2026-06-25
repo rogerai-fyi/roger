@@ -67,6 +67,27 @@ func TestPickAlternative(t *testing.T) {
 	}
 }
 
+// TestPickAlternativeRanksByComposite: failover ranks by the broker's signal per
+// credit (value-per-credit), not price or tps alone - a higher-signal node wins even
+// when a competitor is a touch cheaper, matching the broker's composite pick.
+func TestPickAlternativeRanksByComposite(t *testing.T) {
+	offers := []Offer{
+		// cheaper but weak signal
+		{NodeID: "cheap", Model: "m", PriceIn: 0.18, PriceOut: 0.18, Online: true, TPS: 30, Signal: 35},
+		// slightly pricier but a much stronger (probe-verified, fast) signal
+		{NodeID: "strong", Model: "m", PriceIn: 0.20, PriceOut: 0.20, Online: true, TPS: 280, Signal: 82, Verified: true},
+	}
+	// value-per-credit: strong 82/0.20=410 vs cheap 35/0.18=194 -> strong wins.
+	if id, ok := PickBest(offers, "m"); !ok || id != "strong" {
+		t.Errorf("composite pick = %q ok=%v, want strong (higher signal-per-credit)", id, ok)
+	}
+	// A FREE high-signal offer outranks any paid one.
+	free := append(offers, Offer{NodeID: "free", Model: "m", PriceIn: 0, PriceOut: 0, Online: true, TPS: 100, Signal: 60})
+	if id, ok := PickBest(free, "m"); !ok || id != "free" {
+		t.Errorf("free pick = %q ok=%v, want free (price 0 ranks top)", id, ok)
+	}
+}
+
 func TestPickAlternativeUnmeasuredGetsChance(t *testing.T) {
 	// A node with tps==0 (never measured) must not be filtered out by MinTPS,
 	// otherwise new providers are permanently locked out.

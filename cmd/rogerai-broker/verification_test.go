@@ -224,9 +224,10 @@ func TestSSEDeltaCapture(t *testing.T) {
 // dead / wrong / empty / non-2xx responses.
 func TestEvalCanary(t *testing.T) {
 	b := newTrustBroker()
+	fp := canaryFingerprint{prompt: "Reply with only the single word: BANANA", expect: "banana"}
 	ok := func(body string, status int) bool {
 		res := protocol.JobResult{Status: status, Body: json.RawMessage(body), Receipt: protocol.UsageReceipt{CompletionTokens: 1}}
-		passed, _ := b.evalCanary(res, 50*time.Millisecond)
+		passed, _ := b.evalCanary(res, 50*time.Millisecond, fp)
 		return passed
 	}
 	if !ok(`{"choices":[{"message":{"content":"BANANA"}}]}`, 200) {

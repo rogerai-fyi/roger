@@ -30,9 +30,12 @@ type Offer struct {
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
 	TPS          float64 `json:"tps"`
-	// Signal is the broker's 0..100 channel-health score for this offer (online +
-	// quality + tps + reliability). It carries even when TPS==0, so the meter shows
-	// a freshly-on-air node's baseline strength instead of a blank tps-driven bar.
+	TTFTMs       float64 `json:"ttft_ms"`  // probe-measured TTFT (ms; 0 = unmeasured)
+	Verified     bool    `json:"verified"` // a recent PASSED canary (probe-verified serving)
+	// Signal is the broker's 0..100 channel-health composite for this offer
+	// (speed + latency + verified-serving + reliability + trust). It carries even
+	// when TPS==0, so it is the alignment key failover ranks on - the SAME composite
+	// the broker's pick uses, so normal + failover routing agree on "best".
 	Signal int `json:"signal"`
 }
 
@@ -85,6 +88,14 @@ func selectAlternative(broker string, c Criteria, exclude map[string]bool) (stri
 	return pickAlternative(offers, c, exclude)
 }
 
+// PickBest returns the best online offer of `model` by the SAME composite ranking
+// the failover path uses (value-per-credit, then load/price tie-break). Exported so
+// other packages (and cross-package tests) can confirm the client and broker
+// selectors converge on the same "best" offer.
+func PickBest(offers []Offer, model string) (string, bool) {
+	return pickAlternative(offers, Criteria{Model: model}, nil)
+}
+
 // pickAlternative is the pure selection step (no I/O) so it is unit-testable.
 func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (string, bool) {
 	var eligible []Offer
@@ -115,12 +126,56 @@ func pickAlternative(offers []Offer, c Criteria, exclude map[string]bool) (strin
 		return "", false
 	}
 	sort.SliceStable(eligible, func(i, j int) bool {
-		if eligible[i].TPS != eligible[j].TPS {
-			return eligible[i].TPS > eligible[j].TPS // faster first
-		}
-		return eligible[i].PriceIn < eligible[j].PriceIn // then cheaper
+		return offerLess(eligible[i], eligible[j])
 	})
 	return eligible[0].NodeID, true
+}
+
+// offerValuePerCredit ranks an offer the SAME way the broker's pick does:
+// composite quality per credit of output price. The broker already folds
+// speed/latency/verified/reliability/trust into Signal (0..100), so the client
+// ranks on Signal/priceOut - so failover's "best" agrees with the broker's normal
+// route. Free offers (price 0) rank on raw signal, above any paid offer.
+func offerValuePerCredit(o Offer) float64 {
+	s := float64(o.Signal)
+	p := offerEffPrice(o)
+	if p <= 0 {
+		return s + 1000 // free: above any paid offer, ordered by signal
+	}
+	return s / p
+}
+
+// offerEffPrice is the price the value ratio divides by: the OUTPUT price (what the
+// broker bills + quotes most on), falling back to the input price when out is unset.
+func offerEffPrice(o Offer) float64 {
+	if o.PriceOut > 0 {
+		return o.PriceOut
+	}
+	return o.PriceIn
+}
+
+// offerLess orders offers best-first: higher value-per-credit wins; ties (within
+// ~2%) break to the faster node, then the cheaper price - mirroring the broker's
+// load/price tie-break so the two selectors converge on the same pick.
+func offerLess(a, b Offer) bool {
+	av, bv := offerValuePerCredit(a), offerValuePerCredit(b)
+	hi := av
+	if bv > hi {
+		hi = bv
+	}
+	if hi > 0 {
+		d := av - bv
+		if d < 0 {
+			d = -d
+		}
+		if d/hi > 0.02 {
+			return av > bv
+		}
+	}
+	if a.TPS != b.TPS {
+		return a.TPS > b.TPS // faster first
+	}
+	return offerEffPrice(a) < offerEffPrice(b) // then cheaper
 }
 
 // BandRange is the live cross-station OUTPUT-price spread for one model: min/max

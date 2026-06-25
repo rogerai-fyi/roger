@@ -505,10 +505,21 @@ func TestMarketSignal(t *testing.T) {
 	if s := marketSignal(0, 0, 500, 1, 1); s != 0 {
 		t.Errorf("no-providers signal = %d want 0", s)
 	}
-	// Healthy: plenty of supply, fast, reliable, fully trusted, idle → near max.
+	// Healthy heartbeat-only channel (supply + fast + reliable + trusted, but NO
+	// probe evidence: latency neutral, unverified) tops out well below 100 - probe
+	// verification is what lifts a band toward the top. It must still be a strong bar.
 	full := marketSignal(5, 0, 300, 1.0, 1.0)
-	if full < 95 {
-		t.Errorf("healthy signal = %d want ~100", full)
+	if full < 60 || full > 90 {
+		t.Errorf("healthy heartbeat-only signal = %d want a strong-but-not-max 60..90", full)
+	}
+	// A probe-VERIFIED, low-latency channel must score strictly ABOVE the same
+	// channel with only a heartbeat (the whole point of folding in probe evidence).
+	verified := computeSignal(signalInput{providers: 5, bestTPS: 300, ttftMs: 100, successRate: 1, trust: 1, recency: 1, verified: true}).Total
+	if verified <= full {
+		t.Errorf("probe-verified low-latency signal (%d) should exceed heartbeat-only (%d)", verified, full)
+	}
+	if verified < 95 {
+		t.Errorf("probe-verified healthy signal = %d want ~100", verified)
 	}
 	// More supply must not lower the signal (monotonic in supply).
 	if marketSignal(1, 0, 300, 1, 1) > marketSignal(3, 0, 300, 1, 1) {
@@ -528,6 +539,24 @@ func TestMarketSignal(t *testing.T) {
 	// a fast cheap node that fails verification ranks below an honest one.
 	if marketSignal(5, 0, 300, 1, 0.0) >= marketSignal(5, 0, 300, 1, 1.0) {
 		t.Error("low trust should reduce the signal")
+	}
+	// Aging heartbeat (recency) must sag the signal vs. a fresh one.
+	fresh := computeSignal(signalInput{providers: 3, bestTPS: 200, successRate: 1, trust: 1, recency: 1}).Total
+	aged := computeSignal(signalInput{providers: 3, bestTPS: 200, successRate: 1, trust: 1, recency: 0.3}).Total
+	if aged >= fresh {
+		t.Errorf("aged-heartbeat signal (%d) should be < fresh (%d)", aged, fresh)
+	}
+	// Lower probe TTFT (faster first token) must raise the latency term.
+	slowTTFT := computeSignal(signalInput{providers: 3, bestTPS: 200, ttftMs: 1800, successRate: 1, trust: 1, recency: 1, verified: true}).Total
+	fastTTFT := computeSignal(signalInput{providers: 3, bestTPS: 200, ttftMs: 100, successRate: 1, trust: 1, recency: 1, verified: true}).Total
+	if fastTTFT <= slowTTFT {
+		t.Errorf("low-TTFT signal (%d) should exceed high-TTFT (%d)", fastTTFT, slowTTFT)
+	}
+	// The surfaced per-term breakdown must sum (within rounding) to the total.
+	tm := computeSignal(signalInput{providers: 4, inflight: 2, bestTPS: 250, ttftMs: 300, successRate: 0.9, trust: 0.8, recency: 0.9, verified: true})
+	sum := tm.Supply + tm.Speed + tm.Latency + tm.Verified + tm.Success + tm.Trust
+	if d := sum - float64(tm.Total); d < -1.0 || d > 1.0 {
+		t.Errorf("term breakdown (%.2f) should sum to total (%d) within rounding", sum, tm.Total)
 	}
 }
 
@@ -628,17 +657,24 @@ func TestDiscoverSignal(t *testing.T) {
 	if !ok {
 		t.Fatalf("fresh node missing from /discover: %+v", resp.Offers)
 	}
-	// The whole fix: an on-air node with tps==0 still carries a NON-zero signal.
+	// The whole fix (preserved): an on-air node with tps==0 still carries a NON-zero
+	// signal (supply + trust baseline), so the meter never reads blank for a live band.
 	if fresh.TPS != 0 {
 		t.Errorf("fresh tps = %v want 0 (no traffic)", fresh.TPS)
 	}
 	if fresh.Signal <= 0 {
-		t.Fatalf("on-air no-traffic offer signal = %d want > 0 (baseline supply+quality)", fresh.Signal)
+		t.Fatalf("on-air no-traffic offer signal = %d want > 0 (baseline supply+trust)", fresh.Signal)
 	}
-	// baseline = marketSignal(1 provider, idle, 0 tps, optimistic success+trust) = 43.
-	wantBaseline := marketSignal(1, 0, 0, 1.0, 1.0)
+	// New: the baseline is the multi-factor blend for a fresh, unprobed, idle node
+	// (1 provider, no tps, no probe, neutral success). It must match computeSignal for
+	// exactly that evidence - the per-offer path uses the shared formula.
+	wantBaseline := computeSignal(signalInput{providers: 1, successRate: successFor(0, false, false), trust: 1.0, recency: 1}).Total
 	if fresh.Signal != wantBaseline {
 		t.Errorf("fresh signal = %d want %d (per-offer == shared formula)", fresh.Signal, wantBaseline)
+	}
+	// The breakdown must be surfaced and consistent with the headline number.
+	if fresh.Terms.Total != fresh.Signal {
+		t.Errorf("terms.total %d != signal %d", fresh.Terms.Total, fresh.Signal)
 	}
 	// Offline node: no supply -> signal 0 (the meter renders blank, correctly).
 	down, ok := byNode["down"]

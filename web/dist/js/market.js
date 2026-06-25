@@ -53,17 +53,30 @@
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  /* ---------- signal math (the supply/demand story) -------------- */
-  // signal 0..1 from provider count + measured speed; more online
-  // providers => stronger. Cap so a single fast node still reads "ok".
+  /* ---------- signal math --------------------------------------- */
+  // The broker is the SINGLE source of truth for signal + quality now: /market and
+  // /discover carry the authoritative 0..100 composite (supply + speed + latency +
+  // verified-serving + reliability + trust, less congestion) plus a per-term
+  // breakdown. We DO NOT recompute a divergent local value off /market - we consume
+  // the broker's number so the website meter matches the CLI/TUI/broker exactly.
+  // These two locals remain ONLY as a last-ditch fallback for the older /discover
+  // aggregation path when an offer somehow lacks a broker signal.
   function computeSignal(providers, tps) {
-    var supply = Math.min(1, Math.log2(providers + 1) / 3.5);   // 1->0.29, 3->0.57, 7->0.86
-    var speed = Math.min(1, tps / 90);                          // 90 t/s ~= full bars
+    var supply = Math.min(1, Math.log2(providers + 1) / 3.5);
+    var speed = Math.min(1, tps / 90);
     return Math.max(0.08, 0.62 * supply + 0.38 * speed);
   }
-  // quality 0..1: blend of speed + redundancy (more providers = resilient).
   function computeQuality(providers, tps) {
     return Math.max(0.25, Math.min(1, 0.45 * Math.min(1, tps / 80) + 0.55 * Math.min(1, providers / 4)));
+  }
+  // round a 0..1 fraction to a whole-percent string for the tooltip breakdown.
+  function pct(x) { return Math.round(Math.max(0, Math.min(1, x)) * 100) + "%"; }
+  // format a probe TTFT (ms) compactly; "-" when unmeasured.
+  function fmtTTFT(ms) {
+    ms = +ms || 0;
+    if (ms <= 0) return "-";
+    if (ms >= 1000) return (ms / 1000).toFixed(ms >= 10000 ? 0 : 1) + "s";
+    return Math.round(ms) + "ms";
   }
   // render an 8-cell tower string at a given level, with an animated
   // "head" cell that breathes when there's live signal.
@@ -99,7 +112,8 @@
       var k = o.model;
       var m = byModel[k] || (byModel[k] = {
         model: k, providers: 0, online: 0, tpsSum: 0, tpsN: 0,
-        minPriceOut: Infinity, verified: false, hw: o.hw || ""
+        minPriceOut: Infinity, verified: false, hw: o.hw || "",
+        bestSignal: 0, bestTTFT: 0, succSum: 0, succN: 0, anyVerified: false
       });
       m.providers++;
       var on = o.online !== false;
@@ -108,6 +122,12 @@
       if (tps > 0) { m.tpsSum += tps; m.tpsN++; }
       var po = (o.price_out != null ? +o.price_out : +o.price_in);
       if (po != null && !isNaN(po) && po < m.minPriceOut) m.minPriceOut = po;
+      // broker's per-offer signal is authoritative; take the band's strongest.
+      if (on && +o.signal > m.bestSignal) m.bestSignal = +o.signal;
+      var tt = +o.ttft_ms || 0;
+      if (on && tt > 0 && (m.bestTTFT === 0 || tt < m.bestTTFT)) m.bestTTFT = tt;
+      if (on && o.success != null) { m.succSum += Math.max(0, Math.min(1, +o.success)); m.succN++; }
+      if (on && o.verified) m.anyVerified = true;
       // confidential routes carry the gold call-sign too
       if (o.confidential) m.verified = true;
     });
@@ -123,18 +143,25 @@
         total: m.providers,
         tps: tps,
         price: price,
-        signal: online > 0 ? computeSignal(online, tps || 30) : 0,
+        // prefer the broker's per-offer composite; only fall back to local math if no
+        // offer carried a signal (older broker).
+        signal: online > 0 ? (m.bestSignal > 0 ? m.bestSignal / 100 : computeSignal(online, tps || 30)) : 0,
         quality: online > 0 ? computeQuality(online, tps || 30) : 0,
-        verified: m.verified,
+        ttft: m.bestTTFT,
+        success: m.succN ? m.succSum / m.succN : null,
+        verified: m.verified || m.anyVerified,
+        terms: null,
         live: online > 0
       };
     }).sort(function (a, b) { return b.signal - a.signal; });
   }
 
   /* ---------- map the authoritative /market band shape ---------- */
-  // /market is per-band: { model/band, providers, in_flight, min_price,
-  // best_tps, quality, success_rate, signal 0-100 }. Prefer it; the local
-  // signal math is only a fallback for /discover.
+  // /market is per-band: { model/band, providers, in_flight, min_price, best_tps,
+  // ttft_ms, quality, success_rate, verified, signal 0-100, terms{...} }. We CONSUME
+  // the broker's signal/terms directly (no local recompute) so the website meter
+  // equals the broker/CLI/TUI value, and surface ttft + success next to it so the
+  // number is explainable.
   function fromMarket(rows) {
     return rows.map(function (m) {
       var providers = +m.providers || 0;
@@ -147,9 +174,15 @@
       return {
         model: m.model || m.band || "unknown",
         providers: providers, total: providers, tps: tps, price: price,
-        signal: live ? (sig || computeSignal(providers, tps || 30)) : 0,
+        // broker signal is authoritative; the local computeSignal is only used if the
+        // broker somehow omitted it (older broker), never to OVERRIDE it.
+        signal: live ? (m.signal != null ? sig : computeSignal(providers, tps || 30)) : 0,
         quality: live ? (q || computeQuality(providers, tps || 30)) : 0,
-        verified: !!(m.confidential || m.verified), live: live
+        ttft: +m.ttft_ms || 0,
+        success: m.success_rate != null ? Math.max(0, Math.min(1, +m.success_rate)) : null,
+        verified: !!(m.confidential || m.verified),
+        terms: m.terms || null,
+        live: live
       };
     }).filter(function (c) { return c.model && c.model !== "unknown"; })
       .sort(function (a, b) { return b.signal - a.signal; });
@@ -185,28 +218,60 @@
       ? '<span class="mkt-prov">' + c.providers + ' on air</span>'
       : '<span class="mkt-prov mkt-prov--idle">idle</span>';
 
+    // speed line: measured tok/s + probe TTFT (the explainable latency number).
+    var ttftTxt = c.live && c.ttft > 0
+      ? '<span class="mkt-unit mkt-ttft" title="probe time-to-first-token"> · ' + fmtTTFT(c.ttft) + ' ttft</span>'
+      : '';
     var speed = c.live
-      ? '<b class="mono mkt-tps">' + Math.round(c.tps) + '</b><span class="mkt-unit"> t/s</span>'
+      ? '<b class="mono mkt-tps">' + Math.round(c.tps) + '</b><span class="mkt-unit"> t/s</span>' + ttftTxt
       : '<span class="mkt-unit mkt-unit--idle">-</span>';
 
     var price = c.live
       ? '<b class="mono ember">' + fmtPrice(c.price) + '</b><span class="mkt-unit"> /1M</span>'
       : '<span class="mkt-unit mkt-unit--idle">' + fmtPrice(c.price) + ' /1M</span>';
 
+    // explain the meter: a hover tooltip with the broker's per-term breakdown, and a
+    // visible "success" readout next to the quality dots so the number is grounded.
+    var sigTitle = c.live ? signalTitle(c) : "";
+    var succTxt = c.live && c.success != null
+      ? '<span class="mkt-unit mkt-succ" title="time-decayed success (organic or probe)"> ' + pct(c.success) + ' ok</span>'
+      : (c.live && c.verified ? '<span class="mkt-unit mkt-succ" title="probe-verified serving"> verified</span>' : '');
+
     return (
       '<span class="mkt-cell mkt-cell--model">' +
         dot + '<span class="mkt-model">' + esc(c.model) + cs + '</span>' + prov +
       '</span>' +
-      '<span class="mkt-cell mkt-cell--signal">' +
+      '<span class="mkt-cell mkt-cell--signal"' + (sigTitle ? ' title="' + esc(sigTitle) + '"' : '') + '>' +
         '<span class="sig" aria-hidden="true">' + towerBars(c.signal, animate && c.live) + '</span>' +
       '</span>' +
       '<span class="mkt-cell mkt-cell--speed">' + speed + '</span>' +
       '<span class="mkt-cell mkt-cell--quality">' +
         '<span class="qdots' + (c.live ? '' : ' qdots--idle') + '" aria-hidden="true">' +
-          qualityDots(c.quality) + '</span>' +
+          qualityDots(c.quality) + '</span>' + succTxt +
       '</span>' +
       '<span class="mkt-cell mkt-cell--price">' + price + '</span>'
     );
+  }
+
+  // signalTitle builds the meter's explain-tooltip from the broker's per-term
+  // contributions (points). Falls back to a compact "signal NN/100" when the broker
+  // did not send a breakdown (older broker / discover fallback).
+  function signalTitle(c) {
+    var t = c.terms;
+    var sig = Math.round(c.signal * 100);
+    if (!t) return "signal " + sig + "/100";
+    function pt(x) { return Math.round(+x || 0); }
+    var parts = [
+      "supply " + pt(t.supply),
+      "speed " + pt(t.speed),
+      "latency " + pt(t.latency),
+      "verified " + pt(t.verified),
+      "success " + pt(t.success),
+      "trust " + pt(t.trust)
+    ];
+    var s = "signal " + sig + "/100 = " + parts.join(" + ");
+    if (+t.congestion > 0) s += "  (-" + Math.round(+t.congestion * 100) + "% congestion)";
+    return s;
   }
 
   function paint(channels, animate) {

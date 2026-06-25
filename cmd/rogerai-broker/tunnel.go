@@ -1033,17 +1033,43 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	var best protocol.NodeRegistration
 	var bestOffer protocol.ModelOffer
-	bestPrice := 0.0
 	found := false
-	bestFailing := false // whether `best` is a probe-failing node (deprioritized)
+	var bestC pickCand // the running winner's composite (health gate + score + load)
 	now := time.Now()
+
+	// Snapshot the per-node market metrics once under metricsMu (rather than calling
+	// the per-id helper methods in the loop, which each re-lock and would also race
+	// across reads). isBanned / probeFailing are inlined off these snapshots.
+	b.metricsMu.Lock()
+	type metric struct {
+		tps      float64
+		inflight int
+		success  float64
+		sseen    bool
+		trust    float64
+		ttftMs   float64
+		verified bool
+		failing  bool
+		banned   bool
+	}
+	mget := func(id string) metric {
+		tq := b.trust[id]
+		sr, sseen := b.success[id]
+		return metric{
+			tps: b.tps[id], inflight: b.inflight[id], success: sr, sseen: sseen,
+			trust: tq.score(), ttftMs: tq.ttftMs, verified: tq.verifiedServing(),
+			failing: tq.probeFails >= 3, banned: b.banned[id],
+		}
+	}
+
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
 		}
+		m := mget(n.NodeID)
 		// A reported/banned node is ejected from routing entirely (reuses the eject
 		// idea: treated as not-serving), so a flagged node stops being handed out.
-		if b.isBanned(n.NodeID) {
+		if m.banned {
 			continue
 		}
 		// A PRIVATE (freq-code) node is only eligible when the caller resolved its
@@ -1069,15 +1095,9 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 		}
 		// min-TPS: only exclude nodes we've MEASURED as too slow (unmeasured nodes
 		// get a chance, so new providers aren't permanently locked out).
-		if minTPS > 0 {
-			if m, ok := b.tps[n.NodeID]; ok && m < minTPS {
-				continue
-			}
+		if minTPS > 0 && m.tps > 0 && m.tps < minTPS {
+			continue
 		}
-		// Probe verification: a node failing recent canaries is DEPRIORITIZED -
-		// only chosen if no healthy node offers the model (so a transient probe
-		// failure never makes a model unavailable). See probe.go.
-		failing := b.probeFailing(n.NodeID)
 		for _, o := range n.Offers {
 			if o.Model != model {
 				continue
@@ -1089,20 +1109,104 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 			if maxPriceOut > 0 && out > maxPriceOut {
 				continue
 			}
-			// Rank by active OUTPUT price: that is what we headline and bill the most
-			// on, and what the client quotes at connect time, so the station the user
-			// is shown is the station the broker routes to (quote == route). A healthy
-			// node always beats a probe-failing one regardless of price; among equals
-			// on health, cheapest-output wins.
-			better := !found ||
-				(bestFailing && !failing) || // healthy beats failing
-				(bestFailing == failing && out < bestPrice) // same health: cheaper wins
-			if better {
-				best, bestOffer, bestPrice, found, bestFailing = n, o, out, true, failing
+			c := pickCand{
+				failing:  m.failing,
+				score:    offerQuality(m.tps, m.ttftMs, m.trust, m.success, m.sseen, m.verified),
+				priceOut: out,
+				inflight: m.inflight,
+			}
+			if !found || c.beats(bestC) {
+				best, bestOffer, bestC, found = n, o, c, true
 			}
 		}
 	}
+	b.metricsMu.Unlock()
 	return best, bestOffer, found
+}
+
+// pickCand is a candidate offer's routing composite: the absolute health gate
+// (a probe-failing node never beats a healthy one), a 0..1 quality score
+// (speed/latency/trust/reliability), the active OUTPUT price, and current load.
+type pickCand struct {
+	failing  bool
+	score    float64 // 0..1 measured quality (offerQuality)
+	priceOut float64 // active output price (the billed/quoted side)
+	inflight int     // in-flight requests on this node right now
+}
+
+// valuePerCredit is the composite ranking key: quality earned per credit of output
+// price. A node that is faster / better-verified / more reliable wins at equal
+// price, and a cheaper node wins at equal quality - so pick is defensible on BOTH
+// price and measured performance, not price alone. Free nodes (price 0) are scored
+// on raw quality (no division by zero) and naturally sort to the top.
+func (c pickCand) valuePerCredit() float64 {
+	if c.priceOut <= 0 {
+		return c.score + 1 // free: rank above any paid node, ordered by quality
+	}
+	return c.score / c.priceOut
+}
+
+// beats reports whether c should replace the running winner `cur`. Ordering:
+//  1. HEALTH GATE (absolute): a healthy node always beats a probe-failing one,
+//     regardless of price/score - a failing node is only chosen when nothing
+//     healthy serves the model (so a transient probe blip never blanks a model).
+//  2. value-per-credit: higher composite (quality per credit) wins.
+//  3. LOAD tie-break: when value is within tolerance, the LEAST in-flight node wins
+//     so concurrent traffic spreads instead of piling onto one node.
+//  4. final tie-break: cheaper output price.
+func (c pickCand) beats(cur pickCand) bool {
+	if c.failing != cur.failing {
+		return !c.failing // healthy beats failing
+	}
+	cv, curv := c.valuePerCredit(), cur.valuePerCredit()
+	const tol = 0.02 // within ~2% value: treat as a tie, break on load
+	if rel := relDiff(cv, curv); rel > tol {
+		return cv > curv
+	}
+	if c.inflight != cur.inflight {
+		return c.inflight < cur.inflight // spread load: least-loaded wins
+	}
+	return c.priceOut < cur.priceOut // final tie-break: cheaper
+}
+
+// relDiff is the relative gap between two non-negative values (0 when equal).
+func relDiff(a, x float64) float64 {
+	hi := a
+	if x > hi {
+		hi = x
+	}
+	if hi <= 0 {
+		return 0
+	}
+	d := a - x
+	if d < 0 {
+		d = -d
+	}
+	return d / hi
+}
+
+// offerQuality is the per-node 0..1 measured-quality score pick ranks on (the same
+// factors the market signal uses, minus supply/congestion which are channel-level).
+// Unmeasured terms are NEUTRAL (0.5/verified-0) so a brand-new node still competes
+// instead of scoring 0 - it just doesn't out-rank a proven-fast node until measured.
+func offerQuality(tps, ttftMs, trust, success float64, sseen, verified bool) float64 {
+	speed := 0.5 // neutral until measured
+	if tps > 0 {
+		speed = clamp01(tps / 300.0)
+	}
+	latency := 0.5 // neutral until probed
+	if ttftMs > 0 {
+		latency = 1 - clamp01(ttftMs/ttftCap)
+	}
+	rel := successFor(success, sseen, verified) // organic EWMA, else verified/neutral
+	ver := 0.0
+	if verified {
+		ver = 1.0
+	}
+	// Re-use the signal's speed/latency/verified/success/trust split, renormalised to
+	// 1.0 (supply/congestion are not per-node). Weights: speed .25, latency .15,
+	// verified .25, success .15, trust .20.
+	return clamp01(0.25*speed + 0.15*latency + 0.25*ver + 0.15*rel + 0.20*clamp01(trust))
 }
 
 // enterInflight / exitInflight track active requests per node (concurrency-safe).
