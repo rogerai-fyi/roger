@@ -91,6 +91,7 @@
       { label: "Dashboard", href: "/dashboard.html" },
       { label: "Console", href: "/console.html" },
       { label: "Metrics", href: "/usage.html" },
+      { label: "API keys", href: "/keys.html" },
       { label: "Billing", href: "/billing.html" },
       { label: "Payouts", href: "/payouts.html" },
       { label: "Account", href: "/account.html" }
