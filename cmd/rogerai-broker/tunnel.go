@@ -211,16 +211,29 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	}
 	// Login-to-monetize / login-to-go-private: a node advertising a NONZERO price is
 	// an earning node, AND a node going PRIVATE (its own discovery visibility is a
-	// per-owner resource) both require a GitHub-linked owner bound to the signing key
-	// on this request. Free PUBLIC supply (and unsigned registrations) are unaffected,
-	// so the consume path and free public sharing never need login.
-	var regOwner store.Owner // set when this register is owner-bound (priced OR private)
-	if offersPriced(reg.Offers) || reg.Private {
-		uid, authed, sok := b.identityOf(r, body)
-		if !sok {
-			jsonErr(w, http.StatusUnauthorized, "invalid request signature")
-			return
-		}
+	// per-owner resource) both HARD-REQUIRE a GitHub-linked owner bound to the signing
+	// key on this request (a missing/invalid owner sig is REJECTED). A FREE PUBLIC node
+	// does NOT require login - but if it ARRIVES with a valid owner signature we BIND it
+	// to that account anyway, so an authenticated owner's free supply is account-scoped
+	// (account grant keys resolve a bound free node; earning lots + the per-owner cap
+	// span it). Anonymous free supply (no/invalid owner sig) stays UNBOUND as before.
+	gated := offersPriced(reg.Offers) || reg.Private // priced/private => login HARD-required
+	var regOwner store.Owner                         // set when this register resolves to an owner (priced, private, OR a signed-in free owner)
+	// Resolve owner identity once. A signature, when offered, MUST verify (identityOf
+	// returns sok=false on an invalid one); `authed` means a VERIFIED owner-signed
+	// request, and requireOwner then resolves it to a GitHub-linked owner account.
+	uid, authed, sok := b.identityOf(r, body)
+	if gated && !sok {
+		jsonErr(w, http.StatusUnauthorized, "invalid request signature")
+		return
+	}
+	owner, ownerOK := store.Owner{}, false
+	if sok && authed {
+		owner, ownerOK = b.requireOwner(r)
+	}
+	_ = uid
+	if gated {
+		// Priced/private MUST be a GitHub-linked owner: reject unsigned/unauthed/unlinked.
 		if !authed {
 			msg := "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)"
 			if reg.Private {
@@ -229,8 +242,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusUnauthorized, msg)
 			return
 		}
-		owner, ok := b.requireOwner(r)
-		if !ok {
+		if !ownerOK {
 			msg := "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`"
 			if reg.Private {
 				msg = "a private band requires a GitHub-linked owner - run `rogerai login`"
@@ -238,12 +250,18 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, http.StatusForbidden, msg)
 			return
 		}
-		_ = uid
+	}
+	// OWNER-AUTHENTICATED => BIND (regardless of price/private). This is the fix: a FREE,
+	// non-private node that arrives owner-signed is bound to its account too, so account
+	// grant keys can find it. ownerOK is true only for a VERIFIED owner-signed request
+	// that resolves to a GitHub-linked account; an anonymous free register leaves
+	// regOwner zero and falls through to the UNBOUND path below.
+	if ownerOK {
 		regOwner = owner
 		// DURABLE OWNER BAN (anti-rotation): a banned operator must not be able to return
-		// under a fresh node id / callsign / grant key. Reject the registration if the
-		// signing owner account is banned, BEFORE binding the node. This blocks the ban at
-		// the on-air gate; the relay pick/settle gates below are the in-flight backstop.
+		// under a fresh node id / callsign / grant key. Now that a free owner-signed node
+		// is owner-resolved, this ban check correctly covers it too. Reject BEFORE binding;
+		// the relay pick/settle gates are the in-flight backstop.
 		if b.isOwnerBanned(owner.Pubkey) {
 			jsonErr(w, http.StatusForbidden, "this account is banned from serving on RogerAI")
 			return
@@ -275,17 +293,18 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// most maxNodesPerOwner nodes SIMULTANEOUSLY on air across all their machines. Count
 	// the owner's currently-live on-air nodes (within nodeTTL) EXCLUDING this node id, so
 	// an idempotent re-register of an existing node never trips the cap (it is not a NEW
-	// on-air node). Only owner-bound (priced OR private) registrations are attributable
-	// and capped; free public supply has no owner and is not counted here. The
-	// (limit+1)th node is rejected with a clear 4xx the share UX surfaces verbatim.
-	// FREE-NODE REGISTRATION CEILING (Sybil hygiene): a FREE (anon, no-owner)
+	// on-air node). Every OWNER-BOUND registration is attributable and capped here -
+	// priced, private, AND a free node that arrived owner-signed (regOwner is set). Only
+	// ANONYMOUS free supply (no owner) is not counted here. The (limit+1)th node is
+	// rejected with a clear 4xx the share UX surfaces verbatim.
+	// FREE-NODE REGISTRATION CEILING (Sybil hygiene): an ANONYMOUS free (no-owner)
 	// registration is not attributable to an owner account, so the per-owner cap above
 	// cannot bound it. Cap how many NEW free node ids one CF-IP may register within the
 	// window so a single host can't flood /discover + the pick candidate set with
 	// throwaway nodes. Only NEW free nodes count (`_, known := b.nodes[id]`): an
 	// idempotent re-register of an existing free node refreshes without being rejected.
-	// Owner-bound (priced/private) registers skip this - they are bounded by the
-	// per-owner cap instead.
+	// Owner-bound registers (priced/private/free-owner-signed) skip this - they are
+	// bounded by the per-owner cap instead.
 	if regOwner.Pubkey == "" {
 		_, known := b.nodes[reg.NodeID]
 		if !b.allowFreeReg(clientIP(r), !known) {
