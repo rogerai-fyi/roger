@@ -3154,7 +3154,7 @@ func (m model) View() string {
 	// COMPACT drops the bordered panel to a one-line status (density + width-safety).
 	if m.onAir && m.share != nil && (m.mode == modeBrowse || m.mode == modeCommand) {
 		if m.compact {
-			b.WriteString("\n" + truncVisible("  "+linkBadge(m.share)+stDim.Render(" · ")+stKey.Render(m.share.Model())+stDim.Render(" · /share off"), w))
+			b.WriteString("\n" + m.compactOnAirLine(w))
 		} else {
 			b.WriteString("\n" + m.onAirPanel(w))
 		}
@@ -4786,31 +4786,179 @@ func (m model) headlineBadge() string {
 	}
 }
 
+// onAirMaxRows caps how many live bands the ON AIR panel lists in full before it
+// folds the remainder into a "+K more" line, so a founder on air with a large
+// fleet keeps the panel inside a reasonable height (the TOTALS line still sums
+// EVERY band, listed or folded).
+const onAirMaxRows = 8
+
+// liveShares returns the on-air sessions sorted stably by model id, so the ON AIR
+// panel renders the same band order every frame (Go map iteration is randomized).
+func (m model) liveShares() []*agent.Session {
+	out := make([]*agent.Session, 0, len(m.shares))
+	for _, s := range m.shares {
+		if s != nil {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Model() < out[j].Model() })
+	return out
+}
+
+// onAirPanel renders the live ON AIR provider instrument: ONE compact row per live
+// band (model, node, price, served requests + out tokens, earnings) plus a TOTALS
+// line summing across EVERY band, and the `/share off` footer (which stops them
+// all). The header beacon reflects the truthful aggregate link state (a genuine ON
+// AIR only while at least one band's heartbeats are acknowledged; RECONNECTING when
+// none are). Many bands fold past onAirMaxRows into a "+K more". NO_COLOR / narrow
+// safe: the plain words carry it, color + glyphs are decoration; each row is
+// truncated to the panel width.
 func (m model) onAirPanel(w int) string {
-	s := m.share
-	in, out := s.Price()
-	reqs, toks := s.Served()
-	price := stLive.Render("FREE")
-	if in > 0 || out > 0 {
-		price = stEmber.Render(dollars(out) + "/1M out  " + dollars(in) + "/1M in")
+	live := m.liveShares()
+	if len(live) == 0 {
+		return ""
 	}
-	verb := "you are sharing"
-	if s.Link() != agent.LinkOnAir {
-		verb = "sharing" // not truthfully "on air" yet - don't imply customers can see us
+	// Aggregate link state for the beacon: ON AIR if ANY band's broker link is live,
+	// else the worst-case (RECONNECTING) so we never falsely claim on-air.
+	anyOnAir, anyReconnecting := false, false
+	for _, s := range live {
+		switch s.Link() {
+		case agent.LinkOnAir:
+			anyOnAir = true
+		case agent.LinkReconnecting:
+			anyReconnecting = true
+		}
 	}
-	head := linkBadge(s) + "  " + stDim.Render(verb) + "  " + stKey.Render(s.Model())
-	body := head + "\n" +
-		stDim.Render("  node       ") + stSelText.Render(s.Node()) + "\n" +
-		stDim.Render("  price      ") + price + "\n" +
-		stDim.Render("  served     ") + stLive.Render(fmt.Sprintf("%d", reqs)) + stDim.Render(fmt.Sprintf(" requests · %d out tokens", toks)) + "\n" +
-		stDim.Render("  earnings   ") + stEmber.Render(dollars(s.Earnings())) + stDim.Render("  (settles on the broker)") + "\n"
+	var badge string
+	switch {
+	case anyOnAir:
+		badge = stRed.Render(glyphOnAir + " ON AIR")
+	case anyReconnecting:
+		badge = stEmber.Render(glyphOffAir+" RECONNECTING") + stDim.Render(" - broker not acknowledging")
+	default:
+		badge = stDim.Render(glyphOffAir + " connecting…")
+	}
+
+	n := len(live)
+	bands := "bands"
+	if n == 1 {
+		bands = "band"
+	}
+	head := badge + "  " + stDim.Render(fmt.Sprintf("sharing %d %s", n, bands))
+	inner := w - 4 // stPanel border (2) + padding (2)
+	if inner < 8 {
+		inner = 8
+	}
+
+	// Totals sum EVERY live band, listed or folded.
+	var totReqs, totToks int64
+	var totEarn float64
+	for _, s := range live {
+		r, t := s.Served()
+		totReqs += r
+		totToks += t
+		totEarn += s.Earnings()
+	}
+	// Per-band rows (compact), capped at onAirMaxRows with a "+K more" fold.
+	shown := live
+	folded := 0
+	if len(live) > onAirMaxRows {
+		shown = live[:onAirMaxRows]
+		folded = len(live) - onAirMaxRows
+	}
+	// Elide long node ids so a row stays on one line at narrow widths.
+	nodeCap := 18
+	if inner < 64 {
+		nodeCap = 10
+	}
+	rows := make([]string, 0, len(shown)+1)
+	for _, s := range shown {
+		in, out := s.Price()
+		reqs, toks := s.Served()
+		price := stLive.Render("FREE")
+		if in > 0 || out > 0 {
+			price = stEmber.Render(dollars(out) + "/1M out")
+		}
+		dot := stRed.Render(glyphOnAir)
+		if s.Link() != agent.LinkOnAir {
+			dot = stEmber.Render(glyphOffAir)
+		}
+		row := "  " + dot + " " + stKey.Render(s.Model()) +
+			stDim.Render(" · ") + stSelText.Render(elide(s.Node(), nodeCap)) +
+			stDim.Render(" · ") + price +
+			stDim.Render(fmt.Sprintf(" · %d req · %d out · ", reqs, toks)) + stEmber.Render(dollars(s.Earnings()))
+		rows = append(rows, row)
+	}
+	if folded > 0 {
+		rows = append(rows, stDim.Render(fmt.Sprintf("  +%d more on air", folded)))
+	}
+	totals := stDim.Render("  TOTALS    ") +
+		stLive.Render(fmt.Sprintf("%d", totReqs)) +
+		stDim.Render(fmt.Sprintf(" requests · %d out tokens · ", totToks)) +
+		stEmber.Render(dollars(totEarn)) + stDim.Render("  (settles on the broker)")
+
+	lines := []string{head}
+	lines = append(lines, rows...)
+	lines = append(lines, totals)
 	// Cash-out hint (KYC / payable): only when there's something actionable. Width-safe
-	// (truncated to the panel width) + NO_COLOR-safe (the plain text carries it).
+	// + NO_COLOR-safe (the plain text carries it).
 	if hint := m.payoutHint(); hint != "" {
-		body += "  " + truncVisible(hint, w-4) + "\n"
+		lines = append(lines, "  "+hint)
 	}
-	body += stDim.Render("  ") + stKey.Render("/share off") + stDim.Render(" to go off air")
-	return stPanel.Render(body)
+	lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
+	// Every line is truncated to the inner content width so the bordered plate never
+	// overflows the terminal, at any width and any band count.
+	for i, ln := range lines {
+		lines[i] = truncVisible(ln, inner)
+	}
+	return stPanel.Render(strings.Join(lines, "\n"))
+}
+
+// compactOnAirLine is the windowshade (compact mode) one-line ON AIR summary: the
+// beacon + band count + aggregate served + total earnings, e.g.
+// "(•) ON AIR · sharing 3 · 42 served · $0.18 · /share off". It sums EVERY live
+// band (not just the headline), and is width-truncated + NO_COLOR safe.
+func (m model) compactOnAirLine(w int) string {
+	live := m.liveShares()
+	if len(live) == 0 {
+		return ""
+	}
+	anyOnAir := false
+	var totReqs int64
+	var totEarn float64
+	for _, s := range live {
+		if s.Link() == agent.LinkOnAir {
+			anyOnAir = true
+		}
+		r, _ := s.Served()
+		totReqs += r
+		totEarn += s.Earnings()
+	}
+	badge := stRed.Render(glyphOnAir + " ON AIR")
+	if !anyOnAir {
+		badge = stEmber.Render(glyphOffAir + " RECONNECTING")
+	}
+	line := "  " + badge +
+		stDim.Render(fmt.Sprintf(" · sharing %d · %d served · ", len(live), totReqs)) +
+		stEmber.Render(dollars(totEarn)) +
+		stDim.Render(" · /share off")
+	return truncVisible(line, w)
+}
+
+// elide shortens s to at most n runes, using an ellipsis when it must cut. Used to
+// keep long node ids on a single compact row in the ON AIR panel.
+func elide(s string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(r[:n])
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // payoutHint returns a compact, single-line cash-out hint for the SHARE / earnings
