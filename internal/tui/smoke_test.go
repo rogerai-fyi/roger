@@ -13,8 +13,9 @@ import (
 )
 
 func TestRenderBrowse(t *testing.T) {
-	// The browse view is now a BAND list (offers grouped by model) showing a
-	// cross-station out-price RANGE - not a flat per-station list.
+	// The browse view is a BAND list (offers grouped by model) showing the headline
+	// price as in·out (cheapest active input · cheapest active output) - mirroring the
+	// web /models row - not a flat per-station list.
 	var m tea.Model = New("http://broker.local", "tester")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m, _ = m.Update(offersMsg{
@@ -24,9 +25,9 @@ func TestRenderBrowse(t *testing.T) {
 	m, _ = m.Update(balanceMsg{balance: 100, loggedIn: true})
 	m, _ = m.Update(tickMsg{})
 	out := m.View()
-	// model name, the range column header, the live range, the logged-in balance ($)
-	// + footer.
-	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M out (range)", "0.30 ~ 0.41", "$100", "enter tune in"} {
+	// model name, the in·out column header, the headline in·out (minIn 0.20 · minOut
+	// 0.30), the logged-in balance ($) + footer.
+	for _, want := range []string{"R O G E R", "gpt-oss-20b", "$/1M in·out", "0.20·0.30", "$100", "enter tune in"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("browse view missing %q\n---\n%s", want, out)
 		}

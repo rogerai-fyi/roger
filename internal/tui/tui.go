@@ -435,6 +435,7 @@ func (s *LimitStore) clear(model string) {
 type band struct {
 	model    string
 	stations int     // online stations serving it
+	minIn    float64 // cheapest active in-price now (the headline $/1M in, mirrors the web)
 	minOut   float64 // cheapest active out-price now
 	maxOut   float64 // priciest active out-price now
 	cheapest *offer  // the station at minOut (broker's default route)
@@ -2833,10 +2834,16 @@ func (m model) resolveFreq(arg string) (tea.Model, tea.Cmd) {
 		// public one.
 		out := make([]offer, 0, len(offs))
 		for _, o := range offs {
+			// Carry every real field the broker's /bands/resolve emits (region, hw, ctx +
+			// ctx_estimated, free-now, ttft, verified) so a PRIVATE band's row + [i] detail
+			// read with the same real metrics as a public one - not a stripped-down subset.
 			out = append(out, offer{
-				NodeID: o.NodeID, Model: o.Model, PriceIn: o.PriceIn, PriceOut: o.PriceOut,
-				Online: o.Online, Confidential: o.Confidential, TPS: o.TPS, Signal: o.Signal,
-				InFlight: o.InFlight,
+				NodeID: o.NodeID, Region: o.Region, HW: o.HW, Model: o.Model,
+				PriceIn: o.PriceIn, PriceOut: o.PriceOut,
+				Ctx: o.Ctx, CtxEstimated: o.CtxEstimated,
+				Online: o.Online, Confidential: o.Confidential, FreeNow: o.FreeNow,
+				TPS: o.TPS, TTFTMs: o.TTFTMs, Verified: o.Verified,
+				Signal: o.Signal, InFlight: o.InFlight,
 			})
 		}
 		return freqResolvedMsg{freq: arg, label: display, offers: out, ok: true}
@@ -4689,9 +4696,14 @@ func (m model) browseView(w int) string {
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
 	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
 	nameW := 20
-	// The ctx column rides ONLY when the terminal is wide enough to add it without
-	// overflowing the fixed 80-col grid (the default wide layout stays exactly as it was);
-	// the expanded station log [i] always carries per-station ctx regardless of width.
+	// The ctx + t/s columns ride ONLY when the terminal is wide enough to add them
+	// without overflowing the fixed 80-col grid (the default wide layout at w=80 stays
+	// exactly as it was). The expanded station log [i] always carries per-station ctx +
+	// t/s regardless of width. t/s appears a touch earlier than ctx (it is the more
+	// load-bearing headline metric and the web row shows it). The signal meter still
+	// encodes throughput at narrower wide widths, so dropping the explicit t/s column
+	// there is honest, not lossy.
+	showTPS := !m.narrow() && w >= 88
 	showCtx := !m.narrow() && w >= 90
 	if m.narrow() {
 		nameW = 14
@@ -4699,17 +4711,20 @@ func (m model) browseView(w int) string {
 			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-14s  %-9s  %s", "band", "on air", "$/1M out")) + "\n")
 		}
 	} else {
-		// Column header, tabular. Widths match the body cells exactly so price + signal
-		// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
-		// COMPACT omits the header row entirely (denser; the cells stay self-evident).
+		// Column header, tabular. Widths match the body cells exactly so price + t/s +
+		// signal columns line up under a fixed grid (lipgloss width, not eyeballed
+		// spacing). COMPACT omits the header row entirely (denser; cells stay self-evident).
 		if !m.compact {
-			if showCtx {
-				b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-6s  %-8s  %s",
-					"band", "on air", "$/1M out (range)", "ctx", "signal", "flags")) + "\n")
-			} else {
-				b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-8s  %s",
-					"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+			tpsHdr := ""
+			if showTPS {
+				tpsHdr = "  " + fmt.Sprintf("%-5s", "t/s")
 			}
+			ctxHdr := ""
+			if showCtx {
+				ctxHdr = "  " + fmt.Sprintf("%-6s", "ctx")
+			}
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s%s%s  %-8s  %s",
+				"band", "on air", "$/1M in·out", ctxHdr, tpsHdr, "signal", "flags")) + "\n")
 		}
 	}
 	// Table width for the k9s reverse-video selection bar (spans the whole row).
@@ -4816,17 +4831,37 @@ func (m model) browseView(w int) string {
 			}
 			ctxRowCell = "  " + styled
 		}
+		// tok/s cell: the band's best (fastest) measured throughput across online
+		// stations - the same headline t/s the web /models row shows. Honest "-" when no
+		// station has reported throughput yet (never a fabricated rate). Wide-only so the
+		// 80-col grid never overflows.
+		tpsPlain := "-"
+		if online {
+			if bt := bandBestTPS(bd); bt > 0 {
+				tpsPlain = strconv.Itoa(int(bt + 0.5))
+			}
+		}
+		tpsSelCell := ""
+		tpsRowCell := ""
+		if showTPS {
+			tpsSelCell = "  " + pad(tpsPlain, 5)
+			styled := stDim.Render(pad(tpsPlain, 5))
+			if tpsPlain != "-" {
+				styled = stEmber.Render(pad(tpsPlain, 5))
+			}
+			tpsRowCell = "  " + styled
+		}
 		if sel {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8)
-			plain := fmt.Sprintf("%s  %s  %s%s  %s  %s",
-				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), ctxSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
+				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOut(bd), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
-		rng := stEmber.Render(pad(rangeStr(bd), 17))
+		rng := stEmber.Render(pad(priceInOut(bd), 17))
 		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8), sigSignal, sigTPS, online)
 		nameCell := stDim.Render(pad(bd.model, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
@@ -4837,7 +4872,7 @@ func (m model) browseView(w int) string {
 			statCell = stRed.Render(pad(stationsLbl, 9))
 		}
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
-			statCell + "  " + rng + ctxRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
+			statCell + "  " + rng + ctxRowCell + tpsRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
 	}
 	// Bottom "more" hint: rows scrolled off below.
 	if end < matched {
@@ -5002,6 +5037,12 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		if b.stations == 0 || o.PriceOut > b.maxOut {
 			b.maxOut = o.PriceOut
 		}
+		// Headline in-price: the cheapest active input price across online stations,
+		// tracked independently of the out-price so the band row can show $/1M in·out
+		// exactly like the web /models row (which reports minIn · minOut).
+		if b.stations == 0 || o.PriceIn < b.minIn {
+			b.minIn = o.PriceIn
+		}
 		b.stations++
 		b.online = true
 	}
@@ -5051,6 +5092,7 @@ func (m *model) mergeStickyBand(bands []band) []band {
 	sticky := band{
 		model:    o.Model,
 		stations: 0,
+		minIn:    o.PriceIn,
 		minOut:   o.PriceOut,
 		maxOut:   o.PriceOut,
 		cheapest: nil, // offline: no on-air station to lock right now
@@ -5114,6 +5156,36 @@ func rangeStr(b band) string {
 		return money(b.minOut)
 	}
 	return money(b.minOut) + " ~ " + money(b.maxOut)
+}
+
+// priceInOut renders a band's headline price as "$in·$out" - the cheapest active
+// input price and cheapest active output price - exactly mirroring the web /models
+// row (fmtPrice(priceIn) · fmtPrice(priceOut)). Honest-empty: an offline band shows
+// a bare "-", and a fully free band (both 0) reads "free" rather than "$0.00·$0.00".
+// This is the band-LIST twin of the web's in·out split; the [i] station log keeps the
+// per-station in·out detail.
+func priceInOut(b band) string {
+	if !b.online {
+		return "-"
+	}
+	if b.minIn == 0 && b.minOut == 0 {
+		return "free"
+	}
+	return money(b.minIn) + "·" + money(b.minOut)
+}
+
+// bandBestTPS returns the band's fastest measured output throughput across its
+// ONLINE stations - the same "best_tps" headline the web /models row shows. 0 when no
+// online station has reported throughput yet (the caller renders an honest "-").
+func bandBestTPS(bd band) float64 {
+	best := 0.0
+	for i := range bd.all {
+		o := bd.all[i]
+		if o.Online && o.TPS > best {
+			best = o.TPS
+		}
+	}
+	return best
 }
 
 // bandCtx returns the band's representative context window and whether it is
