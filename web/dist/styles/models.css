@@ -241,6 +241,8 @@
 .band-prov { display: block; font-size: var(--t-xs); color: var(--live); font-weight: var(--weight-medium); margin-top: 2px; }
 .band-prov--idle { color: var(--ink-400); font-weight: var(--weight-regular); }
 .band-ctx { display: inline-block; font-size: var(--t-xs); color: var(--ink-400); margin-top: 2px; }
+/* estimated ctx: dimmer + italic so a guess (~32k) never reads as a detected window */
+.band-ctx--est { color: var(--ink-500); font-style: italic; opacity: 0.8; }
 /* real probe metrics + coarse hardware class under the model name */
 .band-meta { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: 3px; align-items: baseline; }
 .band-perf { font-size: var(--t-xs); color: var(--ink-500); letter-spacing: 0; }
@@ -332,6 +334,10 @@
 .qsl-cs__reg { font-size: var(--t-xs); color: var(--ink-400); letter-spacing: 0.04em; }
 .qsl-cs__meta { display: inline; margin-left: var(--s-2); font-size: var(--t-xs); color: var(--ink-400); }
 .qsl-mark--ver { color: var(--ink-900); font-weight: var(--weight-semi); }
+/* honest empty state: "no data" / em-dash for an unmeasured success or missing region */
+.qsl-nodata { color: var(--ink-400); font-style: italic; }
+/* estimated ctx in the station log: dim + italic, mirroring the band row */
+.qsl-ctx--est { color: var(--ink-500); font-style: italic; opacity: 0.8; }
 .qsl__priv { margin-top: var(--s-4); font-size: var(--t-xs); color: var(--ink-400); line-height: 1.5; }
 .qsl__priv b { color: var(--ink-700); }
 

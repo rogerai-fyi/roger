@@ -20,11 +20,16 @@ import (
 // ModelOffer is one model a node exposes, with per-1M-token credit pricing.
 // Schedule (optional) overrides the base price by time-of-use (ChargePoint-style).
 type ModelOffer struct {
-	Model    string        `json:"model"`
-	PriceIn  float64       `json:"price_in"`  // credits per 1,000,000 input tokens (base/fallback)
-	PriceOut float64       `json:"price_out"` // credits per 1,000,000 output tokens (base/fallback)
-	Ctx      int           `json:"ctx"`
-	Schedule []PriceWindow `json:"schedule,omitempty"`
+	Model    string  `json:"model"`
+	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input tokens (base/fallback)
+	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output tokens (base/fallback)
+	Ctx      int     `json:"ctx"`
+	// CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
+	// real per-model window), so the UI can render it as an estimate (~32k, dim) instead
+	// of a detected value (131k, solid). Truth-in-labeling, like TokenizerExact on the
+	// receipt: a guess is never displayed as a measured fact.
+	CtxEstimated bool          `json:"ctx_estimated,omitempty"`
+	Schedule     []PriceWindow `json:"schedule,omitempty"`
 }
 
 // PriceWindow is a time-of-use rule. Times are "HH:MM" UTC; a window may wrap past

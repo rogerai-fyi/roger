@@ -168,6 +168,19 @@ func priceMod(out, rangeMin, rangeMax, kPrice, priceExp float64) float64 {
 // is the safe default of 1.
 func hwConcurrencyClass(hw string) int {
 	h := strings.ToLower(hw)
+	// Nodes now advertise a PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple /
+	// cpu) instead of a raw rig string; map those directly. Legacy raw strings still
+	// fall through to the marker heuristic below.
+	switch h {
+	case "multi-gpu":
+		return 4
+	case "single-gpu":
+		return 2
+	case "apple":
+		return 2 // Apple Silicon unified memory: between a CPU and a discrete GPU
+	case "cpu", "unknown", "":
+		return 1
+	}
 	// A discrete GPU is present if ANY accelerator marker matches (synonyms for the
 	// SAME card count once - we test presence, not how many synonyms hit).
 	gpuMarkers := []string{"rtx", "geforce", "radeon", "instinct", "tesla", "a100", "h100", "mi300", "mi250", "gpu", "cuda", "rocm", "quadro", "nvidia", "amd radeon"}

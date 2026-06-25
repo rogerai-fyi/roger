@@ -14,15 +14,20 @@ type offerView struct {
 	In           float64 `json:"price_in"`  // active (time-of-use) price right now
 	Out          float64 `json:"price_out"` // active price right now
 	Ctx          int     `json:"ctx"`
+	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
 	FreeNow      bool    `json:"free_now"`
 	Scheduled    bool    `json:"scheduled"`
-	TPS          float64 `json:"tps"`      // measured output tokens/sec (0 = not yet measured)
-	TTFTMs       float64 `json:"ttft_ms"`  // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	Quality      float64 `json:"quality"`  // 0..1 broker-measured trust/verification signal
-	SuccessRate  float64 `json:"success"`  // 0..1 time-decayed success evidence (organic or probe)
-	Verified     bool    `json:"verified"` // node has a recent PASSED canary (probe-verified serving)
+	TPS          float64 `json:"tps"`     // measured output tokens/sec (0 = not yet measured)
+	TTFTMs       float64 `json:"ttft_ms"` // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	Quality      float64 `json:"quality"` // 0..1 broker-measured trust/verification signal
+	SuccessRate  float64 `json:"success"` // 0..1 time-decayed success evidence (organic or probe)
+	// SuccessSeen distinguishes a REAL measured/probe-positive success rate from the
+	// neutral no-evidence fallback: false means "no data yet" (the UI shows "no data",
+	// never a fabricated %); true means SuccessRate is real (organic EWMA or probe-OK).
+	SuccessSeen bool `json:"success_seen"`
+	Verified    bool `json:"verified"` // node has a recent PASSED canary (probe-verified serving)
 	// Signal is the SAME 0..100 health score /market exposes per model, computed
 	// here per OFFER (providers=1) so the band list has a meter to show even when
 	// the node has zero traffic yet: an online node still scores its baseline from
@@ -105,15 +110,19 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 				staleness: staleness,
 			})
 		}
+		// successSeen is true when SuccessRate is REAL evidence (organic EWMA, or a
+		// probe-verified-OK node), false when it is the neutral no-evidence fallback - so
+		// the UI can show "no data yet" instead of a fabricated percentage.
+		successSeen := srSeen || verified
 		for _, o := range n.Offers {
 			pin, pout, free, _ := o.ActivePrice(now)
 			out = append(out, offerView{
 				NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
-				In: pin, Out: pout, Ctx: o.Ctx, Online: online,
+				In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 				Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 				TPS:    tps,
 				TTFTMs: ttft, Quality: quality,
-				SuccessRate: round6(successRate), Verified: verified,
+				SuccessRate: round6(successRate), SuccessSeen: successSeen, Verified: verified,
 				Signal:   terms.Total,
 				Terms:    terms,
 				InFlight: inflight, Capacity: capacity, Radius: round6(radius),

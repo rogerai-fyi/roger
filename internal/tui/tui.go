@@ -281,18 +281,42 @@ func detectSharesCmd(extra string) tea.Cmd {
 type offer struct {
 	NodeID       string  `json:"node_id"`
 	Region       string  `json:"region"`
+	HW           string  `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
 	Model        string  `json:"model"`
 	PriceIn      float64 `json:"price_in"`
 	PriceOut     float64 `json:"price_out"`
 	Ctx          int     `json:"ctx"`
+	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
 	FreeNow      bool    `json:"free_now"`
 	TPS          float64 `json:"tps"`
+	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
 	Signal int `json:"signal"`
+	// Terms is the broker's per-factor signal breakdown (supply/speed/latency/verified/
+	// success/trust + congestion), surfaced so the expanded station view can explain
+	// WHY a band scores what it does.
+	Terms signalTerms `json:"terms"`
+}
+
+// signalTerms mirrors the broker's per-factor signal breakdown (cmd/rogerai-broker
+// market.go) so the TUI can decode + render the "why is this a 71?" detail. Each
+// field is the term's point contribution to the 0..100 signal.
+type signalTerms struct {
+	Supply     float64 `json:"supply"`
+	Speed      float64 `json:"speed"`
+	Latency    float64 `json:"latency"`
+	Verified   float64 `json:"verified"`
+	Success    float64 `json:"success"`
+	Trust      float64 `json:"trust"`
+	Congestion float64 `json:"congestion"`
+	Total      int     `json:"total"`
 }
 
 // alertBox is a tiny thread-safe mailbox: the relay's failover callback (running
@@ -330,6 +354,7 @@ const (
 	modeQuitConfirm    // on-air quit-guard: confirm before going off air on quit
 	modeAgent          // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
 	modeLogin          // [L] confirmable login/logout panel (never an instant action)
+	modeBandDetail     // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -402,6 +427,7 @@ type band struct {
 	online   bool    // any station on air
 	free     bool    // any station FREE now
 	lineage  int     // count of confidential/lineage stations
+	verified bool    // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
 	all      []offer // every station in this band (online first)
 }
 
@@ -492,6 +518,7 @@ type model struct {
 	limCursor     int             // cursor in the limits view
 	limModels     []string
 	watching      string    // band we are "wait & notify" watching (stub label)
+	detailBand    band      // the band whose expanded per-station view (modeBandDetail) is showing
 	showDetail    bool      // [d] expands the connect-confirm screen; default off (simple)
 	relaying      bool      // a chat request is in flight (drives Ping's transmit line)
 	relayStart    time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
@@ -668,9 +695,10 @@ type Pricing struct {
 // box (e.g. :8060 gpt-oss-20b + :8080 gpt-oss-120b + :8081 qwen3-vl-8b) shares each
 // model against the server that actually serves it - not a single shared upstream.
 type shareRow struct {
-	model    string
-	ctx      int
-	upstream string // the normalized chat-completions URL backing THIS row's model
+	model        string
+	ctx          int
+	ctxEstimated bool   // ctx is the estimated default (no real window detected), not measured
+	upstream     string // the normalized chat-completions URL backing THIS row's model
 }
 
 // ---- messages ----
@@ -1195,6 +1223,22 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onAgentKey(k)
 	case modeLogin:
 		return m.onLoginKey(k)
+	case modeBandDetail:
+		// The expanded station log: esc/←/h/i close it back to the list; enter tunes in to
+		// the band (the cheapest station), matching the browse Enter. r re-scans.
+		switch k.String() {
+		case "esc", "left", "h", "i", "q":
+			m.mode = modeBrowse
+			return m, nil
+		case "enter":
+			m.mode = modeBrowse
+			return m.connect()
+		case "r":
+			m.status = "re-scanning the band…"
+			m.scanErr, m.scanned = false, false
+			return m, fetchOffers(m.broker)
+		}
+		return m, nil
 	default: // browse
 		// FILTER ENTRY owns every key while open: typing edits the live name filter, esc
 		// clears + closes, enter keeps it applied and returns to the list. Handled BEFORE
@@ -1310,6 +1354,24 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, textinput.Blink
 			}
 			return m.connect()
+		case "i", "right", "l":
+			// Expanded per-station view (the QSL equivalent): every station's real metrics
+			// + the signal-term breakdown for the band under the cursor. esc/left/h/i closes.
+			vis := m.visibleBands()
+			if len(vis) == 0 {
+				return m, nil
+			}
+			cur := m.cursor
+			if cur < 0 {
+				cur = 0
+			}
+			if cur >= len(vis) {
+				cur = len(vis) - 1
+			}
+			m.detailBand = vis[cur]
+			m.mode = modeBandDetail
+			m.status = stDim.Render("station log - every station on ") + stKey.Render(m.detailBand.model) + stDim.Render(" · esc/← back · enter tunes in")
+			return m, nil
 		case "d":
 			// Disconnect FROM THE LIST: if connected, d drops the channel right here so the
 			// user can see + toggle what is connected without entering it first (the
@@ -1608,11 +1670,11 @@ func (m *model) loadShareRows(found []detect.Found) {
 				continue
 			}
 			seen[mdl] = true
-			ctxLen := srv.Ctx[mdl]
-			if ctxLen <= 0 {
-				ctxLen = 32768
-			}
-			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, upstream: up})
+			// ONE ctx resolver shared with the CLI (detect.ResolveCtx): the real detected
+			// window when the upstream reported it, else the estimated default (flagged) -
+			// so the TUI and CLI agree and the duplicated 32768 literal is gone.
+			ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
+			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, ctxEstimated: ctxEst, upstream: up})
 		}
 	}
 	// Put the saved onboarding model first so the obvious default is at the cursor.
@@ -1682,7 +1744,7 @@ func (m *model) toggleShareAt(i int) {
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
-		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, Parallel: 4,
+		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
 		Schedule: schedToProtocol(p.Windows),
 	})
 	if err != nil {
@@ -1748,7 +1810,7 @@ func (m *model) togglePrivateAt(i int) {
 	sess, err := agent.Start(agent.Config{
 		Broker: m.broker, Upstream: up, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
-		PriceIn: p.In, PriceOut: p.Out, Ctx: row.ctx, Parallel: 4,
+		PriceIn: p.In, PriceOut: p.Out, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
 		Private: goPrivate, Schedule: schedToProtocol(p.Windows),
 	})
 	if err != nil {
@@ -3217,6 +3279,8 @@ func (m model) View() string {
 		b.WriteString(m.agentView(w))
 	case modeLogin:
 		b.WriteString(m.loginView(w))
+	case modeBandDetail:
+		b.WriteString(m.bandDetailView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
@@ -3278,6 +3342,137 @@ func (m model) quitConfirmView(w int) string {
 
 // confirmView is the connect-time cost confirmation (3.2): the deal + an explicit
 // accept/deny with the SAFE default on DENY.
+// bandDetailView is the TUI's QSL-equivalent: the expanded per-station log for one
+// band. It lists every station - callsign · coarse region · ◆/✓ marks · $in·out · t/s ·
+// ttft · success% (or "no data") · hw-class - column-aligned in the monochrome+one-red
+// language, plus a signal-TERM breakdown line (supply/speed/latency/verified/success/
+// trust) from the strongest station's offer.Terms so a user sees WHY the band scores
+// what it does. Honest-empty + privacy-bucket rules apply throughout (the same data the
+// web /models QSL card shows, so CLI and web agree).
+func (m model) bandDetailView(w int) string {
+	bd := m.detailBand
+	var b strings.Builder
+
+	// Section-tab heading, matching the TUNE IN / SHARE look.
+	bctx, bctxEst := bandCtx(bd)
+	ctxTag := ""
+	if bctx > 0 {
+		if bctxEst {
+			ctxTag = stDim.Render("  ~" + fmtCtx(bctx) + " ctx")
+		} else {
+			ctxTag = stDim.Render("  ") + stEmber.Render(fmtCtx(bctx)+" ctx")
+		}
+	}
+	on := stDim.Render("offline")
+	if bd.online {
+		on = stLive.Render(fmt.Sprintf("%d on air", bd.stations))
+	}
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("STATION LOG") +
+		stDim.Render("   ") + stKey.Render(bd.model) + stDim.Render(" · ") + on + ctxTag + "\n\n")
+
+	if len(bd.all) == 0 {
+		b.WriteString("  " + stDim.Render("no station detail for this band right now - r to re-scan, esc to go back") + "\n")
+		return b.String()
+	}
+
+	// Column header, tabular - widths match the body cells exactly so every column lines
+	// up under a fixed grid. callsign · region · marks · $in·out · t/s · ttft · ok · hw.
+	hdr := fmt.Sprintf("  %-14s  %-5s  %-3s  %-13s  %-7s  %-7s  %-7s  %s",
+		"callsign", "rgn", "", "$/M in·out", "t/s", "ttft", "ok", "hw")
+	b.WriteString("  " + stDim.Render(hdr) + "\n")
+
+	// Stations: online first (bd.all is already online-first from groupBands), each on one
+	// aligned row. The cheapest station (the broker's default route) is marked with the
+	// lit ◉; the rest with a hollow ○ / dim offline dot.
+	for i := range bd.all {
+		o := bd.all[i]
+		dot := stDim.Render("○")
+		if o.Online {
+			dot = stRed.Render(glyphOnAir)
+		}
+		// confidential ◆ and verified ✓ are DISTINCT marks (the codebase's split).
+		marks := ""
+		if o.Confidential {
+			marks += stGold.Render(glyphConf)
+		}
+		if o.Online && o.Verified {
+			marks += stGold.Render(glyphLineage)
+		}
+		if marks == "" {
+			marks = stDim.Render("·")
+		}
+		priceCell := stEmber.Render(money(o.PriceIn) + "·" + money(o.PriceOut))
+		if o.FreeNow || (o.PriceIn == 0 && o.PriceOut == 0) {
+			priceCell = stLive.Render("free")
+		}
+		tpsTxt := "-"
+		if o.Online && o.TPS > 0 {
+			tpsTxt = fmt.Sprintf("%d", int(o.TPS+0.5))
+		}
+		call := pad("@"+o.NodeID, 14)
+		row := "  " + dot + " " + stKey.Render(call) + "  " +
+			stDim.Render(pad(regionCell(o.Region), 5)) + "  " +
+			pad(marks, 3) + "  " +
+			pad(priceCell, 13) + "  " +
+			stDim.Render(pad(tpsTxt, 7)) + "  " +
+			stDim.Render(pad(fmtTtft(o.TTFTMs), 7)) + "  " +
+			pad(successCell(o.SuccessRate, o.SuccessSeen), 7) + "  " +
+			stDim.Render(hwLabelOr(o.HW))
+		b.WriteString(row + "\n")
+	}
+
+	// Signal-term breakdown: WHY the band scores what it does. Use the strongest online
+	// station's broker Terms (the cheapest route is the default; fall back to the first
+	// online station with a non-empty breakdown). Honest-empty when nothing is on air.
+	terms, sig, haveTerms := bd.termsBreakdown()
+	b.WriteString("\n")
+	if haveTerms {
+		line := fmt.Sprintf("supply %d · speed %d · latency %d · verified %d · success %d · trust %d",
+			rnd(terms.Supply), rnd(terms.Speed), rnd(terms.Latency),
+			rnd(terms.Verified), rnd(terms.Success), rnd(terms.Trust))
+		cong := ""
+		if terms.Congestion > 0 {
+			cong = stDim.Render(fmt.Sprintf("  (−%d%% congestion)", int(terms.Congestion*40+0.5)))
+		}
+		b.WriteString("  " + stDim.Render("signal ") + stKey.Render(fmt.Sprintf("%d", sig)) +
+			stDim.Render("/100  =  ") + stDim.Render(line) + cong + "\n")
+	} else {
+		b.WriteString("  " + stDim.Render("signal breakdown - no live station to score (offline)") + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString("       " + stLive.Render("enter · tune in") + "     " + stDim.Render("esc / ← · back") + "     " + stDim.Render("r · re-scan") + "\n")
+	return b.String()
+}
+
+// hwLabelOr renders a station's privacy-bucketed hw class, or a dim "-" when unknown.
+func hwLabelOr(hw string) string {
+	if c := hwClassLabel(hw); c != "" {
+		return c
+	}
+	return "-"
+}
+
+// rnd rounds a float term contribution to the nearest int for the breakdown line.
+func rnd(v float64) int { return int(v + 0.5) }
+
+// termsBreakdown returns the band's signal-term breakdown from the strongest online
+// station's broker Terms, the band's signal, and whether a live breakdown exists. The
+// cheapest station is the default route; if it has no breakdown we take the first online
+// station that does.
+func (bd band) termsBreakdown() (signalTerms, int, bool) {
+	if bd.cheapest != nil && (bd.cheapest.Terms.Total > 0 || bd.cheapest.Signal > 0) {
+		return bd.cheapest.Terms, bd.cheapest.Signal, true
+	}
+	for i := range bd.all {
+		o := bd.all[i]
+		if o.Online && (o.Terms.Total > 0 || o.Signal > 0) {
+			return o.Terms, o.Signal, true
+		}
+	}
+	return signalTerms{}, 0, false
+}
+
 func (m model) confirmView(w int) string {
 	q := m.q
 	bd := q.b
@@ -4281,6 +4476,10 @@ func (m model) browseView(w int) string {
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
 	// fixed grid (band · on air · range · signal · flags). (TUI-V2-CRITIQUE A.)
 	nameW := 20
+	// The ctx column rides ONLY when the terminal is wide enough to add it without
+	// overflowing the fixed 80-col grid (the default wide layout stays exactly as it was);
+	// the expanded station log [i] always carries per-station ctx regardless of width.
+	showCtx := !m.narrow() && w >= 90
 	if m.narrow() {
 		nameW = 14
 		if !m.compact {
@@ -4291,8 +4490,13 @@ func (m model) browseView(w int) string {
 		// columns line up under a fixed grid (lipgloss width, not eyeballed spacing).
 		// COMPACT omits the header row entirely (denser; the cells stay self-evident).
 		if !m.compact {
-			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-8s  %s",
-				"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+			if showCtx {
+				b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-6s  %-8s  %s",
+					"band", "on air", "$/1M out (range)", "ctx", "signal", "flags")) + "\n")
+			} else {
+				b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s  %-8s  %s",
+					"band", "on air", "$/1M out (range)", "signal", "flags")) + "\n")
+			}
 		}
 	}
 	// Table width for the k9s reverse-video selection bar (spans the whole row).
@@ -4378,13 +4582,32 @@ func (m model) browseView(w int) string {
 			sigTPS = bd.cheapest.TPS
 			sigSignal = bd.cheapest.Signal
 		}
+		bctx, bctxEst := bandCtx(bd)
+		ctxPlain := "-"
+		if bctx > 0 {
+			ctxPlain = fmtCtx(bctx)
+			if bctxEst {
+				ctxPlain = "~" + ctxPlain
+			}
+		}
+		ctxSelCell := ""
+		ctxRowCell := ""
+		if showCtx {
+			ctxSelCell = "  " + pad(ctxPlain, 6)
+			// ctx cell: detected solid, estimated dim + "~" (a guess, labeled). Padded to 6.
+			styled := stDim.Render(pad(ctxPlain, 6))
+			if bctx > 0 && !bctxEst {
+				styled = stEmber.Render(pad(ctxPlain, 6))
+			}
+			ctxRowCell = "  " + styled
+		}
 		if sel {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, bd.stations), 8)
-			plain := fmt.Sprintf("%s  %s  %s  %s  %s",
-				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), rawSig, plainBandBadge(bd, m.limits, connected))
+			plain := fmt.Sprintf("%s  %s  %s%s  %s  %s",
+				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), ctxSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
@@ -4399,7 +4622,7 @@ func (m model) browseView(w int) string {
 			statCell = stRed.Render(pad(stationsLbl, 9))
 		}
 		b.WriteString(selCarat(false) + " " + nameCell + "  " +
-			statCell + "  " + rng + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
+			statCell + "  " + rng + ctxRowCell + "  " + sig + "  " + bandBadge(bd, m.limits, connected) + "\n")
 	}
 	// Bottom "more" hint: rows scrolled off below.
 	if end < matched {
@@ -4456,6 +4679,9 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	if connected {
 		parts = append(parts, glyphOnAir+" connected")
 	}
+	if bd.verified {
+		parts = append(parts, glyphLineage+" verified")
+	}
 	if bd.lineage > 0 {
 		parts = append(parts, fmt.Sprintf("◆ %d", bd.lineage))
 	}
@@ -4479,6 +4705,11 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
 	if connected {
 		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
+	}
+	// verified ✓ = a station passed the broker's live serving probe (the IDENTITY/lineage
+	// glint), kept DISTINCT from the gold confidential ◆ tier per the codebase's mark split.
+	if bd.verified {
+		parts = append(parts, stGold.Render(glyphLineage)+stDim.Render(" verified"))
 	}
 	if bd.lineage > 0 {
 		parts = append(parts, stGold.Render(fmt.Sprintf("◆ %d", bd.lineage)))
@@ -4520,6 +4751,9 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		}
 		if o.FreeNow {
 			b.free = true
+		}
+		if o.Verified {
+			b.verified = true // a serving-probe pass on any online station (✓)
 		}
 		if b.stations == 0 || o.PriceOut < b.minOut {
 			b.minOut = o.PriceOut
@@ -4642,6 +4876,37 @@ func rangeStr(b band) string {
 	return money(b.minOut) + " ~ " + money(b.maxOut)
 }
 
+// bandCtx returns the band's representative context window and whether it is
+// estimated: the largest DETECTED window across its stations (so one real window wins),
+// falling back to the largest estimated window, else the cheapest station's value. A
+// band is "estimated" only when NO station reported a detected window.
+func bandCtx(bd band) (ctx int, estimated bool) {
+	bestDetected, bestEst := 0, 0
+	for i := range bd.all {
+		o := bd.all[i]
+		if o.Ctx <= 0 {
+			continue
+		}
+		if o.CtxEstimated {
+			if o.Ctx > bestEst {
+				bestEst = o.Ctx
+			}
+		} else if o.Ctx > bestDetected {
+			bestDetected = o.Ctx
+		}
+	}
+	if bestDetected > 0 {
+		return bestDetected, false
+	}
+	if bestEst > 0 {
+		return bestEst, true
+	}
+	if bd.cheapest != nil && bd.cheapest.Ctx > 0 {
+		return bd.cheapest.Ctx, bd.cheapest.CtxEstimated
+	}
+	return 0, false
+}
+
 // pad truncates (with an ellipsis) or right-pads s to n display runes.
 func pad(s string, n int) string {
 	r := []rune(s)
@@ -4649,6 +4914,162 @@ func pad(s string, n int) string {
 		return string(r[:n-1]) + "…"
 	}
 	return s + strings.Repeat(" ", n-len(r))
+}
+
+// fmtCtx renders a context window like the web's fmtCtx: "131k" / "32k" / "-". The
+// caller adds the "~" + dim styling for an estimated window.
+func fmtCtx(ctx int) string {
+	if ctx <= 0 {
+		return "-"
+	}
+	if ctx >= 1000 {
+		return fmt.Sprintf("%dk", (ctx+500)/1000)
+	}
+	return strconv.Itoa(ctx)
+}
+
+// ctxCell renders a context window honoring the estimated flag: a detected window is
+// solid ("131k"), the estimated default is dim + "~" ("~32k") - a guess, labeled as one.
+func ctxCell(ctx int, estimated bool) string {
+	if ctx <= 0 {
+		return stDim.Render("-")
+	}
+	if estimated {
+		return stDim.Render("~" + fmtCtx(ctx))
+	}
+	return stEmber.Render(fmtCtx(ctx))
+}
+
+// fmtTtft renders a probe TTFT like the web: "180ms" / "1.4s" / "-" (unmeasured).
+func fmtTtft(ms float64) string {
+	if ms <= 0 {
+		return "-"
+	}
+	if ms >= 1000 {
+		return fmt.Sprintf("%.1fs", ms/1000)
+	}
+	return fmt.Sprintf("%dms", int(ms+0.5))
+}
+
+// successCell renders a station's success rate: the REAL EWMA as "NN%" when SEEN,
+// else an honest "no data" - never a fabricated percentage (matches the web's rule).
+func successCell(rate float64, seen bool) string {
+	if !seen {
+		return stDim.Render("no data")
+	}
+	if rate < 0 {
+		rate = 0
+	}
+	if rate > 1 {
+		rate = 1
+	}
+	return fmt.Sprintf("%d%%", int(rate*100+0.5))
+}
+
+// hwClassLabel maps a node's advertised hardware to the coarse, BUCKETED class label
+// (multi-gpu / single-gpu / apple / cpu) shown in the expanded station view. Nodes now
+// advertise the bucketed class directly; a legacy raw string is still mapped to a broad
+// family. Empty/unknown -> "" (no chip), matching the web's hwClass.
+func hwClassLabel(hw string) string {
+	h := strings.ToLower(strings.TrimSpace(hw))
+	switch h {
+	case "", "unknown":
+		return ""
+	case "multi-gpu", "single-gpu", "apple", "cpu":
+		return h
+	}
+	switch {
+	case strings.Contains(h, "apple") || strings.Contains(h, "mac"):
+		return "apple"
+	case strings.Contains(h, "rtx") || strings.Contains(h, "geforce") ||
+		strings.Contains(h, "radeon") || strings.Contains(h, "nvidia") || strings.Contains(h, "gpu") ||
+		strings.Contains(h, "cuda") || strings.Contains(h, "rocm") || strings.Contains(h, "instinct"):
+		return "single-gpu"
+	case strings.Contains(h, "ryzen") || strings.Contains(h, "epyc") || strings.Contains(h, "xeon") ||
+		strings.Contains(h, "threadripper") || strings.Contains(h, "intel") || strings.Contains(h, "amd") ||
+		strings.Contains(h, "cpu"):
+		return "cpu"
+	}
+	return ""
+}
+
+// coarseRegion buckets a free-text region to a macro-region label, or "" when it is
+// missing/unmatched - mirroring the web's coarseRegion so the TUI and web agree. An
+// empty result renders as a dim "-" (not provided), never a literal "??".
+func coarseRegion(region string) string {
+	r := strings.ToLower(strings.TrimSpace(region))
+	if r == "" {
+		return ""
+	}
+	type rule struct {
+		subs  []string
+		label string
+	}
+	rules := []rule{
+		{[]string{"us-w", "usw", "west", "sf", "sjc", "lax", "sea", "pdx", "california", "oregon"}, "US-W"},
+		{[]string{"us-e", "use", "east", "nyc", "iad", "atl", "mia", "virginia"}, "US-E"},
+		{[]string{"us-c", "central", "chi", "dfw", "texas"}, "US-C"},
+		{[]string{"usa", "united states", "america"}, "US"},
+		{[]string{"uk", "london", "lon", "britain", "england"}, "UK"},
+		{[]string{"germany", "deutsch", "fra", "frankfurt", "berlin", "munich"}, "DE"},
+		{[]string{"netherlands", "amsterdam", "ams"}, "NL"},
+		{[]string{"france", "paris"}, "FR"},
+		{[]string{"europe", "euro"}, "EU"},
+		{[]string{"canada", "toronto", "montreal", "yyz"}, "CA"},
+		{[]string{"australia", "sydney", "syd", "melbourne"}, "AU"},
+		{[]string{"japan", "tokyo", "nrt", "osaka"}, "JP"},
+		{[]string{"singapore", "sin"}, "SG"},
+		{[]string{"india", "mumbai", "bom", "bangalore"}, "IN"},
+		{[]string{"brazil", "sao", "gru"}, "BR"},
+		{[]string{"korea", "seoul", "icn"}, "KR"},
+	}
+	for _, ru := range rules {
+		for _, s := range ru.subs {
+			if strings.Contains(r, s) {
+				return ru.label
+			}
+		}
+	}
+	// bare two-letter codes ("us","eu","de",...) and "home" default
+	switch r {
+	case "us":
+		return "US"
+	case "eu":
+		return "EU"
+	case "de":
+		return "DE"
+	case "nl":
+		return "NL"
+	case "fr":
+		return "FR"
+	case "ca":
+		return "CA"
+	case "au":
+		return "AU"
+	case "jp":
+		return "JP"
+	case "sg":
+		return "SG"
+	case "in":
+		return "IN"
+	case "br":
+		return "BR"
+	case "kr":
+		return "KR"
+	}
+	if strings.Contains(r, "asia") {
+		return "ASIA"
+	}
+	return ""
+}
+
+// regionCell renders a coarse region or a dim "-" when absent (mirrors the web's
+// em-dash for a missing region; never "??").
+func regionCell(region string) string {
+	if cr := coarseRegion(region); cr != "" {
+		return cr
+	}
+	return "-"
 }
 
 func (m model) chatView(w int) string {
@@ -5665,6 +6086,12 @@ func (m model) footer(w int) string {
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeBandDetail:
+		left = stDim.Render("⏎ tune in  ·  esc/← back  ·  r re-scan")
+		if m.narrow() {
+			left = stDim.Render("⏎ tune · esc · r")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	}
 	if m.mode == modeChat {
 		if m.narrow() {
@@ -5688,9 +6115,9 @@ func (m model) footer(w int) string {
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · d disconnect · tab/c channel · ←/→ section · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab/c channel · s share")
 	} else {
-		left = stDim.Render("↑↓ pick · enter tune in · f filter · S sort · F/C/O · ←/→ section · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · S sort · ←/→ section · s share")
 	}
 	confMode := ""
 	if m.confidentialOnly {
