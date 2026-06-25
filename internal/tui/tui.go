@@ -306,6 +306,12 @@ type offer struct {
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
 	Signal int `json:"signal"`
+	// InFlight is the broker's count of active (in-flight) requests on this station
+	// right now (cmd/rogerai-broker market.go emits it per offer). It is what makes the
+	// signal meter an HONEST live-activity readout: a station actively serving
+	// (InFlight>0) visibly scans/pulses, an idle-but-online one is steady, offline is
+	// flat. Drives only animation INTENSITY, never the bar LEVEL (that stays Signal).
+	InFlight int `json:"in_flight"`
 	// Terms is the broker's per-factor signal breakdown (supply/speed/latency/verified/
 	// success/trust + congestion), surfaced so the expanded station view can explain
 	// WHY a band scores what it does.
@@ -362,6 +368,7 @@ const (
 	modeAgent          // [0] AGENT: the embedded tool-capable agent harness (dj.md persona)
 	modeLogin          // [L] confirmable login/logout panel (never an instant action)
 	modeBandDetail     // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
+	modeFreqEntry      // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -435,7 +442,10 @@ type band struct {
 	free     bool    // any station FREE now
 	lineage  int     // count of confidential/lineage stations
 	verified bool    // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
-	all      []offer // every station in this band (online first)
+	inFlight int     // active (in-flight) requests summed across online stations - the REAL
+	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
+	// it is the broker's live load, never a fabricated pulse.
+	all []offer // every station in this band (online first)
 }
 
 // quote is the resolved deal for a connect attempt: the band, the chosen
@@ -512,6 +522,7 @@ type model struct {
 	// counts ever exceed a few hundred. See fetchOffers.
 	filterMode    bool            // the live filter input line is open (f)
 	filterIn      textinput.Model // the live name filter buffer
+	freqIn        textinput.Model // the private-frequency entry buffer (modeFreqEntry)
 	filterApplied string          // the applied name substring (kept after enter; lowercased compare)
 	sortMode      int             // band sort cycle (see sort* consts) - mirrors the /bands web page
 	fFree         bool            // toggle: only bands with a FREE-now station
@@ -816,7 +827,10 @@ func newBase(broker, user string, limits *LimitStore) model {
 	fi := textinput.New()
 	fi.Prompt = ""
 	fi.Placeholder = "type to filter bands by name"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi,
+	fq := textinput.New()
+	fq.Prompt = ""
+	fq.Placeholder = "frequency code"
+	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, freqIn: fq,
 		// Per-surface input history (distinct files; load tolerates a missing/corrupt file).
 		cmdHist:  newInputHistory("history-command"),
 		chatHist: newInputHistory("history-chat"), agentHist: newInputHistory("history-agent"),
@@ -875,7 +889,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
 		m.clampBrowse()
 		m.mode = modeBrowse
-		m.status = stLive.Render(glyphOnAir+" FREQ ") + stKey.Render(freqLabelShort(msg.label)) + stDim.Render(" - private band tuned · esc for OPEN MARKET")
+		m.status = stRed.Render(glyphOnAir+" PRIVATE FREQ") + stDim.Render(" tuned · esc for OPEN MARKET")
 		return m, nil
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
@@ -1247,6 +1261,33 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, fetchOffers(m.broker)
 		}
 		return m, nil
+	case modeFreqEntry:
+		// PRIVATE FREQUENCY entry: a small input to type/paste a frequency code. enter
+		// resolves it off the event loop (the SAME constant-work client.ResolveBand the
+		// `rogerai use --freq` path uses); esc cancels back to the browser. A wrong /
+		// nonexistent / empty / off-air code is INDISTINGUISHABLE from "no bands on this
+		// freq" - the broker returns the uniform "no station" reply and the freqResolvedMsg
+		// handler shows the SAME message for every negative case (no enumeration oracle,
+		// no distinct success-vs-miss tell beyond the band list actually populating).
+		switch k.String() {
+		case "esc":
+			m.mode = modeBrowse
+			m.freqIn.Blur()
+			m.status = stDim.Render("cancelled")
+			return m, nil
+		case "enter":
+			code := strings.TrimSpace(m.freqIn.Value())
+			m.freqIn.Blur()
+			m.mode = modeBrowse
+			// Always resolve through the constant-work path - even an EMPTY code, which the
+			// broker hashes to a non-match and answers with the same uniform "no station"
+			// reply. We deliberately do NOT short-circuit empty to a "type something" hint:
+			// that would be a tell (empty != wrong). Every negative reads identically.
+			return m.resolveFreq(code)
+		}
+		var c tea.Cmd
+		m.freqIn, c = m.freqIn.Update(k)
+		return m, c
 	default: // browse
 		// FILTER ENTRY owns every key while open: typing edits the live name filter, esc
 		// clears + closes, enter keeps it applied and returns to the list. Handled BEFORE
@@ -1324,13 +1365,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clampBrowse()
 			return m, nil
 		case "~":
-			// PRIVATE FREQUENCY entry (a guarded shift-key, deliberately NOT the `f`
-			// name-filter): open the command line pre-seeded with `/freq ` so the user just
-			// pastes the code. esc (below) returns to OPEN MARKET when a freq is tuned.
-			m.mode = modeCommand
-			m.cmd.SetValue("/freq ")
-			m.cmd.CursorEnd()
-			m.cmd.Focus()
+			// PRIVATE FREQUENCY entry. `~` is the dial-tune mnemonic (a radio dial sweep),
+			// deliberately NOT `f` (the name-filter) so the two never collide. It opens a
+			// small dedicated input (modeFreqEntry) to ENTER a frequency code; this is the
+			// discoverable affordance taught in the footer hint ("~ private freq"). On a
+			// valid private band the header flips to PRIVATE FREQ; esc returns to OPEN MARKET.
+			m.mode = modeFreqEntry
+			m.freqIn.SetValue("")
+			m.freqIn.CursorEnd()
+			m.freqIn.Focus()
+			m.status = stDim.Render("private freq · esc cancels")
 			return m, textinput.Blink
 		case "esc":
 			// esc clears a tuned PRIVATE frequency back to OPEN MARKET (re-scan the public
@@ -2763,6 +2807,18 @@ func (m model) doFreq(arg string) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("usage: ") + stKey.Render("/freq <code>") + stDim.Render("  e.g. /freq \"147.520 MHz 8F3K-9M2Q\"")
 		return m, nil
 	}
+	return m.resolveFreq(arg)
+}
+
+// resolveFreq resolves a private-band frequency code OFF the event loop via the SAME
+// constant-work client.ResolveBand the `rogerai use --freq` consumer path uses, then
+// hands the result to the freqResolvedMsg handler. It is the single resolve entry
+// point for BOTH the /freq command and the [~] PRIVATE FREQUENCY input, so they share
+// one security model: every miss (wrong / empty / nonexistent / revoked / off-air)
+// comes back as the broker's UNIFORM negative and is reported identically - no
+// enumeration oracle. arg is passed through verbatim (the broker tolerates the
+// cosmetic MHz part / spacing); an empty arg simply never matches.
+func (m model) resolveFreq(arg string) (tea.Model, tea.Cmd) {
 	broker := m.broker
 	m.status = stDim.Render("scanning frequency…")
 	return m, func() tea.Msg {
@@ -2770,12 +2826,15 @@ func (m model) doFreq(arg string) (tea.Model, tea.Cmd) {
 		if !ok {
 			return freqResolvedMsg{freq: arg, ok: false}
 		}
-		// Map client offers -> TUI offers (the browse list's shape).
+		// Map client offers -> TUI offers (the browse list's shape). InFlight rides along
+		// so a private band's signal meter is the same honest live-activity readout as a
+		// public one.
 		out := make([]offer, 0, len(offs))
 		for _, o := range offs {
 			out = append(out, offer{
 				NodeID: o.NodeID, Model: o.Model, PriceIn: o.PriceIn, PriceOut: o.PriceOut,
 				Online: o.Online, Confidential: o.Confidential, TPS: o.TPS, Signal: o.Signal,
+				InFlight: o.InFlight,
 			})
 		}
 		return freqResolvedMsg{freq: arg, label: display, offers: out, ok: true}
@@ -3411,6 +3470,12 @@ func (m model) View() string {
 		b.WriteString(m.loginView(w))
 	case modeBandDetail:
 		b.WriteString(m.bandDetailView(w))
+	case modeFreqEntry:
+		// The PRIVATE FREQUENCY input rides ABOVE the live band browser (the list stays
+		// visible behind it), mirroring the filter strip: a small focused input to enter a
+		// frequency code, then enter resolves it. esc returns to the open market browser.
+		b.WriteString(m.freqEntryView(w) + "\n")
+		b.WriteString(m.browseView(w))
 	default:
 		b.WriteString(m.browseView(w))
 	}
@@ -4155,7 +4220,9 @@ func (m model) header(w int) string {
 			stDim.Render(" · ") + stKey.Render(o.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
 			stDim.Render(" · ") + m.accountTag(true) +
-			"  " + tintSignal(signalBarsRaw(m.frame, o.Signal, o.TPS, true), o.Signal, o.TPS, true)
+			// CONNECTED header: the in-flight count is the live load on the open channel, so
+			// the meter scans with real throughput while the channel is actively serving.
+			"  " + tintSignal(signalBarsRaw(m.frame, o.Signal, o.TPS, true, o.InFlight, 0), o.Signal, o.TPS, true)
 		return bar + "\n" + rule
 	}
 
@@ -4569,20 +4636,24 @@ func (m model) browseView(w int) string {
 		// the footer still teaches S, and the filter line carries the active state.
 		sortTag = ""
 	}
-	// Frequency indicator: OPEN MARKET by default, FREQ <display> when a private band
-	// is tuned (esc returns to OPEN MARKET). Always present so the user knows whether
-	// they are browsing the public market or a hidden channel.
+	// Frequency / mode indicator: OPEN MARKET by default (dim ink), PRIVATE FREQ <code>
+	// when a private band is tuned. The private label is rendered in the ONE accent red
+	// (with the ◉ on-air mark) so it is a DISTINCT mode signal - it is unmistakable that
+	// you have left the public marketplace for a hidden channel. esc returns to OPEN
+	// MARKET. Always present so the user always knows which mode they are in.
 	// On narrow/compact widths the default OPEN MARKET label is dropped (it would
-	// overflow the slim heading); a tuned FREQ is always shown since it is load-bearing
-	// state, and the status line also carries it on tune-in.
+	// overflow the slim heading); a tuned PRIVATE FREQ is always shown since it is
+	// load-bearing state, and the status line also carries it on tune-in.
 	freqTag := ""
 	switch {
 	case m.tuneFreq != "" && (m.narrow() || m.compact):
-		// Narrow: the MHz label would overflow the slim heading - show a bare FREQ marker
-		// (the status line + the freq-only band list carry the detail).
-		freqTag = stDim.Render(" · ") + stLive.Render("FREQ")
+		// Narrow: the "PRIVATE FREQ <code>" label would overflow the slim heading - show a
+		// bare accented ◉ marker. The red glyph alone still signals "off the open market"
+		// (it is the same accent the full label uses); the status line + the freq-only band
+		// list carry the code.
+		freqTag = stDim.Render(" · ") + stRed.Render(glyphOnAir)
 	case m.tuneFreq != "":
-		freqTag = stDim.Render(" · ") + stLive.Render("FREQ "+freqLabelShort(m.tuneFreqLabel))
+		freqTag = stDim.Render(" · ") + stRed.Render(glyphOnAir+" PRIVATE FREQ "+freqLabelShort(m.tuneFreqLabel))
 	case !m.narrow() && !m.compact:
 		freqTag = stDim.Render(" · ") + stDim.Render("OPEN MARKET")
 	}
@@ -4707,11 +4778,13 @@ func (m model) browseView(w int) string {
 			continue
 		}
 		// Signal from the cheapest station: the broker's 0..100 signal drives the
-		// meter (so an on-air band with no traffic still reads non-blank), with tps as
-		// the legacy fallback. Fixed 5-cell equalizer.
+		// meter LEVEL (so an on-air band with no traffic still reads non-blank), with tps
+		// as the legacy fallback. The band's summed in-flight count drives the meter's
+		// ANIMATION (idle band steady, busy band scans). Fixed 5-cell equalizer.
 		var sigTPS float64
 		var sigSignal int
 		online := bd.online
+		sigInFlight := bd.inFlight
 		if bd.cheapest != nil {
 			sigTPS = bd.cheapest.TPS
 			sigSignal = bd.cheapest.Signal
@@ -4739,14 +4812,14 @@ func (m model) browseView(w int) string {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
-			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, bd.stations), 8)
+			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s%s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 9), pad(rangeStr(bd), 17), ctxSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(rangeStr(bd), 17))
-		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, bd.stations), 8), sigSignal, sigTPS, online)
+		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8), sigSignal, sigTPS, online)
 		nameCell := stDim.Render(pad(bd.model, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
 		if connected {
@@ -4769,6 +4842,25 @@ func (m model) browseView(w int) string {
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("%d-%d of %d", top+1, end, matched)) + "\n")
 	}
 	return b.String()
+}
+
+// freqEntryView renders the PRIVATE FREQUENCY input strip (modeFreqEntry): a small,
+// clearly accented prompt the user types/pastes a frequency code into, then enter
+// resolves it. The accent red flags that this is the gateway OFF the open market onto
+// a hidden channel. It carries no "does this code exist" feedback - resolution is
+// uniform (see resolveFreq), so the strip never leaks whether a code is real.
+func (m model) freqEntryView(w int) string {
+	// The accented label is fixed; the input echoes after it. Narrow shortens the label
+	// so the input still has room. The help line is width-clamped (truncVisible) so it
+	// never overflows a slim terminal.
+	label := stRed.Render(glyphOnAir + " PRIVATE FREQ ▸ ")
+	help := "enter a private band's frequency code · ⏎ tunes in · esc returns to OPEN MARKET"
+	if m.narrow() {
+		label = stRed.Render(glyphOnAir + " FREQ ▸ ")
+		help = "type a freq code · ⏎ tune · esc cancels"
+	}
+	return "  " + label + m.freqIn.View() + "\n" +
+		"  " + stDim.Render(truncVisible(help, w-2))
 }
 
 // filterLine renders the active filter strip under the band heading: the live
@@ -4888,6 +4980,12 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		}
 		if o.Verified {
 			b.verified = true // a serving-probe pass on any online station (✓)
+		}
+		// Real live load: sum the broker's in-flight count across the band's online
+		// stations. This (not a frame counter) is what makes the meter animate ONLY when
+		// the band is genuinely serving traffic.
+		if o.InFlight > 0 {
+			b.inFlight += o.InFlight
 		}
 		if b.stations == 0 || o.PriceOut < b.minOut {
 			b.minOut = o.PriceOut
@@ -6289,6 +6387,12 @@ func (m model) footer(w int) string {
 			left = stDim.Render("⏎ tune · esc · r")
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeFreqEntry:
+		left = stDim.Render("type/paste a private frequency code  ·  ⏎ tune in  ·  esc cancel")
+		if m.narrow() {
+			left = stDim.Render("type a freq code · ⏎ tune · esc")
+		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	}
 	if m.mode == modeChat {
 		if m.narrow() {
@@ -6308,13 +6412,27 @@ func (m model) footer(w int) string {
 		if m.connected != nil {
 			discKey = " · d"
 		}
-		left = stDim.Render("↑↓ ⏎" + discKey + " · f filter · ←→ section · s · ?")
+		// Narrow keeps the ←→ section hint (load-bearing) and drops the ~ freq affordance to
+		// fit width 40 - freq stays discoverable on wider terminals + in HELP. On a private
+		// freq, esc (back to OPEN MARKET) is the load-bearing key, so teach it here.
+		sect := " · ←→ section"
+		if m.tuneFreq != "" {
+			sect = " · esc mkt"
+		}
+		left = stDim.Render("↑↓ ⏎" + discKey + " · f filter" + sect + " · s · ?")
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
 		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab/c channel · s share")
+	} else if m.tuneFreq != "" {
+		// On a PRIVATE FREQ: the load-bearing key is esc (back to OPEN MARKET). Teach it
+		// up front so leaving the hidden channel is always discoverable.
+		left = stDim.Render("↑↓ pick · enter tune in · i log · esc OPEN MARKET · S sort · s share")
 	} else {
-		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · S sort · ←/→ section · s share")
+		// ~ freq is the discoverable PRIVATE FREQUENCY affordance: it opens a small input
+		// to enter a private band's frequency code. The trailing "s" (share) is terse so the
+		// freq affordance AND the ←/→ section hint both fit the 80-col grid (78 cols).
+		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · S sort · ←/→ section · s")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -6355,6 +6473,7 @@ func (m model) helpView() string {
 		{"←/→", "switch section: cycle the [0] AGENT … [?] HELP bar (same as pressing its number)"},
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
+		{"~", "PRIVATE FREQ: enter a frequency code to tune onto a hidden band - esc returns to OPEN MARKET"},
 		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
 		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
@@ -6437,13 +6556,23 @@ func indentBlock(s, pad string) string {
 
 // ---- helpers / cmds ----
 // signalBarsRaw returns the 5-cell equalizer glyphs WITHOUT color, so callers can
-// pad/align on the true display width before tinting. Bar height is set by the
-// node's measured tok/s AND (optionally) the number of stations on the band - the
-// web's "more stations, stronger signal" rule: each extra station after the first
-// lifts the floor a notch (capped), so a busy band reads taller. Pass the station
-// count as the optional 4th arg; the per-station header bar passes none (no boost).
-// Offline or unmeasured shows a flat low signal. The shimmer rides m.frame (the one
-// carrier beat) so the bars breathe with the beacon; quiet freezes the frame.
+// pad/align on the true display width before tinting. It is an HONEST readout: every
+// visual is tied to a real offer field, never a decorative loop.
+//
+//   - LEVEL (bar height) reflects the broker's 0..100 signal (tps fallback when no
+//     signal is carried), +1/notch per extra station (capped +2) - the web's "more
+//     stations, stronger carrier" rule. Bands with different signals look different.
+//   - ANIMATION reflects real ACTIVITY: inFlight is the broker's live in-flight count.
+//     A band actively serving (inFlight>0) SCANS - a wave rides across the tower, its
+//     amplitude scaled by how busy it is (more in-flight / faster tps = a bigger swing).
+//     An idle-but-online band (inFlight==0) is STEADY (the static measured level, no
+//     motion). Offline returns the flat tower below - dim and motionless.
+//
+// quiet/reduced-motion (anim() freezes the frame): the scan collapses to the steady
+// truthful level, so a pipe / NO_COLOR / windowshade sees the honest height with no
+// animation. The motion never changes the underlying LEVEL - a busy band scans AROUND
+// its real signal, it does not inflate it.
+//
 // signalRamp returns the 8-level signal-tower ramp (low -> high) for the resolved
 // glyph set: the Unicode ▁..█ on capable terminals, an ASCII .:-=+*#@ fallback on a
 // legacy Windows console. signalPeak indexes into either ramp identically.
@@ -6469,12 +6598,11 @@ func signalLevel(signal int) int {
 // glyph set.
 func signalFlat() string { return glyphs.Current().SigOff }
 
-func signalBarsRaw(frame, signal int, tps float64, online bool, stations ...int) string {
-	set := signalRamp()
+func signalBarsRaw(frame, signal int, tps float64, online bool, inFlight, stations int) string {
 	if !online {
 		return signalFlat()
 	}
-	// The broker's 0..100 signal is the primary driver: an online node earns a
+	// LEVEL: the broker's 0..100 signal is the primary driver: an online node earns a
 	// baseline (supply + quality) even at tps==0, so the band never reads blank
 	// while on air. Fall back to the legacy tps level only when no signal is carried.
 	base := signalLevel(signal)
@@ -6502,17 +6630,37 @@ func signalBarsRaw(frame, signal int, tps float64, online bool, stations ...int)
 	// More stations on the band -> a stronger carrier: +1 notch per extra station
 	// beyond the first, capped at +2 so a single fast node and a crowded band stay
 	// distinguishable without pinning everything to the top.
-	if len(stations) > 0 && stations[0] > 1 {
-		boost := stations[0] - 1
+	if stations > 1 {
+		boost := stations - 1
 		if boost > 2 {
 			boost = 2
 		}
 		base += boost
 	}
+	// ACTIVITY -> animation amplitude. amp is how far the scanning wave swings around the
+	// measured level: 0 = idle (a STEADY tower, no shimmer), 1..2 = actively serving
+	// (wider swing the busier the band). See signalAmp.
+	amp := signalAmp(inFlight, tps)
+	// Reduced-motion / quiet: anim() pins the frame, so the wave is frozen to a single
+	// static phase - a truthful still height, no animation. The amp (real activity) still
+	// governs whether there is any motion to freeze in the first place.
+	return signalTowerAt(anim(frame), base, amp)
+}
+
+// signalTowerAt renders the 5-cell tower at an ALREADY-RESOLVED frame (the caller has
+// applied any reduced-motion freeze via anim()/sigFrame). It is the pure render: level
+// = base, motion = a scanning wave of amplitude amp (amp==0 -> a dead-steady tower).
+// Split out so the animation is testable independent of the process-wide quiet freeze.
+func signalTowerAt(frame, base, amp int) string {
+	set := signalRamp()
 	var sb strings.Builder
-	frame = anim(frame)
 	for i := 0; i < 5; i++ {
-		lvl := base - (i % 2) + (frame+i)%2 // gentle shimmer around the measured level
+		// A wave travels across the 5 cells (phase = frame+i); its swing is scaled by amp
+		// = real activity. Idle (amp==0) -> offset is always 0 -> every cell sits at the
+		// flat measured level (a STEADY tower). The wave only adds motion AROUND base
+		// within [-amp,+amp]; it never lifts the resting height, so the bar still reads
+		// the true signal even at peak swing.
+		lvl := base + scanOffset(frame+i, amp)
 		if lvl < 0 {
 			lvl = 0
 		}
@@ -6522,6 +6670,40 @@ func signalBarsRaw(frame, signal int, tps float64, online bool, stations ...int)
 		sb.WriteRune(set[lvl])
 	}
 	return sb.String()
+}
+
+// signalAmp maps a band's REAL activity (broker in-flight load + measured tps) onto the
+// signal meter's animation amplitude: 0 = idle/steady, 1..2 = actively serving (wider =
+// busier). Exposed so callers + tests reason about motion from the same honest inputs.
+func signalAmp(inFlight int, tps float64) int {
+	switch {
+	case inFlight >= 3 || tps >= 150:
+		return 2
+	case inFlight >= 1:
+		return 1
+	case tps >= 20:
+		// Measured throughput but the broker reported no in-flight snapshot (a station
+		// that just finished a burst): a faint single-cell breath, not dead-steady.
+		return 1
+	}
+	return 0
+}
+
+// scanOffset returns the signal meter's per-cell animation offset: a triangle wave in
+// [-amp,+amp] that advances with phase. amp==0 (an idle band) returns 0 for every
+// phase, so the tower is dead-steady. amp>0 makes the cell oscillate, the swing
+// widening with amp (= real in-flight load / tps). The mean is 0, so the animation
+// never biases the resting LEVEL up or down - it is motion around the true signal.
+func scanOffset(phase, amp int) int {
+	if amp <= 0 {
+		return 0
+	}
+	period := amp * 2 // full down-up cycle spans 2*amp steps
+	p := ((phase % period) + period) % period
+	if p > amp {
+		p = period - p // reflect: 0..amp..0 triangle
+	}
+	return p - (amp+1)/2 // center the triangle near 0 so it swings both ways
 }
 
 // signalPeak is the glyph level at and above which a signal cell glints red - the
