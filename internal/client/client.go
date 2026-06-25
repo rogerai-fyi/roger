@@ -300,8 +300,11 @@ func SetMonthlyLimit(broker, user string, cap float64) (MonthlyCapInfo, error) {
 	return out, nil
 }
 
-// Topup asks the broker for a Stripe Checkout URL to buy `usd` of credits.
-func Topup(broker, user string, usd float64) error {
+// Topup asks the broker for a Stripe Checkout URL to buy `usd` of credits and opens
+// it in the browser. `open` is the guarded default-browser launcher (tui.OpenURL),
+// which self-gates on an interactive TTY - so on a headless / piped box it is a no-op
+// and the printed URL below stays as the copy-paste fallback. A nil open just prints.
+func Topup(broker, user string, usd float64, open func(string)) error {
 	body, _ := json.Marshal(map[string]float64{"usd": usd})
 	req, _ := http.NewRequest(http.MethodPost, broker+"/billing/checkout", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -325,6 +328,12 @@ func Topup(broker, user string, usd float64) error {
 	}
 	// 1 credit = $1, so the credit count is the dollar amount added to the wallet.
 	fmt.Printf("Add $%.2f to your wallet - open this to pay:\n  %s\n", d.Credits, d.URL)
+	// Auto-open the checkout URL (guarded: no-op on a headless / piped box, where the
+	// printed URL above is the fallback) so the worst-friction moment - paying - does
+	// not dead-end on a copy-paste, matching login/onboard/payout.
+	if open != nil {
+		open(d.URL)
+	}
 	return nil
 }
 
@@ -891,7 +900,7 @@ const MaxAnswerTokens = 4096
 // the user is never dead-ended on "insufficient balance" with nowhere to go. The same
 // string is reused by the CLI chat, the TUI channel, and the agent harness so the call
 // to action stays identical everywhere.
-const TopupHint = "run `rogerai topup` (or [3] in the TUI) to add funds"
+const TopupHint = "run `rogerai topup` (or /topup in the TUI) to add funds"
 
 // WithTopupHint appends TopupHint to a broker error message when status is 402
 // (insufficient balance). For any other status it returns msg unchanged. Centralized so

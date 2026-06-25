@@ -781,6 +781,7 @@ needs no login. When you earn, payouts are 90-day hold, $25 min, monthly.
 		// self-healing in the background and the line points the operator at the website).
 		waitOnAir(sess, 3*time.Second)
 		fmt.Println(onAirLine(mdl, station, *priceIn, *priceOut))
+		fmt.Println(earningsLine())
 		select {} // serve forever
 	}
 	// Private: start (not Run) so we can surface the one-time frequency code, then block.
@@ -810,6 +811,14 @@ func onAirLine(model, station string, priceIn, priceOut float64) string {
 		mode = fmt.Sprintf("earning $%s/$%s per 1M", trimAmt(priceIn), trimAmt(priceOut))
 	}
 	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fyi", model, station, mode)
+}
+
+// earningsLine is the provider's money-OUT pointer printed right under the go-live
+// line: where to watch earnings accrue and check a payout. Without it a fresh provider
+// is on air with no idea where their money shows up. One tasteful line, mirroring the
+// single on-air line above.
+func earningsLine() string {
+	return "earnings: rogerai.fyi/dashboard.html  (or: rogerai payout status)"
 }
 
 // waitOnAir blocks until the session's link reaches LinkOnAir (the broker has ACKed a
@@ -923,7 +932,7 @@ func cmdTopup(cfg config, args []string) error {
 			usd = f
 		}
 	}
-	return client.Topup(cfg.Broker, cfg.User, usd)
+	return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 }
 
 // cmdPayout is the provider money-OUT verb group: cash out earnings from the
@@ -1163,7 +1172,7 @@ func cmdBalance(cfg config, args []string) error {
 	// Hidden aliases, parsed by hand so they do NOT appear in `balance -h`:
 	//   rogerai balance topup [usd]   /   rogerai balance --topup[=usd]
 	if usd, ok := balanceTopupAlias(args); ok {
-		return client.Topup(cfg.Broker, cfg.User, usd)
+		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
 	return client.Balance(cfg.Broker, cfg.User)
 }
