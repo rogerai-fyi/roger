@@ -52,11 +52,14 @@ type broker struct {
 	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
 	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
-	metricsMu    sync.Mutex            // guards the per-node market metrics below
-	lastPersist  map[string]time.Time  // last time a node's last_seen was flushed to the store (throttle)
-	inflight     map[string]int        // in-flight (active) requests per node
-	success      map[string]float64    // EWMA success rate per node (0..1)
-	trust        map[string]trustState // L1 re-count + probe trust/quality per node
+	metricsMu    sync.Mutex           // guards the per-node market metrics below
+	lastPersist  map[string]time.Time // last time a node's last_seen was flushed to the store (throttle)
+	// lastSharedSeen throttles the shared-state (Valkey) liveness write-through per
+	// node, on its own clock so it works even when b.db is nil. Guarded by metricsMu.
+	lastSharedSeen map[string]time.Time
+	inflight       map[string]int        // in-flight (active) requests per node
+	success        map[string]float64    // EWMA success rate per node (0..1)
+	trust          map[string]trustState // L1 re-count + probe trust/quality per node
 	// successCount is the count of QUALITY-VALIDATED served completions per node (a
 	// non-empty body with output tokens, status<500), feeding the UCB exploration
 	// radius (smart-router v2): it is the evidence for the reward dimension that only
@@ -105,6 +108,16 @@ type broker struct {
 	concierge *concierge    // "Ping" homepage chatbot (public LLM surface)
 	recount   recountConfig // L1 independent token re-count (tokenizer-sidecar)
 	probe     probeConfig   // active canary + latency probe
+
+	// shared is the optional cross-instance state layer (DO Valkey via
+	// ROGERAI_REDIS_URL). nil = the default + the fallback: purely in-memory, ZERO
+	// behavior change. When set, the SAFE state is mirrored to Valkey so multiple
+	// broker instances share it: the anon/concierge rate-limit buckets and node
+	// LIVENESS (lastSeen). Money/correctness-critical state (credit Hold/Finalize,
+	// the job/result/stream rendezvous, inflight) stays in-memory - Stage 2. The
+	// in-memory maps remain the authoritative hot-read path; the shared layer only
+	// write-throughs liveness and feeds a background merge loop. See sharedstore.go.
+	shared sharedStore
 
 	// banned is the in-memory ejected-node set (node id -> true), guarded by metricsMu.
 	// Re-hydrated from the store at startup and updated on a ban; pick/discover/market
@@ -240,6 +253,21 @@ func main() {
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	b.concierge = loadConcierge()
+	// PRE-SCALE Stage 1: wire the optional shared-state layer. UNSET ROGERAI_REDIS_URL
+	// => b.shared stays nil and everything below is a no-op (in-memory, unchanged). A
+	// connect failure already degraded to nil inside openSharedStore (logged warning,
+	// no crash). When set, only the SAFE limiters get the shared bucket (anon +
+	// concierge); the per-identity (b.rl) and per-grant (b.grantRL) limiters stay
+	// local in this stage. Liveness sharing is handled by markSeen + syncLiveness.
+	b.shared = openSharedStore()
+	if b.shared != nil {
+		// name each shared limiter so anon + concierge (both keyed on the client IP)
+		// get DISTINCT Valkey buckets (rogerai:rl:anon:<ip> vs rogerai:rl:concierge:<ip>)
+		// rather than colliding on one key with mismatched rpm/burst.
+		b.anonRL.name, b.anonRL.shared = "anon", b.shared
+		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
+		go b.syncLiveness()
+	}
 	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
 	// station, then Groq). Stored as fields so tests can stub each branch
 	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY

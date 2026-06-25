@@ -472,6 +472,15 @@ func (b *broker) markSeen(node string) {
 	b.mu.Lock()
 	b.lastSeen[node] = now
 	b.mu.Unlock()
+	// Shared-state write-through (PRE-SCALE Stage 1): mirror the heartbeat to Valkey so
+	// PEER broker instances can observe this node's freshness. Coalesced on the SAME
+	// throttle gate as the durable DB touch below, so the shared write rate stays low.
+	// Best-effort: a failure is logged+swallowed inside markSeen on the store and never
+	// affects in-memory liveness (which remains exact + authoritative on this instance).
+	flushShared := b.shared != nil && b.sharedFlushDue(node, now)
+	if flushShared {
+		_ = b.shared.markSeen(node, now)
+	}
 	if b.db == nil {
 		return // no durable store (e.g. a minimal test broker): in-memory liveness is enough
 	}
@@ -488,6 +497,53 @@ func (b *broker) markSeen(node string) {
 		if err := b.db.TouchNode(node, now); err != nil {
 			log.Printf("touch node %s last_seen failed: %v", node, err)
 		}
+	}
+}
+
+// sharedFlushDue coalesces the shared-state liveness write-through on its own
+// per-node throttle (separate from lastPersist so it works even when b.db is nil,
+// e.g. the in-memory store). It returns true at most once per persistThrottle per
+// node, keeping the Valkey HSET rate low while still refreshing well inside nodeTTL.
+func (b *broker) sharedFlushDue(node string, now time.Time) bool {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.lastSharedSeen == nil {
+		b.lastSharedSeen = map[string]time.Time{}
+	}
+	if now.Sub(b.lastSharedSeen[node]) < persistThrottle {
+		return false
+	}
+	b.lastSharedSeen[node] = now
+	return true
+}
+
+// syncLiveness runs only when a shared-state backend is wired in. It periodically
+// pulls the cross-instance liveness snapshot from Valkey and merges any FRESHER
+// peer timestamp into this instance's in-memory lastSeen map. This is what makes
+// "any instance sees any node's freshness" true WITHOUT putting a Valkey round-trip
+// on the hot pick/discover read path: those keep reading the in-memory map exactly
+// as today. We only ever move a node's lastSeen FORWARD (max of local/shared), so a
+// stale snapshot can never make a live node look dead. On a backend error we just
+// skip the round and retry next tick (graceful degrade to local-only liveness).
+func (b *broker) syncLiveness() {
+	const interval = 5 * time.Second
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		if b.shared == nil {
+			return
+		}
+		snap, err := b.shared.liveness()
+		if err != nil || len(snap) == 0 {
+			continue
+		}
+		b.mu.Lock()
+		for node, ts := range snap {
+			if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) {
+				b.lastSeen[node] = ts
+			}
+		}
+		b.mu.Unlock()
 	}
 }
 
