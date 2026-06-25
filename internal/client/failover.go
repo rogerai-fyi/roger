@@ -29,11 +29,16 @@ type Criteria struct {
 // view, just the fields selection needs).
 type Offer struct {
 	NodeID       string  `json:"node_id"`
+	Region       string  `json:"region"`
+	HW           string  `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
 	Model        string  `json:"model"`
 	PriceIn      float64 `json:"price_in"`
 	PriceOut     float64 `json:"price_out"`
+	Ctx          int     `json:"ctx"`
+	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
 	Online       bool    `json:"online"`
 	Confidential bool    `json:"confidential"`
+	FreeNow      bool    `json:"free_now"`
 	TPS          float64 `json:"tps"`
 	TTFTMs       float64 `json:"ttft_ms"`  // probe-measured TTFT (ms; 0 = unmeasured)
 	Verified     bool    `json:"verified"` // a recent PASSED canary (probe-verified serving)
