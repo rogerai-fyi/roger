@@ -240,6 +240,27 @@ CREATE INDEX IF NOT EXISTS owner_strikes_acct ON rogerai.owner_strikes (account_
 -- While an owner is held, ALL of its earning lots are kept from held->payable, so the
 -- hold survives a node-id rotation. One row per held owner (idempotent).
 CREATE TABLE IF NOT EXISTS rogerai.account_recount_holds (account_id TEXT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT now());
+-- pending_reversals: durable Stripe Transfer Reversal intents still owed on disputed,
+-- already-paid lots (FAILED-REVERSAL RETRY / silent-money-leak guard). The ledger
+-- clawback is recorded synchronously, but the money rail can transiently fail; this row
+-- captures the intent so a background sweep retries it instead of dropping it. key =
+-- "reverse:<dispute>:<lot>" (the Stripe Idempotency-Key), so a webhook redelivery or a
+-- retry never double-records or double-reverses. A row is swept until done=true or it
+-- hits the max attempts and is parked as dead_letter=true for manual handling.
+CREATE TABLE IF NOT EXISTS rogerai.pending_reversals (
+    key          TEXT PRIMARY KEY,
+    dispute_id   TEXT NOT NULL,
+    lot_id       BIGINT NOT NULL,
+    account_id   TEXT,
+    transfer_id  TEXT,
+    amount       DOUBLE PRECISION NOT NULL,
+    attempts     INT NOT NULL DEFAULT 0,
+    done         BOOLEAN NOT NULL DEFAULT false,
+    dead_letter  BOOLEAN NOT NULL DEFAULT false,
+    last_error   TEXT,
+    created_at   BIGINT NOT NULL,
+    last_attempt BIGINT NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS pending_reversals_open ON rogerai.pending_reversals (created_at) WHERE done=false AND dead_letter=false;
 -- per-account settings (the monthly spend cap = a budget limit, modeled on Groq's
 -- "set a max you'll pay per month"). monthly_cap is a $ ceiling on captured spend per
 -- CALENDAR month (0 = unlimited). One row per wallet; the cap is durable and per
@@ -1039,12 +1060,35 @@ func (p *Postgres) promoteLots(now time.Time) error {
 
 func (p *Postgres) SetNodeRecountHold(node string, held bool) error {
 	if held {
+		// Refresh created_at on a re-flag so a still-discrepant node re-arms its
+		// auto-expiry window (ExpireRecountHolds only clears holds older than the cutoff).
 		_, err := p.db.Exec(`INSERT INTO rogerai.recount_holds(node) VALUES($1)
-			ON CONFLICT (node) DO NOTHING`, node)
+			ON CONFLICT (node) DO UPDATE SET created_at=now()`, node)
 		return err
 	}
 	_, err := p.db.Exec(`DELETE FROM rogerai.recount_holds WHERE node=$1`, node)
 	return err
+}
+
+// ExpireRecountHolds clears every node + account hold whose created_at is at or before
+// olderThan (auto-expiry recourse): an honest operator hit by a false positive is
+// unfrozen after the window. An abusive operator is kept held because a fresh
+// discrepancy re-inserts the hold row with a current created_at (SetNodeRecountHold /
+// SetAccountRecountHold re-place it on every flag), above the cutoff. Returns the count
+// of node+account holds cleared.
+func (p *Postgres) ExpireRecountHolds(olderThan time.Time) (int, error) {
+	cut := olderThan
+	rn, err := p.db.Exec(`DELETE FROM rogerai.recount_holds WHERE created_at<=$1`, cut)
+	if err != nil {
+		return 0, err
+	}
+	ra, err := p.db.Exec(`DELETE FROM rogerai.account_recount_holds WHERE created_at<=$1`, cut)
+	if err != nil {
+		return 0, err
+	}
+	an, _ := rn.RowsAffected()
+	aa, _ := ra.RowsAffected()
+	return int(an + aa), nil
 }
 
 func (p *Postgres) RecountHeldNodes() (map[string]bool, error) {
@@ -1467,3 +1511,68 @@ func (p *Postgres) OpenDisputeCount(accountID string) (int, error) {
 }
 
 func (p *Postgres) Close() error { return p.db.Close() }
+
+// Healthy pings the Postgres connection: nil = reachable. Backs the /ready endpoint.
+func (p *Postgres) Healthy() error { return p.db.Ping() }
+
+// RecordPendingReversal durably records a Stripe Transfer Reversal intent. Idempotent
+// on key (ON CONFLICT DO NOTHING): a webhook redelivery never double-records nor resets
+// attempts/done on an existing row.
+func (p *Postgres) RecordPendingReversal(pr PendingReversal) error {
+	if pr.Key == "" {
+		return nil
+	}
+	if pr.CreatedAt == 0 {
+		pr.CreatedAt = time.Now().Unix()
+	}
+	_, err := p.db.Exec(`INSERT INTO rogerai.pending_reversals
+		(key, dispute_id, lot_id, account_id, transfer_id, amount, created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (key) DO NOTHING`,
+		pr.Key, pr.DisputeID, pr.LotID, pr.AccountID, pr.TransferID, pr.Amount, pr.CreatedAt)
+	return err
+}
+
+// OpenPendingReversals returns reversals still owed (not done, not dead-lettered),
+// oldest first, capped at limit (0 = all).
+func (p *Postgres) OpenPendingReversals(limit int) ([]PendingReversal, error) {
+	q := `SELECT key, dispute_id, lot_id, account_id, transfer_id, amount, attempts, done, dead_letter, COALESCE(last_error,''), created_at, last_attempt
+		FROM rogerai.pending_reversals WHERE done=false AND dead_letter=false ORDER BY created_at ASC`
+	if limit > 0 {
+		q += ` LIMIT ` + strconv.Itoa(limit)
+	}
+	rows, err := p.db.Query(q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PendingReversal
+	for rows.Next() {
+		var pr PendingReversal
+		if err := rows.Scan(&pr.Key, &pr.DisputeID, &pr.LotID, &pr.AccountID, &pr.TransferID, &pr.Amount,
+			&pr.Attempts, &pr.Done, &pr.DeadLetter, &pr.LastError, &pr.CreatedAt, &pr.LastAttempt); err != nil {
+			return nil, err
+		}
+		out = append(out, pr)
+	}
+	return out, rows.Err()
+}
+
+// MarkReversalAttempt records one reversal attempt outcome for key: bump attempts +
+// last-attempt, mark done on success, or record the error and dead-letter once attempts
+// reach maxAttempts. A WHERE-guard keeps an already-terminal row untouched.
+func (p *Postgres) MarkReversalAttempt(key string, success bool, errMsg string, maxAttempts int, now time.Time) error {
+	if success {
+		_, err := p.db.Exec(`UPDATE rogerai.pending_reversals
+			SET attempts=attempts+1, last_attempt=$2, done=true, last_error=''
+			WHERE key=$1 AND done=false AND dead_letter=false`, key, now.Unix())
+		return err
+	}
+	// Failure: bump attempts, record the error, and flip to dead-letter if it just
+	// reached the max. attempts+1 is compared so the (maxAttempts)th failure parks it.
+	_, err := p.db.Exec(`UPDATE rogerai.pending_reversals
+		SET attempts=attempts+1, last_attempt=$2, last_error=$3,
+		    dead_letter=($4>0 AND attempts+1>=$4)
+		WHERE key=$1 AND done=false AND dead_letter=false`, key, now.Unix(), errMsg, maxAttempts)
+	return err
+}

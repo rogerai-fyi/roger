@@ -176,6 +176,21 @@ type broker struct {
 	strikeWarnAt int
 	strikeBanAt  int
 
+	// recountHoldDays is the auto-expiry window for a recount hold (OPERATOR RECOURSE):
+	// a node/account hold placed pending review auto-clears after this many days IF no
+	// further discrepancy re-arms it, so a false positive never freezes an honest
+	// operator's earnings forever. A fresh discrepancy refreshes the hold's timestamp,
+	// so an actually-abusive operator stays held. Env ROGERAI_RECOUNT_HOLD_DAYS (default
+	// 7). <=0 disables auto-expiry (holds clear only via the admin-reviewed unhold).
+	recountHoldDays int
+
+	// adminKey gates the admin-reviewed recount unhold (and any future admin op). It is
+	// the broker's stable signing seed in hex (the BROKER_PRIVATE_KEY operator secret),
+	// presented in the X-Roger-Admin header. Empty (ephemeral key / not configured) =>
+	// the admin surface is CLOSED (every admin request 403s) so it can't be hit without
+	// the real operator secret. See requireAdmin.
+	adminKey string
+
 	// freeRegMu guards freeRegByIP: the per-CF-IP sliding-window record of FREE (anon,
 	// no-owner) node registrations used for the Sybil ceiling. A free node has no owner
 	// account, so the per-owner cap (maxNodesPerOwner) does not apply to it; without a
@@ -276,6 +291,10 @@ func main() {
 		bannedOwners:     map[string]bool{},
 		strikeWarnAt:     strikeWarnAt(),
 		strikeBanAt:      strikeBanAt(),
+		recountHoldDays:  recountHoldDays(),
+		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
+		// ephemeral/unset key leaves adminKey empty => the admin surface is CLOSED.
+		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),
 	}
 	b.rehydrateBans()
 	b.rehydrateOwnerBans()
@@ -380,9 +399,12 @@ func main() {
 	mux.HandleFunc("/bands/", b.bandsByID)                        // /bands/{id} revoke; /bands/resolve = public freq lookup
 	mux.HandleFunc("/bands/resolve", b.bandResolve)               // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
-	mux.HandleFunc("/concierge", b.conciergeHandler) // "Ping" homepage chatbot (public)
-	mux.HandleFunc("/report", b.report)              // public abuse/quality report + node-ban flow
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
+	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
+	mux.HandleFunc("/report", b.report)                                                               // public abuse/quality report + node-ban flow
+	mux.HandleFunc("/owner/strikes", b.ownerStrikes)                                                  // owner-authed: the caller's own strikes + evidence (operator recourse)
+	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
+	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
 		_, _ = w.Write([]byte(openapiSpec))
@@ -392,7 +414,9 @@ func main() {
 	if b.probe.enabled() {
 		go b.proberLoop()
 	}
-	go b.reattestSweep() // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.reattestSweep()      // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.recountHoldSweep()   // auto-expire recount holds past the review window (operator recourse)
+	go b.reversalRetrySweep() // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
 

@@ -211,13 +211,43 @@ func (p *Postgres) BannedOwners() (map[string]string, error) {
 	return out, rows.Err()
 }
 
+// ForgiveOwner reverses all durable anti-abuse state against an owner after admin
+// review, in one transaction: deletes its strikes, lifts the owner ban, and clears the
+// account recount hold. Returns the number of strikes forgiven. Idempotent.
+func (p *Postgres) ForgiveOwner(accountID string) (int, error) {
+	if accountID == "" {
+		return 0, nil
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM rogerai.owner_strikes WHERE account_id=$1`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM rogerai.banned_owners WHERE account_id=$1`, accountID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`DELETE FROM rogerai.account_recount_holds WHERE account_id=$1`, accountID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 func (p *Postgres) SetAccountRecountHold(accountID string, held bool) error {
 	if accountID == "" {
 		return nil
 	}
 	if held {
+		// Refresh created_at on a re-flag so a still-flagged owner re-arms auto-expiry.
 		_, err := p.db.Exec(`INSERT INTO rogerai.account_recount_holds(account_id) VALUES($1)
-			ON CONFLICT (account_id) DO NOTHING`, accountID)
+			ON CONFLICT (account_id) DO UPDATE SET created_at=now()`, accountID)
 		return err
 	}
 	_, err := p.db.Exec(`DELETE FROM rogerai.account_recount_holds WHERE account_id=$1`, accountID)
