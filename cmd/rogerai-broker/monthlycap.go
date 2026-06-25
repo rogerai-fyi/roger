@@ -66,6 +66,9 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 		// Surface the at-limit headers on the rejection too, so a client shows the same
 		// "$X of $Y" line whether it was warned or hard-stopped.
 		setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
+		// Flag-gated transactional notice (async, de-duped per holder/month). No-op
+		// when RESEND_API_KEY is unset or no email on file.
+		b.emailCapNotice(holder, "100", spend, cap, now)
 		return http.StatusPaymentRequired, fmt.Sprintf(
 			"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `rogerai limit --monthly` (or [3] CONFIG), or wait until next month",
 			round6(spend), round6(cap))
@@ -73,7 +76,13 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read
 	// (W2a) - monthlyCapState would re-query both, doubling the work; capStateFrom
 	// reuses the values, so the hot paid path runs exactly ONE cap read + ONE spend read.
-	setCapHeaders(w, capStateFrom(cap, spend))
+	cs := capStateFrom(cap, spend)
+	setCapHeaders(w, cs)
+	// Flag-gated transactional notice on crossing the 80% near-threshold (async,
+	// de-duped per holder/month). No-op when RESEND_API_KEY is unset or no email.
+	if cs.near {
+		b.emailCapNotice(holder, "80", spend, cap, now)
+	}
 	return 0, ""
 }
 
