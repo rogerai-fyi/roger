@@ -1,0 +1,115 @@
+/* =====================================================================
+   RogerAI - manual.css : the Operating Manual body (/manual.html).
+   Cover plate, the contents rail + sections, spec/command tables and the
+   glossary. The boxed operating note (.man-note) lives in base.css (shared
+   with keys.html). Consumes tokens.css + base.css. Rules MOVED verbatim
+   from site.css, in source order.
+   ===================================================================== */
+/* page masthead: the cover plate of the manual */
+.man-cover { padding-block: clamp(56px, 8vw, 104px) clamp(32px, 5vw, 56px); }
+.man-cover__plate {
+  border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
+  background: var(--white); box-shadow: var(--e-1);
+  padding: clamp(28px, 4vw, 48px); position: relative;
+}
+.man-cover h1 {
+  font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  color: var(--ink-900); margin-top: var(--s-4);
+}
+.man-cover__sub { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); max-width: 62ch; }
+.man-cover__meta {
+  margin-top: var(--s-6); display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-6);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.man-cover__meta b { color: var(--ink-700); font-weight: var(--weight-semi); }
+
+/* the document body: a contents rail beside the flowing sections */
+.man-doc { padding-block: var(--s-8) var(--section-y); }
+.man-doc__grid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
+@media (max-width: 880px) { .man-doc__grid { grid-template-columns: 1fr; } }
+
+/* sticky contents */
+.man-toc { position: sticky; top: 88px; align-self: start; }
+@media (max-width: 880px) { .man-toc { position: static; } }
+.man-toc__head {
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--s-3);
+}
+.man-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--hairline-2); }
+.man-toc li { margin: 0; }
+.man-toc a {
+  display: block; padding: 6px 0 6px 14px; margin-left: -1px;
+  border-left: 2px solid transparent; color: var(--ink-500);
+  font-size: var(--t-sm); transition: color var(--d-2), border-color var(--d-2);
+}
+.man-toc a:hover { color: var(--ink-900); border-left-color: var(--volt); }
+.man-toc a .man-toc__no { font-family: var(--font-mono); color: var(--ink-400); margin-right: 8px; }
+
+/* a section of the manual */
+.man-sec { padding-block: clamp(28px, 4vw, 44px); border-top: 1px solid var(--hairline); scroll-margin-top: 88px; }
+.man-sec:first-of-type { border-top: 0; padding-top: 0; }
+.man-sec__no {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--volt);
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
+}
+.man-sec__no::before { content: ""; width: 18px; height: 1px; background: var(--volt); display: inline-block; opacity: 0.7; }
+.man-sec h2 {
+  font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  margin-top: var(--s-3);
+}
+.man-sec h3 { font-size: var(--t-h3); color: var(--ink-900); margin-top: var(--s-8); }
+.man-sec p { margin-top: var(--s-4); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.65; max-width: 70ch; }
+.man-sec p.man-lead { font-size: var(--t-lead); color: var(--ink-500); }
+.man-sec ul, .man-sec ol.man-list { margin: var(--s-4) 0 0; padding-left: 18px; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.65; max-width: 70ch; }
+.man-sec ul li, .man-sec ol.man-list li { margin-top: 6px; }
+.man-sec a.man-ref { color: var(--volt); font-weight: var(--weight-medium); }
+.man-sec a.man-ref:hover { text-decoration: underline; }
+
+/* a copy line / command block, mono, manual-grey */
+.man-sec pre {
+  margin-top: var(--s-4); padding: 14px 16px; overflow-x: auto;
+  background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
+}
+.man-sec pre .c { color: var(--ink-400); } /* a comment inside a pre */
+.man-sec pre .p { color: var(--volt); }    /* a prompt / sigil */
+.man-sec :not(pre) > code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+}
+
+/* a numbered figure caption inside the manual (reuses .fig look) */
+.man-fig {
+  display: inline-block; margin-top: var(--s-6);
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+
+/* glossary: a clean definition list */
+.man-gloss { margin-top: var(--s-6); display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }
+.man-gloss div { background: var(--white); padding: 14px 16px; display: grid; grid-template-columns: 168px 1fr; gap: 16px; }
+@media (max-width: 560px) { .man-gloss div { grid-template-columns: 1fr; gap: 4px; } }
+.man-gloss dt { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--volt); font-weight: var(--weight-medium); }
+.man-gloss dd { margin: 0; color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
+
+/* spec plate (reuses the .spec idea, scoped to the manual) */
+.man-plate { margin-top: var(--s-6); border: 1px solid var(--hairline-2); border-radius: var(--r-md); overflow: hidden; }
+.man-plate__row { display: grid; grid-template-columns: 200px 1fr; gap: 16px; padding: 12px 16px; border-top: 1px solid var(--hairline); background: var(--white); }
+.man-plate__row:first-child { border-top: 0; }
+@media (max-width: 560px) { .man-plate__row { grid-template-columns: 1fr; gap: 4px; } }
+.man-plate__row dt, .man-plate__k { font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-400); }
+.man-plate__row dd, .man-plate__v { margin: 0; font-size: var(--t-sm); color: var(--ink-700); }
+
+/* command reference table */
+.man-table-wrap { margin-top: var(--s-5); overflow-x: auto; border: 1px solid var(--hairline-2); border-radius: var(--r-md); }
+table.man-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); min-width: 540px; }
+table.man-table caption { caption-side: top; text-align: left; padding: 12px 16px; font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-400); background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
+table.man-table th { text-align: left; padding: 10px 16px; background: var(--paper-2); color: var(--ink-500); font-weight: var(--weight-semi); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--hairline-2); }
+table.man-table td { padding: 10px 16px; border-top: 1px solid var(--hairline); color: var(--ink-700); vertical-align: top; }
+table.man-table td:first-child { white-space: nowrap; }
+table.man-table td code { font-family: var(--font-mono); color: var(--ink-900); background: var(--paper-2); border: 1px solid var(--hairline); border-radius: 6px; padding: 1px 6px; font-size: 0.86rem; }
+table.man-table tr:hover td { background: var(--paper); }
+

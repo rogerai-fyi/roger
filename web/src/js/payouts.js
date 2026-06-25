@@ -1,7 +1,7 @@
-// Account page glue for /account. Split out of the old multi-route account.js so
-// each account page loads only its own logic (billing.js + payouts.js are siblings).
+// Payouts page glue for /payouts: earnings, Connect status + payout request. Split
+// out of the old multi-route account.js so each account page loads only its own logic.
 // Thin reads over the broker behind the credentialed session cookie (no tokens ever
-// touch JS), matching js/auth.js. Logged-out visitors are routed to /login.
+// touch JS). Logged-out visitors are routed to /login.
 // Account-hub glue for /account, /billing, /usage and /payouts. Thin reads over the
 // broker behind the credentialed session cookie (no tokens ever touch JS), matching
 // the pattern in js/auth.js. Logged-out visitors are routed to /login.
@@ -74,44 +74,49 @@
   // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
-  if (path.endsWith("/account")) {
+  if (path.endsWith("/payouts")) {
     get("/account").then(function (a) {
       if (!a) { location.replace("/login.html"); return; }
-      text("who", "@" + (a.github_login || "you"));
-      text("handle", "@" + (a.github_login || "you"));
-      text("balance", cr(a.balance));
-      text("ghid", a.github_id || "-");
-      text("connect", (a.connect && a.connect.status) || "none");
-      var em = document.getElementById("email");
-      if (em && a.email) em.value = a.email;
+      var e = a.earnings || {};
+      text("held", cr(e.held || 0));
+      text("payable", cr(e.payable || 0));
+      text("paid", cr(e.paid || 0));
+      if (e.next_release) text("releaseNote", "Next release: " + when(e.next_release));
       show("card");
       wireLogout();
-      on("saveEmail", "click", function () {
-        var email = (document.getElementById("email") || {}).value || "";
-        api("/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email }) })
-          .then(function (r) { text("saveMsg", r ? " saved" : " could not save"); });
+      refreshConnect();
+      loadPayouts();
+    });
+
+    function refreshConnect() {
+      get("/connect/status").then(function (s) {
+        var status = (s && s.status) || "none";
+        text("connect", status);
+        if (status === "active") { hide("onboard"); show("request"); }
+        else { show("onboard"); hide("request"); }
       });
-      on("export", "click", function () {
-        // POST then download the JSON the browser receives.
-        fetch(BROKER + "/account/export", { method: "POST", credentials: "include" })
-          .then(function (r) { return r.ok ? r.blob() : null; })
-          .then(function (blob) {
-            if (!blob) return;
-            var url = URL.createObjectURL(blob);
-            var a2 = document.createElement("a");
-            a2.href = url; a2.download = "rogerai-export.json"; a2.click();
-            URL.revokeObjectURL(url);
-          });
-      });
-      on("del", "click", function () {
-        if (!confirm("Delete your account? Identity is anonymized; financial records are retained de-identified.")) return;
-        fetch(BROKER + "/account/delete", { method: "POST", credentials: "include" }).then(function (r) {
-          if (r.ok) { location.replace("/login.html"); return; }
-          r.json().then(function (e) {
-            text("delMsg", " " + ((e && e.error && e.error.message) || "could not delete"));
-          });
+    }
+    function loadPayouts() {
+      get("/payouts/history").then(function (h) {
+        if (!h) return;
+        fill("payouts", "payoutsEmpty", h.payouts, function (p) {
+          return li(when(p.created_at) + " - " + p.state, cr(p.amount));
         });
       });
+    }
+    on("onboard", "click", function () {
+      api("/connect/onboard", { method: "POST" }).then(function (r) {
+        if (r && r.url) { location.href = r.url; } else { text("payMsg", "could not start onboarding"); }
+      });
+    });
+    on("request", "click", function () {
+      text("payMsg", "requesting...");
+      fetch(BROKER + "/payouts/request", { method: "POST", credentials: "include" }).then(function (r) {
+        return r.json().then(function (body) {
+          if (r.ok) { text("payMsg", "payout requested"); location.reload(); }
+          else { text("payMsg", (body && body.error && body.error.message) || "payout failed"); }
+        });
+      }).catch(function () { text("payMsg", "payout failed"); });
     });
   }
 })();

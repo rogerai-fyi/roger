@@ -1,0 +1,54 @@
+/* =====================================================================
+   RogerAI - billing.css : the top-up control (/billing.html).
+   The preset amount buttons + the custom-amount row. The shared .primary
+   checkout button lives in account-base.css. Consumes tokens.css + base.css
+   + account-base.css. Rules MOVED verbatim from auth.css, in source order.
+   ===================================================================== */
+/* ---- top-up control (billing.html) ----------------------------- */
+.amounts { display: flex; gap: var(--s-2); margin: var(--s-1) 0 var(--s-4); }
+.amount {
+  flex: 1;
+  padding: 12px 8px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-700);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.amount:hover { border-color: var(--ink-500); color: var(--ink-900); }
+/* the chosen preset is the one red glint in the control */
+.amount.is-active {
+  border-color: var(--live);
+  color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.amount:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+.amount-row { display: flex; align-items: center; gap: var(--s-2); margin: var(--s-2) 0 0; }
+.amount-row__pre {
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+}
+.amount-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+}
+.amount-row input:focus-visible {
+  outline: none;
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}

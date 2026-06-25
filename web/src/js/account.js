@@ -1,3 +1,7 @@
+// Account page glue for /account. Split out of the old multi-route account.js so
+// each account page loads only its own logic (billing.js + payouts.js are siblings).
+// Thin reads over the broker behind the credentialed session cookie (no tokens ever
+// touch JS), matching js/auth.js. Logged-out visitors are routed to /login.
 // Account-hub glue for /account, /billing, /usage and /payouts. Thin reads over the
 // broker behind the credentialed session cookie (no tokens ever touch JS), matching
 // the pattern in js/auth.js. Logged-out visitors are routed to /login.
@@ -70,7 +74,6 @@
   // the static host serves /billing.html, so matching only "/billing" left it blank.
   var path = location.pathname.replace(/\/$/, "").replace(/\.html$/, "");
   var qs = new URLSearchParams(location.search);
-
   if (path.endsWith("/account")) {
     get("/account").then(function (a) {
       if (!a) { location.replace("/login.html"); return; }
@@ -109,138 +112,6 @@
           });
         });
       });
-    });
-  } else if (path.endsWith("/billing")) {
-    get("/billing").then(function (d) {
-      if (!d) { location.replace("/login.html"); return; }
-      text("balance", cr(d.balance));
-      text("derived", cr(d.derived));
-      if (d.checkout_ready) {
-        text("topupNote", "Top up below, or from the CLI: rogerai topup.");
-        show("topupBox");
-        wireTopup();
-      } else {
-        text("topupNote", "Top up from the CLI: rogerai topup.");
-        show("topupDisabled");
-      }
-      fill("topups", "topupsEmpty", d.topups, function (t) {
-        return li(when(t.ts) + " - session", cr(t.amount));
-      });
-      show("card");
-      wireLogout();
-    });
-
-    // Top-up control: a chosen preset OR a custom amount -> Stripe Checkout.
-    function wireTopup() {
-      var presets = document.getElementById("topupPresets");
-      var custom = document.getElementById("topupCustom");
-      var btn = document.getElementById("topup");
-
-      // selecting a preset clears the custom field; typing a custom clears presets.
-      if (presets) {
-        presets.addEventListener("click", function (ev) {
-          var b = ev.target.closest("button[data-usd]");
-          if (!b) return;
-          var btns = presets.querySelectorAll(".amount");
-          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
-          b.classList.add("is-active");
-          if (custom) custom.value = "";
-        });
-      }
-      if (custom) {
-        custom.addEventListener("input", function () {
-          if (!custom.value) return;
-          var btns = presets ? presets.querySelectorAll(".amount") : [];
-          for (var i = 0; i < btns.length; i++) btns[i].classList.remove("is-active");
-        });
-      }
-
-      function chosenUsd() {
-        if (custom && custom.value) {
-          var v = parseFloat(custom.value);
-          return isFinite(v) ? v : NaN;
-        }
-        var active = presets && presets.querySelector(".amount.is-active");
-        return active ? parseFloat(active.getAttribute("data-usd")) : NaN;
-      }
-
-      on("topup", "click", function () {
-        var usd = chosenUsd();
-        if (!isFinite(usd) || usd < 1) { text("topupMsg", " enter an amount of $1 or more"); return; }
-        usd = Math.round(usd * 100) / 100;
-        if (btn) btn.disabled = true;
-        text("topupMsg", " redirecting to Stripe...");
-        api("/billing/checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ usd: usd })
-        }).then(function (r) {
-          if (r && r.url) { window.location = r.url; return; }
-          if (btn) btn.disabled = false;
-          text("topupMsg", " could not start checkout");
-        }).catch(function () {
-          if (btn) btn.disabled = false;
-          text("topupMsg", " could not start checkout");
-        });
-      });
-    }
-  } else if (path.endsWith("/usage")) {
-    var group = qs.get("group") === "day" ? "day" : "model";
-    get("/usage?group=" + group).then(function (d) {
-      if (!d) { location.replace("/login.html"); return; }
-      text("spend", cr(d.spend));
-      fill("buckets", "bucketsEmpty", d.buckets, function (bkt) {
-        return li(bkt.key + " (" + bkt.count + ")", cr(bkt.cost));
-      });
-      fill("recent", "recentEmpty", d.recent, function (e) {
-        return li(e.model || e.node || "request", cr(e.cost));
-      });
-      show("card");
-      wireLogout();
-    });
-  } else if (path.endsWith("/payouts")) {
-    get("/account").then(function (a) {
-      if (!a) { location.replace("/login.html"); return; }
-      var e = a.earnings || {};
-      text("held", cr(e.held || 0));
-      text("payable", cr(e.payable || 0));
-      text("paid", cr(e.paid || 0));
-      if (e.next_release) text("releaseNote", "Next release: " + when(e.next_release));
-      show("card");
-      wireLogout();
-      refreshConnect();
-      loadPayouts();
-    });
-
-    function refreshConnect() {
-      get("/connect/status").then(function (s) {
-        var status = (s && s.status) || "none";
-        text("connect", status);
-        if (status === "active") { hide("onboard"); show("request"); }
-        else { show("onboard"); hide("request"); }
-      });
-    }
-    function loadPayouts() {
-      get("/payouts/history").then(function (h) {
-        if (!h) return;
-        fill("payouts", "payoutsEmpty", h.payouts, function (p) {
-          return li(when(p.created_at) + " - " + p.state, cr(p.amount));
-        });
-      });
-    }
-    on("onboard", "click", function () {
-      api("/connect/onboard", { method: "POST" }).then(function (r) {
-        if (r && r.url) { location.href = r.url; } else { text("payMsg", "could not start onboarding"); }
-      });
-    });
-    on("request", "click", function () {
-      text("payMsg", "requesting...");
-      fetch(BROKER + "/payouts/request", { method: "POST", credentials: "include" }).then(function (r) {
-        return r.json().then(function (body) {
-          if (r.ok) { text("payMsg", "payout requested"); location.reload(); }
-          else { text("payMsg", (body && body.error && body.error.message) || "payout failed"); }
-        });
-      }).catch(function () { text("payMsg", "payout failed"); });
     });
   }
 })();
