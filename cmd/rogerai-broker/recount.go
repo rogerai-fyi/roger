@@ -73,6 +73,31 @@ func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool,
 	return out.Tokens, out.Exact, true
 }
 
+// settleRecount runs ONE broker re-count of the completion and returns the completion
+// token count to BILL: min(claimed, brokerRecount) when an EXACT re-count exists (P0-2,
+// capping an over-reporting node at settle), else `claimed` unchanged (re-count
+// disabled / sidecar unreachable / heuristic-only / node under-reported - we never
+// inflate a node's claim, and the coarse heuristic is too imprecise to bill on). It
+// ALSO folds the sample into the node's trust state + the promotion-hold flag in a
+// goroutine (OFF the hot path), reusing this single sidecar result so the relay path
+// never double-calls the sidecar. Returns `claimed` immediately when re-count is off.
+func (b *broker) settleRecount(nodeID, model, completion string, claimed int) int {
+	if !b.recount.enabled() || completion == "" || claimed <= 0 {
+		return claimed
+	}
+	recounted, exact, ok := b.recount.sidecarCount(model, completion)
+	if !ok {
+		return claimed // sidecar down: fail open, bill the claim, do not penalize
+	}
+	// Trust scoring + the P0-2 promotion-hold flag, off the hot path (observeRecount
+	// takes the lock + may write the recount_holds row).
+	go b.observeRecount(nodeID, claimed, recounted, exact)
+	if exact && recounted > 0 && recounted < claimed {
+		return recounted // settle on the smaller, broker-verified count
+	}
+	return claimed
+}
+
 // recountAsync re-counts the completion off the hot path and reconciles it
 // against the node's claim. Safe to call as `go b.recountAsync(...)`; it is a
 // no-op when re-count is disabled. It never touches the settle path or the
@@ -114,7 +139,15 @@ func (b *broker) observeRecount(nodeID string, claimed, recounted int, exact boo
 	b.metricsMu.Unlock()
 
 	if flagged {
-		log.Printf("L1 DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged, settlement already happened (enforced re-bill is the next step)",
+		// P0-2: hold this node's earning lots from auto-promoting to payable until the
+		// discrepancy is reviewed (an over-reporting node must not cash out on schedule).
+		// Idempotent; persisted so the hold survives a broker restart.
+		if b.db != nil {
+			if err := b.db.SetNodeRecountHold(nodeID, true); err != nil {
+				log.Printf("L1: SetNodeRecountHold(%s) failed: %v (lots may still auto-promote)", nodeID, err)
+			}
+		}
+		log.Printf("L1 DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged + earnings HELD from promotion pending review",
 			nodeID, claimed, recounted, b.recount.tolerance*100, disc, total)
 	}
 }

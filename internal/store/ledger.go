@@ -24,6 +24,8 @@ const (
 	KindReserveHold    = "reserve_hold"    // operator: rolling reserve kept back
 	KindReserveRelease = "reserve_release" // operator: reserve released after the tail
 	KindAdjustment     = "adjustment"      // manual/clawback correction (signed)
+	KindPayoutReversed = "payout_reversed" // operator: an ALREADY-PAID lot clawed via a Stripe transfer reversal (-amount)
+	KindPlatformLoss   = "platform_loss"   // platform: disputed amount NOT recoverable from operator lots (platform eats it)
 )
 
 // Ledger row states. Rows are append-only; the only mutation is a single state
@@ -99,6 +101,32 @@ const (
 	PayoutFailed   = "failed"
 )
 
+// Reversal is one ALREADY-PAID earning lot that a dispute clawed back: the operator's
+// share already left to their connected account via a Stripe Transfer, so it must be
+// pulled back with a Stripe Transfer Reversal (ACCOUNT-PAYOUTS-DESIGN 6.4 step 4). The
+// store records the ledger clawback + marks the lot clawed atomically and returns these
+// so the broker can issue the reversal against the named transfer (idempotent on the
+// dispute+lot). AccountID is the owner pubkey; TransferID is the Stripe transfer the
+// lot was paid out on; Amount is the operator share to reverse (credits).
+type Reversal struct {
+	DisputeID  string  `json:"dispute_id"`
+	LotID      int64   `json:"lot_id"`
+	AccountID  string  `json:"account_id"`  // owner pubkey
+	TransferID string  `json:"transfer_id"` // the Stripe transfer to reverse
+	Amount     float64 `json:"amount"`      // operator share to reverse (credits)
+}
+
+// ChargebackResult is the outcome of a lineage-attributed dispute clawback: how much
+// was clawed from still-held/payable lots, the set of ALREADY-PAID lots that need a
+// Stripe Transfer Reversal, and the platform-loss remainder (disputed amount that no
+// operator lot covered - the platform eats it rather than clawing unrelated operators).
+type ChargebackResult struct {
+	Clawed         float64    `json:"clawed"`          // from held/payable lots (no Stripe action)
+	Reversals      []Reversal `json:"reversals"`       // already-paid lots needing a transfer reversal
+	PlatformLoss   float64    `json:"platform_loss"`   // unrecovered remainder (platform-liable)
+	AlreadyHandled bool       `json:"already_handled"` // true if this dispute id was already processed (idempotent no-op)
+}
+
 // PayoutPolicy holds the founder-approved, env-configurable payout knobs.
 type PayoutPolicy struct {
 	HoldDays  int     // days an earning is held before its non-reserve part is payable
@@ -108,12 +136,23 @@ type PayoutPolicy struct {
 }
 
 // LoadPayoutPolicy reads the policy from env with founder-approved defaults
-// (payout policy OPTION A): a 90-day hold, NO separate rolling reserve (0), a $25
-// minimum, monthly batched manual requests. The 90-day hold already covers the
-// chargeback/dispute tail, so nothing extra is withheld past the hold; set
-// ROGERAI_PAYOUT_RESERVE to a fraction in (0,1) to re-enable a reserve slice.
+// (payout policy OPTION A): a 120-day hold, NO separate rolling reserve (0), a $25
+// minimum, monthly batched manual requests.
+//
+// HOLD = 120 days (P0-3b): the hold is the FIRST line of defense against the
+// chargeback/dispute tail - while an earning is still held/payable, a dispute claws it
+// from un-paid earnings (the cheap, common case) instead of needing a Stripe transfer
+// reversal against the operator's connected account after the money already left. Card
+// disputes can land up to ~120 days after the charge, so a 90-day hold left a ~30-day
+// window where a paid-out lot could still be disputed (the "post-payout dispute loss").
+// Raising the default to 120 days makes step-3 (claw from held) the common case and
+// step-4 (transfer reversal) rare, per ACCOUNT-PAYOUTS-DESIGN 6.4. We chose the longer
+// hold over re-enabling a rolling reserve because it is the simpler correct lever (one
+// knob, no per-lot reserve accounting) and Option A already chose a hold-not-reserve
+// posture; set ROGERAI_PAYOUT_RESERVE to re-enable a reserve slice if a shorter hold is
+// ever wanted. Override the hold via ROGERAI_PAYOUT_HOLD_DAYS.
 func LoadPayoutPolicy() PayoutPolicy {
-	p := PayoutPolicy{HoldDays: 90, Reserve: 0, MinPayout: 25, Schedule: "monthly"}
+	p := PayoutPolicy{HoldDays: 120, Reserve: 0, MinPayout: 25, Schedule: "monthly"}
 	if v := os.Getenv("ROGERAI_PAYOUT_HOLD_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			p.HoldDays = n

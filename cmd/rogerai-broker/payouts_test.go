@@ -146,7 +146,7 @@ func TestPayoutSignedRequestEndToEnd(t *testing.T) {
 		gotCents = cents
 		return "tr_signed_1", nil
 	}
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 
@@ -171,7 +171,7 @@ func TestPayoutSignedRequestEndToEnd(t *testing.T) {
 // 403 (the SAME KYC gate the web path enforces - unchanged policy).
 func TestPayoutSignedKYCGate(t *testing.T) {
 	b, db, priv := newSignedPayoutBroker(t)
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 	w := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestPayoutSignedBelowMin(t *testing.T) {
 		transfers++
 		return "tr_should_not_happen", nil
 	}
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 10)
 	_, _ = db.Finalize("u", "n", 10, 10, 10, rec("r1")) // 10 < 25
 	w := httptest.NewRecorder()
@@ -225,7 +225,7 @@ func TestPayoutKYCGate(t *testing.T) {
 	b, db := newPayoutBroker(t)
 	// accrue 40 payable for the operator and fast-forward past the hold by serving now
 	// against a clock the store advances via EarningSplit reads.
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 
@@ -241,7 +241,7 @@ func TestPayoutKYCGate(t *testing.T) {
 func TestPayoutBelowMinimum(t *testing.T) {
 	b, db := newPayoutBroker(t)
 	_ = db.SetConnect("octocat", "acct_dev_stub", "active") // KYC passed (dev stub)
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000)                         // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 10)
 	_, _ = db.Finalize("u", "n", 10, 10, 10, rec("r1")) // 10 < 25 minimum
 
@@ -255,7 +255,7 @@ func TestPayoutBelowMinimum(t *testing.T) {
 // TestAccountDeleteGuard: an account with held earnings cannot be deleted (409).
 func TestAccountDeleteGuard(t *testing.T) {
 	b, db := newPayoutBroker(t)
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 30)
 	_, _ = db.Finalize("u", "n", 30, 30, 30, rec("r1")) // operator pk1 now holds 30
 
@@ -341,7 +341,7 @@ func TestPayoutBelowMin(t *testing.T) {
 		transferCalls++
 		return "tr_should_not_happen", nil
 	}
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 10)
 	_, _ = db.Finalize("u", "n", 10, 10, 10, rec("r1")) // 10 < 25 min
 
@@ -375,7 +375,7 @@ func TestPayoutTransfersRecordedAmount(t *testing.T) {
 	b.bill.creditUSD = 1 // 1 credit == $1 so cents == amount*100
 
 	// Accrue 40 payable for the operator (pk1 owns node n).
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 
@@ -450,7 +450,7 @@ func TestPayoutFailClosedRequireLive(t *testing.T) {
 	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
 	b.bill.creditUSD = 1
 
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 
@@ -489,7 +489,7 @@ func TestPayoutStubOKWithoutRequireLive(t *testing.T) {
 	b := &broker{priv: priv, db: db, seedFunds: 0, conn: loadConnect()}
 	_ = db.SetConnect("octocat", "acct_dev_stub", "active")
 	b.bill.creditUSD = 1
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 
@@ -508,17 +508,18 @@ func TestPayoutStubOKWithoutRequireLive(t *testing.T) {
 }
 
 // TestPayoutPolicyDefaults asserts loadConnect adopts the Option A policy defaults
-// when no ROGERAI_PAYOUT_* env is set: a 90-day hold, $25 minimum, monthly schedule,
-// and a ZERO reserve (no separate rolling-reserve bucket). This is the broker-side
-// guard that the founder-approved payout policy ships unchanged.
+// when no ROGERAI_PAYOUT_* env is set: a 120-day hold (P0-3b: covers the chargeback
+// tail so a post-payout dispute is rare), $25 minimum, monthly schedule, and a ZERO
+// reserve (no separate rolling-reserve bucket). This is the broker-side guard that the
+// founder-approved payout policy ships unchanged.
 func TestPayoutPolicyDefaults(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "")
 	t.Setenv("ROGERAI_PAYOUT_MIN", "")
 	t.Setenv("ROGERAI_PAYOUT_SCHEDULE", "")
 	c := loadConnect()
-	if c.policy.HoldDays != 90 {
-		t.Errorf("HoldDays = %d, want 90", c.policy.HoldDays)
+	if c.policy.HoldDays != 120 {
+		t.Errorf("HoldDays = %d, want 120", c.policy.HoldDays)
 	}
 	if c.policy.MinPayout != 25 {
 		t.Errorf("MinPayout = %v, want 25", c.policy.MinPayout)
@@ -553,7 +554,7 @@ func TestPayoutLedgerRollbackEndToEnd(t *testing.T) {
 	b.bill.creditUSD = 1
 
 	// Accrue 40 payable for the operator.
-	_, _ = db.BalanceOf("u", 1000)
+	_, _ = db.AddCredits("u", 1000) // REAL credits: only real-funded spend earns the operator (P0-1)
 	_, _ = db.Hold("u", 40)
 	_, _ = db.Finalize("u", "n", 40, 40, 40, rec("r1"))
 

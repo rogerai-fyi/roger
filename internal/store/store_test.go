@@ -9,6 +9,72 @@ import (
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
+// TestSeedFundedSpendDoesNotEarn locks the P0-1 invariant: spend paid from FREE seed
+// credits records the metering receipt but mints NO operator earning lot (an operator
+// must not be able to cash out another account's free seed credits); spend paid from
+// REAL (cleared-topup) credits earns the operator normally; a MIXED-funding spend earns
+// only on the real remainder. Consumer spend is unchanged in every case.
+func TestSeedFundedSpendDoesNotEarn(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	m.policy = LoadPayoutPolicy()
+	_ = m.BindNode("n", "acct1")
+
+	// SEED-funded wallet: $10 of free seed, spend $4 (owner share $2.8) -> NO lot.
+	_, seeded, _ := m.SeedOnce("seedy", 10)
+	if !seeded {
+		t.Fatal("seed should have applied")
+	}
+	if ok, _ := m.Hold("seedy", 4); !ok {
+		t.Fatal("hold seedy")
+	}
+	if _, err := m.Finalize("seedy", "n", 4, 4, 2.8, rec("s1")); err != nil {
+		t.Fatal(err)
+	}
+	// consumer spend recorded in full
+	if s, _ := m.SpendOf("seedy"); !approx(s, 4) {
+		t.Errorf("seed-funded spend = %v, want 4 (consumer still pays)", s)
+	}
+	// operator earns NOTHING on seed-funded traffic
+	if s, _ := m.EarningSplitOf("acct1", time.Now()); s.Held+s.Payable+s.Reserved != 0 {
+		t.Errorf("seed-funded earnings = %+v, want all zero (no payable lot)", s)
+	}
+	// the receipt still exists (metering preserved) with a ZERO owner share
+	rn, _ := m.RecentByNode("n", 10)
+	if len(rn) != 1 || rn[0].RequestID != "s1" || rn[0].OwnerShare != 0 {
+		t.Errorf("seed-funded receipt = %+v, want one s1 entry with owner_share 0", rn)
+	}
+
+	// REAL-funded wallet: $10 real topup, spend $4 (owner share $2.8) -> lot of 2.8.
+	fundReal(m, "rich", 10)
+	if ok, _ := m.Hold("rich", 4); !ok {
+		t.Fatal("hold rich")
+	}
+	if _, err := m.Finalize("rich", "n", 4, 4, 2.8, rec("r1")); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := m.EarningSplitOf("acct1", time.Now()); !approx(s.Payable, 2.8) {
+		t.Errorf("real-funded earnings = %v, want payable 2.8", s.Payable)
+	}
+
+	// MIXED-funding wallet: $3 seed + $7 real (=$10), spend $5 (owner share $5*0.7=3.5).
+	// $3 of the cost is seed-funded (drained first), $2 real -> earn only the real
+	// fraction 2/5 of 3.5 = 1.4 on node n2 (operator acct2).
+	_ = m.BindNode("n2", "acct2")
+	_, _, _ = m.SeedOnce("mix", 3)
+	fundReal(m, "mix", 7)
+	if ok, _ := m.Hold("mix", 5); !ok {
+		t.Fatal("hold mix")
+	}
+	if _, err := m.Finalize("mix", "n2", 5, 5, 3.5, rec("m1")); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := m.EarningSplitOf("acct2", time.Now()); !approx(s.Payable, 1.4) {
+		t.Errorf("mixed-funding earnings = %v, want payable 1.4 (only the real 2/5)", s.Payable)
+	}
+}
+
 // The core security property of #23: under heavy concurrency, holds serialize so a
 // wallet can never be overdrawn (no negative balance = no free inference).
 func TestHoldNeverOverdraws(t *testing.T) {
@@ -36,7 +102,7 @@ func TestHoldNeverOverdraws(t *testing.T) {
 
 func TestHoldFinalizeRelease(t *testing.T) {
 	m := NewMem()
-	_, _ = m.BalanceOf("u", 10)
+	fundReal(m, "u", 10)                    // REAL credits: only real-funded spend earns the operator (P0-1)
 	if held, _ := m.Hold("u", 2.0); !held { // balance 8, reserved 2
 		t.Fatal("hold should succeed")
 	}
@@ -78,7 +144,7 @@ func approx(a, b float64) bool {
 
 func TestDashboardEntries(t *testing.T) {
 	m := NewMem()
-	_, _ = m.BalanceOf("alice", 100)
+	fundReal(m, "alice", 100) // REAL credits: only real-funded spend earns the operator (P0-1)
 	settle := func(reqID, node string, cost float64, ts int64) {
 		rec := protocol.UsageReceipt{RequestID: reqID, Model: "m", PromptTokens: 10, CompletionTokens: 20, TS: ts}
 		if _, err := m.Settle("alice", node, cost, cost*0.7, rec); err != nil {
@@ -164,7 +230,7 @@ func TestChargebackByWalletRecency(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0") // lots become payable immediately
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	m := NewMem()
-	_, _ = m.BalanceOf("alice", 100)
+	fundReal(m, "alice", 100) // REAL credits: only real-funded spend earns the operator (P0-1)
 
 	// Two spends by alice on node n (operator pk1): an older 10-credit lot then a newer
 	// 20-credit lot. A third spend by BOB must never be clawed for alice's dispute.
@@ -174,7 +240,7 @@ func TestChargebackByWalletRecency(t *testing.T) {
 		r := protocol.UsageReceipt{RequestID: id, Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: ts}
 		_, _ = m.Finalize(user, "n", cost, cost, cost, r)
 	}
-	_, _ = m.BalanceOf("bob", 100)
+	fundReal(m, "bob", 100) // REAL credits (P0-1)
 	mk("old", "alice", 10, 1000)
 	mk("new", "alice", 20, 2000)
 	mk("bob1", "bob", 15, 1500)

@@ -416,6 +416,10 @@ func TestDashboardEndpoints(t *testing.T) {
 	mem := store.NewMem()
 	_, priv, _ := ed25519.GenerateKey(nil)
 	b := &broker{db: mem, priv: priv, seedFunds: 100, lastSeen: map[string]time.Time{"n1": time.Now()}}
+	// /earnings is now owner-authenticated: bind octocat (gid 42) as the operator and
+	// bind node n1 to that account so the session-cookie owner read is authorized.
+	_ = mem.BindOwner(store.Owner{GitHubID: 42, Login: "octocat", Pubkey: "pkn1"})
+	_ = mem.BindNode("n1", "pkn1")
 	// A logged-in consumer reads their github-scoped wallet (one wallet per account);
 	// settle a couple of requests against it on n1.
 	const wallet = "u_gh_42"
@@ -448,9 +452,10 @@ func TestDashboardEndpoints(t *testing.T) {
 		t.Errorf("/me recent len = %d want 2", len(me.Recent))
 	}
 
-	// GET /earnings?node=n1
+	// GET /earnings?node=n1 as the AUTHENTICATED owner (session cookie for gid 42).
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/earnings?node=n1", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 42, time.Now().Add(time.Hour).Unix())})
 	b.earnings(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("/earnings status %d", rec.Code)
@@ -468,11 +473,30 @@ func TestDashboardEndpoints(t *testing.T) {
 		t.Errorf("/earnings recent len = %d want 2", len(earn.Recent))
 	}
 
-	// GET /earnings with no node → 400
+	// GET /earnings with no node → 400 (still owner-authenticated).
 	rec = httptest.NewRecorder()
-	b.earnings(rec, httptest.NewRequest(http.MethodGet, "/earnings", nil))
+	noNode := httptest.NewRequest(http.MethodGet, "/earnings", nil)
+	noNode.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 42, time.Now().Add(time.Hour).Unix())})
+	b.earnings(rec, noNode)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("/earnings without node = %d want 400", rec.Code)
+	}
+
+	// UNAUTHENTICATED /earnings is rejected 401 (node ids are public - must not leak).
+	rec = httptest.NewRecorder()
+	b.earnings(rec, httptest.NewRequest(http.MethodGet, "/earnings?node=n1", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("anon /earnings = %d want 401", rec.Code)
+	}
+
+	// A DIFFERENT owner (gid 99) that does NOT own n1 is rejected 403.
+	_ = mem.BindOwner(store.Owner{GitHubID: 99, Login: "mallory", Pubkey: "pk99"})
+	rec = httptest.NewRecorder()
+	other := httptest.NewRequest(http.MethodGet, "/earnings?node=n1", nil)
+	other.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("mallory", 99, time.Now().Add(time.Hour).Unix())})
+	b.earnings(rec, other)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-owner /earnings = %d want 403", rec.Code)
 	}
 }
 

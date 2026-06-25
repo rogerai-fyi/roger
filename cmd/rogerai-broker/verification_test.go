@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/store"
 )
 
 func newTrustBroker() *broker {
@@ -106,6 +107,84 @@ func TestRecountAsyncViaSidecar(t *testing.T) {
 // loadRecountWith builds a recountConfig for tests (loadRecount reads env).
 func loadRecountWith(url string, tol float64) recountConfig {
 	return recountConfig{url: url, tolerance: tol, client: &http.Client{Timeout: 2 * time.Second}}
+}
+
+// sidecarServer returns an httptest server that always answers /count with the given
+// (tokens, exact). Each test phase uses its OWN fixed-value server so no handler vars
+// are mutated while an in-flight request reads them.
+func sidecarServer(tokens int, exact bool) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"tokens": tokens, "exact": exact})
+	}))
+}
+
+// TestSettleRecountCapsInflatedCompletion locks P0-2 (a): when the broker's EXACT
+// re-count is lower than the node's claimed completion tokens, settleRecount returns
+// the smaller (verified) count to bill on; an under-reported / heuristic count is never
+// inflated; a disabled re-count bills the claim unchanged. It ALSO flags the node for a
+// promotion hold when the claim is over-reported past tolerance. Each phase uses a fresh
+// broker + server so the goroutine-spawned observeRecount never races a config rewrite.
+func TestSettleRecountCapsInflatedCompletion(t *testing.T) {
+	// CAP: node claims 500 but the broker re-counts 100 (exact) -> bill 100, and the
+	// over-reporting node is flagged for a promotion hold.
+	t.Run("cap+hold", func(t *testing.T) {
+		srv := sidecarServer(100, true)
+		defer srv.Close()
+		mem := store.NewMem()
+		b := newTrustBroker()
+		b.db = mem
+		b.recount = loadRecountWith(srv.URL, 0.02)
+		if got := b.settleRecount("n", "gpt-4o", "some completion", 500); got != 100 {
+			t.Errorf("billed completion = %d, want 100 (min of claim 500 / recount 100)", got)
+		}
+		waitFor(t, func() bool { held, _ := mem.RecountHeldNodes(); return held["n"] })
+	})
+
+	// UNDER-REPORT: claims 80, recount 100 -> never inflate, bill 80.
+	t.Run("under-report", func(t *testing.T) {
+		srv := sidecarServer(100, true)
+		defer srv.Close()
+		b := newTrustBroker()
+		b.db = store.NewMem()
+		b.recount = loadRecountWith(srv.URL, 0.02)
+		if got := b.settleRecount("n", "gpt-4o", "x", 80); got != 80 {
+			t.Errorf("under-report billed = %d, want 80 (never inflate the claim)", got)
+		}
+	})
+
+	// HEURISTIC (non-exact) count never caps, even far below the claim.
+	t.Run("heuristic", func(t *testing.T) {
+		srv := sidecarServer(10, false)
+		defer srv.Close()
+		b := newTrustBroker()
+		b.db = store.NewMem()
+		b.recount = loadRecountWith(srv.URL, 0.02)
+		if got := b.settleRecount("n", "gpt-4o", "x", 300); got != 300 {
+			t.Errorf("heuristic billed = %d, want 300 (too coarse to bill on)", got)
+		}
+	})
+
+	// DISABLED re-count bills the claim unchanged (no sidecar call at all).
+	t.Run("disabled", func(t *testing.T) {
+		b := newTrustBroker()
+		b.db = store.NewMem()
+		b.recount = recountConfig{}
+		if got := b.settleRecount("n", "gpt-4o", "x", 777); got != 777 {
+			t.Errorf("disabled re-count billed = %d, want 777 (claim unchanged)", got)
+		}
+	})
+}
+
+// waitFor polls cond up to ~1s (the goroutine-fed promotion-hold flag).
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition not met within timeout")
 }
 
 // TestCompletionText extracts the assistant content from a chat-completions body.

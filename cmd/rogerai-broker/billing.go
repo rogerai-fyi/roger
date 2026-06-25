@@ -233,13 +233,19 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if user != "" && amount > 0 {
-			// requestID is empty for a real dispute: Chargeback claws lots by wallet+recency.
-			clawed, err := b.db.Chargeback(o.ID, user, o.Metadata.RequestID, amount, time.Now())
+			// Lineage-attributed clawback (P0-3 + P0-4): claw THIS consumer's OWN lots only
+			// (never unrelated operators'); held/payable are clawed in the store, ALREADY-PAID
+			// lots come back as Reversals we must pull from the operator's connected account
+			// via a Stripe Transfer Reversal (6.4 step 4); any uncovered remainder is recorded
+			// as a platform loss in the store. Idempotent on the dispute id.
+			res, err := b.db.ChargebackLineage(o.ID, user, o.Metadata.RequestID, amount, time.Now())
 			if err != nil {
 				jsonErr(w, http.StatusInternalServerError, "store error")
 				return
 			}
-			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from operators)", o.ID, user, amount, clawed)
+			b.reversePaidLots(o.ID, res.Reversals)
+			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from held/payable, %d paid-lot reversal(s), platform loss %.4f)",
+				o.ID, user, amount, res.Clawed, len(res.Reversals), res.PlatformLoss)
 		} else {
 			log.Printf("stripe: dispute %s could not resolve a wallet (pi=%s ch=%s amount=%.4f) - no clawback", o.ID, o.PaymentIntent, o.Charge, amount)
 		}
