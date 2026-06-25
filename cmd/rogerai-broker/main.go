@@ -203,8 +203,13 @@ func main() {
 	b.recount = loadRecount()
 	b.probe = loadProbe()
 	b.concierge = loadConcierge()
-	// Bind the concierge's serving paths to this broker (dogfood a free station,
-	// then Groq). Stored as fields so tests can stub each branch independently.
+	// Bind the concierge's serving paths to this broker (grant dogfood, then a free
+	// station, then Groq). Stored as fields so tests can stub each branch
+	// independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
+	// is set, so the handler skips it cleanly when there is no grant key.
+	if b.concierge.grantKey != "" {
+		b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
+	}
 	b.concierge.dogfoodFn = b.dogfoodRelay
 	b.concierge.groqFn = b.groqCall
 	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)

@@ -65,6 +65,16 @@ func (b *broker) resolveGrant(r *http.Request) (gc grantContext, ok bool, err st
 	if tok == "" {
 		return grantContext{}, false, ""
 	}
+	return b.resolveGrantToken(tok)
+}
+
+// resolveGrantToken is the core grant resolution shared by the HTTP path
+// (resolveGrant) and the concierge dogfood path (which authenticates from the
+// CONCIERGE_GRANT_KEY env secret, not a request header). It maps the raw
+// `rog-grant_...` secret to its stored grant by sha256 and builds the same grant
+// context (grant + grant-scoped wallet + owner nodeAllow) the relay would. The
+// caller must have already established that tok is non-empty.
+func (b *broker) resolveGrantToken(tok string) (gc grantContext, ok bool, err string) {
 	sum := sha256.Sum256([]byte(tok))
 	g, found, gerr := b.db.GrantBySecretHash(hex.EncodeToString(sum[:]))
 	if gerr != nil {
