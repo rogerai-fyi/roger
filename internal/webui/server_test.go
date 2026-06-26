@@ -159,8 +159,8 @@ func TestAssetsServe(t *testing.T) {
 	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
-	// The shell HTML references these; both must serve without a token (static, no data).
-	for _, path := range []string{"/", "/assets/console.css", "/assets/console.js"} {
+	// The shell HTML references these; all must serve without a token (static, no data).
+	for _, path := range []string{"/", "/assets/tokens.css", "/assets/console.css", "/assets/console.js"} {
 		resp, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -179,7 +179,7 @@ func TestAssetsServe(t *testing.T) {
 	resp, _ := http.Get(srv.URL + "/")
 	html, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	for _, ref := range []string{"/assets/console.css", "/assets/console.js"} {
+	for _, ref := range []string{"/assets/tokens.css", "/assets/console.css", "/assets/console.js"} {
 		if !strings.Contains(string(html), ref) {
 			t.Errorf("shell HTML does not reference %s", ref)
 		}
