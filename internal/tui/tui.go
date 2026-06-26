@@ -53,6 +53,17 @@ type Hooks struct {
 	ShareModel  string               // saved onboarding model (default offer)
 	SharePriceI float64              // saved input price (0 = free)
 	SharePriceO float64              // saved output price (0 = free)
+	// ShareUpstream + ShareUpstreamKey seed the saved/verified local endpoint (and any
+	// bearer key it needs) from the host config, so a custom / key-protected upstream
+	// saved during onboarding is probed FIRST and reused on the TUI's first /share scan -
+	// not re-hunted or re-prompted. Empty for the common auto-detected no-auth server.
+	ShareUpstream    string
+	ShareUpstreamKey string
+	// SaveUpstream persists a newly verified local endpoint + any bearer key it needed
+	// (auto-detected or pasted in the guided fallback), so a custom / key-protected
+	// upstream survives a restart and is reused on the next scan - the TUI mirror of the
+	// CLI's save in `roger share`. nil = session-only (the host owns the disk write).
+	SaveUpstream func(upstream, key string)
 	// ShareMaxOnAir is the SOFT local cap on how many bands may be ON AIR at once (the
 	// share.max_on_air config knob), read once at startup. The [2] SHARE selector shows
 	// the ON AIR n/max slots and BLOCKS flipping another row on air at the cap. <=0 means
@@ -264,8 +275,11 @@ func rowSel(sel bool, plain string, width int) string {
 
 // detectShares is the indirection over local-LLM detection used by the SHARE
 // flows, so tests can make it deterministic (the real Detect scans the host's open
-// ports). Production uses detect.DetectWith.
-var detectShares = func(extra ...string) []detect.Found { return detect.DetectWith(extra...) }
+// ports). Production uses detect.DetectFull, which also reports key-protected
+// servers (needKey) so the guided fallback can ask for a key instead of dead-ending.
+var detectShares = func(extra ...string) (found []detect.Found, needKey []string) {
+	return detect.DetectFull(extra...)
+}
 
 // marketMedianOut is the indirection over the live per-model market-median lookup
 // used by the editor's fat-finger guard (the TUI mirror of the CLI softPriceWarn),
@@ -281,8 +295,19 @@ var marketMedianOut = func(broker, model string) (float64, bool) {
 // Update handler folds into the provider table. detectShares stays injectable so
 // tests can make this deterministic (a test can also feed sharesDetectedMsg
 // directly to exercise the handler).
-func detectSharesCmd(extra string) tea.Cmd {
-	return func() tea.Msg { return sharesDetectedMsg{found: detectShares(extra)} }
+func detectSharesCmd(extra, key string) tea.Cmd {
+	return func() tea.Msg {
+		// A saved keyed upstream is reused without a re-prompt: try it WITH its key first
+		// (the broad scan does not carry the key), then fall back to full detection. This
+		// mirrors the CLI's bare-`roger share` reuse of a saved keyed endpoint.
+		if extra != "" && key != "" {
+			if f, st := detect.ProbeKey(extra, key); st == detect.Reachable {
+				return sharesDetectedMsg{found: []detect.Found{f}}
+			}
+		}
+		found, needKey := detectShares(extra)
+		return sharesDetectedMsg{found: found, needKey: needKey}
+	}
 }
 
 type offer struct {
@@ -605,7 +630,12 @@ type model struct {
 	shareRows   []shareRow                // the provider table rows (detected models)
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
-	quitReturn  mode                      // the mode to restore if the on-air quit-guard is declined
+	shareKey    string                    // bearer key the headline upstream needs (env/paste), if any
+	// shareSavedUp/Key track what was last PERSISTED via Hooks.SaveUpstream (the /v1
+	// base + key), so a re-detection that lands the same endpoint doesn't rewrite config.
+	shareSavedUp  string
+	shareSavedKey string
+	quitReturn    mode // the mode to restore if the on-air quit-guard is declined
 	// station is the live, slugged broadcast callsign every band's node id is derived
 	// from (`<station>-<model>`). Seeded from Hooks.Station; the `n` rename in [2] SHARE
 	// edits it (renaming buffer = stationEdit while renaming==true) and persists via
@@ -656,6 +686,11 @@ type model struct {
 	setupCursor int    // selected option in the setup wizard
 	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
 	setupErr    string // last paste-verify error
+	// setupAwaitKey + setupKey drive the second input step when a pasted endpoint is
+	// reachable but KEY-PROTECTED (a 401/403): the input flips to collecting the API
+	// key, which we send as a Bearer to re-verify and then carry onto the share row.
+	setupAwaitKey bool
+	setupKey      string
 	// payout: a lightweight, lazily-fetched snapshot of the operator's Connect/KYC
 	// state + payable balance, surfaced as a one-line hint in the ON-AIR / SHARE
 	// earnings surface ("$X payable - run `roger payout`" or "complete KYC: ...").
@@ -719,6 +754,7 @@ type shareRow struct {
 	ctx          int
 	ctxEstimated bool   // ctx is the estimated default (no real window detected), not measured
 	upstream     string // the normalized chat-completions URL backing THIS row's model
+	upstreamKey  string // bearer key THIS row's key-protected upstream needs (env/paste), if any
 }
 
 // ---- messages ----
@@ -738,7 +774,10 @@ type freqResolvedMsg struct {
 // the event loop (see detectSharesCmd). The Update handler turns it into provider
 // rows + clears the loading flag, so the SHARE table never blocks the UI while the
 // host's open ports are probed.
-type sharesDetectedMsg struct{ found []detect.Found }
+type sharesDetectedMsg struct {
+	found   []detect.Found
+	needKey []string // base URLs present but key-protected (401/403), for the guided prompt
+}
 
 // balanceMsg carries the wallet read: the balance plus whether the broker says the
 // caller is logged in (has a real account wallet). Balance is shown only when in.
@@ -801,6 +840,14 @@ func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 	if m.station == "" {
 		m.station = agent.GenerateStation()
 	}
+	// Seed the saved/verified upstream (and any key it needs) so the first /share scan
+	// probes that endpoint first and reuses a saved keyed upstream without re-prompting
+	// (detectSharesCmd carries the key). normalizeUpstream accepts the saved /v1 base.
+	m.shareUp = normalizeUpstream(hooks.ShareUpstream)
+	m.shareKey = hooks.ShareUpstreamKey
+	// What is already on disk, so a re-detection landing the same endpoint is a no-op
+	// (only a NEW upstream/key triggers a SaveUpstream write).
+	m.shareSavedUp, m.shareSavedKey = hooks.ShareUpstream, hooks.ShareUpstreamKey
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
 	m.compact = hooks.Compact
 	// Seed per-model pricing the user set in a previous session.
@@ -928,7 +975,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case sharesDetectedMsg:
-		return m.onSharesDetected(msg.found)
+		return m.onSharesDetected(msg.found, msg.needKey)
 	case balanceMsg:
 		m.loggedIn = msg.loggedIn
 		if msg.loggedIn {
@@ -1656,7 +1703,7 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 		m.sharePending = args[0] // `/share <model>` shortcut: flip it on air after detect
 	}
 	m.status = stDim.Render("scanning the band for local models…")
-	return m, detectSharesCmd(m.shareUp)
+	return m, detectSharesCmd(m.shareUp, m.shareKey)
 }
 
 // onSharesDetected folds an async detection result into the provider table: it
@@ -1665,15 +1712,22 @@ func (m model) doShare(args []string) (tea.Model, tea.Cmd) {
 // setup wizard when nothing was found. An empty re-detect from inside the table
 // (setupOnEmpty=false) stays on the table with a clear note rather than yanking the
 // user into the wizard mid-list.
-func (m model) onSharesDetected(found []detect.Found) (tea.Model, tea.Cmd) {
+func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Model, tea.Cmd) {
 	m.shareLoading = false
 	if len(found) == 0 {
 		if m.setupOnEmpty {
-			// GUIDED FALLBACK: nothing detected -> the in-TUI setup wizard (pick a tool for
-			// a one-liner, or paste a URL we verify), not a dead-end status line. If we were
-			// already in the wizard (a re-scan / named-tool pick that found nothing), keep
-			// the wizard but flag the empty result inline.
+			// GUIDED FALLBACK: nothing usable detected -> the in-TUI setup wizard (pick a
+			// tool for a one-liner, or paste a URL we verify), not a dead-end status line.
+			// When a server IS there but key-protected (401/403), drop straight onto the
+			// paste row with its URL pre-filled and ask for the key - the most likely fix.
 			nm := m.enterShareSetup()
+			if len(needKey) > 0 {
+				nm.setupCursor = len(setupOptions) - 1 // the "Other - paste a URL" row
+				nm.setupPaste = needKey[0]
+				nm.setupAwaitKey = true
+				nm.status = stDim.Render(needKey[0] + " needs an API key - type it and press enter")
+				return nm, nil
+			}
 			if m.shareRescan {
 				note := m.setupHint
 				if note == "" {
@@ -1724,6 +1778,15 @@ func (m *model) loadShareRows(found []detect.Found) {
 	}
 	if len(found) > 0 {
 		m.shareUp = normalizeUpstream(found[0].Chat)
+		m.shareKey = found[0].Key
+		// Persist a newly verified endpoint + key so a custom / key-protected upstream is
+		// reused next launch (mirrors the CLI's save in `roger share`). Only on a real
+		// change, so re-scanning the already-saved endpoint doesn't rewrite config.
+		if m.hooks.SaveUpstream != nil && found[0].BaseURL != "" &&
+			(found[0].BaseURL != m.shareSavedUp || found[0].Key != m.shareSavedKey) {
+			m.shareSavedUp, m.shareSavedKey = found[0].BaseURL, found[0].Key
+			m.hooks.SaveUpstream(found[0].BaseURL, found[0].Key)
+		}
 	}
 	seen := map[string]bool{}
 	rows := make([]shareRow, 0)
@@ -1738,7 +1801,11 @@ func (m *model) loadShareRows(found []detect.Found) {
 			// window when the upstream reported it, else the estimated default (flagged) -
 			// so the TUI and CLI agree and the duplicated 32768 literal is gone.
 			ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
-			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, ctxEstimated: ctxEst, upstream: up})
+			// Carry the upstream's working key (discovered from env, or pasted in the
+			// guided fallback) so this row goes ON AIR with the same Bearer the detector
+			// authenticated with - a key-protected local server is otherwise served jobs
+			// it 401s.
+			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, ctxEstimated: ctxEst, upstream: up, upstreamKey: srv.Key})
 		}
 	}
 	// Put the saved onboarding model first so the obvious default is at the cursor.
@@ -1799,6 +1866,10 @@ func (m *model) toggleShareAt(i int) {
 	if up == "" {
 		up = m.shareUp
 	}
+	upKey := row.upstreamKey
+	if upKey == "" {
+		upKey = m.shareKey
+	}
 	// Unique, STABLE, PRIVACY-PRESERVING node id per band: <station>-<model>, derived
 	// through the SAME helper the CLI `roger share` uses. The station is the friendly
 	// callsign (never the hostname); the per-model slug keeps each band a DISTINCT broker
@@ -1806,7 +1877,7 @@ func (m *model) toggleShareAt(i int) {
 	// model (the shares map is keyed by model), so no same-model disambiguation is needed.
 	node := agent.ShareNodeID(m.station, row.model, 0)
 	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: up, NodeID: node,
+		Broker: m.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
 		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
 		Schedule: schedToProtocol(p.Windows),
@@ -1867,12 +1938,16 @@ func (m *model) togglePrivateAt(i int) {
 	if up == "" {
 		up = m.shareUp
 	}
+	upKey := row.upstreamKey
+	if upKey == "" {
+		upKey = m.shareKey
+	}
 	// Same unique/stable/privacy-preserving node id as the public-share path (private
 	// just flips visibility): <station>-<model> via the shared helper, so a private band
 	// also gets its own broker node and carries the friendly station, not the hostname.
 	node := agent.ShareNodeID(m.station, row.model, 0)
 	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: up, NodeID: node,
+		Broker: m.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
 		Region: "home", HW: m.hooks.HW, Model: row.model,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
 		Private: goPrivate, Schedule: schedToProtocol(p.Windows),
@@ -2073,7 +2148,7 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setupHint = ""
 		m.sharePending = ""
 		m.status = stDim.Render("re-scanning the band for local models…")
-		return m, detectSharesCmd(m.shareUp)
+		return m, detectSharesCmd(m.shareUp, m.shareKey)
 	}
 	return m, nil
 }
@@ -2125,6 +2200,8 @@ func (m model) enterShareSetup() model {
 	m.setupCursor = 0
 	m.setupPaste = ""
 	m.setupErr = ""
+	m.setupAwaitKey = false
+	m.setupKey = ""
 	m.status = stDim.Render("no local model found - pick what you're running, or paste a URL")
 	return m
 }
@@ -2161,12 +2238,14 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setupCursor--
 		}
 		m.setupErr = ""
+		m.setupAwaitKey = false
 		return m, nil
 	case "down", "j":
 		if m.setupCursor < len(setupOptions)-1 {
 			m.setupCursor++
 		}
 		m.setupErr = ""
+		m.setupAwaitKey = false
 		return m, nil
 	case "r":
 		// Re-scan (after the user started their tool in another terminal). ASYNC: enter
@@ -2180,7 +2259,7 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sharePending = ""
 		m.setupErr = ""
 		m.status = stDim.Render("re-scanning the band for local models…")
-		return m, detectSharesCmd(m.shareUp)
+		return m, detectSharesCmd(m.shareUp, m.shareKey)
 	case "enter":
 		if pasting {
 			url := strings.TrimSpace(m.setupPaste)
@@ -2188,15 +2267,28 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setupErr = "paste your endpoint, e.g. http://127.0.0.1:8081"
 				return m, nil
 			}
-			if f, ok := detect.Probe(url); ok {
+			// Verify with whatever key has been typed (empty on the first pass). A
+			// key-protected server flips into the key-entry step rather than failing; the
+			// next enter re-verifies with the typed key, which loadShareRows then carries
+			// onto the row so on-air uses the same Bearer.
+			f, st := detect.ProbeKey(url, strings.TrimSpace(m.setupKey))
+			switch st {
+			case detect.Reachable:
 				m.shareUp = normalizeUpstream(f.Chat)
 				m.loadShareRows([]detect.Found{f})
 				m.mode = modeShare
+				m.setupAwaitKey = false
 				m.status = stLive.Render("verified " + f.BaseURL + " - " + plural(len(m.shareRows), "model") + " ready")
 				return m, nil
+			case detect.NeedsKey:
+				m.setupAwaitKey = true
+				m.setupErr = ""
+				m.status = stDim.Render(url + " needs an API key - type it and press enter")
+				return m, nil
+			default:
+				m.setupErr = "no OpenAI-compatible server at " + url + " (no /v1/models) - check it and try again"
+				return m, nil
 			}
-			m.setupErr = "no OpenAI-compatible server at " + url + " (no /v1/models) - check it and try again"
-			return m, nil
 		}
 		// A named tool: ASYNC re-detect (maybe it's already up). If nothing comes back we
 		// return to the wizard with this tool's start one-liner; a found result lands the
@@ -2208,16 +2300,26 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sharePending = ""
 		m.setupHint = "start it, then press r to re-scan:  " + setupOptions[m.setupCursor].oneLiner
 		m.status = stDim.Render("checking for " + setupOptions[m.setupCursor].label + "…")
-		return m, detectSharesCmd(m.shareUp)
+		return m, detectSharesCmd(m.shareUp, m.shareKey)
 	case "backspace":
-		if pasting && m.setupPaste != "" {
-			m.setupPaste = m.setupPaste[:len(m.setupPaste)-1]
+		if pasting {
+			if m.setupAwaitKey {
+				if m.setupKey != "" {
+					m.setupKey = m.setupKey[:len(m.setupKey)-1]
+				}
+			} else if m.setupPaste != "" {
+				m.setupPaste = m.setupPaste[:len(m.setupPaste)-1]
+			}
 		}
 		return m, nil
 	default:
 		if pasting {
 			if s := k.String(); len(s) == 1 {
-				m.setupPaste += s
+				if m.setupAwaitKey {
+					m.setupKey += s
+				} else {
+					m.setupPaste += s
+				}
 			}
 		}
 		return m, nil
@@ -6254,6 +6356,19 @@ func (m model) editorLivePreview() string {
 	return label + body + stDim.Render("  ("+src+")")
 }
 
+// maskKey renders an API key as bullets (keeping a short tail visible so the user
+// can confirm what they typed) so the secret never sits in plaintext on screen.
+func maskKey(k string) string {
+	n := len([]rune(k))
+	if n == 0 {
+		return ""
+	}
+	if n <= 4 {
+		return strings.Repeat("•", n)
+	}
+	return strings.Repeat("•", n-4) + k[len(k)-4:]
+}
+
 // shareSetupView is the in-TUI guided fallback when no local model was detected: a
 // k9s-styled option list (pick a tool for a start one-liner, or paste a URL we
 // verify). It carries the same selection-cursor + contextual-footer feel as the
@@ -6299,7 +6414,20 @@ func (m model) shareSetupView(w int) string {
 		if narrow {
 			tail = ""
 		}
-		b.WriteString("\n  " + stPrompt.Render("url › ") + stSelText.Render(m.setupPaste+"▏") + tail + "\n")
+		urlCaret := "▏"
+		if m.setupAwaitKey {
+			urlCaret = "" // caret moves to the key line below while entering the key
+		}
+		b.WriteString("\n  " + stPrompt.Render("url › ") + stSelText.Render(m.setupPaste+urlCaret) + tail + "\n")
+		// Second input step: a key-protected endpoint (401/403) asks for its API key,
+		// masked so a shoulder-surf doesn't leak it. Sent as a Bearer to re-verify.
+		if m.setupAwaitKey {
+			ktail := stDim.Render("   needs an API key  ·  ⏎ verifies with it")
+			if narrow {
+				ktail = ""
+			}
+			b.WriteString("  " + stPrompt.Render("key › ") + stSelText.Render(maskKey(m.setupKey)+"▏") + ktail + "\n")
+		}
 	} else {
 		hint := stDim.Render("started your tool? press ") + stKey.Render("r") + stDim.Render(" to re-scan")
 		b.WriteString("\n  " + hint + "\n")
