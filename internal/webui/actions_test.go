@@ -45,7 +45,7 @@ func postAction(t *testing.T, srv *httptest.Server, token, path, body string) ac
 
 func TestOnAirActionTogglesNodeAndTUIWouldSee(t *testing.T) {
 	c := onairCtrl(t)
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -78,7 +78,7 @@ func TestOnAirActionTogglesNodeAndTUIWouldSee(t *testing.T) {
 func TestPricedOnAirActionReportsLoginNeeded(t *testing.T) {
 	c := onairCtrl(t)
 	c.SetPricing("m1", node.Pricing{Out: 2})
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	ar := postAction(t, srv, s.Token(), "/api/share/onair", `{"model":"m1"}`)
@@ -89,7 +89,7 @@ func TestPricedOnAirActionReportsLoginNeeded(t *testing.T) {
 
 func TestRenameAction(t *testing.T) {
 	c := onairCtrl(t)
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	ar := postAction(t, srv, s.Token(), "/api/share/rename", `{"station":"violet-owl"}`)
@@ -100,7 +100,7 @@ func TestRenameAction(t *testing.T) {
 
 func TestPriceAction(t *testing.T) {
 	c := onairCtrl(t)
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	ar := postAction(t, srv, s.Token(), "/api/share/price", `{"model":"m1","in":1,"out":3,"windows":[{"start":"03:00","end":"03:30","free":true}]}`)
@@ -114,7 +114,7 @@ func TestPriceAction(t *testing.T) {
 
 func TestWriteActionsRejectGET(t *testing.T) {
 	c := onairCtrl(t)
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	// A GET (CSRF-reachable) to a write endpoint must be refused even WITH the token.
@@ -133,7 +133,7 @@ func TestWriteActionsRejectGET(t *testing.T) {
 
 func TestWriteActionRequiresToken(t *testing.T) {
 	c := onairCtrl(t)
-	s := New(c)
+	s := New(c, Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	resp, err := http.Post(srv.URL+"/api/share/onair", "application/json", strings.NewReader(`{"model":"m1"}`))

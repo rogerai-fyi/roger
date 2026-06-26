@@ -1074,6 +1074,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logoutMsg:
 		m.ghLogin = ""
 		m.loggedIn = false
+		m.ctrl.Logout() // explicit sign-out: clear the shared login (SetLoggedIn is raise-only)
 		m.haveBal = false
 		m.balance = 0
 		m.loginWaiting = false

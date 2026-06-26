@@ -18,25 +18,40 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/node"
 )
 
 //go:embed assets/*
 var assetsFS embed.FS
 
+// Options carry the broker identity the account + browse surfaces need. They are
+// optional: with an empty Broker the share/monitor surfaces still work and the account/
+// browse endpoints report "not configured" rather than erroring.
+type Options struct {
+	Broker   string
+	User     string // signed user id (X-Roger-User)
+	ClientID string // GitHub OAuth client id for the device-flow login
+}
+
 // Server is the node console HTTP server. It is safe for concurrent requests: all live
-// state lives behind the controller's mutex.
+// state lives behind the controller's mutex; the in-flight login device has its own lock.
 type Server struct {
 	ctrl  *node.Controller
 	token string
 	mux   *http.ServeMux
+	opts  Options
+
+	loginMu     sync.Mutex
+	loginDevice *client.Device // the in-flight device-flow login between begin and poll
 }
 
 // New builds a console server over ctrl with a freshly-minted access token. Call
 // Handler() for the wrapped http.Handler, or Serve(ln) to run it.
-func New(ctrl *node.Controller) *Server {
-	s := &Server{ctrl: ctrl, token: newToken()}
+func New(ctrl *node.Controller, opts Options) *Server {
+	s := &Server{ctrl: ctrl, token: newToken(), opts: opts}
 	s.mux = http.NewServeMux()
 	s.routes()
 	return s
@@ -68,6 +83,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/share/price", s.action(s.handlePrice))
 	s.mux.HandleFunc("/api/share/rename", s.action(s.handleRename))
 	s.mux.HandleFunc("/api/share/detect", s.action(s.handleDetect))
+	// Account (reads token-gated; writes POST-only).
+	s.mux.HandleFunc("/api/account", s.auth(s.handleAccount))
+	s.mux.HandleFunc("/api/account/login/begin", s.action(s.handleLoginBegin))
+	s.mux.HandleFunc("/api/account/login/poll", s.action(s.handleLoginPoll))
+	s.mux.HandleFunc("/api/account/logout", s.action(s.handleLogout))
+	s.mux.HandleFunc("/api/account/topup", s.action(s.handleTopup))
+	s.mux.HandleFunc("/api/account/limit", s.auth(s.handleLimit)) // GET reads, POST sets
+	s.mux.HandleFunc("/api/payout", s.auth(s.handlePayout))
+	s.mux.HandleFunc("/api/payout/onboard", s.action(s.handlePayoutOnboard))
+	s.mux.HandleFunc("/api/payout/request", s.action(s.handlePayoutRequest))
+	s.mux.HandleFunc("/api/payout/history", s.auth(s.handlePayoutHistory))
+	s.mux.HandleFunc("/api/grants", s.auth(s.handleGrants)) // GET lists, POST creates
+	// Browse (the open-market discover feed).
+	s.mux.HandleFunc("/api/browse", s.auth(s.handleBrowse))
 }
 
 // Handler returns the fully-wrapped handler (localhost guard in front of the mux).

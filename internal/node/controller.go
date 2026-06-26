@@ -131,12 +131,33 @@ func New(cfg Config) *Controller {
 	return c
 }
 
-// SetLoggedIn records the operator's current login state so priced/private shares are
-// gated correctly. Front-ends push this whenever their login state changes.
+// SetLoggedIn records that a front-end observed the operator as logged in. It is
+// RAISE-ONLY: passing true marks the node logged in, passing false is a no-op. This lets
+// BOTH front-ends push their best knowledge every refresh without one clobbering the
+// other (the TUI ticks SetLoggedIn(false) before its first balance read; a web login must
+// survive that). An actual sign-out goes through Logout.
 func (c *Controller) SetLoggedIn(v bool) {
+	if !v {
+		return
+	}
 	c.mu.Lock()
-	c.loggedIn = v
+	c.loggedIn = true
 	c.mu.Unlock()
+}
+
+// Logout explicitly clears the logged-in state (an operator sign-out from either
+// front-end). Priced/private shares re-lock until the next login.
+func (c *Controller) Logout() {
+	c.mu.Lock()
+	c.loggedIn = false
+	c.mu.Unlock()
+}
+
+// LoggedIn reports the current login state.
+func (c *Controller) LoggedIn() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loggedIn
 }
 
 // SetPrices seeds the saved per-model pricing (from the host's config) without going
