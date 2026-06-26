@@ -7,18 +7,15 @@ import (
 	"testing"
 )
 
-// useTempConfigDir points configPath() (and thus onAirLockPath) at a throwaway
-// dir so the test never touches a real ~/.config/rogerai/share-*.lock.
-func useTempConfigDir(t *testing.T) {
-	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-}
+// Config isolation uses the shared cross-platform useTempConfig (config_isolation_test.go):
+// XDG_CONFIG_HOME alone only isolates on Linux, so these lock tests would otherwise write
+// share-*.lock into the REAL config dir on macOS/Windows.
 
 // TestOnAirLock_BlocksAnotherLiveProcess covers the core guard: a lock held by a
 // DIFFERENT, still-alive process must block a fresh acquire. We stand in for that
 // other daemon with our parent PID (alive for the duration of the test, and != us).
 func TestOnAirLock_BlocksAnotherLiveProcess(t *testing.T) {
-	useTempConfigDir(t)
+	useTempConfig(t)
 
 	other := os.Getppid()
 	if other == os.Getpid() || !processAlive(other) {
@@ -41,7 +38,7 @@ func TestOnAirLock_BlocksAnotherLiveProcess(t *testing.T) {
 // TestOnAirLock_DistinctNodesDoNotCollide covers the per-node-id keying: a rig
 // running two different models (=> two node ids) must hold both locks at once.
 func TestOnAirLock_DistinctNodesDoNotCollide(t *testing.T) {
-	useTempConfigDir(t)
+	useTempConfig(t)
 
 	relA, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
 	if err != nil {
@@ -59,7 +56,7 @@ func TestOnAirLock_DistinctNodesDoNotCollide(t *testing.T) {
 // TestOnAirLock_ReleaseFreesAndReacquires covers the lifecycle: acquire writes the
 // lock, release removes it (only while ours), and the next acquire then succeeds.
 func TestOnAirLock_ReleaseFreesAndReacquires(t *testing.T) {
-	useTempConfigDir(t)
+	useTempConfig(t)
 
 	release, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
 	if err != nil {
@@ -84,7 +81,7 @@ func TestOnAirLock_ReleaseFreesAndReacquires(t *testing.T) {
 // TestOnAirLock_ReclaimsStaleLock covers crash recovery: a lock whose owning PID is
 // no longer alive must be reclaimed, not treated as a live session.
 func TestOnAirLock_ReclaimsStaleLock(t *testing.T) {
-	useTempConfigDir(t)
+	useTempConfig(t)
 
 	// Write a lock owned by a PID that is essentially certain to be dead.
 	stale := onAirInfo{PID: 2147483646, Station: "ghost-node", Model: "qwen3", Started: 1}

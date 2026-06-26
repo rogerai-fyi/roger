@@ -163,10 +163,7 @@ func TestParseMonthlyCap(t *testing.T) {
 // share.max_on_air, surviving a save/reload. The default holds for an old config with
 // no share section.
 func TestShareMaxOnAirDefault(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("ROGER_BROKER", "")
-	t.Setenv("ROGER_USER", "")
+	useTempConfig(t) // cross-platform config isolation (see config_isolation_test.go)
 
 	// No share section at all -> default 4.
 	if err := os.MkdirAll(filepath.Dir(configPath()), 0700); err != nil {
@@ -201,10 +198,7 @@ func TestShareMaxOnAirDefault(t *testing.T) {
 }
 
 func TestLimitsLoadSaveBackCompat(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
-	t.Setenv("ROGER_BROKER", "")
-	t.Setenv("ROGER_USER", "")
+	useTempConfig(t) // cross-platform config isolation (see config_isolation_test.go)
 
 	// 1) Old config: no "limits" key at all - must load, no caps.
 	old := `{"broker":"https://b.example","user":"luis"}`

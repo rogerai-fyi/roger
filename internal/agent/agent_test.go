@@ -109,7 +109,13 @@ func TestRegisterStatus(t *testing.T) {
 // owner from that pubkey. Anonymous free sharing still works (the headers are present
 // but resolve to no owner) - this test only asserts the identity is always sent.
 func TestRegisterSignsAtZeroPrice(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate the user.key the signer creates
+	// Isolate the user.key the signer creates on EVERY platform: os.UserConfigDir reads
+	// XDG_CONFIG_HOME on Linux but $HOME on macOS and %AppData% on Windows, so XDG alone
+	// would write the user's REAL identity key on mac/windows. Point all three at one temp dir.
+	d := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", d) // Linux
+	t.Setenv("HOME", d)            // macOS (~/Library/Application Support) + Linux fallback
+	t.Setenv("AppData", d)         // Windows (%AppData%)
 	var gotPub, gotSig, gotTS string
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
