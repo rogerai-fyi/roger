@@ -62,6 +62,12 @@ func (s *Server) routes() {
 	s.mux.Handle("/assets/", http.StripPrefix("/assets/", files))
 	s.mux.HandleFunc("/api/state", s.auth(s.handleState))
 	s.mux.HandleFunc("/api/events", s.auth(s.handleEvents))
+	// Operator write actions (POST-only, token-gated). Each returns the new snapshot.
+	s.mux.HandleFunc("/api/share/onair", s.action(s.handleOnAir))
+	s.mux.HandleFunc("/api/share/private", s.action(s.handlePrivate))
+	s.mux.HandleFunc("/api/share/price", s.action(s.handlePrice))
+	s.mux.HandleFunc("/api/share/rename", s.action(s.handleRename))
+	s.mux.HandleFunc("/api/share/detect", s.action(s.handleDetect))
 }
 
 // Handler returns the fully-wrapped handler (localhost guard in front of the mux).
