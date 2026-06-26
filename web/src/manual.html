@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.6.3</b></span>
+          <span>Version: <b data-cli-version>v4.7.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -819,7 +819,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.6.3</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.7.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1097,6 +1097,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v4.7.0</span><span class="man-plate__v"><b>The command is <code>roger</code> now.</b> Same RogerAI, shorter to type: <code>roger share</code>, <code>roger use &lt;model&gt;</code>, <code>roger login</code>, <code>roger payout status</code>. The installer drops a <code>roger</code> binary and keeps a <code>rogerai</code> alias, so old muscle memory and any scripts keep working - nothing to relearn, nothing to fix. <b>No double-broadcasts.</b> <code>roger share</code> now writes a per-station lock and bows out cleanly if that same station+model is already on air on this box (a multi-model rig still runs several at once), so a stray second launch can't flap your station or scramble your earnings; a lock left by a crash is reclaimed automatically.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.6.3</span><span class="man-plate__v"><b>Friction polish + accurate terms.</b> <code>roger topup</code> now opens the browser for you (no copy-paste); an over-budget message points at <code>/topup</code> (not the wrong screen); and <code>roger share</code> shows where to see your earnings. Payout terms now correctly say the <b>120-day hold</b> everywhere (a couple of spots still said "90-day"). <b>Under the hood</b> (broker, already live): operator strike visibility (<code>/owner/strikes</code>) + admin hold-review + auto-expiry so a false flag can't freeze an honest provider, failed-payout-reversal retry, a <code>/ready</code> health probe, and earnings provenance (release ladder + per-payout lineage) on the Payouts page.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.6.2</span><span class="man-plate__v"><b>The band list shows the real numbers.</b> Every row in TUNE IN now shows price <b>in and out</b>, the context window (with a <code>~</code> when it is an estimate), <b>tok/s</b>, and the broker's signal - the same values the website shows, read straight from the broker (no local recompute). Private-band rows carry the same real metrics. <b>Under the hood</b>: the broker now caches the live market and dashboard views (Valkey) for snappier, lower-cost serving.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.6.1</span><span class="man-plate__v"><b>Simpler everywhere.</b> <code>roger share gpt-oss-120b</code> now works as a plain positional (no flags); a priced share tells you to <code>roger login</code> up front instead of failing late; one clean <code>on air - &lt;model&gt; · &lt;station&gt;</code> line replaces the old noise; one money grammar (<code>balance</code> + <code>topup</code>); payout terms (90-day hold, $25 min) are shown when you set a price; <code>grant show --secret</code> recovers a lost free key. <b>Logged-in FREE shares now bind to your account</b>, so your grant keys reach them (e.g. pinning a bot or chat to your own model). <b>Website</b>: the API-keys form is just Name + Free (the rest folds behind Advanced), a 30-second Quickstart tops the manual, and the homepage leads with the plain promise. <b>TUI</b>: arrow-right scrolls again, a plain-language glossary in help (band = model, station = provider, on air = serving, ...), less on-screen clutter, and a clear empty-state. <b>Under the hood</b>: billing-integrity enforcement (no charge for non-generated output, usage adjusted to the broker's verified token count, account-level bans with evidence) and broker hardening (Cloudflare-timeout survival, per-IP rate limits).</span></div>
