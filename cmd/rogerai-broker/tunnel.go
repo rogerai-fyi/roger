@@ -1034,7 +1034,23 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	// concurrent requests can never drive a wallet negative (free inference). The
 	// hold is captured (Finalize) or returned (ReleaseHold) on every exit path. A
 	// $0 (free/self) request places no hold - there is nothing to protect.
-	maxCost := estimateMaxCost(body, pricing.in, pricing.out, offer.Ctx)
+	// Size the hold at the request's TRUE upper-bound price so the settle-time clamp
+	// (cost > maxCost below) is a real ceiling, NOT a floor-to-~0. For a FIXED plan
+	// (grant / self) pricing.in/out are already the billed price. For the PUBLIC-market
+	// plan (fixed=false) they are zero - the relay applies the offer's active price only
+	// at settle - so we MUST resolve that active price here too. Without this, every paid
+	// public request holds ~$0, monthlyCapCheck never trips, and the clamp caps the real
+	// cost down to ~$0: paid public inference would be effectively FREE and providers
+	// would earn nothing. (C1.)
+	holdIn, holdOut := pricing.in, pricing.out
+	if !pricing.fixed {
+		ain, aout, afree, _ := offer.ActivePrice(time.Now())
+		holdIn, holdOut = ain, aout
+		if afree {
+			holdIn, holdOut = 0, 0
+		}
+	}
+	maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
 	if pricing.free {
 		maxCost = 0
 	}

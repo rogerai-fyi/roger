@@ -128,8 +128,8 @@ func (p *Postgres) UpdateGrant(id, owner string, patch GrantPatch) (Grant, bool,
 func (p *Postgres) GrantUsageOf(id string, now time.Time) (GrantUsage, error) {
 	var u GrantUsage
 	row := p.db.QueryRow(`SELECT
-		COALESCE((SELECT tokens FROM rogerai.grant_usage WHERE grant_id=$1 AND window=$2),0),
-		COALESCE((SELECT tokens FROM rogerai.grant_usage WHERE grant_id=$1 AND window=$3),0)`,
+		COALESCE((SELECT tokens FROM rogerai.grant_usage WHERE grant_id=$1 AND bucket=$2),0),
+		COALESCE((SELECT tokens FROM rogerai.grant_usage WHERE grant_id=$1 AND bucket=$3),0)`,
 		id, dayKey(now), monthKey(now))
 	if err := row.Scan(&u.DayTokens, &u.MonthTokens); err != nil {
 		return GrantUsage{}, err
@@ -144,8 +144,8 @@ func (p *Postgres) AddGrantUsage(id string, tokens int64, now time.Time) error {
 	}
 	defer tx.Rollback()
 	for _, win := range []string{dayKey(now), monthKey(now)} {
-		if _, err := tx.Exec(`INSERT INTO rogerai.grant_usage(grant_id,window,tokens) VALUES($1,$2,$3)
-			ON CONFLICT (grant_id,window) DO UPDATE SET tokens=rogerai.grant_usage.tokens+$3`, id, win, tokens); err != nil {
+		if _, err := tx.Exec(`INSERT INTO rogerai.grant_usage(grant_id,bucket,tokens) VALUES($1,$2,$3)
+			ON CONFLICT (grant_id,bucket) DO UPDATE SET tokens=rogerai.grant_usage.tokens+$3`, id, win, tokens); err != nil {
 			return err
 		}
 	}
