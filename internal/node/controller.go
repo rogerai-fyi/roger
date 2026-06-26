@@ -396,12 +396,25 @@ func (c *Controller) Rename(station string) {
 // Detect runs an async-safe local-LLM scan (used by the re-detect action). It does not
 // mutate the catalog; the caller passes the result to LoadRows.
 func (c *Controller) Detect(extra, key string) (found []detect.Found, needKey []string) {
-	if extra != "" {
-		if f, st := detect.ProbeKey(extra, key); st == detect.Reachable {
+	// A pasted URL+key takes priority; otherwise fall back to the saved/verified upstream
+	// (and its key). A bare DetectFull only scans the default ports + listening sockets, so
+	// without this a saved CUSTOM/keyed endpoint — the one the CLI finds because it seeds it
+	// — would be missed by re-detect, leaving the SHARE tab empty.
+	c.mu.Lock()
+	savedUp, savedKey := c.upstream, c.upstreamKey
+	c.mu.Unlock()
+	url, k := extra, key
+	if url == "" {
+		url, k = savedUp, savedKey
+	}
+	if url != "" {
+		if f, st := detect.ProbeKey(url, k); st == detect.Reachable {
 			return []detect.Found{f}, nil
 		}
 	}
-	return detect.DetectFull(extra)
+	// Seed the (saved or pasted) endpoint as a priority candidate so it wins de-dup, then
+	// scan the defaults — exactly the CLI's DetectFull path.
+	return detect.DetectFull(url)
 }
 
 // StopAll takes every model off air (clean exit / `/share off`).

@@ -178,6 +178,34 @@ func TestLoadRowsFlattensAndPersistsUpstream(t *testing.T) {
 	}
 }
 
+// TestDetectFallsBackToSavedUpstream: with no pasted URL, Detect probes the saved/verified
+// upstream first — so a custom/non-default endpoint (the one the CLI seeds) is found instead
+// of the SHARE tab staying empty after a bare port scan.
+func TestDetectFallsBackToSavedUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/models") {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "saved-model"}}})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := New(Config{Station: "amber-fox", Upstream: srv.URL}) // the saved upstream
+	found, _ := c.Detect("", "")                              // re-detect with no pasted URL
+	got := false
+	for _, f := range found {
+		for _, m := range f.Models {
+			if m == "saved-model" {
+				got = true
+			}
+		}
+	}
+	if !got {
+		t.Fatalf("Detect() should probe the saved upstream and find its model; got %+v", found)
+	}
+}
+
 // TestConcurrentToggle exercises the lock: two front-ends (the TUI goroutine and the
 // web server) toggling the same node concurrently must never race. Run with -race.
 func TestConcurrentToggle(t *testing.T) {
