@@ -49,8 +49,9 @@ func distDir(t *testing.T) string {
 	return filepath.Join(repoRoot(t), "web", "dist")
 }
 
-// versionRe pulls the value out of `const Version = "X.Y.Z"` in main.go.
-var versionRe = regexp.MustCompile(`(?m)^const Version = "([0-9][^"]*)"`)
+// versionRe pulls the value out of `const Version = "X.Y.Z"` (or `var Version = ...`,
+// since the version is now linker-stampable) in main.go.
+var versionRe = regexp.MustCompile(`(?m)^(?:const|var) Version = "([0-9][^"]*)"`)
 
 // TestManualMentionsCLIVersion is the sync guard: the built operating manual
 // (web/dist/manual.html) MUST mention the current CLI version from
@@ -65,7 +66,7 @@ func TestManualMentionsCLIVersion(t *testing.T) {
 	}
 	m := versionRe.FindSubmatch(mainGo)
 	if m == nil {
-		t.Fatal("could not find `const Version = \"...\"` in cmd/rogerai/main.go")
+		t.Fatal("could not find `const/var Version = \"...\"` in cmd/rogerai/main.go")
 	}
 	version := string(m[1])
 
