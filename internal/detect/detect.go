@@ -225,11 +225,19 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			continue
 		}
 		seen[base] = true
-		// Try this candidate's own paired key first (e.g. OPENAI_API_KEY for an
-		// OPENAI_BASE_URL endpoint), then the rest of the env keys.
+		// Harvested env keys are retried (as Bearer) on a 401/403 — but ONLY against
+		// candidates we have a reason to trust: a configured / known-default / env-derived
+		// endpoint. A BLIND port-scan hit ("port:N") could be ANY local service, so we never
+		// spray the user's API keys at it; if it 401s we surface it via needKey instead, so
+		// the user explicitly supplies a key for a server they actually recognize.
 		tryKeys := keys
+		if strings.HasPrefix(c.name, "port:") {
+			tryKeys = nil
+		}
+		// Try this candidate's own paired key first (e.g. OPENAI_API_KEY for an
+		// OPENAI_BASE_URL endpoint), then the rest of the (trusted-candidate) env keys.
 		if c.key != "" {
-			tryKeys = append([]string{c.key}, keys...)
+			tryKeys = append([]string{c.key}, tryKeys...)
 		}
 		models, ctx, usedKey, res := probeModels(base, tryKeys)
 		switch res {

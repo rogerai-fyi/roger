@@ -1867,7 +1867,10 @@ func (m *model) toggleShareAt(i int) {
 		up = m.shareUp
 	}
 	upKey := row.upstreamKey
-	if upKey == "" {
+	// Only fall back to the headline key when this row's upstream IS the headline upstream.
+	// A keyless row on a DIFFERENT detected server must NOT receive the saved/headline
+	// bearer (that would spray a stale key onto the wrong endpoint).
+	if upKey == "" && normalizeUpstream(up) == normalizeUpstream(m.shareUp) {
 		upKey = m.shareKey
 	}
 	// Unique, STABLE, PRIVACY-PRESERVING node id per band: <station>-<model>, derived
@@ -1939,7 +1942,10 @@ func (m *model) togglePrivateAt(i int) {
 		up = m.shareUp
 	}
 	upKey := row.upstreamKey
-	if upKey == "" {
+	// Only fall back to the headline key when this row's upstream IS the headline upstream.
+	// A keyless row on a DIFFERENT detected server must NOT receive the saved/headline
+	// bearer (that would spray a stale key onto the wrong endpoint).
+	if upKey == "" && normalizeUpstream(up) == normalizeUpstream(m.shareUp) {
 		upKey = m.shareKey
 	}
 	// Same unique/stable/privacy-preserving node id as the public-share path (private
@@ -2239,6 +2245,7 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setupErr = ""
 		m.setupAwaitKey = false
+		m.setupKey = "" // leaving the key step: drop any typed key so it can't be reused on another URL
 		return m, nil
 	case "down", "j":
 		if m.setupCursor < len(setupOptions)-1 {
@@ -2246,6 +2253,7 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setupErr = ""
 		m.setupAwaitKey = false
+		m.setupKey = ""
 		return m, nil
 	case "r":
 		// Re-scan (after the user started their tool in another terminal). ASYNC: enter
@@ -2267,17 +2275,23 @@ func (m *model) onShareSetupKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setupErr = "paste your endpoint, e.g. http://127.0.0.1:8081"
 				return m, nil
 			}
-			// Verify with whatever key has been typed (empty on the first pass). A
-			// key-protected server flips into the key-entry step rather than failing; the
-			// next enter re-verifies with the typed key, which loadShareRows then carries
-			// onto the row so on-air uses the same Bearer.
-			f, st := detect.ProbeKey(url, strings.TrimSpace(m.setupKey))
+			// Verify with the typed key ONLY when we are in the key-entry step. On the first
+			// pass (no key step yet) we probe with NO key — a key-protected server flips into
+			// the key step rather than failing, and only the next enter re-verifies with the
+			// typed key. This stops a stale key (typed for a previous URL) being sent as a
+			// Bearer to a different pasted URL. loadShareRows then carries the verified key.
+			key := ""
+			if m.setupAwaitKey {
+				key = strings.TrimSpace(m.setupKey)
+			}
+			f, st := detect.ProbeKey(url, key)
 			switch st {
 			case detect.Reachable:
 				m.shareUp = normalizeUpstream(f.Chat)
 				m.loadShareRows([]detect.Found{f})
 				m.mode = modeShare
 				m.setupAwaitKey = false
+				m.setupKey = ""
 				m.status = stLive.Render("verified " + f.BaseURL + " - " + plural(len(m.shareRows), "model") + " ready")
 				return m, nil
 			case detect.NeedsKey:
@@ -6366,7 +6380,9 @@ func maskKey(k string) string {
 	if n <= 4 {
 		return strings.Repeat("•", n)
 	}
-	return strings.Repeat("•", n-4) + k[len(k)-4:]
+	// Rune-slice the last 4 CHARACTERS (byte-slicing k[len(k)-4:] can split a multi-byte
+	// rune for a non-ASCII key and render a garbled tail).
+	return strings.Repeat("•", n-4) + string([]rune(k)[n-4:])
 }
 
 // shareSetupView is the in-TUI guided fallback when no local model was detected: a

@@ -255,6 +255,29 @@ func TestDetectFullSurfacesNeedsKey(t *testing.T) {
 	}
 }
 
+// TestDetectDoesNotSprayEnvKeysToPortScans: a BLIND port-scan hit (candidate named
+// "port:N") must never receive the user's harvested env API keys on a 401 — an arbitrary
+// local service could be listening there. The key-protected server stays unauthenticated
+// and surfaces via needKey instead, even though the matching key IS in the environment.
+func TestDetectDoesNotSprayEnvKeysToPortScans(t *testing.T) {
+	defer quietSources(t)()
+	srv := keyedServer("sk-secret", "keyed-model")
+	defer srv.Close()
+	t.Setenv("OPENAI_API_KEY", "sk-secret") // the working key is in the env...
+
+	old := probes
+	probes = []struct{ name, base string }{{"port:9999", srv.URL + "/v1"}} // ...but this hit is a blind scan
+	defer func() { probes = old }()
+
+	found, needKey := DetectFull()
+	if len(found) != 0 {
+		t.Fatalf("env key must NOT be sprayed at a blind port-scan candidate; got %+v", found)
+	}
+	if len(needKey) != 1 || needKey[0] != srv.URL+"/v1" {
+		t.Fatalf("a key-protected port-scan hit should surface via needKey, got %v", needKey)
+	}
+}
+
 // TestProbeKeyTriState: ProbeKey distinguishes reachable, needs-key, and unreachable.
 func TestProbeKeyTriState(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")

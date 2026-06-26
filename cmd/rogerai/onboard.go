@@ -218,6 +218,7 @@ func promptUpstreamKey(needKey []string) (detect.Found, bool) {
 		if err := huh.NewInput().
 			Title("Found a local server at " + base + " that needs an API key").
 			Description("Paste its API key (e.g. your vLLM --api-key / LiteLLM master key), or leave blank to skip.").
+			EchoMode(huh.EchoModePassword). // bearer credential: mask it (no terminal echo / scrollback leak)
 			Value(&key).Run(); err != nil {
 			return detect.Found{}, false
 		}
@@ -272,6 +273,7 @@ func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 				if err := huh.NewInput().
 					Title("That endpoint needs an API key").
 					Description("Paste the API key it expects (sent as a Bearer to your local server).").
+					EchoMode(huh.EchoModePassword). // bearer credential: mask it (no terminal echo / scrollback leak)
 					Value(&key).Run(); err == nil && strings.TrimSpace(key) != "" {
 					f, st = detect.ProbeKey(url, strings.TrimSpace(key))
 				}

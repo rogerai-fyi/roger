@@ -183,7 +183,14 @@ func loadConfig() config {
 func saveConfig(c config) error {
 	_ = os.MkdirAll(filepath.Dir(configPath()), 0700)
 	b, _ := json.MarshalIndent(c, "", "  ")
-	return os.WriteFile(configPath(), b, 0600)
+	if err := os.WriteFile(configPath(), b, 0600); err != nil {
+		return err
+	}
+	// WriteFile does NOT re-apply the mode to a file that already exists, so a config
+	// created by an older build (before it held secrets like upstream_key) could linger
+	// world-readable. Force 0600 now that it can contain a bearer credential at rest.
+	_ = os.Chmod(configPath(), 0600)
+	return nil
 }
 
 // loadOrCreateStation returns this install's friendly, NON-SENSITIVE broadcast
