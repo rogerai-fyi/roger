@@ -444,3 +444,82 @@ func TestEffectivePriceFor(t *testing.T) {
 		t.Fatalf("cross-model mapping = %v/%v override=%v, want our requested 0.2/0.3 unaffected", in, out, override)
 	}
 }
+
+func TestRedactUpstreamKey(t *testing.T) {
+	if got := redactUpstreamKey([]byte("x sk-secret y"), "sk-secret"); string(got) != "x [redacted] y" {
+		t.Errorf("redact = %q, want %q", got, "x [redacted] y")
+	}
+	// An empty key must be a no-op (a ReplaceAll on "" would match everywhere and mangle
+	// the body) - guards the common no-auth upstream.
+	if got := redactUpstreamKey([]byte("untouched body"), ""); string(got) != "untouched body" {
+		t.Errorf("empty key should be a no-op, got %q", got)
+	}
+}
+
+// TestServeRedactsUpstreamKey: when a (misconfigured) upstream echoes the request
+// Authorization header into its response body, serve must strip the node's key before
+// relaying the body - and the redaction must not corrupt usage metering.
+func TestServeRedactsUpstreamKey(t *testing.T) {
+	const key = "sk-upstream-secret"
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"echoed_auth":"` + r.Header.Get("Authorization") + `","usage":{"prompt_tokens":3,"completion_tokens":5}}`))
+	}))
+	defer up.Close()
+
+	_, priv, _ := ed25519.GenerateKey(nil)
+	cfg := Config{Upstream: up.URL, UpstreamKey: key, NodeID: "n", Model: "m"}
+	res := serve(cfg, protocol.ModelOffer{}, priv, &http.Client{}, protocol.Job{ID: "j", Body: json.RawMessage(`{"model":"m"}`)})
+
+	if bytes.Contains(res.Body, []byte(key)) {
+		t.Fatalf("upstream key leaked in relayed body: %s", res.Body)
+	}
+	if !bytes.Contains(res.Body, []byte("[redacted]")) {
+		t.Errorf("expected a redaction marker, got: %s", res.Body)
+	}
+	if res.Receipt.PromptTokens != 3 || res.Receipt.CompletionTokens != 5 {
+		t.Errorf("usage = %d/%d, want 3/5 (redaction must not corrupt the body)", res.Receipt.PromptTokens, res.Receipt.CompletionTokens)
+	}
+}
+
+// TestServeStreamRedactsUpstreamKey: the streaming path must strip the node's key from
+// any SSE chunk before piping it to the broker, while still metering usage.
+func TestServeStreamRedactsUpstreamKey(t *testing.T) {
+	const key = "sk-upstream-secret"
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		io.WriteString(w, "data: {\"echoed_auth\":\""+r.Header.Get("Authorization")+"\"}\n")
+		io.WriteString(w, "data: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":11}}\n")
+		io.WriteString(w, "data: [DONE]\n")
+	}))
+	defer up.Close()
+
+	var mu2 sync.Mutex
+	var streamed bytes.Buffer
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/agent/stream") {
+			mu2.Lock()
+			io.Copy(&streamed, r.Body)
+			mu2.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer broker.Close()
+
+	_, priv, _ := ed25519.GenerateKey(nil)
+	cfg := Config{Upstream: up.URL, UpstreamKey: key, Broker: broker.URL, NodeID: "n", Model: "m"}
+	rec := serveStream(cfg, protocol.ModelOffer{}, priv, "tok", protocol.Job{ID: "j", Body: json.RawMessage(`{"model":"m","stream":true}`)})
+
+	mu2.Lock()
+	got := streamed.String()
+	mu2.Unlock()
+	if strings.Contains(got, key) {
+		t.Fatalf("upstream key leaked in streamed body: %s", got)
+	}
+	if !strings.Contains(got, "[redacted]") {
+		t.Errorf("expected a redaction marker in the stream, got: %s", got)
+	}
+	if rec.PromptTokens != 7 || rec.CompletionTokens != 11 {
+		t.Errorf("stream usage = %d/%d, want 7/11", rec.PromptTokens, rec.CompletionTokens)
+	}
+}
