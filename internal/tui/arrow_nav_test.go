@@ -25,8 +25,8 @@ func keyRight() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRight} }
 func browseModel(t *testing.T) tea.Model {
 	t.Helper()
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found {
-		return []detect.Found{{Name: "t", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
+	detectShares = func(extra ...string) ([]detect.Found, []string) {
+		return []detect.Found{{Name: "t", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}, nil
 	}
 	t.Cleanup(func() { detectShares = old })
 	mm := New("http://broker.local", "tester")

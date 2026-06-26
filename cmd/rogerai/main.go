@@ -302,6 +302,18 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Prices[model] = SharePrice{PriceIn: p.In, PriceOut: p.Out, Windows: toCfgWindows(p.Windows)}
 			_ = saveConfig(c)
 		},
+		// Persist a newly verified / pasted local endpoint + any key it needed, so a
+		// custom or key-protected upstream survives a restart (the TUI mirror of the save
+		// in `roger share`; the host owns the config write).
+		SaveUpstream: func(upstream, key string) {
+			c := loadConfig()
+			if c.Share == nil {
+				c.Share = &Share{}
+			}
+			c.Share.Upstream = upstream
+			c.Share.UpstreamKey = key
+			_ = saveConfig(c)
+		},
 		// Seed + persist the windowshade compact-mode choice so [m] sticks across launches
 		// (the host owns the config write; the TUI does no disk I/O).
 		Compact: cfg.Compact,
@@ -317,6 +329,9 @@ func tuiHooks(cfg config) tui.Hooks {
 	h.ShareMaxOnAir = cfg.shareMaxOnAir()
 	if cfg.Share != nil {
 		h.ShareModel, h.SharePriceI, h.SharePriceO = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
+		// Seed the saved/verified upstream + its key so the TUI reuses a custom / keyed
+		// endpoint on its first scan (matches bare `roger share`), instead of re-hunting.
+		h.ShareUpstream, h.ShareUpstreamKey = cfg.Share.Upstream, cfg.Share.UpstreamKey
 	}
 	// Seed the editor with prices set in a previous session.
 	if len(cfg.Prices) > 0 {

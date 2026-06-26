@@ -162,8 +162,8 @@ func TestDisconnectVsQuit(t *testing.T) {
 func TestSectionToggle(t *testing.T) {
 	// Deterministic: pretend one model is detected so s -> the provider table (SHARE).
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found {
-		return []detect.Found{{Name: "test", BaseURL: "http://x/v1", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
+	detectShares = func(extra ...string) ([]detect.Found, []string) {
+		return []detect.Found{{Name: "test", BaseURL: "http://x/v1", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}, nil
 	}
 	defer func() { detectShares = old }()
 
@@ -267,7 +267,7 @@ func TestGuidedFallbackWizard(t *testing.T) {
 	// Force "nothing detected" so the guided fallback opens deterministically (the
 	// real detector would scan the host's open ports).
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found { return nil }
+	detectShares = func(extra ...string) ([]detect.Found, []string) { return nil, nil }
 	defer func() { detectShares = old }()
 
 	mm := New("http://127.0.0.1:1", "tester")
@@ -477,7 +477,7 @@ func TestNoColorNonTTYRender(t *testing.T) {
 // crash, no bogus share).
 func TestShareSetupPasteVerifyFailure(t *testing.T) {
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found { return nil }
+	detectShares = func(extra ...string) ([]detect.Found, []string) { return nil, nil }
 	defer func() { detectShares = old }()
 
 	mm := New("http://127.0.0.1:1", "tester")
@@ -531,9 +531,9 @@ func TestShareDetectionIsAsync(t *testing.T) {
 	// detectShares must NOT be called inside Update (it would block the loop). Track it.
 	old := detectShares
 	called := false
-	detectShares = func(extra ...string) []detect.Found {
+	detectShares = func(extra ...string) ([]detect.Found, []string) {
 		called = true
-		return []detect.Found{{Name: "test", BaseURL: "http://x/v1", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
+		return []detect.Found{{Name: "test", BaseURL: "http://x/v1", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}, nil
 	}
 	defer func() { detectShares = old }()
 
@@ -593,7 +593,7 @@ func TestShareDetectionIsAsync(t *testing.T) {
 // detection, not before.
 func TestShareDetectionEmptyEntersWizard(t *testing.T) {
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found { return nil }
+	detectShares = func(extra ...string) ([]detect.Found, []string) { return nil, nil }
 	defer func() { detectShares = old }()
 
 	mm := New("http://broker.local", "tester")
@@ -769,5 +769,63 @@ func TestShareEditorLivePreview(t *testing.T) {
 	prev = stripANSI(m.editorLivePreview())
 	if !strings.Contains(prev, "FREE") {
 		t.Errorf("wrapping free window preview = %q, want FREE", prev)
+	}
+}
+
+// TestSaveUpstreamHook: loading a freshly verified keyed upstream persists its base
+// URL + key via SaveUpstream exactly once, and re-detecting the SAME endpoint does
+// NOT rewrite config (only a real change fires the hook).
+func TestSaveUpstreamHook(t *testing.T) {
+	var savedUp, savedKey string
+	var calls int
+	hooks := Hooks{SaveUpstream: func(upstream, key string) {
+		calls++
+		savedUp, savedKey = upstream, key
+	}}
+	m := NewWithHooks("http://broker.local", "tester", nil, hooks)
+
+	// A newly detected key-protected server -> persisted once.
+	keyed := detect.Found{
+		Name: "vllm", BaseURL: "http://127.0.0.1:8000/v1",
+		Chat: "http://127.0.0.1:8000/v1/chat/completions",
+		Models: []string{"qwen3"}, Key: "sk-secret",
+	}
+	m.loadShareRows([]detect.Found{keyed})
+	if calls != 1 || savedUp != "http://127.0.0.1:8000/v1" || savedKey != "sk-secret" {
+		t.Fatalf("first load: calls=%d up=%q key=%q, want 1 / base / sk-secret", calls, savedUp, savedKey)
+	}
+
+	// Re-detecting the same endpoint+key is a no-op (no config churn).
+	m.loadShareRows([]detect.Found{keyed})
+	if calls != 1 {
+		t.Errorf("re-detecting the same endpoint rewrote config: calls=%d, want 1", calls)
+	}
+
+	// A changed key (e.g. the server's key rotated) persists again.
+	rotated := keyed
+	rotated.Key = "sk-rotated"
+	m.loadShareRows([]detect.Found{rotated})
+	if calls != 2 || savedKey != "sk-rotated" {
+		t.Errorf("rotated key: calls=%d key=%q, want 2 / sk-rotated", calls, savedKey)
+	}
+}
+
+// TestSaveUpstreamHookSeededNoChurn: a config-seeded upstream/key (ShareUpstream*)
+// that re-detects to the same values must NOT rewrite config on the first scan.
+func TestSaveUpstreamHookSeededNoChurn(t *testing.T) {
+	var calls int
+	hooks := Hooks{
+		ShareUpstream:    "http://127.0.0.1:8000/v1",
+		ShareUpstreamKey: "sk-secret",
+		SaveUpstream:     func(upstream, key string) { calls++ },
+	}
+	m := NewWithHooks("http://broker.local", "tester", nil, hooks)
+	m.loadShareRows([]detect.Found{{
+		BaseURL: "http://127.0.0.1:8000/v1",
+		Chat:    "http://127.0.0.1:8000/v1/chat/completions",
+		Models:  []string{"qwen3"}, Key: "sk-secret",
+	}})
+	if calls != 0 {
+		t.Errorf("re-detecting the seeded endpoint should not persist: calls=%d, want 0", calls)
 	}
 }
