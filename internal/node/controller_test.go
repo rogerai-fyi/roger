@@ -88,6 +88,26 @@ func TestSoftMaxOnAirCap(t *testing.T) {
 	}
 }
 
+func TestPickUpstreamKey(t *testing.T) {
+	const headUp, headKey = "http://127.0.0.1:8080/v1/chat/completions", "sk-headline"
+	// A row with its OWN key always uses it.
+	if got := pickUpstreamKey("http://127.0.0.1:9999/v1/chat/completions", "sk-own", headUp, headKey); got != "sk-own" {
+		t.Errorf("row with own key = %q, want sk-own", got)
+	}
+	// A keyless row on the headline upstream inherits the headline key.
+	if got := pickUpstreamKey(headUp, "", headUp, headKey); got != headKey {
+		t.Errorf("keyless row on headline upstream = %q, want the headline key", got)
+	}
+	// A keyless row on a DIFFERENT upstream gets NO key — the headline bearer is not sprayed.
+	if got := pickUpstreamKey("http://127.0.0.1:9999/v1/chat/completions", "", headUp, headKey); got != "" {
+		t.Errorf("keyless row on a different upstream = %q, want empty (no spray)", got)
+	}
+	// Equivalent spellings of the same endpoint still count as the same (normalized).
+	if got := pickUpstreamKey("http://127.0.0.1:8080/v1", "", headUp, headKey); got != headKey {
+		t.Errorf("keyless row on the same endpoint (different spelling) = %q, want the headline key", got)
+	}
+}
+
 func TestDefaultMaxOnAir(t *testing.T) {
 	c := newCtrl(t, Config{})
 	if c.MaxOnAir() != DefaultMaxOnAir {
