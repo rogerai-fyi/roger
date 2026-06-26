@@ -13,10 +13,13 @@ import (
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
-// The /grants endpoints (GRANT-KEYS-DESIGN section 6.1). All are owner-auth: the
-// request must be signed AND the signing pubkey bound to a GitHub owner
-// (requireOwner), exactly like priced node registration. Every row is scoped to
-// owner == caller.Pubkey, so an owner only ever sees/edits their own grants.
+// The /grants endpoints (GRANT-KEYS-DESIGN section 6.1). All are owner-auth via
+// the SAME dual-path resolver the payout endpoints use (payoutOwner): EITHER a
+// logged-in BROWSER session cookie (the web keys page) OR a signed CLI request
+// whose pubkey is bound to a non-anonymized GitHub owner. Both converge on the
+// owner record, so every row is scoped to owner == owner.Pubkey and an owner only
+// ever sees/edits their own grants. The web keys page authenticates with the
+// session cookie over credentialed CORS, exactly like the other account pages.
 //
 //	POST   /grants            create  (returns id + secret ONCE)
 //	GET    /grants            list    (the caller-owner's grants + usage)
@@ -54,14 +57,22 @@ func (b *broker) grants(w http.ResponseWriter, r *http.Request) {
 		b.grantByID(w, r, strings.Trim(id, "/"))
 		return
 	}
-	owner, ok := b.requireOwner(r)
+	// Read the body ONCE up front, BEFORE auth: the signed-CLI path verifies the
+	// Ed25519 signature over these exact bytes (r.Body is single-use), and POST
+	// threads them on to grantCreate.
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	_, owner, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusForbidden, "creating grants requires a GitHub-linked owner - run `rogerai login`")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `rogerai login` or sign in on the web")
+		return
+	}
+	if owner.GitHubID == 0 || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "creating grants requires a GitHub-linked operator account")
 		return
 	}
 	switch r.Method {
 	case http.MethodPost:
-		b.grantCreate(w, r, owner)
+		b.grantCreate(w, r, owner, body)
 	case http.MethodGet:
 		b.grantList(w, r, owner)
 	default:
@@ -86,8 +97,7 @@ type grantCreateReq struct {
 	Self       bool     `json:"self,omitempty"`
 }
 
-func (b *broker) grantCreate(w http.ResponseWriter, r *http.Request, owner store.Owner) {
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+func (b *broker) grantCreate(w http.ResponseWriter, r *http.Request, owner store.Owner, body []byte) {
 	var req grantCreateReq
 	if json.Unmarshal(body, &req) != nil || strings.TrimSpace(req.Name) == "" {
 		jsonErr(w, http.StatusBadRequest, "name required")
@@ -140,9 +150,17 @@ func (b *broker) grantList(w http.ResponseWriter, r *http.Request, owner store.O
 
 // grantByID handles GET/PATCH/DELETE for a single grant, owner-scoped.
 func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
-	owner, ok := b.requireOwner(r)
+	// Read the body ONCE before auth so the signed-CLI path verifies over these
+	// exact bytes (nil for GET/DELETE); the PATCH path reuses them. Auth is the
+	// same dual-path resolver as the collection handler (cookie OR signed CLI).
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	_, owner, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusForbidden, "managing grants requires a GitHub-linked owner - run `rogerai login`")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `rogerai login` or sign in on the web")
+		return
+	}
+	if owner.GitHubID == 0 || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "managing grants requires a GitHub-linked operator account")
 		return
 	}
 	switch r.Method {
@@ -169,7 +187,6 @@ func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 	case http.MethodPatch:
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 		var patch store.GrantPatch
 		if json.Unmarshal(body, &patch) != nil {
 			jsonErr(w, http.StatusBadRequest, "bad patch")
