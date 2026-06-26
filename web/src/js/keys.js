@@ -7,7 +7,7 @@
 // Endpoints (all credentialed; CSP connect-src already allows the broker):
 //   GET    /account            -> gate (logged-in?) - reuses the account hub shape
 //   POST   /grants  {name, free, price_in, price_out, daily_cap, monthly_cap,
-//                    expires_at(unix,0=never), nodes:[], self}
+//                    expires_at(unix,0=never), nodes:[], models:[], self}
 //            -> { ok, grant, secret, openai_api_base, openai_api_key }   (secret ONCE)
 //   GET    /grants             -> { grants: [ grantView ] }   (with usage rollup)
 //   DELETE /grants/{id}        -> revoke
@@ -51,7 +51,8 @@
 
   // ---- form: segmented "Billing" + "Node scope" toggles --------------------
   var billMode = "free"; // free | self | priced
-  var scopeMode = "all"; // all | pick
+  var scopeMode = "all"; // all | pick  (node scope)
+  var modelScope = "all"; // all | pick (model scope)
 
   function pickGroup(selector, attr, onChange) {
     var opts = document.querySelectorAll(selector + " .kf__opt");
@@ -79,6 +80,27 @@
       opts[i].setAttribute("aria-pressed", on ? "true" : "false");
     }
     if (billMode === "priced") { show("priceField"); } else { hide("priceField"); }
+  }
+
+  // Activate the option matching `value` in a segmented radiogroup, clearing the rest.
+  function setSegment(selector, attr, value) {
+    var opts = document.querySelectorAll(selector + " .kf__opt");
+    for (var i = 0; i < opts.length; i++) {
+      var on = opts[i].getAttribute(attr) === value;
+      opts[i].classList.toggle("is-active", on);
+      opts[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  // Reset the Node + Model scope controls to their "all/any" default after a mint
+  // (.reset() clears inputs but not the JS-driven segmented buttons / hints).
+  function resetScopeButtons() {
+    setSegment('[role="radiogroup"][aria-label="Node scope"]', "data-scope", "all");
+    hide("kNodes");
+    var sh = $("scopeHint"); if (sh) sh.textContent = "The key works on every node you put on air.";
+    setSegment('[role="radiogroup"][aria-label="Model scope"]', "data-mscope", "all");
+    hide("kModels");
+    var mh = $("mscopeHint"); if (mh) mh.textContent = "The key can call any model your in-scope nodes serve.";
   }
 
   function initForm() {
@@ -111,8 +133,14 @@
     pickGroup('[role="radiogroup"][aria-label="Node scope"]', "data-scope", function (m) {
       scopeMode = m;
       var inp = $("kNodes"), hint = $("scopeHint");
-      if (m === "pick") { if (inp) inp.hidden = false; if (hint) hint.textContent = "Comma-separated node ids - only these of your nodes."; }
-      else { if (inp) inp.hidden = true; if (hint) hint.textContent = "The key reaches every node you put on air."; }
+      if (m === "pick") { if (inp) inp.hidden = false; if (hint) hint.textContent = "This key works only on these nodes - others reject it. Comma-separated node ids."; }
+      else { if (inp) inp.hidden = true; if (hint) hint.textContent = "The key works on every node you put on air."; }
+    });
+    pickGroup('[role="radiogroup"][aria-label="Model scope"]', "data-mscope", function (m) {
+      modelScope = m;
+      var inp = $("kModels"), hint = $("mscopeHint");
+      if (m === "pick") { if (inp) inp.hidden = false; if (hint) hint.textContent = "This key can only call these models - any other model is rejected. Comma-separated model names."; }
+      else { if (inp) inp.hidden = true; if (hint) hint.textContent = "The key can call any model your in-scope nodes serve."; }
     });
     on("kExpiry", "change", function (e) {
       var d = $("kExpiryDate");
@@ -160,6 +188,11 @@
       var raw = (($("kNodes") || {}).value || "").split(",");
       for (var i = 0; i < raw.length; i++) { var t = raw[i].trim(); if (t) nodes.push(t); }
     }
+    var models = [];
+    if (modelScope === "pick") {
+      var rawm = (($("kModels") || {}).value || "").split(",");
+      for (var k = 0; k < rawm.length; k++) { var mt = rawm[k].trim(); if (mt) models.push(mt); }
+    }
     var payload = {
       name: name,
       free: billMode !== "priced",          // self + free are both $0; only "priced" is paid
@@ -168,7 +201,8 @@
       daily_cap: parseInt(($("kDaily") || {}).value, 10) || 0,
       monthly_cap: parseInt(($("kMonthly") || {}).value, 10) || 0,
       expires_at: expiresAtUnix(),
-      nodes: nodes
+      nodes: nodes,
+      models: models                         // empty = any model the in-scope nodes serve
     };
 
     var btn = $("createBtn");
@@ -189,8 +223,9 @@
       revealSecret(res.j);
       var f = $("createForm"); if (f) f.reset();
       // restore defaults the .reset() does not (JS state, hidden fields, toggle)
-      billMode = "free"; scopeMode = "all";
+      billMode = "free"; scopeMode = "all"; modelScope = "all";
       syncBillButtons();
+      resetScopeButtons();
       hide("priceField");
       var adv = $("advBlock"); if (adv) adv.open = false;
       loadKeys();
