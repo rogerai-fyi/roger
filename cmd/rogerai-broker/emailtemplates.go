@@ -5,6 +5,8 @@ import (
 	"html"
 	"strings"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/store"
 )
 
 // emailtemplates.go holds the on-brand transactional templates + the broker-level
@@ -217,6 +219,78 @@ func (b *broker) emailOf(pubkey string) string {
 		return o.Email
 	}
 	return ""
+}
+
+// ---- Touchpoint: welcome (first owner bind / first email on file) -------------
+
+// ownerDisplayName resolves the friendliest greeting handle for an owner: the GitHub
+// display name when present, else the "@login" callsign. Empty only for a zero owner.
+func ownerDisplayName(o store.Owner) string {
+	if n := strings.TrimSpace(o.Name); n != "" {
+		return n
+	}
+	if o.Login != "" {
+		return "@" + o.Login
+	}
+	return ""
+}
+
+// maybeSendWelcome sends the one-time welcome email for an owner - and ONLY ever once.
+// It fires when the mailer is enabled, the account has an email on file, and it has
+// never been welcomed; it atomically CLAIMS the welcome stamp first (store-level CAS),
+// so even with the first-bind trigger and a later PATCH /account racing, exactly one
+// call sends. A no-email account is left unstamped (claimed only after the email gate),
+// so a welcome still fires the day the owner sets an email. Safe to call on every bind
+// and after every email change.
+func (b *broker) maybeSendWelcome(o store.Owner) {
+	if !b.mail.enabled() || b.db == nil {
+		return
+	}
+	if o.Email == "" || o.WelcomedAt != 0 {
+		return // no email yet (try again on email-set), or already welcomed
+	}
+	claimed, err := b.db.ClaimWelcome(o.Pubkey)
+	if err != nil || !claimed {
+		return // another path already claimed/sent the welcome for this account
+	}
+	b.emailWelcome(o.Email, ownerDisplayName(o))
+}
+
+// emailWelcome greets a new owner in the RogerAI radio voice: a one-line intro, a
+// compact "what you can do now", and a couple of bulletproof CTAs. Personalized by
+// display name (the GitHub name or @login). No-op when disabled or no recipient.
+func (b *broker) emailWelcome(email, displayName string) {
+	if !b.mail.enabled() || email == "" {
+		return
+	}
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		name = "operator"
+	}
+	subj := "Welcome to RogerAI"
+	intro := p(`<strong style="color:` + colInk900 + `;">RogerAI is a two-way radio for GPUs</strong> - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.`)
+	// "What you can do now" as a compact receipt-style list of the first moves.
+	doNow := receipt("", [][2]string{
+		{"Earn", "share a model to put your GPU on air"},
+		{"Browse", "see who is broadcasting on the market"},
+		{"Top up", "add credits to send your own requests"},
+	})
+	// A second bulletproof CTA in the body (the primary one is the shell button below).
+	secondary := `<div style="margin:14px 0 2px;">` + button("Your account", "https://rogerai.fyi/account.html") + `</div>`
+	bodyHTML := p(`Welcome aboard, `+esc(name)+`.`) + intro + doNow +
+		p(`<span style="color:`+colInk500+`;">Ready to earn? On a machine running a local model, run <span style="font-family:`+fontMono+`;">rogerai share</span> to go on air. Free sharing needs no login; set a price to earn.</span>`) +
+		secondary
+	bodyText := fmt.Sprintf("Welcome aboard, %s.\n\nRogerAI is a two-way radio for GPUs - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.\n\nWhat you can do now:\n  - Earn: share a model to put your GPU on air (`rogerai share`)\n  - Browse: see who is broadcasting at rogerai.fyi/models.html\n  - Top up: add credits to send your own requests\n\nYour account: https://rogerai.fyi/account.html", name)
+	d := emailDoc{
+		kicker:    "Welcome",
+		heading:   "Welcome to RogerAI, " + name,
+		preheader: "A two-way radio for GPUs - here is how to get on air.",
+		bodyHTML:  bodyHTML,
+		bodyText:  bodyText,
+		ctaLabel:  "Browse models",
+		ctaHref:   "https://rogerai.fyi/models.html",
+	}
+	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
 
 // ---- Touchpoint: payout sent --------------------------------------------------

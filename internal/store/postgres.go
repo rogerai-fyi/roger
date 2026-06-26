@@ -47,6 +47,11 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS stripe_connect_id TEXT;
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS connect_status TEXT DEFAULT 'none';
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS anonymized BOOLEAN DEFAULT false;
+-- GitHub display name (welcome-email personalization) + the durable once-only stamp for
+-- the welcome email (NULL = never welcomed). welcomed_at is what makes the welcome fire
+-- exactly once across first-bind and a later email-set.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ;
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -813,31 +818,37 @@ func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
 }
 
 // BindOwner upserts the owner binding for a pubkey, preserving created_at on
-// refresh (a re-login with the same key keeps its original bind time).
+// refresh (a re-login with the same key keeps its original bind time). The GitHub
+// name + email are captured fill-if-empty via COALESCE(NULLIF(existing, empty), new):
+// it keeps a user-set email (or an already-captured name) and NEVER lets a later GitHub
+// login clobber it - it only fills a column that is currently empty/NULL.
 func (p *Postgres) BindOwner(o Owner) error {
-	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login) VALUES($1,$2,$3)
-		ON CONFLICT (pubkey) DO UPDATE SET github_id=$2, login=$3`, o.Pubkey, o.GitHubID, o.Login)
+	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login,name,email) VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT (pubkey) DO UPDATE SET github_id=$2, login=$3,
+			name=COALESCE(NULLIF(rogerai.owners.name,''), $4),
+			email=COALESCE(NULLIF(rogerai.owners.email,''), $5)`,
+		o.Pubkey, o.GitHubID, o.Login, o.Name, o.Email)
 	return err
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at
 		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
 }
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at
 		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 }
 
 // scanOwner runs a single-row owner query, mapping NULL columns to zero values.
 func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var o Owner
-	var created, deleted sql.NullTime
-	var email, connectID, connectStatus sql.NullString
+	var created, deleted, welcomed sql.NullTime
+	var email, connectID, connectStatus, name sql.NullString
 	var anon sql.NullBool
 	err := p.db.QueryRow(query, arg).Scan(
-		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon)
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -850,7 +861,11 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	if deleted.Valid {
 		o.DeletedAt = deleted.Time.Unix()
 	}
+	if welcomed.Valid {
+		o.WelcomedAt = welcomed.Time.Unix()
+	}
 	o.Email = email.String
+	o.Name = name.String
 	o.ConnectID = connectID.String
 	o.ConnectStatus = connectStatus.String
 	o.Anonymized = anon.Bool
@@ -866,6 +881,19 @@ func (p *Postgres) UpdateAccount(login, email string) (Owner, bool, error) {
 		return Owner{}, false, nil
 	}
 	return p.OwnerByLogin(login)
+}
+
+// ClaimWelcome atomically stamps welcomed_at=now IFF it is still NULL, reporting
+// whether THIS statement claimed it (RowsAffected==1). The WHERE welcomed_at IS NULL
+// guard makes it a single-winner CAS even under concurrent binds/patches, so the
+// welcome email is sent exactly once.
+func (p *Postgres) ClaimWelcome(pubkey string) (bool, error) {
+	res, err := p.db.Exec(`UPDATE rogerai.owners SET welcomed_at=now() WHERE pubkey=$1 AND welcomed_at IS NULL`, pubkey)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func (p *Postgres) SetConnect(login, connectID, status string) error {

@@ -24,10 +24,14 @@ var gitHubAPI = "https://api.github.com"
 // ghAccessTokenURL is GitHub's OAuth token endpoint (overridable in tests).
 var ghAccessTokenURL = "https://github.com/login/oauth/access_token"
 
-// gitHubUser is the subset of GET /user we need to identify an owner.
+// gitHubUser is the subset of GET /user we need to identify an owner. Name + Email are
+// captured for the welcome email: both are best-effort (GitHub omits email unless the
+// user has a PUBLIC email, and name may be empty), so neither is ever a gate.
 type gitHubUser struct {
 	ID    int64  `json:"id"`
 	Login string `json:"login"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 // fetchGitHubUser verifies a GitHub access token by calling GET /user server-side
@@ -83,7 +87,9 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "GitHub token rejected")
 		return
 	}
-	if err := b.db.BindOwner(store.Owner{GitHubID: gu.ID, Login: gu.Login, Pubkey: pubkey}); err != nil {
+	// Capture the GitHub name + (public) email at bind. BindOwner stores them
+	// fill-if-empty, so a user-set email is NEVER clobbered by a later login.
+	if err := b.db.BindOwner(store.Owner{GitHubID: gu.ID, Login: gu.Login, Pubkey: pubkey, Name: gu.Name, Email: gu.Email}); err != nil {
 		jsonErr(w, http.StatusInternalServerError, "could not bind owner")
 		return
 	}
@@ -98,6 +104,13 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 	if seeded {
 		// W6: a seed grant just landed, so refresh the seed-remaining promo mirror.
 		b.invalidateSeedRemaining()
+	}
+	// Welcome the owner exactly once - the moment we first have an email for the account
+	// (GitHub may have just handed us a public one at this first bind). Re-fetch the
+	// merged owner so we pass the persisted name/email/welcomed stamp; maybeSendWelcome
+	// claims atomically so a re-login (or a racing PATCH) can never double-send.
+	if o, ok, _ := b.db.OwnerByPubkey(pubkey); ok {
+		b.maybeSendWelcome(o)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "github_login": gu.Login, "github_id": gu.ID})
 }
@@ -365,6 +378,11 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `rogerai login` on a node first)")
 		return
 	}
+	// An owner who set their email AFTER first bind still gets exactly one welcome (the
+	// first-bind trigger no-ops without an email). maybeSendWelcome is a no-op when the
+	// account was already welcomed, and claims the stamp atomically, so this never
+	// double-sends with the bind path.
+	b.maybeSendWelcome(o)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "email": o.Email})
 }
 

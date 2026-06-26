@@ -415,3 +415,32 @@ func TestHeartbeatSelfHeals(t *testing.T) {
 		t.Errorf("heartbeat 404 should re-register once, got %d", got)
 	}
 }
+
+// TestEffectivePriceFor verifies the share-side parity mapping: the CLI/agent adopts the
+// broker-EFFECTIVE published price (after an owner web-console override) from the
+// register response, flags the override, and falls back to the requested price when the
+// broker echoed no effective offer for the model.
+func TestEffectivePriceFor(t *testing.T) {
+	// Broker published an override for our model ($1 in / $2 out) and flagged it.
+	rr := registerResult{
+		EffectiveOffers: []protocol.ModelOffer{{Model: "gpt-oss-120b", PriceIn: 1.0, PriceOut: 2.0}},
+		Overrides:       []string{"gpt-oss-120b"},
+	}
+	in, out, override := effectivePriceFor(rr, "gpt-oss-120b", 0.0, 0.5)
+	if in != 1.0 || out != 2.0 || !override {
+		t.Fatalf("override mapping = %v/%v override=%v, want 1/2 + override (the broker-effective price wins)", in, out, override)
+	}
+
+	// No effective offer for this model -> fall back to the requested price, no override.
+	in, out, override = effectivePriceFor(registerResult{}, "gpt-oss-120b", 0.2, 0.3)
+	if in != 0.2 || out != 0.3 || override {
+		t.Fatalf("fallback mapping = %v/%v override=%v, want the requested 0.2/0.3 + no override", in, out, override)
+	}
+
+	// An effective offer for a DIFFERENT model must not affect ours.
+	rr2 := registerResult{EffectiveOffers: []protocol.ModelOffer{{Model: "other", PriceOut: 9.0}}}
+	in, out, override = effectivePriceFor(rr2, "gpt-oss-120b", 0.2, 0.3)
+	if in != 0.2 || out != 0.3 || override {
+		t.Fatalf("cross-model mapping = %v/%v override=%v, want our requested 0.2/0.3 unaffected", in, out, override)
+	}
+}
