@@ -827,26 +827,18 @@ func NewWith(broker, user string, limits *LimitStore) model {
 	return NewWithHooks(broker, user, limits, Hooks{})
 }
 
-// NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
-// account / money flows.
-func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
-	m := newBase(broker, user, limits)
-	m.hooks = hooks
-	// Reflect the locally-linked login at startup so the header shows the right state
-	// before the first /balance comes back. The broker's logged_in flag (from the
-	// signed balance read) is the source of truth and confirms it.
-	m.ghLogin = hooks.LinkedLogin
-	// Seed the live broadcast station from the host (the saved/auto-generated callsign),
-	// slugged so it matches the node id exactly. Falls back to a fresh callsign if the
-	// host supplied none, so the TUI never derives a hostname-based id.
+// NewController builds the shared node controller from the host hooks (the SINGLE owner
+// of the live share state). The host calls this once and hands the SAME *node.Controller
+// to both NewWithHooksController and the web console, so a change in one front-end shows
+// up in the other.
+func NewController(broker string, hooks Hooks) *node.Controller {
+	// The live broadcast station: the saved/auto-generated callsign (NEVER the hostname),
+	// slugged so it matches the node id exactly; a fresh callsign if the host supplied none.
 	station := agent.SlugStation(hooks.Station)
 	if station == "" {
 		station = agent.GenerateStation()
 	}
-	// Build the SINGLE shared controller that owns the live share state. The web console
-	// (when on) holds this same pointer, so both front-ends drive one node. The model's
-	// share fields below are a render cache refreshed from it by syncShareCache().
-	m.ctrl = node.New(node.Config{
+	return node.New(node.Config{
 		Broker: broker, HW: hooks.HW, Station: station,
 		ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
 		MaxOnAir:    hooks.ShareMaxOnAir,
@@ -859,6 +851,25 @@ func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
 			SaveStation:  hooks.SaveStation,
 		},
 	})
+}
+
+// NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
+// account / money flows. It builds its own controller; use NewWithHooksController to
+// share one with the web console.
+func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
+	return NewWithHooksController(broker, user, limits, hooks, NewController(broker, hooks))
+}
+
+// NewWithHooksController is NewWithHooks over an EXISTING shared controller, so the TUI
+// and the browser console drive one node.
+func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks, ctrl *node.Controller) model {
+	m := newBase(broker, user, limits)
+	m.hooks = hooks
+	// Reflect the locally-linked login at startup so the header shows the right state
+	// before the first /balance comes back. The broker's logged_in flag (from the signed
+	// balance read) is the source of truth and confirms it.
+	m.ghLogin = hooks.LinkedLogin
+	m.ctrl = ctrl
 	m.ctrl.SetLoggedIn(m.loggedInState())
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
 	m.compact = hooks.Compact
@@ -6986,7 +6997,13 @@ func RunWithNotice(broker, user string, limits *LimitStore, notice string) error
 // RunWithHooks is RunWithNotice plus the host-supplied hooks that make the in-TUI
 // /share, /login, /topup, /grant flows real actions.
 func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks Hooks) error {
-	m := NewWithHooks(broker, user, limits, hooks)
+	return RunWithController(broker, user, limits, notice, hooks, NewController(broker, hooks))
+}
+
+// RunWithController is RunWithHooks over an EXISTING shared controller, so the host can
+// stand up the browser web console over the SAME node before launching the TUI.
+func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
+	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
