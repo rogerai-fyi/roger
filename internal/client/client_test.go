@@ -45,6 +45,69 @@ func TestChatSendsRaisedMaxTokens(t *testing.T) {
 	}
 }
 
+// TestChatFailsOverPastABadStation: a station that returns a retryable 5xx must not
+// dead-end the channel - Chat retries, asking the broker to EXCLUDE the failed node,
+// and succeeds on the next station. This is the fix for "I said hi and got a 504".
+func TestChatFailsOverPastABadStation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var calls int
+	var excludeOnRetry string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			// First station times out: a retryable 504, naming itself as the provider.
+			w.Header().Set("X-RogerAI-Provider", "zombie-node")
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		// Retry: the broker should have been told to skip the failed node.
+		excludeOnRetry = r.Header.Get("X-Roger-Exclude-Nodes")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RogerAI-Provider", "good-node")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"hi back"}}]}`))
+	}))
+	defer srv.Close()
+
+	reply, _, _, err := Chat(srv.URL, "tester", "gpt-oss-120b", "hi", false, 0)
+	if err != nil {
+		t.Fatalf("Chat should have failed over to the good station, got: %v", err)
+	}
+	if reply != "hi back" {
+		t.Fatalf("reply = %q, want the second station's answer", reply)
+	}
+	if calls < 2 {
+		t.Fatalf("Chat made %d calls, want >=2 (it must retry past the 504)", calls)
+	}
+	if excludeOnRetry != "zombie-node" {
+		t.Fatalf("retry should exclude the failed node, X-Roger-Exclude-Nodes=%q want zombie-node", excludeOnRetry)
+	}
+}
+
+// TestChatDoesNotRetryA4xx: a non-retryable 4xx (e.g. 402 no credits) returns at once,
+// without burning failover attempts on the user's own error.
+func TestChatDoesNotRetryA4xx(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write([]byte(`{"error":{"message":"insufficient balance"}}`))
+	}))
+	defer srv.Close()
+
+	if _, _, _, err := Chat(srv.URL, "tester", "m", "hi", false, 0); err == nil {
+		t.Fatal("a 402 should return an error")
+	}
+	if calls != 1 {
+		t.Fatalf("a 402 must NOT be retried, got %d calls", calls)
+	}
+}
+
 // TestGetJSONDistinctErrorOnNon2xx: a broker 500 must surface as ErrBrokerUnreachable
 // (the "couldn't reach the broker" class), NOT a silent empty/zero decode - so balance
 // and search can tell broker-down apart from a real empty result.

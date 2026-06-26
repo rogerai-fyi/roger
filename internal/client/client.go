@@ -942,67 +942,114 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
 		"messages":   []map[string]string{{"role": "user", "content": prompt}},
 		"max_tokens": MaxAnswerTokens,
 	})
-	req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	signRequest(req, reqBody)
-	req.Header.Set("X-Roger-User", user)
-	if confidential {
-		req.Header.Set("X-Roger-Confidential", "1")
-	}
-	// Always carry an out-price cap (the caller's, or the default consumer ceiling when
-	// none was set) so the in-channel chat relay is bounded against overpay exactly like
-	// `roger use` - not only the interactive tune-in confirm.
-	req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
-	resp, err := (&http.Client{Timeout: chatTimeout}).Do(req)
-	if err != nil {
-		// A transport timeout/drop: name it plainly (the bare net error reads as
-		// noise). The deadline is chatTimeout; anything slower is a stuck station.
-		if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
-			return "", "", 0, fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", chatTimeout)
+	httpClient := &http.Client{Timeout: chatTimeout}
+	policy := defaultPolicy()
+	failed := map[string]bool{} // providers that already failed this turn - never re-pick them
+	var lastErr error
+
+	// Bounded retry/failover, mirroring `roger use` (relayWithFailover): on a retryable
+	// failure (transport drop, or a broker/node 5xx like "node timed out" / "no node
+	// offers") re-send asking the broker to EXCLUDE the station(s) that just failed, with
+	// backoff, so one slow/zombie/just-restarted provider no longer dead-ends the channel.
+	// A 4xx (bad request, no credits) is the caller's and returns immediately.
+	for attempt := 0; attempt < policy.maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(policy.backoff(attempt))
 		}
-		return "", "", 0, fmt.Errorf("could not reach the broker: %v", err)
+		req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
+		req.Header.Set("Content-Type", "application/json")
+		signRequest(req, reqBody)
+		req.Header.Set("X-Roger-User", user)
+		if confidential {
+			req.Header.Set("X-Roger-Confidential", "1")
+		}
+		// Always carry an out-price cap (the caller's, or the default consumer ceiling when
+		// none was set) so the in-channel chat relay is bounded against overpay exactly like
+		// `roger use` - not only the interactive tune-in confirm.
+		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
+		if len(failed) > 0 {
+			req.Header.Set("X-Roger-Exclude-Nodes", joinSet(failed))
+		}
+
+		resp, derr := httpClient.Do(req)
+		if derr != nil {
+			// Transport timeout/drop: retryable. Keep a clean message in case we exhaust.
+			if ne, ok := derr.(interface{ Timeout() bool }); ok && ne.Timeout() {
+				lastErr = fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", chatTimeout)
+			} else {
+				lastErr = fmt.Errorf("could not reach the broker: %v", derr)
+			}
+			continue
+		}
+
+		// A retryable 5xx (node timed out / no node / broker restarting): note the failed
+		// provider so the re-pick avoids it, then fail over to another station.
+		if resp.StatusCode >= 500 {
+			if p := resp.Header.Get("X-RogerAI-Provider"); p != "" {
+				failed[p] = true
+			}
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			lastErr = parseChatError(raw, resp.StatusCode)
+			continue
+		}
+
+		// Terminal: a 2xx success, or a non-retryable 4xx the caller must see (bad request,
+		// insufficient credits) - parse and return.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		var d struct {
+			Choices []struct {
+				Message struct {
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		_ = json.Unmarshal(raw, &d)
+		if len(d.Choices) == 0 {
+			return "", "", 0, parseChatError(raw, resp.StatusCode)
+		}
+		reply = d.Choices[0].Message.Content
+		if reply == "" {
+			reply = d.Choices[0].Message.Reasoning
+		}
+		costStr := resp.Header.Get("X-RogerAI-Cost")
+		costCr, _ = strconv.ParseFloat(costStr, 64)
+		// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
+		status = fmt.Sprintf("%s · $%s", resp.Header.Get("X-RogerAI-Provider"), costStr)
+		return reply, status, costCr, nil
 	}
-	defer resp.Body.Close()
+
+	// Every attempt failed over - surface the last real cause.
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no station could serve %s right now (tried %d)", model, policy.maxAttempts)
+	}
+	return "", "", 0, lastErr
+}
+
+// parseChatError turns an errorful /v1/chat/completions response (no choices) into the
+// best human message: the broker/provider's own error text when present (with the topup
+// hint on a 402), else a status-coded fallback. Shared by the relay's failover retries
+// and its terminal path so both name the real cause.
+func parseChatError(raw []byte, status int) error {
 	var d struct {
-		Choices []struct {
-			Message struct {
-				Content   string `json:"content"`
-				Reasoning string `json:"reasoning"`
-			} `json:"message"`
-		} `json:"choices"`
 		Error struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	_ = json.Unmarshal(raw, &d)
-	if len(d.Choices) == 0 {
-		// Prefer the broker/provider's own error text (e.g. "no node offers <model>",
-		// "node timed out", "insufficient credits") so the CHANNEL view names the real
-		// cause. The relay returns 503 with a plain-text body for no-station; surface it.
-		if d.Error.Message != "" {
-			// A 402 (insufficient balance) gets the actionable topup hint appended so the
-			// user is never dead-ended on "insufficient balance" with no next step.
-			return "", "", 0, fmt.Errorf("%s", WithTopupHint(resp.StatusCode, d.Error.Message))
-		}
-		if resp.StatusCode >= 400 {
-			if msg := strings.TrimSpace(string(raw)); msg != "" && len(msg) < 300 {
-				return "", "", 0, fmt.Errorf("%s (status %d)", WithTopupHint(resp.StatusCode, msg), resp.StatusCode)
-			}
-			if resp.StatusCode == http.StatusPaymentRequired {
-				return "", "", 0, fmt.Errorf("%s", WithTopupHint(resp.StatusCode, ""))
-			}
-			return "", "", 0, fmt.Errorf("the station returned status %d with no reply", resp.StatusCode)
-		}
-		return "", "", 0, fmt.Errorf("the station sent an empty response (status %d)", resp.StatusCode)
+	if d.Error.Message != "" {
+		return fmt.Errorf("%s", WithTopupHint(status, d.Error.Message))
 	}
-	reply = d.Choices[0].Message.Content
-	if reply == "" {
-		reply = d.Choices[0].Message.Reasoning
+	if status >= 400 {
+		if msg := strings.TrimSpace(string(raw)); msg != "" && len(msg) < 300 {
+			return fmt.Errorf("%s (status %d)", WithTopupHint(status, msg), status)
+		}
+		if status == http.StatusPaymentRequired {
+			return fmt.Errorf("%s", WithTopupHint(status, ""))
+		}
+		return fmt.Errorf("the station returned status %d with no reply", status)
 	}
-	costStr := resp.Header.Get("X-RogerAI-Cost")
-	costCr, _ = strconv.ParseFloat(costStr, 64)
-	// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
-	status = fmt.Sprintf("%s · $%s", resp.Header.Get("X-RogerAI-Provider"), costStr)
-	return reply, status, costCr, nil
+	return fmt.Errorf("the station sent an empty response (status %d)", status)
 }
