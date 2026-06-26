@@ -212,11 +212,11 @@ body.auth {
 .cmd code { background: none; border: 0; padding: 0; font-size: 1em; }
 
 /* ---- links: ink, the red glint only on hover. ---- */
-.card a {
-  color: var(--ink-700);
-  border-bottom: 1px solid var(--hairline-2);
+ .card a {
+  color: var(--live);
+  border-bottom: 1px solid var(--live);
   transition: color var(--d-1) var(--ease-standard),
-              border-color var(--d-1) var(--ease-standard);
+               border-color var(--d-1) var(--ease-standard);
 }
 .card a:hover { color: var(--live); border-bottom-color: var(--live); }
 .card a:focus-visible {
@@ -224,6 +224,8 @@ body.auth {
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
+
+:root[data-theme="dark"] .card a { color: var(--live); border-bottom-color: var(--live); }
 /* the inline nav lines (account/billing/usage...) read as a quiet directory */
 .fine a { color: var(--ink-500); }
 .fine a:hover { color: var(--live); }
