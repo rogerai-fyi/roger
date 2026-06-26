@@ -780,7 +780,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// ACK does not land in a couple seconds we still print it (the agent keeps
 		// self-healing in the background and the line points the operator at the website).
 		waitOnAir(sess, 3*time.Second)
-		fmt.Println(onAirLine(mdl, station, *priceIn, *priceOut))
+		// Show the broker-EFFECTIVE price (after any owner web-console override) so an
+		// owner who priced this node on the web sees the published number, not the local
+		// one. One source of truth: the price the broker actually publishes.
+		effIn, effOut, override := sess.EffectivePrice()
+		fmt.Println(onAirLine(mdl, station, effIn, effOut, override))
 		fmt.Println(earningsLine())
 		select {} // serve forever
 	}
@@ -805,10 +809,15 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 // thing a new provider needs to see - what's live, under which station, and where to
 // view it - instead of several sequential status Printlns. A price/free suffix tells
 // the operator at a glance whether they are earning.
-func onAirLine(model, station string, priceIn, priceOut float64) string {
+func onAirLine(model, station string, priceIn, priceOut float64, override bool) string {
 	mode := "free"
 	if priceIn > 0 || priceOut > 0 {
 		mode = fmt.Sprintf("earning $%s/$%s per 1M", trimAmt(priceIn), trimAmt(priceOut))
+	}
+	// Note when the published price is a broker-side owner override (set on the web
+	// Console), so the on-air number never looks "wrong" versus what was requested.
+	if override {
+		mode += " (broker override active)"
 	}
 	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fyi", model, station, mode)
 }

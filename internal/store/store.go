@@ -160,6 +160,10 @@ type Store interface {
 	// UpdateAccount applies user-editable profile fields (email) to the owner with
 	// the given login. Returns the updated owner.
 	UpdateAccount(login, email string) (Owner, bool, error)
+	// ClaimWelcome atomically stamps the owner's WelcomedAt (now) IFF it is unset,
+	// returning whether THIS call claimed it. It is the once-only guard for the welcome
+	// email: a true result means the caller (and only the caller) should send it.
+	ClaimWelcome(pubkey string) (bool, error)
 	// SetConnect persists Stripe Connect onboarding state on the owner's account.
 	SetConnect(login, connectID, status string) error
 	// DeleteAccount soft-deletes + anonymizes the owner: scrubs email/login, marks
@@ -485,6 +489,13 @@ type Owner struct {
 	Login     string `json:"login"`
 	Pubkey    string `json:"pubkey"` // hex ed25519 user pubkey (the binding key)
 	CreatedAt int64  `json:"created_at"`
+	// Name is the GitHub display name captured at bind (may be empty if the user has
+	// none). Used only to personalize the welcome email; never a security boundary.
+	Name string `json:"name,omitempty"`
+	// WelcomedAt is the unix time the one-time welcome email was sent (0 = never). It is
+	// the durable idempotency guard for maybeSendWelcome: the welcome fires exactly once,
+	// the first time the account has an email AND has not yet been welcomed.
+	WelcomedAt int64 `json:"welcomed_at,omitempty"`
 	// Account-hub fields (ACCOUNT-PAYOUTS-DESIGN). Additive; the consume/wallet
 	// paths ignore them.
 	Email         string `json:"email,omitempty"`
@@ -984,8 +995,19 @@ func (m *Mem) BindOwner(o Owner) error {
 		if existing.CreatedAt != 0 {
 			o.CreatedAt = existing.CreatedAt // preserve the original bind time on refresh
 		}
+		// Email: NEVER clobber a user-set email on re-login. GitHub only fills it when
+		// the account has none on file yet (existing empty); a value the user set via
+		// PATCH /account always wins over whatever GitHub hands us at the next login.
+		if existing.Email != "" {
+			o.Email = existing.Email
+		}
+		// Name: same fill-if-empty so a once-captured display name is stable across
+		// logins (and a later GitHub name change doesn't silently overwrite it).
+		if existing.Name != "" {
+			o.Name = existing.Name
+		}
 		// preserve account-hub state a fresh GitHub login wouldn't carry
-		o.Email = existing.Email
+		o.WelcomedAt = existing.WelcomedAt // durable: the welcome fires exactly once, ever
 		o.ConnectID = existing.ConnectID
 		o.ConnectStatus = existing.ConnectStatus
 		o.DeletedAt = existing.DeletedAt
@@ -1024,6 +1046,22 @@ func (m *Mem) UpdateAccount(login, email string) (Owner, bool, error) {
 		}
 	}
 	return Owner{}, false, nil
+}
+
+// ClaimWelcome atomically stamps WelcomedAt=now for the owner IFF it is currently
+// unset, reporting whether THIS call claimed it. It is the idempotency primitive behind
+// maybeSendWelcome: with concurrent binds/patches racing, exactly one caller gets
+// claimed=true (and therefore sends exactly one welcome email).
+func (m *Mem) ClaimWelcome(pubkey string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o, ok := m.owners[pubkey]
+	if !ok || o.WelcomedAt != 0 {
+		return false, nil
+	}
+	o.WelcomedAt = time.Now().Unix()
+	m.owners[pubkey] = o
+	return true, nil
 }
 
 func (m *Mem) SetConnect(login, connectID, status string) error {

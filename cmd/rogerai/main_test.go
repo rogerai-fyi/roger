@@ -262,13 +262,13 @@ func TestSeedSharePricing(t *testing.T) {
 // TestOnAirLine verifies the single go-live success line (audit #5): the model,
 // station, and a free-vs-earning mode, ending at the website.
 func TestOnAirLine(t *testing.T) {
-	free := onAirLine("gpt-oss-120b", "brave-otter-37", 0, 0)
+	free := onAirLine("gpt-oss-120b", "brave-otter-37", 0, 0, false)
 	for _, want := range []string{"on air", "gpt-oss-120b", "brave-otter-37", "free", "rogerai.fyi"} {
 		if !strings.Contains(free, want) {
 			t.Errorf("free on-air line %q missing %q", free, want)
 		}
 	}
-	earn := onAirLine("qwen3-coder", "calm-fox-9", 0.20, 0.30)
+	earn := onAirLine("qwen3-coder", "calm-fox-9", 0.20, 0.30, false)
 	for _, want := range []string{"qwen3-coder", "calm-fox-9", "earning", "$0.20", "$0.30", "rogerai.fyi"} {
 		if !strings.Contains(earn, want) {
 			t.Errorf("earning on-air line %q missing %q", earn, want)
@@ -276,6 +276,17 @@ func TestOnAirLine(t *testing.T) {
 	}
 	if strings.Contains(earn, "free") {
 		t.Errorf("earning line should not say free: %q", earn)
+	}
+	if strings.Contains(earn, "broker override") {
+		t.Errorf("non-override line should not mention an override: %q", earn)
+	}
+	// A broker-effective price set on the web Console is flagged so the operator knows the
+	// published number is the broker override, not the locally requested one.
+	ov := onAirLine("gpt-oss-120b", "brave-otter-37", 1.0, 2.0, true)
+	for _, want := range []string{"$1", "$2", "broker override active"} {
+		if !strings.Contains(ov, want) {
+			t.Errorf("override on-air line %q missing %q", ov, want)
+		}
 	}
 }
 

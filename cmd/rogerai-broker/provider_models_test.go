@@ -121,6 +121,87 @@ func TestProviderModelsSetReadbackAndReregister(t *testing.T) {
 	}
 }
 
+// TestRegisterResponseCarriesEffectivePrice: when an owner has set a web-console price
+// override, the /nodes/register RESPONSE carries the broker-EFFECTIVE offers (the
+// override price, NOT the node's own requested price) and names the overridden model -
+// so the `rogerai share` CLI shows the broker-effective price. One source of truth.
+func TestRegisterResponseCarriesEffectivePrice(t *testing.T) {
+	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
+	if code, msg := registerPriced(t, b, "n1", nodePriv, nodePubHex, userPriv); code != http.StatusOK {
+		t.Fatalf("register n1 = %d (%q), want 200", code, msg)
+	}
+	// Owner sets a web-console override price ($1 in / $2 out).
+	if code, msg := pmSet(t, b, userPriv, map[string]any{
+		"node": "n1", "model": "m", "price_in": 1.0, "price_out": 2.0,
+	}); code != http.StatusOK {
+		t.Fatalf("set override = %d (%q), want 200", code, msg)
+	}
+
+	// Re-register: the node re-supplies its OWN price (0 in / 1 out). The response must
+	// still publish the owner override.
+	reg := protocol.NodeRegistration{
+		NodeID: "n1", PubKey: nodePubHex, BridgeToken: "tok-n1", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 4096, PriceOut: 1.0}},
+	}
+	reg.SignRegistration(nodePriv)
+	body, _ := json.Marshal(reg)
+	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.register(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("re-register = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		EffectiveOffers []protocol.ModelOffer `json:"effective_offers"`
+		Overrides       []string              `json:"overrides"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
+	if len(resp.EffectiveOffers) != 1 {
+		t.Fatalf("effective_offers = %d, want 1", len(resp.EffectiveOffers))
+	}
+	if resp.EffectiveOffers[0].PriceIn != 1.0 || resp.EffectiveOffers[0].PriceOut != 2.0 {
+		t.Fatalf("effective price = %v/%v, want the override 1/2 (not the node's 0/1)",
+			resp.EffectiveOffers[0].PriceIn, resp.EffectiveOffers[0].PriceOut)
+	}
+	if len(resp.Overrides) != 1 || resp.Overrides[0] != "m" {
+		t.Fatalf("overrides = %v, want [m] (the overridden model is flagged)", resp.Overrides)
+	}
+}
+
+// TestRegisterResponseNoOverride: with no owner override the response just echoes the
+// node's own offers and lists no overrides (the share line shows the requested price).
+func TestRegisterResponseNoOverride(t *testing.T) {
+	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
+	reg := protocol.NodeRegistration{
+		NodeID: "n1", PubKey: nodePubHex, BridgeToken: "tok-n1", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 4096, PriceOut: 1.0}},
+	}
+	reg.SignRegistration(nodePriv)
+	body, _ := json.Marshal(reg)
+	r := httptest.NewRequest(http.MethodPost, "/nodes/register", bytes.NewReader(body))
+	signReq(r, userPriv, body)
+	w := httptest.NewRecorder()
+	b.register(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("register = %d, want 200 (%s)", w.Code, w.Body.String())
+	}
+	var resp struct {
+		EffectiveOffers []protocol.ModelOffer `json:"effective_offers"`
+		Overrides       []string              `json:"overrides"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.EffectiveOffers) != 1 || resp.EffectiveOffers[0].PriceOut != 1.0 {
+		t.Fatalf("effective_offers = %+v, want the node's own price_out 1.0 echoed", resp.EffectiveOffers)
+	}
+	if len(resp.Overrides) != 0 {
+		t.Fatalf("overrides = %v, want none", resp.Overrides)
+	}
+}
+
 // TestProviderModelsOwnerScoping: owner B cannot read or edit owner A's node. A node id
 // is public, so the AccountOfNode gate must 403 a cross-account edit.
 func TestProviderModelsOwnerScoping(t *testing.T) {

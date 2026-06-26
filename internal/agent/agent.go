@@ -83,6 +83,21 @@ type Session struct {
 	bandID      string
 	bandCode    string
 	bandDisplay string
+
+	// Broker-EFFECTIVE published price for this session's model, from the register
+	// response (after any owner-authored web-console override). These default to the
+	// locally-requested price and only differ when the broker is overriding it.
+	effPriceIn     float64
+	effPriceOut    float64
+	overrideActive bool // an owner web-console price override is active for this model
+}
+
+// EffectivePrice returns the broker-EFFECTIVE published price for this session's model
+// (after any owner web-console override) and whether such an override is active. The
+// CLI's on-air line shows this so an owner who priced their node on the web sees the
+// real published number, not the locally-requested one.
+func (s *Session) EffectivePrice() (priceIn, priceOut float64, override bool) {
+	return s.effPriceIn, s.effPriceOut, s.overrideActive
 }
 
 // Band returns this session's private band id, the one-time secret code (empty
@@ -343,6 +358,9 @@ func Start(cfg Config) (*Session, error) {
 	rereg := newReregistrar(cfg.Broker, reg, priv)
 	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg,
 		bandID: regRes.BandID, bandCode: regRes.BandCode, bandDisplay: regRes.BandDisplay}
+	// Adopt the broker-EFFECTIVE price for this model (after any owner web-console
+	// override) so the CLI surfaces the real published number, not the requested one.
+	sess.effPriceIn, sess.effPriceOut, sess.overrideActive = effectivePriceFor(regRes, cfg.Model, cfg.PriceIn, cfg.PriceOut)
 	// Registration was acknowledged (register() returned ok); the link is "connecting"
 	// until the first heartbeat is accepted, after which it flips to genuinely ON AIR.
 	sess.setLink(LinkConnecting)
@@ -641,6 +659,32 @@ type registerResult struct {
 	BandID      string `json:"band_id"`
 	BandCode    string `json:"band_code"`    // SECRET, present only at first mint
 	BandDisplay string `json:"band_display"` // cosmetic, not secret
+	// EffectiveOffers is the broker-EFFECTIVE published offers AFTER any owner-authored
+	// web-console override is applied, so the CLI shows the real published price (not the
+	// locally-requested one). Overrides names the models that carry an active override.
+	EffectiveOffers []protocol.ModelOffer `json:"effective_offers"`
+	Overrides       []string              `json:"overrides"`
+}
+
+// effectivePriceFor resolves the broker-EFFECTIVE published price for `model` from a
+// register response: it prefers the broker's echoed effective offer (after any
+// owner-authored web-console override) and falls back to the requested price when the
+// broker echoed none for this model. override reports an active override for the model.
+func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (in, out float64, override bool) {
+	in, out = reqIn, reqOut
+	for _, eo := range rr.EffectiveOffers {
+		if eo.Model == model {
+			in, out = eo.PriceIn, eo.PriceOut
+			break
+		}
+	}
+	for _, m := range rr.Overrides {
+		if m == model {
+			override = true
+			break
+		}
+	}
+	return in, out, override
 }
 
 func register(broker string, reg protocol.NodeRegistration) (registerResult, error) {
@@ -673,7 +717,9 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
 		return registerResult{}, fmt.Errorf("broker returned status %d", resp.StatusCode)
 	}
 	var rr registerResult
-	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&rr)
+	// 64KB: the response now carries the effective offers (which can include a
+	// time-of-use schedule), so allow more than the old band-only 4KB.
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&rr)
 	log.Printf("registered with broker %s as node %s", broker, reg.NodeID)
 	return rr, nil
 }

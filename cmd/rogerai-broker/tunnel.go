@@ -291,7 +291,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// off the broker lock (it does a store read). Only an owner-bound node (regOwner
 	// set) can carry overrides; ActivePrice then reads the overridden price at serve
 	// time. (Past receipts/ledger are immutable - this changes only future pricing.)
-	b.applyOfferOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
+	overriddenModels := b.applyOfferOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
 	b.mu.Lock()
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
 	// later registrations for that id must use the SAME key (no takeover).
@@ -408,7 +408,14 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	log.Printf("registered node %s (%d offers, %s, private=%v)", reg.NodeID, len(reg.Offers), reg.HW, reg.Private)
-	resp := map[string]any{"ok": true}
+	// Return the EFFECTIVE offers (reg.Offers was rewritten in place by
+	// applyOfferOverrides), so the CLI/agent shows the broker-EFFECTIVE price - one
+	// source of truth for the published price. `overrides` names which models carry an
+	// active owner-authored web price, so `share` can note "broker override active".
+	resp := map[string]any{"ok": true, "effective_offers": reg.Offers}
+	if len(overriddenModels) > 0 {
+		resp["overrides"] = overriddenModels
+	}
 	if reg.Private {
 		resp["band_id"] = bandID
 		resp["band_display"] = bandDisplay // cosmetic, not secret
@@ -647,10 +654,14 @@ func offersPriced(offers []protocol.ModelOffer) bool {
 // another account's node. Overrides were ceiling-validated when SET, so re-applying
 // them here cannot land an out-of-bounds price. This sets only the PUBLISHED/future
 // price - past receipts and ledger rows are immutable and untouched.
-func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.ModelOffer) {
+// It returns the model names whose offer was actually overridden, so the register
+// RESPONSE can tell the node which of its prices the broker is now publishing on its
+// behalf (the CLI surfaces "broker override active" off this list).
+func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.ModelOffer) []string {
 	if b.db == nil || owner == "" {
-		return
+		return nil
 	}
+	var overridden []string
 	for i := range offers {
 		ov, ok, err := b.db.OfferOverride(node, offers[i].Model)
 		if err != nil || !ok || ov.Owner != owner {
@@ -659,7 +670,9 @@ func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.Model
 		offers[i].PriceIn = ov.PriceIn
 		offers[i].PriceOut = ov.PriceOut
 		offers[i].Schedule = ov.Schedule
+		overridden = append(overridden, offers[i].Model)
 	}
+	return overridden
 }
 
 // heartbeat handles POST /nodes/heartbeat: keeps a node marked online (~35s TTL).
