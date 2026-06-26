@@ -182,6 +182,22 @@ CREATE TABLE IF NOT EXISTS rogerai.nodes (
     confidential  BOOLEAN NOT NULL DEFAULT false,
     last_seen     BIGINT NOT NULL DEFAULT 0,
     registered_at BIGINT NOT NULL DEFAULT 0);
+-- owner-authored price/schedule overrides set from the web Console. The broker seeds
+-- a node's in-memory offer from here on every register (so the owner's web-set price
+-- survives node re-registration + a broker restart); ActivePrice reads it at serve
+-- time. owner is the authoring owner pubkey (the scope: an override never shadows
+-- another account's node). schedule is the JSON-encoded []protocol.PriceWindow. This
+-- only records a PUBLISHED/future price - past receipts/ledger are never touched.
+CREATE TABLE IF NOT EXISTS rogerai.offer_overrides (
+    node       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    price_in   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    price_out  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    schedule   JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (node, model));
+CREATE INDEX IF NOT EXISTS offer_overrides_owner ON rogerai.offer_overrides (owner);
 -- safety: preserved child-exploitation hits (18 USC 2258A). ACCESS-RESTRICTED +
 -- retention-limited: the offending prompt is stored ENCRYPTED-AT-REST (the broker
 -- encrypts before insert; the column is ciphertext, never plaintext). report_state
@@ -955,6 +971,75 @@ func (p *Postgres) AllNodes() ([]NodeRecord, error) {
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// SetOfferOverride upserts an owner-authored price/schedule override for (node,model).
+// The owner pubkey is stored on the row so it can never shadow another account's node.
+func (p *Postgres) SetOfferOverride(ov OfferOverride) error {
+	sched, err := json.Marshal(ov.Schedule)
+	if err != nil {
+		return err
+	}
+	_, err = p.db.Exec(`
+		INSERT INTO rogerai.offer_overrides(node,model,owner,price_in,price_out,schedule,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (node,model) DO UPDATE SET
+			owner=EXCLUDED.owner, price_in=EXCLUDED.price_in, price_out=EXCLUDED.price_out,
+			schedule=EXCLUDED.schedule, updated_at=EXCLUDED.updated_at`,
+		ov.NodeID, ov.Model, ov.Owner, ov.PriceIn, ov.PriceOut, sched, ov.UpdatedAt)
+	return err
+}
+
+func (p *Postgres) OfferOverride(node, model string) (OfferOverride, bool, error) {
+	var (
+		ov     OfferOverride
+		schRaw []byte
+	)
+	err := p.db.QueryRow(`SELECT node,model,owner,price_in,price_out,schedule,updated_at
+		FROM rogerai.offer_overrides WHERE node=$1 AND model=$2`, node, model).
+		Scan(&ov.NodeID, &ov.Model, &ov.Owner, &ov.PriceIn, &ov.PriceOut, &schRaw, &ov.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return OfferOverride{}, false, nil
+	}
+	if err != nil {
+		return OfferOverride{}, false, err
+	}
+	_ = json.Unmarshal(schRaw, &ov.Schedule)
+	return ov, true, nil
+}
+
+func (p *Postgres) OverridesByOwner(owner string) ([]OfferOverride, error) {
+	rows, err := p.db.Query(`SELECT node,model,owner,price_in,price_out,schedule,updated_at
+		FROM rogerai.offer_overrides WHERE owner=$1`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OfferOverride
+	for rows.Next() {
+		var (
+			ov     OfferOverride
+			schRaw []byte
+		)
+		if err := rows.Scan(&ov.NodeID, &ov.Model, &ov.Owner, &ov.PriceIn, &ov.PriceOut, &schRaw, &ov.UpdatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(schRaw, &ov.Schedule)
+		out = append(out, ov)
+	}
+	return out, rows.Err()
+}
+
+// ClearOfferOverride deletes an owner's override, OWNER-SCOPED (the owner filter in the
+// WHERE clause means an owner can never clear another account's override).
+func (p *Postgres) ClearOfferOverride(owner, node, model string) (bool, error) {
+	res, err := p.db.Exec(`DELETE FROM rogerai.offer_overrides WHERE node=$1 AND model=$2 AND owner=$3`,
+		node, model, owner)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func (p *Postgres) LedgerOf(holder string, kinds []string, limit int) ([]LedgerRow, error) {

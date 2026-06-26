@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
@@ -69,4 +71,43 @@ func registerPriceCeiling(offers []protocol.ModelOffer) string {
 		}
 	}
 	return ""
+}
+
+// validateOfferInput checks an owner-authored (web Console) price + schedule before it
+// is persisted as an override: non-negative prices, well-formed "HH:MM" window bounds,
+// valid weekday indices (0=Sun..6=Sat), and non-negative per-window prices. It returns
+// "" when the input is clean. The public price CEILING is enforced separately via
+// registerPriceCeiling (so the same hard cap applies whether a price arrives by CLI
+// registration or by a Console edit). Bad input is rejected here rather than silently
+// dropped by ActivePrice's lenient parse, so the owner gets a clear error.
+func validateOfferInput(priceIn, priceOut float64, schedule []protocol.PriceWindow) string {
+	if priceIn < 0 || priceOut < 0 {
+		return "price cannot be negative"
+	}
+	for _, w := range schedule {
+		if !validHHMM(w.Start) || !validHHMM(w.End) {
+			return fmt.Sprintf("schedule window times must be HH:MM (24h) - got start=%q end=%q", w.Start, w.End)
+		}
+		for _, d := range w.Days {
+			if d < 0 || d > 6 {
+				return fmt.Sprintf("schedule day must be 0-6 (Sun-Sat) - got %d", d)
+			}
+		}
+		if !w.Free && (w.In < 0 || w.Out < 0) {
+			return "schedule window price cannot be negative"
+		}
+	}
+	return ""
+}
+
+// validHHMM reports whether s is a valid "HH:MM" 24h time (mirrors protocol.hhmm,
+// which is unexported).
+func validHHMM(s string) bool {
+	p := strings.SplitN(s, ":", 2)
+	if len(p) != 2 {
+		return false
+	}
+	h, e1 := strconv.Atoi(strings.TrimSpace(p[0]))
+	m, e2 := strconv.Atoi(strings.TrimSpace(p[1]))
+	return e1 == nil && e2 == nil && h >= 0 && h <= 23 && m >= 0 && m <= 59
 }

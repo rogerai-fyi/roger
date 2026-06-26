@@ -285,6 +285,13 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, attErr.Error())
 		return
 	}
+	// Owner-authored web-Console price/schedule overrides take PRECEDENCE over (seed)
+	// the node-supplied offers, and survive this re-register because we re-apply them
+	// here on every register, before reg.Offers lands in b.nodes + is persisted. Done
+	// off the broker lock (it does a store read). Only an owner-bound node (regOwner
+	// set) can carry overrides; ActivePrice then reads the overridden price at serve
+	// time. (Past receipts/ledger are immutable - this changes only future pricing.)
+	b.applyOfferOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
 	b.mu.Lock()
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
 	// later registrations for that id must use the SAME key (no takeover).
@@ -628,6 +635,31 @@ func offersPriced(offers []protocol.ModelOffer) bool {
 		}
 	}
 	return false
+}
+
+// applyOfferOverrides re-seeds a node's offers IN PLACE from the owner-authored
+// price/schedule overrides set on the web Console, so the owner's web-set price is the
+// EFFECTIVE PUBLISHED price and SURVIVES node re-registration: register calls this on
+// every register BEFORE the offers land in b.nodes (ActivePrice reads them at serve
+// time) and BEFORE they are persisted (so a restart re-hydrates the overridden offers).
+// Only an OWNER-BOUND node carries overrides (owner != ""); each override is applied
+// only when its stored owner matches the node's resolved owner, so it can never shadow
+// another account's node. Overrides were ceiling-validated when SET, so re-applying
+// them here cannot land an out-of-bounds price. This sets only the PUBLISHED/future
+// price - past receipts and ledger rows are immutable and untouched.
+func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.ModelOffer) {
+	if b.db == nil || owner == "" {
+		return
+	}
+	for i := range offers {
+		ov, ok, err := b.db.OfferOverride(node, offers[i].Model)
+		if err != nil || !ok || ov.Owner != owner {
+			continue
+		}
+		offers[i].PriceIn = ov.PriceIn
+		offers[i].PriceOut = ov.PriceOut
+		offers[i].Schedule = ov.Schedule
+	}
 }
 
 // heartbeat handles POST /nodes/heartbeat: keeps a node marked online (~35s TTL).

@@ -128,6 +128,30 @@ type Store interface {
 	// AllNodes returns every persisted node record (for startup re-hydration).
 	AllNodes() ([]NodeRecord, error)
 
+	// --- owner-authored price/schedule overrides (web console pricing) -------
+	//
+	// An OfferOverride is the EFFECTIVE PUBLISHED price/schedule an OWNER set from the
+	// web console for one (node, model). The broker SEEDS the node's in-memory offer
+	// from it on every register (so it survives node re-registration AND a broker
+	// restart), and ActivePrice reads it at serve time. It records only a FUTURE
+	// (published) price - it NEVER mutates a past receipt or any ledger row.
+
+	// SetOfferOverride upserts an owner-authored override (keyed on node+model, stamped
+	// with the owner pubkey). The caller stamps UpdatedAt. Owner-scoped: a stored
+	// override carries the authoring owner so it can never shadow another account's node.
+	SetOfferOverride(ov OfferOverride) error
+	// OfferOverride returns the override for (node,model), ok=false if none. Used at
+	// register time to seed the node's effective published price.
+	OfferOverride(node, model string) (OfferOverride, bool, error)
+	// OverridesByOwner lists all of an owner's authored overrides (the console list).
+	OverridesByOwner(owner string) ([]OfferOverride, error)
+	// ClearOfferOverride removes an owner's override for (node,model), OWNER-SCOPED:
+	// it deletes only when the stored override's owner matches `owner` (so an owner can
+	// never clear another account's override). ok=false if there is no such override
+	// for that owner. After a clear, the node's NEXT registration restores its own
+	// node-supplied price/schedule.
+	ClearOfferOverride(owner, node, model string) (bool, error)
+
 	// --- account hub (ACCOUNT-PAYOUTS-DESIGN) -------------------------------
 
 	// OwnerByLogin returns the owner with the given GitHub login, ok=false if none.
@@ -498,20 +522,21 @@ type Mem struct {
 	policy     PayoutPolicy
 	monthlyCap map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
 
-	ledger      []LedgerRow           // append-only money events
-	ledgerID    int64                 // monotonic ledger id
-	idem        map[string]bool       // ledger idem keys seen
-	lots        []EarningLot          // operator earning lifecycle lots
-	lotID       int64                 // monotonic lot id
-	payouts     []Payout              // payout history
-	payoutID    int64                 // monotonic payout id
-	disputes    map[string]bool       // seen stripe dispute ids (idempotency)
-	recountHold map[string]int64      // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
-	nodeAcct    map[string]string     // node id -> owner pubkey (TOFU)
-	charges     map[string]charge     // stripe payment_intent/charge id -> checkout mapping
-	gs          *grantStore           // grant keys + per-grant usage rollups
-	bs          *bandStore            // private bands ("frequency codes": private discovery)
-	nodes       map[string]NodeRecord // persisted node registry (re-hydrated on restart)
+	ledger      []LedgerRow              // append-only money events
+	ledgerID    int64                    // monotonic ledger id
+	idem        map[string]bool          // ledger idem keys seen
+	lots        []EarningLot             // operator earning lifecycle lots
+	lotID       int64                    // monotonic lot id
+	payouts     []Payout                 // payout history
+	payoutID    int64                    // monotonic payout id
+	disputes    map[string]bool          // seen stripe dispute ids (idempotency)
+	recountHold map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
+	nodeAcct    map[string]string        // node id -> owner pubkey (TOFU)
+	charges     map[string]charge        // stripe payment_intent/charge id -> checkout mapping
+	gs          *grantStore              // grant keys + per-grant usage rollups
+	bs          *bandStore               // private bands ("frequency codes": private discovery)
+	nodes       map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
+	overrides   map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
 	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
@@ -558,7 +583,8 @@ func NewMem() *Mem {
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
-		banned: map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
+		overrides: map[string]OfferOverride{},
+		banned:    map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
 	}
 }

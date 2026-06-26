@@ -46,6 +46,19 @@
     <p class="cn-state" id="logEmptyConsumer" hidden>No requests yet. Tune in with <code>rogerai use &lt;model&gt;</code> and your lineage lands here.</p>
     <p class="cn-state" id="logEmptyOwner" hidden>No requests served yet. Put a GPU on air with <code>rogerai share</code> and the traffic it serves shows here, receipt by receipt.</p>
 
+    <!-- ============ MODELS: price + time-of-use schedule ============ -->
+    <section class="panel" id="modelsWrap" hidden>
+      <h2>Models &amp; pricing</h2>
+      <p>Set what each model you serve charges per million tokens, and add time-of-use windows (a cheaper night rate, a free daily window). Changes publish immediately and survive the node reconnecting &mdash; they only ever set future prices, never what was already billed.</p>
+
+      <p class="cn-state" id="mdLoading">Reading your models...</p>
+      <p class="cn-state" id="mdError" hidden>Could not load your models. Try again shortly.</p>
+      <p class="cn-state" id="mdEmpty" hidden>No models on air yet. Run <code>rogerai share</code> on a box and the models it serves show up here to price.</p>
+
+      <div class="md-list" id="mdList" hidden></div>
+      <p class="fine" id="mdCeil" hidden></p>
+    </section>
+
     <!-- ============ Put a GPU on air ============ -->
     <section class="panel">
       <h2>Put a GPU on air</h2>

@@ -94,3 +94,166 @@
   .cn-table th, .cn-table td { padding: var(--s-2); }
   .cn-node { display: none; }            /* node callsign is the first to fold */
 }
+
+/* =====================================================================
+   MODELS & PRICING manager (owner only): a hairline-divided stack of model
+   plates, each with a base $/1M price line + a time-of-use schedule editor.
+   Same warm-paper, mono-numeral, hairline language as the lineage table.
+   ===================================================================== */
+.md-list { margin-top: var(--s-5); }
+
+/* one model plate, separated by a hairline (no boxed card). */
+.md-card {
+  border-top: 1px solid var(--hairline);
+  padding: var(--s-5) 0;
+}
+.md-card:first-child { border-top: 0; }
+
+/* header: on-air dot · model · node callsign · "custom" tag. */
+.md-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.md-dot { font-size: 0.7em; line-height: 1; }
+.md-dot--on  { color: var(--ink-500); }
+.md-dot--off { color: var(--ink-300); }
+.md-name {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.md-node {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+}
+/* the one accent: an owner-authored price wears a single red hairline tag. */
+.md-tag {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--live);
+  border: 1px solid var(--live);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+
+/* uppercase-mono labels lead the base + schedule blocks. */
+.md-lbl {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+}
+.md-io {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+}
+
+/* base price line + window rows: inline, wrapping fields. */
+.md-base,
+.md-win {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  flex-wrap: wrap;
+  margin-top: var(--s-3);
+}
+.md-shead {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.md-wins { display: flex; flex-direction: column; gap: var(--s-1); }
+.md-dash { color: var(--ink-400); }
+
+/* mono number fields - tabular, hairline, red focus ring (matches account inputs). */
+.md-in,
+.md-time,
+.md-days {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+.md-in   { width: 6.5em; }
+.md-time { width: 7.5em; }
+.md-days { width: 7em; }
+.md-in:focus-visible,
+.md-time:focus-visible,
+.md-days:focus-visible {
+  outline: none;
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.md-in:disabled { opacity: 0.4; }
+
+/* free toggle: a small inline checkbox + label. */
+.md-free {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+
+/* add-window + remove-window controls - quiet ghost affordances. */
+.md-add {
+  background: none;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.md-add:hover { color: var(--live); border-color: var(--live); }
+.md-x {
+  background: none;
+  border: 0;
+  color: var(--ink-400);
+  font-size: var(--t-body);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--s-1);
+}
+.md-x:hover { color: var(--live); }
+
+/* footer: save (compact, not full-width) + clear + a quiet saved/err state. */
+.md-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+  flex-wrap: wrap;
+}
+.md-save { width: auto; margin-top: 0; padding: 8px 20px; }
+.md-clear { margin-top: 0; padding: 8px 16px; }
+.md-state {
+  font-size: var(--t-xs);
+  font-family: var(--font-mono);
+  color: var(--ink-500);
+}
+.md-state--ok  { color: var(--ink-700); }
+.md-state--err { color: var(--live); }
+
+@media (max-width: 560px) {
+  .md-time { width: 6.5em; }
+  .md-in   { width: 5em; }
+}
