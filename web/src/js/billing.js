@@ -5,8 +5,8 @@
 // accent) - no chart library.
 //
 // Endpoints (all credentialed; CSP connect-src already allows the broker):
-//   GET /billing        -> { balance, derived, credit_usd, checkout_ready, topups[] }
-//   GET /balance        -> { logged_in, balance, monthly_cap, monthly_spend }   (cap meter)
+//   GET /billing          -> { balance, derived, credit_usd, checkout_ready, topups[] }
+//   GET/PATCH /account/limit -> { monthly_cap, monthly_spend }  (the spend-limit panel)
 //   GET /metrics/series -> { daily[], savings{ spend_usd, frontier_est,
 //                            savings_est, baseline_model, reference[] } }        (savings + velocity)
 //   GET /console        -> { role, events[]{model,node,cost,ts}, counters{spend_today} } (today + charges)
@@ -132,44 +132,93 @@
     return row;
   }
 
-  // ---- MONTHLY SPEND-CAP METER --------------------------------------------
-  // cap = 0 means unlimited (no meter). Otherwise a gauge with 80%/100% states.
-  function renderCap(cap, spend) {
+  // ---- MONTHLY SPEND LIMIT (the account-wide guardrail) -------------------
+  // GET /account/limit -> { monthly_cap, monthly_spend } (USD; 0 = no limit).
+  // PATCH { monthly_cap } sets it (0 = clear to unlimited). The meter's used
+  // portion is the one red glint; the form sets / updates / clears the cap.
+  // Loading / error / saved notices live in the quiet .mx-state register.
+  function paintLimit(cap, spend) {
     cap = n0(cap);
     spend = n0(spend);
-    if (cap <= 0) return; // unlimited -> no gauge (honest: nothing to meter)
-    var ratio = cap > 0 ? spend / cap : 0;
-    var pct = Math.round(ratio * 100);
-    text("capMtd", cr(spend));
-    text("capLimit", cr(cap) + "/mo");
-    text("capPct", pct + "%");
-    var fillEl = document.getElementById("capGauge");
-    if (fillEl) fillEl.style.width = Math.min(100, Math.max(0, ratio * 100)) + "%";
-    var wrap = document.getElementById("capGaugeWrap");
-    var state = ratio >= 1 ? "over" : (ratio >= 0.8 ? "near" : "ok");
-    if (wrap) {
-      wrap.classList.remove("is-near", "is-over");
-      if (state === "near") wrap.classList.add("is-near");
-      if (state === "over") wrap.classList.add("is-over");
-    }
-    var pctEl = document.getElementById("capPct");
-    if (pctEl) {
-      pctEl.classList.remove("is-near", "is-over");
-      if (state === "near") pctEl.classList.add("is-near");
-      if (state === "over") pctEl.classList.add("is-over");
-    }
-    var note;
-    if (state === "over") {
-      note = "Cap reached. Paid requests are paused until next month or until you raise the cap with `rogerai limit`.";
-    } else if (state === "near") {
-      note = "You are at " + pct + "% of your monthly cap. Raise or clear it any time with `rogerai limit`.";
+    var gauge = document.getElementById("limitGauge");
+    var none = document.getElementById("limitNone");
+    var clear = document.getElementById("limitClear");
+    var input = document.getElementById("limitInput");
+    if (cap > 0) {
+      var ratio = spend / cap;
+      var pct = Math.round(ratio * 100);
+      text("limitUsed", cr(spend));
+      text("limitCap", cr(cap) + "/mo");
+      text("limitPct", pct + "%");
+      var seg = document.getElementById("limitSeg");
+      if (seg) seg.style.width = Math.min(100, Math.max(0, ratio * 100)) + "%";
+      var pctEl = document.getElementById("limitPct");
+      if (pctEl) {
+        pctEl.classList.remove("is-over");
+        if (ratio >= 1) pctEl.classList.add("is-over");
+      }
+      if (gauge) gauge.hidden = false;
+      if (none) none.hidden = true;
+      if (clear) clear.hidden = false;
+      // reflect the live cap into the field, but never clobber an active edit.
+      if (input && document.activeElement !== input) input.value = cap;
     } else {
-      note = "A budget ceiling on captured spend this calendar month. Change it from the CLI: `rogerai limit`.";
+      if (gauge) gauge.hidden = true;
+      if (none) none.hidden = false;
+      if (clear) clear.hidden = true;
     }
-    // keep the inline <code> styling readable: the note is plain text, the code
-    // hint lives in the markup default, so only swap text for the alert states.
-    if (state !== "ok") text("capNote", note);
-    show("capBox");
+  }
+
+  function limitNote(msgText) {
+    var msg = document.getElementById("limitMsg");
+    if (!msg) return;
+    msg.textContent = msgText;
+    msg.hidden = false;
+  }
+
+  // PATCH the cap. clear=true forces 0 (remove); otherwise read + validate the
+  // field (blank or 0 = no limit). The PATCH echoes the stored state, so we
+  // repaint from the response rather than from the typed value.
+  function saveLimit(clear) {
+    var input = document.getElementById("limitInput");
+    var btn = document.getElementById("limitSave");
+    var val;
+    if (clear) {
+      val = 0;
+    } else {
+      var raw = ((input && input.value) || "").trim();
+      val = raw === "" ? 0 : parseFloat(raw);
+      if (!isFinite(val) || val < 0) {
+        limitNote("Enter a dollar amount of $0 or more (0 = no limit).");
+        return;
+      }
+      val = Math.round(val * 100) / 100;
+    }
+    if (btn) btn.disabled = true;
+    limitNote("Saving...");
+    api("/account/limit", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthly_cap: val })
+    }).then(function (r) {
+      if (btn) btn.disabled = false;
+      if (!r) { limitNote("Could not save - try again shortly."); return; }
+      paintLimit(r.monthly_cap, r.monthly_spend);
+      limitNote(n0(r.monthly_cap) > 0
+        ? "Saved - limit set to " + cr(r.monthly_cap) + "/mo."
+        : "Saved - no monthly limit.");
+    });
+  }
+
+  function initLimit() {
+    get("/account/limit").then(function (d) {
+      hide("limitLoading");
+      if (!d) { show("limitError"); return; }
+      paintLimit(d.monthly_cap, d.monthly_spend);
+      show("limitBody");
+      on("limitSave", "click", function () { saveLimit(false); });
+      on("limitClear", "click", function () { saveLimit(true); });
+    });
   }
 
   // ---- SPEND VELOCITY (hand-rolled SVG sparkline) -------------------------
@@ -277,9 +326,7 @@
         renderSavings(s.savings);
         renderVelocity(s.daily);
       });
-      get("/balance").then(function (bal) {
-        if (bal && bal.logged_in) renderCap(bal.monthly_cap, bal.monthly_spend);
-      });
+      initLimit();
       get("/console?limit=40").then(function (c) {
         if (c) {
           if (c.counters && typeof c.counters.spend_today === "number") {
