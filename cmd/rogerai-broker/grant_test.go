@@ -123,11 +123,21 @@ func TestResolvePricing(t *testing.T) {
 	if p := b.resolvePricing(gcFree, true, "g_g", "g_g", node, offer); !p.free || !p.fixed || p.payer != "g_g" {
 		t.Fatalf("free grant pricing = %+v", p)
 	}
-	// Priced grant -> owner sponsors (owner consumer wallet), fixed price.
+	// Priced grant, owner NOT GitHub-linked -> falls back to the pubkey-derived wallet.
 	gcPriced := grantContext{grant: store.Grant{ID: "g2", Owner: owner, PriceIn: 0.1, PriceOut: 0.3}, wallet: "g_g2"}
 	p := b.resolvePricing(gcPriced, true, "g_g2", "g_g2", node, offer)
 	if p.free || !p.fixed || p.out != 0.3 || p.payer != protocol.UserIDFromPubkey(owner) {
 		t.Fatalf("priced grant pricing = %+v", p)
+	}
+	// Priced grant from a GitHub-linked owner -> sponsored from the UNIFIED account
+	// wallet (u_gh_<id>), so it shares the owner's balance + monthly cap with own use.
+	ghOwner := "ghpk"
+	if err := b.db.BindOwner(store.Owner{GitHubID: 4242, Pubkey: ghOwner}); err != nil {
+		t.Fatal(err)
+	}
+	gcGH := grantContext{grant: store.Grant{ID: "g3", Owner: ghOwner, PriceOut: 0.3}, wallet: "g_g3"}
+	if gp := b.resolvePricing(gcGH, true, "g_g3", "g_g3", node, offer); gp.payer != "u_gh_4242" {
+		t.Fatalf("github-linked sponsored grant should bill u_gh_4242, got payer=%q (%+v)", gp.payer, gp)
 	}
 	// Signed self-use: the caller-owner consuming their own node -> $0.
 	selfUser := protocol.UserIDFromPubkey(owner)

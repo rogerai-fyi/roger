@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,8 +163,10 @@ func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, 
 		if in == 0 && out == 0 {
 			return pricingPlan{payer: gc.wallet, free: true, fixed: true}
 		}
-		// Custom-priced grant: the owner sponsors it from their own consumer wallet.
-		return pricingPlan{payer: ownerWallet(gc.grant.Owner), in: in, out: out, fixed: true}
+		// Custom-priced grant: the owner sponsors it from their UNIFIED account wallet,
+		// so sponsored spend draws the same balance they top up and is bound by the same
+		// account monthly cap as their own use (one ceiling over everything they pay for).
+		return pricingPlan{payer: b.ownerSponsorWallet(gc.grant.Owner), in: in, out: out, fixed: true}
 	}
 	// Signed self-use: consuming your OWN node is $0, automatically (metering only). W1:
 	// the node->owner-account binding is an immutable TOFU mapping, so cache it behind the
@@ -192,8 +195,31 @@ func (b *broker) ownsNode(user, ownerPubkey string) bool {
 	return user == protocol.UserIDFromPubkey(ownerPubkey)
 }
 
-// ownerWallet is the owner's own consumer wallet id (pubkey-derived), the wallet a
-// sponsored (custom-priced) grant charges.
+// ownerSponsorWallet resolves the wallet a sponsored (custom-priced) grant bills:
+// the issuing owner's UNIFIED account wallet ("u_gh_<githubID>") when the owner is
+// GitHub-linked. This is the same wallet the owner tops up and that /balance + the
+// billing dashboard read, so sponsored grant spend (a) draws the owner's real
+// balance and (b) counts against the SAME monthly spend cap as the owner's own
+// paid use - one ceiling over everything they pay for. Reuses the per-pubkey wallet
+// cache that walletOf populates. Falls back to the pubkey-derived wallet when the
+// owner has no GitHub link (no unified wallet exists for them).
+func (b *broker) ownerSponsorWallet(ownerPubkey string) string {
+	if ownerPubkey == "" {
+		return ""
+	}
+	if w, ok := b.cachedOwnerWallet(ownerPubkey, func() (string, bool) {
+		if o, ok, err := b.db.OwnerByPubkey(ownerPubkey); err == nil && ok && !o.Anonymized && o.GitHubID != 0 {
+			return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
+		}
+		return "", false
+	}); ok {
+		return w
+	}
+	return ownerWallet(ownerPubkey)
+}
+
+// ownerWallet is the owner's pubkey-derived wallet id - the fallback sponsor wallet
+// for an owner with no GitHub-linked account (see ownerSponsorWallet).
 func ownerWallet(ownerPubkey string) string {
 	return protocol.UserIDFromPubkey(ownerPubkey)
 }
