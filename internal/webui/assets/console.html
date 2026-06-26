@@ -6,6 +6,9 @@
   <meta name="robots" content="noindex">
   <meta name="color-scheme" content="light dark">
   <title>Roger · Node Console</title>
+  <!-- design tokens (the source of truth) MUST load before the component
+       sheet so console.css can consume the custom properties. -->
+  <link rel="stylesheet" href="/assets/tokens.css">
   <link rel="stylesheet" href="/assets/console.css">
 </head>
 <body>
