@@ -26,7 +26,6 @@ func okBroker(t *testing.T) *httptest.Server {
 // out price so the panel renders the priced (not FREE) form for it.
 func startShares(t *testing.T, mm *model, broker string, n int) {
 	t.Helper()
-	mm.shares = map[string]*agent.Session{}
 	for i := 0; i < n; i++ {
 		model := fmt.Sprintf("model-%02d", i)
 		sess, err := agent.Start(agent.Config{
@@ -38,9 +37,9 @@ func startShares(t *testing.T, mm *model, broker string, n int) {
 			t.Fatalf("agent.Start %s: %v", model, err)
 		}
 		t.Cleanup(sess.Stop)
-		mm.shares[model] = sess
+		mm.ctrl.Adopt(model, sess)
 	}
-	mm.refreshShareHeadline()
+	mm.syncShareCache()
 }
 
 // TestOnAirPanelListsAllBands: the on-air panel renders ONE row per live band plus a

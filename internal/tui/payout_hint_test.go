@@ -14,7 +14,7 @@ func shareModelWithPayout(w int, snap payoutSnapshot) model {
 	mm.width, mm.height = w, 30
 	mm.mode = modeShare
 	mm.ghLogin = "octocat" // logged in -> loggedInState() true
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	mm.payout = snap
 	return mm
 }

@@ -31,8 +31,14 @@ import (
 )
 
 // Version is the client version (compared against the latest GitHub release for
-// the update check / `roger upgrade`). Keep in sync with releases.
-const Version = "4.7.0"
+// the update check / `roger upgrade`). It is a var (not a const) so a release/beta
+// build can stamp a semver via the linker without editing source:
+//
+//	go build -ldflags "-X main.Version=4.8.0-beta.1" ./cmd/rogerai
+//
+// The default below is the fallback for a plain `go build`. Keep it in sync with
+// releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
+var Version = "4.7.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -78,6 +84,7 @@ type config struct {
 	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
 	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
 	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui     *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -398,12 +405,24 @@ func main() {
 	// A subtle, cached (~daily), non-blocking update banner. Computed once here so
 	// the TUI does no network at startup; the cache refreshes in the background.
 	notice := update.CachedNotice(Version)
+	// Global browser-console flags (--no-webui / --webui / --webui-port=N) are not
+	// subcommands; strip them here so the dispatcher reads the real command, and resolve
+	// whether the console comes up (ON by default; saved config or --no-webui opts out).
+	rest, webuiOn, webuiPort := stripWebuiFlags(os.Args[1:], cfg.webuiEnabled(), defaultWebuiPort)
+	os.Args = append([]string{os.Args[0]}, rest...)
 	if len(os.Args) < 2 {
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
 		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
 		cfg = maybeOnboard(cfg)
-		// no args -> launch the interactive radio TUI with the in-TUI flow hooks
-		if err := tui.RunWithHooks(cfg.Broker, cfg.User, tuiLimits(cfg), notice, tuiHooks(cfg)); err != nil {
+		// no args -> launch the interactive radio TUI with the in-TUI flow hooks, plus the
+		// browser console (unless disabled) over the SAME shared node controller, so a
+		// change in either front-end shows up in the other.
+		hooks := tuiHooks(cfg)
+		ctrl := tui.NewController(cfg.Broker, hooks)
+		if webuiOn {
+			startWebConsole(cfg, ctrl, webuiPort)
+		}
+		if err := tui.RunWithController(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -1539,7 +1558,8 @@ func normalizeUpstream(u string) string {
 func usage() {
 	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
-  roger                         open the app (browse, tune in, chat)
+  roger                         open the app (browse, tune in, chat) + browser console
+  roger --no-webui              open the app WITHOUT the browser console
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   roger balance               your wallet balance

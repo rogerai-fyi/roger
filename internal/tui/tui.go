@@ -32,6 +32,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"github.com/rogerai-fyi/roger/internal/node"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -626,8 +627,14 @@ type model struct {
 	// model, each independently flippable on/off air. shares holds the live session
 	// per on-air model; shareRows is the rendered model list; shareCursor is the
 	// highly-visible reverse-video selection cursor.
-	shares      map[string]*agent.Session // model -> live in-process session (on air)
-	shareRows   []shareRow                // the provider table rows (detected models)
+	// ctrl is the SINGLE, mutex-guarded owner of the live share state (sessions, rows,
+	// prices, private flags, station, upstream). The web console (internal/webui) holds
+	// the SAME *node.Controller, so a toggle in the browser flips a TUI row and vice-versa.
+	// The fields below (shares/shareRows/...) are a TUI-goroutine-private render CACHE,
+	// refreshed from the controller by syncShareCache(); every mutation goes through ctrl.
+	ctrl        *node.Controller
+	shares      map[string]*agent.Session // model -> live in-process session (on air) [cache]
+	shareRows   []shareRow                // the provider table rows (detected models) [cache]
 	shareCursor int                       // selected row in the provider table
 	shareUp     string                    // the local upstream chat URL backing the shares
 	shareKey    string                    // bearer key the headline upstream needs (env/paste), if any
@@ -730,19 +737,15 @@ const (
 
 // SchedWindow is the TUI's editable view of a time-of-use price window (mirrors
 // protocol.PriceWindow). Times are "HH:MM" UTC; Free zeroes the price in-window.
-type SchedWindow struct {
-	Start, End string
-	In, Out    float64
-	Free       bool
-}
+// SchedWindow and Pricing are aliases for the canonical types in internal/node, so
+// the controller, the TUI editor, and the host config all speak one type. (Aliases,
+// not new types, so existing Pricing{...}/SchedWindow{...} literals keep compiling.)
+type SchedWindow = node.SchedWindow
 
 // Pricing is the per-model saved price + schedule the editor produces. The host
-// persists it (and feeds it back as Hooks.SavedPricing); on-air it is applied
-// when a model goes live.
-type Pricing struct {
-	In, Out float64
-	Windows []SchedWindow
-}
+// persists it (and feeds it back as Hooks.SavedPrices); on-air it is applied when a
+// model goes live.
+type Pricing = node.Pricing
 
 // shareRow is one model in the k9s-style provider table: a locally-detected model
 // plus its share status. Live metrics are read off the session when on air. Each
@@ -824,39 +827,53 @@ func NewWith(broker, user string, limits *LimitStore) model {
 	return NewWithHooks(broker, user, limits, Hooks{})
 }
 
+// NewController builds the shared node controller from the host hooks (the SINGLE owner
+// of the live share state). The host calls this once and hands the SAME *node.Controller
+// to both NewWithHooksController and the web console, so a change in one front-end shows
+// up in the other.
+func NewController(broker string, hooks Hooks) *node.Controller {
+	// The live broadcast station: the saved/auto-generated callsign (NEVER the hostname),
+	// slugged so it matches the node id exactly; a fresh callsign if the host supplied none.
+	station := agent.SlugStation(hooks.Station)
+	if station == "" {
+		station = agent.GenerateStation()
+	}
+	return node.New(node.Config{
+		Broker: broker, HW: hooks.HW, Station: station,
+		ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
+		MaxOnAir:    hooks.ShareMaxOnAir,
+		Upstream:    hooks.ShareUpstream,
+		UpstreamKey: hooks.ShareUpstreamKey,
+		Prices:      hooks.SavedPrices,
+		Hooks: node.Hooks{
+			SaveUpstream: hooks.SaveUpstream,
+			SavePrice:    hooks.SavePrice,
+			SaveStation:  hooks.SaveStation,
+		},
+	})
+}
+
 // NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
-// account / money flows.
+// account / money flows. It builds its own controller; use NewWithHooksController to
+// share one with the web console.
 func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model {
+	return NewWithHooksController(broker, user, limits, hooks, NewController(broker, hooks))
+}
+
+// NewWithHooksController is NewWithHooks over an EXISTING shared controller, so the TUI
+// and the browser console drive one node.
+func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks, ctrl *node.Controller) model {
 	m := newBase(broker, user, limits)
 	m.hooks = hooks
 	// Reflect the locally-linked login at startup so the header shows the right state
-	// before the first /balance comes back. The broker's logged_in flag (from the
-	// signed balance read) is the source of truth and confirms it.
+	// before the first /balance comes back. The broker's logged_in flag (from the signed
+	// balance read) is the source of truth and confirms it.
 	m.ghLogin = hooks.LinkedLogin
-	// Seed the live broadcast station from the host (the saved/auto-generated callsign),
-	// slugged so it matches the node id exactly. Falls back to a fresh callsign if the
-	// host supplied none, so the TUI never derives a hostname-based id.
-	m.station = agent.SlugStation(hooks.Station)
-	if m.station == "" {
-		m.station = agent.GenerateStation()
-	}
-	// Seed the saved/verified upstream (and any key it needs) so the first /share scan
-	// probes that endpoint first and reuses a saved keyed upstream without re-prompting
-	// (detectSharesCmd carries the key). normalizeUpstream accepts the saved /v1 base.
-	m.shareUp = normalizeUpstream(hooks.ShareUpstream)
-	m.shareKey = hooks.ShareUpstreamKey
-	// What is already on disk, so a re-detection landing the same endpoint is a no-op
-	// (only a NEW upstream/key triggers a SaveUpstream write).
-	m.shareSavedUp, m.shareSavedKey = hooks.ShareUpstream, hooks.ShareUpstreamKey
+	m.ctrl = ctrl
+	m.ctrl.SetLoggedIn(m.loggedInState())
 	// Seed the windowshade compact mode from the saved config so the [m] choice sticks.
 	m.compact = hooks.Compact
-	// Seed per-model pricing the user set in a previous session.
-	if len(hooks.SavedPrices) > 0 {
-		m.prices = map[string]Pricing{}
-		for mdl, p := range hooks.SavedPrices {
-			m.prices[mdl] = p
-		}
-	}
+	m.syncShareCache() // populate the render cache (station, prices, upstream) from the controller
 	return m
 }
 
@@ -890,6 +907,11 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Refresh the share render cache from the shared controller FIRST, so anything the web
+	// console changed (a model toggled on air, a price edited, a rename) shows up in the
+	// terminal on the next message — most visibly the 160ms tick. Every TUI mutation also
+	// re-syncs locally, so this never fights an in-flight keystroke.
+	m.syncShareCache()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -1063,6 +1085,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logoutMsg:
 		m.ghLogin = ""
 		m.loggedIn = false
+		m.ctrl.Logout() // explicit sign-out: clear the shared login (SetLoggedIn is raise-only)
 		m.haveBal = false
 		m.balance = 0
 		m.loginWaiting = false
@@ -1772,48 +1795,49 @@ func (m model) onSharesDetected(found []detect.Found, needKey []string) (tea.Mod
 // server's chat URL is kept as m.shareUp for back-compat (the headline default),
 // but on-air uses each row's own upstream so a model goes live against the server
 // that actually serves it. The first server's models keep priority on a dup id.
+// loadShareRows hands a detection result to the shared controller (which flattens every
+// server × model into the de-duplicated catalog, adopts the headline upstream + key, and
+// persists a newly-verified endpoint) and refreshes the render cache.
 func (m *model) loadShareRows(found []detect.Found) {
-	if m.shares == nil {
-		m.shares = map[string]*agent.Session{}
+	m.ctrl.LoadRows(found)
+	m.syncShareCache()
+}
+
+// setShareRows seeds the catalog directly from already-known rows (the paste-verify path
+// and unit tests), going through the controller so the web console sees the same rows.
+func (m *model) setShareRows(rows []shareRow) {
+	nr := make([]node.ShareRow, len(rows))
+	for i, r := range rows {
+		nr[i] = node.ShareRow{Model: r.model, Ctx: r.ctx, CtxEstimated: r.ctxEstimated, Upstream: r.upstream, UpstreamKey: r.upstreamKey}
 	}
-	if len(found) > 0 {
-		m.shareUp = normalizeUpstream(found[0].Chat)
-		m.shareKey = found[0].Key
-		// Persist a newly verified endpoint + key so a custom / key-protected upstream is
-		// reused next launch (mirrors the CLI's save in `roger share`). Only on a real
-		// change, so re-scanning the already-saved endpoint doesn't rewrite config.
-		if m.hooks.SaveUpstream != nil && found[0].BaseURL != "" &&
-			(found[0].BaseURL != m.shareSavedUp || found[0].Key != m.shareSavedKey) {
-			m.shareSavedUp, m.shareSavedKey = found[0].BaseURL, found[0].Key
-			m.hooks.SaveUpstream(found[0].BaseURL, found[0].Key)
-		}
+	m.ctrl.SetRows(nr)
+	m.syncShareCache()
+}
+
+// syncShareCache refreshes the TUI's single-goroutine render cache (shares/shareRows/
+// sharePrivate/station/prices/shareUp/shareKey/share/onAir) from the shared controller,
+// so a change made in the web console appears in the terminal on the next tick. Every
+// share mutation the TUI makes goes THROUGH the controller, then calls this to re-read.
+func (m *model) syncShareCache() {
+	if m.ctrl == nil {
+		return
 	}
-	seen := map[string]bool{}
-	rows := make([]shareRow, 0)
-	for _, srv := range found {
-		up := normalizeUpstream(srv.Chat)
-		for _, mdl := range srv.Models {
-			if mdl == "" || seen[mdl] {
-				continue
-			}
-			seen[mdl] = true
-			// ONE ctx resolver shared with the CLI (detect.ResolveCtx): the real detected
-			// window when the upstream reported it, else the estimated default (flagged) -
-			// so the TUI and CLI agree and the duplicated 32768 literal is gone.
-			ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
-			// Carry the upstream's working key (discovered from env, or pasted in the
-			// guided fallback) so this row goes ON AIR with the same Bearer the detector
-			// authenticated with - a key-protected local server is otherwise served jobs
-			// it 401s.
-			rows = append(rows, shareRow{model: mdl, ctx: ctxLen, ctxEstimated: ctxEst, upstream: up, upstreamKey: srv.Key})
-		}
-	}
-	// Put the saved onboarding model first so the obvious default is at the cursor.
-	if def := m.hooks.ShareModel; def != "" {
-		sort.SliceStable(rows, func(i, j int) bool { return rows[i].model == def && rows[j].model != def })
+	m.ctrl.SetLoggedIn(m.loggedInState())
+	nr := m.ctrl.Rows()
+	rows := make([]shareRow, len(nr))
+	for i, r := range nr {
+		rows[i] = shareRow{model: r.Model, ctx: r.Ctx, ctxEstimated: r.CtxEstimated, upstream: r.Upstream, upstreamKey: r.UpstreamKey}
 	}
 	m.shareRows = rows
-	if m.shareCursor >= len(rows) {
+	m.shares = m.ctrl.Sessions()
+	m.sharePrivate = m.ctrl.Private()
+	m.prices = m.ctrl.Prices()
+	m.station = m.ctrl.Station()
+	m.shareUp = m.ctrl.Upstream()
+	m.shareKey = m.ctrl.UpstreamKey()
+	m.shareSavedUp, m.shareSavedKey = m.ctrl.SavedUpstream()
+	m.share, m.onAir = m.ctrl.Headline()
+	if m.shareCursor >= len(m.shareRows) {
 		m.shareCursor = 0
 	}
 }
@@ -1827,75 +1851,28 @@ func (m *model) toggleShareAt(i int) {
 	if i < 0 || i >= len(m.shareRows) {
 		return
 	}
-	if m.shares == nil {
-		m.shares = map[string]*agent.Session{}
-	}
-	row := m.shareRows[i]
-	if sess, ok := m.shares[row.model]; ok && sess != nil {
-		sess.Stop()
-		delete(m.shares, row.model)
-		m.refreshShareHeadline()
-		m.status = stDim.Render("off air - stopped sharing ") + stKey.Render(row.model)
-		return
-	}
-	// SOFT local on-air cap (share.max_on_air): block putting ANOTHER band on air once
-	// the slots are full. The user frees a slot by taking one off air (or raises the knob
-	// + restarts). This is local UX to stop over-subscribing the host - the broker's
-	// per-owner cap is the hard backstop. (Toggling an already-on-air row OFF is handled
-	// above, so this only gates a NEW on-air row.)
-	if m.atOnAirLimit() {
+	model := m.shareRows[i].model
+	res := m.ctrl.ToggleOnAir(model)
+	m.syncShareCache()
+	switch {
+	case res.WentOff:
+		m.status = stDim.Render("off air - stopped sharing ") + stKey.Render(model)
+	case res.AtLimit:
+		// SOFT local on-air cap (share.max_on_air): take one off air to free a slot.
 		m.status = m.onAirLimitMsg()
-		return
-	}
-	// Free by default (visible + changeable in the editor). The price + time-of-use
-	// schedule come from pricingFor (an edited price, the saved onboarding price for
-	// the default model, else free).
-	p := m.pricingFor(row.model)
-	priceIn, priceOut := p.In, p.Out
-	// Share-to-EARN needs an account: a priced share requires `roger login` (the
-	// broker 403s a priced node from an unlinked owner). Flash a clear login prompt
-	// instead of a failed start; free sharing stays open to anyone, no login.
-	if (priceIn > 0 || priceOut > 0 || len(p.Windows) > 0) && !m.loggedInState() {
+	case res.LoginNeeded:
+		// Share-to-EARN needs an account (the broker 403s a priced node from an unlinked
+		// owner). Free sharing stays open to anyone, no login.
 		m.status = stEmber.Render("log in to earn - run ") + stKey.Render("/login") + stDim.Render(" (free sharing works without an account)")
-		return
+	case res.Err != nil:
+		m.status = stEmber.Render("! could not put " + model + " on air: " + res.Err.Error())
+	default:
+		kind := "FREE"
+		if res.Priced {
+			kind = dollars(res.PriceOut) + "/1M out"
+		}
+		m.status = stRed.Render(glyphOnAir+" ON AIR ") + stDim.Render("- sharing ") + stKey.Render(model) + stDim.Render(" ("+kind+")")
 	}
-	// Each row goes on air against the server that actually serves it (its own
-	// upstream), falling back to the headline shareUp for a row that predates the
-	// per-row upstream (e.g. a legacy/synthetic row).
-	up := row.upstream
-	if up == "" {
-		up = m.shareUp
-	}
-	upKey := row.upstreamKey
-	// Only fall back to the headline key when this row's upstream IS the headline upstream.
-	// A keyless row on a DIFFERENT detected server must NOT receive the saved/headline
-	// bearer (that would spray a stale key onto the wrong endpoint).
-	if upKey == "" && normalizeUpstream(up) == normalizeUpstream(m.shareUp) {
-		upKey = m.shareKey
-	}
-	// Unique, STABLE, PRIVACY-PRESERVING node id per band: <station>-<model>, derived
-	// through the SAME helper the CLI `roger share` uses. The station is the friendly
-	// callsign (never the hostname); the per-model slug keeps each band a DISTINCT broker
-	// node (no collision -> no token war / re-register storm). instance 0: one row per
-	// model (the shares map is keyed by model), so no same-model disambiguation is needed.
-	node := agent.ShareNodeID(m.station, row.model, 0)
-	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
-		Region: "home", HW: m.hooks.HW, Model: row.model,
-		PriceIn: priceIn, PriceOut: priceOut, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
-		Schedule: schedToProtocol(p.Windows),
-	})
-	if err != nil {
-		m.status = stEmber.Render("! could not put " + row.model + " on air: " + err.Error())
-		return
-	}
-	m.shares[row.model] = sess
-	m.refreshShareHeadline()
-	kind := "FREE"
-	if priceIn > 0 || priceOut > 0 {
-		kind = dollars(priceOut) + "/1M out"
-	}
-	m.status = stRed.Render(glyphOnAir+" ON AIR ") + stDim.Render("- sharing ") + stKey.Render(row.model) + stDim.Render(" ("+kind+")")
 }
 
 // togglePrivateAt flips the PRIVATE-band state of the row at index i. Going private is
@@ -1908,79 +1885,30 @@ func (m *model) togglePrivateAt(i int) {
 	if i < 0 || i >= len(m.shareRows) {
 		return
 	}
-	if !m.loggedInState() {
+	model := m.shareRows[i].model
+	res := m.ctrl.TogglePrivate(model)
+	m.syncShareCache()
+	switch {
+	case res.LoginNeeded:
 		// Login-gated: flash the existing /login line (same copy as the price editor).
 		m.status = stEmber.Render("log in to go private - run ") + stKey.Render("/login") + stDim.Render("  (a private band needs an account)")
-		return
-	}
-	if m.shares == nil {
-		m.shares = map[string]*agent.Session{}
-	}
-	if m.sharePrivate == nil {
-		m.sharePrivate = map[string]bool{}
-	}
-	row := m.shareRows[i]
-	goPrivate := !m.sharePrivate[row.model] // toggling: if currently public -> private
-	wasOn := m.shares[row.model] != nil
-	// SOFT on-air cap: pressing `h` on an OFF-air row puts it on air (on a hidden band),
-	// so the same share.max_on_air guard applies. Re-pinning an already-on-air row's
-	// visibility does not add a slot (it restarts the same band), so only a NEW on-air row
-	// is gated. Checked BEFORE we stop/restart so we never tear down a live band just to
-	// bounce off the cap.
-	if !wasOn && m.atOnAirLimit() {
+	case res.AtLimit:
 		m.status = m.onAirLimitMsg()
-		return
-	}
-	// Stop any current session for this row so we can restart it with the new visibility.
-	if sess, ok := m.shares[row.model]; ok && sess != nil {
-		sess.Stop()
-		delete(m.shares, row.model)
-	}
-	p := m.pricingFor(row.model)
-	up := row.upstream
-	if up == "" {
-		up = m.shareUp
-	}
-	upKey := row.upstreamKey
-	// Only fall back to the headline key when this row's upstream IS the headline upstream.
-	// A keyless row on a DIFFERENT detected server must NOT receive the saved/headline
-	// bearer (that would spray a stale key onto the wrong endpoint).
-	if upKey == "" && normalizeUpstream(up) == normalizeUpstream(m.shareUp) {
-		upKey = m.shareKey
-	}
-	// Same unique/stable/privacy-preserving node id as the public-share path (private
-	// just flips visibility): <station>-<model> via the shared helper, so a private band
-	// also gets its own broker node and carries the friendly station, not the hostname.
-	node := agent.ShareNodeID(m.station, row.model, 0)
-	sess, err := agent.Start(agent.Config{
-		Broker: m.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
-		Region: "home", HW: m.hooks.HW, Model: row.model,
-		PriceIn: p.In, PriceOut: p.Out, Ctx: row.ctx, CtxEstimated: row.ctxEstimated, Parallel: 4,
-		Private: goPrivate, Schedule: schedToProtocol(p.Windows),
-	})
-	if err != nil {
-		m.status = stEmber.Render("! could not change " + row.model + " visibility: " + err.Error())
-		return
-	}
-	m.shares[row.model] = sess
-	m.sharePrivate[row.model] = goPrivate
-	m.refreshShareHeadline()
-	if !goPrivate {
-		m.status = stDim.Render("back on the OPEN MARKET - ") + stKey.Render(row.model) + stDim.Render(" is public again")
-		return
-	}
-	// Private: surface the one-time frequency code on a card (only when freshly minted;
-	// a re-register returns no code, only the cosmetic display).
-	_, code, display := sess.Band()
-	if code != "" {
-		m.bandCardCode, m.bandCardDisp, m.bandCardModel = code, display, row.model
+	case res.Err != nil:
+		m.status = stEmber.Render("! could not change " + model + " visibility: " + res.Err.Error())
+	case !res.NowPrivate:
+		m.status = stDim.Render("back on the OPEN MARKET - ") + stKey.Render(model) + stDim.Render(" is public again")
+	case res.Code != "":
+		// Private: surface the one-time frequency code on a card (only when freshly minted;
+		// a re-register returns no code, only the cosmetic display).
+		m.bandCardCode, m.bandCardDisp, m.bandCardModel = res.Code, res.Display, model
 		m.mode = modeBandCard
-		m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(row.model) + stDim.Render(" is on a hidden band")
-		return
+		m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(model) + stDim.Render(" is on a hidden band")
+	default:
+		// No fresh code (already had a band): just mark it private, note the display.
+		m.bandCardDisp = res.Display
+		m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(model) + stDim.Render(" on band "+res.Display)
 	}
-	// No fresh code (already had a band): just mark it private, note the display.
-	m.bandCardDisp = display
-	m.status = stRed.Render(glyphOnAir+" PRIVATE ") + stDim.Render("- ") + stKey.Render(row.model) + stDim.Render(" on band "+display)
 }
 
 // onBandCardKey drives the one-time frequency-code card (modeBandCard): `c` copies the
@@ -2043,24 +1971,13 @@ func copyToClipboard(s string) bool {
 // refreshShareHeadline repoints m.share / m.onAir at any still-live session so the
 // header ON-AIR badge and the onAirPanel reflect the current set after a toggle.
 func (m *model) refreshShareHeadline() {
-	m.share, m.onAir = nil, false
-	for _, sess := range m.shares {
-		if sess != nil {
-			m.share, m.onAir = sess, true
-			return
-		}
-	}
+	m.share, m.onAir = m.ctrl.Headline()
 }
 
 // stopAllShares takes every model off air (used by /share off and a clean exit).
 func (m *model) stopAllShares() {
-	for mdl, sess := range m.shares {
-		if sess != nil {
-			sess.Stop()
-		}
-		delete(m.shares, mdl)
-	}
-	m.share, m.onAir = nil, false
+	m.ctrl.StopAll()
+	m.syncShareCache()
 }
 
 // onAirCount is how many models are currently ON AIR (live shares). Drives the
@@ -2180,10 +2097,8 @@ func (m *model) onStationRenameKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = stEmber.Render("station unchanged - ") + stKey.Render(m.station) + stDim.Render(" (a callsign needs at least one letter or digit)")
 			return m, nil
 		}
-		m.station = slug
-		if m.hooks.SaveStation != nil {
-			m.hooks.SaveStation(slug)
-		}
+		m.ctrl.Rename(slug) // sets + persists via Hooks.SaveStation; shared with the web console
+		m.syncShareCache()
 		m.status = stLive.Render("station set to ") + stKey.Render(m.station) + stDim.Render(" - applies on the next on-air (re-toggle a row to apply now)")
 		return m, nil
 	case tea.KeyBackspace, tea.KeyDelete:
@@ -2607,14 +2522,11 @@ func (m *model) commitShareEditor() bool {
 		return false
 	}
 	m.edErr = ""
-	if m.prices == nil {
-		m.prices = map[string]Pricing{}
-	}
 	p := Pricing{In: in, Out: out, Windows: append([]SchedWindow(nil), m.edWindows...)}
-	m.prices[m.edModel] = p
-	if m.hooks.SavePrice != nil {
-		m.hooks.SavePrice(m.edModel, p)
-	}
+	// Through the shared controller (it persists via Hooks.SavePrice), so a price the
+	// operator sets in the TUI editor is the same one the web console shows.
+	m.ctrl.SetPricing(m.edModel, p)
+	m.syncShareCache()
 	kind := "FREE"
 	if in > 0 || out > 0 {
 		kind = dollars(out) + "/1M out · " + dollars(in) + "/1M in"
@@ -2656,29 +2568,12 @@ func (m *model) softPriceWarn(out float64) string {
 
 // pricingFor returns the saved (edited) pricing for a model, falling back to the
 // host's saved onboarding price for the default model, else free.
-func (m model) pricingFor(model string) Pricing {
-	if p, ok := m.prices[model]; ok {
-		return p
-	}
-	if model == m.hooks.ShareModel {
-		return Pricing{In: m.hooks.SharePriceI, Out: m.hooks.SharePriceO}
-	}
-	return Pricing{}
-}
+func (m model) pricingFor(model string) Pricing { return m.ctrl.PricingFor(model) }
 
 // schedToProtocol converts the TUI's editable windows into the wire
 // protocol.PriceWindow the agent publishes (times "HH:MM" UTC; Free zeroes the
 // in-window price). Empty in -> no schedule.
-func schedToProtocol(ws []SchedWindow) []protocol.PriceWindow {
-	if len(ws) == 0 {
-		return nil
-	}
-	out := make([]protocol.PriceWindow, 0, len(ws))
-	for _, w := range ws {
-		out = append(out, protocol.PriceWindow{Start: w.Start, End: w.End, In: w.In, Out: w.Out, Free: w.Free})
-	}
-	return out
-}
+func schedToProtocol(ws []SchedWindow) []protocol.PriceWindow { return node.SchedToProtocol(ws) }
 
 // doLogin opens the confirmable [L] panel - it NEVER acts on its own, because
 // arrow-nav across the preset bank can land on [L]. Logged in it offers a log-out
@@ -5909,37 +5804,20 @@ func (m model) payoutHint() string {
 	}
 }
 
-// sharesOnAir counts how many local models are currently on air.
-func (m model) sharesOnAir() int {
-	n := 0
-	for _, s := range m.shares {
-		if s != nil {
-			n++
-		}
-	}
-	return n
-}
+// defaultShareMaxOnAir mirrors the controller's default soft on-air cap (the single
+// source of truth lives in package node).
+const defaultShareMaxOnAir = node.DefaultMaxOnAir
 
-// defaultShareMaxOnAir is the SOFT local on-air cap used when the host supplies no
-// share.max_on_air (Hooks.ShareMaxOnAir <= 0). Local UX guard so a user does not
-// over-subscribe their host; the broker's per-owner cap is the real backstop.
-const defaultShareMaxOnAir = 4
+// sharesOnAir counts how many local models are currently on air.
+func (m model) sharesOnAir() int { return m.ctrl.OnAirCount() }
 
 // maxOnAir is the effective SOFT local cap on simultaneously-on-air bands: the
-// host-supplied share.max_on_air when positive, else the package default. Read from
-// the hook (the host reads it once at startup; changing it requires a restart).
-func (m model) maxOnAir() int {
-	if m.hooks.ShareMaxOnAir > 0 {
-		return m.hooks.ShareMaxOnAir
-	}
-	return defaultShareMaxOnAir
-}
+// host-supplied share.max_on_air when positive, else the controller's default.
+func (m model) maxOnAir() int { return m.ctrl.MaxOnAir() }
 
 // atOnAirLimit reports whether the soft local on-air cap is already reached, so the
 // SHARE selector blocks flipping ANOTHER row on air (taking one off air frees a slot).
-func (m model) atOnAirLimit() bool {
-	return m.sharesOnAir() >= m.maxOnAir()
-}
+func (m model) atOnAirLimit() bool { return m.ctrl.OnAirCount() >= m.ctrl.MaxOnAir() }
 
 // onAirLimitMsg is the clear blocked-at-the-soft-limit message the SHARE selector
 // shows when the user tries to put one more band on air past share.max_on_air.
@@ -6986,19 +6864,7 @@ func tintSignal(raw string, signal int, tps float64, online bool) string {
 // normalizeUpstream turns a detected base/chat URL into the chat-completions URL
 // the agent POSTs to (mirrors cmd/rogerai's helper; kept local so the TUI's
 // in-process /share has no host dependency).
-func normalizeUpstream(u string) string {
-	u = strings.TrimRight(strings.TrimSpace(u), "/")
-	switch {
-	case u == "":
-		return u
-	case strings.HasSuffix(u, "/chat/completions"):
-		return u
-	case strings.HasSuffix(u, "/v1"):
-		return u + "/chat/completions"
-	default:
-		return u + "/v1/chat/completions"
-	}
-}
+func normalizeUpstream(u string) string { return node.NormalizeUpstream(u) }
 
 // plural renders "1 band" / "3 bands": a count with its noun, +s unless n == 1.
 func plural(n int, noun string) string {
@@ -7131,7 +6997,13 @@ func RunWithNotice(broker, user string, limits *LimitStore, notice string) error
 // RunWithHooks is RunWithNotice plus the host-supplied hooks that make the in-TUI
 // /share, /login, /topup, /grant flows real actions.
 func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks Hooks) error {
-	m := NewWithHooks(broker, user, limits, hooks)
+	return RunWithController(broker, user, limits, notice, hooks, NewController(broker, hooks))
+}
+
+// RunWithController is RunWithHooks over an EXISTING shared controller, so the host can
+// stand up the browser web console over the SAME node before launching the TUI.
+func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
+	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
 	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
