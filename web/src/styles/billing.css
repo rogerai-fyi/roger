@@ -182,18 +182,39 @@
 }
 
 /* =====================================================================
-   MONTHLY SPEND-CAP METER - a budget gauge. Ink fill while safe, then
-   the one red glint surfaces at 80% (near) and the bar fills at 100%
-   (over). Numbers stay mono; color is a signal, never decoration.
+   MONTHLY SPEND LIMIT - the account-wide guardrail. A printed-spec plate:
+   the second-guardrail tag, a hairline meter (month-to-date spend against
+   the cap, on the payouts rail) and a set / update / clear form. The one
+   red glint is the meter's used portion; numbers stay mono, color is a
+   signal never decoration.
    ===================================================================== */
-.bx-cap__head {
+.bx-limit__lede {
+  margin: 0 0 var(--s-5);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+  line-height: 1.6;
+}
+.bx-limit__tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--ink-500);
+  margin-right: var(--s-2);
+}
+.bx-limit__lede a { color: var(--ink-500); }
+.bx-limit__lede a:hover { color: var(--live); }
+
+/* the reading line above the meter: $used  of  $cap/mo            NN% */
+.bx-limit__read {
   display: flex;
   align-items: baseline;
   gap: var(--s-2);
   margin: 0 0 var(--s-3);
   flex-wrap: wrap;
 }
-.bx-cap__mtd {
+.bx-limit__used {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
   font-size: 1.5rem;
@@ -201,14 +222,14 @@
   color: var(--ink-900);
   line-height: 1.1;
 }
-.bx-cap__of { color: var(--ink-400); font-size: var(--t-sm); }
-.bx-cap__limit {
+.bx-limit__of { color: var(--ink-400); font-size: var(--t-sm); }
+.bx-limit__cap {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
   font-size: var(--t-sm);
   color: var(--ink-500);
 }
-.bx-cap__pct {
+.bx-limit__pct {
   margin-left: auto;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums slashed-zero;
@@ -216,38 +237,95 @@
   font-weight: var(--weight-medium);
   color: var(--ink-500);
 }
-.bx-cap__pct.is-near { color: var(--live); }
-.bx-cap__pct.is-over { color: var(--live); }
+.bx-limit__pct.is-over { color: var(--live); }
 
-.bx-gauge {
-  position: relative;
-  height: 16px;
+/* the meter rail - the payouts hairline pill. The used portion carries the
+   one red accent (money already spent against the cap). */
+.bx-limit__track {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  margin: 0 0 var(--s-5);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-pill);
   background: var(--paper-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
   overflow: hidden;
 }
-/* the 80% threshold tick - a quiet hairline marker on the track. */
-.bx-gauge::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 80%;
-  width: 1px;
-  background: var(--hairline-2);
-}
-.bx-gauge__fill {
-  display: block;
+.bx-limit__seg {
   height: 100%;
   width: 0;
-  background: var(--ink-700); /* safe: sober ink */
-  transition: width var(--d-3) var(--ease-out-quint),
-              background var(--d-2) var(--ease-standard);
+  min-width: 2px;
+  background: var(--live);
+  transition: width var(--d-3) var(--ease-out-quint);
 }
-.bx-gauge.is-near .bx-gauge__fill { background: var(--live); }
-.bx-gauge.is-over .bx-gauge__fill { background: var(--live); }
-.bx-gauge.is-over { border-color: var(--live); }
+
+/* no cap set: a quiet honest line (the form below still offers to set one). */
+.bx-limit__none {
+  margin: 0 0 var(--s-5);
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+  line-height: 1.6;
+}
+
+/* the set / update / clear form - account-field language: uppercase-mono
+   label, a mono input flanked by the $ pre / /mo suf affixes. */
+.bx-limit__k {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+  margin: 0 0 var(--s-2);
+}
+.bx-limit__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 260px;
+}
+.bx-limit__pre, .bx-limit__suf {
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-weight: var(--weight-medium);
+  font-size: var(--t-sm);
+}
+.bx-limit__in {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-sm);
+}
+.bx-limit__in:focus-visible {
+  outline: none;
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.bx-limit__hint {
+  display: block;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  line-height: 1.5;
+}
+.bx-limit__act {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  margin: var(--s-4) 0 0;
+}
+/* the actions sit inline, not full-bleed (they are not the page's CTA). */
+.bx-limit__save { width: auto; margin-top: 0; }
+.bx-limit__act .ghost { margin-top: 0; }
+.bx-limit__msg { margin: 0; }
 
 /* =====================================================================
    SPEND VELOCITY - a hand-rolled SVG sparkline of recent daily spend.
@@ -296,5 +374,5 @@
 /* reduced motion: hold the bars/gauge/trace still (the chrome guard in
    account-base.css already covers .card *, this is an explicit belt). */
 @media (prefers-reduced-motion: reduce) {
-  .bx-save__fill, .bx-gauge__fill { transition: none; }
+  .bx-save__fill, .bx-limit__seg { transition: none; }
 }

@@ -44,22 +44,64 @@
     </section>
 
     <!-- ============================================================
-         MONTHLY CAP METER: a visual budget gauge. Hidden when no cap
-         is set (0 = unlimited); the bar turns the one red at 80% and
-         fills at 100% so the limit is felt, not just read.
+         MONTHLY SPEND LIMIT: the account-wide guardrail. One ceiling on
+         what every sponsored grant key can cost together this calendar
+         month (per-key caps are the first guardrail; this is the second).
+         The meter is month-to-date spend against the cap - its used
+         portion is the one red glint. Set / update / clear it right here.
+         GET/PATCH /account/limit (credentialed session).
          ============================================================ -->
-    <section class="panel bx-cap" id="capBox" hidden>
-      <h2>Monthly spend cap</h2>
-      <div class="bx-cap__head">
-        <span class="bx-cap__mtd" id="capMtd">-</span>
-        <span class="bx-cap__of">of</span>
-        <span class="bx-cap__limit" id="capLimit">-</span>
-        <span class="bx-cap__pct" id="capPct"></span>
+    <section class="panel bx-limit" id="limitBox">
+      <h2>Monthly spend limit</h2>
+      <p class="bx-limit__lede">
+        <span class="bx-limit__tag">second guardrail</span>
+        One account-wide ceiling on what every sponsored grant key can cost you
+        together this calendar month. Per-key caps limit a single key; this bounds
+        them all. <a href="/keys.html">Manage keys</a>.
+      </p>
+
+      <div id="limitBody" hidden>
+        <!-- the meter: shown once a cap is set. Month-to-date spend against the
+             cap on the payouts hairline rail; the used portion is the red glint. -->
+        <div class="bx-limit__gauge" id="limitGauge" hidden>
+          <div class="bx-limit__read">
+            <span class="bx-limit__used" id="limitUsed">-</span>
+            <span class="bx-limit__of">of</span>
+            <span class="bx-limit__cap" id="limitCap">-</span>
+            <span class="bx-limit__pct" id="limitPct"></span>
+          </div>
+          <div class="bx-limit__track" role="img" id="limitTrack"
+               aria-label="Month-to-date spend against your monthly limit">
+            <span class="bx-limit__seg" id="limitSeg"></span>
+          </div>
+        </div>
+
+        <!-- no cap set: a quiet, honest line. The form below still lets you set one. -->
+        <p class="bx-limit__none" id="limitNone" hidden>No limit set - sponsored keys
+          bill to your wallet without a monthly ceiling.</p>
+
+        <!-- the set / update / clear form. -->
+        <div class="bx-limit__field">
+          <label class="bx-limit__k" for="limitInput">Set a monthly limit (USD)</label>
+          <div class="bx-limit__row">
+            <span class="bx-limit__pre" aria-hidden="true">$</span>
+            <input id="limitInput" class="bx-limit__in" type="number" min="0" step="1"
+              inputmode="decimal" placeholder="0.00"
+              aria-label="Monthly spend limit in dollars" />
+            <span class="bx-limit__suf" aria-hidden="true">/mo</span>
+          </div>
+          <span class="bx-limit__hint">0 or blank = no limit. At the cap, paid requests
+            pause until next month or until you raise it.</span>
+          <div class="bx-limit__act">
+            <button id="limitSave" class="primary bx-limit__save">Save limit</button>
+            <button id="limitClear" class="ghost" hidden>Remove limit</button>
+            <span class="mx-state bx-limit__msg" id="limitMsg" hidden></span>
+          </div>
+        </div>
       </div>
-      <div class="bx-gauge" role="img" id="capGaugeWrap" aria-label="Monthly spend against your cap">
-        <span class="bx-gauge__fill" id="capGauge"></span>
-      </div>
-      <p class="fine" id="capNote">A budget ceiling on captured spend this calendar month. Set or change it from the CLI: <code>rogerai limit</code>.</p>
+
+      <p class="mx-state" id="limitLoading">Loading your limit...</p>
+      <p class="mx-state" id="limitError" hidden>Could not load your monthly limit. Try again shortly.</p>
     </section>
 
     <!-- ============================================================
