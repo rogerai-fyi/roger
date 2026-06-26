@@ -767,10 +767,10 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
-	// Single-instance guard: detect (via a lockfile) a `roger share` already on air
-	// on this machine and bow out, rather than double-registering the same node and
-	// breaking routing/earnings. A stale lock from a crashed daemon is reclaimed.
-	releaseLock, err := acquireOnAirLock(station, mdl)
+	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
+	// already on air for THIS node id and bow out, rather than double-registering it
+	// and breaking routing/earnings. A stale lock from a crashed daemon is reclaimed.
+	releaseLock, err := acquireOnAirLock(nodeID, station, mdl)
 	if err != nil {
 		return err
 	}
@@ -1465,7 +1465,7 @@ func normalizeUpstream(u string) string {
 func usage() {
 	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
-  rogerai                       open the app (browse, tune in, chat)
+  roger                         open the app (browse, tune in, chat)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   roger balance               your wallet balance
