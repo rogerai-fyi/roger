@@ -124,6 +124,11 @@ body.auth {
 }
 .fine b { color: var(--ink-500); font-weight: var(--weight-medium); }
 
+/* Account footer sub-nav (accountnav.html): links joined by a CSS-drawn " - " so
+   dropping the current page's link never leaves a dangling separator. The combinator
+   ignores intervening whitespace text nodes, so it works across the include output. */
+.acctsubnav a + a::before { content: " - "; color: var(--ink-400); }
+
 /* ---- stat rows: a printed spec line. Mono uppercase keys, mono tabular
    values to the same baseline. Money is weight + mono, not hue. ---- */
 .stats {

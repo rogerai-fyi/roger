@@ -87,11 +87,12 @@
     menu.setAttribute("role", "menu");
     menu.hidden = true;
 
+    // Order MUST match the account-page footer sub-nav (accountnav.html). API keys
+    // is intentionally omitted here - it already has its own slot in the top nav.
     [
       { label: "Dashboard", href: "/dashboard.html" },
       { label: "Console", href: "/console.html" },
       { label: "Metrics", href: "/usage.html" },
-      { label: "API keys", href: "/keys.html" },
       { label: "Billing", href: "/billing.html" },
       { label: "Payouts", href: "/payouts.html" },
       { label: "Account", href: "/account.html" }
