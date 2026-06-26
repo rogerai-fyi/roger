@@ -117,7 +117,7 @@ var pingTxFrames = []pingFrame{
 // dropped / static: the eye goes hollow, the arms sag - "...static".
 var pingStaticFrame = pingFrame{[5]string{"  .. ○ ..  ", "  \\,   ,/  ", "   │ R │   ", "   ╰───╯   ", "    ▔ ▔    "}}
 
-// walk: 2-frame contact/passing cycle for the `rogerai ping` easter egg. The
+// walk: 2-frame contact/passing cycle for the `roger ping` easter egg. The
 // feet alternate (left-lead / right-lead) so it reads as a step.
 var pingWalkFrames = []pingFrame{
 	{[5]string{"((  •  ))", " \\(   )/ ", "  │ R │  ", "  ╰───╯  ", "  ╿   ╿  "}},

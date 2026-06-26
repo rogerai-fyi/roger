@@ -56,7 +56,7 @@ func (b *broker) metricsProvider(w http.ResponseWriter, r *http.Request) {
 	// session OR a signed Ed25519 request bound to a non-anonymized GitHub owner.
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	days := metricsDays(r)
@@ -115,7 +115,7 @@ func (b *broker) metricsUsage(w http.ResponseWriter, r *http.Request) {
 	// unbound signed keypair to its own pubkey-derived id - neither owns a wallet, so
 	// reject rather than report a bogus empty body (mirrors the payout 401).
 	if !walletLoggedIn(user) {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to read your usage")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to read your usage")
 		return
 	}
 	days := metricsDays(r)

@@ -165,7 +165,7 @@ func (h *inputHistory) next() (string, bool) {
 }
 
 // persist writes the full (capped, deduped) history back to disk, oldest first,
-// creating the rogerai config dir + file if missing. It is best-effort: any error
+// creating the roger config dir + file if missing. It is best-effort: any error
 // (no config dir, unwritable path) is swallowed so a failed write never breaks the
 // session. The dir is 0700 and the file 0600, matching the persona/user-key layout
 // (the file can hold what the user typed, so keep it private). Note: these POSIX

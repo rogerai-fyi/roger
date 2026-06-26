@@ -10,7 +10,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
-// TestShareModelArg covers the positional-model parsing for `rogerai share`: a leading
+// TestShareModelArg covers the positional-model parsing for `roger share`: a leading
 // non-flag token is the model (and is stripped from the args the flag parser sees),
 // while a leading flag (or no args) leaves model "" and args untouched.
 func TestShareModelArg(t *testing.T) {
@@ -100,7 +100,7 @@ func TestNormalizeUpstream(t *testing.T) {
 	}
 }
 
-// TestParseMonthlyCap verifies the `rogerai limit --monthly` value parsing: a dollar
+// TestParseMonthlyCap verifies the `roger limit --monthly` value parsing: a dollar
 // amount (with or without a leading $), the clear spellings (0/off/none/unlimited),
 // and the invalid cases.
 func TestParseMonthlyCap(t *testing.T) {
@@ -208,7 +208,7 @@ func TestLimitsLoadSaveBackCompat(t *testing.T) {
 	}
 }
 
-// TestSeedSharePricing covers the P0-A parity fix: `rogerai share` honors the TUI
+// TestSeedSharePricing covers the P0-A parity fix: `roger share` honors the TUI
 // editor's saved per-model price + schedule (cfg.Prices) when no explicit flags are
 // passed, and explicit flags still override.
 func TestSeedSharePricing(t *testing.T) {
@@ -295,7 +295,7 @@ func TestOnAirLine(t *testing.T) {
 // earnings show up.
 func TestEarningsLine(t *testing.T) {
 	got := earningsLine()
-	for _, want := range []string{"earnings", "rogerai.fyi/dashboard.html", "rogerai payout status"} {
+	for _, want := range []string{"earnings", "rogerai.fyi/dashboard.html", "roger payout status"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("earnings line %q missing %q", got, want)
 		}

@@ -50,7 +50,7 @@ func (b *broker) providerModels(w http.ResponseWriter, r *http.Request) {
 	}
 	_, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to manage your models")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to manage your models")
 		return
 	}
 	if o.GitHubID == 0 || o.Pubkey == "" {

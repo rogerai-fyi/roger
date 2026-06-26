@@ -111,7 +111,7 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 // gate (KYC / 120-day hold / $25 min / debit-first transfer rail / dispute clawback)
 // is identical no matter how the caller authenticated. This is purely an additional
 // AUTH path - it changes no policy. A signed-but-UNBOUND keypair (not logged in via
-// `rogerai login`) is rejected here: payouts are KYC + GitHub-linked only, so a
+// `roger login`) is rejected here: payouts are KYC + GitHub-linked only, so a
 // headless provider must have linked GitHub to cash out. An unsigned / anonymous
 // request (no cookie, no valid signature) returns ok=false -> 401.
 //
@@ -153,11 +153,11 @@ func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {
-		jsonErr(w, http.StatusForbidden, "no operator account for this login (run `rogerai login` on a node first)")
+		jsonErr(w, http.StatusForbidden, "no operator account for this login (run `roger login` on a node first)")
 		return
 	}
 
@@ -213,7 +213,7 @@ func (b *broker) connectOnboard(w http.ResponseWriter, r *http.Request) {
 // Stripe (transfers capability == active); in dev it returns the stored status.
 // Accepts a logged-in web session OR a signed CLI request (see payoutOwner). It
 // also returns the earnings split (payable vs held) + the next-payable date so the
-// CLI `rogerai payout status` renders the whole picture in one call.
+// CLI `roger payout status` renders the whole picture in one call.
 func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -224,7 +224,7 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	login, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {
@@ -249,7 +249,7 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) {
 		"schedule":   b.conn.policy.Schedule,
 	}
 	// The earnings split (payable / held / paid + next release) keyed by the owner
-	// pubkey (the account id), so `rogerai payout status` shows payable-vs-held +
+	// pubkey (the account id), so `roger payout status` shows payable-vs-held +
 	// the next-payable date without a second round trip.
 	if split, err := b.db.EarningSplitOf(o.Pubkey, time.Now()); err == nil {
 		out["earnings"] = split
@@ -297,7 +297,7 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	login, o, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {
@@ -597,7 +597,7 @@ func (b *broker) payoutsHistory(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {
@@ -633,7 +633,7 @@ func (b *broker) payoutsEarnings(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {
@@ -716,7 +716,7 @@ func (b *broker) payoutLots(w http.ResponseWriter, r *http.Request) {
 	}
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.GitHubID == 0 {

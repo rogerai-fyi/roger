@@ -130,7 +130,7 @@ func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	_, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to link GitHub")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
 		return
 	}
 	if o.Pubkey == "" {

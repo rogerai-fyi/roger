@@ -1,6 +1,6 @@
 package tui
 
-// The `rogerai ping` easter egg: Ping does its 2-frame walk across the terminal
+// The `roger ping` easter egg: Ping does its 2-frame walk across the terminal
 // width, then exits cleanly - in the oneko / nyancat spirit. Under NO_COLOR /
 // non-TTY (quiet) we skip the animation entirely and print one static pose with
 // a friendly radio line, so a plain pipe never sees cursor churn.
@@ -84,7 +84,7 @@ func (m pingWalkModel) View() string {
 	return b.String()
 }
 
-// PingWalk runs the `rogerai ping` easter egg: Ping walks across the terminal a
+// PingWalk runs the `roger ping` easter egg: Ping walks across the terminal a
 // couple of times, then exits. Returns nil on a clean finish. Under NO_COLOR /
 // non-TTY it prints a single static pose instead of animating.
 func PingWalk() error {

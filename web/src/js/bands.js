@@ -1028,7 +1028,7 @@
     renderTermBar(b);
     document.getElementById("qslSched").textContent = scheduleNote(b);
 
-    document.getElementById("qslCmdCode").textContent = "rogerai use " + b.model;
+    document.getElementById("qslCmdCode").textContent = "roger use " + b.model;
     document.getElementById("qslStamp").textContent = "RogerAI · QSL · " + b.model;
     var qslRep = document.getElementById("qslReport");
     if (qslRep) qslRep.setAttribute("data-report-model", b.model);

@@ -198,7 +198,7 @@
     listEl.innerHTML =
       '<li class="mkt-quiet">' +
         '<span class="mkt-quiet__txt">The band is quiet right now - no stations on air yet. ' +
-          'Put a GPU on air with <code class="mono">rogerai share</code>, or ' +
+          'Put a GPU on air with <code class="mono">roger share</code>, or ' +
           '<a href="models.html">sweep the dial &rarr;</a>' +
         '</span>' +
       '</li>';

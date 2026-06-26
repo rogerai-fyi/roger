@@ -1,4 +1,4 @@
-// Package update is the self-update path for the rogerai client: `rogerai upgrade`
+// Package update is the self-update path for the rogerai client: `roger upgrade`
 // downloads the latest GitHub release asset for this os/arch, verifies its sha256
 // against the published checksums, and atomically swaps the running binary; a
 // separate async, cached (~daily) check shows a subtle "update available" line at
@@ -102,7 +102,7 @@ func (c CheckResult) Notice() string {
 	if !c.Available {
 		return ""
 	}
-	return fmt.Sprintf("update available v%s -> v%s · run 'rogerai upgrade'", c.Current, c.Latest)
+	return fmt.Sprintf("update available v%s -> v%s · run 'roger upgrade'", c.Current, c.Latest)
 }
 
 // Check returns whether a newer release exists than current. Network failures

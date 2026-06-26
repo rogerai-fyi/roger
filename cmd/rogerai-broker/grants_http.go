@@ -63,7 +63,7 @@ func (b *broker) grants(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	_, owner, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `rogerai login` or sign in on the web")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `roger login` or sign in on the web")
 		return
 	}
 	if owner.GitHubID == 0 || owner.Pubkey == "" {
@@ -156,7 +156,7 @@ func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	_, owner, ok := b.payoutOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `rogerai login` or sign in on the web")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `roger login` or sign in on the web")
 		return
 	}
 	if owner.GitHubID == 0 || owner.Pubkey == "" {

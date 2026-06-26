@@ -17,13 +17,13 @@ endpoint). Already have Go? `go install github.com/rogerai-fyi/roger/cmd/rogerai
 
 ```
 rogerai                         # interactive TUI: browse → connect → test → copy endpoint
-rogerai search                  # list models (cheapest now first; shows tok/s, ◆ confidential, FREE)
-rogerai use <model>             # open a local OpenAI-compatible endpoint that relays via the broker
-rogerai balance                 # wallet credits
-rogerai topup 10                # buy credits (Stripe)
+roger search                  # list models (cheapest now first; shows tok/s, ◆ confidential, FREE)
+roger use <model>             # open a local OpenAI-compatible endpoint that relays via the broker
+roger balance                 # wallet credits
+roger topup 10                # buy credits (Stripe)
 ```
 
-`rogerai use` (or the TUI's "tune in") exposes `http://127.0.0.1:4141/v1` with an API key - point
+`roger use` (or the TUI's "tune in") exposes `http://127.0.0.1:4141/v1` with an API key - point
 any OpenAI-compatible tool at it.
 
 ## Share your GPU (become a provider)
@@ -32,7 +32,7 @@ The node **dials OUT** and long-polls the broker for jobs - no inbound ports, no
 dependency. Behind any NAT, one command:
 
 ```
-rogerai share                                    # auto-detects your local model, starts earning
+roger share                                    # auto-detects your local model, starts earning
 # options: --price-in/--price-out, --free-window 03:00-03:30, --schedule '<time-of-use JSON>',
 #          --confidential (TEE-attested), --upstream <your OpenAI endpoint>
 ```

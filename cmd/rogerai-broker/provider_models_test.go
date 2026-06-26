@@ -124,7 +124,7 @@ func TestProviderModelsSetReadbackAndReregister(t *testing.T) {
 // TestRegisterResponseCarriesEffectivePrice: when an owner has set a web-console price
 // override, the /nodes/register RESPONSE carries the broker-EFFECTIVE offers (the
 // override price, NOT the node's own requested price) and names the overridden model -
-// so the `rogerai share` CLI shows the broker-effective price. One source of truth.
+// so the `roger share` CLI shows the broker-effective price. One source of truth.
 func TestRegisterResponseCarriesEffectivePrice(t *testing.T) {
 	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
 	if code, msg := registerPriced(t, b, "n1", nodePriv, nodePubHex, userPriv); code != http.StatusOK {

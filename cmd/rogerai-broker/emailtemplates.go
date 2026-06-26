@@ -278,9 +278,9 @@ func (b *broker) emailWelcome(email, displayName string) {
 	// A second bulletproof CTA in the body (the primary one is the shell button below).
 	secondary := `<div style="margin:14px 0 2px;">` + button("Your account", "https://rogerai.fyi/account.html") + `</div>`
 	bodyHTML := p(`Welcome aboard, `+esc(name)+`.`) + intro + doNow +
-		p(`<span style="color:`+colInk500+`;">Ready to earn? On a machine running a local model, run <span style="font-family:`+fontMono+`;">rogerai share</span> to go on air. Free sharing needs no login; set a price to earn.</span>`) +
+		p(`<span style="color:`+colInk500+`;">Ready to earn? On a machine running a local model, run <span style="font-family:`+fontMono+`;">roger share</span> to go on air. Free sharing needs no login; set a price to earn.</span>`) +
 		secondary
-	bodyText := fmt.Sprintf("Welcome aboard, %s.\n\nRogerAI is a two-way radio for GPUs - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.\n\nWhat you can do now:\n  - Earn: share a model to put your GPU on air (`rogerai share`)\n  - Browse: see who is broadcasting at rogerai.fyi/models.html\n  - Top up: add credits to send your own requests\n\nYour account: https://rogerai.fyi/account.html", name)
+	bodyText := fmt.Sprintf("Welcome aboard, %s.\n\nRogerAI is a two-way radio for GPUs - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.\n\nWhat you can do now:\n  - Earn: share a model to put your GPU on air (`roger share`)\n  - Browse: see who is broadcasting at rogerai.fyi/models.html\n  - Top up: add credits to send your own requests\n\nYour account: https://rogerai.fyi/account.html", name)
 	d := emailDoc{
 		kicker:    "Welcome",
 		heading:   "Welcome to RogerAI, " + name,
@@ -475,8 +475,8 @@ func (b *broker) emailCapNotice(holder string, threshold string, spend, cap floa
 		subj = "Monthly spend limit reached"
 		bodyHTML := receipt(hero, nil) +
 			p(`You have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit.`) +
-			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">rogerai limit --monthly</span> (or [3] CONFIG).</span>`)
-		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nYou have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit with `rogerai limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
+			p(`<span style="color:`+colInk500+`;">Raise it from the billing page, or on the CLI with <span style="font-family:`+fontMono+`;">roger limit --monthly</span> (or [3] CONFIG).</span>`)
+		bodyText := fmt.Sprintf("Spend this month: $%.2f of $%.2f limit (%.0f%%)\n\nYou have reached your monthly spend limit. New paid requests are paused until next month, or until you raise the limit with `roger limit --monthly` (or [3] CONFIG).", round6(spend), round6(cap), pct)
 		d = emailDoc{
 			kicker:    "Spend limit reached",
 			heading:   "You hit your monthly spend limit",

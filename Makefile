@@ -4,7 +4,8 @@ export GOTOOLCHAIN
 
 build:
 	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
-	go build -o bin/rogerai           ./cmd/rogerai
+	go build -o bin/roger             ./cmd/rogerai
+	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
 
 # Build the marketing + account site: resolve the shared chrome partials
@@ -52,9 +53,9 @@ release:
 	@for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
 	  os=$${t%/*}; arch=$${t#*/}; ext=; [ $$os = windows ] && ext=.exe; \
 	  echo "build $$os/$$arch"; \
-	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o bin/rogerai-$$os-$$arch$$ext ./cmd/rogerai; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o bin/roger-$$os-$$arch$$ext ./cmd/rogerai; \
 	done
-	@command -v sha256sum >/dev/null 2>&1 && (cd bin && sha256sum rogerai-* > checksums.txt && echo "wrote bin/checksums.txt") || true
+	@command -v sha256sum >/dev/null 2>&1 && (cd bin && sha256sum roger-* > checksums.txt && echo "wrote bin/checksums.txt") || true
 
 demo: build
 	@bash scripts/demo.sh

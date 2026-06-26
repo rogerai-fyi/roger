@@ -100,7 +100,7 @@ func GrantCreate(broker string, o GrantCreateOpts) error {
 	fmt.Printf("    OPENAI_API_BASE=%s\n", out.OpenAIAPIBase)
 	fmt.Printf("    OPENAI_API_KEY=%s\n", out.Secret)
 	if out.Grant.DailyCap > 0 {
-		fmt.Printf("\n  daily cap: %d tokens/day  (rogerai grant show %s)\n", out.Grant.DailyCap, out.Grant.Name)
+		fmt.Printf("\n  daily cap: %d tokens/day  (roger grant show %s)\n", out.Grant.DailyCap, out.Grant.Name)
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func GrantList(broker string) error {
 		return err
 	}
 	if len(gs) == 0 {
-		fmt.Println("no grants yet - `rogerai grant create --name my-bots` mints a free key for your bots/family.")
+		fmt.Println("no grants yet - `roger grant create --name my-bots` mints a free key for your bots/family.")
 		return nil
 	}
 	sort.Slice(gs, func(i, j int) bool { return gs[i].Name < gs[j].Name })
@@ -224,7 +224,7 @@ func fetchGrants(broker string) ([]grantJSON, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("grants require a GitHub-linked owner - run `rogerai login`")
+		return nil, fmt.Errorf("grants require a GitHub-linked owner - run `roger login`")
 	}
 	var out struct {
 		Grants []grantJSON `json:"grants"`

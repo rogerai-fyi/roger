@@ -3,15 +3,17 @@
 # RogerAI installer - a two-way radio for GPUs.
 #   curl -fsSL https://rogerai.fyi/install.sh | sh
 #
-# Downloads the right `rogerai` binary for your OS/arch from GitHub
-# releases and drops it in ~/.local/bin. POSIX sh, no dependencies
+# Downloads the right `roger` binary for your OS/arch from GitHub
+# releases and drops it in ~/.local/bin (plus a `rogerai` alias symlink,
+# so old muscle memory keeps working). POSIX sh, no dependencies
 # beyond curl-or-wget + tar/unzip-where-needed. Degrades gracefully
 # with a clear message if a release/asset is missing.
 # =====================================================================
 set -eu
 
 REPO="rogerai-fyi/roger"
-BIN="rogerai"
+BIN="roger"
+ALIAS="rogerai"
 INSTALL_DIR="${ROGERAI_INSTALL_DIR:-$HOME/.local/bin}"
 # Override the version with:  ROGERAI_VERSION=v0.2.0 sh install.sh
 VERSION="${ROGERAI_VERSION:-latest}"
@@ -94,7 +96,7 @@ if [ -z "${TAG:-}" ]; then
   say ""
   say "  RogerAI is brand new - releases are on their way. In the meantime:"
   say "    ${C_DIM}# build from source (needs Go)${C_RESET}"
-  say "    git clone https://github.com/$REPO && cd rogerai"
+  say "    git clone https://github.com/$REPO && cd roger"
   say "    go build -o ~/.local/bin/$BIN ./cmd/rogerai"
   say ""
   say "  Watch ${C_VOLT}https://github.com/$REPO/releases${C_RESET} for prebuilt binaries."
@@ -184,6 +186,17 @@ if ! mv -f "$STAGE" "$DEST"; then
   die "failed to install to ${DEST}."
 fi
 ok "installed ${C_BOLD}${BIN}${C_RESET} → ${DEST}"
+
+# ---- back-compat alias ----------------------------------------------
+# The command is `roger` now; keep a `rogerai` alias so old muscle memory
+# (and any scripts) keep working. Prefer a symlink; fall back to a copy on
+# filesystems/OSes where symlinks aren't available (e.g. some Windows setups).
+ALIAS_DEST="$INSTALL_DIR/$ALIAS$EXT"
+if [ "$ALIAS_DEST" != "$DEST" ]; then
+  if ln -sf "$BIN$EXT" "$ALIAS_DEST" 2>/dev/null || cp -f "$DEST" "$ALIAS_DEST" 2>/dev/null; then
+    ok "aliased ${C_BOLD}${ALIAS}${C_RESET} → ${BIN}"
+  fi
+fi
 
 # ---- PATH hint ------------------------------------------------------
 # On immutable distros (Bazzite/Silverblue/Kinoite) ~/.local/bin is on

@@ -20,12 +20,12 @@ func shareModelWithPayout(w int, snap payoutSnapshot) model {
 }
 
 // TestPayoutHintCashOut: a logged-in owner with payable >= min sees the cash-out hint
-// pointing at `rogerai payout` in the SHARE earnings surface.
+// pointing at `roger payout` in the SHARE earnings surface.
 func TestPayoutHintCashOut(t *testing.T) {
 	mm := shareModelWithPayout(100, payoutSnapshot{loaded: true, kyc: "active", payable: 40, min: 25})
 	var m tea.Model = mm
 	v := stripANSI(m.View())
-	if !strings.Contains(v, "rogerai payout") {
+	if !strings.Contains(v, "roger payout") {
 		t.Errorf("expected the cash-out hint in the share view:\n%s", v)
 	}
 	if !strings.Contains(v, "payable") {
@@ -39,7 +39,7 @@ func TestPayoutHintKYC(t *testing.T) {
 	mm := shareModelWithPayout(100, payoutSnapshot{loaded: true, kyc: "onboarding", payable: 30, min: 25})
 	var m tea.Model = mm
 	v := stripANSI(m.View())
-	if !strings.Contains(v, "rogerai payout onboard") {
+	if !strings.Contains(v, "roger payout onboard") {
 		t.Errorf("expected the KYC onboard hint in the share view:\n%s", v)
 	}
 }

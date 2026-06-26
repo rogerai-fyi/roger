@@ -61,7 +61,7 @@ func (b *broker) bands(w http.ResponseWriter, r *http.Request) {
 	corsCreds(w, r)
 	owner, ok := b.requireOwner(r)
 	if !ok {
-		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `rogerai login`")
+		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -97,7 +97,7 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 	}
 	owner, ok := b.requireOwner(r)
 	if !ok {
-		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `rogerai login`")
+		jsonErr(w, http.StatusForbidden, "managing private bands requires a GitHub-linked owner - run `roger login`")
 		return
 	}
 	if r.Method != http.MethodDelete {

@@ -70,7 +70,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 		}
 		// Always carry an out-price cap (the caller's, or the default consumer ceiling
 		// when none was set) so an agent turn is bounded against overpay exactly like
-		// `rogerai use` and the in-channel chat - the harness is just another consume path.
+		// `roger use` and the in-channel chat - the harness is just another consume path.
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
 		resp, err := httpClient.Do(req)
 		if err != nil {
