@@ -52,7 +52,7 @@ func TestCompactToggleInShareAndLimits(t *testing.T) {
 	// SHARE table.
 	m := browseSeed(100)
 	m.mode = modeShare
-	m.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	m.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var tm tea.Model = m
 	tm, _ = tm.Update(keyMsg("m"))
 	if !asModel(tm).compact {
@@ -180,7 +180,7 @@ func seedFor(w int, md mode, compact bool) model {
 	m.mode = md
 	switch md {
 	case modeShare:
-		m.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}, {model: "qwen3-coder-30b", ctx: 65536}}
+		m.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}, {model: "qwen3-coder-30b", ctx: 65536}})
 	case modeLimits:
 		m.editField = -1
 		m.limModels = []string{"gpt-oss-20b"}

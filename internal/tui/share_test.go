@@ -17,10 +17,10 @@ func TestShareViewNarrowSafe(t *testing.T) {
 		mm := New("http://broker.local", "tester")
 		mm.width, mm.height = w, 30
 		mm.mode = modeShare
-		mm.shareRows = []shareRow{
+		mm.setShareRows([]shareRow{
 			{model: "gpt-oss-20b", ctx: 32768},
 			{model: "qwen3-coder-30b-a3b-instruct", ctx: 32768},
-		}
+		})
 		var m tea.Model = mm
 		m, _ = m.Update(balanceMsg{balance: 5, loggedIn: true})
 		m, _ = m.Update(tickMsg{})
@@ -91,10 +91,10 @@ func TestShareViewK9s(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
 	mm.mode = modeShare
-	mm.shareRows = []shareRow{
+	mm.setShareRows([]shareRow{
 		{model: "gpt-oss-20b", ctx: 32768},
 		{model: "llama-3.3-70b", ctx: 32768},
-	}
+	})
 	mm.shareCursor = 1
 	var m tea.Model = mm
 	v := m.View()
@@ -191,7 +191,7 @@ func TestSharePriceEditorLoginGate(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
 	mm.mode = modeShare
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var m tea.Model = mm
 	m, _ = m.Update(balanceMsg{loggedIn: false})
 	pm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
@@ -211,7 +211,7 @@ func TestSharePriceEditorLoginGate(t *testing.T) {
 	lm := NewWithHooks("http://broker.local", "tester", nil, hooks)
 	lm.width, lm.height = 100, 30
 	lm.mode = modeShare
-	lm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	lm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var l tea.Model = lm
 	l, _ = l.Update(balanceMsg{balance: 5, loggedIn: true})
 	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
@@ -246,7 +246,7 @@ func TestShareScheduleWindow(t *testing.T) {
 	lm := NewWithHooks("http://broker.local", "tester", nil, hooks)
 	lm.width, lm.height = 100, 30
 	lm.mode = modeShare
-	lm.shareRows = []shareRow{{model: "m", ctx: 8192}}
+	lm.setShareRows([]shareRow{{model: "m", ctx: 8192}})
 	var l tea.Model = lm
 	l, _ = l.Update(balanceMsg{balance: 5, loggedIn: true})
 	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}) // open editor
@@ -321,7 +321,7 @@ func TestAllModesRenderSafe(t *testing.T) {
 			// Seed the bits each mode needs so it renders its real body, not an empty case.
 			mm.connected = &offer{NodeID: "nyx", Model: "gpt-oss-20b", PriceOut: 0.3, Online: true}
 			mm.q = quote{b: band{model: "gpt-oss-20b", online: true, stations: 1, cheapest: mm.connected}, typical: 800}
-			mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+			mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 			mm.limModels = []string{"gpt-oss-20b"}
 			mm.edModel = "gpt-oss-20b"
 			mm.edWindows = []SchedWindow{{Start: "18:00", End: "22:00"}}
@@ -381,7 +381,7 @@ func TestScheduleWindowEditEndAndPrice(t *testing.T) {
 	lm := NewWithHooks("http://broker.local", "tester", nil, hooks)
 	lm.width, lm.height = 100, 30
 	lm.mode = modeShare
-	lm.shareRows = []shareRow{{model: "m", ctx: 8192}}
+	lm.setShareRows([]shareRow{{model: "m", ctx: 8192}})
 	var l tea.Model = lm
 	l, _ = l.Update(balanceMsg{balance: 5, loggedIn: true})
 
@@ -455,7 +455,7 @@ func TestNoColorNonTTYRender(t *testing.T) {
 			mm.mode = md
 			mm.connected = &offer{NodeID: "nyx", Model: "m", PriceOut: 0.3, Online: true}
 			mm.q = quote{b: band{model: "m", online: true, stations: 1, cheapest: mm.connected}, typical: 800}
-			mm.shareRows = []shareRow{{model: "m", ctx: 32768}}
+			mm.setShareRows([]shareRow{{model: "m", ctx: 32768}})
 			mm.limModels = []string{"m"}
 			mm.edModel = "m"
 			mm.edWindows = []SchedWindow{{Start: "18:00", End: "22:00", In: 0.1, Out: 0.2}}
@@ -653,8 +653,7 @@ func TestShareEditorValidationBlocksBadInput(t *testing.T) {
 	// Malformed HH:MM window time ("25:99" never matches at runtime).
 	t.Run("bad-hhmm", func(t *testing.T) {
 		var saved *Pricing
-		m := New("http://broker.local", "tester")
-		m.hooks = Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }}
+		m := NewWithHooks("http://broker.local", "tester", nil, Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }})
 		m.edModel = "m"
 		m.edPriceOut = "1"
 		m.edWindows = []SchedWindow{{Start: "25:99", End: "03:30"}}
@@ -698,8 +697,7 @@ func TestShareEditorValidationBlocksBadInput(t *testing.T) {
 	// A clean price + valid window saves and clears the error.
 	t.Run("clean-saves", func(t *testing.T) {
 		var saved *Pricing
-		m := New("http://broker.local", "tester")
-		m.hooks = Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }}
+		m := NewWithHooks("http://broker.local", "tester", nil, Hooks{SavePrice: func(_ string, p Pricing) { c := p; saved = &c }})
 		m.edModel = "m"
 		m.edPriceOut = "0.7"
 		m.edWindows = []SchedWindow{{Start: "03:00", End: "03:30", Free: true}}

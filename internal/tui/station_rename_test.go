@@ -36,7 +36,7 @@ func TestStationRenamePersistsAndDisplays(t *testing.T) {
 	})
 	mm.width, mm.height = 100, 30
 	mm.mode = modeShare
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var m tea.Model = mm
 
 	// Enter rename mode - the buffer seeds with the current callsign so the owner can
@@ -87,7 +87,7 @@ func TestStationRenameCancel(t *testing.T) {
 		SaveStation: func(s string) { saved = s },
 	})
 	mm.mode = modeShare
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var m tea.Model = mm
 	m, _ = m.Update(keyRunes("n"))
 	m, _ = m.Update(keyRunes("zzz"))
@@ -106,7 +106,7 @@ func TestStationRenameCancel(t *testing.T) {
 func TestStationRenameBlankKeepsCurrent(t *testing.T) {
 	mm := NewWithHooks("http://broker.local", "tester", nil, Hooks{Station: "brave-otter"})
 	mm.mode = modeShare
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b", ctx: 32768}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b", ctx: 32768}})
 	var m tea.Model = mm
 	m, _ = m.Update(keyRunes("n"))
 	m, _ = m.Update(keyRunes("   "))
