@@ -79,7 +79,8 @@
 .pingband {
   appearance: none; cursor: pointer; pointer-events: auto; flex-shrink: 1;
   display: inline-flex; align-items: center; gap: 8px;
-  max-width: clamp(150px, 22vw, 260px);
+  width: clamp(225px, 33vw, 390px);
+  max-width: clamp(225px, 33vw, 390px);
   padding: 6px 10px; margin: 0;
   background: var(--paper-2); color: var(--ink-700);
   border: 1px solid var(--hairline-2); border-radius: var(--r-sm);
@@ -239,7 +240,7 @@
     width: min(360px, 92vw);
   }
   /* keep the always-on banner from crowding the hero on narrow widths */
-  .pingband { max-width: min(58vw, 240px); }
+  .pingband { width: min(58vw, 360px); max-width: min(58vw, 360px); }
 }
 
 
@@ -321,16 +322,28 @@
   border-top: 1px solid var(--hairline);
 }
 .term__btn {
-  display: inline-grid; place-items: center;
-  width: 30px; height: 26px; flex-shrink: 0;
-  font-family: var(--font-mono); font-size: 12px; line-height: 1; color: var(--ink-500);
-  border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
-  background: var(--white); cursor: pointer;
-  transition: color var(--d-2), border-color var(--d-2);
+   display: inline-grid; place-items: center;
+   width: 30px; height: 26px; flex-shrink: 0;
+   font-family: var(--font-mono); font-size: 12px; line-height: 1; color: var(--ink-500);
+   border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
+   background: var(--white); cursor: pointer;
+   transition: color var(--d-2), border-color var(--d-2);
+ }
+ .term__btn:hover { color: var(--live); border-color: var(--live); }
+ .term__btn:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
+ .term__btn--replay { font-size: 14px; }
+
+/* Dark‑mode overrides for terminal buttons */
+:root[data-theme="dark"] .term__btn {
+    background: var(--paper);
+    color: var(--ink-900);
+    border-color: var(--hairline);
 }
-.term__btn:hover { color: var(--live); border-color: var(--live); }
-.term__btn:focus-visible { outline: none; border-color: var(--live); box-shadow: 0 0 0 3px var(--live-glow); }
-.term__btn--replay { font-size: 14px; }
+:root[data-theme="dark"] .term__btn:hover {
+    color: var(--live);
+    border-color: var(--live);
+    background: var(--paper-2);
+}
 /* the tuning bar: a hairline track with a red fill scaled by progress */
 .term__bar-track {
   flex: 1 1 auto; height: 3px; position: relative;
