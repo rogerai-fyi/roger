@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.8.0</b></span>
+          <span>Version: <b data-cli-version>v4.8.1</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -819,7 +819,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.8.0</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.8.1</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1097,6 +1097,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v4.8.1</span><span class="man-plate__v"><b>On-air reliability fix.</b> Fixed a bug where running the test suite on macOS or Windows could overwrite your real config (pointing the broker at a bogus address), so a node would fail to go on air with a "register with https://b.example" error. Config is now isolated on every platform, with a guard so it can't regress. <b>Easter egg polish</b>: <code>roger --ping</code> and <code>roger -ping</code> now also summon Ping (not just bare <code>roger ping</code>).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.8.0</span><span class="man-plate__v"><b>A browser console for your node.</b> Bare <code>roger</code> now also opens a localhost <b>web console</b> - a live twin of the terminal app for SHARE / ACCOUNT / BROWSE (both run at once and drive the same node, so a toggle in one shows in the other). On by default; <code>--no-webui</code> to opt out, <code>--webui-port=N</code> to move it. 127.0.0.1-only, gated by a per-run token. <b>Key-protected local servers just work.</b> <code>roger share</code> now detects, reuses, and remembers local models behind an API key (vLLM <code>--api-key</code>, LiteLLM, llama.cpp, LM Studio) - it harvests a key from your environment when it can, prompts once otherwise, and never sends a saved key to a different endpoint. <b>Scope a key to specific models.</b> The API-keys page can now limit a key to chosen models, not just chosen nodes (node and model scopes apply together). <b>One true spend ceiling.</b> The monthly spend limit now bounds <i>everything</i> your account pays for in a month - your own tune-ins to paid models <i>and</i> any sponsored grant keys - drawing one balance. <b>Account pages</b> share one consistent footer nav order.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.7.0</span><span class="man-plate__v"><b>The command is <code>roger</code> now.</b> Same RogerAI, shorter to type: <code>roger share</code>, <code>roger use &lt;model&gt;</code>, <code>roger login</code>, <code>roger payout status</code>. The installer drops a <code>roger</code> binary and keeps a <code>rogerai</code> alias, so old muscle memory and any scripts keep working - nothing to relearn, nothing to fix. <b>No double-broadcasts.</b> <code>roger share</code> now writes a per-station lock and bows out cleanly if that same station+model is already on air on this box (a multi-model rig still runs several at once), so a stray second launch can't flap your station or scramble your earnings; a lock left by a crash is reclaimed automatically.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.6.3</span><span class="man-plate__v"><b>Friction polish + accurate terms.</b> <code>roger topup</code> now opens the browser for you (no copy-paste); an over-budget message points at <code>/topup</code> (not the wrong screen); and <code>roger share</code> shows where to see your earnings. Payout terms now correctly say the <b>120-day hold</b> everywhere (a couple of spots still said "90-day"). <b>Under the hood</b> (broker, already live): operator strike visibility (<code>/owner/strikes</code>) + admin hold-review + auto-expiry so a false flag can't freeze an honest provider, failed-payout-reversal retry, a <code>/ready</code> health probe, and earnings provenance (release ladder + per-payout lineage) on the Payouts page.</span></div>
