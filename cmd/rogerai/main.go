@@ -432,7 +432,7 @@ func main() {
 	// banner to stderr so scripted stdout stays clean.
 	if notice != "" {
 		switch os.Args[1] {
-		case "upgrade", "update", "self-update", "ping", "version":
+		case "upgrade", "update", "self-update", "ping", "--ping", "-ping", "version":
 		default:
 			fmt.Fprintln(os.Stderr, notice)
 		}
@@ -478,8 +478,10 @@ func main() {
 	case "support", "community", "help-me", "discord":
 		// Mirror the TUI's /support: open the website (community + Discord live there).
 		err = cmdSupport()
-	case "ping":
-		// easter egg: walk the mascot across the terminal once, then exit.
+	case "ping", "--ping", "-ping":
+		// easter egg: walk the mascot (Ping) across the terminal once, then exit.
+		// Accept the dash forms too - `--ping` is a natural thing to type for a flag-ish
+		// easter egg, and erroring out on it is a worse surprise than just running it.
 		err = tui.PingWalk()
 	case "upgrade", "update", "self-update":
 		err = cmdUpgrade(os.Args[2:])
