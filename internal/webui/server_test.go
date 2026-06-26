@@ -3,6 +3,7 @@ package webui
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,6 +152,37 @@ func TestEventsRequiresToken(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("events without token = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestAssetsServe(t *testing.T) {
+	s := New(testCtrl(), Options{})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	// The shell HTML references these; both must serve without a token (static, no data).
+	for _, path := range []string{"/", "/assets/console.css", "/assets/console.js"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body := make([]byte, 64)
+		n, _ := resp.Body.Read(body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, resp.StatusCode)
+		}
+		if n == 0 {
+			t.Fatalf("GET %s served an empty body", path)
+		}
+	}
+	// The shell references the css + js by the paths above.
+	resp, _ := http.Get(srv.URL + "/")
+	html, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	for _, ref := range []string{"/assets/console.css", "/assets/console.js"} {
+		if !strings.Contains(string(html), ref) {
+			t.Errorf("shell HTML does not reference %s", ref)
+		}
 	}
 }
 
