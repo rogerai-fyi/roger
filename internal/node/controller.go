@@ -327,10 +327,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	if up == "" {
 		up = c.upstream
 	}
-	upKey := row.UpstreamKey
-	if upKey == "" {
-		upKey = c.upstreamKey
-	}
+	upKey := pickUpstreamKey(up, row.UpstreamKey, c.upstream, c.upstreamKey)
 	node := agent.ShareNodeID(c.station, row.Model, 0)
 	return agent.Start(agent.Config{
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
@@ -338,6 +335,20 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 	})
+}
+
+// pickUpstreamKey chooses the bearer to send to a row's upstream: the row's OWN key if it
+// has one, else the headline key ONLY when the row's upstream IS the headline upstream.
+// A keyless row on a DIFFERENT detected server gets no key — never spray the saved/headline
+// bearer onto the wrong endpoint (mirrors the CLI's sameEndpoint gate).
+func pickUpstreamKey(rowUpstream, rowKey, headlineUpstream, headlineKey string) string {
+	if rowKey != "" {
+		return rowKey
+	}
+	if NormalizeUpstream(rowUpstream) == NormalizeUpstream(headlineUpstream) {
+		return headlineKey
+	}
+	return ""
 }
 
 // SetPricing records a per-model price + schedule (from the editor) and persists it.
