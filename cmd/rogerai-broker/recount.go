@@ -294,11 +294,22 @@ func (t trustState) score() float64 {
 // completionText extracts the assistant completion text from an OpenAI
 // chat-completions response body (non-stream) for re-counting. Tolerates the
 // string content form (launch is text-only); returns "" if it can't parse.
+//
+// REASONING MODELS: gpt-oss (and other reasoning models) return the answer in the
+// `reasoning` field with EMPTY `content`. That text is real generated output - the
+// node spent tokens on it and the client renders it (client.Chat falls back to
+// reasoning). It MUST count here too, or the broker mis-sees an honest reasoning
+// reply as "no output": that falsely fired the empty-output strike AND the
+// recount-over-report strike (claimed N completion tokens vs ~0 recounted), which
+// stacked to 5 strikes and AUTO-BANNED honest reasoning-model nodes (the founder's
+// own gpt-oss/qwen nodes). Counting content + reasoning makes the void/recount/quality
+// checks match what the node actually produced.
 func completionText(body []byte) string {
 	var resp struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				Reasoning string `json:"reasoning"`
 			} `json:"message"`
 			Text string `json:"text"`
 		} `json:"choices"`
@@ -312,6 +323,11 @@ func completionText(body []byte) string {
 			out.WriteString(c.Message.Content)
 		} else if c.Text != "" {
 			out.WriteString(c.Text)
+		}
+		// Reasoning is real output (reasoning models put the answer here with empty
+		// content); count it so the no-output / over-report checks don't false-strike.
+		if c.Message.Reasoning != "" {
+			out.WriteString(c.Message.Reasoning)
 		}
 	}
 	return out.String()
