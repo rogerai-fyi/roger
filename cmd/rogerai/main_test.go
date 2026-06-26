@@ -100,6 +100,37 @@ func TestNormalizeUpstream(t *testing.T) {
 	}
 }
 
+// TestSameEndpoint guards the saved-key reuse rule: a saved upstream key may be
+// reused only for the SAME endpoint (any base / /v1 / chat spelling of it), and must
+// NOT be considered a match for a different --upstream (which would leak the bearer).
+func TestSameEndpoint(t *testing.T) {
+	const saved = "http://127.0.0.1:8060/v1"
+	// Same server, different spellings -> match (reuse the saved key).
+	for _, same := range []string{
+		"http://127.0.0.1:8060",
+		"http://127.0.0.1:8060/v1",
+		"http://127.0.0.1:8060/v1/chat/completions",
+	} {
+		if !sameEndpoint(same, saved) {
+			t.Errorf("sameEndpoint(%q, %q) = false, want true", same, saved)
+		}
+	}
+	// A different endpoint -> NO match (never send the saved key there).
+	for _, diff := range []string{
+		"http://127.0.0.1:1234/v1",
+		"http://other.host:8060/v1",
+		"https://api.example.com/v1",
+	} {
+		if sameEndpoint(diff, saved) {
+			t.Errorf("sameEndpoint(%q, %q) = true, want false (would leak the saved key)", diff, saved)
+		}
+	}
+	// An empty saved upstream never matches (nothing to reuse).
+	if sameEndpoint("http://127.0.0.1:8060", "") {
+		t.Error("sameEndpoint with empty saved should be false")
+	}
+}
+
 // TestParseMonthlyCap verifies the `roger limit --monthly` value parsing: a dollar
 // amount (with or without a leading $), the clear spellings (0/off/none/unlimited),
 // and the invalid cases.
