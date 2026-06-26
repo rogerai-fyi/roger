@@ -127,6 +127,13 @@ type Store interface {
 	TouchNode(nodeID string, seen time.Time) error
 	// AllNodes returns every persisted node record (for startup re-hydration).
 	AllNodes() ([]NodeRecord, error)
+	// DeleteNode removes a node's persisted REGISTRATION (the rogerai.nodes row) so a
+	// long-dead node stops being re-hydrated into the registry/market. It touches ONLY
+	// the registration - earnings (the ledger) and the node->owner binding are separate
+	// and are deliberately left intact, so historical attribution/payouts are unaffected.
+	// No-op (nil) if the node has no record. A still-running provider that is pruned
+	// simply re-registers on its next heartbeat. Used by the stale-node prune sweep.
+	DeleteNode(nodeID string) error
 
 	// --- owner-authored price/schedule overrides (web console pricing) -------
 	//
@@ -1155,6 +1162,13 @@ func (m *Mem) AllNodes() ([]NodeRecord, error) {
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+func (m *Mem) DeleteNode(nodeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.nodes, nodeID)
+	return nil
 }
 
 func (m *Mem) LedgerOf(holder string, kinds []string, limit int) ([]LedgerRow, error) {

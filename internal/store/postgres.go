@@ -1001,6 +1001,13 @@ func (p *Postgres) AllNodes() ([]NodeRecord, error) {
 	return out, rows.Err()
 }
 
+// DeleteNode removes a node's persisted registration row. Earnings (ledger) and the
+// node->owner binding live in separate tables and are intentionally NOT touched.
+func (p *Postgres) DeleteNode(nodeID string) error {
+	_, err := p.db.Exec(`DELETE FROM rogerai.nodes WHERE node_id=$1`, nodeID)
+	return err
+}
+
 // SetOfferOverride upserts an owner-authored price/schedule override for (node,model).
 // The owner pubkey is stored on the row so it can never shadow another account's node.
 func (p *Postgres) SetOfferOverride(ov OfferOverride) error {

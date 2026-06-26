@@ -435,9 +435,10 @@ func main() {
 	if b.probe.enabled() {
 		go b.proberLoop()
 	}
-	go b.reattestSweep()      // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep()   // auto-expire recount holds past the review window (operator recourse)
-	go b.reversalRetrySweep() // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+	go b.reattestSweep()        // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.recountHoldSweep()     // auto-expire recount holds past the review window (operator recourse)
+	go b.reversalRetrySweep()   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+	go b.pruneStaleNodesSweep() // remove long-dead node registrations (old hostname ids that never re-register)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
 
