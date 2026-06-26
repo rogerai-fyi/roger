@@ -44,9 +44,10 @@
     </section>
 
     <!-- ============================================================
-         MONTHLY SPEND LIMIT: the account-wide guardrail. One ceiling on
-         what every sponsored grant key can cost together this calendar
-         month (per-key caps are the first guardrail; this is the second).
+         MONTHLY SPEND LIMIT: the account-wide guardrail. One ceiling on ALL
+         of the account's paid usage this calendar month - the owner's own
+         tune-ins to paid models AND any sponsored grant keys, together
+         (per-key token caps are the first guardrail; this is the second).
          The meter is month-to-date spend against the cap - its used
          portion is the one red glint. Set / update / clear it right here.
          GET/PATCH /account/limit (credentialed session).
@@ -55,9 +56,10 @@
       <h2>Monthly spend limit</h2>
       <p class="bx-limit__lede">
         <span class="bx-limit__tag">second guardrail</span>
-        One account-wide ceiling on what every sponsored grant key can cost you
-        together this calendar month. Per-key caps limit a single key; this bounds
-        them all. <a href="/keys.html">Manage keys</a>.
+        One account-wide ceiling on everything you pay for this calendar month -
+        your own tune-ins to paid models and any sponsored grant keys, together.
+        Per-key token caps limit a single key; this bounds your whole account.
+        <a href="/keys.html">Manage keys</a>.
       </p>
 
       <div id="limitBody" hidden>
@@ -77,12 +79,12 @@
         </div>
 
         <!-- no cap set: a quiet, honest line. The form below still lets you set one. -->
-        <p class="bx-limit__none" id="limitNone" hidden>No limit set - sponsored keys
-          bill to your wallet without a monthly ceiling.</p>
+        <p class="bx-limit__none" id="limitNone" hidden>No limit set - all paid usage
+          (your own and sponsored keys) bills to your wallet without a monthly ceiling.</p>
 
         <!-- the set / update / clear form. -->
         <div class="bx-limit__field">
-          <label class="bx-limit__k" for="limitInput">Set a monthly limit (USD)</label>
+          <label class="bx-limit__k" for="limitInput">Set a monthly spend limit (USD)</label>
           <div class="bx-limit__row">
             <span class="bx-limit__pre" aria-hidden="true">$</span>
             <input id="limitInput" class="bx-limit__in" type="number" min="0" step="1"
