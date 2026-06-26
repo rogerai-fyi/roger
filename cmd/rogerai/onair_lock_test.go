@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// useTempConfigDir points configPath() (and thus onAirLockPath()) at a throwaway
-// dir so the test never touches a real ~/.config/rogerai/share.lock.
+// useTempConfigDir points configPath() (and thus onAirLockPath) at a throwaway
+// dir so the test never touches a real ~/.config/rogerai/share-*.lock.
 func useTempConfigDir(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -26,16 +26,34 @@ func TestOnAirLock_BlocksAnotherLiveProcess(t *testing.T) {
 	}
 	held := onAirInfo{PID: other, Station: "other-daemon", Model: "qwen3", Started: 1}
 	b, _ := json.Marshal(held)
-	if err := os.MkdirAll(filepath.Dir(onAirLockPath()), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(onAirLockPath("brave-otter-qwen3")), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(onAirLockPath(), b, 0600); err != nil {
+	if err := os.WriteFile(onAirLockPath("brave-otter-qwen3"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := acquireOnAirLock("brave-otter", "qwen3"); err == nil {
+	if _, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3"); err == nil {
 		t.Fatal("expected acquire to be blocked by another live process's lock")
 	}
+}
+
+// TestOnAirLock_DistinctNodesDoNotCollide covers the per-node-id keying: a rig
+// running two different models (=> two node ids) must hold both locks at once.
+func TestOnAirLock_DistinctNodesDoNotCollide(t *testing.T) {
+	useTempConfigDir(t)
+
+	relA, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
+	if err != nil {
+		t.Fatalf("acquire model A failed: %v", err)
+	}
+	defer relA()
+
+	relB, err := acquireOnAirLock("brave-otter-gptoss", "brave-otter", "gpt-oss")
+	if err != nil {
+		t.Fatalf("acquire model B (distinct node id) was wrongly blocked: %v", err)
+	}
+	defer relB()
 }
 
 // TestOnAirLock_ReleaseFreesAndReacquires covers the lifecycle: acquire writes the
@@ -43,20 +61,20 @@ func TestOnAirLock_BlocksAnotherLiveProcess(t *testing.T) {
 func TestOnAirLock_ReleaseFreesAndReacquires(t *testing.T) {
 	useTempConfigDir(t)
 
-	release, err := acquireOnAirLock("brave-otter", "qwen3")
+	release, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
 	if err != nil {
 		t.Fatalf("first acquire failed: %v", err)
 	}
-	if _, err := os.Stat(onAirLockPath()); err != nil {
+	if _, err := os.Stat(onAirLockPath("brave-otter-qwen3")); err != nil {
 		t.Fatalf("lockfile not written: %v", err)
 	}
 
 	release()
-	if _, err := os.Stat(onAirLockPath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(onAirLockPath("brave-otter-qwen3")); !os.IsNotExist(err) {
 		t.Fatalf("release did not remove the lockfile (stat err=%v)", err)
 	}
 
-	release2, err := acquireOnAirLock("brave-otter", "qwen3")
+	release2, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
 	if err != nil {
 		t.Fatalf("acquire after release failed: %v", err)
 	}
@@ -71,20 +89,20 @@ func TestOnAirLock_ReclaimsStaleLock(t *testing.T) {
 	// Write a lock owned by a PID that is essentially certain to be dead.
 	stale := onAirInfo{PID: 2147483646, Station: "ghost-node", Model: "qwen3", Started: 1}
 	b, _ := json.Marshal(stale)
-	if err := os.MkdirAll(filepath.Dir(onAirLockPath()), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(onAirLockPath("brave-otter-qwen3")), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(onAirLockPath(), b, 0600); err != nil {
+	if err := os.WriteFile(onAirLockPath("brave-otter-qwen3"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	release, err := acquireOnAirLock("brave-otter", "qwen3")
+	release, err := acquireOnAirLock("brave-otter-qwen3", "brave-otter", "qwen3")
 	if err != nil {
 		t.Fatalf("expected stale lock to be reclaimed, got: %v", err)
 	}
 	defer release()
 
-	got, err := os.ReadFile(onAirLockPath())
+	got, err := os.ReadFile(onAirLockPath("brave-otter-qwen3"))
 	if err != nil {
 		t.Fatal(err)
 	}
