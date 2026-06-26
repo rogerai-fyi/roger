@@ -6642,7 +6642,7 @@ func (m model) helpView() string {
 const supportURL = "https://rogerai.fyi"
 
 // helpVersion is the client version shown in help; set by the host via SetVersion.
-var helpVersion = "v4.7.0"
+var helpVersion = "v4.8.0"
 
 // SetVersion lets the host (cmd/rogerai) inject the build version so the help /
 // about surfaces match `roger version`.
