@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -128,11 +129,12 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 // onboarded. It does NOT start serving - it sets the user up; `roger share`
 // (or `/share` in the TUI) goes on air.
 func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
-	found := detect.Detect()
+	found, needKey := detect.DetectFull()
 	if len(found) == 0 {
-		// GUIDED FALLBACK: walk the user through starting a tool or pasting an endpoint
-		// instead of dead-ending. Non-interactive / declined -> the plain hint.
-		if picked, ok := guidedUpstream(cfg.Broker); ok {
+		// GUIDED FALLBACK: walk the user through starting a tool, pasting an endpoint, or
+		// (when a key-protected server is detected) entering its API key, instead of
+		// dead-ending. Non-interactive / declined -> the plain hint.
+		if picked, ok := guidedUpstream(cfg.Broker, needKey); ok {
 			found = []detect.Found{picked}
 		} else {
 			fmt.Println("no local LLM detected (tried Ollama / LM Studio / llama.cpp / vLLM / Jan / LiteLLM and your open ports).")
@@ -151,7 +153,7 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		return cfg, false, err
 	}
 
-	sh := Share{Model: model, Port: port, Upstream: pick.BaseURL}
+	sh := Share{Model: model, Port: port, Upstream: pick.BaseURL, UpstreamKey: pick.Key}
 	if earn {
 		// Earn path: tell the user UP FRONT that earning needs a GitHub login and
 		// pre-disclose the payout terms (F3 / #2) - BEFORE collecting a price - so the
@@ -200,12 +202,45 @@ var startOneLiner = map[string]string{
 // guidedUpstream is the interactive guided fallback when detection finds nothing:
 // it asks what the user is running, prints that tool's start one-liner (so they
 // can launch it and we re-detect), or takes a pasted endpoint and verifies it
-// serves /v1/models. Returns (verified server, true) on success. A non-interactive
-// run returns ok=false so the caller prints the plain "start one / --upstream"
-// hint instead of hanging.
-func guidedUpstream(broker string) (detect.Found, bool) {
+// serves /v1/models. needKey carries base URLs of servers that ARE running but are
+// key-protected (a 401/403 the env keys didn't satisfy): for those we ask for an API
+// key first, since that is the most likely fix. Returns (verified server, true) on
+// success. A non-interactive run returns ok=false so the caller prints the plain
+// "start one / --upstream" hint instead of hanging.
+// promptUpstreamKey asks for an API key for each detected-but-key-protected base URL
+// (a 401/403 the env keys didn't satisfy) and returns the first that verifies with
+// the pasted key. Shared by the initial needKey pass and the post-rescan path. A
+// blank entry skips that endpoint; an input error or no match returns ok=false so the
+// caller falls through to the tool menu.
+func promptUpstreamKey(needKey []string) (detect.Found, bool) {
+	for _, base := range needKey {
+		key := ""
+		if err := huh.NewInput().
+			Title("Found a local server at " + base + " that needs an API key").
+			Description("Paste its API key (e.g. your vLLM --api-key / LiteLLM master key), or leave blank to skip.").
+			EchoMode(huh.EchoModePassword). // bearer credential: mask it (no terminal echo / scrollback leak)
+			Value(&key).Run(); err != nil {
+			return detect.Found{}, false
+		}
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if f, st := detect.ProbeKey(base, strings.TrimSpace(key)); st == detect.Reachable {
+			fmt.Printf("verified %s - serves %d model(s)\n", f.BaseURL, len(f.Models))
+			return f, true
+		}
+		fmt.Printf("that key did not unlock %s - check it and try again, or pick a tool below.\n", base)
+	}
+	return detect.Found{}, false
+}
+
+func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 	if !interactive() {
 		return detect.Found{}, false
+	}
+	// A detected-but-key-protected server is the clearest fix: ask for its key first.
+	if f, ok := promptUpstreamKey(needKey); ok {
+		return f, true
 	}
 	for {
 		choice := "other"
@@ -231,7 +266,19 @@ func guidedUpstream(broker string) (detect.Found, bool) {
 				Value(&url).Run(); err != nil {
 				return detect.Found{}, false
 			}
-			if f, ok := detect.Probe(url); ok {
+			f, st := detect.ProbeKey(url, "")
+			if st == detect.NeedsKey {
+				// The endpoint is there but key-protected: ask for the key and re-verify.
+				key := ""
+				if err := huh.NewInput().
+					Title("That endpoint needs an API key").
+					Description("Paste the API key it expects (sent as a Bearer to your local server).").
+					EchoMode(huh.EchoModePassword). // bearer credential: mask it (no terminal echo / scrollback leak)
+					Value(&key).Run(); err == nil && strings.TrimSpace(key) != "" {
+					f, st = detect.ProbeKey(url, strings.TrimSpace(key))
+				}
+			}
+			if st == detect.Reachable {
 				fmt.Printf("verified %s - serves %d model(s)\n", f.BaseURL, len(f.Models))
 				return f, true
 			}
@@ -247,9 +294,15 @@ func guidedUpstream(broker string) (detect.Found, bool) {
 			Value(&again).Run(); err != nil || !again {
 			return detect.Found{}, false
 		}
-		if found := detect.Detect(); len(found) > 0 {
+		found, needKey := detect.DetectFull()
+		if len(found) > 0 {
 			fmt.Printf("found %s at %s\n", found[0].Name, found[0].BaseURL)
 			return found[0], true
+		}
+		// The tool may have come up key-protected (e.g. vLLM --api-key): ask for the key
+		// rather than reporting "still nothing".
+		if f, ok := promptUpstreamKey(needKey); ok {
+			return f, true
 		}
 		fmt.Println("still nothing on the default ports / your open ports - give it a moment, or paste the URL.")
 	}
