@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -32,8 +33,10 @@ type ToolCall struct {
 // Completer turns the running conversation (+ the advertised tools) into the next
 // assistant message. The default is BrokerCompleter (relays through the broker so
 // the agent dogfoods the marketplace); tests inject a deterministic stub. tools is
-// the OpenAI `tools` array (see ToolSchemas).
-type Completer func(messages []Message, tools []map[string]any) (Message, error)
+// the OpenAI `tools` array (see ToolSchemas). ctx carries cancellation: when the user
+// aborts an in-flight turn, ctx is cancelled and the completer must return promptly
+// (BrokerCompleter passes it to the HTTP request so a hung station call is dropped).
+type Completer func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error)
 
 // Confirmer is asked to approve a side-effecting (mutating) tool call before it
 // runs - the y/N gate. It returns true to run, false to deny (the loop then feeds a
@@ -123,15 +126,29 @@ func (l *Loop) Tools() []Tool { return l.tools }
 // not tool-capable, or the relay strips tools), this is exactly the terminal case -
 // the assistant text is the final answer. So the loop is a strict superset of plain
 // chat and works on any model.
-func (l *Loop) Send(userText string, emit func(Event)) (string, error) {
+func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (string, error) {
 	if emit == nil {
 		emit = func(Event) {}
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})
 
 	for step := 0; step < l.MaxSteps; step++ {
-		msg, err := l.complete(l.messages, ToolSchemas(l.tools))
+		// Stop promptly if the turn was cancelled between steps (e.g. after a tool round)
+		// so an aborted turn never fires another billed model call.
+		if ctx.Err() != nil {
+			emit(Event{Kind: EventError, Text: "turn cancelled"})
+			return "", ctx.Err()
+		}
+		msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
 		if err != nil {
+			// A cancelled context surfaces as a clean "cancelled", not a scary network error.
+			if ctx.Err() != nil {
+				emit(Event{Kind: EventError, Text: "turn cancelled"})
+				return "", ctx.Err()
+			}
 			emit(Event{Kind: EventError, Text: err.Error()})
 			return "", err
 		}

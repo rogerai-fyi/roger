@@ -16,6 +16,7 @@ package tui
 // tool without an on-screen approval.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,6 +47,10 @@ type agentRuntime struct {
 	// the user's y/N answer back to the (blocked) loop goroutine.
 	confirmReq  chan agentConfirm
 	confirmResp chan bool
+	// cancel aborts the in-flight turn (esc): it cancels the context threaded into the
+	// harness loop's model call, so a hung/slow station call is dropped at once, no
+	// further steps fire (no more billing), and input is handed back. nil between turns.
+	cancel context.CancelFunc
 }
 
 // agentConfirm is one pending confirm for a side-effecting tool, surfaced as a y/N
@@ -243,14 +248,14 @@ func (m model) newAgentRuntime() *agentRuntime {
 	}
 	// The completer reads rt.model LIVE (not a captured value) so re-tuning a channel
 	// after the runtime is built takes effect on the next turn without a rebuild.
-	completer := func(messages []harness.Message, tools []map[string]any) (harness.Message, error) {
+	completer := func(ctx context.Context, messages []harness.Message, tools []map[string]any) (harness.Message, error) {
 		if rt.model == "" {
 			return harness.Message{}, fmt.Errorf("no station on air - no model is tuned in")
 		}
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
 		maxOut := m.limits.resolve(rt.model).MaxOut
-		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(messages, tools)
+		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(ctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
 		c := agentConfirm{tool: tool, args: args, resp: make(chan bool, 1)}
@@ -324,6 +329,17 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// result still lands in the transcript when we return).
 	switch k.String() {
 	case "esc":
+		// While a turn is in flight, esc CANCELS it (abort the model call, stop further
+		// steps + billing) and hands the prompt back - staying in the AGENT view so the
+		// user can immediately ask again. When idle, esc leaves to BROWSE. This is the fix
+		// for "the agent hung on a slow station and I couldn't get out or stop the spend".
+		if m.agentBusy {
+			if m.agent != nil && m.agent.cancel != nil {
+				m.agent.cancel()
+			}
+			m.status = stDim.Render("cancelling the turn… (esc again to leave AGENT)")
+			return m, nil
+		}
 		m.agentIn.Blur()
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
@@ -472,11 +488,17 @@ func (m model) openAgentModelPicker() (tea.Model, tea.Cmd) {
 // recurring waitAgentEvent drain does (keeping a single reader).
 func (m model) startAgentTurn(prompt string) tea.Cmd {
 	rt := m.agent
+	// A cancellable context per turn: esc (while busy) calls rt.cancel to abort the
+	// in-flight model call and stop any further steps. Stored on the runtime so the key
+	// handler can reach it.
+	ctx, cancel := context.WithCancel(context.Background())
+	rt.cancel = cancel
 	return func() tea.Msg {
 		go func() {
-			_, _ = rt.loop.Send(prompt, func(e harness.Event) {
+			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {
 				rt.events <- e
 			})
+			cancel() // release the context's resources on any exit path
 			close(rt.events)
 		}()
 		return nil
@@ -857,8 +879,15 @@ func (m model) agentView(w int) string {
 	// to width so a long placeholder / echoed line never overflows.
 	b.WriteString("\n" + truncVisible("  "+stPrompt.Render("ask › ")+m.agentIn.View(), w) + "\n")
 	if !m.compact {
+		// Busy-aware help: while a turn streams, the one thing the user needs is how to
+		// STOP it (esc), so lead with that instead of the idle command list.
 		help := "enter asks  ·  /model switches  ·  esc exits AGENT  ·  /clear  ·  /persona  ·  read/list auto · write/run confirm"
-		if m.narrow() {
+		switch {
+		case m.agentBusy && m.narrow():
+			help = "esc cancels turn · ⌃c quits"
+		case m.agentBusy:
+			help = "esc cancels the turn (stops the spend)  ·  ⌃c quits the app"
+		case m.narrow():
 			help = "enter ask · /model · esc exit · /clear"
 		}
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")

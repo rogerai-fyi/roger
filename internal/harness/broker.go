@@ -2,7 +2,9 @@ package harness
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,7 +50,7 @@ const agentMaxTokens = client.MaxAnswerTokens
 // exorbitant band (the harness relay previously sent no max-out at all).
 func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer {
 	httpClient := &http.Client{Timeout: brokerTimeout}
-	return func(messages []Message, tools []map[string]any) (Message, error) {
+	return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) {
 		reqBody, _ := json.Marshal(map[string]any{
 			"model":    model,
 			"messages": messages,
@@ -58,7 +60,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 			"tool_choice": "auto",
 			"max_tokens":  agentMaxTokens,
 		})
-		req, _ := http.NewRequest(http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, broker+"/v1/chat/completions", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 		// Sign with the local user key so the broker derives the spending wallet from the
 		// verified pubkey (the same P0-safe path the relay/Chat use). X-Roger-User is a
@@ -74,6 +76,10 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
 		resp, err := httpClient.Do(req)
 		if err != nil {
+			// User aborted the turn (esc): a clean cancellation, not a network failure.
+			if errors.Is(err, context.Canceled) {
+				return Message{}, fmt.Errorf("turn cancelled")
+			}
 			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
 				return Message{}, fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", brokerTimeout)
 			}

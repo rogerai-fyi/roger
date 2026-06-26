@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 // loop turn is fully deterministic (no network, no real model).
 func stubCompleter(replies ...Message) Completer {
 	i := 0
-	return func(_ []Message, _ []map[string]any) (Message, error) {
+	return func(_ context.Context, _ []Message, _ []map[string]any) (Message, error) {
 		if i >= len(replies) {
 			// After the script ends, return a bare final answer so the loop terminates.
 			return Message{Role: "assistant", Content: "done"}, nil
@@ -49,7 +50,7 @@ func TestLoopExecutesToolAndFeedsResultBack(t *testing.T) {
 	// result fed back (the round-trip we are asserting).
 	var sawToolResult bool
 	calls := 0
-	complete := func(msgs []Message, _ []map[string]any) (Message, error) {
+	complete := func(_ context.Context, msgs []Message, _ []map[string]any) (Message, error) {
 		calls++
 		if calls == 1 {
 			return toolCall("c1", "read_file", `{"path":"hello.txt"}`), nil
@@ -64,7 +65,7 @@ func TestLoopExecutesToolAndFeedsResultBack(t *testing.T) {
 	l := NewLoop(root, "sys", complete, func(string, map[string]any) bool { return true })
 
 	var kinds []EventKind
-	final, err := l.Send("what does hello.txt say?", func(e Event) { kinds = append(kinds, e.Kind) })
+	final, err := l.Send(context.Background(), "what does hello.txt say?", func(e Event) { kinds = append(kinds, e.Kind) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestMutatingToolRequiresConfirm_DeniedNotRun(t *testing.T) {
 	l := NewLoop(root, "sys", complete, deny)
 
 	var denied bool
-	_, err := l.Send("write out.txt", func(e Event) {
+	_, err := l.Send(context.Background(), "write out.txt", func(e Event) {
 		if e.Kind == EventToolResult && e.Denied {
 			denied = true
 		}
@@ -133,7 +134,7 @@ func TestMutatingToolApprovedRuns(t *testing.T) {
 		Message{Role: "assistant", Content: "wrote it"},
 	)
 	l := NewLoop(root, "sys", complete, func(string, map[string]any) bool { return true })
-	if _, err := l.Send("write out.txt", nil); err != nil {
+	if _, err := l.Send(context.Background(), "write out.txt", nil); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(target)
@@ -150,12 +151,45 @@ func TestMutatingToolApprovedRuns(t *testing.T) {
 // answer - the loop is a strict superset of plain chat.
 func TestDegradesToPlainChat(t *testing.T) {
 	l := NewLoop(t.TempDir(), "sys", stubCompleter(Message{Role: "assistant", Content: "just talking"}), nil)
-	final, err := l.Send("hi", nil)
+	final, err := l.Send(context.Background(), "hi", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if final != "just talking" {
 		t.Errorf("plain-chat fallthrough = %q, want %q", final, "just talking")
+	}
+}
+
+// TestSendCancelStopsTurn: a cancelled context aborts the turn promptly - the model
+// call sees the cancellation, no further steps fire, and Send returns the ctx error.
+// This is the esc-to-cancel path (a hung station no longer traps the user / keeps
+// spending).
+func TestSendCancelStopsTurn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	// The completer cancels mid-call on the first step and reports the ctx error, exactly
+	// as BrokerCompleter would when the HTTP request is cancelled by esc.
+	complete := func(c context.Context, _ []Message, _ []map[string]any) (Message, error) {
+		calls++
+		cancel()
+		return Message{}, c.Err()
+	}
+	l := NewLoop(t.TempDir(), "sys", complete, nil)
+
+	var gotCancelEvent bool
+	_, err := l.Send(ctx, "do a long thing", func(e Event) {
+		if e.Kind == EventError && strings.Contains(e.Text, "cancelled") {
+			gotCancelEvent = true
+		}
+	})
+	if err == nil {
+		t.Fatal("cancelled turn should return an error")
+	}
+	if calls != 1 {
+		t.Fatalf("cancelled turn made %d model calls, want 1 (no further steps after cancel)", calls)
+	}
+	if !gotCancelEvent {
+		t.Fatal("a cancelled turn should emit a clean 'cancelled' error event")
 	}
 }
 
@@ -272,7 +306,7 @@ func TestBrokerCompleterRequestsHigherMaxTokens(t *testing.T) {
 	defer srv.Close()
 
 	complete := BrokerCompleter(srv.URL, "tester", "gpt-oss-20b", false, 0, nil)
-	if _, err := complete([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+	if _, err := complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
 		t.Fatalf("completer error: %v", err)
 	}
 	if !seen {
@@ -301,13 +335,13 @@ func TestBrokerCompleterCarriesMaxOut(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 0, nil)([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 0, nil)(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
 		t.Fatalf("completer error: %v", err)
 	}
 	if gotCap != "10" {
 		t.Fatalf("agent relay cap header = %q, want the $10 default (harness overpay path was open)", gotCap)
 	}
-	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 25, nil)([]Message{{Role: "user", Content: "hi"}}, nil); err != nil {
+	if _, err := BrokerCompleter(srv.URL, "tester", "m", false, 25, nil)(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil); err != nil {
 		t.Fatalf("completer error: %v", err)
 	}
 	if gotCap != "25" {
