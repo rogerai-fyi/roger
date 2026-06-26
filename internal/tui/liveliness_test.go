@@ -124,8 +124,8 @@ func TestPresetBarRenders(t *testing.T) {
 func TestPresetKeysSwitchMode(t *testing.T) {
 	// Deterministic detection so [2] SHARE opens the provider table, not a network scan.
 	old := detectShares
-	detectShares = func(extra ...string) []detect.Found {
-		return []detect.Found{{Name: "t", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}
+	detectShares = func(extra ...string) ([]detect.Found, []string) {
+		return []detect.Found{{Name: "t", Chat: "http://x/v1/chat/completions", Models: []string{"gpt-oss-20b"}}}, nil
 	}
 	defer func() { detectShares = old }()
 
