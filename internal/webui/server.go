@@ -1,0 +1,152 @@
+// Package webui serves the browser-based node console: a localhost web app that is a
+// live twin of the terminal TUI. It drives the SAME *node.Controller the TUI holds, so a
+// model toggled on air in the browser flips the TUI row and vice-versa.
+//
+// It binds 127.0.0.1 ONLY and gates every /api request on a per-run random token (handed
+// to the browser in the opened URL's ?t=). Localhost + token is the Jupyter model: it
+// keeps other local processes (and cross-site requests) out of a console that can put a
+// GPU on air, spend/earn money, and holds the operator's upstream key.
+package webui
+
+import (
+	"crypto/rand"
+	"crypto/subtle"
+	"embed"
+	"encoding/hex"
+	"io/fs"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/rogerai-fyi/roger/internal/node"
+)
+
+//go:embed assets/*
+var assetsFS embed.FS
+
+// Server is the node console HTTP server. It is safe for concurrent requests: all live
+// state lives behind the controller's mutex.
+type Server struct {
+	ctrl  *node.Controller
+	token string
+	mux   *http.ServeMux
+}
+
+// New builds a console server over ctrl with a freshly-minted access token. Call
+// Handler() for the wrapped http.Handler, or Serve(ln) to run it.
+func New(ctrl *node.Controller) *Server {
+	s := &Server{ctrl: ctrl, token: newToken()}
+	s.mux = http.NewServeMux()
+	s.routes()
+	return s
+}
+
+// Token is the per-run access token required on every /api request (embedded in the URL
+// the operator opens).
+func (s *Server) Token() string { return s.token }
+
+// routes wires the static shell + the read API. Write actions and account/browse are
+// layered on in later commits.
+func (s *Server) routes() {
+	sub, _ := fs.Sub(assetsFS, "assets")
+	files := http.FileServer(http.FS(sub))
+	// The shell at / and its assets are static and carry no node data, so they load
+	// without a token; everything under /api does require it (see auth()).
+	s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			r.URL.Path = "/console.html"
+		}
+		files.ServeHTTP(w, r)
+	})
+	s.mux.Handle("/assets/", http.StripPrefix("/assets/", files))
+	s.mux.HandleFunc("/api/state", s.auth(s.handleState))
+	s.mux.HandleFunc("/api/events", s.auth(s.handleEvents))
+}
+
+// Handler returns the fully-wrapped handler (localhost guard in front of the mux).
+func (s *Server) Handler() http.Handler { return s.localhostOnly(s.mux) }
+
+// Serve runs the console on ln until the listener closes.
+func (s *Server) Serve(ln net.Listener) error {
+	return (&http.Server{Handler: s.Handler()}).Serve(ln)
+}
+
+// auth wraps an /api handler with the constant-time token check. The token may arrive as
+// ?t= (the opened URL) or an X-Roger-Token header (the page's fetch/EventSource calls).
+func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := r.URL.Query().Get("t")
+		if got == "" {
+			got = r.Header.Get("X-Roger-Token")
+		}
+		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// localhostOnly rejects any request whose peer is not a loopback address — defense in
+// depth on top of the 127.0.0.1 bind (e.g. a misconfigured reverse proxy).
+func (s *Server) localhostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			http.Error(w, "console is localhost-only", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Listen binds a free localhost port at/after addr and returns the listener plus the URL
+// (with the access token) to open. addr like "127.0.0.1:4180"; if that port is taken it
+// scans upward, mirroring the TUI's listenFreePort so a busy port never dead-ends.
+func (s *Server) Listen(addr string) (net.Listener, string, error) {
+	ln, err := listenFreePort(addr)
+	if err != nil {
+		return nil, "", err
+	}
+	return ln, "http://" + ln.Addr().String() + "/?t=" + s.token, nil
+}
+
+// listenFreePort binds addr, or — if its port is taken — scans upward to the first free
+// port on the same host (bounded). Mirrors internal/tui.listenFreePort.
+func listenFreePort(addr string) (net.Listener, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		host, port = "127.0.0.1", "0"
+	}
+	if port == "0" {
+		return net.Listen("tcp", net.JoinHostPort(host, "0"))
+	}
+	start, _ := strconv.Atoi(port)
+	var lastErr error
+	for p := start; p < start+64; p++ {
+		ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
+		if err == nil {
+			return ln, nil
+		}
+		lastErr = err
+	}
+	// Last resort: let the OS pick any free port rather than dead-end.
+	if ln, err := net.Listen("tcp", net.JoinHostPort(host, "0")); err == nil {
+		return ln, nil
+	}
+	return nil, lastErr
+}
+
+func newToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// rand.Read failing is catastrophic; fall back to a fixed-length zero token rather
+		// than panic — the localhost bind still gates access.
+		return strings.Repeat("0", 32)
+	}
+	return hex.EncodeToString(b)
+}
