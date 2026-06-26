@@ -787,7 +787,7 @@ func TestSaveUpstreamHook(t *testing.T) {
 	// A newly detected key-protected server -> persisted once.
 	keyed := detect.Found{
 		Name: "vllm", BaseURL: "http://127.0.0.1:8000/v1",
-		Chat: "http://127.0.0.1:8000/v1/chat/completions",
+		Chat:   "http://127.0.0.1:8000/v1/chat/completions",
 		Models: []string{"qwen3"}, Key: "sk-secret",
 	}
 	m.loadShareRows([]detect.Found{keyed})
