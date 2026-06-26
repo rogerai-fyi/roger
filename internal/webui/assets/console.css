@@ -92,7 +92,9 @@ h1, h2, h3, p { margin: 0; }
 button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
 code { font-family: var(--font-mono); }
 [hidden] { display: none !important; }
-::selection { background: var(--live); color: var(--paper); }
+/* Red WASH (not a solid red surface) + ink text, so selection stays readable in BOTH
+   themes — a solid --live with --paper text goes near-black-on-red in dark mode. */
+::selection { background: var(--live-tint); color: var(--ink-900); }
 
 noscript {
   display: block;

@@ -171,17 +171,24 @@ func (c *Controller) SetPrices(p map[string]Pricing) {
 	}
 }
 
-// LoadRows replaces the detected-model catalog from a detection scan. It also adopts
-// the headline upstream + key from the first server and persists a newly-verified
-// endpoint (mirrors the CLI's save in `roger share`), only on a real change so a
-// re-scan of the already-saved endpoint never rewrites config.
-func (c *Controller) LoadRows(found []detect.Found) {
+// LoadRows replaces the detected-model catalog from a detection scan. It adopts the
+// headline upstream + key from the first server and PERSISTS a newly-verified endpoint
+// (mirrors the CLI's save in `roger share`), only on a real change so a re-scan of the
+// already-saved endpoint never rewrites config. Use for an EXPLICIT user re-detect.
+func (c *Controller) LoadRows(found []detect.Found) { c.loadRows(found, true) }
+
+// LoadRowsNoPersist is LoadRows that NEVER writes the upstream to disk. Used for the
+// passive initial detection on web-console launch, so merely opening the console can't
+// silently rewrite share config — persistence is reserved for an explicit re-detect.
+func (c *Controller) LoadRowsNoPersist(found []detect.Found) { c.loadRows(found, false) }
+
+func (c *Controller) loadRows(found []detect.Found, persist bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(found) > 0 {
 		c.upstream = NormalizeUpstream(found[0].Chat)
 		c.upstreamKey = found[0].Key
-		if c.hooks.SaveUpstream != nil && found[0].BaseURL != "" &&
+		if persist && c.hooks.SaveUpstream != nil && found[0].BaseURL != "" &&
 			(found[0].BaseURL != c.savedUp || found[0].Key != c.savedKey) {
 			c.savedUp, c.savedKey = found[0].BaseURL, found[0].Key
 			c.hooks.SaveUpstream(found[0].BaseURL, found[0].Key)

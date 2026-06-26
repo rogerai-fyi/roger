@@ -178,6 +178,29 @@ func TestLoadRowsFlattensAndPersistsUpstream(t *testing.T) {
 	}
 }
 
+// TestLoadRowsNoPersistDoesNotWrite: the passive launch scan populates rows but must NOT
+// rewrite saved config; an explicit LoadRows still persists a newly-verified endpoint.
+func TestLoadRowsNoPersistDoesNotWrite(t *testing.T) {
+	saved := 0
+	c := New(Config{Station: "amber-fox", Hooks: Hooks{SaveUpstream: func(u, k string) { saved++ }}})
+	found := []detect.Found{{
+		BaseURL: "http://127.0.0.1:9001/v1", Chat: "http://127.0.0.1:9001/v1/chat/completions",
+		Models: []string{"m"},
+	}}
+	c.LoadRowsNoPersist(found)
+	if saved != 0 {
+		t.Fatalf("LoadRowsNoPersist must not persist; SaveUpstream called %d times", saved)
+	}
+	if len(c.Rows()) != 1 {
+		t.Fatalf("LoadRowsNoPersist should still populate rows; got %d", len(c.Rows()))
+	}
+	// An explicit re-detect DOES persist the (still-unsaved) endpoint, exactly once.
+	c.LoadRows(found)
+	if saved != 1 {
+		t.Fatalf("LoadRows should persist a new endpoint once; got %d", saved)
+	}
+}
+
 // TestDetectFallsBackToSavedUpstream: with no pasted URL, Detect probes the saved/verified
 // upstream first — so a custom/non-default endpoint (the one the CLI seeds) is found instead
 // of the SHARE tab staying empty after a bare port scan.
