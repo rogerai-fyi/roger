@@ -56,7 +56,7 @@ func TestShareSlotHeaderAndBlock(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	srv := fakeBroker(t)
 	mm := NewWithHooks(srv.URL, "tester", nil, Hooks{ShareMaxOnAir: 2})
-	mm.shareRows = freeRows(3) // m1,m2,m3 on distinct upstreams
+	mm.setShareRows(freeRows(3)) // m1,m2,m3 on distinct upstreams
 
 	// Fill the 2 slots: m1 and m2 on air.
 	mm.toggleShareAt(0)
@@ -111,7 +111,7 @@ func TestShareSlotHeaderAndBlock(t *testing.T) {
 func TestShareSlotHeaderNarrowSafe(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	mm := NewWithHooks("http://broker.local", "tester", nil, Hooks{ShareMaxOnAir: 4})
-	mm.shareRows = freeRows(2)
+	mm.setShareRows(freeRows(2))
 	for _, w := range []int{40, 60, 88, 120} {
 		v := mm.shareView(w)
 		if strings.Contains(v, "\x1b[") {

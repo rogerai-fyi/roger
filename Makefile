@@ -1,12 +1,26 @@
-.PHONY: build demo clean kill test check site site-serve smoke smoke-live
+.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
+# VERSION stamps the client semver into the binary (main.Version) at link time.
+# Default: the source fallback in cmd/rogerai/main.go. Override for a release/beta:
+#   make build VERSION=4.8.0
+#   make beta  VERSION=4.8.0-beta.1
+VERSION ?=
+VERSION_LDFLAGS := $(if $(VERSION),-X main.Version=$(VERSION),)
+
 build:
 	go build -o bin/rogerai-broker    ./cmd/rogerai-broker
-	go build -o bin/roger             ./cmd/rogerai
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roger ./cmd/rogerai
 	ln -sf roger bin/rogerai          # back-compat alias: the command is `roger`, `rogerai` still works
 	go build -o bin/tokenizer-sidecar ./cmd/tokenizer-sidecar
+
+# beta: a single stamped, trimmed binary for the host platform, named by its semver
+# (e.g. bin/roger-4.8.0-beta.1). Requires VERSION, which must be a semver.
+beta:
+	@test -n "$(VERSION)" || { echo "usage: make beta VERSION=4.8.0-beta.1"; exit 1; }
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.Version=$(VERSION)" -o bin/roger-$(VERSION) ./cmd/rogerai
+	@echo "built bin/roger-$(VERSION)"
 
 # Build the marketing + account site: resolve the shared chrome partials
 # (web/src/_partials/{head,brand,nav,footer}.html) into every page and copy

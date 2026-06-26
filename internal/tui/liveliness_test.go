@@ -85,10 +85,10 @@ func TestToggleShareUsesRowUpstream(t *testing.T) {
 
 	mm := New(broker.URL, "tester")
 	mm.shareUp = "http://127.0.0.1:8060/v1/chat/completions" // headline default
-	mm.shareRows = []shareRow{
+	mm.setShareRows([]shareRow{
 		{model: "gpt-oss-20b", ctx: 32768, upstream: "http://127.0.0.1:8060/v1/chat/completions"},
 		{model: "qwen3-vl-8b", ctx: 32768, upstream: "http://127.0.0.1:8081/v1/chat/completions"},
-	}
+	})
 	mm.shareCursor = 1 // the qwen3-vl-8b row, served by :8081 (NOT shareUp)
 	mm.toggleShareAt(1)
 	sess := mm.shares["qwen3-vl-8b"]

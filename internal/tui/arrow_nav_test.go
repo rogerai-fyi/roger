@@ -103,7 +103,7 @@ func TestArrowCycleWraps(t *testing.T) {
 func TestArrowDoesNotCycleInScheduleEditor(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
-	mm.shareRows = []shareRow{{model: "gpt-oss-20b"}}
+	mm.setShareRows([]shareRow{{model: "gpt-oss-20b"}})
 	mm.shareCursor = 0
 	mm.mode = modeShare
 	var m tea.Model = mm

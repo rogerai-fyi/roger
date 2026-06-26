@@ -409,7 +409,8 @@ func TestOnAirQuitGuard(t *testing.T) {
 		t.Fatalf("agent.Start: %v", err)
 	}
 	defer sess.Stop()
-	mm.shares = map[string]*agent.Session{"m": sess}
+	mm.ctrl.Adopt("m", sess)
+	mm.syncShareCache()
 	mm.refreshShareHeadline()
 	if mm.onAirCount() != 1 {
 		t.Fatalf("onAirCount = %d, want 1", mm.onAirCount())
