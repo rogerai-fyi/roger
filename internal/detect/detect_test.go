@@ -189,6 +189,92 @@ func TestProbeVerifiesEndpoint(t *testing.T) {
 	}
 }
 
+// keyedServer mimics an OpenAI-compatible server that requires a Bearer key: it
+// 401s GET /v1/models without the right Authorization header and serves the models
+// with it.
+func keyedServer(wantKey string, models ...string) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+wantKey {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var data []map[string]string
+		for _, m := range models {
+			data = append(data, map[string]string{"id": m})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	})
+	return httptest.NewServer(mux)
+}
+
+// TestDetectKeyedUpstreamFromEnv: a key-protected local server is detected when its
+// key is in the environment (the zero-config harvest) and the working key is carried
+// on the Found so the on-air agent can reuse it.
+func TestDetectKeyedUpstreamFromEnv(t *testing.T) {
+	defer quietSources(t)()
+	srv := keyedServer("sk-secret", "keyed-model")
+	defer srv.Close()
+	t.Setenv("OPENAI_API_KEY", "sk-secret")
+
+	old := probes
+	probes = []struct{ name, base string }{{"test", srv.URL + "/v1"}}
+	defer func() { probes = old }()
+
+	found := Detect()
+	if len(found) != 1 {
+		t.Fatalf("keyed upstream with env key should be detected, got %+v", found)
+	}
+	if len(found[0].Models) != 1 || found[0].Models[0] != "keyed-model" {
+		t.Errorf("models = %v", found[0].Models)
+	}
+	if found[0].Key != "sk-secret" {
+		t.Errorf("Found.Key = %q, want the working key so the agent can reuse it", found[0].Key)
+	}
+}
+
+// TestDetectFullSurfacesNeedsKey: a key-protected server with NO usable key is not
+// returned as usable, but its base URL surfaces in needKey so the caller can prompt.
+func TestDetectFullSurfacesNeedsKey(t *testing.T) {
+	defer quietSources(t)()
+	srv := keyedServer("sk-secret", "keyed-model")
+	defer srv.Close()
+	// No OPENAI_API_KEY in the environment for this test.
+	t.Setenv("OPENAI_API_KEY", "")
+
+	old := probes
+	probes = []struct{ name, base string }{{"test", srv.URL + "/v1"}}
+	defer func() { probes = old }()
+
+	found, needKey := DetectFull()
+	if len(found) != 0 {
+		t.Fatalf("a server we can't authenticate to is not usable, got %+v", found)
+	}
+	if len(needKey) != 1 || needKey[0] != srv.URL+"/v1" {
+		t.Fatalf("needKey should surface the key-protected base, got %v", needKey)
+	}
+}
+
+// TestProbeKeyTriState: ProbeKey distinguishes reachable, needs-key, and unreachable.
+func TestProbeKeyTriState(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	srv := keyedServer("sk-secret", "pasted-keyed")
+	defer srv.Close()
+
+	// Right key -> reachable, models served, key carried.
+	if f, st := ProbeKey(srv.URL, "sk-secret"); st != Reachable || len(f.Models) != 1 || f.Key != "sk-secret" {
+		t.Errorf("ProbeKey(correct) = %v, %+v", st, f)
+	}
+	// No key -> needs key (server is present).
+	if _, st := ProbeKey(srv.URL, ""); st != NeedsKey {
+		t.Errorf("ProbeKey(no key) status = %v, want NeedsKey", st)
+	}
+	// Dead endpoint -> unreachable.
+	if _, st := ProbeKey("http://127.0.0.1:1", "anything"); st != Unreachable {
+		t.Errorf("ProbeKey(dead) status = %v, want Unreachable", st)
+	}
+}
+
 // TestToV1Base normalizes the inputs detection + the wizard accept.
 func TestToV1Base(t *testing.T) {
 	cases := map[string]string{
