@@ -23,6 +23,7 @@ package detect
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -38,7 +39,19 @@ type Found struct {
 	Chat    string         // .../v1/chat/completions
 	Models  []string       // served model ids from GET /v1/models (+ native discovery)
 	Ctx     map[string]int // per-model context length when the server reports it
+	Key     string         // bearer key the upstream required (discovered from env), if any
 }
+
+// Status is the tri-state result of probing a single endpoint: a 401/403 means an
+// OpenAI-compatible server IS there but needs a key we couldn't supply - distinct
+// from "nothing listening" - so the caller can ask for a key instead of giving up.
+type Status int
+
+const (
+	Unreachable Status = iota // no OpenAI-compatible server answered
+	Reachable                 // serves /v1/models (the Found is populated)
+	NeedsKey                  // server present but 401/403 and no known key worked
+)
 
 // Common local OpenAI-compatible servers, by default port. Any server exposing
 // GET /v1/models works; this just enables zero-config detection. Users can always
@@ -61,14 +74,46 @@ var probes = []struct{ name, base string }{
 // the first paint of /share), so we give each probe a tight budget.
 var httpClient = &http.Client{Timeout: 1500 * time.Millisecond}
 
+// authGet / authPost are the ONE place a probe request is built, so a discovered
+// upstream key is attached uniformly as a Bearer (a key-protected local server -
+// vLLM --api-key, a LiteLLM master key, llama.cpp --api-key, LM Studio's API-key
+// toggle - returns 401 to an unauthenticated GET /v1/models and would otherwise be
+// invisible). An empty key sends no header (the no-auth common case).
+func authGet(url, key string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	return httpClient.Do(req)
+}
+
+func authPost(url, key, contentType string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	return httpClient.Do(req)
+}
+
 // maxEnumPorts caps how many real listening ports the cross-platform enumerator
 // returns, so a host with hundreds of open ports can't blow up the probe fan-out.
 // The documented defaults + env vars already cover the common servers; this is the
 // "found it on a custom port" tail, which is small in practice.
 const maxEnumPorts = 64
 
-// candidate is a base URL to probe, with a friendly label for the source.
-type candidate struct{ name, base string }
+// candidate is a base URL to probe, with a friendly label for the source and an
+// optional sibling API key (e.g. OPENAI_API_KEY paired with OPENAI_BASE_URL) tried
+// first when the endpoint answers 401/403.
+type candidate struct{ name, base, key string }
 
 // enumPorts / envCands are indirections over the real listening-port enumerator
 // and the env-var source, so tests can make detection deterministic (the host's
@@ -77,45 +122,83 @@ type candidate struct{ name, base string }
 var (
 	enumPorts = listeningPorts
 	envCands  = envCandidates
+	envKeysFn = envKeys
 )
 
 // Detect gathers candidate endpoints from every source (defaults, env, Ollama
 // native, real listening ports), probes each for GET /v1/models, and returns the
 // reachable OpenAI-compatible servers, de-duplicated by base URL.
 func Detect() []Found {
-	return detectWith(nil)
+	found, _ := detectWith(nil)
+	return found
 }
 
 // DetectWith is Detect plus explicit extra base URLs to probe first (the (e)
 // source: --upstream / a saved config endpoint). Each is normalized to a /v1
 // base. The explicit endpoints win on de-dup so their friendly name is kept.
 func DetectWith(extra ...string) []Found {
+	found, _ := detectWith(priorityCands(extra))
+	return found
+}
+
+// DetectFull is DetectWith that ALSO returns the base URLs of servers that are
+// present but answered 401/403 with no usable key (the needKey list), so the
+// caller can prompt for an API key instead of reporting "nothing detected".
+func DetectFull(extra ...string) (found []Found, needKey []string) {
+	return detectWith(priorityCands(extra))
+}
+
+// priorityCands normalizes explicit --upstream/config URLs into priority candidates
+// probed before the defaults (so an explicit endpoint wins de-dup and keeps its
+// "configured" name).
+func priorityCands(extra []string) []candidate {
 	cands := make([]candidate, 0, len(extra))
 	for _, u := range extra {
 		if b := toV1Base(u); b != "" {
 			cands = append(cands, candidate{name: "configured", base: b})
 		}
 	}
-	return detectWith(cands)
+	return cands
 }
 
 // Probe verifies that a single user-supplied endpoint serves /v1/models, and
 // returns it as a Found (the guided-fallback "paste a URL" path). ok is false
 // when the URL is unreachable or not OpenAI-compatible.
 func Probe(rawURL string) (Found, bool) {
-	base := toV1Base(rawURL)
-	if base == "" {
-		return Found{}, false
-	}
-	models, ctx, ok := probeModels(base)
-	if !ok {
-		return Found{}, false
-	}
-	return Found{Name: "configured", BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx}, true
+	f, st := ProbeKey(rawURL, "")
+	return f, st == Reachable
 }
 
-// detectWith runs the full pipeline with optional priority candidates first.
-func detectWith(priority []candidate) []Found {
+// ProbeKey is Probe with an explicit key tried first (the user pasted one), falling
+// back to keys the environment exports. It returns the tri-state Status so the
+// guided fallback can tell "needs a key" (prompt for one) apart from "unreachable".
+func ProbeKey(rawURL, key string) (Found, Status) {
+	base := toV1Base(rawURL)
+	if base == "" {
+		return Found{}, Unreachable
+	}
+	keys := envKeysFn()
+	if key != "" {
+		keys = append([]string{key}, keys...)
+	}
+	models, ctx, usedKey, res := probeModels(base, keys)
+	switch res {
+	case probeOK:
+		f := Found{Name: "configured", BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx, Key: usedKey}
+		mergeOllamaNative(&f, base)
+		enrichCtx(&f, base)
+		return f, Reachable
+	case probeAuth:
+		return Found{BaseURL: base}, NeedsKey
+	default:
+		return Found{}, Unreachable
+	}
+}
+
+// detectWith runs the full pipeline with optional priority candidates first. It
+// returns the reachable servers plus the base URLs of any that need a key we don't
+// have (so the caller can ask for one).
+func detectWith(priority []candidate) (found []Found, needKey []string) {
 	cands := priority
 	// (a) documented default endpoints.
 	for _, p := range probes {
@@ -130,44 +213,97 @@ func detectWith(priority []candidate) []Found {
 		cands = append(cands, candidate{name: "port:" + strconv.Itoa(port), base: "http://127.0.0.1:" + strconv.Itoa(port) + "/v1"})
 	}
 
+	// Keys the user's tooling exports, tried (as Bearer) against any candidate that
+	// answers 401/403 - so a key-protected local server whose key is already in the
+	// environment is detected with zero extra config.
+	keys := envKeysFn()
 	seen := map[string]bool{}
-	var out []Found
+	needSeen := map[string]bool{}
 	for _, c := range cands {
 		base := strings.TrimRight(c.base, "/")
 		if base == "" || seen[base] {
 			continue
 		}
 		seen[base] = true
-		models, ctx, ok := probeModels(base)
-		if !ok {
-			continue
+		// Try this candidate's own paired key first (e.g. OPENAI_API_KEY for an
+		// OPENAI_BASE_URL endpoint), then the rest of the env keys.
+		tryKeys := keys
+		if c.key != "" {
+			tryKeys = append([]string{c.key}, keys...)
 		}
-		f := Found{Name: c.name, BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx}
-		// (c) native fleet discovery: an Ollama base also exposes /api/tags and
-		// /api/ps, which list models installed-but-swapped-out (a fresh /v1/models
-		// only shows what is loaded). Union those in so the whole fleet is offerable.
-		mergeOllamaNative(&f, base)
-		// Real per-model CONTEXT detection beyond /v1/models. Ollama reports its true
-		// trained window on /api/show + the loaded num_ctx on /api/ps; llama.cpp reports
-		// the real loaded n_ctx on /props; LM Studio reports loaded/max ctx on
-		// /api/v0/models. These are more accurate than the optional /v1/models keys (and
-		// Ollama omits ctx from /v1/models entirely), so a node advertises the REAL
-		// served window instead of falling back to the 32768 last-resort default.
-		enrichCtx(&f, base)
-		out = append(out, f)
+		models, ctx, usedKey, res := probeModels(base, tryKeys)
+		switch res {
+		case probeOK:
+			f := Found{Name: c.name, BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx, Key: usedKey}
+			// (c) native fleet discovery: an Ollama base also exposes /api/tags and
+			// /api/ps, which list models installed-but-swapped-out (a fresh /v1/models
+			// only shows what is loaded). Union those in so the whole fleet is offerable.
+			mergeOllamaNative(&f, base)
+			// Real per-model CONTEXT detection beyond /v1/models. Ollama reports its true
+			// trained window on /api/show + the loaded num_ctx on /api/ps; llama.cpp reports
+			// the real loaded n_ctx on /props; LM Studio reports loaded/max ctx on
+			// /api/v0/models. These are more accurate than the optional /v1/models keys (and
+			// Ollama omits ctx from /v1/models entirely), so a node advertises the REAL
+			// served window instead of falling back to the 32768 last-resort default.
+			enrichCtx(&f, base)
+			found = append(found, f)
+		case probeAuth:
+			// Present but key-protected and no env key fit: surface it so the caller can
+			// ask the user to paste a key rather than report "nothing detected".
+			if !needSeen[base] {
+				needSeen[base] = true
+				needKey = append(needKey, base)
+			}
+		}
 	}
-	return out
+	return found, needKey
 }
 
-// probeModels does GET base/models and parses the served model ids + per-model
-// context length (the keys vary by server). ok is false on any non-200 / error.
-func probeModels(base string) (models []string, ctx map[string]int, ok bool) {
-	resp, err := httpClient.Get(base + "/models")
-	if err != nil || resp.StatusCode != 200 {
-		if resp != nil {
-			resp.Body.Close()
+// probeResult is probeModels' tri-state: a usable server, a key-protected one, or
+// nothing OpenAI-compatible.
+type probeResult int
+
+const (
+	probeMiss probeResult = iota // unreachable / not OpenAI-compatible
+	probeOK                      // 200: models parsed (usedKey is the key that worked, "" if none needed)
+	probeAuth                    // 401/403: server present but no supplied key worked
+)
+
+// probeModels does GET base/models, first with no auth, and - only when the server
+// answers 401/403 - retries with each candidate key until one returns 200. It
+// returns the parsed model ids, per-model context length, the key that worked (""
+// when none was needed), and the tri-state result.
+func probeModels(base string, keys []string) (models []string, ctx map[string]int, usedKey string, res probeResult) {
+	models, ctx, code := getModels(base, "")
+	switch {
+	case code == 200:
+		return models, ctx, "", probeOK
+	case code == 401 || code == 403:
+		for _, k := range keys {
+			if k == "" {
+				continue
+			}
+			if m, c, code2 := getModels(base, k); code2 == 200 {
+				return m, c, k, probeOK
+			}
 		}
-		return nil, nil, false
+		return nil, nil, "", probeAuth
+	default:
+		return nil, nil, "", probeMiss
+	}
+}
+
+// getModels performs one GET base/models with the optional key and parses the model
+// ids + per-model context length. status is the HTTP status code, or 0 on a
+// transport error (treated as unreachable by the caller).
+func getModels(base, key string) (models []string, ctx map[string]int, status int) {
+	resp, err := authGet(base+"/models", key)
+	if err != nil {
+		return nil, nil, 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, nil, resp.StatusCode
 	}
 	// Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
 	// per-model context length on /v1/models under one of these common keys.
@@ -182,7 +318,6 @@ func probeModels(base string) (models []string, ctx map[string]int, ok bool) {
 		} `json:"data"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&d)
-	resp.Body.Close()
 	ctx = map[string]int{}
 	for _, m := range d.Data {
 		if m.ID == "" {
@@ -193,28 +328,57 @@ func probeModels(base string) (models []string, ctx map[string]int, ok bool) {
 			ctx[m.ID] = c
 		}
 	}
-	return models, ctx, true
+	return models, ctx, 200
 }
 
 // envCandidates derives base URLs from environment variables the user's existing
-// tooling already exports, so a non-default endpoint is found without a scan.
+// tooling already exports, so a non-default endpoint is found without a scan. Where
+// the same tooling also exports an API key, that key is paired with the endpoint so
+// a key-protected server is reached on the first try.
 func envCandidates() []candidate {
 	var out []candidate
-	add := func(name, raw string) {
+	add := func(name, raw, key string) {
 		if b := toV1Base(raw); b != "" {
-			out = append(out, candidate{name: name, base: b})
+			out = append(out, candidate{name: name, base: b, key: strings.TrimSpace(key)})
 		}
 	}
-	// The OpenAI SDK convention (both spellings are in the wild).
-	add("env:OPENAI_BASE_URL", os.Getenv("OPENAI_BASE_URL"))
-	add("env:OPENAI_API_BASE", os.Getenv("OPENAI_API_BASE"))
+	// The OpenAI SDK convention (both spellings are in the wild); OPENAI_API_KEY is
+	// the de-facto key for OpenAI-compatible servers behind these bases.
+	openaiKey := os.Getenv("OPENAI_API_KEY")
+	add("env:OPENAI_BASE_URL", os.Getenv("OPENAI_BASE_URL"), openaiKey)
+	add("env:OPENAI_API_BASE", os.Getenv("OPENAI_API_BASE"), openaiKey)
 	// Ollama: OLLAMA_HOST may be "host:port", ":11434", or a full URL.
 	if h := strings.TrimSpace(os.Getenv("OLLAMA_HOST")); h != "" {
-		add("env:OLLAMA_HOST", ollamaHostURL(h))
+		add("env:OLLAMA_HOST", ollamaHostURL(h), os.Getenv("OLLAMA_API_KEY"))
 	}
 	// LM Studio exports a few spellings depending on version.
+	lmKey := os.Getenv("LMSTUDIO_API_KEY")
 	for _, k := range []string{"LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LMSTUDIO_HOST"} {
-		add("env:"+k, os.Getenv(k))
+		add("env:"+k, os.Getenv(k), lmKey)
+	}
+	return out
+}
+
+// envKeys returns API keys the user's tooling already exports, tried (as a Bearer)
+// against any candidate that answers 401/403. OPENAI_API_KEY is the de-facto key for
+// OpenAI-compatible servers; the rest are the common tool-specific spellings. This
+// is what makes a key-protected local server (vLLM --api-key, a LiteLLM master key,
+// llama.cpp --api-key, LM Studio's API-key toggle) detectable with zero extra config
+// whenever its key already lives in the environment.
+func envKeys() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range []string{
+		"OPENAI_API_KEY",
+		"LITELLM_MASTER_KEY", "LITELLM_API_KEY",
+		"LMSTUDIO_API_KEY",
+		"VLLM_API_KEY",
+		"OLLAMA_API_KEY",
+	} {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
 	}
 	return out
 }
@@ -243,7 +407,7 @@ func mergeOllamaNative(f *Found, base string) {
 		have[m] = true
 	}
 	addNames := func(path string) {
-		resp, err := httpClient.Get(root + path)
+		resp, err := authGet(root+path, f.Key)
 		if err != nil || resp.StatusCode != 200 {
 			if resp != nil {
 				resp.Body.Close()
@@ -315,7 +479,7 @@ func enrichCtx(f *Found, base string) {
 // non-Ollama base simply has neither endpoint and is left untouched.
 func enrichOllamaCtx(f *Found, root string) {
 	// /api/ps: currently-loaded models carry context_length = the live num_ctx.
-	if resp, err := httpClient.Get(root + "/api/ps"); err == nil && resp.StatusCode == 200 {
+	if resp, err := authGet(root+"/api/ps", f.Key); err == nil && resp.StatusCode == 200 {
 		var d struct {
 			Models []struct {
 				Name      string `json:"name"`
@@ -345,7 +509,7 @@ func enrichOllamaCtx(f *Found, root string) {
 			continue
 		}
 		body := strings.NewReader(`{"model":` + strconv.Quote(id) + `}`)
-		resp, err := httpClient.Post(root+"/api/show", "application/json", body)
+		resp, err := authPost(root+"/api/show", f.Key, "application/json", body)
 		if err != nil || resp.StatusCode != 200 {
 			if resp != nil {
 				resp.Body.Close()
@@ -385,7 +549,7 @@ func ollamaContextFromInfo(info map[string]json.RawMessage) int {
 // optional /v1/models n_ctx). llama.cpp serves a single model, so the value applies
 // to every model id this base advertises that lacks a detected ctx.
 func enrichLlamaCppCtx(f *Found, root string) {
-	resp, err := httpClient.Get(root + "/props")
+	resp, err := authGet(root+"/props", f.Key)
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
 			resp.Body.Close()
@@ -413,7 +577,7 @@ func enrichLlamaCppCtx(f *Found, root string) {
 // preferring loaded_context_length (the live window) over max_context_length (the
 // model cap). A non-LM-Studio base has no /api/v0/models and is left untouched.
 func enrichLMStudioCtx(f *Found, root string) {
-	resp, err := httpClient.Get(root + "/api/v0/models")
+	resp, err := authGet(root+"/api/v0/models", f.Key)
 	if err != nil || resp.StatusCode != 200 {
 		if resp != nil {
 			resp.Body.Close()
