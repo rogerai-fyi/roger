@@ -114,6 +114,11 @@ type Share struct {
 	PriceIn  float64 `json:"price_in,omitempty"`
 	PriceOut float64 `json:"price_out,omitempty"`
 	Upstream string  `json:"upstream,omitempty"` // saved/verified local endpoint (the (e) source)
+	// UpstreamKey is the bearer key a key-protected local server requires (vLLM
+	// --api-key, a LiteLLM master key, llama.cpp --api-key, LM Studio's API-key
+	// toggle). Saved so a keyed upstream is not re-prompted every launch; sent as a
+	// Bearer when the agent forwards jobs. Empty for the common no-auth local server.
+	UpstreamKey string `json:"upstream_key,omitempty"`
 	// MaxOnAir is the SOFT local cap on how many bands may be ON AIR at once from this
 	// CLI (the share.max_on_air knob). It is a deliberate "reset the CLI" guard read
 	// ONCE at startup: changing it requires a restart. <=0 means "use the default" (see
@@ -560,7 +565,7 @@ func cmdShare(cfg config, args []string) error {
 	node := fs.String("node", "", "station callsign (e.g. brave-otter); persisted. default: your saved/auto station")
 	model := fs.String("model", defModelFlag, "model to expose (default: first detected)")
 	upstream := fs.String("upstream", "", "local OpenAI endpoint (default: auto-detect)")
-	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
+	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional; auto-detected from env / saved)")
 	region := fs.String("region", "home", "region")
 	parallel := fs.Int("parallel", 4, "concurrent poll workers (per-node concurrency)")
 	// FREE BY DEFAULT (price 0/0): a bare `roger share` goes on air with NO login
@@ -636,18 +641,39 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	ctxEstimated := false
 	// A saved/verified upstream (from the guided fallback) is the (e) source: probe
 	// it first so a non-default / custom-port server is remembered, not re-hunted.
-	savedUp := ""
+	savedUp, savedKey := "", ""
 	if cfg.Share != nil {
-		savedUp = cfg.Share.Upstream
+		savedUp, savedKey = cfg.Share.Upstream, cfg.Share.UpstreamKey
+	}
+	// A saved upstream key belongs to the SAVED endpoint: reuse it on a bare re-share
+	// (or an explicit --upstream pointing at that same endpoint), but NEVER default it
+	// onto a DIFFERENT --upstream - that would send a stale bearer to another server.
+	if *upKey == "" && savedKey != "" && (up == "" || sameEndpoint(up, savedUp)) {
+		*upKey = savedKey
 	}
 	if up == "" {
-		found := detect.DetectWith(savedUp)
+		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
+		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
+		var found []detect.Found
+		var needKey []string
+		if savedUp != "" && *upKey != "" {
+			if f, st := detect.ProbeKey(savedUp, *upKey); st == detect.Reachable {
+				found = []detect.Found{f}
+			}
+		}
 		if len(found) == 0 {
-			// GUIDED FALLBACK: nothing is running. Walk the user through it instead of
-			// erroring out - pick your tool for a one-liner, or paste an endpoint we
-			// verify. Non-interactive runs still get the clear "start one or --upstream".
-			picked, ok := guidedUpstream(cfg.Broker)
+			found, needKey = detect.DetectFull(savedUp)
+		}
+		if len(found) == 0 {
+			// GUIDED FALLBACK: nothing usable. Walk the user through it instead of
+			// erroring out - pick your tool for a one-liner, paste an endpoint we verify,
+			// or (when a server is there but key-protected) paste its API key. A
+			// non-interactive run still gets the clear "start one or --upstream".
+			picked, ok := guidedUpstream(cfg.Broker, needKey)
 			if !ok {
+				if len(needKey) > 0 {
+					return fmt.Errorf("found a local server at %s but it needs an API key - pass --upstream-key <key> (or set OPENAI_API_KEY)", needKey[0])
+				}
 				return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM and your open ports). Start one, then `roger share`, or pass --upstream <url>")
 			}
 			found = []detect.Found{picked}
@@ -664,6 +690,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 			}
 		}
 		up = pick.Chat
+		// A key-protected upstream the detector authenticated to (from env or the guided
+		// paste) carries its working key on the Found; adopt it unless --upstream-key was
+		// given explicitly, so the agent forwards jobs with the same Bearer.
+		if *upKey == "" && pick.Key != "" {
+			*upKey = pick.Key
+		}
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
 		}
@@ -674,15 +706,27 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		if ctxLen == 0 {
 			ctxLen, ctxEstimated = detect.ResolveCtx(pick.Ctx, mdl)
 		}
-		// Remember the verified upstream so a custom-port / guided-fallback endpoint is
-		// not re-hunted next launch (the (e) saved-config source).
-		if pick.BaseURL != "" && pick.BaseURL != savedUp {
+		// Remember the verified upstream (and any key it needed) so a custom-port /
+		// guided-fallback / key-protected endpoint is not re-hunted or re-prompted next
+		// launch (the (e) saved-config source).
+		if (pick.BaseURL != "" && pick.BaseURL != savedUp) || (*upKey != "" && (cfg.Share == nil || *upKey != cfg.Share.UpstreamKey)) {
 			c := loadConfig()
 			if c.Share == nil {
 				c.Share = &Share{}
 			}
-			c.Share.Upstream = pick.BaseURL
+			if pick.BaseURL != "" {
+				c.Share.Upstream = pick.BaseURL
+			}
+			c.Share.UpstreamKey = *upKey
 			_ = saveConfig(c)
+		}
+	} else if *upKey == "" {
+		// Explicit --upstream with no key resolved: best-effort harvest a working key
+		// from the environment (OPENAI_API_KEY / friends) for THIS endpoint and confirm
+		// reachability - but NEVER block here, the agent self-heals if the server is
+		// momentarily down (the same reason the explicit path skips a hard preflight).
+		if f, st := detect.ProbeKey(up, ""); st == detect.Reachable && f.Key != "" {
+			*upKey = f.Key
 		}
 	}
 	if mdl == "" {
@@ -1440,6 +1484,14 @@ func printLimits(c config) {
 		fmt.Printf("  %-22s %s\n", m, limitStr(c.Limits.Models[m]))
 	}
 	fmt.Printf("  %-22s %s\n", "· default (any other)", limitStr(d))
+}
+
+// sameEndpoint reports whether two upstream URLs point at the same server, comparing
+// their normalized chat-completions form so a base / /v1 / full-chat spelling of the
+// SAME endpoint matches. Used to decide when a saved upstream key may be reused (only
+// for its own endpoint - never sprayed onto a different --upstream).
+func sameEndpoint(a, b string) bool {
+	return b != "" && normalizeUpstream(a) == normalizeUpstream(b)
 }
 
 // normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible
