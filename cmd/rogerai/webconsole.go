@@ -55,6 +55,14 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string) {
 	}
 	fmt.Printf("web console → %s\n", url)
 	go func() { _ = s.Serve(ln) }()
+	// Kick an initial detection in the background so the browser SHARE tab is populated on
+	// first paint. The TUI only detects lazily (on entering SHARE), so without this a fresh
+	// launch would show an empty table until the user clicked re-detect. Best-effort; the
+	// snapshot/SSE picks up whatever it finds, and re-detect can refine it.
+	go func() {
+		found, _ := ctrl.Detect("", "")
+		ctrl.LoadRows(found)
+	}()
 	// Open the browser only on a real interactive terminal (the helper self-gates), so a
 	// headless `roger share` daemon prints the URL but never hijacks a browser.
 	tui.OpenURL(url)
