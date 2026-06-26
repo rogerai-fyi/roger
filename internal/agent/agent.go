@@ -505,6 +505,20 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) {
 	}
 }
 
+// redactUpstreamKey strips the node's upstream bearer key from bytes about to be
+// relayed back to the broker/consumer. Standard OpenAI-compatible servers never echo
+// the request Authorization header into their response, but a misconfigured proxy /
+// debug endpoint can put it in an error body - this is defense-in-depth so the node
+// operator's OWN upstream key can never leave the machine in a job result. A no-op
+// when no key is configured (and never called with an empty key, which would match
+// everywhere).
+func redactUpstreamKey(b []byte, key string) []byte {
+	if key == "" {
+		return b
+	}
+	return bytes.ReplaceAll(b, []byte(key), []byte("[redacted]"))
+}
+
 func isStream(body []byte) bool {
 	var p struct {
 		Stream bool `json:"stream"`
@@ -538,7 +552,9 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 		sc := bufio.NewScanner(resp.Body)
 		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 		for sc.Scan() {
-			line := sc.Bytes()
+			// Redact the node's own upstream key before it leaves the machine, in case the
+			// upstream echoed the request Authorization header into an SSE error chunk.
+			line := redactUpstreamKey(sc.Bytes(), cfg.UpstreamKey)
 			pw.Write(line)
 			pw.Write([]byte{'\n'})
 			if bytes.Contains(line, []byte(`"usage"`)) {
@@ -617,6 +633,9 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	// Belt-and-suspenders: never relay the node's own upstream key, in case the
+	// upstream echoed the request Authorization header into its response body.
+	respBody = redactUpstreamKey(respBody, cfg.UpstreamKey)
 
 	var parsed struct {
 		Usage struct {
