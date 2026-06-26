@@ -19,7 +19,7 @@ func testCtrl() *node.Controller {
 }
 
 func TestStateRequiresToken(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -59,7 +59,7 @@ func TestStateRequiresToken(t *testing.T) {
 }
 
 func TestTokenViaHeader(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	req, _ := http.NewRequest("GET", srv.URL+"/api/state", nil)
@@ -75,7 +75,7 @@ func TestTokenViaHeader(t *testing.T) {
 }
 
 func TestStateNeverLeaksUpstreamKey(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/api/state?t=" + s.Token())
@@ -91,7 +91,7 @@ func TestStateNeverLeaksUpstreamKey(t *testing.T) {
 }
 
 func TestStaticShellNoTokenNeeded(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/")
@@ -109,7 +109,7 @@ func TestEventsStream(t *testing.T) {
 	eventInterval = 20 * time.Millisecond
 	defer func() { eventInterval = old }()
 
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -141,7 +141,7 @@ func TestEventsStream(t *testing.T) {
 }
 
 func TestEventsRequiresToken(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/api/events")
@@ -155,7 +155,7 @@ func TestEventsRequiresToken(t *testing.T) {
 }
 
 func TestListenReturnsLocalhostURLWithToken(t *testing.T) {
-	s := New(testCtrl())
+	s := New(testCtrl(), Options{})
 	ln, url, err := s.Listen("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
