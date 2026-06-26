@@ -83,7 +83,7 @@ func Search(broker string) error {
 		return err
 	}
 	if len(d.Offers) == 0 {
-		fmt.Println("no offers yet - run `rogerai share` on a box with a local model")
+		fmt.Println("no offers yet - run `roger share` on a box with a local model")
 		return nil
 	}
 	// Station rows mirror the TUI band table's instrument language so the piped CLI
@@ -200,7 +200,7 @@ func tpsLevel(tps float64) int {
 
 // Balance prints the caller's wallet credits (GET /balance as `user`). When the
 // caller is NOT logged in (an anonymous keypair) there is no wallet/balance: it says
-// so and points at `rogerai login` instead of printing a misleading 0.
+// so and points at `roger login` instead of printing a misleading 0.
 func Balance(broker, user string) error {
 	var b struct {
 		User         string  `json:"user"`
@@ -213,7 +213,7 @@ func Balance(broker, user string) error {
 		return err
 	}
 	if !b.LoggedIn {
-		fmt.Println("not logged in - run `rogerai login` to use your wallet (free models and grant keys work without an account)")
+		fmt.Println("not logged in - run `roger login` to use your wallet (free models and grant keys work without an account)")
 		return nil
 	}
 	fmt.Printf("logged in - wallet %s: $%.4f\n", b.User, b.Balance)
@@ -222,7 +222,7 @@ func Balance(broker, user string) error {
 	if b.MonthlyCap > 0 {
 		fmt.Printf("monthly spend: $%.2f of $%.2f this month%s\n", b.MonthlySpend, b.MonthlyCap, monthlyNotice(b.MonthlySpend, b.MonthlyCap))
 	} else {
-		fmt.Printf("monthly spend: $%.2f this month  (no cap - set one with `rogerai limit --monthly $X`)\n", b.MonthlySpend)
+		fmt.Printf("monthly spend: $%.2f this month  (no cap - set one with `roger limit --monthly $X`)\n", b.MonthlySpend)
 	}
 	return nil
 }
@@ -235,7 +235,7 @@ func monthlyNotice(spend, cap float64) string {
 	}
 	switch {
 	case spend >= cap:
-		return "  - LIMIT REACHED (raise it with `rogerai limit --monthly $X`)"
+		return "  - LIMIT REACHED (raise it with `roger limit --monthly $X`)"
 	case spend >= cap*0.80:
 		return fmt.Sprintf("  - %.0f%% used", spend/cap*100)
 	}
@@ -262,7 +262,7 @@ func GetMonthlyLimit(broker, user string) (MonthlyCapInfo, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return out, fmt.Errorf("log in first - run `rogerai login` (the monthly limit is per account)")
+		return out, fmt.Errorf("log in first - run `roger login` (the monthly limit is per account)")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return out, fmt.Errorf("broker returned status %d", resp.StatusCode)
@@ -291,7 +291,7 @@ func SetMonthlyLimit(broker, user string, cap float64) (MonthlyCapInfo, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		return out, fmt.Errorf("log in first - run `rogerai login` (the monthly limit is per account)")
+		return out, fmt.Errorf("log in first - run `roger login` (the monthly limit is per account)")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return out, fmt.Errorf("broker returned status %d", resp.StatusCode)
@@ -376,7 +376,7 @@ type ProxyOptions struct {
 }
 
 // ProxyHandler returns the local OpenAI-compatible handler that relays to the
-// broker with transparent provider failover (used by `rogerai use` and by the
+// broker with transparent provider failover (used by `roger use` and by the
 // TUI's "tune in"). Bots see one stable endpoint; under the hood a dropped
 // provider is routed around automatically.
 func ProxyHandler(opts ProxyOptions) http.Handler {
@@ -599,7 +599,7 @@ func EffectiveMaxOut(maxOut float64) float64 {
 // effectiveMaxOut is the internal alias kept for the package's existing call sites.
 func effectiveMaxOut(maxOut float64) float64 { return EffectiveMaxOut(maxOut) }
 
-// UseOptions are the resolved spend limits + flags for `rogerai use`.
+// UseOptions are the resolved spend limits + flags for `roger use`.
 type UseOptions struct {
 	Port         int
 	Confidential bool
@@ -660,7 +660,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 	for {
 		br, ok := BandRangeFor(broker, model)
 		if !ok {
-			fmt.Printf("no station on air for %q right now - try `rogerai search` or come back.\n", model)
+			fmt.Printf("no station on air for %q right now - try `roger search` or come back.\n", model)
 			return nil
 		}
 		locked = br
@@ -900,7 +900,7 @@ const MaxAnswerTokens = 4096
 // the user is never dead-ended on "insufficient balance" with nowhere to go. The same
 // string is reused by the CLI chat, the TUI channel, and the agent harness so the call
 // to action stays identical everywhere.
-const TopupHint = "run `rogerai topup` (or /topup in the TUI) to add funds"
+const TopupHint = "run `roger topup` (or /topup in the TUI) to add funds"
 
 // WithTopupHint appends TopupHint to a broker error message when status is 402
 // (insufficient balance). For any other status it returns msg unchanged. Centralized so
@@ -951,7 +951,7 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
 	}
 	// Always carry an out-price cap (the caller's, or the default consumer ceiling when
 	// none was set) so the in-channel chat relay is bounded against overpay exactly like
-	// `rogerai use` - not only the interactive tune-in confirm.
+	// `roger use` - not only the interactive tune-in confirm.
 	req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", effectiveMaxOut(maxOut)))
 	resp, err := (&http.Client{Timeout: chatTimeout}).Do(req)
 	if err != nil {

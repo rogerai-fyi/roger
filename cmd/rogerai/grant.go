@@ -29,7 +29,7 @@ func cmdGrant(cfg config, args []string) error {
 		return client.GrantList(cfg.Broker)
 	case "revoke", "rm":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: rogerai grant revoke <name>")
+			return fmt.Errorf("usage: roger grant revoke <name>")
 		}
 		return client.GrantRevoke(cfg.Broker, args[1])
 	case "show":
@@ -52,7 +52,7 @@ func cmdGrant(cfg config, args []string) error {
 			}
 		}
 		if name == "" {
-			return fmt.Errorf("usage: rogerai grant show [--secret] <name>")
+			return fmt.Errorf("usage: roger grant show [--secret] <name>")
 		}
 		if secret {
 			return grantRecoverSecret(cfg, name)
@@ -83,11 +83,11 @@ func cmdGrantCreate(cfg config, args []string) error {
 	self := fs.Bool("self", false, "a self key for YOUR own headless boxes/agents ($0)")
 	priceIn := fs.Float64("price-in", 0, "charge $/1M input tokens (advanced)")
 	fs.Usage = func() {
-		fmt.Print(`rogerai grant create - mint a private access key
+		fmt.Print(`roger grant create - mint a private access key
 
-  rogerai grant create --name my-bots               a FREE key for your bots/family
-  rogerai grant create --name jane --price-out 0.30 a priced key you sponsor
-  rogerai grant create --self --name hermes-box     a $0 key for your own remote box
+  roger grant create --name my-bots               a FREE key for your bots/family
+  roger grant create --name jane --price-out 0.30 a priced key you sponsor
+  roger grant create --self --name hermes-box     a $0 key for your own remote box
 
   --name <label>     (required) shown on your dashboard
   --free             free key, costs nobody (default)
@@ -152,10 +152,10 @@ func grantRecoverSecret(cfg config, name string) error {
 		}
 	}
 	if found == nil {
-		return fmt.Errorf("no grant named %q (run `rogerai grant list`)", name)
+		return fmt.Errorf("no grant named %q (run `roger grant list`)", name)
 	}
 	if found.Price != "free" {
-		return fmt.Errorf("%q is a %s key - its caps/scope can't be reconstructed here. To re-key it: `rogerai grant revoke %s` then `rogerai grant create --name %s ...`", name, found.Price, name, name)
+		return fmt.Errorf("%q is a %s key - its caps/scope can't be reconstructed here. To re-key it: `roger grant revoke %s` then `roger grant create --name %s ...`", name, found.Price, name, name)
 	}
 	fmt.Printf("recovering %q: the old key is unrecoverable (only its hash is stored), so this ROTATES it -\n", name)
 	fmt.Println("the previous secret stops working and a fresh one is minted under the same name.")
@@ -217,15 +217,15 @@ func splitCSV(s string) []string {
 }
 
 func grantUsage() {
-	fmt.Print(`rogerai grant - private access keys for your bots, family, and friends
+	fmt.Print(`roger grant - private access keys for your bots, family, and friends
 
-  rogerai grant create --name my-bots     a free key (they use your models, no login)
-  rogerai grant list                      your keys + usage
-  rogerai grant show <name>               one key's scope, caps, usage
-  rogerai grant show --secret <name>      lost a free key? rotate + reprint a fresh one
-  rogerai grant revoke <name>             kill a key (effective next request)
+  roger grant create --name my-bots     a free key (they use your models, no login)
+  roger grant list                      your keys + usage
+  roger grant show <name>               one key's scope, caps, usage
+  roger grant show --secret <name>      lost a free key? rotate + reprint a fresh one
+  roger grant revoke <name>             kill a key (effective next request)
 
-  rogerai grant create --self --name hermes-box   a $0 key for your own remote box
-  rogerai grant create --help                      the full create surface
+  roger grant create --self --name hermes-box   a $0 key for your own remote box
+  roger grant create --help                      the full create surface
 `)
 }

@@ -19,7 +19,7 @@ var (
 
 // isCharDevice is true when f is a TTY (a character device). A pipe, a regular
 // file (redirected stdout), or a closed/nil stream is NOT - which is precisely
-// the headless / piped / service (`rogerai share` daemon) case where we must
+// the headless / piped / service (`roger share` daemon) case where we must
 // never spawn a browser.
 func isCharDevice(f *os.File) bool {
 	if f == nil {
@@ -34,7 +34,7 @@ func isCharDevice(f *os.File) bool {
 
 // interactive reports whether we are attached to a real interactive terminal on
 // BOTH stdin and stdout. Auto-opening the default browser is gated on this: in a
-// non-TTY / headless / piped / background-service context (e.g. `rogerai share`
+// non-TTY / headless / piped / background-service context (e.g. `roger share`
 // running as a daemon, or any process with no controlling terminal) we never
 // hijack a browser - the caller still prints the URL + code as the fallback.
 func interactive() bool { return stdinIsTTY() && stdoutIsTTY() }
@@ -79,7 +79,7 @@ var openURLExec = func(url string) {
 }
 
 // OpenURL is the exported wrapper so plain CLI commands (cmd/rogerai) can reuse the
-// single default-browser launcher the TUI uses (e.g. `rogerai payout onboard` opening
+// single default-browser launcher the TUI uses (e.g. `roger payout onboard` opening
 // the Stripe Connect link). Fire-and-forget; the caller always prints the URL as a
 // fallback for headless / SSH boxes and for the non-interactive case below.
 func OpenURL(url string) { openURL(url) }

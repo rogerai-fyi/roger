@@ -375,7 +375,7 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 		return
 	}
 	if !ok {
-		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `rogerai login` on a node first)")
+		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `roger login` on a node first)")
 		return
 	}
 	// An owner who set their email AFTER first bind still gets exactly one welcome (the

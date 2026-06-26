@@ -17,8 +17,8 @@ import (
 // The first-run onboarding wizard (charmbracelet/huh). It runs once, before the
 // TUI, and answers the two questions that matter: are you here to CONSUME (just
 // open the app) or SHARE your GPU, and if sharing, free (no login) or earn (set a
-// price + `rogerai login`). Everything else is auto-detected: the model, the
-// context length, and a free local port. Re-runnable via `rogerai onboard`. The
+// price + `roger login`). Everything else is auto-detected: the model, the
+// context length, and a free local port. Re-runnable via `roger onboard`. The
 // FREE default means a provider goes on air with no login (fixes the 403).
 
 // interactive reports whether stdin+stdout are a real TTY (so the wizard can
@@ -52,12 +52,12 @@ type wizardOpts struct {
 	reset     bool
 }
 
-// cmdOnboard is the explicit `rogerai onboard` entry: re-run the wizard, offering
+// cmdOnboard is the explicit `roger onboard` entry: re-run the wizard, offering
 // Keep / Modify / Reset when a config already exists.
 func cmdOnboard(cfg config, args []string) error {
 	fs := flag.NewFlagSet("onboard", flag.ExitOnError)
 	free := fs.Bool("free", false, "non-interactive: share FREE (no login)")
-	earn := fs.Bool("earn", false, "non-interactive: share to earn (sets a price; needs `rogerai login`)")
+	earn := fs.Bool("earn", false, "non-interactive: share to earn (sets a price; needs `roger login`)")
 	yes := fs.Bool("yes", false, "accept the detected defaults without prompting")
 	reset := fs.Bool("reset", false, "forget the saved setup and start fresh")
 	fs.Parse(args)
@@ -125,7 +125,7 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 
 // finishShare detects the local model, auto-picks a free port, runs preflight, and
 // (for the earn path) collects prices. It saves the share config and marks
-// onboarded. It does NOT start serving - it sets the user up; `rogerai share`
+// onboarded. It does NOT start serving - it sets the user up; `roger share`
 // (or `/share` in the TUI) goes on air.
 func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	found := detect.Detect()
@@ -136,7 +136,7 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 			found = []detect.Found{picked}
 		} else {
 			fmt.Println("no local LLM detected (tried Ollama / LM Studio / llama.cpp / vLLM / Jan / LiteLLM and your open ports).")
-			fmt.Println("start one, then run `rogerai share` (or `rogerai onboard`).")
+			fmt.Println("start one, then run `roger share` (or `roger onboard`).")
 			cfg.Onboarded = true
 			return cfg, true, nil
 		}
@@ -156,8 +156,8 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		// Earn path: tell the user UP FRONT that earning needs a GitHub login and
 		// pre-disclose the payout terms (F3 / #2) - BEFORE collecting a price - so the
 		// login requirement is never a surprise 403 after they've set everything up.
-		fmt.Println("earning needs a linked GitHub: you'll run `rogerai login` once before going on air.")
-		fmt.Println("payouts when you earn: 120-day hold, $25 min, monthly (`rogerai payout status` for details).")
+		fmt.Println("earning needs a linked GitHub: you'll run `roger login` once before going on air.")
+		fmt.Println("payouts when you earn: 120-day hold, $25 min, monthly (`roger payout status` for details).")
 		// Collect a price (default the platform suggestion). Login is a separate
 		// explicit step we point the user at - we never block here.
 		in, out := "0.20", "0.30"
@@ -178,11 +178,11 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 	cfg.Onboarded = true
 	if earn {
 		fmt.Printf("\nset up to EARN: model %q at $%.2f/$%.2f per 1M (in/out), port %d.\n", model, sh.PriceIn, sh.PriceOut, port)
-		fmt.Println("earning needs a linked GitHub: run `rogerai login`, then `rogerai share`.")
+		fmt.Println("earning needs a linked GitHub: run `roger login`, then `roger share`.")
 	} else {
 		fmt.Printf("\nset up to share FREE: model %q on port %d - no login needed.\n", model, port)
-		fmt.Println("go on air now with `rogerai share` (or /share inside the app).")
-		fmt.Println("want private free keys for your bots/family? `rogerai grant create --name my-bots`.")
+		fmt.Println("go on air now with `roger share` (or /share inside the app).")
+		fmt.Println("want private free keys for your bots/family? `roger grant create --name my-bots`.")
 	}
 	return cfg, true, nil
 }

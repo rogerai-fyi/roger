@@ -40,7 +40,7 @@ func (b *broker) balance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": user, "balance": bal, "logged_in": true,
 		// Monthly spend cap (a budget limit): the per-account ceiling + month-to-date
-		// captured spend, so `rogerai balance` + the TUI show "MTD vs cap" (0 cap =
+		// captured spend, so `roger balance` + the TUI show "MTD vs cap" (0 cap =
 		// unlimited, the opt-in default).
 		"monthly_cap":   round6(cap.cap),
 		"monthly_spend": round6(cap.spend),
@@ -74,7 +74,7 @@ func (b *broker) accountLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !walletLoggedIn(user) {
-		jsonErr(w, http.StatusUnauthorized, "log in to set a monthly spend limit - run `rogerai login` (the cap is per account)")
+		jsonErr(w, http.StatusUnauthorized, "log in to set a monthly spend limit - run `roger login` (the cap is per account)")
 		return
 	}
 	if r.Method == http.MethodPatch {
@@ -180,7 +180,7 @@ func (b *broker) earnings(w http.ResponseWriter, r *http.Request) {
 	// carries no body, so the signature is verified over nil (matching payoutOwner).
 	login, o, ok := b.payoutOwner(r, nil)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to view earnings")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view earnings")
 		return
 	}
 	if o.GitHubID == 0 {

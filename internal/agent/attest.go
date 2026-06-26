@@ -9,7 +9,7 @@ package agent
 // before granting the `confidential ◆` badge.
 //
 // HONESTY RULE: when there is NO TEE, the node produces NO quote and does NOT claim
-// confidential. `rogerai share --confidential` fails clearly (see cmd/rogerai) rather
+// confidential. `roger share --confidential` fails clearly (see cmd/rogerai) rather
 // than sending a fake claim. Quote generation is platform-specific and lives behind a
 // build tag (attest_sevsnp.go for linux/amd64; attest_stub.go everywhere else), so the
 // device dependency never enters builds that cannot use it.

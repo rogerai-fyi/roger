@@ -306,11 +306,11 @@
       text("balance", cr(d.balance));
       text("derived", cr(d.derived));
       if (d.checkout_ready) {
-        text("topupNote", "Top up below, or from the CLI: rogerai topup.");
+        text("topupNote", "Top up below, or from the CLI: roger topup.");
         show("topupBox");
         wireTopup();
       } else {
-        text("topupNote", "Top up from the CLI: rogerai topup.");
+        text("topupNote", "Top up from the CLI: roger topup.");
         show("topupDisabled");
       }
       fill("topups", "topupsEmpty", d.topups, function (t) {

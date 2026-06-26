@@ -1,4 +1,4 @@
-// Package agent is the provider side ("rogerai share"). It registers with a
+// Package agent is the provider side ("roger share"). It registers with a
 // broker and then DIALS OUT - N outbound long-poll loops pull relayed jobs from
 // the broker, serve them against the local OpenAI-compatible upstream, sign a
 // lineage receipt, and POST the result back. No inbound ports, no public URL,
@@ -35,7 +35,7 @@ import (
 // broker default; override with ROGERAI_FEE for an accurate local readout.
 const shareFeeRate = 0.30
 
-// Config is everything `rogerai share` needs to become a provider: the broker to
+// Config is everything `roger share` needs to become a provider: the broker to
 // register with, the local upstream to serve against, the single model offer and
 // its pricing/schedule, and operational knobs (poll concurrency, confidential
 // attestation, bridge token).
@@ -693,7 +693,7 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
 	req.Header.Set("Content-Type", "application/json")
 	// Sign the registration with the OWNER's user key too: a node advertising a
 	// nonzero price is an earning node and the broker requires the signing pubkey to
-	// be bound to a GitHub owner (`rogerai login`). Free/unsigned sharing still works.
+	// be bound to a GitHub owner (`roger login`). Free/unsigned sharing still works.
 	client.SignRequest(req, b)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -762,7 +762,7 @@ func randHex(n int) string {
 }
 
 // ShareNodeID derives the broker node id for a share. It MUST be the single source
-// of truth for both `rogerai share` (CLI) and the in-TUI [2] SHARE / h HIDE flows so
+// of truth for both `roger share` (CLI) and the in-TUI [2] SHARE / h HIDE flows so
 // that every model a host shares becomes a DISTINCT broker node.
 //
 // PRIVACY: the node id is PUBLIC - it is echoed verbatim in /discover and /market to

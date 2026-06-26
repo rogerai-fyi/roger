@@ -2,13 +2,13 @@
 // share your own (share). One binary, all OS. The broker (rogerai-broker) is the
 // only separately-deployed component.
 //
-//	rogerai search                    discover models (cheapest first)
-//	rogerai use <model> [--port N]    open a local OpenAI endpoint via the broker
-//	rogerai balance                   your wallet balance
-//	rogerai limit --monthly $X        cap your spend per calendar month (0/off = no cap)
-//	rogerai share [flags]             become a provider (auto-detects a local LLM)
-//	rogerai config set broker <url>   switch brokers (federation: pick who you trust)
-//	rogerai config get [key]
+//	roger search                    discover models (cheapest first)
+//	roger use <model> [--port N]    open a local OpenAI endpoint via the broker
+//	roger balance                   your wallet balance
+//	roger limit --monthly $X        cap your spend per calendar month (0/off = no cap)
+//	roger share [flags]             become a provider (auto-detects a local LLM)
+//	roger config set broker <url>   switch brokers (federation: pick who you trust)
+//	roger config get [key]
 package main
 
 import (
@@ -31,11 +31,11 @@ import (
 )
 
 // Version is the client version (compared against the latest GitHub release for
-// the update check / `rogerai upgrade`). Keep in sync with releases.
+// the update check / `roger upgrade`). Keep in sync with releases.
 const Version = "4.6.3"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
-// Override per-session with ROGER_BROKER=... or persist with `rogerai config set broker`.
+// Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
 const defaultBroker = "https://broker.rogerai.fyi"
 
 // defaultGitHubClientID is the PUBLIC OAuth client id of the org-owned "RogerAI"
@@ -349,7 +349,7 @@ func toTUIWindows(ws []SchedWindow) []tui.SchedWindow {
 
 // toProtocolWindows converts the persisted config schedule windows (what the TUI
 // editor saved into cfg.Prices) into the wire protocol.PriceWindow the agent
-// publishes - so the headless `rogerai share` daemon advertises exactly the
+// publishes - so the headless `roger share` daemon advertises exactly the
 // time-of-use schedule the in-TUI editor produced (P0-A parity).
 func toProtocolWindows(ws []SchedWindow) []protocol.PriceWindow {
 	if len(ws) == 0 {
@@ -364,7 +364,7 @@ func toProtocolWindows(ws []SchedWindow) []protocol.PriceWindow {
 
 func main() {
 	cfg := loadConfig()
-	tui.SetVersion(Version) // help/about surfaces match `rogerai version`
+	tui.SetVersion(Version) // help/about surfaces match `roger version`
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
 	// couldn't be deleted while the old process was still running). No-op elsewhere.
 	update.CleanupOld()
@@ -418,8 +418,8 @@ func main() {
 		// `config set-limit` for the flags.
 		err = cmdConfig(append([]string{"limits"}, os.Args[2:]...))
 	case "limit":
-		// `rogerai limit --monthly $X` sets the per-account MONTHLY SPEND CAP (a budget
-		// limit). Bare `rogerai limit` shows the current cap + month-to-date spend.
+		// `roger limit --monthly $X` sets the per-account MONTHLY SPEND CAP (a budget
+		// limit). Bare `roger limit` shows the current cap + month-to-date spend.
 		err = cmdLimit(cfg, os.Args[2:])
 	case "payout", "payouts", "cashout":
 		err = cmdPayout(cfg, os.Args[2:])
@@ -453,7 +453,7 @@ func main() {
 }
 
 // supportURL is the website (community + Discord link live in its footer). Per the
-// founder, `rogerai support` / the TUI's /support point here, not straight at Discord,
+// founder, `roger support` / the TUI's /support point here, not straight at Discord,
 // so the footer stays the single source of truth for the community link.
 const supportURL = "https://rogerai.fyi"
 
@@ -470,7 +470,7 @@ func cmdSupport() error {
 
 func cmdUse(cfg config, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rogerai use <model> [--max-out $] [--advanced]")
+		return fmt.Errorf("usage: roger use <model> [--max-out $] [--advanced]")
 	}
 	// The model is the first positional; flags follow it. (Go's flag package stops
 	// at the first non-flag arg, so we pull the model out before parsing.)
@@ -523,7 +523,7 @@ func cmdUse(cfg config, args []string) error {
 // args, mirroring how `cmdUse` treats its first positional. If args[0] is a non-flag
 // token (does not start with "-"), it is returned as the model and stripped from the
 // remaining args the flag parser sees; otherwise model is "" and args pass through
-// unchanged. This lets `rogerai share gpt-oss-120b` expose that exact model instead of
+// unchanged. This lets `roger share gpt-oss-120b` expose that exact model instead of
 // silently dropping the positional and falling back to the saved/first-detected one.
 // A bare "-"/"--" (or any flag) is left for the flag parser, never treated as a model.
 func shareModelArg(args []string) (model string, rest []string) {
@@ -535,15 +535,15 @@ func shareModelArg(args []string) (model string, rest []string) {
 
 func cmdShare(cfg config, args []string) error {
 	// Defaults inherit the saved onboarding share config (model + price) when set,
-	// so `rogerai share` after the wizard Just Works with the choices already made.
+	// so `roger share` after the wizard Just Works with the choices already made.
 	defModel, defIn, defOut := "", 0.0, 0.0
 	if cfg.Share != nil {
 		defModel, defIn, defOut = cfg.Share.Model, cfg.Share.PriceIn, cfg.Share.PriceOut
 	}
-	// A leading POSITIONAL model arg (e.g. `rogerai share gpt-oss-120b`) is honored the
+	// A leading POSITIONAL model arg (e.g. `roger share gpt-oss-120b`) is honored the
 	// same way `cmdUse` honors its first positional: if args[0] is a non-flag token it IS
 	// the model to expose, OVERRIDING the saved-config --model default, and the remaining
-	// args are what we hand to the flag parser. Without it, a bare `rogerai share` keeps
+	// args are what we hand to the flag parser. Without it, a bare `roger share` keeps
 	// falling back to the saved/first-detected model, and an explicit `--model` still works
 	// (and still wins when both are given, since flag parsing runs after this).
 	posModel, rest := shareModelArg(args)
@@ -563,31 +563,31 @@ func cmdShare(cfg config, args []string) error {
 	upKey := fs.String("upstream-key", "", "bearer key for the upstream (optional)")
 	region := fs.String("region", "home", "region")
 	parallel := fs.Int("parallel", 4, "concurrent poll workers (per-node concurrency)")
-	// FREE BY DEFAULT (price 0/0): a bare `rogerai share` goes on air with NO login
-	// (a priced node would require `rogerai login` and otherwise 403). Set a price to
+	// FREE BY DEFAULT (price 0/0): a bare `roger share` goes on air with NO login
+	// (a priced node would require `roger login` and otherwise 403). Set a price to
 	// EARN (that does require login). See the onboarding wizard's earn branch.
 	priceIn := fs.Float64("price-in", defIn, "$/1M input tokens to EARN (default 0 = free, no login needed)")
 	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
 	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
 	confidential := fs.Bool("confidential", false, "advertise as confidential - requires real TEE hardware (AMD SEV-SNP); a fresh hardware quote is generated + verified by the broker")
-	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `rogerai login`.")
+	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
 	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
 	fs.Usage = func() {
-		fmt.Print(`rogerai share - go on air as a provider (auto-detects your local model)
+		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
-  rogerai share                       go on air FREE - no login needed
-  rogerai share <model>               expose a specific model
-  rogerai share --price-out 0.30      EARN: set a price (needs ` + "`rogerai login`" + `)
-  rogerai login                       link GitHub - only needed to EARN
+  roger share                       go on air FREE - no login needed
+  roger share <model>               expose a specific model
+  roger share --price-out 0.30      EARN: set a price (needs ` + "`roger login`" + `)
+  roger login                       link GitHub - only needed to EARN
 
   --model <name>      model to expose (default: first detected)
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
-  --private           hidden band, frequency-code only (needs ` + "`rogerai login`" + `)
+  --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
   --advanced          reveal: --node --region --parallel --upstream --ctx --confidential --free-window --schedule
 
-Earning needs a GitHub-linked owner: run ` + "`rogerai login`" + ` first. Free sharing
+Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 `)
 	}
@@ -601,12 +601,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// to a late 403. Catches the flag (--price-*) and the wizard's saved earn price
 	// (cfg.Share.Price*, the defaults above). Free sharing (price 0/0) needs no login.
 	if (*priceIn > 0 || *priceOut > 0) && client.LinkedLogin() == "" {
-		return fmt.Errorf("earning needs a GitHub-linked owner - run `rogerai login` to earn (free sharing needs no login)")
+		return fmt.Errorf("earning needs a GitHub-linked owner - run `roger login` to earn (free sharing needs no login)")
 	}
 	// Pre-disclose the payout policy ONCE, at the point a price is set, so the 120-day
 	// hold / $25 min / monthly cadence is never a surprise at cash-out time (F3).
 	if *priceIn > 0 || *priceOut > 0 {
-		fmt.Println("earning: payouts are 120-day hold, $25 min, monthly (`rogerai payout status` for details).")
+		fmt.Println("earning: payouts are 120-day hold, $25 min, monthly (`roger payout status` for details).")
 	}
 	// Record which pricing/schedule flags the user EXPLICITLY passed. The single source
 	// of truth for a station's per-model price is cfg.Prices (what the TUI editor saves):
@@ -648,7 +648,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 			// verify. Non-interactive runs still get the clear "start one or --upstream".
 			picked, ok := guidedUpstream(cfg.Broker)
 			if !ok {
-				return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM and your open ports). Start one, then `rogerai share`, or pass --upstream <url>")
+				return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM and your open ports). Start one, then `roger share`, or pass --upstream <url>")
 			}
 			found = []detect.Found{picked}
 		}
@@ -749,7 +749,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// A private band requires login (the broker 401s an anonymous private register).
 		// Fail clearly here rather than after a detection/upstream probe.
 		if client.LinkedLogin() == "" {
-			return fmt.Errorf("`--private` needs a GitHub-linked owner - run `rogerai login` first (anonymous private sharing is not allowed)")
+			return fmt.Errorf("`--private` needs a GitHub-linked owner - run `roger login` first (anonymous private sharing is not allowed)")
 		}
 		fmt.Println("sharing PRIVATE - hidden from the public market; only people with your frequency code can tune in.")
 	}
@@ -767,6 +767,14 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
+	// Single-instance guard: detect (via a lockfile) a `roger share` already on air
+	// on this machine and bow out, rather than double-registering the same node and
+	// breaking routing/earnings. A stale lock from a crashed daemon is reclaimed.
+	releaseLock, err := acquireOnAirLock(station, mdl)
+	if err != nil {
+		return err
+	}
+	defer releaseLock()
 	if !*private {
 		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
 		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential
@@ -797,7 +805,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		fmt.Printf("\n  %s YOUR FREQUENCY CODE (shown once - copy it now)\n", "◉")
 		fmt.Printf("\n      %s\n\n", display)
 		fmt.Println("  share this with whoever should reach your station. They tune in with:")
-		fmt.Printf("      rogerai use %s --freq %q\n", mdl, code)
+		fmt.Printf("      roger use %s --freq %q\n", mdl, code)
 		fmt.Println("  the cosmetic \"MHz\" part is optional - the code after it is what matters.")
 	} else if _, _, display := sess.Band(); display != "" {
 		fmt.Printf("\n  on air on your existing private band: %s (code shown only at first creation)\n", display)
@@ -827,7 +835,7 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 // is on air with no idea where their money shows up. One tasteful line, mirroring the
 // single on-air line above.
 func earningsLine() string {
-	return "earnings: rogerai.fyi/dashboard.html  (or: rogerai payout status)"
+	return "earnings: rogerai.fyi/dashboard.html  (or: roger payout status)"
 }
 
 // waitOnAir blocks until the session's link reaches LinkOnAir (the broker has ACKed a
@@ -853,7 +861,7 @@ type sharePricingFlags struct {
 
 // seedSharePricing applies the TUI editor's saved per-model price + schedule
 // (cfg.Prices[model], the single source of truth both surfaces read) on top of the
-// flag-derived values for `rogerai share`. It is the P0-A parity fix: "set it in the
+// flag-derived values for `roger share`. It is the P0-A parity fix: "set it in the
 // TUI, it applies when you `share` headless".
 //
 //   - price-in/out: seeded from the saved profile ONLY when the user did not pass that
@@ -904,10 +912,10 @@ func cmdUpgrade(args []string) error {
 	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
 	check := fs.Bool("check", false, "only check whether an update is available; do not install")
 	fs.Usage = func() {
-		fmt.Printf(`rogerai upgrade - self-update to the latest release (alias: update)
+		fmt.Printf(`roger upgrade - self-update to the latest release (alias: update)
 
-  rogerai upgrade           download + verify + atomically replace this binary
-  rogerai upgrade --check   only report whether a newer version is available
+  roger upgrade           download + verify + atomically replace this binary
+  roger upgrade --check   only report whether a newer version is available
 
 Downloads the per-os/arch asset from github.com/%s, verifies its SHA256 against
 the published checksums, then atomically swaps the running binary. "Already on
@@ -946,16 +954,16 @@ func cmdTopup(cfg config, args []string) error {
 
 // cmdPayout is the provider money-OUT verb group: cash out earnings from the
 // terminal. Every call is Ed25519-signed (the same identity the rest of the client
-// uses), so a headless `rogerai share` provider can withdraw + see KYC status without
-// a browser session. Requires a GitHub-linked account (run `rogerai login`); the
+// uses), so a headless `roger share` provider can withdraw + see KYC status without
+// a browser session. Requires a GitHub-linked account (run `roger login`); the
 // broker enforces the unchanged policy (120-day hold, $25 min, monthly, Connect-KYC).
 // Amounts are shown in dollars (1 credit == $1).
 //
-//	rogerai payout            -> status (default)
-//	rogerai payout status     -> KYC state + payable/held + next-payable date + policy
-//	rogerai payout onboard    -> open the Stripe Connect KYC link (prints it too)
-//	rogerai payout request    -> request a payout (broker pays the full payable amount)
-//	rogerai payout history    -> past payouts + their states
+//	roger payout            -> status (default)
+//	roger payout status     -> KYC state + payable/held + next-payable date + policy
+//	roger payout onboard    -> open the Stripe Connect KYC link (prints it too)
+//	roger payout request    -> request a payout (broker pays the full payable amount)
+//	roger payout history    -> past payouts + their states
 func cmdPayout(cfg config, args []string) error {
 	sub := "status"
 	if len(args) > 0 {
@@ -967,9 +975,9 @@ func cmdPayout(cfg config, args []string) error {
 		return nil
 	}
 	// Login gate: payouts are KYC + GitHub-linked only. Without a local link there is
-	// no signing identity bound to an account, so point at `rogerai login` up front.
+	// no signing identity bound to an account, so point at `roger login` up front.
 	if client.LinkedLogin() == "" {
-		fmt.Println("not logged in - run `rogerai login` to link GitHub (required to earn + cash out)")
+		fmt.Println("not logged in - run `roger login` to link GitHub (required to earn + cash out)")
 		return nil
 	}
 	switch sub {
@@ -989,12 +997,12 @@ func cmdPayout(cfg config, args []string) error {
 }
 
 func payoutUsage() {
-	fmt.Println(`rogerai payout - cash out your provider earnings (dollars; 1 credit = $1)
+	fmt.Println(`roger payout - cash out your provider earnings (dollars; 1 credit = $1)
 
-  rogerai payout status     Connect/KYC state + payable vs held + next-payable date
-  rogerai payout onboard     complete Stripe Connect KYC (opens the browser)
-  rogerai payout request      request a payout of your payable balance
-  rogerai payout history      past payouts and their states
+  roger payout status     Connect/KYC state + payable vs held + next-payable date
+  roger payout onboard     complete Stripe Connect KYC (opens the browser)
+  roger payout request      request a payout of your payable balance
+  roger payout history      past payouts and their states
 
   Policy: 120-day hold, $25 minimum, monthly. Requires GitHub login + Connect KYC.`)
 }
@@ -1068,11 +1076,11 @@ func payoutStatus(cfg config) error {
 	// Actionable next step.
 	switch {
 	case st.Status != "active":
-		fmt.Println("\n  complete KYC to cash out:  rogerai payout onboard")
+		fmt.Println("\n  complete KYC to cash out:  roger payout onboard")
 	case payable < minOr25(st):
-		fmt.Printf("\n  below the $%s minimum - keep earning, then `rogerai payout request`.\n", trimAmt(minOr25(st)))
+		fmt.Printf("\n  below the $%s minimum - keep earning, then `roger payout request`.\n", trimAmt(minOr25(st)))
 	default:
-		fmt.Println("\n  ready to cash out:  rogerai payout request")
+		fmt.Println("\n  ready to cash out:  roger payout request")
 	}
 	return nil
 }
@@ -1114,7 +1122,7 @@ func payoutRequest(cfg config, args []string) error {
 	min := minOr25(st)
 	payable := st.Earnings.Payable
 	if st.Status != "active" {
-		fmt.Println("KYC not complete - run `rogerai payout onboard` first.")
+		fmt.Println("KYC not complete - run `roger payout onboard` first.")
 		return nil
 	}
 	// Optional [amount]: validate it fits the rules. The broker pays out the FULL
@@ -1159,7 +1167,7 @@ func payoutHistory(cfg config) error {
 		return err
 	}
 	if len(pays) == 0 {
-		fmt.Println("no payouts yet - run `rogerai payout status` to see what's payable.")
+		fmt.Println("no payouts yet - run `roger payout status` to see what's payable.")
 		return nil
 	}
 	fmt.Printf("%-12s %-9s %-9s %s\n", "DATE", "AMOUNT", "STATE", "TRANSFER")
@@ -1173,13 +1181,13 @@ func payoutHistory(cfg config) error {
 	return nil
 }
 
-// cmdBalance is the money-IN verb (C7 - ONE money grammar): bare `rogerai balance`
-// shows credits; `rogerai topup <amt>` adds funds. The older `balance --topup` and
+// cmdBalance is the money-IN verb (C7 - ONE money grammar): bare `roger balance`
+// shows credits; `roger topup <amt>` adds funds. The older `balance --topup` and
 // `balance topup` spellings still WORK as hidden aliases (so nothing breaks) but are
 // out of help - one documented form, `topup`.
 func cmdBalance(cfg config, args []string) error {
 	// Hidden aliases, parsed by hand so they do NOT appear in `balance -h`:
-	//   rogerai balance topup [usd]   /   rogerai balance --topup[=usd]
+	//   roger balance topup [usd]   /   roger balance --topup[=usd]
 	if usd, ok := balanceTopupAlias(args); ok {
 		return client.Topup(cfg.Broker, cfg.User, usd, tui.OpenURL)
 	}
@@ -1190,7 +1198,7 @@ func cmdBalance(cfg config, args []string) error {
 // `balance` (C7 hidden aliases): `balance topup [usd]`, `balance --topup`, and
 // `balance --topup <usd>` / `--topup=<usd>`. Returns the dollar amount (defaulting to
 // $10) and true when one matched, else (_, false). The documented form is the
-// top-level `rogerai topup <amt>`.
+// top-level `roger topup <amt>`.
 func balanceTopupAlias(args []string) (float64, bool) {
 	usd := 10.0
 	for i := 0; i < len(args); i++ {
@@ -1215,8 +1223,8 @@ func balanceTopupAlias(args []string) (float64, bool) {
 }
 
 // cmdLimit is the per-account MONTHLY SPEND CAP verb (a budget limit, modeled on
-// Groq's "set a max you'll pay per month"). `rogerai limit --monthly $X` sets the
-// cap; `--monthly 0` or `--monthly off` clears it (unlimited); bare `rogerai limit`
+// Groq's "set a max you'll pay per month"). `roger limit --monthly $X` sets the
+// cap; `--monthly 0` or `--monthly off` clears it (unlimited); bare `roger limit`
 // shows the current cap + month-to-date spend. Requires login (the cap is per
 // account/wallet, enforced server-side at every paid path).
 func cmdLimit(cfg config, args []string) error {
@@ -1233,7 +1241,7 @@ func cmdLimit(cfg config, args []string) error {
 			fmt.Printf("monthly spend limit: $%.2f   (used $%.2f this month)\n", info.Cap, info.Spend)
 		} else {
 			fmt.Printf("monthly spend limit: none   (used $%.2f this month)\n", info.Spend)
-			fmt.Println("set one with `rogerai limit --monthly $X`")
+			fmt.Println("set one with `roger limit --monthly $X`")
 		}
 		return nil
 	}
@@ -1283,7 +1291,7 @@ func cmdAccount(cfg config, args []string) error {
 	case "whoami", "show":
 		return client.Whoami()
 	default:
-		return fmt.Errorf("usage: rogerai account [login|logout]")
+		return fmt.Errorf("usage: roger account [login|logout]")
 	}
 }
 
@@ -1303,7 +1311,7 @@ func cmdConfig(args []string) error {
 		return cmdSetLimit(args[1:])
 	case "clear-limit":
 		if len(args) < 2 {
-			return fmt.Errorf("usage: rogerai config clear-limit <model>")
+			return fmt.Errorf("usage: roger config clear-limit <model>")
 		}
 		c := loadConfig()
 		if c.Limits.Models != nil {
@@ -1328,7 +1336,7 @@ func cmdConfig(args []string) error {
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: rogerai config set <broker|user> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -1347,12 +1355,12 @@ func cmdConfig(args []string) error {
 	return nil
 }
 
-// cmdSetLimit handles `rogerai config set-limit <model> [--max-in P] [--max-out P]
+// cmdSetLimit handles `roger config set-limit <model> [--max-in P] [--max-out P]
 // [--min-tps N]`. Use "default" as the model to set the fallback limit. Only the
 // flags passed are changed (the rest of that model's limit is preserved).
 func cmdSetLimit(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rogerai config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
+		return fmt.Errorf("usage: roger config set-limit <model|default> [--max-in P] [--max-out P] [--min-tps N]")
 	}
 	// The model is the first positional; flags follow it. (Go's flag package stops
 	// at the first non-flag arg, so we pull the model out before parsing.)
@@ -1420,7 +1428,7 @@ func printLimits(c config) {
 	}
 	fmt.Printf("limits (typical reply ~%d out tokens):\n", typ)
 	if len(c.Limits.Models) == 0 && d == (Limit{}) {
-		fmt.Println("  (none set - no caps; `rogerai config set-limit <model> --max-out P`)")
+		fmt.Println("  (none set - no caps; `roger config set-limit <model> --max-out P`)")
 		return
 	}
 	models := make([]string, 0, len(c.Limits.Models))
@@ -1458,22 +1466,22 @@ func usage() {
 	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
   rogerai                       open the app (browse, tune in, chat)
-  rogerai search                list models, cheapest first
-  rogerai use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
-  rogerai balance               your wallet balance
-  rogerai topup <amt>           add funds to your wallet
-  rogerai limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger search                list models, cheapest first
+  roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
+  roger balance               your wallet balance
+  roger topup <amt>           add funds to your wallet
+  roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
 
 providers (share your GPU):
-  rogerai share <model>         go on air - FREE by default, no login (auto-detects your model)
-  rogerai login                 link GitHub - only needed to EARN
-  rogerai payout                cash out your earnings (status · onboard · request · history)
-  rogerai grant create --name my-bots   a free private key for your bots/family
+  roger share <model>         go on air - FREE by default, no login (auto-detects your model)
+  roger login                 link GitHub - only needed to EARN
+  roger payout                cash out your earnings (status · onboard · request · history)
+  roger grant create --name my-bots   a free private key for your bots/family
 
 more: account · config · support · upgrade
 
-advanced flags live behind --advanced (e.g. rogerai use <model> --advanced,
-rogerai share --advanced, rogerai grant create --advanced).
+advanced flags live behind --advanced (e.g. roger use <model> --advanced,
+roger share --advanced, roger grant create --advanced).
 
 env: ROGER_BROKER, ROGER_USER override config (%s)
 `, configPath())

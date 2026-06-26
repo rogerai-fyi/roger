@@ -1,4 +1,4 @@
-// Package detect finds local OpenAI-compatible LLM servers so `rogerai share`
+// Package detect finds local OpenAI-compatible LLM servers so `roger share`
 // can make you a provider with zero config if you already run Ollama, LM Studio,
 // llama.cpp, vLLM, Jan, LiteLLM, or anything else that serves /v1/models.
 //
@@ -42,7 +42,7 @@ type Found struct {
 
 // Common local OpenAI-compatible servers, by default port. Any server exposing
 // GET /v1/models works; this just enables zero-config detection. Users can always
-// point at anything with `rogerai share --upstream <url>`.
+// point at anything with `roger share --upstream <url>`.
 var probes = []struct{ name, base string }{
 	{"ollama", "http://127.0.0.1:11434/v1"},
 	{"lm-studio", "http://127.0.0.1:1234/v1"},
@@ -282,7 +282,7 @@ const DefaultCtx = 32768
 // ResolveCtx returns the real per-model context window for model, and whether it
 // is the estimated DefaultCtx fallback (estimated=true) versus a value actually
 // detected from the upstream (estimated=false). It is the ONE resolver both the CLI
-// (`rogerai share`) and the TUI share table route through, so a detection improvement
+// (`roger share`) and the TUI share table route through, so a detection improvement
 // lands in both and the duplicated 32768 literal lives in exactly one place.
 func ResolveCtx(ctx map[string]int, model string) (n int, estimated bool) {
 	if ctx != nil {

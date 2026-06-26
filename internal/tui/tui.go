@@ -658,14 +658,14 @@ type model struct {
 	setupErr    string // last paste-verify error
 	// payout: a lightweight, lazily-fetched snapshot of the operator's Connect/KYC
 	// state + payable balance, surfaced as a one-line hint in the ON-AIR / SHARE
-	// earnings surface ("$X payable - run `rogerai payout`" or "complete KYC: ...").
+	// earnings surface ("$X payable - run `roger payout`" or "complete KYC: ...").
 	// Fetched off the event loop (a tea.Cmd) only for a logged-in owner; payoutFetched
 	// guards the one-shot fetch so the SHARE view doesn't re-hit the broker on render.
 	payout        payoutSnapshot
 	payoutFetched bool
 }
 
-// payoutSnapshot is the TUI's compact view of `rogerai payout status` (enough for the
+// payoutSnapshot is the TUI's compact view of `roger payout status` (enough for the
 // earnings hint). kyc is the Connect status (none|onboarding|active|restricted).
 type payoutSnapshot struct {
 	loaded  bool
@@ -1274,7 +1274,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case modeFreqEntry:
 		// PRIVATE FREQUENCY entry: a small input to type/paste a frequency code. enter
 		// resolves it off the event loop (the SAME constant-work client.ResolveBand the
-		// `rogerai use --freq` path uses); esc cancels back to the browser. A wrong /
+		// `roger use --freq` path uses); esc cancels back to the browser. A wrong /
 		// nonexistent / empty / off-air code is INDISTINGUISHABLE from "no bands on this
 		// freq" - the broker returns the uniform "no station" reply and the freqResolvedMsg
 		// handler shows the SAME message for every negative case (no enumeration oracle,
@@ -1587,7 +1587,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		m.enterLimits()
 		return m, nil
 	case "config", "cfg":
-		m.status = fmt.Sprintf("broker %s · user %s  (rogerai config set broker <url>)", m.broker, m.user)
+		m.status = fmt.Sprintf("broker %s · user %s  (roger config set broker <url>)", m.broker, m.user)
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
 		if m.confidentialOnly {
@@ -1785,7 +1785,7 @@ func (m *model) toggleShareAt(i int) {
 	// the default model, else free).
 	p := m.pricingFor(row.model)
 	priceIn, priceOut := p.In, p.Out
-	// Share-to-EARN needs an account: a priced share requires `rogerai login` (the
+	// Share-to-EARN needs an account: a priced share requires `roger login` (the
 	// broker 403s a priced node from an unlinked owner). Flash a clear login prompt
 	// instead of a failed start; free sharing stays open to anyone, no login.
 	if (priceIn > 0 || priceOut > 0 || len(p.Windows) > 0) && !m.loggedInState() {
@@ -1800,7 +1800,7 @@ func (m *model) toggleShareAt(i int) {
 		up = m.shareUp
 	}
 	// Unique, STABLE, PRIVACY-PRESERVING node id per band: <station>-<model>, derived
-	// through the SAME helper the CLI `rogerai share` uses. The station is the friendly
+	// through the SAME helper the CLI `roger share` uses. The station is the friendly
 	// callsign (never the hostname); the per-model slug keeps each band a DISTINCT broker
 	// node (no collision -> no token war / re-register storm). instance 0: one row per
 	// model (the shares map is keyed by model), so no same-model disambiguation is needed.
@@ -2618,7 +2618,7 @@ func (m model) startLogin() (tea.Model, tea.Cmd) {
 			return loginMsg(l)
 		}
 	}
-	m.status = stDim.Render("login unavailable in this build - run `rogerai login`")
+	m.status = stDim.Render("login unavailable in this build - run `roger login`")
 	return m, nil
 }
 
@@ -2644,7 +2644,7 @@ func (m model) pollLoginCmd() tea.Cmd {
 // the logout confirm panel).
 func (m model) startLogout() (tea.Model, tea.Cmd) {
 	if m.hooks.Logout == nil {
-		m.status = stDim.Render("logout unavailable in this build - run `rogerai logout`")
+		m.status = stDim.Render("logout unavailable in this build - run `roger logout`")
 		m.mode = m.loginReturn
 		return m, nil
 	}
@@ -2745,7 +2745,7 @@ func (m model) loginView(w int) string {
 // doTopup opens checkout (async; the URL lands as a topupMsg).
 func (m model) doTopup(args []string) (tea.Model, tea.Cmd) {
 	if m.hooks.TopupURL == nil {
-		m.status = stDim.Render("top-up unavailable in this build - run `rogerai balance --topup`")
+		m.status = stDim.Render("top-up unavailable in this build - run `roger balance --topup`")
 		return m, nil
 	}
 	usd := 10.0
@@ -2770,7 +2770,7 @@ func (m model) doTopup(args []string) (tea.Model, tea.Cmd) {
 func (m model) doGrant(args []string) (tea.Model, tea.Cmd) {
 	if len(args) >= 1 && (args[0] == "create" || args[0] == "new") {
 		if m.hooks.GrantCreate == nil {
-			m.status = stDim.Render("grants unavailable in this build - run `rogerai grant create`")
+			m.status = stDim.Render("grants unavailable in this build - run `roger grant create`")
 			return m, nil
 		}
 		name := "my-bots"
@@ -2789,7 +2789,7 @@ func (m model) doGrant(args []string) (tea.Model, tea.Cmd) {
 	}
 	// default: list
 	if m.hooks.GrantList == nil {
-		m.status = stDim.Render("grants unavailable in this build - run `rogerai grant list`")
+		m.status = stDim.Render("grants unavailable in this build - run `roger grant list`")
 		return m, nil
 	}
 	broker, list := m.broker, m.hooks.GrantList
@@ -2823,7 +2823,7 @@ func (m model) doFreq(arg string) (tea.Model, tea.Cmd) {
 }
 
 // resolveFreq resolves a private-band frequency code OFF the event loop via the SAME
-// constant-work client.ResolveBand the `rogerai use --freq` consumer path uses, then
+// constant-work client.ResolveBand the `roger use --freq` consumer path uses, then
 // hands the result to the freqResolvedMsg handler. It is the single resolve entry
 // point for BOTH the /freq command and the [~] PRIVATE FREQUENCY input, so they share
 // one security model: every miss (wrong / empty / nonexistent / revoked / off-air)
@@ -3886,14 +3886,14 @@ func (m model) overLimitView(w int) string {
 // monthlyBudgetLine renders the per-account MONTHLY SPEND CAP (a budget limit) row
 // shown atop the spend-limits editor: month-to-date spend vs the cap, with an ember
 // "approaching"/"reached" tint near/at the cap. "no cap" when unset (the opt-in
-// default). Edited from the CLI (`rogerai limit --monthly $X`), shown here.
+// default). Edited from the CLI (`roger limit --monthly $X`), shown here.
 func monthlyBudgetLine(m model) string {
 	label := stDim.Render("    monthly budget   ")
 	if !m.loggedInState() {
 		return label + stDim.Render("log in to set a monthly spend limit")
 	}
 	if m.monthlyCap <= 0 {
-		return label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month   ·   set: rogerai limit --monthly $X")
+		return label + stLive.Render("no cap") + stDim.Render("   ·   used "+dollars(m.monthlySpend)+" this month   ·   set: roger limit --monthly $X")
 	}
 	used := dollars(m.monthlySpend) + stDim.Render(" of ") + stEmber.Render(dollars(m.monthlyCap))
 	tail := ""
@@ -3911,11 +3911,11 @@ func (m model) limitsView(w int) string {
 	var b strings.Builder
 	b.WriteString("\n" + stBrand.Render("  spend limits") + stDim.Render("    what you are willing to pay, per band") + "\n\n")
 	// Monthly budget (a per-account spend cap, enforced server-side at every paid
-	// path). Read-only here; set it with `rogerai limit --monthly $X`.
+	// path). Read-only here; set it with `roger limit --monthly $X`.
 	b.WriteString(monthlyBudgetLine(m) + "\n\n")
 	b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
 	if len(m.limModels) == 0 {
-		b.WriteString(stDim.Render("    (none yet - press a / set one in `rogerai config set-limit`)") + "\n")
+		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
 	}
 	for i, mdl := range m.limModels {
 		cur := " "
@@ -5706,7 +5706,7 @@ func (m model) onAirPanel(w int) string {
 	if hint := m.payoutHint(); hint != "" {
 		lines = append(lines, "  "+hint)
 	} else {
-		lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fyi/dashboard.html")+stDim.Render("  (or: rogerai payout status)"))
+		lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fyi/dashboard.html")+stDim.Render("  (or: roger payout status)"))
 	}
 	lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
 	// Every line is truncated to the inner content width so the bordered plate never
@@ -5769,7 +5769,7 @@ func elide(s string, n int) string {
 // nothing actionable). It is plain text under stDim/stEmber so it stays readable under
 // NO_COLOR and narrow widths (the caller truncates to width). The two states that
 // matter to a provider: KYC not done -> point at onboarding; payable at/above the
-// minimum -> point at `rogerai payout` to withdraw.
+// minimum -> point at `roger payout` to withdraw.
 func (m model) payoutHint() string {
 	if !m.loggedInState() || !m.payout.loaded {
 		return ""
@@ -5785,9 +5785,9 @@ func (m model) payoutHint() string {
 		if m.payout.payable <= 0 {
 			return ""
 		}
-		return stDim.Render("complete KYC to cash out: ") + stKey.Render("rogerai payout onboard")
+		return stDim.Render("complete KYC to cash out: ") + stKey.Render("roger payout onboard")
 	case m.payout.payable >= min:
-		return stEmber.Render(dollars(m.payout.payable)) + stDim.Render(" payable - run ") + stKey.Render("rogerai payout") + stDim.Render(" to cash out")
+		return stEmber.Render(dollars(m.payout.payable)) + stDim.Render(" payable - run ") + stKey.Render("roger payout") + stDim.Render(" to cash out")
 	default:
 		return ""
 	}
@@ -6059,7 +6059,7 @@ func (m model) bandCardView(w int) string {
 	b.WriteString("\n")
 	line(stRed.Render(glyphOnAir) + "  " + stKey.Render(disp))
 	b.WriteString("\n")
-	line(stDim.Render("tune in: ") + stKey.Render("rogerai use <model> --freq \""+m.bandCardCode+"\""))
+	line(stDim.Render("tune in: ") + stKey.Render("roger use <model> --freq \""+m.bandCardCode+"\""))
 	line(stDim.Render("the MHz part is cosmetic; the code is the secret."))
 	b.WriteString("\n")
 	line(stKey.Render("c") + stDim.Render(" copy · any key returns (not shown again)"))
@@ -6541,17 +6541,17 @@ func (m model) helpView() string {
 		{"q (browsing)", "quit RogerAI"},
 	}
 	cmds := [][2]string{
-		{"/search", "re-scan the band for stations (CLI: rogerai search)"},
-		{"/connect (enter)", "tune in to the selected station (CLI: rogerai use)"},
+		{"/search", "re-scan the band for stations (CLI: roger search)"},
+		{"/connect (enter)", "tune in to the selected station (CLI: roger use)"},
 		{"/chat (c · tab)", "open the CHANNEL session with the connected model"},
 		{"/share [off]", "SHARE: the provider table - flip your models on/off air"},
-		{"/login", "link GitHub - only needed to EARN (CLI: rogerai login)"},
-		{"/balance · /topup", "your wallet balance · add funds (CLI: rogerai balance)"},
+		{"/login", "link GitHub - only needed to EARN (CLI: roger login)"},
+		{"/balance · /topup", "your wallet balance · add funds (CLI: roger balance)"},
 		{"/limits", "see + edit your per-model spend maxes"},
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
-		{"/support", "open rogerai.fyi - community + Discord (CLI: rogerai support)"},
+		{"/support", "open rogerai.fyi - community + Discord (CLI: roger support)"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder
@@ -6613,7 +6613,7 @@ func (m model) helpView() string {
 	return b.String()
 }
 
-// supportURL is where /support (and `rogerai support`) sends people: the website,
+// supportURL is where /support (and `roger support`) sends people: the website,
 // which hosts the community / Discord link in its footer. Per the founder, /support
 // points at the site (not straight at Discord) so the single source of truth for
 // the community link stays the footer.
@@ -6623,7 +6623,7 @@ const supportURL = "https://rogerai.fyi"
 var helpVersion = "v4.6.3"
 
 // SetVersion lets the host (cmd/rogerai) inject the build version so the help /
-// about surfaces match `rogerai version`.
+// about surfaces match `roger version`.
 func SetVersion(v string) {
 	if v == "" {
 		return
@@ -6941,7 +6941,7 @@ func fetchBalance(broker, user string) tea.Cmd {
 }
 
 // fetchPayoutStatus reads the operator's Connect/KYC + payable snapshot off the
-// event loop (the SAME signed CLI path `rogerai payout` uses), for the SHARE-view
+// event loop (the SAME signed CLI path `roger payout` uses), for the SHARE-view
 // earnings hint. Best-effort: any error returns a not-loaded snapshot (no hint).
 func fetchPayoutStatus(broker string) tea.Cmd {
 	return func() tea.Msg {

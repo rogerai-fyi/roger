@@ -90,7 +90,7 @@ func Login(broker, clientID string) error {
 	// First login lands the $1 starter credit on the account wallet (the broker seeds
 	// once per account). Surface it so a new user knows they can try a paid model right
 	// away; a re-login is a no-op so this line is harmless if the seed was already given.
-	fmt.Println("  + $1 starter credit on your wallet - enough to try a paid model. `rogerai topup` adds more.")
+	fmt.Println("  + $1 starter credit on your wallet - enough to try a paid model. `roger topup` adds more.")
 	return nil
 }
 
@@ -208,7 +208,7 @@ func Logout() error {
 	if err := os.Remove(authPath()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	fmt.Println("logged out - GitHub link forgotten locally; your signing keypair is kept (now anonymous). Run `rogerai login` to use your wallet again.")
+	fmt.Println("logged out - GitHub link forgotten locally; your signing keypair is kept (now anonymous). Run `roger login` to use your wallet again.")
 	return nil
 }
 
@@ -223,7 +223,7 @@ func Whoami() error {
 		return nil
 	}
 	fmt.Println("anonymous - not logged in")
-	fmt.Println("  free models and grant keys work; run `rogerai login` to use your wallet + earn")
+	fmt.Println("  free models and grant keys work; run `roger login` to use your wallet + earn")
 	fmt.Printf("  pubkey:  %s\n", UserPubHex())
 	return nil
 }
@@ -291,14 +291,14 @@ func pollDeviceToken(clientID string, dev deviceFlow) (string, error) {
 		case r.Error == "slow_down":
 			interval += 5 * time.Second
 		case r.Error == "expired_token":
-			return "", fmt.Errorf("the login code expired - run `rogerai login` again")
+			return "", fmt.Errorf("the login code expired - run `roger login` again")
 		case r.Error == "access_denied":
 			return "", fmt.Errorf("login denied")
 		case r.Error != "":
 			return "", fmt.Errorf("github: %s", r.Error)
 		}
 	}
-	return "", fmt.Errorf("login timed out - run `rogerai login` again")
+	return "", fmt.Errorf("login timed out - run `roger login` again")
 }
 
 // postSigned posts a JSON body to url with the user-key request signature.

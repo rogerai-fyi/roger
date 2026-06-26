@@ -297,13 +297,13 @@
       }
     },
 
-    // `rogerai search` - the band listing with signal bars
+    // `roger search` - the band listing with signal bars
     search: {
-      label: "search", title: "rogerai search",
+      label: "search", title: "roger search",
       build: function () {
         return compile(function (c) {
-          c.type([], "rogerai search " + BAND, AFTER_TYPE);
-          var hdr = bandHead("rogerai search " + BAND);
+          c.type([], "roger search " + BAND, AFTER_TYPE);
+          var hdr = bandHead("roger search " + BAND);
           c.show(hdr, STEP);
           for (var i = 0; i < stations.length; i++) {
             c.show(hdr.concat(stations.slice(0, i + 1).map(stationRow)), 380);
@@ -316,12 +316,12 @@
       }
     },
 
-    // `rogerai use` - scanning -> locking -> handshake -> CHANNEL OPEN + plate
+    // `roger use` - scanning -> locking -> handshake -> CHANNEL OPEN + plate
     use: {
-      label: "use", title: "rogerai use",
+      label: "use", title: "roger use",
       build: function () {
         return compile(function (c) {
-          var cmd = "rogerai use " + BAND + " --max-price " + MAX_PRICE + " --min-tps " + MIN_TPS;
+          var cmd = "roger use " + BAND + " --max-price " + MAX_PRICE + " --min-tps " + MIN_TPS;
           c.type([], cmd, AFTER_TYPE);
           var base = [PROMPT + head(cmd), ""];
           var steps = [
@@ -335,12 +335,12 @@
       }
     },
 
-    // `rogerai share` - going ON AIR + an earnings tick
+    // `roger share` - going ON AIR + an earnings tick
     share: {
-      label: "share", title: "rogerai share",
+      label: "share", title: "roger share",
       build: function () {
         return compile(function (c) {
-          var cmd = "rogerai share " + BAND + " --rate " + MAX_PRICE;
+          var cmd = "roger share " + BAND + " --rate " + MAX_PRICE;
           c.type([], cmd, AFTER_TYPE);
           var base = [PROMPT + head(cmd), ""];
           var steps = [

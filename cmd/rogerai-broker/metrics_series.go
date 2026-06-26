@@ -175,7 +175,7 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to view your metrics")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your metrics")
 		return
 	}
 
@@ -395,7 +395,7 @@ func (b *broker) console(w http.ResponseWriter, r *http.Request) {
 	provider := ownerOK && owner.Pubkey != "" && owner.GitHubID != 0
 
 	if !consumer && !provider {
-		jsonErr(w, http.StatusUnauthorized, "not logged in - run `rogerai login` to view your console")
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to view your console")
 		return
 	}
 

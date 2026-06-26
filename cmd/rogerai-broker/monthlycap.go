@@ -70,7 +70,7 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 		// when RESEND_API_KEY is unset or no email on file.
 		b.emailCapNotice(holder, "100", spend, cap, now)
 		return http.StatusPaymentRequired, fmt.Sprintf(
-			"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `rogerai limit --monthly` (or [3] CONFIG), or wait until next month",
+			"monthly spend limit reached: $%.2f of $%.2f this month - raise it with `roger limit --monthly` (or [3] CONFIG), or wait until next month",
 			round6(spend), round6(cap))
 	}
 	// Allowed: emit the near/at notice headers from the cap + spend we ALREADY read

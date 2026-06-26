@@ -12,7 +12,7 @@ func TestNoticeAndAvailability(t *testing.T) {
 	}
 	// newer available -> a banner naming both versions + the upgrade command
 	n := (CheckResult{Current: "0.1.0", Latest: "0.2.0", Available: true}).Notice()
-	for _, want := range []string{"v0.1.0", "v0.2.0", "rogerai upgrade"} {
+	for _, want := range []string{"v0.1.0", "v0.2.0", "roger upgrade"} {
 		if !strings.Contains(n, want) {
 			t.Errorf("notice %q missing %q", n, want)
 		}

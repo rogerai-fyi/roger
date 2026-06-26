@@ -236,17 +236,17 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	if gated {
 		// Priced/private MUST be a GitHub-linked owner: reject unsigned/unauthed/unlinked.
 		if !authed {
-			msg := "earning (priced) node registration requires `rogerai login` (a GitHub-linked owner)"
+			msg := "earning (priced) node registration requires `roger login` (a GitHub-linked owner)"
 			if reg.Private {
-				msg = "a private band requires `rogerai login` (anonymous private sharing is not allowed)"
+				msg = "a private band requires `roger login` (anonymous private sharing is not allowed)"
 			}
 			jsonErr(w, http.StatusUnauthorized, msg)
 			return
 		}
 		if !ownerOK {
-			msg := "earning (priced) node registration requires a GitHub-linked owner - run `rogerai login`"
+			msg := "earning (priced) node registration requires a GitHub-linked owner - run `roger login`"
 			if reg.Private {
-				msg = "a private band requires a GitHub-linked owner - run `rogerai login`"
+				msg = "a private band requires a GitHub-linked owner - run `roger login`"
 			}
 			jsonErr(w, http.StatusForbidden, msg)
 			return
@@ -321,7 +321,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		if !b.allowFreeReg(clientIP(r), !known) {
 			b.mu.Unlock()
 			jsonErr(w, http.StatusTooManyRequests,
-				"too many new free stations from this address - slow down or `rogerai login` to register an owned station")
+				"too many new free stations from this address - slow down or `roger login` to register an owned station")
 			return
 		}
 	}
@@ -1025,7 +1025,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	if !gok && !pricing.free && !walletLoggedIn(payer) {
 		ain, aout, afree, _ := offer.ActivePrice(time.Now())
 		if !afree && (ain > 0 || aout > 0) {
-			jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `rogerai login` (free models and grant keys work without an account)")
+			jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `roger login` (free models and grant keys work without an account)")
 			return
 		}
 	}
