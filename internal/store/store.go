@@ -1672,6 +1672,13 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 	// amount. Already-clawed lots are skipped; held/payable AND paid lots are eligible
 	// (a paid lot is reversed via Stripe rather than escaping the clawback).
 	notClawed := func(l *EarningLot) bool { return l.State != LotClawed }
+	// reqCost maps a request to the CONSUMER cost it was billed (entry.Cost), so the claw
+	// loop can stop once the clawed lots cover the disputed amount in CONSUMER dollars - the
+	// units `amount` is in. Stopping on operator GROSS instead would over-claw by a factor
+	// of 1/(1-feeRate): clawing into lots funded by the consumer's OTHER (non-disputed)
+	// top-ups and making an honest operator absorb the platform's fee. Empty for the
+	// explicit-requestID path (which claws the one request and never caps on amount).
+	reqCost := map[string]float64{}
 	var order []int
 	if requestID != "" {
 		for i := range m.lots {
@@ -1684,6 +1691,7 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 		for _, e := range m.entries {
 			if e.User == wallet {
 				reqTS[e.RequestID] = e.TS
+				reqCost[e.RequestID] = e.Cost
 			}
 		}
 		for i := range m.lots {
@@ -1707,12 +1715,14 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 	}
 
 	var res ChargebackResult
-	recovered := 0.0 // held/payable clawed + paid reversed (everything attributed to a lot)
+	recovered := 0.0  // operator GROSS clawed/reversed - what is actually recovered from operators
+	costClawed := 0.0 // CONSUMER cost of the clawed lots - compared to the (consumer-dollar) amount
 	for _, i := range order {
-		if requestID == "" && recovered >= amount {
+		if requestID == "" && costClawed >= amount {
 			break
 		}
 		l := &m.lots[i]
+		costClawed += reqCost[l.RequestID]
 		switch l.State {
 		case LotPaid:
 			// Already paid out: claw the lot AND emit a payout_reversed ledger row; the

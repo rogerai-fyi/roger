@@ -275,6 +275,49 @@ func TestChargebackByWalletRecency(t *testing.T) {
 	}
 }
 
+// TestChargebackNoOverClawWithFee locks the fee-aware claw cap: the dispute amount is in
+// CONSUMER dollars, so the claw must stop once the clawed lots' consumer COST covers it -
+// recovering only the operator's SHARE of the disputed spend, never 1/(1-fee)x more. With a
+// 30% platform fee, a $100 dispute claws exactly the operator's $70 share of ONE $100-cost
+// lot and books the $30 fee as PlatformLoss, leaving the consumer's OTHER lot intact. The
+// old loop (stopping on operator gross >= amount) clawed BOTH lots (140), zeroed the
+// operator, and recorded no platform loss - this test fails on that behavior.
+func TestChargebackNoOverClawWithFee(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	fundReal(m, "alice", 1000) // real credits so the operator earns the full owner share (P0-1)
+	_ = m.BindNode("n", "pk1")
+
+	// Two $100-cost requests by alice; the operator earns 70 each (30% platform fee). Think
+	// of them as funded by two different $100 top-ups: only one top-up is disputed.
+	mk := func(id string, ts int64) {
+		_, _ = m.Hold("alice", 100)
+		r := protocol.UsageReceipt{RequestID: id, Model: "m", PromptTokens: 1, CompletionTokens: 1, TS: ts}
+		_, _ = m.Finalize("alice", "n", 100, 100, 70, r)
+	}
+	mk("a1", 1000) // older
+	mk("a2", 2000) // newer
+
+	res, err := m.ChargebackLineage("dp", "alice", "", 100, time.Now())
+	if err != nil {
+		t.Fatalf("ChargebackLineage err: %v", err)
+	}
+	if !approx(res.Clawed, 70) {
+		t.Errorf("clawed = %v, want 70 (operator share of the ONE disputed lot, not over-clawed to 140)", res.Clawed)
+	}
+	if !approx(res.PlatformLoss, 30) {
+		t.Errorf("platform loss = %v, want 30 (the platform's fee on the disputed spend)", res.PlatformLoss)
+	}
+	if !approx(res.Clawed+res.PlatformLoss, 100) { // conservation: recovery + loss == amount
+		t.Errorf("clawed(%v)+platformLoss(%v) != disputed amount 100", res.Clawed, res.PlatformLoss)
+	}
+	// The consumer's OTHER lot (a1) must survive - the claw must not reach into it.
+	if s, _ := m.EarningSplitOf("pk1", time.Now()); !approx(s.Payable, 70) {
+		t.Errorf("operator payable after claw = %v, want 70 (a1 survives; old over-claw would zero it)", s.Payable)
+	}
+}
+
 // TestLinkChargeWalletByCharge verifies the checkout->charge mapping: a charge can be
 // resolved by EITHER the payment_intent or the charge id; an unknown ref reports
 // ok=false; and the mapping is idempotent on the session id.

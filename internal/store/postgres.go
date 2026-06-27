@@ -1536,7 +1536,8 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 	type claw struct {
 		id       int64
 		acct     string
-		gross    float64
+		gross    float64 // operator share recovered when this lot is clawed
+		cost     float64 // CONSUMER cost billed for this lot's request (the dispute is in these units)
 		state    string
 		transfer string
 	}
@@ -1546,7 +1547,7 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 		for rows.Next() {
 			var c claw
 			var tr sql.NullString
-			if err := rows.Scan(&c.id, &c.acct, &c.gross, &c.state, &tr); err != nil {
+			if err := rows.Scan(&c.id, &c.acct, &c.gross, &c.state, &tr, &c.cost); err != nil {
 				return err
 			}
 			c.transfer = tr.String
@@ -1555,7 +1556,9 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 		return rows.Err()
 	}
 	if requestID != "" {
-		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id
+		// Explicit request: claw that one request's lots; cost is unused (no amount cap), so
+		// select 0 to satisfy the shared scan.
+		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id,0::float8
 			FROM rogerai.earning_lots l
 			LEFT JOIN rogerai.payouts po ON po.id=l.payout_id
 			WHERE l.request_id=$1 AND l.state IN ('held','payable','paid')`, requestID)
@@ -1566,7 +1569,10 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 			return ChargebackResult{}, err
 		}
 	} else {
-		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id
+		// Carry r.cost (the CONSUMER amount billed) so the loop can cap on consumer dollars,
+		// not operator gross - else it over-claws by 1/(1-feeRate) into the consumer's other
+		// (non-disputed) top-ups and makes an honest operator eat the platform's fee.
+		rows, err := tx.Query(`SELECT l.id,l.account_id,l.gross,l.state,po.stripe_transfer_id,r.cost
 			FROM rogerai.earning_lots l
 			JOIN rogerai.receipts r ON r.request_id=l.request_id
 			LEFT JOIN rogerai.payouts po ON po.id=l.payout_id
@@ -1580,11 +1586,13 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 		}
 	}
 	var out ChargebackResult
-	recovered := 0.0
+	recovered := 0.0  // operator gross recovered (clawed + reversed)
+	costClawed := 0.0 // consumer cost of clawed lots, compared to the consumer-dollar amount
 	for _, c := range claws {
-		if requestID == "" && recovered >= amount {
+		if requestID == "" && costClawed >= amount {
 			break
 		}
+		costClawed += c.cost
 		if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
 			return ChargebackResult{}, err
 		}
