@@ -1,0 +1,999 @@
+/* =====================================================================
+   Roger - console.css : the embedded "node console", restyled to the
+   rogerai.fyi design system ("The Live Operating Manual").
+
+   ~95% warm monochrome + EXACTLY ONE accent: the red on-air beacon
+   (var(--live), #E0231C). Color is a SIGNAL, never a surface - red shows
+   up only as small glints: the on-air dot, the live-link dot, focus rings,
+   the active-tab underline, the primary action, an over-cap warning.
+
+   This view is SELF-CONTAINED / OFFLINE: only tokens.css is loaded before
+   it (no base.css / account-base.css, no webfont CDN). So the handful of
+   shared primitives the site keeps in those modules - the reset, the flat
+   hairline plate, the §-marker headings, the stat/receipt rows, the ghost
+   + one-solid button voice, the mono table - are re-expressed here in the
+   same token vocabulary. Type relies on the --font-ui / --font-mono family
+   stacks' system fallbacks (Space Grotesk / JetBrains Mono if installed).
+
+   Sections:
+     0. Local alias + dark-mode token re-apply
+     1. Reset / base / utilities
+     2. Auth gate (locked plate)
+     3. Topbar : brand, callsign, slot meter, live-link, tabs
+     4. Content + panels + §-marker headings
+     5. SHARE : totals, login warn, frequency-code card
+     6. Tables : the lineage / market log (share + browse)
+     7. Status beacons : dots, labels, signal bars, verified lineage
+     8. ACCOUNT : plates, balance meter, session, payouts, grants
+     9. Controls : buttons, inputs, link/x buttons, checkboxes
+    10. Modals + fields
+    11. Toasts
+    12. Responsive + reduced motion
+   ===================================================================== */
+
+/* =====================================================================
+   0. LOCAL ALIAS + DARK MODE
+   ===================================================================== */
+
+/* console.js writes an inline `border-left: 3px solid var(--accent)` on a
+   freshly-revealed grant secret. Map that legacy name onto the one red so
+   the glint stays on-system without touching the JS. */
+:root { --accent: var(--live); }
+
+/* The console has no theme toggle / JS to set data-theme, so honor the OS
+   preference directly: re-apply tokens.css's [data-theme="dark"] values to
+   :root. Values mirror the dark block in tokens.css verbatim; same
+   single-accent discipline. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --white:      #1C1A14;
+    --paper:      #0E0D0B;
+    --paper-2:    #16140F;
+    --paper-3:    #1F1C16;
+    --hairline:   #2A2720;
+    --hairline-2: #38342B;
+
+    --ink-900:    #F3F1EA;
+    --ink-700:    #D7D3C8;
+    --ink-500:    #9A968B;
+    --ink-400:    #7A766B;
+    --ink-300:    #555148;
+
+    --live:       #FF4438;
+    --live-tint:  rgba(255, 68, 56, 0.16);
+    --live-glow:  rgba(255, 68, 56, 0.32);
+    --live-wash:  rgba(255, 68, 56, 0.14);
+
+    --glass:      rgba(14, 13, 11, 0.82);
+    --glass-soft: rgba(14, 13, 11, 0.55);
+
+    color-scheme: dark;
+  }
+}
+
+/* =====================================================================
+   1. RESET / BASE / UTILITIES
+   ===================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--ink-700);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, p { margin: 0; }
+button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+code { font-family: var(--font-mono); }
+[hidden] { display: none !important; }
+/* Red WASH (not a solid red surface) + ink text, so selection stays readable in BOTH
+   themes — a solid --live with --paper text goes near-black-on-red in dark mode. */
+::selection { background: var(--live-tint); color: var(--ink-900); }
+
+noscript {
+  display: block;
+  padding: var(--s-4) var(--gutter);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+}
+
+/* machine truth: tabular mono numerals everywhere a figure is set. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+  letter-spacing: -0.01em;
+}
+.muted { color: var(--ink-400); }
+.small { font-size: var(--t-xs); }
+
+/* focus discipline: the one red ring, shared by every interactive node. */
+:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* =====================================================================
+   2. AUTH GATE - the "console locked" plate (one flat hairline frame).
+   ===================================================================== */
+.auth-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--s-12) var(--gutter);
+}
+.auth-card {
+  width: 100%;
+  max-width: 460px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  padding: var(--s-10) clamp(var(--s-6), 5vw, var(--s-10));
+}
+.auth-card .brand-mark { margin-bottom: var(--s-5); }
+.auth-card h1 {
+  font-size: var(--t-h2);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-h2);
+  color: var(--ink-900);
+  line-height: var(--lh-snug);
+  margin-bottom: var(--s-4);
+}
+.auth-card p { color: var(--ink-500); font-size: var(--t-sm); margin-bottom: var(--s-3); }
+.auth-card code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  color: var(--ink-900);
+}
+
+/* the wordmark: grotesk, ink, with one live-red beacon dot for "on air". */
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-ui);
+  font-weight: var(--weight-bold);
+  font-size: var(--t-h3);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+}
+.brand-mark::after {
+  content: "";
+  width: 6px; height: 6px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash);
+  animation: beat var(--carrier) var(--ease-in-out) infinite;
+}
+
+/* =====================================================================
+   3. TOPBAR - the restrained nav voice: mono labels, hairline rule, a
+   frosted glass backing, the live-link + slot beacons.
+   ===================================================================== */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  padding: var(--s-3) var(--gutter);
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--hairline);
+}
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.topbar-left .brand-mark { font-size: var(--t-lead); }
+
+/* station callsign: machine truth, mono, primary ink. */
+.station-callsign {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+  letter-spacing: -0.01em;
+}
+
+/* topbar slot meter: ◉ red on-air glyph + n/n mono reading. */
+.slot-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+.slot-meter .dot-on { color: var(--live); font-size: 0.7em; line-height: 1; }
+
+/* the big share-header slot reading. */
+.slot-meter.big {
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+}
+.slot-meter.big b {
+  font-size: var(--t-sm);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  font-weight: var(--weight-semi);
+}
+
+/* ---- tabs : SHARE / ACCOUNT / BROWSE - mono, the active one underlined
+   in the one red. ---- */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-5);
+  margin-left: auto;
+}
+.tab {
+  position: relative;
+  padding: var(--s-2) 2px;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-500);
+  transition: color var(--d-2) var(--ease-standard);
+}
+.tab:hover { color: var(--ink-900); }
+.tab[aria-selected="true"] { color: var(--ink-900); }
+.tab::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  background: var(--live);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--d-2) var(--ease-out-quint);
+}
+.tab[aria-selected="true"]::after { transform: scaleX(1); }
+
+/* ---- the live-link beacon : on air = red, connecting/reconnecting =
+   a MONOCHROME pulsing ink dot (per the one-red rule, never amber). ---- */
+.topbar-right { display: inline-flex; align-items: center; }
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.conn-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ink-300);
+  /* default state = connecting : a muted ink pulse. */
+  animation: pulse var(--carrier) var(--ease-in-out) infinite;
+}
+.conn.live { color: var(--ink-700); }
+.conn.live .conn-dot {
+  background: var(--live);
+  box-shadow: 0 0 0 3px var(--live-wash);
+  animation: beat var(--carrier) var(--ease-in-out) infinite;
+}
+.conn.down .conn-dot { background: var(--ink-400); }
+
+/* =====================================================================
+   4. CONTENT + PANELS + §-MARKER HEADINGS
+   ===================================================================== */
+.content {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: var(--s-8) var(--gutter) var(--s-16);
+}
+.panel { margin: 0; }
+
+.panel-head { margin-bottom: var(--s-5); }
+.panel-head-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.panel-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+/* §-marker register: a mono, tracked, uppercase title preceded by the one
+   short red rule (mirrors account-base.css .card h2 / .sectionno). */
+.panel-head h2 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  line-height: 1.4;
+}
+.panel-head h2::before {
+  content: "";
+  align-self: center;
+  width: 18px; height: 2px;
+  background: var(--live);
+  flex: none;
+}
+/* the station callsign sitting in the SHARE heading: mono, primary ink. */
+.callsign-edit {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  text-transform: none;
+}
+
+/* =====================================================================
+   5. SHARE : totals line, login warning, frequency-code card
+   ===================================================================== */
+
+/* totals: a printed spec line - mono, dotted with middots, tertiary ink. */
+.totals {
+  margin-top: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-700);
+  line-height: 1.6;
+}
+.totals .muted { color: var(--ink-400); }
+
+/* login warning : a flat hairline plate with a single red left rule
+   (the manual's caution call-out, not a yellow SaaS banner). */
+.login-warn {
+  margin-top: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+}
+
+/* frequency-code card : the "shown once" secret - paper-3 fill, hairline
+   frame, square, the copy-line register. */
+.code-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+  padding: var(--s-4);
+  background: var(--paper-3);
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-md);
+}
+.code-card-body { flex: 1 1 auto; min-width: 0; }
+.code-card-title {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-500);
+  margin-bottom: var(--s-2);
+}
+.code-card-title b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.code-value {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+  word-break: break-all;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+}
+.code-value.big { font-size: var(--t-h3); letter-spacing: 0.04em; }
+.code-band {
+  margin-top: var(--s-2);
+  font-family: var(--font-mono);
+  color: var(--ink-400);
+}
+
+/* =====================================================================
+   6. TABLES : the lineage / market log (share + browse). Mono,
+   tabular-nums, hairline row rules, right-aligned numeric columns -
+   the account console's receipt/log register.
+   ===================================================================== */
+.table-wrap {
+  margin-top: var(--s-5);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+.data-table th,
+.data-table td {
+  padding: var(--s-2) var(--s-3);
+  border-top: 1px solid var(--hairline);
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.data-table thead th {
+  border-top: 0;
+  border-bottom: 1px solid var(--hairline-2);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.data-table td.num,
+.data-table th.num { text-align: right; }
+
+/* numeric body cells: tabular mono, money in primary ink + weight. */
+.data-table td.served,
+.data-table td.outtok { color: var(--ink-700); }
+.data-table td.earnings { color: var(--ink-900); font-weight: var(--weight-medium); }
+
+/* model cell: dot + name (+ ctx caption). */
+.cell-model { color: var(--ink-900); }
+.model-name {
+  font-family: var(--font-mono);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+}
+.ctx { color: var(--ink-400); font-size: var(--t-xs); }
+
+/* price cell. */
+.price-cell { color: var(--ink-700); }
+.price-cell .free,
+.free {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+.sched { color: var(--ink-400); font-size: var(--t-xs); }
+
+/* empty / loading row: quiet, centered, in the UI face (not mono). */
+.empty-row td {
+  color: var(--ink-400);
+  text-align: center;
+  font-family: var(--font-ui);
+  padding: var(--s-8) var(--s-3);
+  white-space: normal;
+}
+.empty-row b { color: var(--ink-700); font-weight: var(--weight-medium); }
+
+/* per-row actions live in the last column. */
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+/* =====================================================================
+   7. STATUS BEACONS : dots, labels, signal bars, verified lineage.
+   The whole accent budget lives here - red ONLY for on-air; every other
+   state is warm ink, monochrome.
+   ===================================================================== */
+
+/* share-table status dot: ◉ on-air (red) / ◌ connecting (ink pulse) /
+   ○ off (ink-300). */
+.status-dot {
+  font-size: 0.78em;
+  line-height: 1;
+  margin-right: 4px;
+}
+.status-dot.on { color: var(--live); }
+.status-dot.connecting {
+  color: var(--ink-500);
+  animation: pulse var(--carrier) var(--ease-in-out) infinite;
+}
+.status-dot.off { color: var(--ink-300); }
+
+/* status label: mono, tracked, uppercase. On-air wears the one red. */
+.status-label {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  font-weight: var(--weight-medium);
+}
+.status-label.on { color: var(--live); }
+.status-label.connecting { color: var(--ink-500); }
+.status-label.private { color: var(--ink-500); }
+.status-label.off { color: var(--ink-400); }
+
+/* browse online dot: ◉ live on the market (red) / ○ off (ink-300). */
+.online-dot { font-size: 0.78em; line-height: 1; margin-right: 4px; }
+.online-dot.on { color: var(--live); }
+.online-dot.off { color: var(--ink-300); }
+
+/* verified lineage ◆ : sober ink (the --gold lineage collapses to ink). */
+.verified { color: var(--ink-700); }
+
+/* signal bars ▁▂▃▄▅▆▇█ : kept monochrome, weighted by strength in ink. */
+.signal {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.signal.s-low  { color: var(--ink-400); }
+.signal.s-mid  { color: var(--ink-500); }
+.signal.s-high { color: var(--ink-900); }
+
+/* =====================================================================
+   8. ACCOUNT : flat hairline plates, balance meter, session, payouts,
+   grants. Mirrors account-base.css (.card, .stats, .kv rows).
+   ===================================================================== */
+.cards {
+  margin-top: var(--s-5);
+  display: grid;
+  gap: var(--s-5);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* each plate: a single hairline frame, square corners, no shadow. */
+.card {
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  padding: var(--s-6);
+}
+
+/* plate title: the §-marker register (mono, tracked, one red rule). */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin-bottom: var(--s-4);
+}
+.card-title::before {
+  content: "";
+  width: 14px; height: 2px;
+  background: var(--live);
+  flex: none;
+}
+
+/* the big balance figure: mono, tabular, primary ink (a stat reading). */
+.big-figure {
+  font-family: var(--font-mono);
+  font-size: 1.9rem;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.01em;
+  color: var(--ink-900);
+  line-height: 1.1;
+}
+
+/* spend meter: ink fill on a paper-3 track; red only when over the cap. */
+.meter-line { margin-top: var(--s-3); }
+.meter {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--paper-3);
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  width: 0;
+  background: var(--ink-700);
+  border-radius: inherit;
+  transition: width var(--d-3) var(--ease-out-quint);
+}
+.meter-fill.over { background: var(--live); }
+.meter-line .small { margin-top: var(--s-2); color: var(--ink-400); }
+
+/* key/value rows: mono uppercase key + mono reading, on hairlines. */
+.kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-sm);
+}
+.kv:first-of-type { border-top: 0; }
+.kv > span {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.kv > b {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+}
+
+/* a horizontal control cluster inside a plate. */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-top: var(--s-4);
+}
+
+/* session: lead copy + the device-flow block. */
+#card-session p { font-size: var(--t-sm); color: var(--ink-500); margin-bottom: var(--s-3); }
+#card-session p a { color: var(--live); border-bottom: 1px solid var(--live); }
+#acct-login-state {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+  margin-bottom: var(--s-3);
+}
+.login-flow { margin-top: var(--s-3); }
+.spinner-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+}
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid var(--hairline-2);
+  border-top-color: var(--live);
+  border-radius: 50%;
+  flex: none;
+  animation: spin 0.8s linear infinite;
+}
+
+/* payout history + grant list: mono printouts on the plate. */
+.history {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-700);
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+.grant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+}
+.grant-list li {
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-700);
+  word-break: break-word;
+}
+.grant-list li:first-child { border-top: 0; }
+.grant-list .muted { color: var(--ink-400); }
+
+/* the "broker not configured" notice. */
+.not-configured {
+  margin-top: var(--s-5);
+  padding: var(--s-4);
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+}
+
+/* =====================================================================
+   9. CONTROLS : buttons, inputs, link/x buttons, checkboxes.
+   The site's voice - quiet outline/ghost for secondary, ONE solid ink for
+   the primary; red for focus rings + hover glints, never for button fills.
+   ===================================================================== */
+
+/* secondary action : an ink hairline outline on paper, red on hover. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: 9px 16px;
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard),
+              opacity var(--d-1) var(--ease-standard);
+}
+.btn:hover { color: var(--ink-900); border-color: var(--live); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+
+/* even quieter ghost : no fill, lighter weight - for tertiary actions. */
+.btn.ghost {
+  background: none;
+  border-color: var(--hairline);
+  color: var(--ink-500);
+}
+.btn.ghost:hover { color: var(--live); border-color: var(--live); }
+
+/* THE one prominent action : ink fill, the only solid control (mirrors
+   account-base.css .gh / .primary). Red focus ring, never a red fill. */
+.btn.primary {
+  background: var(--ink-900);
+  border-color: var(--ink-900);
+  color: var(--paper);
+}
+.btn.primary:hover { opacity: 0.88; color: var(--paper); border-color: var(--ink-900); }
+
+/* compact variant for in-row / in-card controls. */
+.btn.small { padding: 5px 11px; font-size: var(--t-xs); }
+
+/* link-style button : ink text, the red glint as a hover underline. */
+.link-btn {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  padding: 2px 0;
+  border-bottom: 1px solid transparent;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.link-btn:hover { color: var(--live); border-bottom-color: var(--live); }
+
+/* dismiss / remove glyph button. */
+.x-btn {
+  flex: none;
+  width: 26px; height: 26px;
+  display: inline-grid;
+  place-items: center;
+  font-size: var(--t-body);
+  line-height: 1;
+  color: var(--ink-400);
+  border-radius: var(--r-sm);
+  transition: color var(--d-1) var(--ease-standard);
+}
+.x-btn:hover { color: var(--live); }
+
+/* mono text/number fields : hairline frame, square, the one red focus ring
+   (matches account-base.css inputs + console.css md fields). */
+.inp {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--ink-900);
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  width: 100%;
+  transition: border-color var(--d-1) var(--ease-standard);
+}
+.inp::placeholder { color: var(--ink-400); }
+.inp:focus-visible {
+  outline: none;
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+.inp.small { width: 9em; padding: 6px 8px; }
+
+/* inline checkbox + label, mono. */
+.chk {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.chk input { accent-color: var(--live); }
+
+/* =====================================================================
+   10. MODALS + FIELDS
+   ===================================================================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: var(--glass-soft);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--e-4);
+  padding: var(--s-6);
+}
+.modal.wide { max-width: 560px; }
+.modal h3 {
+  font-family: var(--font-ui);
+  font-size: var(--t-h3);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-h3);
+  color: var(--ink-900);
+  margin-bottom: var(--s-4);
+}
+.modal h3 .mono { color: var(--ink-900); font-weight: var(--weight-medium); }
+.modal > p { font-size: var(--t-sm); color: var(--ink-500); margin-bottom: var(--s-4); }
+
+/* a labelled field: a mono uppercase caption above its control. */
+.field { display: block; margin-bottom: var(--s-4); }
+.field > span {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin-bottom: var(--s-2);
+}
+.price-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-4);
+}
+.windows-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin: var(--s-2) 0 var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.windows { display: flex; flex-direction: column; gap: var(--s-2); }
+.window-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.window-row .inp { width: auto; flex: 1 1 4.5em; min-width: 4.5em; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-3);
+  margin-top: var(--s-6);
+}
+
+/* =====================================================================
+   11. TOASTS - the site's pill : ink fill, paper text, one red dot.
+   (console.js appends them visible, then fades opacity inline.)
+   ===================================================================== */
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-6);
+  transform: translateX(-50%);
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  pointer-events: none;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--gutter));
+}
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 10px 18px;
+  border-radius: var(--r-pill);
+  background: var(--ink-900);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  box-shadow: var(--e-4);
+  animation: toastIn var(--d-3) var(--ease-out-quint);
+}
+.toast::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--live);
+}
+/* kinds: ok keeps the red glint; warn/err lift it to a steady signal. */
+.toast.warn::before,
+.toast.err::before { background: var(--live); box-shadow: 0 0 0 3px var(--live-wash); }
+
+/* =====================================================================
+   KEYFRAMES - bound to the shared --carrier rhythm where it reads as a
+   heartbeat; durations collapse to 0 under reduced motion (tokens).
+   ===================================================================== */
+@keyframes beat {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.6; transform: scale(0.86); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* =====================================================================
+   12. RESPONSIVE + REDUCED MOTION
+   ===================================================================== */
+@media (max-width: 640px) {
+  .topbar { gap: var(--s-3); }
+  .tabs { margin-left: 0; width: 100%; order: 3; gap: var(--s-4); }
+  .topbar-right { margin-left: auto; }
+  .content { padding-top: var(--s-6); }
+  .cards { grid-template-columns: 1fr; }
+  .price-grid { grid-template-columns: 1fr; }
+  .data-table th, .data-table td { padding: var(--s-2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark::after,
+  .conn-dot,
+  .conn.live .conn-dot,
+  .status-dot.connecting,
+  .spinner,
+  .toast,
+  .meter-fill,
+  .tab::after { animation: none; transition: none; }
+}

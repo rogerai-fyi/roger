@@ -1,0 +1,24 @@
+/bin/
+*.log
+node.key
+web/node_modules/
+web/.next/
+.DS_Store
+.env
+# Internal design/architecture docs: a separate PRIVATE repo
+# (github.com/bownux/rogerai-internal-docs) checked out parallel to this repo and
+# symlinked in as ./docs-internal. No trailing slash so it matches BOTH a real
+# directory and the symlink (git treats a symlink as a file, not a dir).
+docs-internal
+dist/
+/rogerai-broker
+/rogerai
+*.exe
+CLAUDE.md
+
+# agent worktrees + local claude state
+.claude/
+
+# coverage artifacts (local; CI publishes to Pages)
+cover.out
+coverage.html

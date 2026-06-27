@@ -1,0 +1,94 @@
+/* =====================================================================
+   RogerAI - account.css : account-page specifics (/account.html).
+   The destructive delete control. Consumes tokens.css + base.css +
+   account-base.css. Rules MOVED verbatim from auth.css.
+   ===================================================================== */
+/* ---- secondary profile facts: a quiet key/value grid under the big stats,
+   on the printed-spec register (mono uppercase keys, mono readings). ---- */
+.ac-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--s-3) var(--s-6);
+  margin: var(--s-5) 0 0;
+}
+.ac-meta div { display: flex; flex-direction: column; gap: 2px; }
+.ac-meta dt {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+  margin: 0;
+}
+.ac-meta dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  word-break: break-all;
+}
+
+/* ---- the email field: a labeled mono input with a hint and its own action row,
+   replacing the old inline-styled <input>. ---- */
+.ac-field { margin: var(--s-6) 0 0; }
+.ac-field__k {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+  margin: 0 0 var(--s-2);
+}
+.ac-field__opt {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-300);
+}
+.ac-field__in {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+}
+.ac-field__hint {
+  display: block;
+  margin: var(--s-2) 0 0;
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  line-height: 1.5;
+}
+.ac-field__act {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+
+/* ---- API keys link: the primary action shrinks to an inline button (it is a
+   link, not a form submit), so it does not stretch the full plate width. ---- */
+.ac-keys { margin: var(--s-2) 0 0; }
+.ac-keys__btn {
+  display: inline-block;
+  width: auto;
+  margin-top: 0;
+  padding: 11px 18px;
+  text-decoration: none;
+  border-bottom: 0;
+}
+.ac-keys__btn:hover { color: var(--paper); }
+
+/* ---- the destructive control (account delete) - ink hairline by default,
+   red only on hover/focus, so danger reads as the beacon, not a fill. ---- */
+.danger {
+  border-color: var(--hairline-2);
+  color: var(--ink-700);
+}
+.danger:hover { color: var(--live); border-color: var(--live); }

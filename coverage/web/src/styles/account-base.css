@@ -1,0 +1,336 @@
+/* =====================================================================
+   RogerAI - account-base.css : the SHARED account/operational plate
+   (loaded on EVERY logged-in / chrome page). The station-log body
+   (body.auth + .authwrap + .card), headings, lead + panels, the stat rows
+   + list rows, the command block, inline code + links, the GitHub sign-in
+   + ghost controls, the shared .primary action (billing + keys), shared
+   text inputs, and the legal-plate helpers (.tos-list, .notice). Consumes
+   tokens.css + base.css. Per-page account bodies live in their own
+   modules. Rules MOVED verbatim from auth.css, in source order.
+   ===================================================================== */
+
+/* No card-local motion; the shared chrome (site.css) carries its own guards. */
+@media (prefers-reduced-motion: reduce) {
+  .card *, .authwrap * { transition: none !important; animation: none !important; }
+}
+
+body.auth {
+  background: var(--paper);
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The station log sits as one bound document between the shared nav and
+   footer - left-bound on the measure, not a centered brochure card. */
+.authwrap {
+  flex: 1 0 auto;
+  display: grid;
+  justify-content: center;
+  padding: var(--s-12) var(--gutter);
+}
+
+/* The page body is a flat plate: a single hairline frame, square corners,
+   no shadow. Depth is communicated by rules + spacing, like a printout. */
+.card {
+  width: 100%;
+  max-width: 560px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  padding: var(--s-10) clamp(var(--s-6), 4vw, var(--s-10));
+}
+
+/* Plate heading - the document title, set in the grotesk faceplate voice. */
+.card h1 {
+  font-size: var(--t-h2);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-h2);
+  color: var(--ink-900);
+  line-height: var(--lh-snug);
+  margin: 0 0 var(--s-2);
+}
+
+/* Lead line under the title. */
+.sub {
+  color: var(--ink-500);
+  font-size: var(--t-lead);
+  line-height: 1.5;
+  margin: 0 0 var(--s-8);
+}
+.sub b { color: var(--ink-700); font-weight: var(--weight-medium); }
+
+/* Section heading inside a panel - the §-marker register: a mono, tracked,
+   uppercase label preceded by a short red rule (the one glint per section). */
+.card h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  margin: 0 0 var(--s-4);
+}
+.card h2::before {
+  content: "";
+  width: 18px;
+  height: 2px;
+  background: var(--live);
+  display: inline-block;
+  flex: none;
+}
+
+/* A panel is a section divided by a hairline rule - no inner card, no box. */
+.panel {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--s-6);
+  margin-top: var(--s-6);
+}
+.panel > p {
+  margin: 0 0 var(--s-3);
+  color: var(--ink-700);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  max-width: 64ch;
+}
+
+/* Acceptable-use list (tos.html): hairline-marked items, document tone. */
+.tos-list {
+  margin: 0 0 var(--s-3);
+  padding-left: var(--s-5);
+  max-width: 64ch;
+  color: var(--ink-700);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+.tos-list li { margin: 0 0 var(--s-2); }
+.tos-list b { color: var(--ink-900); font-weight: var(--weight-medium); }
+
+/* Fine print / captions - tertiary ink, small. */
+.fine {
+  color: var(--ink-400);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  margin: var(--s-4) 0 0;
+}
+.fine b { color: var(--ink-500); font-weight: var(--weight-medium); }
+
+/* Account footer sub-nav (accountnav.html): links joined by a CSS-drawn " - " so
+   dropping the current page's link never leaves a dangling separator. The combinator
+   ignores intervening whitespace text nodes, so it works across the include output. */
+.acctsubnav a + a::before { content: " - "; color: var(--ink-400); }
+
+/* ---- stat rows: a printed spec line. Mono uppercase keys, mono tabular
+   values to the same baseline. Money is weight + mono, not hue. ---- */
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-6) var(--s-10);
+  margin: 0 0 var(--s-2);
+}
+.stats dt {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+  margin: 0;
+}
+.stats dd {
+  margin: var(--s-1) 0 0;
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+/* ---- list rows: model + cost on a hairline, mono readings, aligned. ---- */
+.recent {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+}
+.recent li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-sm);
+  color: var(--ink-700);
+}
+.recent li:first-child { border-top: 0; }
+.r-model {
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  letter-spacing: -0.01em;
+}
+.r-cost {
+  color: var(--ink-500);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  white-space: nowrap;
+}
+
+/* ---- command block: the manual's copy-line register (mono, paper-3 fill,
+   hairline frame, square). The install command is the truest CTA. ---- */
+.cmd {
+  margin: var(--s-2) 0 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  background: var(--paper-3);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  line-height: 1.7;
+  color: var(--ink-900);
+  -moz-tab-size: 2;
+  tab-size: 2;
+}
+
+/* inline code inside a plate */
+.card code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  color: var(--ink-900);
+}
+.cmd code { background: none; border: 0; padding: 0; font-size: 1em; }
+
+/* ---- links: ink, the red glint only on hover. ---- */
+ .card a {
+  color: var(--live);
+  border-bottom: 1px solid var(--live);
+  transition: color var(--d-1) var(--ease-standard),
+               border-color var(--d-1) var(--ease-standard);
+}
+.card a:hover { color: var(--live); border-bottom-color: var(--live); }
+.card a:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+:root[data-theme="dark"] .card a { color: var(--live); border-bottom-color: var(--live); }
+/* the inline nav lines (account/billing/usage...) read as a quiet directory */
+.fine a { color: var(--ink-500); }
+.fine a:hover { color: var(--live); }
+
+/* ---- GitHub sign-in: the one prominent action. Ink fill (the only solid
+   control on the page), red focus ring. Not a brand-color button. ---- */
+.gh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-3);
+  width: 100%;
+  padding: 13px 16px;
+  background: var(--ink-900);
+  color: var(--paper);
+  border: 1px solid var(--ink-900);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  font-family: var(--font-ui);
+  font-weight: var(--weight-medium);
+  font-size: var(--t-sm);
+  letter-spacing: 0.01em;
+  transition: opacity var(--d-1) var(--ease-standard);
+}
+.gh:hover { opacity: 0.88; }
+.gh:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* ---- ghost control: an ink hairline outline; red on hover/focus. ---- */
+.ghost {
+  margin-top: var(--s-6);
+  background: none;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  padding: 10px 18px;
+  color: var(--ink-700);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.ghost:hover { color: var(--live); border-color: var(--live); }
+.ghost:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+
+/* the shared primary action button (billing checkout + keys mint) */
+/* the primary action - the page's one solid (ink) button, red focus ring. */
+.primary {
+  margin-top: var(--s-4);
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid var(--ink-900);
+  border-radius: var(--r-sm);
+  background: var(--ink-900);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: opacity var(--d-1) var(--ease-standard);
+}
+.primary:hover { opacity: 0.88; }
+.primary:disabled { opacity: 0.45; cursor: default; }
+.primary:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* shared text inputs (account email, key caps, etc.) */
+/* generic text inputs that pages set inline (e.g. account email) inherit the
+   mono-field look via this fallback - the inline style sets width/etc. */
+.card input[type="email"],
+.card input[type="text"] {
+  font-family: var(--font-mono);
+}
+.card input[type="email"]:focus-visible,
+.card input[type="text"]:focus-visible {
+  outline: none;
+  border-color: var(--live) !important;
+  box-shadow: 0 0 0 1px var(--live) inset;
+}
+
+/* legal notice plate (tos.html) - a shared account plate */
+/* ---- the draft / legal notice plate (tos.html). A flat hairline plate
+   with a single red rule, not a yellow SaaS callout. ---- */
+.notice {
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  padding: var(--s-4);
+  margin-bottom: var(--s-6);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-700);
+}
+.notice b {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-900);
+  margin-bottom: var(--s-2);
+}

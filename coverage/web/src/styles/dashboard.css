@@ -1,0 +1,212 @@
+/* =====================================================================
+   RogerAI - dashboard.css : the Dashboard hero + hand-rolled charts.
+   Builds on account-base.css (plate, .stats, .panel, .cmd). The whole
+   chart system here is bespoke (.ds-*): inline SVG line/area + CSS column
+   and bar charts, no chart library. Same plate language as metrics.css -
+   warm monochrome, hairlines, mono numerals, ONE red glint (savings /
+   earned). Owned by the Dashboard redesign. Consumes tokens.css + base.css
+   + account-base.css.
+   ===================================================================== */
+
+/* loading / empty / error notices - the quiet, fine register. */
+.ds-state {
+  margin: var(--s-5) 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-500);
+  line-height: 1.6;
+}
+
+/* ---- HERO: the headline savings/earned figure. A flat plate with one
+   red rule on the left, the figure set big in mono, the caption fine. ---- */
+.ds-hero {
+  margin: var(--s-6) 0 0;
+  padding: var(--s-6) var(--s-6) var(--s-6) var(--s-6);
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+}
+.ds-hero__eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.ds-hero__amt {
+  margin: var(--s-2) 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: clamp(2.4rem, 1.6rem + 3.4vw, 3.4rem);
+  font-weight: var(--weight-semi);
+  line-height: 1;
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.02em;
+}
+.ds-hero__sub {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  max-width: 60ch;
+}
+.ds-hero__sub b { color: var(--ink-900); font-weight: var(--weight-medium); }
+
+/* ---- STAT TILES: reuse .stats; just open the spacing under the hero. ---- */
+.ds-tiles { margin-top: var(--s-6); }
+
+/* ---- chart block: a titled frame holding one chart. ---- */
+.ds-chart { margin: var(--s-4) 0 0; }
+.ds-chart__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  flex-wrap: wrap;
+}
+.ds-chart__title {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+
+/* legend chips - mono caption + a tiny swatch. */
+.ds-legend {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-wrap: wrap;
+}
+.ds-legend__sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-xs);
+  margin: 0 2px 0 var(--s-2);
+  vertical-align: -1px;
+}
+.ds-legend__sw--live { background: var(--live); }
+.ds-legend__sw--ink  { background: var(--ink-900); }
+
+/* ---- SVG line / area chart. The viewBox stretches to the container width;
+   strokes are kept crisp with vector-effect so they don't thin out. ---- */
+.ds-line {
+  display: block;
+  width: 100%;
+  height: 200px;
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+.ds-axis { stroke: var(--hairline-2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ds-grid { stroke: var(--hairline); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.ds-stroke {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.ds-area { stroke: none; opacity: 0.9; }
+.ds-dot { stroke: var(--paper-2); stroke-width: 1.5; }
+
+/* x-axis labels: HTML row under a chart, spread first/mid/last. */
+.ds-xaxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--ink-400);
+}
+.ds-xaxis span:only-child { margin: 0 auto; }
+
+/* ---- per-day savings COLUMN chart: a row of bottom-anchored bars. ---- */
+.ds-cols {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  padding: var(--s-2);
+  background: var(--paper-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+.ds-cols__col {
+  flex: 1 1 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+}
+.ds-cols__bar {
+  width: 100%;
+  max-width: 18px;
+  min-height: 2px;
+  background: var(--live);
+  border-radius: var(--r-xs) var(--r-xs) 0 0;
+  transition: height var(--d-3) var(--ease-out-quint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-cols__bar { transition: none; }
+}
+
+/* ---- per-model horizontal BAR chart (token weight + a money readout). ---- */
+.ds-mbars { list-style: none; margin: 0; padding: 0; }
+.ds-mbars__row {
+  display: grid;
+  grid-template-columns: minmax(80px, 26%) 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+}
+.ds-mbars__label {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-900);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-mbars__track {
+  position: relative;
+  height: 14px;
+  background: var(--paper-2);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+.ds-mbars__fill {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--ink-700);
+  transition: width var(--d-3) var(--ease-out-quint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ds-mbars__fill { transition: none; }
+}
+.ds-mbars__val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* narrow: tighten the model-bar grid + drop chart heights a touch. */
+@media (max-width: 460px) {
+  .ds-mbars__row { grid-template-columns: minmax(60px, 32%) 1fr auto; gap: var(--s-2); }
+  .ds-line { height: 168px; }
+  .ds-cols { height: 96px; }
+  .ds-mbars__val { font-size: var(--t-micro); }
+}

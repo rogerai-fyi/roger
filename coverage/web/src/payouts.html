@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Payouts - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>Payouts</h1>
+    <p class="sub">Exactly what you earned, when it clears, and where it came from.</p>
+
+    <!-- ============ THE SPLIT: held -> payable -> paid ============ -->
+    <section class="panel">
+      <h2>Earnings</h2>
+
+      <div class="po-meter" id="splitMeter" role="img" aria-label="Earnings split">
+        <div class="po-meter__track">
+          <div class="po-meter__seg po-meter__seg--held" id="segHeld"></div>
+          <div class="po-meter__seg po-meter__seg--payable" id="segPayable"></div>
+          <div class="po-meter__seg po-meter__seg--paid" id="segPaid"></div>
+        </div>
+      </div>
+
+      <dl class="po-legend">
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--held"></span>Held</dt>
+          <dd id="held">-</dd>
+          <span class="po-legend__note" id="heldNote">inside the hold window</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--payable"></span>Payable</dt>
+          <dd id="payable">-</dd>
+          <span class="po-legend__note" id="payableNote">cleared, ready to withdraw</span>
+        </div>
+        <div class="po-legend__row">
+          <dt><span class="po-dot po-dot--paid"></span>Paid</dt>
+          <dd id="paid">-</dd>
+          <span class="po-legend__note">lifetime, transferred out</span>
+        </div>
+      </dl>
+
+      <p class="fine" id="reservedNote" hidden></p>
+      <p class="fine">Earnings round to whole cents and need a <b id="minNote">$25.00</b>
+        minimum payable before cashout.</p>
+    </section>
+
+    <!-- ============ THE HOLD TIMELINE ============ -->
+    <section class="panel">
+      <h2>Hold timeline</h2>
+      <p class="fine">Each earning is held for <b id="holdNote">120 days</b> then becomes payable. There is no separate reserve.</p>
+
+      <ol class="po-timeline" id="timeline" hidden>
+        <li class="po-timeline__step is-done">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Earned</b>
+            <span class="po-timeline__sub">a request you served, split 70/30</span>
+          </span>
+        </li>
+        <li class="po-timeline__step" id="tlHeld">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Held</b>
+            <span class="po-timeline__sub" id="tlHeldSub">in the hold window</span>
+          </span>
+          <span class="po-timeline__when" id="tlHeldWhen"></span>
+        </li>
+        <li class="po-timeline__step" id="tlPayable">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Payable</b>
+            <span class="po-timeline__sub" id="tlPayableSub">hold cleared, withdrawable</span>
+          </span>
+          <span class="po-timeline__when" id="tlPayableWhen"></span>
+        </li>
+        <li class="po-timeline__step" id="tlPaid">
+          <span class="po-timeline__mark" aria-hidden="true"></span>
+          <span class="po-timeline__body">
+            <b>Paid</b>
+            <span class="po-timeline__sub">transferred to your bank via Stripe</span>
+          </span>
+        </li>
+      </ol>
+      <p class="fine" id="timelineEmpty" hidden>No earnings yet - the timeline fills in as you serve.</p>
+
+      <!-- the release ladder: each upcoming clear date with the amount + lot count -->
+      <div class="po-ladder" id="ladderWrap" hidden>
+        <p class="po-ladder__title">Upcoming releases</p>
+        <ul class="po-ladder__list" id="ladder"></ul>
+      </div>
+    </section>
+
+    <!-- ============ WHERE IT CAME FROM: per-model / per-node ============ -->
+    <section class="panel">
+      <h2>By model and node</h2>
+      <p class="fine" id="breakdownWindow">Earnings over the last 30 days, by what you served.</p>
+      <ul class="recent po-break" id="breakdown"></ul>
+      <p class="fine" id="breakdownEmpty" hidden>No served traffic in this window yet.</p>
+    </section>
+
+    <!-- ============ GET PAID ============ -->
+    <section class="panel">
+      <h2>Get paid</h2>
+      <p class="fine">You must finish Stripe Connect onboarding (KYC) before any withdrawal.
+        Payouts are manual and batched <span id="scheduleNote">monthly</span>.</p>
+      <p>Payout status: <b id="connect">-</b></p>
+      <button id="onboard" class="ghost">Set up payouts (Stripe)</button>
+      <button id="request" class="primary" hidden>Request payout</button>
+      <p class="fine" id="payMsg"></p>
+    </section>
+
+    <!-- ============ LINEAGE: the receipts behind the money ============ -->
+    <section class="panel">
+      <h2>Payout history</h2>
+      <ul class="recent" id="payouts"></ul>
+      <p class="fine" id="payoutsEmpty" hidden>No payouts yet.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Ledger</h2>
+      <p class="fine">The accounting entries behind every payout, clawback and adjustment - your receipts.</p>
+      <ul class="recent po-ledger" id="ledger"></ul>
+      <p class="fine" id="ledgerEmpty" hidden>No entries yet.</p>
+    </section>
+
+    <!-- include: accountnav.html current=payouts -->
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/payouts.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/promo.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+name: coverage
+# The missing test CI: runs the full suite with coverage, enforces the gate
+# (no zero-coverage package + per-package floors + total floor), posts the octocov
+# PR report/badge, and publishes the per-file green/red HTML to GitHub Pages.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write        # octocov writes badge/report to gh-pages; Pages publish
+  pull-requests: write   # octocov PR comment
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
+      # The Postgres money specs use testcontainers, which drives the Docker daemon
+      # available on GitHub-hosted runners (no service container needed).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # THE GATE: test + coverage + no-zero/per-package/total enforcement.
+      - name: coverage gate
+        run: make cover-gate
+
+      # Per-file green/red HTML for the Pages drill-down.
+      - name: html report
+        run: go tool cover -html=cover.out -o coverage.html
+
+      # octocov: PR coverage table + badge (reads .octocov.yml). Self-hosted, no SaaS.
+      - uses: k1LoW/octocov-action@v1
+
+      # Publish the HTML report to GitHub Pages (main only):
+      #   https://rogerai-fyi.github.io/roger/coverage/coverage.html
+      - name: publish coverage report to Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
+          destination_dir: coverage
+          exclude_assets: '**/*.go,**/node_modules/**'

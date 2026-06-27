@@ -1,0 +1,1314 @@
+openapi: 3.1.0
+info:
+  title: RogerAI Broker API
+  version: 0.1.0
+  description: |
+    The RogerAI broker - the only public component of the RogerAI marketplace.
+    It is an OpenAI-compatible relay plus a registry, wallet, and metering layer
+    over a fleet of crowd-sourced, self-hosted LLM nodes.
+
+    Roles:
+      * Consumers call `POST /v1/chat/completions` (OpenAI-compatible) and browse
+        `GET /discover`. Spending and wallet reads are SIGNED with a per-user
+        Ed25519 key (headers `X-Roger-Pubkey` / `X-Roger-TS` / `X-Roger-Sig`); the
+        broker derives a stable wallet id from the verified pubkey. The legacy
+        `X-Roger-User` header is accepted only as an UNAUTHENTICATED hint and can
+        never spend a signed user's wallet. (See the `signedUser` security scheme.)
+      * Providers ("nodes") dial OUT: `POST /nodes/register`, then long-poll
+        `GET /agent/poll` and `POST /agent/result`. No inbound ports.
+      * Owners who MONETIZE log in with GitHub (`POST /auth/github` from the CLI
+        device flow, or the `/auth/github/login` web flow) to bind their account.
+
+    Every served request yields a hash-chained UsageReceipt signed by the node and
+    counter-signed by the broker (the "lineage" guarantee).
+  license: { name: PolyForm Perimeter 1.0.0, url: https://polyformproject.org/licenses/perimeter/1.0.0 }
+servers:
+  - url: https://broker.rogerai.fyi
+  - url: http://127.0.0.1:7070
+
+tags:
+  - { name: meta, description: Service metadata }
+  - { name: consumer, description: Discover + use models }
+  - { name: billing, description: Prepaid credit wallet (Stripe) }
+  - { name: auth, description: GitHub login (owners who monetize) }
+  - { name: account, description: Account hub - profile, billing, usage, data export/delete }
+  - { name: payouts, description: Operator earnings + Stripe Connect payouts }
+  - { name: provider, description: Node registration + the outbound job tunnel }
+
+paths:
+  /health:
+    get:
+      tags: [meta]
+      summary: Liveness probe
+      responses: { "200": { description: ok, content: { text/plain: { schema: { type: string, example: ok } } } } }
+
+  /:
+    get:
+      tags: [meta]
+      summary: Service descriptor
+      responses:
+        "200":
+          description: Service info
+          content: { application/json: { schema: { $ref: '#/components/schemas/ServiceInfo' } } }
+
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This OpenAPI document
+      responses: { "200": { description: spec, content: { application/yaml: {} } } }
+
+  /discover:
+    get:
+      tags: [consumer]
+      summary: List model offers (cheapest active price first)
+      responses:
+        "200":
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offers: { type: array, items: { $ref: '#/components/schemas/Offer' } }
+
+  /balance:
+    get:
+      tags: [consumer]
+      summary: Wallet balance for the caller
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
+      responses:
+        "200":
+          description: Balance (with the monthly spend cap + month-to-date spend when logged in)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { type: string }
+                  balance: { type: number }
+                  logged_in: { type: boolean }
+                  monthly_cap: { type: number, description: "monthly spend cap in $ (0 = unlimited)" }
+                  monthly_spend: { type: number, description: "captured spend so far this calendar month in $" }
+
+  /account/limit:
+    get:
+      tags: [consumer]
+      summary: Read the per-account monthly spend cap (a budget limit)
+      description: |
+        The caller's MONTHLY SPEND CAP - a max $ spend per CALENDAR month, per account.
+        Enforced server-side at the broker on every PAID consume path (use, --freq,
+        grant keys, the agent harness, in-channel chat): a request whose worst-case cost
+        would push month-to-date captured spend past the cap is rejected (402) before
+        dispatch. Free / self-use ($0) is never blocked. Requires a logged-in identity.
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
+      responses:
+        "200":
+          description: The current cap + month-to-date spend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monthly_cap: { type: number, description: "monthly spend cap in $ (0 = unlimited)" }
+                  monthly_spend: { type: number, description: "captured spend so far this calendar month in $" }
+        "401": { description: not logged in (the cap is per account) }
+    patch:
+      tags: [consumer]
+      summary: Set or clear the per-account monthly spend cap
+      description: |
+        Set the monthly spend cap in $; 0 (or a negative value) clears it back to
+        unlimited. CLI: `rogerai limit --monthly $X` (`0`/`off` clears it). Requires login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                monthly_cap: { type: number, description: "$ per calendar month (0 = unlimited)" }
+      responses:
+        "200":
+          description: The updated cap + month-to-date spend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monthly_cap: { type: number }
+                  monthly_spend: { type: number }
+        "401": { description: not logged in (the cap is per account) }
+
+  /me:
+    get:
+      tags: [consumer]
+      summary: Consumer dashboard - balance, lifetime spend, recent requests
+      description: |
+        The caller's spend dashboard: current wallet balance, lifetime total spend
+        (sum of settled costs), and the most-recent settled requests (newest first).
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        "200":
+          description: Dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { type: string }
+                  balance: { type: number, description: current wallet credits }
+                  spend: { type: number, description: lifetime credits spent }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+
+  /earnings:
+    get:
+      tags: [provider]
+      summary: Owner dashboard - accrued earnings + recent requests for a node
+      description: |
+        A node owner's earnings dashboard: accrued (unpaid) owner credits for the
+        node and its most-recent settled requests (newest first). The node id is the
+        source of truth - a serving node knows its own id.
+      parameters:
+        - { in: query, name: node, required: true, schema: { type: string }, description: the node id }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        "200":
+          description: Earnings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node: { type: string }
+                  online: { type: boolean }
+                  earnings: { type: number, description: accrued (unpaid) owner credits (legacy counter) }
+                  held: { type: number, description: earnings still inside the hold window }
+                  reserved: { type: number, description: rolling reserve not yet released }
+                  payable: { type: number, description: released, withdrawable now }
+                  paid: { type: number, description: lifetime paid out }
+                  next_release: { type: integer, description: unix of the soonest upcoming release }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+        "400": { description: node query param required }
+
+  /market:
+    get:
+      tags: [consumer]
+      summary: Per-model market metrics (supply, load, speed, quality, signal)
+      description: |
+        A live, per-model marketplace view aggregated from node state: how many
+        providers are online, current in-flight load, the cheapest active input
+        price, the best measured throughput, the mean success rate, and a 0..100
+        "signal" combining supply, quality, and reliability (lightly discounted by
+        congestion). Sorted by signal, highest first. The signal is a glanceable
+        health bar, NOT a price.
+      responses:
+        "200":
+          description: Market
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  market: { type: array, items: { $ref: '#/components/schemas/MarketModel' } }
+
+  /promo:
+    get:
+      tags: [consumer]
+      summary: Free-credit seed promo state (public)
+      description: |
+        Public, no-auth read of the starter-credit promo so the homepage can show
+        "free credits remaining" and auto-hide the banner at 0. seeds_remaining is
+        the number of new wallets that can still receive the starter seed before the
+        cap (-1 when the cap is unlimited); active is true while seeds remain.
+      responses:
+        "200":
+          description: Promo state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seeds_remaining: { type: integer, description: "Seeds left before the cap (-1 = unlimited)." }
+                  unlimited: { type: boolean }
+                  active: { type: boolean, description: "True while the promo should be shown (seeds remain)." }
+
+  /v1/chat/completions:
+    post:
+      tags: [consumer]
+      summary: OpenAI-compatible chat completion, relayed to the best node
+      description: |
+        Drop-in OpenAI endpoint. The broker matches an online node serving `model`
+        (cheapest active price; optionally filtered by the constraint headers),
+        relays the request, meters it, and settles the wallet. The price the user
+        is first quoted for a (node, model) is honored for 24h (published
+        time-of-use / free windows are charged as-is). Set `stream:true` for SSE.
+      security: [ { signedUser: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+        - $ref: '#/components/parameters/User'
+        - { in: header, name: X-Roger-Confidential, schema: { type: string }, description: "If set, route only to TEE-attested confidential nodes." }
+        - { in: header, name: X-Roger-Min-TPS, schema: { type: number }, description: "Require measured throughput >= this (tokens/sec)." }
+        - { in: header, name: X-Roger-Max-Price, schema: { type: number }, description: "Skip nodes whose active input price exceeds this (credits/1M)." }
+        - { in: header, name: X-Roger-Node, schema: { type: string }, description: "Pin to a specific node (used by client-side failover to target a chosen provider)." }
+        - { in: header, name: X-Roger-Exclude-Nodes, schema: { type: string }, description: "Comma-separated node ids to skip (the providers a client just saw fail) - lets the connector route AROUND a dropped provider." }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ChatRequest' } } }
+      responses:
+        "200":
+          description: |
+            Completion (verbatim upstream body). Response headers carry the meter:
+            `X-RogerAI-Provider`, `X-RogerAI-Cost`, `X-RogerAI-Balance`,
+            `X-RogerAI-Price`, `X-RogerAI-TPS`, `X-RogerAI-Receipt` (the signed receipt).
+          content: { application/json: { schema: { type: object } } }
+        "401": { description: invalid request signature, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "402": { description: insufficient credits, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "503": { description: no node offers the model (or matches constraints), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "504": { description: node timed out }
+
+  /billing/checkout:
+    post:
+      tags: [billing]
+      summary: Create a Stripe Checkout session to buy credits
+      parameters: [ { $ref: '#/components/parameters/User' } ]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { usd: { type: number, default: 10 } } } } }
+      responses:
+        "200":
+          description: Checkout link
+          content:
+            application/json:
+              schema: { type: object, properties: { url: { type: string }, usd: { type: number }, credits: { type: number } } }
+        "503": { description: billing not configured }
+
+  /billing/webhook:
+    post:
+      tags: [billing]
+      summary: Stripe webhook (checkout.session.completed → credit wallet)
+      description: HMAC-verified via `Stripe-Signature`; idempotent (credits each session once).
+      parameters: [ { in: header, name: Stripe-Signature, required: true, schema: { type: string } } ]
+      responses: { "200": { description: received }, "400": { description: bad signature } }
+
+  /auth/github:
+    post:
+      tags: [auth]
+      summary: Bind a GitHub owner to the caller's signing pubkey (login to monetize)
+      description: |
+        Login-to-monetize. After a GitHub OAuth Device Flow (`rogerai login`), the
+        CLI posts its GitHub access token here over a SIGNED request. The broker
+        verifies the token against `GET https://api.github.com/user` server-side,
+        then binds `github_id` <-> `login` <-> the signing pubkey as an owner.
+        Earning operations (priced node registration, future withdraws) require this
+        binding; the consume/free paths never do. The access token is verified and
+        discarded - never stored or logged.
+      security: [ { signedUser: [] } ]
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [access_token], properties: { access_token: { type: string, description: GitHub OAuth access token from the device flow } } }
+      responses:
+        "200":
+          description: Bound
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean }, github_login: { type: string }, github_id: { type: integer } } }
+        "400": { description: access_token required }
+        "401": { description: unsigned request or GitHub token rejected, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /auth/github/login:
+    get:
+      tags: [auth]
+      summary: Web GitHub login - 302 to GitHub authorize
+      description: |
+        Browser login (separate from the CLI device flow). Sets a short-lived signed
+        state cookie (CSRF) and redirects to GitHub's authorize page with the public
+        client id and `redirect_uri=https://rogerai.fyi/auth/github/callback`.
+      responses:
+        "302": { description: redirect to GitHub authorize }
+        "503": { description: web GitHub login not configured (no client id/secret) }
+
+  /auth/github/callback:
+    get:
+      tags: [auth]
+      summary: Web GitHub callback - exchange code, set session, 302 to dashboard
+      description: |
+        Validates the state cookie, exchanges the code for a token using the client
+        SECRET (server-side only), fetches the GitHub user, sets a signed http-only
+        session cookie (`roger_session`), and redirects to the dashboard. On any
+        failure it redirects back to /login?error=...
+      parameters:
+        - { in: query, name: code, required: true, schema: { type: string } }
+        - { in: query, name: state, required: true, schema: { type: string } }
+      responses:
+        "302": { description: redirect to the dashboard (or /login on error) }
+        "503": { description: web GitHub login not configured }
+
+  /account:
+    get:
+      tags: [account]
+      summary: Account hub - profile, balances, payout status
+      description: |
+        Profile (handle, email, github), cached consumer balance, Stripe Connect
+        payout status, and (for operators) the held/reserved/payable/paid earnings
+        split. Backed by the signed session cookie; credentialed CORS.
+      responses:
+        "200":
+          description: Account profile + balances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  github_login: { type: string }
+                  github_id: { type: integer }
+                  email: { type: string }
+                  balance: { type: number }
+                  connect: { type: object, properties: { status: { type: string }, id: { type: string } } }
+                  earnings: { $ref: '#/components/schemas/EarningSplit' }
+        "401": { description: no valid session }
+    patch:
+      tags: [account]
+      summary: Update the account contact email
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { email: { type: string } } }
+      responses:
+        "200": { description: updated }
+        "404": { description: no operator account for this login }
+
+  /account/export:
+    post:
+      tags: [account]
+      summary: GDPR/CCPA data export (profile + ledger + receipts) as JSON
+      responses:
+        "200": { description: data dump (Content-Disposition attachment) }
+        "401": { description: no valid session }
+
+  /account/delete:
+    post:
+      tags: [account]
+      summary: Soft-delete + anonymize the account (retention-safe)
+      description: |
+        Scrubs identity (email, login), revokes the session, and retains
+        de-identified financial rows for the legal retention window. BLOCKED (409)
+        while the account holds a positive balance, held/reserved/payable earnings,
+        or open disputes.
+      responses:
+        "200": { description: deleted }
+        "409": { description: blocked by balance, earnings, or open disputes }
+        "401": { description: no valid session }
+
+  /billing:
+    get:
+      tags: [account]
+      summary: Money-in view - balance + top-up history from the ledger
+      responses:
+        "200":
+          description: Balance + top-ups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance: { type: number }
+                  derived: { type: number, description: ledger re-derivation (drift check) }
+                  credit_usd: { type: number }
+                  checkout_ready: { type: boolean }
+                  topups: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
+        "401": { description: no valid session }
+
+  /usage:
+    get:
+      tags: [account]
+      summary: Consumer spend history grouped by model or day
+      parameters:
+        - in: query
+          name: group
+          schema: { type: string, enum: [model, day] }
+      responses:
+        "200":
+          description: Spend total + grouped buckets + recent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  spend: { type: number }
+                  group: { type: string }
+                  buckets:
+                    type: array
+                    items: { type: object, properties: { key: { type: string }, cost: { type: number }, count: { type: integer } } }
+                  recent: { type: array, items: { $ref: '#/components/schemas/Entry' } }
+        "401": { description: no valid session }
+
+  /connect/onboard:
+    post:
+      tags: [payouts]
+      summary: Create a Stripe Connect Express onboarding (KYC) link
+      description: |
+        Creates (or reuses) the operator's Express connected account and returns a
+        Stripe Account Link. Stubbed (returns a placeholder link, marks onboarding)
+        when STRIPE_SECRET_KEY is unset.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - so a headless `rogerai share`
+        provider can onboard from the terminal. 401 when neither is present/valid.
+      responses:
+        "200":
+          description: Onboarding link
+          content:
+            application/json:
+              schema: { type: object, properties: { url: { type: string }, status: { type: string }, stub: { type: boolean } } }
+        "403": { description: no operator account for this login }
+
+  /connect/status:
+    get:
+      tags: [payouts]
+      summary: Stripe Connect capability status (the KYC gate) + earnings split
+      description: |
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme). Also returns the operator's earnings split (payable vs held + the next
+        release date) so `rogerai payout status` renders in one round trip.
+      responses:
+        "200":
+          description: Connect status + earnings split
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, description: "none|onboarding|active|restricted" }
+                  can_payout: { type: boolean }
+                  min_payout: { type: number }
+                  hold_days: { type: integer }
+                  schedule: { type: string }
+                  earnings: { $ref: '#/components/schemas/EarningSplit' }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: no operator account for this login }
+
+  /payouts/request:
+    post:
+      tags: [payouts]
+      summary: Request a payout (KYC-gated, >= minimum, payable only)
+      description: |
+        Promotes held->payable, transfers the payable balance via Stripe Connect (a
+        stub transfer in dev), and records the payout + ledger rows. 403 until Connect
+        transfers capability is active; 400 below the minimum.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner. The policy + transfer-safe rail
+        are identical on both paths (120-day hold, $25 min, monthly, debit-first/rollback).
+      responses:
+        "200":
+          description: Payout created
+          content:
+            application/json:
+              schema: { type: object, properties: { payout: { $ref: '#/components/schemas/Payout' } } }
+        "400": { description: below minimum payout }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: KYC not complete (transfers not active) }
+
+  /payouts/history:
+    get:
+      tags: [payouts]
+      summary: Payout + clawback history
+      description: |
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme).
+      responses:
+        "200":
+          description: Payouts + payout/chargeback/adjustment ledger rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payouts: { type: array, items: { $ref: '#/components/schemas/Payout' } }
+                  ledger: { type: array, items: { $ref: '#/components/schemas/LedgerRow' } }
+        "403": { description: no operator account for this login }
+
+  /payouts/earnings:
+    get:
+      tags: [payouts]
+      summary: Earnings split + dated release ladder + per-model/per-node rollups
+      description: |
+        The caller's full earnings split (held/reserved/payable/paid) PLUS a dated
+        release ladder (`releases[]`): the still-held lots grouped by their release
+        calendar day so the page renders a real "$X clears Jun 30, $Y clears Jul 15"
+        schedule instead of only the single soonest date `next_release` carries. Also
+        returns cheap per-model + per-node earning rollups (where the money came from).
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - the SAME dual-auth as the rest
+        of the payout surface. Returns ONLY the caller's own account (keyed by the owner
+        pubkey); there is no cross-account query param. 401 when neither is present/valid.
+      responses:
+        "200":
+          description: Split + release ladder + rollups
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  held: { type: number }
+                  reserved: { type: number }
+                  payable: { type: number }
+                  paid: { type: number }
+                  next_release: { type: integer, description: unix of the soonest upcoming release }
+                  releases: { type: array, items: { $ref: '#/components/schemas/ReleaseBucket' } }
+                  by_model: { type: array, items: { $ref: '#/components/schemas/EarningRollup' } }
+                  by_node: { type: array, items: { $ref: '#/components/schemas/EarningRollup' } }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: no operator account for this login }
+
+  /payouts/{id}/lots:
+    get:
+      tags: [payouts]
+      summary: The funding earning lots behind a payout (request-level lineage)
+      description: |
+        The exact earning lots a payout's transfer was drawn from - {request_id, node,
+        model, gross, created_at} per lot - so a payout-history row can expand into the
+        receipts that funded it (request-level provenance).
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme). Owner-scoped: a payout id that is not the caller's (or unknown) returns
+        404 - never leaking another operator's receipts.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+          description: The payout id (from /payouts/history).
+      responses:
+        "200":
+          description: The payout's funding lots
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payout_id: { type: integer }
+                  lots: { type: array, items: { $ref: '#/components/schemas/PayoutLot' } }
+        "400": { description: bad payout id }
+        "401": { description: not logged in (no session, no valid signature) }
+        "403": { description: no operator account for this login }
+        "404": { description: payout not found (unknown, or not the caller's) }
+
+  /metrics/provider:
+    get:
+      tags: [payouts]
+      summary: Per-model PROVIDER metrics (what the caller's node(s) served)
+      description: |
+        The caller's per-model serve breakdown over a trailing UTC window: for each
+        model+node the caller's node(s) served, the request + token counts, a
+        free-vs-paid split (free = a request with no owner earnings: a free model, a
+        self-use serve, or a free window), and the owner's earnings (the 70% net
+        share). Plus summed `totals` and the echoed `period_days`. Receipt-derived
+        (the source of truth), so it never drifts from the earnings it rolls up.
+
+        Auth: a logged-in web session cookie OR a signed CLI request (the `signedUser`
+        scheme) whose pubkey is bound to a GitHub owner - the SAME dual-auth as the
+        payout endpoints. Returns ONLY the caller's own data. 401 when neither is
+        present/valid (an unbound keypair has no operator account -> 401).
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-model provider breakdown + totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProviderModelMetric' }
+                  totals: { $ref: '#/components/schemas/ProviderTotals' }
+                  period_days: { type: integer }
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
+  /metrics/usage:
+    get:
+      tags: [account]
+      summary: Per-model CONSUMER metrics (what the caller consumed)
+      description: |
+        The caller's per-model consume breakdown over a trailing UTC window: for each
+        model the caller used, the request + token counts, a free-vs-paid split (free =
+        a $0 request: a free model, a free window, or self-use), and total spend. Plus
+        summed `totals` and the echoed `period_days`. Receipt-derived, so it never
+        drifts from the spend it rolls up.
+
+        Auth: a logged-in web session cookie OR a signed request (the `signedUser`
+        scheme). Login is REQUIRED (own data only): an anonymous / unbound keypair has
+        no wallet and is rejected 401.
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-model usage breakdown + totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logged_in: { type: boolean }
+                  models:
+                    type: array
+                    items: { $ref: '#/components/schemas/UsageModelMetric' }
+                  totals: { $ref: '#/components/schemas/UsageTotals' }
+                  period_days: { type: integer }
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
+  /metrics/series:
+    get:
+      tags: [account]
+      summary: Per-day (+ recent hourly) time-series + savings-vs-frontier
+      description: |
+        The caller's TIME-SERIES over a trailing UTC window: a per-day array (and a
+        short last-48h hourly array) of requests, tokens in/out, consumer spend, and
+        provider earned, each with a nested per-model split. A self-served receipt (the
+        caller both consumed AND served it) counts as ONE request while still
+        attributing spend + earned. This is what the Dashboard + Metrics CHARTS render
+        over time (the point-in-time /metrics/{provider,usage} have no time axis).
+
+        Also returns a `savings` rollup: what the consumed tokens WOULD have cost at a
+        reference frontier-lab list price (a hard-coded REFERENCE ESTIMATE, not a live
+        quote) vs what the caller actually paid. `savings.reference` is the small static
+        price table; `savings.savings_est` is floored at 0.
+
+        Auth: a logged-in web session cookie OR a signed request (`signedUser`). Serves
+        whichever sides the caller has (consumer wallet -> spend/savings; bound operator
+        account -> earned). A logged-in identity with neither side is 401.
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30, minimum: 1, maximum: 366 }
+          description: Trailing window in days (default 30, clamped to [1,366]).
+      responses:
+        "200":
+          description: Per-day + hourly series + savings rollup
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period_days: { type: integer }
+                  is_consumer: { type: boolean }
+                  is_provider: { type: boolean }
+                  daily:
+                    type: array
+                    items: { $ref: '#/components/schemas/SeriesPoint' }
+                  hourly:
+                    type: array
+                    items: { $ref: '#/components/schemas/SeriesPoint' }
+                  savings: { $ref: '#/components/schemas/SavingsRollup' }
+        "401": { description: not logged in (no session, no valid signature, or no consumer/provider side) }
+
+  /console:
+    get:
+      tags: [account]
+      summary: Recent lineage activity feed + live counters
+      description: |
+        The recent activity a "console" page shows: the last N settled requests with
+        their lineage receipt (model, node callsign [the hostname-free node id], tokens
+        in/out, cost, earned, the receipt/chain `request_id`, timestamp, success), plus
+        live counters. An OWNER (a bound operator account) sees the activity their NODES
+        served (earned per row; `earned_today`, `active_nodes`, `active_bands`); a
+        CONSUMER sees their consumption (cost per row; `spend_today`). Real receipts only
+        with an honest empty state (events is `[]`, counters zero). Alias: /activity.
+
+        Auth: a logged-in web session cookie OR a signed request (`signedUser`). Own-data
+        only; an anonymous / unbound keypair is 401.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+          description: Max events returned (default 20, clamped to [1,100]).
+      responses:
+        "200":
+          description: Recent events + live counters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role: { type: string, enum: [owner, consumer] }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsoleEvent' }
+                  counters:
+                    type: object
+                    description: requests_today plus owner (earned_today, active_nodes, active_bands) or consumer (spend_today) figures.
+        "401": { description: not logged in (no session, no valid signature, or unbound keypair) }
+
+  /activity:
+    get:
+      tags: [account]
+      summary: Alias of /console
+      description: Identical to GET /console (the recent lineage feed + live counters).
+      responses:
+        "200": { description: see /console }
+        "401": { description: not logged in }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear the web session cookie
+      responses: { "200": { description: ok } }
+
+  /nodes/register:
+    post:
+      tags: [provider]
+      summary: Register/refresh a provider node and its offers
+      description: |
+        Proof-of-possession: signed with the node key (anti-replay TS). A node
+        advertising a NONZERO price is an EARNING node and the request must ALSO be
+        signed with the owner's user key (the `signedUser` scheme) bound to a GitHub
+        owner via POST /auth/github - otherwise 401 (unsigned) / 403 (not linked).
+        Free (all-zero-price) nodes register with no login.
+      parameters:
+        - $ref: '#/components/parameters/Pubkey'
+        - $ref: '#/components/parameters/SigTS'
+        - $ref: '#/components/parameters/Sig'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/NodeRegistration' } } }
+      responses:
+        "200": { description: ok }
+        "401": { description: invalid signature, or priced offer without a signed owner request }
+        "403": { description: priced offer but the signing key is not a GitHub-linked owner, OR (TEE-require mode) a confidential claim that failed attestation }
+
+  /nodes/challenge:
+    post:
+      tags: [provider]
+      summary: Get a single-use TEE attestation nonce
+      description: |
+        Confidential-tier handshake. Returns a short-lived, single-use nonce. The node
+        must produce a TEE quote whose report_data == hash(pub_key || nonce) and send it
+        in the following /nodes/register, which binds the quote to this node's key and a
+        fresh challenge (anti-replay).
+      responses:
+        "200": { description: a fresh challenge, content: { application/json: { schema: { $ref: '#/components/schemas/AttestChallenge' } } } }
+
+  /nodes/heartbeat:
+    post:
+      tags: [provider]
+      summary: Keep a node marked online
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { node_id: { type: string } } } } }
+      responses: { "200": { description: ok } }
+
+  /agent/poll:
+    get:
+      tags: [provider]
+      summary: Long-poll for a relayed job (held up to 25s)
+      security: [ { nodeToken: [] } ]
+      parameters: [ { in: query, name: node, required: true, schema: { type: string } } ]
+      responses:
+        "200": { description: a job, content: { application/json: { schema: { $ref: '#/components/schemas/Job' } } } }
+        "204": { description: no job within the window - re-poll }
+        "401": { description: bad node token }
+
+  /agent/result:
+    post:
+      tags: [provider]
+      summary: Return a served job's result + signed receipt
+      security: [ { nodeToken: [] } ]
+      parameters: [ { in: query, name: node, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/JobResult' } } }
+      responses: { "200": { description: ok }, "401": { description: bad node token } }
+
+  /agent/stream:
+    post:
+      tags: [provider]
+      summary: Pipe a streaming job's SSE chunks back to the client
+      description: For `stream:true` jobs, the node POSTs the upstream SSE body here and the broker forwards it, flushing, to the waiting consumer; the node then posts the receipt to /agent/result.
+      security: [ { nodeToken: [] } ]
+      parameters:
+        - { in: query, name: node, required: true, schema: { type: string } }
+        - { in: query, name: job, required: true, schema: { type: string } }
+      responses: { "200": { description: piped }, "401": { description: bad node token }, "404": { description: no active stream } }
+
+  /admin/whoami:
+    get:
+      tags: [admin]
+      summary: Probe whether the caller is the platform super-admin
+      description: |
+        SUPER-ADMIN only. Returns `{admin:true,...}` when the caller is the founder,
+        else 403. Authenticated by EITHER the broker key in `X-Roger-Admin` (the
+        `adminKey` scheme) OR a logged-in GitHub web session whose id equals the
+        configured `ADMIN_GITHUB_ID`. The admin web portal hits this first and shows a
+        deny plate to a non-admin (no data is fetched). Closed-by-default: if neither
+        credential is configured the whole admin surface 403s.
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      responses:
+        "200": { description: admin identity }
+        "403": { description: not the super-admin }
+  /admin/overview:
+    get:
+      tags: [admin]
+      summary: Platform HEALTH + MARKETPLACE + REVENUE rollup
+      description: |
+        SUPER-ADMIN only (see /admin/whoami auth). Aggregates platform-wide health
+        (readiness, uptime, version, total relayed requests), the live marketplace
+        (on-air nodes, models live, request/token totals all-time + window), and the
+        financial rollup (platform fee, consumer spend, provider earned, top-up volume,
+        the held/payable/paid/clawed earnings split, wallet counts, Stripe mode,
+        seed-remaining). The page's primary auto-refreshed read.
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      parameters:
+        - { in: query, name: days, schema: { type: integer, default: 1, minimum: 1, maximum: 366 }, description: marketplace window in days (default 1 = today) }
+      responses:
+        "200": { description: overview }
+        "403": { description: not the super-admin }
+  /admin/payouts:
+    get:
+      tags: [admin]
+      summary: Payout queue + history + open reversals + policy
+      description: |
+        SUPER-ADMIN only. Returns every operator's payable/held/pending/paid posture
+        (the queue, most-owed first), the platform payout history, the open Stripe
+        transfer-reversals still owed, and the active payout policy. The reviewed
+        unhold control is POST /admin/unhold.
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      responses:
+        "200": { description: payouts management view }
+        "403": { description: not the super-admin }
+  /admin/abuse:
+    get:
+      tags: [admin]
+      summary: Abuse + safety rollup (counts only)
+      description: |
+        SUPER-ADMIN only. Banned operators (with reason + strike count), struck-account
+        and total-strike counts, the CSAM report-queue depth, abuse-report count,
+        dispute/chargeback count, banned-node count, and accounts under a recount hold.
+        Returns COUNTS and ban metadata only; never any preserved CSAM content.
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      responses:
+        "200": { description: abuse/safety view }
+        "403": { description: not the super-admin }
+  /admin/activity:
+    get:
+      tags: [admin]
+      summary: Recent cross-account ledger event stream (lineage)
+      description: |
+        SUPER-ADMIN only. The most-recent ledger rows across EVERY holder, newest
+        first - the platform-wide activity/lineage stream. A snapshot poll (real-time
+        streaming is deferred).
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 100, minimum: 1, maximum: 500 }, description: max events (default 100, max 500) }
+      responses:
+        "200": { description: activity stream }
+        "403": { description: not the super-admin }
+  /admin/unhold:
+    post:
+      tags: [admin]
+      summary: Clear a recount hold (and optionally forgive strikes / lift the ban)
+      description: |
+        SUPER-ADMIN only - the human-review escape hatch. Clears a node and/or account
+        recount hold so the operator's earning lots promote again on the next sweep;
+        with `forgive:true` it also deletes the owner's strikes and lifts any durable
+        owner ban. Authenticated by the broker key in `X-Roger-Admin` (the browser
+        portal may need the key pasted for this mutation).
+      security: [ { adminKey: [] }, { cookieAuth: [] } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: { type: string, description: owner pubkey to unhold }
+                node: { type: string, description: node id to unhold (optional) }
+                forgive: { type: boolean, description: also delete strikes + lift the owner ban }
+      responses:
+        "200": { description: hold cleared }
+        "400": { description: account_id or node required }
+        "403": { description: not the super-admin }
+
+components:
+  securitySchemes:
+    nodeToken:
+      type: http
+      scheme: bearer
+      description: The per-node BridgeToken set at registration.
+    signedUser:
+      type: apiKey
+      in: header
+      name: X-Roger-Sig
+      description: |
+        Consumer request signature. The local proxy signs every broker request with
+        the user's Ed25519 key and sends three headers: `X-Roger-Pubkey` (hex public
+        key), `X-Roger-TS` (unix seconds, must be within 5 minutes), and
+        `X-Roger-Sig` (hex ed25519 signature over the canonical string
+        `method + "\n" + path + "\n" + ts + "\n" + hex(sha256(body))`). The broker
+        derives the wallet id as `u_` + first 16 hex of sha256(pubkey). A present but
+        invalid signature is rejected with 401.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: roger_session
+      description: |
+        The signed, HTTP-only web session cookie set by the GitHub OAuth callback. The
+        account/billing/payouts/admin pages read it credentialed (no token in JS). For
+        the admin surface, the session ALSO authorizes only when its github id equals
+        the configured `ADMIN_GITHUB_ID` (the single super-admin); an ordinary owner
+        session is never an admin.
+    adminKey:
+      type: apiKey
+      in: header
+      name: X-Roger-Admin
+      description: |
+        SUPER-ADMIN credential: the broker's stable signing seed in hex
+        (`BROKER_PRIVATE_KEY`), constant-time compared. Gates the whole `/admin/*`
+        surface for the CLI/curl path. Closed-by-default: if neither this key nor
+        `ADMIN_GITHUB_ID` is configured, every admin request is rejected.
+  parameters:
+    User:
+      in: header
+      name: X-Roger-User
+      schema: { type: string }
+      description: |
+        Legacy, UNAUTHENTICATED caller hint. Honored only when no signature is
+        present; cannot spend or read a signed user's wallet. Prefer the signed
+        headers (see the `signedUser` security scheme).
+    Pubkey:
+      in: header
+      name: X-Roger-Pubkey
+      schema: { type: string }
+      description: Hex ed25519 public key of the signing user (part of the request signature).
+    SigTS:
+      in: header
+      name: X-Roger-TS
+      schema: { type: integer }
+      description: Unix-seconds timestamp the signature covers (must be within 5 minutes).
+    Sig:
+      in: header
+      name: X-Roger-Sig
+      schema: { type: string }
+      description: Hex ed25519 signature over the canonical request string.
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      description: Max history rows to return (default 20, clamped to 100).
+  schemas:
+    ServiceInfo:
+      type: object
+      properties:
+        service: { type: string, example: rogerai-broker }
+        version: { type: string }
+        spec: { type: string, example: /openapi.yaml }
+    Error:
+      type: object
+      properties: { error: { type: object, properties: { message: { type: string } } } }
+    ChatRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model: { type: string }
+        messages: { type: array, items: { type: object } }
+        stream: { type: boolean }
+        max_tokens: { type: integer }
+    PriceWindow:
+      type: object
+      description: Time-of-use rule (HH:MM UTC; may wrap midnight; empty days = daily).
+      properties:
+        days: { type: array, items: { type: integer } }
+        start: { type: string, example: "18:00" }
+        end: { type: string, example: "22:00" }
+        price_in: { type: number }
+        price_out: { type: number }
+        free: { type: boolean }
+    ModelOffer:
+      type: object
+      properties:
+        model: { type: string }
+        price_in: { type: number, description: credits per 1M input tokens (base/fallback) }
+        price_out: { type: number, description: credits per 1M output tokens (base/fallback) }
+        ctx: { type: integer }
+        schedule: { type: array, items: { $ref: '#/components/schemas/PriceWindow' } }
+    Offer:
+      allOf:
+        - $ref: '#/components/schemas/ModelOffer'
+        - type: object
+          properties:
+            node_id: { type: string }
+            region: { type: string }
+            hw: { type: string }
+            online: { type: boolean }
+            confidential: { type: boolean }
+            free_now: { type: boolean }
+            scheduled: { type: boolean }
+            tps: { type: number, description: measured output tokens/sec (0 = unmeasured) }
+            ttft_ms: { type: number, description: probe-measured time-to-first-token in ms (0 = unmeasured) }
+            quality: { type: number, description: "0..1 broker-measured trust/verification signal (token-recount fidelity + probe canary)" }
+    NodeRegistration:
+      type: object
+      required: [node_id, pub_key, offers]
+      properties:
+        node_id: { type: string }
+        pub_key: { type: string, description: hex ed25519 public key }
+        bridge_token: { type: string, description: shared secret authenticating this node's poll/result }
+        region: { type: string }
+        hw: { type: string }
+        offers: { type: array, items: { $ref: '#/components/schemas/ModelOffer' } }
+        confidential: { type: boolean, description: "Node claims the confidential tier. Honored only after the attestation quote verifies." }
+        attestation: { type: string, description: "base64 TEE quote (SEV-SNP raw extended report). Verified for signature chain, nonce binding, and allowlisted measurement before the confidential badge is granted." }
+        attest_kind: { type: string, description: "TEE backend that produced the quote (e.g. sev-snp)." }
+        attest_nonce: { type: string, description: "The /nodes/challenge nonce this quote is bound to (report_data = hash(pub_key || nonce))." }
+    AttestChallenge:
+      type: object
+      description: "A single-use, short-lived nonce the node binds its TEE quote to (anti-replay)."
+      properties:
+        nonce: { type: string, description: hex challenge nonce }
+        expires: { type: integer, format: int64, description: unix seconds after which the nonce is rejected }
+    UsageReceipt:
+      type: object
+      description: Hash-chained, node-signed + broker-counter-signed per-request record.
+      properties:
+        request_id: { type: string }
+        node_id: { type: string }
+        user: { type: string, description: pseudonymized per (user, node) }
+        model: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        price_in: { type: number }
+        price_out: { type: number }
+        ts: { type: integer }
+        prev_hash: { type: string }
+        lineage_method: { type: string }
+        broker_completion_tokens: { type: integer, description: "broker's independent L1 re-count of the completion (0 = not re-counted)" }
+        tokenizer_exact: { type: boolean, description: "true when the L1 re-count used an exact tokenizer (false = calibrated heuristic, outlier-gate only)" }
+        node_sig: { type: string }
+        broker_sig: { type: string }
+    MarketModel:
+      type: object
+      description: Aggregated market metrics for one model (see GET /market).
+      properties:
+        model: { type: string }
+        providers: { type: integer, description: online nodes offering this model }
+        in_flight: { type: integer, description: active requests across those nodes }
+        min_price: { type: number, description: cheapest active input price (credits/1M) }
+        best_tps: { type: number, description: fastest measured output tok/s }
+        ttft_ms: { type: number, description: best (lowest) probe-measured time-to-first-token across providers in ms (0 = unmeasured) }
+        quality: { type: number, description: "mean broker-measured trust/verification signal across providers (0..1)" }
+        success_rate: { type: number, description: mean EWMA success across providers (0..1) }
+        signal: { type: integer, description: 0..100 demand/quality/reliability/verification signal }
+    Entry:
+      type: object
+      description: One settled request, as surfaced to the /me and /earnings dashboards.
+      properties:
+        request_id: { type: string }
+        user: { type: string, description: real wallet owner (dashboards are owner-private) }
+        node: { type: string }
+        model: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        cost: { type: number, description: credits the consumer paid }
+        owner_share: { type: number, description: credits credited to the node owner }
+        ts: { type: integer }
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        user: { type: string }
+        body: { type: object, description: the raw OpenAI request }
+    JobResult:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: integer }
+        body: { type: object }
+        receipt: { $ref: '#/components/schemas/UsageReceipt' }
+    LedgerRow:
+      type: object
+      description: One append-only money event (the ledger is the source of truth).
+      properties:
+        id: { type: integer }
+        holder: { type: string, description: wallet id (consumer) or account id (operator) }
+        side: { type: string, description: "consumer | operator" }
+        kind: { type: string, description: "topup|spend|hold|hold_release|earn|payout|refund|chargeback|reserve_hold|reserve_release|adjustment" }
+        amount: { type: number, description: signed (+credit to holder, -debit) }
+        idem_key: { type: string }
+        state: { type: string, description: "posted|pending|reversed" }
+        ref: { type: string }
+        ts: { type: integer }
+    EarningSplit:
+      type: object
+      description: Operator earnings lifecycle split (held -> reserved -> payable -> paid).
+      properties:
+        held: { type: number }
+        reserved: { type: number }
+        payable: { type: number }
+        paid: { type: number }
+        next_release: { type: integer, description: unix of the soonest upcoming release }
+    Payout:
+      type: object
+      description: One requested payout (a Stripe Transfer per operator per run).
+      properties:
+        id: { type: integer }
+        account_id: { type: string }
+        amount: { type: number }
+        stripe_transfer_id: { type: string }
+        state: { type: string, description: "pending|paid|reversed|failed" }
+        created_at: { type: integer }
+    ReleaseBucket:
+      type: object
+      description: One upcoming earning release on the dated ladder (GET /payouts/earnings releases[]).
+      properties:
+        date: { type: integer, description: unix midnight UTC of the release day (bucket key) }
+        amount: { type: number, description: credits releasing that day (gross-minus-reserve) }
+        lot_count: { type: integer, description: number of held lots in this bucket }
+    EarningRollup:
+      type: object
+      description: Per-model or per-node earnings total across the account's non-clawed lots.
+      properties:
+        key: { type: string, description: the model id (by_model) or node id (by_node) }
+        amount: { type: number, description: total attributed gross }
+        lots: { type: integer, description: number of lots contributing }
+    PayoutLot:
+      type: object
+      description: One funding earning lot behind a payout (GET /payouts/{id}/lots) - request-level lineage.
+      properties:
+        request_id: { type: string }
+        node: { type: string }
+        model: { type: string, description: resolved from the lot's request receipt ("" if unknown) }
+        gross: { type: number, description: owner share for this request (credits) }
+        created_at: { type: integer }
+    ProviderModelMetric:
+      type: object
+      description: One (model,node) row of the per-model PROVIDER metrics (GET /metrics/provider).
+      properties:
+        model: { type: string }
+        node_id: { type: string, description: the caller's node that served this model }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer, description: requests that earned the owner $0 (free model/window/self-use) }
+        paid_requests: { type: integer, description: requests with a positive owner share }
+        free_tokens: { type: integer, description: prompt+completion tokens on free requests }
+        paid_tokens: { type: integer, description: prompt+completion tokens on paid requests }
+        earnings_usd: { type: number, description: the owner's 70% net share (credits; $ at credit_usd=1) }
+    ProviderTotals:
+      type: object
+      description: Summed totals across the ProviderModelMetric rows.
+      properties:
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer }
+        paid_requests: { type: integer }
+        free_tokens: { type: integer }
+        paid_tokens: { type: integer }
+        earnings_usd: { type: number }
+    UsageModelMetric:
+      type: object
+      description: One model row of the per-model CONSUMER metrics (GET /metrics/usage).
+      properties:
+        model: { type: string }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer, description: $0 requests (free model/window/self-use) }
+        paid_requests: { type: integer, description: requests with a positive charge }
+        spend_usd: { type: number, description: credits the caller spent on this model ($ at credit_usd=1) }
+    UsageTotals:
+      type: object
+      description: Summed totals across the UsageModelMetric rows.
+      properties:
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        free_requests: { type: integer }
+        paid_requests: { type: integer }
+        spend_usd: { type: number }
+    SeriesPoint:
+      type: object
+      description: One time bucket (a UTC day "2006-01-02", or an hour "2006-01-02T15") of the GET /metrics/series time-series.
+      properties:
+        bucket: { type: string, description: UTC day (daily) or UTC hour (hourly) key }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        spend: { type: number, description: consumer $ paid in the bucket }
+        earned: { type: number, description: provider owner-share $ in the bucket }
+        frontier_est: { type: number, description: est. cost of the consumed tokens at the baseline frontier list price }
+        savings_est: { type: number, description: frontier_est - spend, floored at 0 }
+        models:
+          type: array
+          items: { $ref: '#/components/schemas/SeriesModelPoint' }
+    SeriesModelPoint:
+      type: object
+      description: One model's slice of a SeriesPoint bucket.
+      properties:
+        model: { type: string }
+        requests: { type: integer }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        spend: { type: number }
+        earned: { type: number }
+    SavingsRollup:
+      type: object
+      description: |
+        Savings-vs-frontier rollup on GET /metrics/series. A REFERENCE ESTIMATE: what
+        the consumed tokens would have cost at a name-brand lab's published list price vs
+        what the caller actually paid on RogerAI. Not a live or contractual quote.
+      properties:
+        baseline_model: { type: string, description: the frontier model driving the headline figure (e.g. gpt-4o) }
+        spend_usd: { type: number, description: what the caller actually paid }
+        frontier_est: { type: number, description: est. cost at the baseline frontier list price }
+        savings_est: { type: number, description: frontier_est - spend_usd, floored at 0 }
+        reference:
+          type: array
+          description: the small static reference price table (USD per 1M tokens).
+          items: { $ref: '#/components/schemas/FrontierRef' }
+        reference_note: { type: string, description: a human-readable "estimate only" disclaimer }
+    FrontierRef:
+      type: object
+      description: One reference frontier-lab model's published list price (USD per 1,000,000 tokens).
+      properties:
+        model: { type: string }
+        in_per_1m: { type: number, description: input list price, USD / 1M tokens }
+        out_per_1m: { type: number, description: output list price, USD / 1M tokens }
+    ConsoleEvent:
+      type: object
+      description: One lineage row on GET /console - a settled receipt projected to the fields a live feed renders.
+      properties:
+        request_id: { type: string, description: the receipt / hash-chain id }
+        ts: { type: integer, description: unix seconds }
+        model: { type: string }
+        node: { type: string, description: the node callsign (hostname-free node id) }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        cost: { type: number, description: consumer $ paid }
+        earned: { type: number, description: provider owner-share $ (0 on the consumer view) }
+        success: { type: boolean, description: true for any settled receipt }

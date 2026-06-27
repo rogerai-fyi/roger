@@ -1,0 +1,27 @@
+# Normalize line endings so cross-platform checkouts stay sane.
+# Default: let git decide text vs binary and normalize to LF in the repo.
+* text=auto
+
+# POSIX shell + Go must stay LF - a CRLF shebang breaks `#!/bin/sh`, and
+# CRLF in Go source is needlessly noisy. install.sh is piped to `sh` over the
+# wire, so its line endings must never become CRLF on a Windows checkout.
+*.sh    text eol=lf
+*.go    text eol=lf
+go.mod  text eol=lf
+go.sum  text eol=lf
+
+# PowerShell is happiest with CRLF (and some older hosts require it).
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Prebuilt binaries / archives are binary - never touch them.
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary

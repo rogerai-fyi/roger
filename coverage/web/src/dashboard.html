@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Dashboard - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>Dashboard</h1>
+    <p class="sub">Signed in as <b id="who">-</b> &middot; last 30 days</p>
+
+    <!-- loading / empty / error states for the whole feed -->
+    <p class="ds-state" id="dashLoading">Loading your numbers...</p>
+    <p class="ds-state" id="dashError" hidden>Could not load your dashboard. Try again shortly.</p>
+    <section class="panel" id="dashEmpty" hidden>
+      <h2>No traffic yet</h2>
+      <p>Nothing has moved through your account in the last 30 days. Tune in to a model and your tokens, spend and savings will chart here.</p>
+      <pre class="cmd">roger use &lt;model&gt;</pre>
+      <p class="fine">Or put a GPU on air with <code>roger share</code> to start earning.</p>
+    </section>
+
+    <!-- ============ HERO: savings vs frontier (consumer) ============ -->
+    <section class="ds-hero" id="hero" hidden>
+      <p class="ds-hero__eyebrow">You have saved</p>
+      <p class="ds-hero__amt" id="heroAmt">-</p>
+      <p class="ds-hero__sub">vs <b id="heroBase">gpt-4o</b> list price &middot; you paid <b id="heroSpend">-</b> where a frontier lab would have billed <b id="heroFrontier">-</b></p>
+    </section>
+
+    <!-- alt hero for a pure provider: lifetime earned over the window -->
+    <section class="ds-hero" id="heroEarn" hidden>
+      <p class="ds-hero__eyebrow">You have earned</p>
+      <p class="ds-hero__amt"><span id="heroAmtEarn">-</span></p>
+      <p class="ds-hero__sub">owner share across your nodes, last 30 days</p>
+    </section>
+
+    <!-- ============ STAT TILES (period totals) ============ -->
+    <dl class="stats ds-tiles" id="stats" hidden>
+      <div><dt>Requests</dt><dd id="statReq">-</dd></div>
+      <div><dt>Tokens</dt><dd id="statTok">-</dd></div>
+      <div id="tileSpend" hidden><dt>Spend</dt><dd id="statSpend">-</dd></div>
+      <div id="tileEarn" hidden><dt>Earned</dt><dd id="statEarn">-</dd></div>
+    </dl>
+
+    <!-- ============ SAVINGS PER DAY ============ -->
+    <section class="panel" id="savingsWrap" hidden>
+      <h2>Savings per day</h2>
+      <div class="ds-chart">
+        <div class="ds-chart__head">
+          <span class="ds-chart__title">Estimated $ saved vs frontier</span>
+          <span class="ds-legend" aria-hidden="true"><span class="ds-legend__sw ds-legend__sw--live"></span>saved</span>
+        </div>
+        <div id="savingsChart"></div>
+      </div>
+      <p class="fine" id="savingsNote">Estimate only: published list prices, not a live or contractual quote.</p>
+    </section>
+
+    <!-- ============ TOKENS OVER TIME ============ -->
+    <section class="panel" id="tokWrap" hidden>
+      <h2>Tokens over time</h2>
+      <div class="ds-chart">
+        <div class="ds-chart__head"><span class="ds-chart__title">Tokens out per day</span></div>
+        <div id="tokChart"></div>
+      </div>
+    </section>
+
+    <!-- ============ SPEND / EARNED OVER TIME ============ -->
+    <section class="panel" id="moneyWrap" hidden>
+      <h2>Money over time</h2>
+      <div class="ds-chart">
+        <div class="ds-chart__head">
+          <span class="ds-chart__title">Per day</span>
+          <span class="ds-legend" id="moneyLegend" aria-hidden="true"></span>
+        </div>
+        <div id="moneyChart"></div>
+      </div>
+    </section>
+
+    <!-- ============ REQUESTS OVER TIME ============ -->
+    <section class="panel" id="reqWrap" hidden>
+      <h2>Requests over time</h2>
+      <div class="ds-chart">
+        <div class="ds-chart__head"><span class="ds-chart__title">Requests per day</span></div>
+        <div id="reqChart"></div>
+      </div>
+    </section>
+
+    <!-- ============ PER-MODEL BREAKDOWN ============ -->
+    <section class="panel" id="modelWrap" hidden>
+      <h2>By model</h2>
+      <div class="ds-chart">
+        <div class="ds-chart__head"><span class="ds-chart__title">Tokens by model</span></div>
+        <div id="modelBars"></div>
+      </div>
+      <p class="fine"><a href="/usage.html">Full per-model metrics</a></p>
+    </section>
+
+    <!-- ============ EARN CTA (only when not yet a provider) ============ -->
+    <section class="panel" id="earnCta" hidden>
+      <h2>Earn</h2>
+      <p>Put a GPU on air and earn per token. Install, then link this account on the box:</p>
+      <pre class="cmd">curl -fsSL https://rogerai.fyi/install.sh | sh
+roger login
+roger share</pre>
+      <p class="fine">Once a node serves under your account, its activity shows on <a href="/console.html">the console</a>.</p>
+    </section>
+
+    <!-- include: accountnav.html current=dashboard -->
+    <button id="logout" class="ghost">Sign out</button>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/dashboard.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/promo.js"></script>
+</body>
+</html>

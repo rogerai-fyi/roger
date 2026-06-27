@@ -1,0 +1,69 @@
+<!-- The ONE shared nav. Brand (left) + a utility cluster (right): theme toggle +
+     session account control (session.js swaps "Log in" for the avatar/dropdown
+     when signed in). Marketing pages also render the section links + the mobile
+     burger; account pages render the lean form (brand + theme + account only).
+     args:
+       variant   = "marketing" (sections + burger) | "lean" (default)
+       home      = brand link target (default "/")
+       anchors   = prefix for the #section links (empty on the homepage, "/" elsewhere)
+       scrolled  = "1" to ship the solid bar state for non-scrolling pages -->
+<!-- thin dismissible $1-starter promo strip, above the sticky bar (site-wide) -->
+<!-- include: promo.html -->
+<header class="nav{{#if scrolled=1}} is-scrolled{{/if}}" id="nav">
+  <div class="wrap nav__inner">
+    <!-- include: brand.html href={{home}} -->
+{{#if variant=marketing}}
+    <!-- mobile: open/close the collapsed menu -->
+    <button class="nav__burger" id="navBurger" type="button"
+            aria-label="Open menu" aria-expanded="false" aria-controls="navMenu">
+      <span class="nav__burger-lines" aria-hidden="true"><i></i><i></i><i></i></span>
+    </button>
+{{/if}}
+    <nav class="nav__menu" id="navMenu" aria-label="Primary">
+{{#if variant=marketing}}
+      <!-- section group: terse single-word manual labels, in document order -->
+      <div class="nav__sections">
+        <a class="nav__link" href="/models.html">Models</a>
+        <a class="nav__link" href="{{anchors}}#spec">Spec</a>
+        <a class="nav__link" href="{{anchors}}#how">Operating</a>
+        <a class="nav__link" href="{{anchors}}#monetize">Monetize</a>
+      </div>
+
+      <span class="nav__divider" aria-hidden="true"></span>
+{{/if}}
+      <!-- utility cluster: manual, account, source, theme - on EVERY page -->
+      <div class="nav__utils">
+        {{#unless variant=marketing}}<a class="nav__link nav__util" href="/models.html">Models</a>{{/unless}}
+        <a class="nav__link nav__util" href="/manual.html">Manual</a>
+        <a class="nav__link nav__util" href="/keys.html">API keys</a>
+        <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
+{{#if variant=marketing}}
+        <a class="nav__link nav__util nav__link--ghost" href="https://github.com/rogerai-fyi/roger">Source</a>
+{{/if}}
+        <button class="theme-toggle" id="themeToggle" type="button"
+                aria-label="Switch to dark theme" aria-pressed="false">
+          <!-- moon: shown in light mode (click switches to dark) -->
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.5 14.2A8.2 8.2 0 0 1 9.8 3.5a8.2 8.2 0 1 0 10.7 10.7z" />
+          </svg>
+          <!-- sun: shown in dark mode (click switches to light) -->
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <g class="theme-toggle__rays">
+              <line x1="12" y1="2.5" x2="12" y2="5" />
+              <line x1="12" y1="19" x2="12" y2="21.5" />
+              <line x1="2.5" y1="12" x2="5" y2="12" />
+              <line x1="19" y1="12" x2="21.5" y2="12" />
+              <line x1="5.3" y1="5.3" x2="7" y2="7" />
+              <line x1="17" y1="17" x2="18.7" y2="18.7" />
+              <line x1="5.3" y1="18.7" x2="7" y2="17" />
+              <line x1="17" y1="7" x2="18.7" y2="5.3" />
+            </g>
+          </svg>
+        </button>
+      </div>
+    </nav>
+  </div>
+</header>

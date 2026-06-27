@@ -1,0 +1,28 @@
+<!-- The RogerAI brand mark, defined ONCE. To change the logo, edit THIS file.
+     [ ] brackets + the live-red CIRCLE on-air beacon + the spanned RogerAI
+     wordmark (the span keeps "Roger" and "AI" tight, no gap). The whole brand
+     family (favicon.svg / logo.svg / Ping's eye) shares this circle beacon.
+     args:
+       as   = "nav" (default, an <a> link) | "footer" (a non-interactive <div>)
+       href = link target for the nav form (default "/") -->
+{{#if as=footer}}
+<div class="footer__brand">
+  <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
+    <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
+    <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
+    <circle class="brand__pulse" cx="16" cy="16" r="5" />
+  </svg>
+  <span class="brand__name">Roger<b>AI</b></span>
+</div>
+{{/if}}
+{{#unless as=footer}}
+<a class="brand" href="{{href}}" aria-label="RogerAI home">
+  <svg class="brand__logo" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" focusable="false">
+    <!-- the ((on air)) monogram: two solid brackets around the pulse -->
+    <path d="M4 6 h9 v4.5 H8.5 v11 H13 V26 H4 Z" />
+    <path d="M28 6 h-9 v4.5 H23.5 v11 H19 V26 h9 Z" />
+    <circle class="brand__pulse" cx="16" cy="16" r="5" />
+  </svg>
+  <span class="brand__name">Roger<b>AI</b></span>
+</a>
+{{/unless}}

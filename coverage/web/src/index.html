@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" theme=inline css=site og=1 -->
+</head>
+<body data-onair="idle">
+
+  <!-- ===== blip-map background: stations on air across a faint grid ===== -->
+  <canvas id="blipmap" class="blipmap" aria-hidden="true"></canvas>
+  <div class="blipmap-fallback" aria-hidden="true"></div>
+
+  <!-- ===== running head: this page is one bound document ===== -->
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Operating Manual</span>
+    <span class="rail__rev">Rev. 2026.06 · ((•))</span>
+  </div>
+
+  <!-- ============================ NAV ============================ -->
+  <!-- include: nav.html variant=marketing home=#top anchors= -->
+
+  <!-- ============================ HERO ============================ -->
+  <main id="top">
+  <section class="hero">
+    <div class="wrap hero__inner">
+
+      <span class="hero__eyebrow" data-reveal>
+        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <span class="hero__callsign">ON AIR</span>
+        <span class="hero__sep" aria-hidden="true">·</span>
+        a two-way radio for GPUs
+      </span>
+
+      <h1 class="hero__title" data-reveal data-reveal-delay="60">
+        Tune in to the world's<br /><span class="hero__op">home GPUs</span>.
+      </h1>
+
+      <p class="hero__sub" data-reveal data-reveal-delay="120">
+        Operators put their self-hosted models <b>on air</b> - ham radio,
+        for LLMs. You <b>tune in</b> and pay per token on the CLI. No inbound
+        ports, no account to browse.
+      </p>
+
+      <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
+           FIG.1 the install command (command-as-hero) -> FIG.2 the small,
+           left-aligned band teaser (representative models, gently animated, links
+           to the live dial on /models.html) -> FIG.3 the demo replay below. -->
+
+      <!-- Ping, the operator persona: standing by / on air, driven by live state.
+           The mascot is ALWAYS on, with a scrolling LED banner to its right (idle
+           it rolls flavor phrases; on a reply it scrolls the reply, like a station's
+           now-playing display). Clicking the mascot OR the banner opens a small
+           record-player chat (Ping concierge) for typing. Sits right after the
+           subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
+      <span class="hero__ping" id="pingDock" data-reveal data-reveal-delay="160">
+        <button class="hero__ping-trigger" id="pingTrigger" type="button"
+                aria-haspopup="dialog" aria-expanded="false" aria-controls="pingDeck"
+                aria-label="Talk to Ping, the RogerAI on-air concierge">
+          <svg class="ping" viewBox="0 0 64 72" fill="currentColor" focusable="false" aria-hidden="true">
+            <g class="ping__waves" fill="none" stroke="var(--live)" stroke-linecap="round" stroke-width="2">
+              <path class="ping__wave ping__wave--a" d="M22 12 A11 11 0 0 1 42 12" opacity="0"/>
+              <path class="ping__wave ping__wave--b" d="M16 11 A16 16 0 0 1 48 11" opacity="0"/>
+            </g>
+            <g class="ping__body">
+              <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+              <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+              <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+              <rect x="25" y="64" width="5" height="5" rx="1"/>
+              <rect x="34" y="64" width="5" height="5" rx="1"/>
+            </g>
+            <circle class="ping__glow" cx="32" cy="18" r="9" fill="var(--live)" opacity="0.3"/>
+            <circle class="ping__eye" cx="32" cy="18" r="5" fill="var(--live)"/>
+          </svg>
+          <span class="hero__ping-tag mono" id="pingTag">standing by</span>
+        </button>
+
+        <!-- ALWAYS-ON scrolling LED banner, beside the mascot. Part of the mascot,
+             not the popup. Clicking it opens the chat. Idle: flavor phrases roll;
+             on a reply: the reply scrolls across. #pingTag (above) is the single
+             status; this banner carries flavor + responses only. -->
+        <button class="pingband" id="pingBanner" type="button"
+                aria-label="Open Ping concierge to type a message"
+                aria-controls="pingDeck">
+          <span class="pingband__grille" aria-hidden="true"></span>
+          <span class="pingband__window">
+            <span class="pingband__text mono" id="pingBannerText">tune in / share / earn / signed receipts only</span>
+          </span>
+        </button>
+
+        <!-- The record-player / tape-deck chat surface (TYPING only now). Starts
+             CLOSED + collapsed so it never covers the hero. Draggable by its header.
+             Lazily wired on first open by ping-chat.js. -->
+        <div class="pingdeck" id="pingDeck" role="dialog" aria-modal="false" aria-label="Ping, the RogerAI concierge" hidden>
+          <div class="pingdeck__head" id="pingHead">
+            <span class="pingdeck__onair mono"><i class="pingdeck__led" id="pingDeckLight" aria-hidden="true"></i>PING / CONCIERGE</span>
+            <span class="pingdeck__grip mono" aria-hidden="true">::::</span>
+            <button class="pingdeck__close" id="pingClose" type="button" aria-label="Close Ping">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+
+          <!-- the deck: twin reels (spin while transmitting), purely decorative -->
+          <div class="pingdeck__deck" aria-hidden="true">
+            <svg class="pingdeck__reel pingdeck__reel--l" viewBox="0 0 48 48" focusable="false">
+              <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/>
+              <circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <g class="pingdeck__spokes" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M24 6 V13"/><path d="M24 35 V42"/><path d="M6 24 H13"/><path d="M35 24 H42"/>
+                <path d="M11.5 11.5 L16 16"/><path d="M32 32 L36.5 36.5"/><path d="M36.5 11.5 L32 16"/><path d="M16 32 L11.5 36.5"/>
+              </g>
+            </svg>
+            <span class="pingdeck__deckline mono">NOW TRANSMITTING / replies roll on the banner</span>
+            <svg class="pingdeck__reel pingdeck__reel--r" viewBox="0 0 48 48" focusable="false">
+              <circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/>
+              <circle cx="24" cy="24" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <g class="pingdeck__spokes" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M24 6 V13"/><path d="M24 35 V42"/><path d="M6 24 H13"/><path d="M35 24 H42"/>
+                <path d="M11.5 11.5 L16 16"/><path d="M32 32 L36.5 36.5"/><path d="M36.5 11.5 L32 16"/><path d="M16 32 L11.5 36.5"/>
+              </g>
+            </svg>
+          </div>
+
+          <div class="pingdeck__log" id="pingLog" aria-live="polite" aria-atomic="false"></div>
+
+          <form class="pingdeck__form" id="pingForm" autocomplete="off">
+            <input class="pingdeck__input mono" id="pingInput" type="text" maxlength="500"
+                   placeholder="ask Ping about tuning in..." aria-label="Message to Ping" />
+            <button class="pingdeck__send" id="pingSend" type="submit" aria-label="Send">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </form>
+        </div>
+      </span>
+
+      <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
+      <div class="install" data-reveal data-reveal-delay="200">
+        <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
+        <button class="install__box" id="installCmd" type="button"
+                aria-label="Copy install command to clipboard">
+          <span class="install__prompt" aria-hidden="true">$</span>
+          <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+          <span class="install__copy" id="installCopy" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+            </svg>
+          </span>
+        </button>
+        <div class="install__meta">
+          <span id="installNote">macOS · Linux - no account needed to browse</span>
+          <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary →</a>
+        </div>
+        <div class="install__meta">
+          <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+        </div>
+      </div>
+
+      <!-- FIG.2 - the band teaser. A COMPACT fake-dial tuner: a short frequency
+           strip auto-sweeps + re-locks band to band, proving "browse a band ->
+           tune in". Representative data, gently animated, no mouse interaction.
+           Smaller + LEFT-ALIGNED with the command above (same left edge / max
+           width). The whole figure links to /models.html, where the full
+           INTERACTIVE dial (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
+      <a class="teaser" id="teaser" data-reveal data-reveal-delay="240"
+         href="/models.html" aria-label="Browse the models on the live dial">
+        <span class="fig teaser__fig" aria-hidden="true">FIG. 2 - THE BAND · AT A GLANCE</span>
+        <p class="teaser__bridge">Some models that have been available - browse the full band on the dial:</p>
+        <div class="teaser__face" style="--lock:1;--sig:0.87">
+          <div class="teaser__top">
+            <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
+            <span class="teaser__sig mono" id="teaserSig">SIGNAL <b>87</b>/100</span>
+          </div>
+
+          <!-- the dial face: a short frequency strip (SVG, JS-hydrated) under a
+               fixed center needle + glass. Pre-filled for JS-off / reduced-motion. -->
+          <div class="teaser__dial">
+            <div class="teaser__svgwrap">
+              <svg id="teaserSvg" class="teaser__svg" viewBox="0 0 640 78" preserveAspectRatio="none" aria-hidden="true">
+                <g id="teaserStrip" class="teaser__stripg" transform="translate(320,0)"></g>
+              </svg>
+              <span class="teaser__glass" aria-hidden="true"></span>
+              <span class="teaser__needle" aria-hidden="true"></span>
+            </div>
+          </div>
+
+          <!-- the band list it sweeps (compact). The locked row tracks the strip. -->
+          <ul class="teaser__list" id="teaserList" aria-hidden="true">
+            <li class="teaser__band is-locked"><span class="teaser__bm">qwen3-coder-30b</span><span class="teaser__bd">7 stn · sig 87</span></li>
+            <li class="teaser__band"><span class="teaser__bm">mixtral-8x7b</span><span class="teaser__bd">6 stn · sig 82</span></li>
+            <li class="teaser__band"><span class="teaser__bm">qwen3-72b</span><span class="teaser__bd">4 stn · sig 74</span></li>
+            <li class="teaser__band"><span class="teaser__bm">gpt-oss-120b</span><span class="teaser__bd">3 stn · sig 66</span></li>
+            <li class="teaser__band"><span class="teaser__bm">llama3.3-70b</span><span class="teaser__bd">5 stn · sig 61</span></li>
+            <li class="teaser__band"><span class="teaser__bm">gemma3-27b</span><span class="teaser__bd">4 stn · sig 57</span></li>
+            <li class="teaser__band teaser__band--idle"><span class="teaser__bm">mistral-large</span><span class="teaser__bd">idle</span></li>
+          </ul>
+
+          <div class="teaser__foot">
+            <span class="teaser__chip mono" id="teaserChip">
+              <span class="meter__k">RATE</span><b>$0.22 /1M</b>
+              <span class="meter__k">SPEED</span><b>61 t/s</b>
+              <span class="meter__k">STN</span><b>7</b>
+            </span>
+            <span class="teaser__open mono" aria-hidden="true">browse the models &rarr;</span>
+          </div>
+        </div>
+      </a>
+
+    </div>
+  </section>
+
+  <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
+  <section class="demo" id="demo">
+    <div class="wrap">
+      <div class="demo__head" data-reveal>
+        <span class="sectionno">§1 / OPERATING PROCEDURE</span>
+        <h2>Tune in. Use it. Go on air.</h2>
+        <p>One CLI does both sides of the radio: <b>borrow</b> a model from someone's
+          home GPU, or <b>lend</b> your own and get paid per token. Pick a tape below
+          and watch it run.</p>
+        <p class="demo__fine">Under the hood, tuning in hands your bots a local
+          <b>OpenAI-compatible endpoint + key</b> on <code class="inline">127.0.0.1</code> -
+          a drop-in for any tool that already speaks OpenAI.</p>
+      </div>
+
+      <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
+      <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
+           aria-label="An interactive replay of the RogerAI CLI. Switch between four demos: the bare interactive radio, searching a band and reading the stations serving it, tuning in to get a local OpenAI-compatible endpoint and key, and sharing your own GPU on air to serve a request and earn.">
+        <div class="term__bar">
+          <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="term__title" id="termTitle">rogerai - the dial</span>
+        </div>
+
+        <!-- station-preset bar: switchable demos, current one lit red -->
+        <div class="term__presets" id="termPresets" role="group" aria-label="Choose a demo">
+          <button class="term__preset is-on" type="button" data-demo="rogerai" aria-pressed="true">
+            <span class="term__preset-led" aria-hidden="true"></span>rogerai
+          </button>
+          <button class="term__preset" type="button" data-demo="search" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>search
+          </button>
+          <button class="term__preset" type="button" data-demo="use" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>use
+          </button>
+          <button class="term__preset" type="button" data-demo="share" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>share
+          </button>
+        </div>
+
+        <pre class="term__screen" id="termScreen" aria-hidden="true"></pre>
+
+        <!-- transport: play / pause / replay + a tuning-bar progress readout -->
+        <div class="term__transport" aria-hidden="true">
+          <button class="term__btn" id="termPlay" type="button" aria-label="Pause demo" aria-pressed="true">❚❚</button>
+          <button class="term__btn term__btn--replay" id="termReplay" type="button" aria-label="Replay demo">↻</button>
+          <span class="term__bar-track"><span class="term__bar-fill" id="termBarFill"></span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LIVE SIGNAL FIELD / MARKET ===================== -->
+  <section class="market" id="market">
+    <div class="wrap">
+      <div class="market__head" data-reveal>
+        <span class="sectionno">§2 / THE BAND</span>
+        <h2>Read the band.</h2>
+        <p>Every model is a band; every station is a home GPU serving it.
+          <b>More stations&nbsp;=&nbsp;stronger signal</b>, faster tokens, more choice.
+          Operators set their own rates. As a band fills or empties, prices
+          drift. An open market - real data only, no station no signal.</p>
+      </div>
+
+      <div class="market__panel" data-reveal data-reveal-delay="80">
+        <!-- top status line: the reactive on-air beacon + live broker status -->
+        <div class="market__bar">
+          <span class="market__status" id="marketStatus">
+            <span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span>
+            <span id="marketStatusText">tuning in to the broker…</span>
+          </span>
+          <span class="market__meta">
+            <button class="market__refresh" id="marketRefresh" type="button"
+                    aria-label="Refresh the live band">refresh</button>
+          </span>
+        </div>
+
+        <!-- column header -->
+        <div class="mkt-row mkt-row--head" aria-hidden="true">
+          <span class="mkt-cell mkt-cell--model">band · stations</span>
+          <span class="mkt-cell mkt-cell--signal">signal</span>
+          <span class="mkt-cell mkt-cell--speed">speed</span>
+          <span class="mkt-cell mkt-cell--quality">quality</span>
+          <span class="mkt-cell mkt-cell--price">price · out</span>
+        </div>
+
+        <!-- the live rows render here -->
+        <ul class="mkt-list" id="marketList" aria-live="polite">
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-skel" aria-hidden="true"></li>
+        </ul>
+
+        <p class="market__foot mono" id="marketFoot">
+          reading <span class="ember">broker.rogerai.fyi/market</span> · prices in $ / 1M tokens
+        </p>
+        <p class="market__tune mono">
+          <a href="/models.html">tune the dial - browse every model &amp; station &rarr;</a>
+        </p>
+      </div>
+
+      <!-- the money meter line (replaces the 3 cards) -->
+      <div class="meter" aria-label="What it costs">
+        <span><span class="meter__k">RATE</span><b>$0.18 - $0.55</b> / 1M tok</span>
+        <span><span class="meter__k">REPLY</span><b>~$0.0001</b> / 24 tok out</span>
+        <span><span class="meter__k">WALLET</span><b>debited live</b>, per token</span>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <!-- ===================== THE TUNE ===================== -->
+  <section class="section band" id="what">
+    <div class="wrap">
+      <div class="section__head" data-reveal>
+        <span class="sectionno">§3 / THE TUNE</span>
+        <h2>Home GPUs, on the air.</h2>
+        <p>An operator puts a model on the air at a price they set; you tune in and
+          pay per token; every token is lineage-tracked. Fair, private, and
+          dead-simple from either side.</p>
+      </div>
+
+      <div class="twoway" data-reveal data-reveal-delay="80">
+        <article class="twoway__side">
+          <div class="twoway__tag twoway__tag--air">go on air</div>
+          <h3>Share a model</h3>
+          <p>Point RogerAI at your local backend (vLLM, llama.cpp, Ollama, LM Studio). Set a call-sign,
+            a rate, and your hours. Flip the switch. You are on air.</p>
+          <code class="twoway__cmd">roger share qwen3-coder-30b --rate 0.30</code>
+        </article>
+
+        <div class="twoway__link" aria-hidden="true">
+          <span class="twoway__beam"></span>
+        </div>
+
+        <article class="twoway__side">
+          <div class="twoway__tag twoway__tag--tune">tune in</div>
+          <h3>Use a model</h3>
+          <p>Pick a band, set your margins (max price, min speed). RogerAI locks the strongest
+            station and hands you a local OpenAI endpoint + key. When one fades, it re-tunes.</p>
+          <code class="twoway__cmd">roger use qwen3-coder-30b --max-price 0.30 --min-tps 40</code>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SPECIFICATIONS ===================== -->
+  <section class="section" id="spec">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§4 / SPECIFICATIONS</span>
+        <h2>Read the spec sheet.</h2>
+        <p>The whole instrument, on one plate. No surprises behind the dial.</p>
+      </div>
+
+      <dl class="spec" data-reveal data-reveal-delay="60" aria-label="RogerAI specifications">
+        <div class="spec__row">
+          <dt>Protocol</dt>
+          <dd>OpenAI-compatible <span class="spec__note">drop-in</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Transport</dt>
+          <dd>Outbound long-poll <span class="spec__note">no inbound ports</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Endpoint</dt>
+          <dd><span class="mono">127.0.0.1</span> <span class="spec__note">local · key-scoped</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Pricing</dt>
+          <dd>Per token <span class="spec__note">operator-set, from free, $/1M</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Settlement</dt>
+          <dd>Wallet balance <span class="spec__note">debited live, per token</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Lineage</dt>
+          <dd>ed25519 co-signed <span class="cs">&#9670;</span> <span class="spec__note">weights · shard · token</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Split</dt>
+          <dd><span class="mono">70 / 30</span> <span class="spec__note">in the operator's favor</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Backends</dt>
+          <dd><span class="mono">vLLM · llama.cpp · Ollama · LM Studio · LiteLLM · any OpenAI-compatible</span></dd>
+        </div>
+        <div class="spec__row">
+          <dt>Reach</dt>
+          <dd>Only the model port <span class="spec__note">no shell, no files, no context</span></dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ===================== OPERATING NOTES ===================== -->
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§5 / OPERATING NOTES</span>
+        <h2>Four notes before you transmit.</h2>
+      </div>
+
+      <div class="opnotes" data-reveal data-reveal-delay="60">
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">01</span>
+          <div><h3>Lock and hold</h3>
+          <p>Tune with margins. The radio locks the strongest station and re-tunes when one fades.</p></div>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">02</span>
+          <div><h3>Sign every token <span class="cs">&#9670;</span></h3>
+          <p>A call-sign co-signs each token's lineage. ed25519, verifiable.</p></div>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">03</span>
+          <div><h3>Set your own rate</h3>
+          <p>Per-token rates per model, free hours, time-of-use, usage caps. You decide.</p></div>
+        </article>
+        <article class="opnote">
+          <span class="opnote__no" aria-hidden="true">04</span>
+          <div><h3>Only the model</h3>
+          <p>RogerAI bridges the LLM endpoint, nothing else. No shell, files, or context. On the confidential <span class="cs">&#9670;</span> tier, traffic routes only to nodes that pass real TEE hardware attestation (AMD SEV-SNP), so the operator cannot read the payload in memory.</p></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MONETIZE ===================== -->
+  <section class="section band" id="monetize">
+    <div class="wrap monetize">
+      <div class="monetize__copy" data-reveal>
+        <span class="sectionno">§6 / MONETIZE</span>
+        <h2>Your GPU pays rent while you sleep.</h2>
+        <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
+          stations broadcast for the love of the band.</p>
+        <ul class="checks">
+          <li><span class="tick">+</span> Per-input and per-output pricing, per model</li>
+          <li><span class="tick">+</span> Time-of-use windows and usage caps you control</li>
+          <li><span class="tick">+</span> Provably fair metering, no under-reporting, no over-charging</li>
+          <li><span class="tick">+</span> 70/30 split in the operator's favor</li>
+        </ul>
+      </div>
+
+      <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example operator panel">
+        <span class="fig" aria-hidden="true">FIG. 4 - OPERATOR PANEL</span>
+        <div class="earn__head">
+          <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
+          <span class="earn__onair"><span class="dot"></span> ON AIR</span>
+        </div>
+        <div class="earn__row"><span>model</span><b class="mono">qwen3-coder-30b</b></div>
+        <div class="earn__row"><span>rate · out</span><b class="mono">$0.30 / 1M</b></div>
+        <div class="earn__row"><span>rate · in</span><b class="mono">$0.18 / 1M</b></div>
+        <div class="earn__spark">
+          <span class="earn__label">est. / day</span>
+          <span class="earn__bars" aria-hidden="true"></span>
+          <b class="mono earn__amt">$1.10 - $3.40</b>
+        </div>
+        <div class="earn__foot mono">you'll appear in the band within ~10s</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ===================== CTA STRIP ===================== -->
+  <section class="cta">
+    <div class="wrap cta__inner" data-reveal>
+      <span class="sectionno">§7 / GO</span>
+      <h2>Pick up the mic.</h2>
+      <p>Install the CLI. One command to go on air, or to tune in.</p>
+      <button class="install__box install__box--lg" id="installCmd2" type="button"
+              aria-label="Copy install command to clipboard">
+        <span class="install__prompt" aria-hidden="true">$</span>
+        <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        <span class="install__copy" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+            <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
+          </svg>
+        </span>
+      </button>
+      <div class="install__meta">
+        <span id="installNoteWin2">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ FOOTER ============================ -->
+  <!-- include: footer.html anchors= -->
+
+  <script src="js/radiomap.js" defer></script>
+  <script src="js/teaser.js" defer></script>
+  <script src="js/terminal.js" defer></script>
+  <script src="js/market.js" defer></script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+  <script src="js/ping-chat.js" defer></script>
+</body>
+</html>

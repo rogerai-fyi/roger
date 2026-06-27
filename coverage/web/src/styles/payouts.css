@@ -1,0 +1,288 @@
+/* =====================================================================
+   RogerAI - payouts.css : earnings provenance (/payouts.html).
+   The held -> payable -> paid meter, the held/payable/paid legend, the
+   hold timeline, the per-model/node breakdown rows and the ledger ref.
+   Consumes tokens.css + base.css + account-base.css. Monochrome plate;
+   the one red (--live) marks only the live/active edge (payable money,
+   the active hold step). Hand-rolled - no library.
+   ===================================================================== */
+
+/* ---- the held -> payable -> paid meter. One hairline rail, three tonal
+   segments on the ink scale; payable carries the red accent because it is the
+   money that is live (withdrawable now). Held money sits quiet (mid ink). ---- */
+.po-meter { margin: var(--s-2) 0 var(--s-5); }
+.po-meter__track {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-pill);
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.po-meter__seg {
+  height: 100%;
+  width: 0;
+  transition: width var(--d-2, 220ms) var(--ease-out-quint);
+}
+.po-meter__seg--held    { background: var(--ink-300); }
+.po-meter__seg--payable { background: var(--live); }
+.po-meter__seg--paid    { background: var(--ink-700); }
+
+/* ---- legend: a key + reading + a quiet note, on the printed-spec register. ---- */
+.po-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin: 0 0 var(--s-2);
+}
+.po-legend__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 2px var(--s-4);
+}
+.po-legend__row dt {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+  margin: 0;
+}
+.po-legend__row dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  text-align: right;
+}
+.po-legend__note {
+  grid-column: 1 / -1;
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  line-height: 1.5;
+}
+.po-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-pill);
+  flex: none;
+  display: inline-block;
+}
+.po-dot--held    { background: var(--ink-300); }
+.po-dot--payable { background: var(--live); }
+.po-dot--paid    { background: var(--ink-700); }
+
+/* ---- the hold timeline: a vertical rail of steps. Each step is a marker on a
+   connecting line, with a label, a sub-note and (for the held step) the clear date.
+   Done steps fill ink; the active step gets the red ring (the live edge). ---- */
+.po-timeline {
+  list-style: none;
+  margin: var(--s-4) 0 0;
+  padding: 0;
+}
+.po-timeline__step {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--s-4);
+  padding: 0 0 var(--s-5) var(--s-1);
+}
+.po-timeline__step:last-child { padding-bottom: 0; }
+/* the connecting rail, drawn behind the markers */
+.po-timeline__step::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 14px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--hairline-2);
+}
+.po-timeline__step:last-child::before { display: none; }
+.po-timeline__mark {
+  grid-row: 1 / span 2;
+  width: 11px;
+  height: 11px;
+  margin-top: 3px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--hairline-2);
+  background: var(--paper);
+  flex: none;
+  z-index: 1;
+}
+.po-timeline__step.is-done .po-timeline__mark {
+  background: var(--ink-700);
+  border-color: var(--ink-700);
+}
+.po-timeline__step.is-active .po-timeline__mark {
+  background: var(--live);
+  border-color: var(--live);
+  box-shadow: 0 0 0 3px var(--live-tint);
+}
+.po-timeline__body { display: flex; flex-direction: column; gap: 1px; }
+.po-timeline__body b {
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+}
+.po-timeline__step:not(.is-done):not(.is-active) .po-timeline__body b { color: var(--ink-400); }
+.po-timeline__sub {
+  font-size: var(--t-xs);
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.po-timeline__when {
+  grid-column: 2;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--live);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* ---- per-model / per-node breakdown rows. The left side stacks the model name
+   over its node + request count; the right is the earnings reading. ---- */
+.po-break__left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.po-break__left b {
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-break__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- ledger ref: the request / stripe id behind an entry, on a second line. ---- */
+.po-ledger li { flex-wrap: wrap; }
+.po-ledger__ref {
+  display: block;
+  width: 100%;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  word-break: break-all;
+}
+
+/* ---- the release ladder: each upcoming clear date, the amount releasing that day and
+   how many lots it covers. A dated schedule under the timeline, not just the soonest
+   date. Each step is a hairline row; the amount carries the mono reading. ---- */
+.po-ladder { margin: var(--s-4) 0 0; }
+.po-ladder__title {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  font-weight: var(--weight-medium);
+}
+.po-ladder__list { list-style: none; margin: 0; padding: 0; }
+.po-ladder__step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline-2);
+}
+.po-ladder__step:first-child { border-top: none; }
+.po-ladder__date {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--t-sm);
+  color: var(--ink-900);
+}
+.po-ladder__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+}
+.po-ladder__amount {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  white-space: nowrap;
+}
+
+/* ---- expandable payout-history row: a header button that toggles a drawer of the
+   funding receipts (the lineage). The chevron rotates on open; the drawer is the same
+   recent-list register, indented under the rail. ---- */
+.po-payout { display: block; padding: 0; }
+.po-payout__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  width: 100%;
+  padding: var(--s-2) 0;
+  margin: 0;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.po-payout__head:hover .r-model { color: var(--ink-900); }
+.po-payout__chev {
+  display: inline-block;
+  margin-right: var(--s-2);
+  color: var(--ink-400);
+  transition: transform var(--d-1, 140ms) var(--ease-out-quint);
+}
+.po-payout.is-open .po-payout__chev { transform: rotate(90deg); }
+.po-payout__drawer {
+  padding: 0 0 var(--s-2) var(--s-4);
+  border-left: 1px solid var(--hairline-2);
+  margin-left: 3px;
+}
+.po-payout__loading { color: var(--ink-400); }
+.po-lots { margin: 0; }
+.po-lots__left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.po-lots__left b {
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-lots__meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .po-meter__seg { transition: none; }
+  .po-payout__chev { transition: none; }
+}

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <title>Roger · Node Console</title>
+  <!-- design tokens (the source of truth) MUST load before the component
+       sheet so console.css can consume the custom properties. -->
+  <link rel="stylesheet" href="/assets/tokens.css">
+  <link rel="stylesheet" href="/assets/console.css">
+</head>
+<body>
+  <noscript>The Roger node console needs JavaScript.</noscript>
+
+  <!-- ===================== AUTH GATE ===================== -->
+  <!-- Shown when ?t= is missing; hides the whole app. -->
+  <div id="auth-gate" class="auth-gate" hidden>
+    <div class="auth-card">
+      <div class="brand-mark">Roger</div>
+      <h1>Console locked</h1>
+      <p>Open the console from the link Roger printed in your terminal &mdash; it carries
+         the one-time access token this page needs.</p>
+      <p class="muted small">The address looks like
+         <code>http://127.0.0.1:&lt;port&gt;/?t=&hellip;</code></p>
+    </div>
+  </div>
+
+  <!-- ===================== APP SHELL ===================== -->
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="brand-mark">Roger</span>
+        <span class="station-callsign mono" id="top-callsign">&mdash;</span>
+        <span class="slot-meter" id="top-slots" title="slots on air">
+          <span class="dot-on">&#9673;</span> <span id="top-slots-text">0/0</span>
+        </span>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button class="tab" data-tab="share" role="tab" aria-selected="true">SHARE</button>
+        <button class="tab" data-tab="account" role="tab" aria-selected="false">ACCOUNT</button>
+        <button class="tab" data-tab="browse" role="tab" aria-selected="false">BROWSE</button>
+      </nav>
+      <div class="topbar-right">
+        <span class="conn" id="conn-status" title="live link">
+          <span class="conn-dot" id="conn-dot"></span><span id="conn-text">connecting</span>
+        </span>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <!-- ===================== SHARE ===================== -->
+      <section class="panel" id="panel-share" role="tabpanel">
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>SHARE
+              <span class="callsign-edit mono" id="share-callsign">&mdash;</span>
+              <button class="link-btn" id="btn-rename" title="rename station">rename</button>
+            </h2>
+            <div class="panel-head-actions">
+              <span class="slot-meter big" id="share-slots">ON AIR <b id="share-slots-text">0/0</b></span>
+              <button class="btn" id="btn-detect">re-detect</button>
+            </div>
+          </div>
+          <div class="totals mono" id="share-totals">
+            <span>0 requests</span> &middot; <span>0 out tok</span> &middot;
+            <span>$0.00</span> &middot; <span class="muted">settles on the broker</span>
+          </div>
+          <div class="login-warn" id="share-login-warn" hidden>
+            Not logged in &mdash; models can run but earnings need an account.
+            <button class="link-btn" data-goto="account">go to account</button>
+          </div>
+        </div>
+
+        <!-- one-time frequency code card (private toggle) -->
+        <div class="code-card" id="code-card" hidden>
+          <div class="code-card-body">
+            <div class="code-card-title">Frequency code &mdash; <b>save this, shown once</b></div>
+            <div class="code-row">
+              <code class="mono code-value" id="code-value"></code>
+              <button class="btn small" id="code-copy">copy</button>
+            </div>
+            <div class="muted small" id="code-band"></div>
+          </div>
+          <button class="x-btn" id="code-dismiss" title="dismiss">&times;</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table share-table">
+            <thead>
+              <tr>
+                <th class="col-model">MODEL</th>
+                <th class="col-status">STATUS</th>
+                <th class="col-price">PRICE</th>
+                <th class="num">SERVED</th>
+                <th class="num">OUT TOK</th>
+                <th class="num">EARNINGS</th>
+                <th class="col-actions">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody id="share-rows">
+              <tr class="empty-row"><td colspan="7">No models detected yet. Try <b>re-detect</b>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== ACCOUNT ===================== -->
+      <section class="panel" id="panel-account" role="tabpanel" hidden>
+        <div class="panel-head"><h2>ACCOUNT</h2></div>
+
+        <div class="cards" id="account-body">
+          <!-- balance / spend -->
+          <div class="card" id="card-balance">
+            <div class="card-title">Balance</div>
+            <div class="big-figure mono" id="acct-balance">$0.00</div>
+            <div class="meter-line">
+              <div class="meter"><div class="meter-fill" id="acct-spend-fill"></div></div>
+              <div class="muted small" id="acct-spend-text">$0.00 of $0.00 this month</div>
+            </div>
+            <div class="card-actions">
+              <input class="inp small" id="topup-amount" type="number" min="1" step="1" placeholder="USD" inputmode="decimal">
+              <button class="btn" id="btn-topup">Top up</button>
+            </div>
+            <div class="card-actions">
+              <input class="inp small" id="limit-cap" type="number" min="0" step="1" placeholder="monthly cap">
+              <button class="btn ghost" id="btn-limit">Set limit</button>
+            </div>
+          </div>
+
+          <!-- login / session -->
+          <div class="card" id="card-session">
+            <div class="card-title">Session</div>
+            <div id="logged-out" hidden>
+              <p class="muted small">Sign in to earn and spend on the Roger market.</p>
+              <button class="btn primary" id="btn-login">Log in with GitHub</button>
+              <div class="login-flow" id="login-flow" hidden>
+                <p>Go to <a id="login-uri" target="_blank" rel="noopener">the GitHub device page</a>
+                   and enter this code:</p>
+                <div class="code-row">
+                  <code class="mono code-value big" id="login-code">&mdash;</code>
+                  <button class="btn small" id="login-code-copy">copy</button>
+                </div>
+                <div class="spinner-line"><span class="spinner"></span> waiting for GitHub&hellip;</div>
+              </div>
+            </div>
+            <div id="logged-in" hidden>
+              <p class="mono" id="acct-login-state">signed in</p>
+              <button class="btn ghost" id="btn-logout">Log out</button>
+            </div>
+          </div>
+
+          <!-- payouts -->
+          <div class="card" id="card-payout">
+            <div class="card-title">Payouts</div>
+            <div class="kv"><span>Status</span><b class="mono" id="payout-status">&mdash;</b></div>
+            <div class="kv"><span>Payable</span><b class="mono" id="payout-payable">$0.00</b></div>
+            <div class="card-actions">
+              <button class="btn" id="btn-payout-onboard">Set up payouts</button>
+              <button class="btn ghost" id="btn-payout-request">Request payout</button>
+              <button class="btn ghost" id="btn-payout-history">History</button>
+            </div>
+            <div class="history mono small" id="payout-history" hidden></div>
+          </div>
+
+          <!-- grants -->
+          <div class="card" id="card-grants">
+            <div class="card-title">Grants</div>
+            <ul class="grant-list mono small" id="grant-list"><li class="muted">none</li></ul>
+            <div class="card-actions">
+              <input class="inp small" id="grant-name" type="text" placeholder="grant name">
+              <label class="chk"><input type="checkbox" id="grant-free"> free</label>
+              <button class="btn" id="btn-grant-create">Create</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="not-configured" id="account-disabled" hidden>
+          The broker is not configured for this node, so account, payout and grant
+          features are unavailable.
+        </div>
+      </section>
+
+      <!-- ===================== BROWSE ===================== -->
+      <section class="panel" id="panel-browse" role="tabpanel" hidden>
+        <div class="panel-head">
+          <div class="panel-head-row">
+            <h2>BROWSE</h2>
+            <button class="btn" id="btn-browse-refresh">refresh</button>
+          </div>
+          <div class="muted small">Models on air across the open market &mdash; read-only.</div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table browse-table">
+            <thead>
+              <tr>
+                <th class="col-model">MODEL</th>
+                <th>NODE</th>
+                <th class="col-price">PRICE</th>
+                <th>SIGNAL</th>
+                <th class="num">TPS</th>
+                <th class="num">TTFT</th>
+                <th class="num">CTX</th>
+                <th>REGION</th>
+              </tr>
+            </thead>
+            <tbody id="browse-rows">
+              <tr class="empty-row"><td colspan="8">Loading the market&hellip;</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ===================== MODALS / TOASTS ===================== -->
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <!-- rename modal -->
+    <div class="modal" id="modal-rename" hidden>
+      <h3>Rename station</h3>
+      <label class="field"><span>Callsign</span>
+        <input class="inp" id="rename-input" type="text" maxlength="40" placeholder="amber-fox"></label>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn primary" id="rename-save">Save</button>
+      </div>
+    </div>
+
+    <!-- detect modal -->
+    <div class="modal" id="modal-detect" hidden>
+      <h3>Re-detect models</h3>
+      <p class="muted small">Scans your local LLM servers. Optionally point at a specific
+         OpenAI-compatible endpoint.</p>
+      <label class="field"><span>Endpoint URL (optional)</span>
+        <input class="inp" id="detect-url" type="text" placeholder="http://127.0.0.1:11434/v1/chat/completions"></label>
+      <label class="field"><span>API key (optional)</span>
+        <input class="inp" id="detect-key" type="password" placeholder="sk-&hellip;"></label>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn primary" id="detect-run">Detect</button>
+      </div>
+    </div>
+
+    <!-- price modal -->
+    <div class="modal wide" id="modal-price" hidden>
+      <h3>Price <span class="mono" id="price-model">&mdash;</span></h3>
+      <div class="price-grid">
+        <label class="field"><span>In ($/1M tok)</span>
+          <input class="inp" id="price-in" type="number" min="0" step="0.01" placeholder="0"></label>
+        <label class="field"><span>Out ($/1M tok)</span>
+          <input class="inp" id="price-out" type="number" min="0" step="0.01" placeholder="0"></label>
+      </div>
+      <div class="windows-head">
+        <span>Time-of-use windows</span>
+        <button class="link-btn" id="price-add-window">+ add window</button>
+      </div>
+      <div class="windows" id="price-windows"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>Cancel</button>
+        <button class="btn primary" id="price-save">Save pricing</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="/assets/console.js" defer></script>
+</body>
+</html>

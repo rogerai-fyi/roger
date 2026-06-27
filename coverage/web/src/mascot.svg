@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72" fill="currentColor" role="img" aria-label="Ping, the RogerAI on-air mascot">
+  <!--
+    Ping - the RogerAI mascot, grown from the ((  •  )) ON AIR motif.
+    Body inherits text color via currentColor; the on-air eye + glow are the
+    only fixed live-red (#E0231C). Self-animating (blink, bob, on-air pulse,
+    signal waves) and reduced-motion aware.
+    Part ids let a page drive it: #ping-eye #ping-glow #ping-wave-a #ping-wave-b #ping-body
+  -->
+  <style>
+    /* the whole creature does a slow 1px monospace-style bob */
+    #ping { animation: ping-bob 3.6s var(--ping-ease, ease-in-out) infinite; transform-origin: 32px 64px; }
+    @keyframes ping-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+
+    /* on-air glow breathes */
+    #ping-glow { animation: ping-pulse 2s ease-in-out infinite; transform-origin: 32px 22px; }
+    @keyframes ping-pulse { 0%,100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
+
+    /* the eye blinks: a quick vertical squash to a line every ~5s */
+    #ping-eye { animation: ping-blink 5s steps(1,end) infinite; transform-origin: 32px 22px; }
+    @keyframes ping-blink {
+      0%, 94%, 100% { transform: scaleY(1); }
+      96%           { transform: scaleY(.12); }
+      98%           { transform: scaleY(1); }
+    }
+
+    /* signal arcs radiate out of the antennae (the vector 'transmitting' frames) */
+    #ping-wave-a, #ping-wave-b { transform-origin: 32px 22px; }
+    #ping-wave-a { animation: ping-wave 2.4s ease-out infinite; }
+    #ping-wave-b { animation: ping-wave 2.4s ease-out infinite 1.2s; }
+    @keyframes ping-wave {
+      0%   { opacity: 0;  transform: scale(.65); }
+      30%  { opacity: .7; }
+      100% { opacity: 0;  transform: scale(1.6); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #ping, #ping-glow, #ping-eye, #ping-wave-a, #ping-wave-b { animation: none; }
+      #ping-wave-a, #ping-wave-b { opacity: .35; }
+    }
+  </style>
+
+  <g id="ping">
+    <!-- signal-wave arcs (radiate from the antennae / eye) -->
+    <g fill="none" stroke="#E0231C" stroke-linecap="round" stroke-width="2">
+      <path id="ping-wave-a" d="M16 22 A18 18 0 0 1 48 22" opacity="0"/>
+      <path id="ping-wave-b" d="M11 24 A24 24 0 0 1 53 24" opacity="0"/>
+    </g>
+
+    <g id="ping-body">
+      <!-- left bracket arm/antenna (blocky, mirrors logo.svg) -->
+      <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+      <!-- right bracket arm/antenna -->
+      <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+
+      <!-- little body block with shoulders -->
+      <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+      <!-- feet -->
+      <rect x="25" y="64" width="5" height="5" rx="1"/>
+      <rect x="34" y="64" width="5" height="5" rx="1"/>
+    </g>
+
+    <!-- on-air eye: glow halo + the live-red CIRCLE beacon - the same circle
+         that sits between the brackets of the logo / favicon / nav mark, so Ping's
+         eye and the brand beacon are one and the same. -->
+    <circle id="ping-glow" cx="32" cy="22" r="9" fill="#E0231C" opacity="0.3"/>
+    <circle id="ping-eye" cx="32" cy="22" r="5" fill="#E0231C"/>
+  </g>
+</svg>
