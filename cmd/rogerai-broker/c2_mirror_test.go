@@ -234,3 +234,70 @@ func TestRehydrateRepublishesToSharedRegistry(t *testing.T) {
 		t.Fatalf("peer did not re-learn the rehydrated node (known=%v tun=%+v)", known, tun)
 	}
 }
+
+// TestMultiInstanceProbeCrossesBus guards a multi-instance scalability bug: liveness
+// probes must dispatch over the Valkey bus like relays, not via the local tunnel only.
+// The provider polls instance B; the probe ORIGINATES on instance A where the node is
+// only a mirrored stub with no local poller. Before the fix, probeNode sent to A's local
+// stub channel (nobody draining), timed out after 30s, and recorded probeDead - falsely
+// failing a perfectly healthy node and deprioritizing it. With the fix the probe reaches
+// the provider on B over the bus and records ALIVE.
+func TestMultiInstanceProbeCrossesBus(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)     // probe originates here
+	bInst := newMIBroker(t, brokerPriv, db, mr) // provider polls here
+
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(nodePub)
+	const token = "tok-probe"
+	offers := []protocol.ModelOffer{{Model: "free-m"}}
+
+	miRegisterNode(bInst, "p1", pubHex, token, offers)
+	raw, _ := json.Marshal(bInst.nodes["p1"])
+	if err := bInst.shared.putNode("p1", raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+	a.syncRegistry()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		job, ok := pollOnce(t, bInst, "p1", token)
+		if !ok {
+			t.Errorf("provider on B got no probe job - the probe did not cross the bus")
+			return
+		}
+		res := miSignedResult(job.ID, "p1", "free-m", "pong", nodePriv, 200)
+		rb, _ := json.Marshal(res)
+		rr := httptest.NewRequest(http.MethodPost, "/agent/result?node=p1", bytes.NewReader(rb))
+		rr.Header.Set("Authorization", miNodeBearer(token))
+		rw := httptest.NewRecorder()
+		bInst.agentResult(rw, rr)
+		if rw.Code != http.StatusOK {
+			t.Errorf("B agentResult = %d, want 200", rw.Code)
+		}
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	a.mu.Lock()
+	reg := a.nodes["p1"]
+	a.mu.Unlock()
+	a.probeNode(reg, "free-m", canaryFingerprint{prompt: "ping", expect: "pong"})
+	wg.Wait()
+
+	a.metricsMu.Lock()
+	tq := a.trust["p1"]
+	a.metricsMu.Unlock()
+	if !tq.probed {
+		t.Fatal("probe outcome was never recorded")
+	}
+	if !tq.probeOK {
+		t.Fatal("cross-instance probe recorded as FAILED (probeDead) - it did not reach the provider over the bus; a healthy node would be falsely deprioritized")
+	}
+	if tq.probeFails != 0 {
+		t.Fatalf("probeFails=%d, want 0 for a live cross-instance probe", tq.probeFails)
+	}
+}

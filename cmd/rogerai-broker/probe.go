@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"math/rand"
@@ -468,8 +469,11 @@ func (b *broker) probeOnce() {
 func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp canaryFingerprint) {
 	b.mu.Lock()
 	t := b.tunnels[node.NodeID]
+	mi := b.multiInstance && b.shared != nil
 	b.mu.Unlock()
-	if t == nil {
+	// Single-instance needs a real local tunnel; multi-instance dispatches over the bus
+	// (the poller may be on a PEER instance), so a nil/stub local tunnel is fine there.
+	if t == nil && !mi {
 		return
 	}
 
@@ -486,14 +490,53 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		"max_tokens": canaryMaxTokens,
 	})
 	job := protocol.Job{ID: protocol.NewRequestID(), User: "probe", Body: body}
+	start := time.Now()
 
+	if mi {
+		// MULTI-INSTANCE: the provider may be long-polling a PEER instance, so dispatch +
+		// await over the Valkey bus exactly as relay/relayStream do. A local-only
+		// t.jobs send would enqueue into a stub channel nobody drains whenever the poller
+		// is on another instance, time out after 30s, and FALSE-FAIL a perfectly healthy
+		// node (deprioritizing it / churning trust). busDispatchJob delivers to the poller
+		// on whichever instance it lives. errNoPoller (delivered==0) means nobody is
+		// polling on ANY instance - a genuine liveness failure, recorded as probeDead.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ch, dcancel, derr := b.busDispatchJob(ctx, node.NodeID, job)
+		if dcancel != nil {
+			defer dcancel()
+		}
+		if derr != nil {
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+			return
+		}
+		select {
+		case raw, ok := <-ch:
+			if !ok {
+				b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+				return
+			}
+			var res protocol.JobResult
+			if json.Unmarshal(raw, &res) != nil {
+				b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+				return
+			}
+			elapsed := time.Since(start)
+			outcome, tps, matched := b.evalCanary(res, elapsed, fp)
+			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched)
+		case <-time.After(30 * time.Second):
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+		}
+		return
+	}
+
+	// SINGLE-INSTANCE: dispatch through the local tunnel and await the result locally.
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
-	start := time.Now()
 	select {
 	case t.jobs <- job:
 	case <-time.After(3 * time.Second):
