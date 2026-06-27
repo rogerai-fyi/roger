@@ -147,6 +147,12 @@ type broker struct {
 	// ages out via inflightTTL). Empty when multi-instance is off.
 	instanceID string
 
+	// stats are the low-overhead, lock-free MULTI-INSTANCE dispatch counters (local vs.
+	// cross-instance bus dispatch, no-poller, and bus errors) surfaced read-only on the
+	// admin overview. Bumped with a single atomic add on the relay path; see instmetrics.go.
+	// Pure telemetry - they change no request behavior and are invisible to clients.
+	stats instStats
+
 	// peerInflight is the merged SUM of OTHER instances' in-flight counts per node
 	// (cross-instance capacity), refreshed on the same background loop as liveness via
 	// mergeSharedInflight. pickFor adds it to this instance's exact local b.inflight so
@@ -371,6 +377,11 @@ func main() {
 			b.multiInstance = true
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
+			// Tag EVERY log line with this instance's id so logs from the 2+ instances
+			// (interleaved in the aggregated DO log stream) are attributable at a glance -
+			// the team no longer has to guess which instance emitted a relay/bus line. This
+			// is gated on multi-instance, so the single-instance log format is unchanged.
+			log.SetPrefix("[" + b.instanceID + "] ")
 			go b.syncInflight() // merge peer inflight on the same cadence as liveness
 			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
 		}

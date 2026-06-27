@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -281,6 +282,14 @@ type valkeyStore struct {
 	mu      sync.Mutex
 	up      bool // last observed reachability (for healthy())
 	lastLog time.Time
+
+	// opErrors is a monotonic count of EVERY failed Valkey op (publish/subscribe/get/set/
+	// script/...), funneled through noteErr. It is an atomic so the (rare) error path adds
+	// no lock contention beyond the existing mu, and it is surfaced read-only on the admin
+	// overview so a growing bus/cache error rate is visible instead of buried in the
+	// rate-limited warning log. redis.Nil (a clean miss / no-shared-store sentinel) is NOT
+	// an error and is never counted.
+	opErrors atomic.Int64
 }
 
 // rateBucketTTL bounds how long an idle rate-limit bucket lives in Valkey. It only
@@ -344,6 +353,7 @@ func (v *valkeyStore) noteErr(op string, err error) {
 		v.setUp(true)
 		return
 	}
+	v.opErrors.Add(1)
 	v.mu.Lock()
 	v.up = false
 	logNow := time.Since(v.lastLog) > 30*time.Second
