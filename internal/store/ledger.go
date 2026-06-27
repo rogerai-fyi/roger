@@ -232,10 +232,12 @@ func LoadPayoutPolicy() PayoutPolicy {
 	return p
 }
 
-// holdDuration / reserveDuration convert the policy to durations. Per the founder
-// policy (Option A) the default reserve is 0, so the whole earning releases at
-// HoldDays; if a reserve fraction is configured, that slice releases at the same
-// point (+90d).
+// holdDuration converts the policy hold to a duration. Per the founder policy (Option A)
+// the default reserve is 0, so the whole earning releases at HoldDays. If a reserve
+// fraction IS configured, that slice releases at the SAME point as the rest of the lot
+// (addLotLocked sets ReserveReleaseAt == ReleaseAt) - there is no separate reserve tail
+// today. (A later tail would need its own reserveDuration plus payout support; see
+// promoteLocked / RequestPayout.)
 func (p PayoutPolicy) holdDuration() time.Duration {
 	return time.Duration(p.HoldDays) * 24 * time.Hour
 }

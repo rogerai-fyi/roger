@@ -318,6 +318,37 @@ func TestChargebackNoOverClawWithFee(t *testing.T) {
 	}
 }
 
+// TestReserveReleasesWithLot pins the Option-A reserve behavior so the half-wired
+// "reserve tail" can't silently regress: with a reserve fraction configured, the reserve
+// releases TOGETHER with the lot at HoldDays - the reserve_release audit row is emitted at
+// promotion, the FULL gross (incl. reserve) becomes payable, and a payout pays it all (the
+// reserve is never stranded). A separate later reserve tail is intentionally not supported.
+func TestReserveReleasesWithLot(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")  // release immediately
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0.10") // 10% reserve slice
+	m := NewMem()
+	fundReal(m, "alice", 100) // real credits so the operator earns (P0-1)
+	_ = m.BindNode("n", "pk1")
+	_, _ = m.Hold("alice", 100)
+	r := protocol.UsageReceipt{RequestID: "r1", Model: "m", TS: 1}
+	_, _ = m.Finalize("alice", "n", 100, 100, 50, r) // ownerShare 50 -> reserve 5, main 45
+
+	now := time.Now()
+	// Promotion releases BOTH the main slice and the reserve (coupled), so the operator's
+	// full 50 gross is payable.
+	if s, _ := m.EarningSplitOf("pk1", now); !approx(s.Payable, 50) {
+		t.Fatalf("payable = %v, want 50 (gross incl. the released reserve)", s.Payable)
+	}
+	// The reserve_release audit row was recorded exactly once (never silently dropped).
+	if led, _ := m.LedgerOf("pk1", []string{KindReserveRelease}, 10); len(led) != 1 || !approx(led[0].Amount, 5) {
+		t.Fatalf("reserve_release ledger rows = %+v, want one row of +5", led)
+	}
+	// A payout pays the FULL 50 - the reserve is not stranded by the lot going Paid.
+	if p, ok, _, _ := m.RequestPayout("pk1", now, 0); !ok || !approx(p.Amount, 50) {
+		t.Fatalf("payout amount = %v ok=%v, want 50 (reserve paid, not stranded)", p.Amount, ok)
+	}
+}
+
 // TestLinkChargeWalletByCharge verifies the checkout->charge mapping: a charge can be
 // resolved by EITHER the payment_intent or the charge id; an unknown ref reports
 // ok=false; and the mapping is idempotent on the session id.

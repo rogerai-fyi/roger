@@ -707,6 +707,9 @@ func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.
 	m.lots = append(m.lots, EarningLot{
 		ID: m.lotID, Node: node, AccountID: acct, RequestID: requestID,
 		Gross: ownerShare, Reserve: reserve, State: LotHeld,
+		// ReserveReleaseAt is set EQUAL to ReleaseAt: the reserve (if any) releases together
+		// with the lot, not on a later tail. promoteLocked + RequestPayout rely on this
+		// coupling; a separate tail is unimplemented (see holdDuration / promoteLocked).
 		ReleaseAt: rel.Unix(), ReserveReleaseAt: rel.Unix(), CreatedAt: now.Unix(),
 	})
 	m.appendLedgerLocked(acct, "operator", KindEarn, ownerShare, "earn:"+requestID, StatePending, requestID, now.Unix())
@@ -1302,7 +1305,16 @@ func (m *Mem) promoteLocked(now time.Time) {
 			if payable > 0 {
 				m.appendLedgerLocked(l.AccountID, "operator", KindHoldRelease, 0, "promote:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
 			}
-			if l.Reserve > 0 && now.Unix() >= l.ReserveReleaseAt {
+			// The reserve currently releases TOGETHER with the lot: addLotLocked sets
+			// ReserveReleaseAt == ReleaseAt, so by the time a lot promotes its reserve is due
+			// too. Emit the reserve_release audit row HERE, at the single promotion - not
+			// behind a separate now>=ReserveReleaseAt gate. A promoted lot is never revisited
+			// by this sweep (the LotHeld guard above), so a later reserve time would silently
+			// drop this row; keeping it coupled to promotion means it is always recorded. A
+			// real reserve TAIL (ReserveReleaseAt > ReleaseAt) is NOT implemented and would
+			// also require RequestPayout to pay the reserve separately instead of marking the
+			// lot fully paid - build both together if that policy is ever wanted.
+			if l.Reserve > 0 {
 				m.appendLedgerLocked(l.AccountID, "operator", KindReserveRelease, l.Reserve, "reserve_rel:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
 			}
 		}
