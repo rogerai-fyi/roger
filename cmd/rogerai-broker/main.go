@@ -57,8 +57,14 @@ type broker struct {
 	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
 	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
-	metricsMu    sync.Mutex           // guards the per-node market metrics below
-	lastPersist  map[string]time.Time // last time a node's last_seen was flushed to the store (throttle)
+	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
+	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
+	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
+	// classify never contends with the market read path.
+	refPrices   map[string]float64
+	refMu       sync.RWMutex
+	metricsMu   sync.Mutex           // guards the per-node market metrics below
+	lastPersist map[string]time.Time // last time a node's last_seen was flushed to the store (throttle)
 	// lastSharedSeen throttles the shared-state (Valkey) liveness write-through per
 	// node, on its own clock so it works even when b.db is nil. Guarded by metricsMu.
 	lastSharedSeen map[string]time.Time
@@ -332,6 +338,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.nodeBanSweep(stop)         // auto-lift report-origin node suspensions past the review window (reversible bans)
 	go b.reversalRetrySweep(stop)   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 	go b.pruneStaleNodesSweep(stop) // remove long-dead node registrations (old hostname ids that never re-register)
+	go b.refPriceSync(stop)         // refresh same-model external reference prices for the buyer-facing $-tier
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 

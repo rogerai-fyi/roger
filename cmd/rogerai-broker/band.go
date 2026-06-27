@@ -209,6 +209,10 @@ func (b *broker) bandOffers(band store.Band, found bool, now time.Time) ([]offer
 	if len(out) == 0 {
 		return nil, false // band's models are not currently offered -> uniform negative
 	}
+	// Same $-tier signal as the public feed: a private band has no public peers to its
+	// own offer set, so it is graded against the same-model external reference (the
+	// internal-median fallback needs >=3 online peers, which a single band cannot reach).
+	b.assignPriceTiers(out)
 	return out, true
 }
 

@@ -27,12 +27,16 @@ func normalizedMarketQuery(r *http.Request) string {
 }
 
 type offerView struct {
-	NodeID       string  `json:"node_id"`
-	Region       string  `json:"region"`
-	HW           string  `json:"hw"`
-	Model        string  `json:"model"`
-	In           float64 `json:"price_in"`  // active (time-of-use) price right now
-	Out          float64 `json:"price_out"` // active price right now
+	NodeID string  `json:"node_id"`
+	Region string  `json:"region"`
+	HW     string  `json:"hw"`
+	Model  string  `json:"model"`
+	In     float64 `json:"price_in"`  // active (time-of-use) price right now
+	Out    float64 `json:"price_out"` // active price right now
+	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
+	// graded vs the same-model external reference (preferred) or the live per-model
+	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
+	PriceTier    int     `json:"price_tier"`
 	Ctx          int     `json:"ctx"`
 	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
 	Online       bool    `json:"online"`
@@ -196,6 +200,9 @@ func (b *broker) computeDiscover() any {
 		out = b.enrichOffersForNode(out, n, now, nil, true)
 	}
 	b.mu.Unlock()
+	// Classify each offer's neutral $-tier (external reference preferred, else the live
+	// per-model median over this set) before returning, so /discover carries it.
+	b.assignPriceTiers(out)
 	sort.Slice(out, func(i, j int) bool { return out[i].In < out[j].In })
 	return map[string]any{"offers": out}
 }
