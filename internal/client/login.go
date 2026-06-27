@@ -16,10 +16,13 @@ import (
 // Client ID - no client secret ever lives in the CLI (the secret is the broker's,
 // for the web flow). The device flow degrades to "type a code on your phone", so
 // it works over SSH / on headless GPU boxes where providers run.
-const (
+const ghDeviceGrant = "urn:ietf:params:oauth:grant-type:device_code"
+
+// The GitHub device-flow endpoints. Package vars (not consts) so a test can point the
+// device-code + token polls at a local httptest server instead of reaching github.com.
+var (
 	ghDeviceCodeURL  = "https://github.com/login/device/code"
 	ghAccessTokenURL = "https://github.com/login/oauth/access_token"
-	ghDeviceGrant    = "urn:ietf:params:oauth:grant-type:device_code"
 )
 
 // authState is the persisted login: the GitHub login the signing key is bound to.
