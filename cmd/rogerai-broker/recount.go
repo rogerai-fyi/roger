@@ -183,8 +183,9 @@ func (b *broker) observeRecountInput(nodeID, requestID string, claimed, recounte
 	tq.lastRecount = recounted
 	tq.lastExact = exact
 	flagged := false
+	over := 0.0 // over-report ratio off the exact recount; set + reused below when flagged
 	if exact && recounted > 0 && claimed > 0 {
-		over := float64(claimed-recounted) / float64(recounted)
+		over = float64(claimed-recounted) / float64(recounted)
 		if over > b.recount.tolerance {
 			tq.discrepancies++
 			flagged = true
@@ -205,9 +206,8 @@ func (b *broker) observeRecountInput(nodeID, requestID string, claimed, recounte
 		// signal toward warn/ban - BUT only past the WIDE strike tolerance, so honest
 		// tokenizer variance on a model the broker tokenizes poorly never strikes the owner
 		// (the earnings hold above is the conservative, reversible action; the strike, which
-		// can lead to a ban, requires a gross over-report). Recompute the over-ratio off the
-		// same exact recount.
-		over := float64(claimed-recounted) / float64(recounted)
+		// can lead to a ban, requires a gross over-report). `over` is the same ratio computed
+		// above (flagged implies recounted>0 && claimed>0).
 		if over > b.recount.strikeTolerance {
 			b.flagRecountOver(nodeID, requestID, "input", claimed, recounted)
 		}

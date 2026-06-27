@@ -296,16 +296,29 @@ func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) {
 	if nodeID != "" && b.isBanned(nodeID) {
 		bans, _ := b.db.BannedNodes()
 		reasonStr := bans[nodeID]
-		if strings.HasPrefix(reasonStr, "report ") && b.reportEjectAt > 0 {
-			since := int64(0)
-			if b.reportDecayDays > 0 {
-				since = time.Now().Add(-time.Duration(b.reportDecayDays) * 24 * time.Hour).Unix()
+		if strings.HasPrefix(reasonStr, "report ") {
+			// A report-origin ban auto-exonerates on appeal when it is no longer
+			// corroborated. With auto-eject DISABLED (reportEjectAt<=0) there is NO live
+			// corroboration threshold the ban can meet, so any leftover report-origin ban
+			// is by definition unsustainable -> exonerate. Otherwise lift only when the
+			// distinct reporters in the decay window have fallen below the live threshold.
+			exonerate := b.reportEjectAt <= 0
+			n := 0
+			if !exonerate {
+				since := int64(0)
+				if b.reportDecayDays > 0 {
+					since = time.Now().Add(-time.Duration(b.reportDecayDays) * 24 * time.Hour).Unix()
+				}
+				if cnt, err := b.db.DistinctReporterCountByNode(nodeID, since); err == nil {
+					n = cnt
+					exonerate = cnt < b.reportEjectAt
+				}
 			}
-			if n, err := b.db.DistinctReporterCountByNode(nodeID, since); err == nil && n < b.reportEjectAt {
+			if exonerate {
 				if err := b.unbanNode(nodeID); err == nil {
 					out["auto_exonerated"] = true
 					out["node_unbanned"] = nodeID
-					log.Printf("APPEAL id=%d: node=%s auto-EXONERATED (%d distinct reporters < %d threshold) - routing restored pending review", id, nodeID, n, b.reportEjectAt)
+					log.Printf("APPEAL id=%d: node=%s auto-EXONERATED (%d distinct reporters, eject threshold=%d) - routing restored pending review", id, nodeID, n, b.reportEjectAt)
 				}
 			}
 		}
