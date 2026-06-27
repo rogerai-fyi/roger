@@ -63,6 +63,12 @@ func Current() Set {
 	return unicodeSet
 }
 
+// goos is the resolved GOOS used by ASCII(). It is a package-var seam (defaulting
+// to the real runtime.GOOS, so the production path is byte-for-byte unchanged) that
+// lets a unit test exercise the Windows-only branches of ASCII() on a non-Windows
+// host. Production never reassigns it.
+var goos = runtime.GOOS
+
 // ASCII reports whether to fall back to the ASCII glyph set instead of the rich
 // Unicode one. The rule, in order:
 //
@@ -77,7 +83,7 @@ func ASCII() bool {
 	if envSet("ROGERAI_ASCII") || envSet("NO_UNICODE") {
 		return true
 	}
-	if runtime.GOOS != "windows" {
+	if goos != "windows" {
 		return false
 	}
 	if windowsUTF8Terminal() {
