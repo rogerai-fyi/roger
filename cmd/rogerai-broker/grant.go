@@ -113,7 +113,12 @@ func (b *broker) grantCapCheck(g store.Grant) (int, string) {
 	}
 	u, err := b.db.GrantUsageOf(g.ID, time.Now())
 	if err != nil {
-		return 0, "" // fail open on a usage-read error: caps are a guardrail, not auth
+		// FAIL CLOSED: a usage-read error must NOT silently uncap a capped grant - that
+		// turned a capped grant into free unlimited service on any Postgres bucket-read
+		// hiccup. Mirror the monthly spend cap's fail-closed posture: reject until usage is
+		// readable again. (Only reached when the grant HAS a cap; uncapped grants returned
+		// above without a read.)
+		return http.StatusTooManyRequests, "grant cap check unavailable - try again shortly"
 	}
 	if g.DailyCap > 0 && u.DayTokens >= g.DailyCap {
 		return http.StatusTooManyRequests, "grant daily token cap reached"
