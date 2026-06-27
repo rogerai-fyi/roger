@@ -2,20 +2,23 @@
    RogerAI - the demo console: a tape-deck / station-preset player.
 
    Four switchable demos, each an animated terminal replay, selected from a
-   radio-preset bar ( [ rogerai ] [ search ] [ use ] [ share ] ) with the
-   current preset lit red. Transport controls (play / pause / replay) and a
-   tuning-bar progress readout, all radio/tape-deck styled.
+   radio-preset bar ( [ roger ] [ tune in ] [ agent ] [ share ] ) with the
+   current preset lit red. The four tapes mirror the real TUI preset bank you
+   get from a bare `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). Transport
+   controls (play / pause / replay) and a tuning-bar progress readout, all
+   radio/tape-deck styled.
 
-     rogerai  - a fuller walk of the bare interactive TUI: boot + the preset
-                bar, then [2] SHARE -> auto-detecting local models across
-                backends (the provider-onboarding moment), then the consumer
-                walk: tuning in + browsing the band, opening a channel +
-                chatting, a glimpse of compact `m` mode, and a short agent-mode
-                beat (a dj.md harness tool turn: tool call + result).
-     search   - the band listing for a model, with inline signal bars.
-     use      - staged scanning -> locking -> handshake -> CHANNEL OPEN +
-                endpoint plate.
-     share    - going (( ON AIR )) and an earnings tick.
+     roger    - boot the dial: type `roger`, acquire the carrier (an animated
+                sweep), reveal the preset bank + brand lockup, then read the
+                live band (stations fade in, signal bars fill).
+     tune in  - the [1] TUNE IN consumer walk: lock the strongest station ->
+                CHANNEL OPEN + the drop-in endpoint plate (BASE URL / API KEY /
+                MODEL), then one chat turn with a co-signed receipt.
+     agent    - the [0] AGENT harness (dj.md persona): one tool turn over the
+                open channel - prompt -> routing -> tool call box -> result ->
+                answer + co-signed receipt.
+     share    - the [2] SHARE provider walk: scan local backends, the detected-
+                models table, go (( ON AIR )), an incoming request + earnings tick.
 
    Engine: each demo compiles to a flat list of "frames" (a screen of lines +
    a hold duration); typing a command expands to one frame per character. The
@@ -57,8 +60,37 @@
   var RULE = dim("  ──────────────────────────────────────────────────────────────────");
 
   var BAND = "qwen3-coder-30b";
-  var MAX_PRICE = "0.30";
-  var MIN_TPS = "40";
+  var PORT = "8779";
+
+  // Brand lockup + preset bank, matching the real TUI header (`▟█▙ R O G E R · A I`)
+  // and the always-visible preset row ( [0] AGENT [1] TUNE IN [2] SHARE [3] CONFIG
+  // [L] LOGIN [?] HELP ). `lit` names which preset reads as pressed (red glint).
+  var BRAND = head("▟█▙") + head(" R O G E R") + dim(" · A I");
+  function presetLine(lit) {
+    var b = [["0", "AGENT"], ["1", "TUNE IN"], ["2", "SHARE"], ["3", "CONFIG"], ["L", "LOGIN"], ["?", "HELP"]];
+    var out = "  ";
+    for (var i = 0; i < b.length; i++) {
+      var cell = "[" + b[i][0] + "] " + b[i][1];
+      out += (b[i][1] === lit ? span("t-sel", " •" + cell + " ") : dim(" " + cell + " "));
+    }
+    return out;
+  }
+  // the resting "dial" deck: brand + carrier line + preset bank + legend.
+  function deck(lit) {
+    return [
+      PROMPT + head("roger"), "",
+      "  " + BRAND + "   " + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
+      presetLine(lit || "TUNE IN"),
+      dim("      dial a band · ◉ on  ○ off  ◆ lineage-verified · ") + dim("[m] compact")
+    ];
+  }
+  // an 8-cell carrier-acquire sweep bar (frame-driven, monochrome): the lit cell
+  // rides left->right while the acquired cells behind it fill solid.
+  function carrier(p) {
+    var s = "";
+    for (var i = 0; i < 8; i++) s += i < p ? live("▰") : (i === p ? live("▱") : dim("▱"));
+    return s;
+  }
 
   function pad(s, n) { s = String(s); while (s.length < n) s += " "; return s; }
   function padL(s, n) { s = String(s); while (s.length < n) s = " " + s; return s; }
@@ -97,20 +129,12 @@
   }
   function nStations() { var n = 0; stations.forEach(function (s) { if (!s.over) n++; }); return n; }
 
-  function bandHead(cmd) {
-    return [
-      PROMPT + head(cmd), "",
-      dim("  band ") + head(BAND) + dim("   " + nStations() + " stations    ") +
-        money(bandRange() + " $/M out") + dim(" (live range)"),
-      RULE
-    ];
-  }
   function endpointPlate(stationWho) {
     return [
       ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via " + stationWho) + "   " + gold("◆ verified"),
       "",
-      dim("  BASE URL  ") + money("http://127.0.0.1:8779/v1"),
-      dim("  API KEY   ") + money("rog-sk-live-9f3c…a71d"),
+      dim("  BASE URL  ") + money("http://127.0.0.1:" + PORT + "/v1"),
+      dim("  API KEY   ") + money("roger-local"),
       dim("  MODEL     ") + money(BAND),
       "",
       dim("  drop-in, OpenAI-compatible - point any OpenAI tool here. ") + live("roger that.")
@@ -140,105 +164,74 @@
     return frames;
   }
 
-  /* ---- the four demos ------------------------------------------------ */
+  // bandHeadTUI is the TUI band-browse header (no typed command): the brand
+  // lockup + the lit [1] TUNE IN preset + the live band range, then a rule. The
+  // stations render under it via stationRow.
+  function bandHeadTUI() {
+    return [
+      "  " + BRAND + "   " + span("t-sel", " •[1] TUNE IN ") + dim("   reading the band"), "",
+      dim("  band ") + head(BAND) + dim("   " + nStations() + " stations   ") +
+        money(bandRange() + " $/M out") + dim(" (live range)"),
+      RULE
+    ];
+  }
+
+  /* ---- the four demos (mirror the TUI preset bank) ------------------- */
   var DEMOS = {
-    // bare `rogerai` - a fuller walk of the interactive TUI: boot + preset
-    // bar (incl [0] AGENT), tune the band, open a channel + chat, a glimpse of
-    // compact `m` mode, then a short agent-mode beat (a dj.md tool turn).
-    rogerai: {
-      label: "rogerai", title: "rogerai - the dial",
+    // `roger` - boot the dial: type the command, acquire the carrier (animated
+    // sweep), reveal the preset bank, then read the live band.
+    roger: {
+      label: "roger", title: "roger — the dial",
       build: function () {
         return compile(function (c) {
-          // --- OPEN ON ONBOARDING: launch the bare TUI, then [2] SHARE ->
-          // auto-detect local models across backends. This is the DISCOVERY
-          // moment (find what you can put on air), NOT a station broadcasting.
-          // The consumer walk (tune in -> chat -> [0] AGENT) follows after.
-          c.type([], "rogerai", AFTER_TYPE);
-          c.show([
-            PROMPT + head("rogerai"), "",
-            dim("  ((•)) RogerAI   the two-way radio for GPUs   ") + dim("[ tuning in… ]")
-          ], STEP);
-          var deck = [
-            PROMPT + head("rogerai"), "",
-            dim("  ((•)) RogerAI   ") + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
-            dim("  presets   ") + head("[0] AGENT") + dim("  [1] TUNE IN  ") + head("[2] SHARE") + dim("  [3] CONFIG  [4] balance"),
-            dim("            ") + dim("dial a band · ◉ on  ○ off  ◆ lineage-verified")
-          ];
-          c.show(deck, STAGE);
-
-          // --- press [2] SHARE: become a provider, scan for local models ---
-          var pressShare = deck.concat(["",
-            dim("  ▸ ") + head("[2] SHARE") + dim("  ·  put your own GPU on the air")
-          ]);
-          c.show(pressShare, STEP);
-
-          // detection scan: probe the real local backends one at a time.
-          // ◉ = backend up + models found, ○ = port answered but empty.
-          var scanHead = [
-            head("  [2] SHARE") + dim("  ·  go on air") + "   " + gold("◆ provider"),
-            RULE,
-            dim("  scanning the band for local models…"), ""
-          ];
-          var probes = [
-            ok("  ◉") + " ollama      " + dim(":11434") + dim("  ……  ") + ok("2 models"),
-            ok("  ◉") + " llama.cpp   " + dim(":8080") + dim("   ……  ") + ok("1 model"),
-            dim("  ○") + " lm-studio   " + dim(":1234") + dim("   ……  ") + dim("none"),
-            ok("  ◉") + " vLLM        " + dim(":8000") + dim("   ……  ") + ok("1 model")
-          ];
-          // probing line, then each backend resolves in turn
-          c.show(scanHead.concat([dim("  ○") + " ollama      " + dim(":11434") + dim("  ……  ") + live("probing…") + CURSOR]), STEP);
-          for (var pi = 0; pi < probes.length; pi++) {
-            var rows = probes.slice(0, pi + 1);
-            if (pi + 1 < probes.length) {
-              var nextName = ["ollama      :11434", "llama.cpp   :8080 ", "lm-studio   :1234 ", "vLLM        :8000 "][pi + 1];
-              rows = rows.concat([dim("  ○") + " " + dim(nextName) + dim("  ……  ") + live("probing…") + CURSOR]);
-            }
-            c.show(scanHead.concat(rows), STEP);
+          c.type([], "roger", AFTER_TYPE);
+          // carrier-acquire: an 8-cell sweep fills left->right under the brand.
+          for (var p = 0; p <= 8; p++) {
+            c.show([
+              PROMPT + head("roger"), "",
+              "  " + BRAND, "",
+              dim("  acquiring carrier  ") + carrier(p) +
+                (p >= 8 ? "  " + ok("◉ locked") : dim("  broker.rogerai.fyi"))
+            ], 130);
           }
-          c.show(scanHead.concat(probes, ["",
-            ok("  ◉") + dim("  3 backends up · ") + head("4 models") + dim(" detected across the box")
-          ]), STAGE);
-
-          // --- the SHARE table: detected local models, ready to go on air ---
-          var shareHead = [
-            head("  [2] SHARE") + dim("  ·  your models, detected") + "   " + gold("◆ provider"),
-            RULE,
-            "  " + dim(pad("MODEL", 20)) + dim(pad("BACKEND", 12)) + dim(pad("STATUS", 11)) + dim("YOUR RATE")
-          ];
-          var locals = [
-            { model: "gpt-oss-20b",      back: "ollama",    rate: "0.18" },
-            { model: "qwen3-coder-30b",  back: "vLLM",      rate: "0.30" },
-            { model: "llama-3.3-70b",    back: "llama.cpp", rate: "0.55" }
-          ];
-          function localRow(m) {
-            return "  " + dim("○") + " " + head(pad(m.model, 18)) +
-              dim(pad(m.back, 12)) + dim(pad("OFF-AIR", 11)) + money(m.rate + " $/M");
+          // the resting dial: brand + carrier line + preset bank + legend.
+          c.show(deck("TUNE IN"), STAGE);
+          // read the live band: stations fade in one by one, signal bars filling.
+          for (var i = 1; i <= stations.length; i++) {
+            c.show(bandHeadTUI().concat(stations.slice(0, i).map(stationRow)),
+              i < stations.length ? STEP : STAGE);
           }
-          for (var li = 0; li < locals.length; li++) {
-            c.show(shareHead.concat(locals.slice(0, li + 1).map(localRow)), STEP);
-          }
-          c.show(shareHead.concat(locals.map(localRow), [RULE,
-            dim("  your models, ready to go on air - pick one to monetize.")
-          ]), STAGE);
-          c.show(shareHead.concat(locals.map(localRow), [RULE,
-            dim("  pick a model, set a rate, go live - GPU pays rent. ") + live("roger that.")
+          c.show(bandHeadTUI().concat(stations.map(stationRow), [RULE,
+            dim("   ◆ = lineage-verified · tune a BAND + your margins, not one station")
           ]), END_HOLD);
+        });
+      }
+    },
 
-          // --- now the consumer side: tune in, browse the band ---
-          c.type([], "rogerai", AFTER_TYPE);
-          c.show(deck, STAGE);
-
-          // --- tune in: browse the band, signal bars fill in ---
-          c.show(bandHead("browse the band").concat(stations.slice(0, 2).map(stationRow)), STEP);
-          c.show(bandHead("browse the band").concat(stations.slice(0, 3).map(stationRow)), STEP);
-          c.show(bandHead("browse the band").concat(stations.map(stationRow)).concat([RULE]), STAGE);
-
-          // --- open a channel on the strongest station ---
-          c.show([
-            dim("  band ") + head(BAND) + dim("   tuning in to ") + head("@nightowl") + dim("…"), ""
-          ].concat(endpointPlate("@nightowl")), STAGE);
-
-          // --- chat over the open channel ---
+    // `tune in` - the [1] TUNE IN consumer walk: lock the strongest station ->
+    // CHANNEL OPEN + the drop-in endpoint plate, then one chat turn + receipt.
+    tunein: {
+      label: "tune in", title: "roger — tune in",
+      build: function () {
+        return compile(function (c) {
+          var band = bandHeadTUI().concat(stations.map(stationRow));
+          c.show(band, STAGE);
+          c.show(band.concat([RULE,
+            dim("  ▸ ") + span("t-sel", " enter ") + dim("  tuning in to ") + head("@nightowl") + dim("…")
+          ]), STEP);
+          // staged lock: scan -> lock -> lineage handshake (mirrors `roger use`).
+          var base = [
+            "  " + BRAND + "   " + span("t-sel", " •[1] TUNE IN ") + dim("   opening a channel"), RULE
+          ];
+          var steps = [
+            ok("  ◉") + " scanning stations  " + dim(nStations() + " on this band") + "   " + ok("ok"),
+            ok("  ◉") + " locking strongest  " + head("@nightowl") + dim(" · ") + live("58 t/s") + dim(" · ") + money("0.22 $/M") + "   " + ok("ok"),
+            ok("  ◉") + " lineage handshake  " + gold("◆ weights·shard·token") + "   " + ok("ok")
+          ];
+          for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
+          // CHANNEL OPEN + the BASE URL / API KEY / MODEL plate.
+          c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
+          // one chat turn over the open channel.
           var chatHead = [
             ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via @nightowl") + "   " + gold("◆ verified"),
             RULE
@@ -254,19 +247,31 @@
             "  A peer-to-peer marketplace + CLI to rent home-GPU LLMs by the token.", "",
             dim("  ◆ receipt co-signed · ") + money("47 tok · $0.000014") + dim(" · 70% to @nightowl")
           ]), STAGE);
-
-          // --- glimpse of compact `m` windowshade mode ---
+          // a glimpse of compact `m` (windowshade) mode.
           c.show([
-            dim("  press ") + head("m") + dim("  · windowshade -> compact"), "",
+            dim("  press ") + span("t-sel", " m ") + dim("  · windowshade -> compact"), "",
             ok("◉") + " " + head(BAND) + dim("  @nightowl ") + live("▆▆▆▆▆▅·") + dim("  58 t/s  ") + money("0.22 $/M") + dim("  ◆"),
-            dim("  ▸ ") + money("$42.18") + dim("  ·  3 stations on band  ·  calm mode")
-          ], STAGE);
+            dim("  ▸ on channel · 3 stations on band · calm mode")
+          ], END_HOLD);
+        });
+      }
+    },
 
-          // --- agent-mode beat: [0] AGENT, a dj.md tool turn ---
+    // `agent` - the [0] AGENT harness (dj.md persona): one tool turn over the
+    // open channel - prompt -> routing -> tool call -> result -> answer + receipt.
+    agent: {
+      label: "agent", title: "roger — agent",
+      build: function () {
+        return compile(function (c) {
           var agentHead = [
-            head("  [0] AGENT") + dim("  ·  harness ") + head("dj.md") + dim("  ·  band ") + head(BAND) + "   " + gold("◆ verified"),
+            "  " + BRAND + "   " + span("t-sel", " •[0] AGENT ") + dim("  harness ") + head("dj.md") +
+              dim(" · band ") + head(BAND) + "   " + gold("◆ verified"),
             RULE
           ];
+          c.show(agentHead.concat([
+            dim("  the embedded agent runs tools over your open channel."), "",
+            dim("  ▸ ask it to do something - it routes the turn to the band.")
+          ]), STAGE);
           c.type(agentHead, "/agent how many Go files in cmd/ ?", AFTER_TYPE);
           c.show(agentHead.concat([
             PROMPT + head("/agent how many Go files in cmd/ ?"), "",
@@ -297,63 +302,69 @@
       }
     },
 
-    // `roger search` - the band listing with signal bars
-    search: {
-      label: "search", title: "roger search",
-      build: function () {
-        return compile(function (c) {
-          c.type([], "roger search " + BAND, AFTER_TYPE);
-          var hdr = bandHead("roger search " + BAND);
-          c.show(hdr, STEP);
-          for (var i = 0; i < stations.length; i++) {
-            c.show(hdr.concat(stations.slice(0, i + 1).map(stationRow)), 380);
-          }
-          c.show(hdr.concat(stations.map(stationRow)).concat([
-            RULE,
-            dim("   ◆ = lineage-verified   tune the BAND + your margins, not one station")
-          ]), END_HOLD);
-        });
-      }
-    },
-
-    // `roger use` - scanning -> locking -> handshake -> CHANNEL OPEN + plate
-    use: {
-      label: "use", title: "roger use",
-      build: function () {
-        return compile(function (c) {
-          var cmd = "roger use " + BAND + " --max-price " + MAX_PRICE + " --min-tps " + MIN_TPS;
-          c.type([], cmd, AFTER_TYPE);
-          var base = [PROMPT + head(cmd), ""];
-          var steps = [
-            ok("  ◉") + " scanning stations  " + dim(nStations() + " on this band") + "  " + ok("ok"),
-            ok("  ◉") + " locking strongest  " + head("@nightowl") + dim(" · ") + live("58 t/s") + dim(" · ") + money("0.22 $/M") + "  " + ok("ok"),
-            ok("  ◉") + " lineage handshake  " + gold("◆ weights·shard·token") + "  " + ok("ok")
-          ];
-          for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
-          c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
-        });
-      }
-    },
-
-    // `roger share` - going ON AIR + an earnings tick
+    // `share` - the [2] SHARE provider walk: scan local backends, the detected-
+    // models table, go ON AIR, an incoming request + earnings tick.
     share: {
-      label: "share", title: "roger share",
+      label: "share", title: "roger — share",
       build: function () {
         return compile(function (c) {
-          var cmd = "roger share " + BAND + " --rate " + MAX_PRICE;
-          c.type([], cmd, AFTER_TYPE);
-          var base = [PROMPT + head(cmd), ""];
-          var steps = [
-            ok("  ◉") + " detecting backend  " + dim("scanning local ports") + "  " + ok("ok"),
-            ok("  ◉") + " backend locked     " + head("vLLM") + dim(" · 127.0.0.1:8000 · ") + head(BAND) + "  " + ok("ok"),
-            ok("  ◉") + " call-sign assigned " + head("@you") + " " + gold("◆") + dim(" · rate ") + money(MAX_PRICE + " $/M out") + "  " + ok("ok"),
-            ok("  ◉") + " lineage co-sign    " + gold("◆ weights·shard·token") + "  " + ok("ok")
+          // from the dial, press [2] SHARE to become a provider.
+          c.show(deck("SHARE"), STAGE);
+          c.show(deck("SHARE").concat(["",
+            dim("  ▸ ") + span("t-sel", " •[2] SHARE ") + dim("  ·  put your own GPU on the air")
+          ]), STEP);
+          // detection scan: probe the real local backends one at a time.
+          // ◉ = backend up + models found, ○ = port answered but empty.
+          var scanHead = [
+            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  go on air") + "   " + gold("◆ provider"),
+            RULE,
+            dim("  scanning the band for local models…"), ""
           ];
-          for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
-          var onair = base.concat(steps, ["",
+          var probes = [
+            ok("  ◉") + " ollama      " + dim(":11434") + dim("  ……  ") + ok("2 models"),
+            ok("  ◉") + " llama.cpp   " + dim(":8080") + dim("   ……  ") + ok("1 model"),
+            dim("  ○") + " lm-studio   " + dim(":1234") + dim("   ……  ") + dim("none"),
+            ok("  ◉") + " vLLM        " + dim(":8000") + dim("   ……  ") + ok("1 model")
+          ];
+          var names = ["ollama      :11434", "llama.cpp   :8080 ", "lm-studio   :1234 ", "vLLM        :8000 "];
+          c.show(scanHead.concat([dim("  ○") + " " + dim(names[0]) + dim("  ……  ") + live("probing…") + CURSOR]), STEP);
+          for (var pi = 0; pi < probes.length; pi++) {
+            var rows = probes.slice(0, pi + 1);
+            if (pi + 1 < probes.length) {
+              rows = rows.concat([dim("  ○") + " " + dim(names[pi + 1]) + dim("  ……  ") + live("probing…") + CURSOR]);
+            }
+            c.show(scanHead.concat(rows), STEP);
+          }
+          c.show(scanHead.concat(probes, ["",
+            ok("  ◉") + dim("  3 backends up · ") + head("4 models") + dim(" detected across the box")
+          ]), STAGE);
+          // the detected-models table; pick qwen3-coder-30b, go ON AIR.
+          var shareHead = [
+            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  your models, detected") + "   " + gold("◆ provider"),
+            RULE,
+            "  " + dim(pad("MODEL", 20)) + dim(pad("BACKEND", 12)) + dim(pad("STATUS", 11)) + dim("YOUR RATE")
+          ];
+          var locals = [
+            { model: "gpt-oss-20b",      back: "ollama",    rate: "0.18" },
+            { model: "qwen3-coder-30b",  back: "vLLM",      rate: "0.30" },
+            { model: "llama-3.3-70b",    back: "llama.cpp", rate: "0.55" }
+          ];
+          function localRow(m, on) {
+            return "  " + (on ? ok("◉") : dim("○")) + " " + head(pad(m.model, 18)) +
+              dim(pad(m.back, 12)) + (on ? live(pad("ON AIR", 11)) : dim(pad("OFF-AIR", 11))) + money(m.rate + " $/M");
+          }
+          for (var li = 0; li < locals.length; li++) {
+            c.show(shareHead.concat(locals.slice(0, li + 1).map(function (m) { return localRow(m, false); })), STEP);
+          }
+          c.show(shareHead.concat(locals.map(function (m, i) { return localRow(m, i === 1); }), [RULE,
+            dim("  ▸ ") + head("qwen3-coder-30b") + dim(" going on air at ") + money("0.30 $/M out") + dim("…")
+          ]), STAGE);
+          // ON AIR: the single go-live line (mirrors `roger share`'s onAirLine).
+          var onair = [
+            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  on air") + "   " + gold("◆ provider"), RULE,
             ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
-              dim(" · ") + live("station live") + dim(" · appears in the band in ~10s")
-          ]);
+              dim(" · ") + money("earning $0.30/1M") + dim(" · view at rogerai.fyi")
+          ];
           c.show(onair, STAGE);
           var live1 = onair.concat(["",
             dim("  ┌ live ──────────────────────────────────────────────────────┐"),
@@ -363,7 +374,7 @@
           ]);
           c.show(live1, STAGE);
           c.show(live1.concat(["",
-            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money(MAX_PRICE + " $/M") +
+            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money("0.30 $/M") +
               dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"),
             dim("  balance ") + money("$42.18") + dim("  ·  your GPU is paying rent. ") + live("roger that.")
           ]), END_HOLD);
@@ -374,15 +385,15 @@
 
   /* ---- engine -------------------------------------------------------- */
   // playlist order: when a demo finishes we auto-advance to the next preset
-  // and play it (rogerai -> search -> use -> share -> back to rogerai).
-  var ORDER = ["rogerai", "search", "use", "share"];
+  // and play it (roger -> tune in -> agent -> share -> back to roger).
+  var ORDER = ["roger", "tunein", "agent", "share"];
   var NEXT_HOLD = 1500;         // ms to show the "NEXT:" indicator before switching
   function nextOf(name) {
     var i = ORDER.indexOf(name);
     return ORDER[(i + 1) % ORDER.length];
   }
 
-  var current = "rogerai";
+  var current = "roger";
   var frames = [];
   var idx = 0;
   var playing = false;
@@ -425,7 +436,7 @@
       flush(frames[frames.length - 1].lines.concat([
         "",
         dim("  ▸ ") + live("NEXT") + dim("  ") + head(DEMOS[nxt].label) +
-          dim("  ·  " + (nxt === "rogerai" ? "looping the dial…" : "auto-advancing…"))
+          dim("  ·  " + (nxt === "roger" ? "looping the dial…" : "auto-advancing…"))
       ]));
       timer = setTimeout(function () { if (playing) select(nxt, "auto"); }, NEXT_HOLD);
       return;
