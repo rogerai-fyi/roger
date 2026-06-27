@@ -876,7 +876,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// Start (not Run) so we can confirm the broker actually ACCEPTED us (the heartbeat
 		// ACK) and print a SINGLE truthful "on air" line, instead of several sequential
 		// Printlns around a blind go-live. Then block forever.
-		sess, err := agent.Start(cfgRun)
+		sess, err := agentStart(cfgRun)
 		if err != nil {
 			return err
 		}
@@ -891,10 +891,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		effIn, effOut, override := sess.EffectivePrice()
 		fmt.Println(onAirLine(mdl, station, effIn, effOut, override))
 		fmt.Println(earningsLine())
-		select {} // serve forever
+		shareBlock() // serve forever (a test seam makes this return)
+		return nil
 	}
 	// Private: start (not Run) so we can surface the one-time frequency code, then block.
-	sess, err := agent.Start(cfgRun)
+	sess, err := agentStart(cfgRun)
 	if err != nil {
 		return err
 	}
@@ -907,8 +908,18 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	} else if _, _, display := sess.Band(); display != "" {
 		fmt.Printf("\n  on air on your existing private band: %s (code shown only at first creation)\n", display)
 	}
-	select {} // serve forever
+	shareBlock() // serve forever (a test seam makes this return)
+	return nil
 }
+
+// agentStart / shareBlock are seams over cmdShare's two un-testable side effects: the
+// real node register+serve (default agent.Start) and the forever-block after go-live
+// (default select{}). Tests point agentStart at a stub session and shareBlock at a no-op
+// so cmdShare's setup + go-live path runs to completion without registering or blocking.
+var (
+	agentStart = agent.Start
+	shareBlock = func() { select {} }
+)
 
 // onAirLine is the SINGLE go-live success line for a public share (audit #5): the one
 // thing a new provider needs to see - what's live, under which station, and where to
