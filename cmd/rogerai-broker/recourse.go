@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -318,7 +319,11 @@ func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) {
 				if err := b.unbanNode(nodeID); err == nil {
 					out["auto_exonerated"] = true
 					out["node_unbanned"] = nodeID
-					log.Printf("APPEAL id=%d: node=%s auto-EXONERATED (%d distinct reporters, eject threshold=%d) - routing restored pending review", id, nodeID, n, b.reportEjectAt)
+					reason := fmt.Sprintf("%d distinct reporters < %d threshold", n, b.reportEjectAt)
+					if b.reportEjectAt <= 0 {
+						reason = "auto-eject disabled, no live corroboration threshold"
+					}
+					log.Printf("APPEAL id=%d: node=%s auto-EXONERATED (%s) - routing restored pending review", id, nodeID, reason)
 				}
 			}
 		}
