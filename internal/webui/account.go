@@ -15,6 +15,10 @@ import (
 var (
 	loginBegin = client.LoginBegin
 	loginPoll  = client.LoginPoll
+	// logoutReturn wraps the client logout so handleLogout's error branch is testable
+	// without manipulating the on-disk auth file. Defaults to the real implementation, so
+	// the production path is unchanged.
+	logoutReturn = client.LogoutReturn
 )
 
 func (s *Server) brokerReady(w http.ResponseWriter) bool {
@@ -93,7 +97,7 @@ func (s *Server) handleLoginPoll(w http.ResponseWriter, r *http.Request) {
 
 // handleLogout clears the local GitHub binding and the shared login state.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if err := client.LogoutReturn(); err != nil {
+	if err := logoutReturn(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
