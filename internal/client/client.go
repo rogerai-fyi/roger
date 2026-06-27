@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // AlertFunc receives a human-readable line when the proxy can't recover (no
@@ -927,16 +928,39 @@ func WithTopupHint(status int, msg string) string {
 // the client's transport timeout (which would surface as an opaque dial error).
 const chatTimeout = 300 * time.Second
 
-// Chat sends one message through the broker and returns the reply, a status
-// line (provider · cost), and the parsed per-reply cost in credits (1 cr = $1).
-// Used by the TUI's in-CHANNEL chat / session. Every failure path returns a
-// clear, human-readable error so the TUI never shows a blank no-response: a
-// missing station, a slow-inference timeout, the broker's own error body, or a
-// transport drop are all surfaced verbatim instead of as an empty turn.
+// ChatResult is the rich outcome of one in-channel relay: the reply plus the
+// per-turn performance/billing metrics the TUI surfaces (tokens in/out, tok/s, the
+// wall-clock latency, price, and cost). Status keeps the legacy "provider · $cost"
+// one-liner for back-compat. Zero-valued metric fields mean "the broker did not
+// report it" (the renderer omits those).
+type ChatResult struct {
+	Reply     string
+	Status    string        // legacy compact footer: "provider · $cost"
+	Provider  string        // serving node id (X-RogerAI-Provider)
+	Cost      float64       // credits billed for this turn (1 cr = $1)
+	TokensIn  int           // billed prompt tokens (broker re-count if present, else the claim)
+	TokensOut int           // billed completion tokens
+	TPS       float64       // provider output tokens/sec (X-RogerAI-TPS)
+	PriceIn   float64       // $/1M in for this turn (locked price)
+	PriceOut  float64       // $/1M out
+	Latency   time.Duration // wall-clock time of the served request (how long you waited)
+}
+
+// Chat is the back-compat 4-tuple wrapper around ChatDetailed (reply, status, cost, err).
+func Chat(broker, user, model, prompt string, confidential bool, maxOut float64) (reply, status string, costCr float64, err error) {
+	r, e := ChatDetailed(broker, user, model, prompt, confidential, maxOut)
+	return r.Reply, r.Status, r.Cost, e
+}
+
+// ChatDetailed sends one message through the broker and returns the reply plus the
+// per-turn metrics (see ChatResult). Used by the TUI's in-CHANNEL chat / session.
+// Every failure path returns a clear, human-readable error so the TUI never shows a
+// blank no-response: a missing station, a slow-inference timeout, the broker's own
+// error body, or a transport drop are all surfaced verbatim instead of as an empty turn.
 // maxOut is the consumer out-price cap ($/1M) the relay must carry so the in-channel
 // chat is bounded like every other consume path: 0 means "use the default consumer cap"
 // (effectiveMaxOut), a positive value is the user's explicit opt-in to pay up to that.
-func Chat(broker, user, model, prompt string, confidential bool, maxOut float64) (reply, status string, costCr float64, err error) {
+func ChatDetailed(broker, user, model, prompt string, confidential bool, maxOut float64) (ChatResult, error) {
 	reqBody, _ := json.Marshal(map[string]any{
 		"model":      model,
 		"messages":   []map[string]string{{"role": "user", "content": prompt}},
@@ -971,6 +995,7 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
 			req.Header.Set("X-Roger-Exclude-Nodes", joinSet(failed))
 		}
 
+		start := time.Now()
 		resp, derr := httpClient.Do(req)
 		if derr != nil {
 			// Transport timeout/drop: retryable. Keep a clean message in case we exhaust.
@@ -1008,24 +1033,66 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
 		}
 		_ = json.Unmarshal(raw, &d)
 		if len(d.Choices) == 0 {
-			return "", "", 0, parseChatError(raw, resp.StatusCode)
+			return ChatResult{}, parseChatError(raw, resp.StatusCode)
 		}
-		reply = d.Choices[0].Message.Content
+		reply := d.Choices[0].Message.Content
 		if reply == "" {
 			reply = d.Choices[0].Message.Reasoning
 		}
 		costStr := resp.Header.Get("X-RogerAI-Cost")
-		costCr, _ = strconv.ParseFloat(costStr, 64)
-		// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
-		status = fmt.Sprintf("%s · $%s", resp.Header.Get("X-RogerAI-Provider"), costStr)
-		return reply, status, costCr, nil
+		costCr, _ := strconv.ParseFloat(costStr, 64)
+		provider := resp.Header.Get("X-RogerAI-Provider")
+		res := ChatResult{
+			Reply:    reply,
+			Provider: provider,
+			Cost:     costCr,
+			Latency:  time.Since(start),
+			// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
+			Status: fmt.Sprintf("%s · $%s", provider, costStr),
+		}
+		// Per-turn metrics from the broker's response headers (best-effort: any missing one
+		// stays zero and the renderer omits it). The signed receipt carries the BILLED token
+		// counts (broker re-count when present), the truthful in/out the user actually paid for.
+		if rec, derr := protocol.DecodeReceipt(resp.Header.Get("X-RogerAI-Receipt")); derr == nil {
+			res.TokensIn, res.TokensOut = rec.PromptTokens, rec.CompletionTokens
+			if rec.BrokerPromptTokens > 0 {
+				res.TokensIn = rec.BrokerPromptTokens
+			}
+			if rec.BrokerCompletionTokens > 0 {
+				res.TokensOut = rec.BrokerCompletionTokens
+			}
+		}
+		if tps, perr := strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64); perr == nil {
+			res.TPS = tps
+		}
+		res.PriceIn, res.PriceOut = parsePriceHeader(resp.Header.Get("X-RogerAI-Price"))
+		return res, nil
 	}
 
 	// Every attempt failed over - surface the last real cause.
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no station could serve %s right now (tried %d)", model, policy.maxAttempts)
 	}
-	return "", "", 0, lastErr
+	return ChatResult{}, lastErr
+}
+
+// parsePriceHeader parses the broker's "in=0.2000;out=0.5000;locked_until=..." price
+// header into the in/out $/1M values (0,0 if absent/malformed).
+func parsePriceHeader(h string) (in, out float64) {
+	for _, part := range strings.Split(h, ";") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		v, _ := strconv.ParseFloat(strings.TrimSpace(kv[1]), 64)
+		switch strings.TrimSpace(kv[0]) {
+		case "in":
+			in = v
+		case "out":
+			out = v
+		}
+	}
+	return in, out
 }
 
 // parseChatError turns an errorful /v1/chat/completions response (no choices) into the

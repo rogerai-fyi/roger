@@ -580,6 +580,7 @@ type model struct {
 	// chat session state (CHANNEL mode)
 	sysPrompt string  // /system prompt prepended to each turn
 	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
+	showStats bool    // /stats: append the verbose per-turn metric line (price in/out) to new replies
 	// [0] AGENT state (modeAgent): the embedded tool-capable harness. agent holds the
 	// session-only loop (dj.md persona + bounded tools); agentIn is the prompt; the
 	// transcript carries the streamed turn (assistant text, tool calls, results,
@@ -793,6 +794,13 @@ type balanceMsg struct {
 type chatMsg struct {
 	reply, status string
 	cost          float64
+	// Per-turn metrics for the rich reply footer (0/empty = broker didn't report it; the
+	// renderer omits missing fields and falls back to `status`). See sendChat / replyFooter.
+	provider            string
+	tokensIn, tokensOut int
+	tps                 float64
+	priceIn, priceOut   float64
+	latency             time.Duration
 }
 type chatErrMsg string // a chat turn failed - surfaced INLINE in the CHANNEL transcript
 type errMsg string
@@ -1027,7 +1035,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			reply = stLive.Render("◂ ") + reply
 		}
-		m.transcript = append(m.transcript, reply, stDim.Render("   "+msg.status))
+		m.transcript = append(m.transcript, reply)
+		m.transcript = append(m.transcript, replyFooter(msg, m.showStats)...)
 		// Refresh the wallet after a billed turn so the header balance stays true.
 		return m, fetchBalance(m.broker, m.user)
 	case chatErrMsg:
@@ -1579,6 +1588,16 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 	case "cost":
 		sysLine("session cost so far: " + dollars(m.sessCost) + " · balance " + m.balDollars())
 		return m, nil
+	case "stats", "detail":
+		// Toggle the verbose per-turn footer: subsequent replies also show the locked
+		// price in/out alongside the always-on tokens/t-s/latency/cost line.
+		m.showStats = !m.showStats
+		if m.showStats {
+			sysLine("stats ON · new replies show price in/out under the tokens · t/s · time · cost line")
+		} else {
+			sysLine("stats off · replies show the compact tokens · t/s · time · cost line")
+		}
+		return m, nil
 	case "confidential", "conf":
 		m.confidentialOnly = !m.confidentialOnly
 		if m.confidentialOnly {
@@ -1603,7 +1622,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 	case "help", "h":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
-		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /confidential (/conf) · /endpoint (/ep)")
+		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf) · /endpoint (/ep)")
 		sysLine("/support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
@@ -6963,16 +6982,71 @@ func fetchPayoutStatus(broker string) tea.Cmd {
 	}
 }
 
+// replyFooter renders the per-turn metrics line(s) under an assistant reply, in the
+// monochrome+one-red language: dimmed provider/tokens/latency, t/s in the live color, the
+// cost in ember. It surfaces what the user asked for - how many tokens in/out, how fast,
+// how long, and the cost - on one calm line. When /stats (verbose) is on, a second dim line
+// adds the locked price in/out. Falls back to the legacy "provider · $cost" one-liner if
+// the broker reported no metrics (e.g. a free turn with no receipt), never an empty footer.
+func replyFooter(msg chatMsg, verbose bool) []string {
+	if msg.provider == "" && msg.tokensIn == 0 && msg.tokensOut == 0 && msg.latency == 0 {
+		return []string{stDim.Render("   " + msg.status)}
+	}
+	sep := stDim.Render(" · ")
+	var parts []string
+	if msg.provider != "" {
+		parts = append(parts, stDim.Render(msg.provider))
+	}
+	if msg.tokensIn > 0 || msg.tokensOut > 0 {
+		parts = append(parts, stDim.Render("↑"+humanTokens(msg.tokensIn)+" ↓"+humanTokens(msg.tokensOut)+" tok"))
+	}
+	if msg.tps > 0 {
+		parts = append(parts, stLive.Render(fmt.Sprintf("%.0f t/s", msg.tps)))
+	}
+	if msg.latency > 0 {
+		parts = append(parts, stDim.Render(humanLatency(msg.latency)))
+	}
+	parts = append(parts, stEmber.Render(dollars(msg.cost)))
+	lines := []string{"   " + strings.Join(parts, sep)}
+	if verbose && (msg.priceIn > 0 || msg.priceOut > 0) {
+		lines = append(lines, stDim.Render(fmt.Sprintf("   price  ↑$%.2f  ↓$%.2f /1M", msg.priceIn, msg.priceOut)))
+	}
+	return lines
+}
+
+// humanTokens renders a token count compactly: 340, 1.3k, 12.0k.
+func humanTokens(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return strconv.Itoa(n)
+}
+
+// humanLatency renders a request duration as a calm readout: 850ms below a second, 2.1s above.
+func humanLatency(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d >= time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dms", d.Milliseconds())
+}
+
 func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float64) tea.Cmd {
 	return func() tea.Msg {
-		reply, status, cost, err := client.Chat(broker, user, mdl, prompt, confidential, maxOut)
+		r, err := client.ChatDetailed(broker, user, mdl, prompt, confidential, maxOut)
 		if err != nil {
 			// A chat failure is surfaced INLINE in the transcript (chatErrMsg), not on
 			// the footer status line - that was the silent-no-response bug: the user
 			// typed, the spinner vanished, and nothing appeared where they were looking.
 			return chatErrMsg(err.Error())
 		}
-		return chatMsg{reply: reply, status: status, cost: cost}
+		return chatMsg{
+			reply: r.Reply, status: r.Status, cost: r.Cost,
+			provider: r.Provider, tokensIn: r.TokensIn, tokensOut: r.TokensOut,
+			tps: r.TPS, priceIn: r.PriceIn, priceOut: r.PriceOut, latency: r.Latency,
+		}
 	}
 }
 
