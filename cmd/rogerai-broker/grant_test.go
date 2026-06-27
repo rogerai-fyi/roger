@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -91,6 +92,34 @@ func TestGrantNodeScoping(t *testing.T) {
 	gc.grant.Models = []string{"only-this"}
 	if !gc.modelDenied("other") || gc.modelDenied("only-this") {
 		t.Fatalf("model gating wrong")
+	}
+}
+
+// grantUsageErrStore wraps the Mem store but ERRORS on the grant-usage read, simulating a
+// Postgres day/month bucket read failure.
+type grantUsageErrStore struct {
+	*store.Mem
+}
+
+func (grantUsageErrStore) GrantUsageOf(string, time.Time) (store.GrantUsage, error) {
+	return store.GrantUsage{}, errors.New("postgres grant_usage bucket read failed")
+}
+
+// TestGrantCapFailsClosedOnUsageError is the regression for the grant-cap fail-OPEN bug: a
+// CAPPED grant whose usage read errors must FAIL CLOSED (429), not be admitted. Failing open
+// turned a capped grant effectively UNCAPPED on any Postgres bucket-read hiccup = free
+// unlimited service. An UNCAPPED grant short-circuits before the read and still passes.
+func TestGrantCapFailsClosedOnUsageError(t *testing.T) {
+	b := grantBroker()
+	b.db = grantUsageErrStore{store.NewMem()}
+	if st, _ := b.grantCapCheck(store.Grant{ID: "gc", DailyCap: 100}); st != http.StatusTooManyRequests {
+		t.Fatalf("capped grant + usage-read error must FAIL CLOSED (429), got %d", st)
+	}
+	if st, _ := b.grantCapCheck(store.Grant{ID: "gc2", MonthlyCap: 100}); st != http.StatusTooManyRequests {
+		t.Fatalf("monthly-capped grant + usage-read error must FAIL CLOSED (429), got %d", st)
+	}
+	if st, _ := b.grantCapCheck(store.Grant{ID: "nocap"}); st != 0 {
+		t.Fatalf("uncapped grant must pass without a usage read, got %d", st)
 	}
 }
 
