@@ -613,6 +613,7 @@ type Mem struct {
 	payouts     []Payout                 // payout history
 	payoutID    int64                    // monotonic payout id
 	disputes    map[string]bool          // seen stripe dispute ids (idempotency)
+	settled     map[string]bool          // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
 	recountHold map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
 	nodeAcct    map[string]string        // node id -> owner pubkey (TOFU)
 	charges     map[string]charge        // stripe payment_intent/charge id -> checkout mapping
@@ -667,7 +668,7 @@ func NewMem() *Mem {
 	return &Mem{
 		wallet: map[string]float64{}, seedRemain: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
-		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
+		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
@@ -899,6 +900,12 @@ func (m *Mem) appendAdjustLocked(holder string, rec protocol.UsageReceipt, cost 
 func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if rec.RequestID != "" {
+		if m.settled[rec.RequestID] {
+			return m.wallet[user], nil // already settled: idempotent no-op (no double-debit / lot drift)
+		}
+		m.settled[rec.RequestID] = true
+	}
 	m.wallet[user] -= cost
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
@@ -932,6 +939,12 @@ func (m *Mem) Hold(user string, amount float64) (bool, error) {
 func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if rec.RequestID != "" {
+		if m.settled[rec.RequestID] {
+			return m.wallet[user], nil // already settled: idempotent no-op (no double refund / lot drift)
+		}
+		m.settled[rec.RequestID] = true
+	}
 	m.wallet[user] += held - cost // refund the unused reservation
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
