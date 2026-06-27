@@ -334,10 +334,10 @@ func cornerEyeFor(state agentPose, f int) string {
 // so a long turn reads as a live broadcast rather than a single frozen label. Each
 // state has a couple of synonyms; quiet freezes to the first.
 var cornerWords = map[agentPose][]string{
-	poseWaiting:   {"standing by", "go ahead", "squelch open"},
-	poseThinking:  {"tuning…", "thinking…", "reading the band"},
-	poseStreaming: {"on air", "receiving", "transmitting"},
-	poseTool:      {"working the dial", "on the tools"},
+	poseWaiting:   {"standing by", "go ahead", "squelch open", "come back", "reading you", "over to you", "ears on"},
+	poseThinking:  {"tuning…", "thinking…", "reading the band", "sweeping…", "chasing it…", "scanning the band"},
+	poseStreaming: {"on air", "receiving", "transmitting", "coming in", "loud and clear", "rolling"},
+	poseTool:      {"working the dial", "on the tools", "patching through", "turning knobs"},
 }
 
 // cornerWord picks the status word for a pose + frame (advancing ~every 1.3s). quiet

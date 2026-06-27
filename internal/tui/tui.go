@@ -5717,6 +5717,17 @@ var workingPhrases = []string{
 	"Receiving…",
 	"Squelch open…",
 	"Riding the airwaves…",
+	"Reading you five by five…",
+	"Chasing the signal…",
+	"Dialing it in…",
+	"Boosting the gain…",
+	"Sweeping the band…",
+	"Clearing the static…",
+	"Patching you through…",
+	"Warming the tubes…",
+	"Cueing the next track…",
+	"Holding the frequency…",
+	"Coming in clear…",
 }
 
 // workingPhrase returns the radio phrase for a frame: it advances roughly every
