@@ -64,6 +64,16 @@ jobs:
           if awk -v p="$pct" 'BEGIN{exit !(p+0>=85)}'; then color="#3fb950"; else color="#d29922"; fi
           printf '%s' "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" role=\"img\" aria-label=\"ROGER·AI coverage: ${pct}%\"><title>ROGER·AI coverage: ${pct}%</title><clipPath id=\"r\"><rect width=\"200\" height=\"20\" rx=\"3\"/></clipPath><linearGradient id=\"s\" x2=\"0\" y2=\"100%\"><stop offset=\"0\" stop-color=\"#fff\" stop-opacity=\".07\"/><stop offset=\"1\" stop-opacity=\".07\"/></linearGradient><g clip-path=\"url(#r)\"><rect width=\"200\" height=\"20\" fill=\"#0d1117\"/><rect x=\"142\" width=\"58\" height=\"20\" fill=\"${color}\"/><rect width=\"200\" height=\"20\" fill=\"url(#s)\"/></g><g fill=\"#3fb950\"><rect x=\"9\" y=\"13\" width=\"2.5\" height=\"3\"/><rect x=\"13\" y=\"11\" width=\"2.5\" height=\"5\"/><rect x=\"17\" y=\"8\" width=\"2.5\" height=\"8\"/><rect x=\"21\" y=\"5\" width=\"2.5\" height=\"11\"/></g><g font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"30\" y=\"14\" fill=\"#fff\" font-weight=\"bold\">ROGER·AI</text><text x=\"92\" y=\"14\" fill=\"#8b949e\">coverage</text><text x=\"171\" y=\"14\" fill=\"#fff\" font-weight=\"bold\" text-anchor=\"middle\">${pct}%</text></g></svg>" > _site/badge.svg
 
+          # Per-PACKAGE summary from cover.out (the reassuring greens), so the public page
+          # shows "every package vs the bar" instead of only the per-file dropdown - which
+          # lists individual files <bar that live inside packages well above it. Aggregates
+          # covered/total statements per package directory.
+          awk 'NR>1 { split($1,a,":"); f=a[1]; n=split(f,p,"/"); pk=p[1]; for(i=2;i<n;i++) pk=pk"/"p[i]; t[pk]+=$2; if($3+0>0) c[pk]+=$2 } END{ for(k in t) printf "%6.1f%%  %s\n", 100*c[k]/t[k], k }' cover.out | sort -k2 > _site/packages.txt
+          { echo "<!doctype html><meta charset=utf-8><title>RogerAI coverage by package</title>"; \
+            echo "<style>body{background:#0d1117;color:#c9d1d9;font:14px/1.7 ui-monospace,Menlo,monospace;padding:24px}h1{font-size:16px;color:#fff}a{color:#58a6ff}</style>"; \
+            echo "<h1>RogerAI — coverage by package (total ${pct}%, bar 90%)</h1><pre>"; cat _site/packages.txt; \
+            echo "</pre><p><a href=coverage.html>per-file detail →</a></p>"; } > _site/packages.html
+
       # 3) octocov: PR coverage table + badge to gh-pages (reads .octocov.yml). Never blocks.
       - uses: k1LoW/octocov-action@v1
         continue-on-error: true
