@@ -26,6 +26,41 @@ MOD="github.com/rogerai-fyi/roger"
 # be refactored to be testable rather than exempted.
 floor_for() { echo "$GREEN_BAR"; }
 
+# --- Postgres-aware coverage -------------------------------------------------
+# postgres.go is ~half of internal/store; without a real DB its money path counts
+# as 0% and the package can NEVER reach the bar. If no DSN is supplied and a
+# container runtime is present, spin up a throwaway Postgres (schema `rogerai`,
+# which prod provisions out-of-band) so the gate honestly exercises the SQL path.
+# Self-contained: works on a dev box (podman) and on CI runners (docker).
+PG_CT=""
+RUNTIME=""
+cleanup_pg() { [ -n "$PG_CT" ] && "$RUNTIME" rm -f "$PG_CT" >/dev/null 2>&1; return 0; }
+trap cleanup_pg EXIT
+if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
+  command -v podman >/dev/null 2>&1 && RUNTIME=podman
+  [ -z "$RUNTIME" ] && command -v docker >/dev/null 2>&1 && RUNTIME=docker
+  if [ -n "$RUNTIME" ]; then
+    PG_CT="rogerai-covergate-pg"
+    "$RUNTIME" rm -f "$PG_CT" >/dev/null 2>&1
+    echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
+    if "$RUNTIME" run -d --name "$PG_CT" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
+        -p 5466:5432 docker.io/library/postgres:16 >/dev/null 2>&1; then
+      for _ in $(seq 1 30); do
+        "$RUNTIME" exec "$PG_CT" pg_isready -U postgres >/dev/null 2>&1 && break
+        sleep 1
+      done
+      "$RUNTIME" exec "$PG_CT" psql -U postgres -d roger_test \
+        -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1
+      export ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@localhost:5466/roger_test?sslmode=disable"
+    else
+      echo "[cover] WARNING: could not start a test Postgres; postgres.go will count as uncovered" >&2
+      PG_CT=""
+    fi
+  else
+    echo "[cover] WARNING: no podman/docker and no ROGERAI_TEST_DATABASE_URL — postgres.go will count as uncovered" >&2
+  fi
+fi
+
 echo "[cover] running full suite with coverage…" >&2
 if ! out="$(go test -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
   echo "$out"
