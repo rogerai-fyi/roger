@@ -65,10 +65,25 @@ func httpGet(url string) (*http.Response, error) {
 	return c.Do(req)
 }
 
+// latestReleaseURL builds the GitHub "latest release" API URL. It is a package var so
+// tests can point the release check at a local httptest server (no network).
+var latestReleaseURL = func() string {
+	return "https://api.github.com/repos/" + Repo + "/releases/latest"
+}
+
+// Injectable seams (package vars) so the platform-specific + self-mutating paths are
+// testable without touching the real binary or depending on the host OS:
+//   - executablePath resolves the running binary (tests point it at a temp file).
+//   - isWindows selects the locked-binary replace dance (tests force either branch).
+var (
+	executablePath = os.Executable
+	isWindows      = runtime.GOOS == "windows"
+)
+
 // latest fetches the latest published release for Repo.
 func latest() (release, error) {
 	var r release
-	resp, err := httpGet("https://api.github.com/repos/" + Repo + "/releases/latest")
+	resp, err := httpGet(latestReleaseURL())
 	if err != nil {
 		return r, err
 	}
@@ -249,13 +264,20 @@ func Upgrade(current string, w io.Writer) error {
 	}
 	fmt.Fprintf(w, "upgrading rogerai v%s -> v%s …\n", cur, lat)
 
-	// Download the asset to a temp file next to the target (same filesystem, so the
-	// final rename is atomic).
-	self, err := os.Executable()
+	self, err := executablePath()
 	if err != nil {
 		return err
 	}
 	self, _ = filepath.EvalSymlinks(self)
+	return installAsset(self, assetURL, name, lat, r, w)
+}
+
+// installAsset downloads assetURL to a temp file next to `self` (same filesystem, so
+// the final rename is atomic), verifies it against the release SHA256SUMS when present,
+// and atomically replaces `self`. Split out of Upgrade so the download/verify/replace
+// path is testable against a temp target (Upgrade itself resolves self via
+// os.Executable, which a test must never replace).
+func installAsset(self, assetURL, name, lat string, r release, w io.Writer) error {
 	dir := filepath.Dir(self)
 	tmp, err := os.CreateTemp(dir, ".rogerai-upgrade-*")
 	if err != nil {
@@ -306,7 +328,7 @@ const sidecarSuffix = ".old"
 // it cannot be deleted while this process holds it open, hence the next-launch
 // sweep. This mirrors what install.ps1 already does.
 func replaceSelf(self, tmpName string) error {
-	if runtime.GOOS != "windows" {
+	if !isWindows {
 		return os.Rename(tmpName, self)
 	}
 	old := self + sidecarSuffix
@@ -328,10 +350,10 @@ func replaceSelf(self, tmpName string) error {
 // running. A no-op on non-Windows and when no sidecar exists. Call once at startup;
 // errors are ignored (the file may legitimately still be locked or already gone).
 func CleanupOld() {
-	if runtime.GOOS != "windows" {
+	if !isWindows {
 		return
 	}
-	self, err := os.Executable()
+	self, err := executablePath()
 	if err != nil {
 		return
 	}
