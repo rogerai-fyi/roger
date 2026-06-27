@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeStripe routes the Stripe REST calls the broker makes to canned responses, and
@@ -26,7 +27,9 @@ func fakeStripe(t *testing.T) {
 			_, _ = w.Write([]byte(`{"url":"https://connect.stripe.test/onboard"}`))
 		case strings.HasPrefix(r.URL.Path, "/v1/accounts/"): // GET account (refresh status)
 			_, _ = w.Write([]byte(`{"capabilities":{"transfers":"active"},"requirements":{"disabled_reason":""}}`))
-		default:
+		case r.URL.Path == "/v1/checkout/sessions":
+			_, _ = w.Write([]byte(`{"id":"cs_test","url":"https://checkout.stripe.test/pay"}`))
+		default: // transfers + reversals
 			_, _ = w.Write([]byte(`{"id":"obj_test"}`))
 		}
 	}))
@@ -93,6 +96,48 @@ func TestConnectStatusStripe(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["status"] != "active" || resp["can_payout"] != true {
 		t.Errorf("connectStatus = %+v, want active + can_payout", resp)
+	}
+}
+
+// TestCheckoutStripe covers the full top-up checkout against a fake Stripe: a signed
+// session creates a checkout session and returns its URL + credit count.
+func TestCheckoutStripe(t *testing.T) {
+	fakeStripe(t)
+	b, _ := brokerWithOwner(t)
+	b.bill.secretKey = "sk_test"
+	b.bill.creditUSD = 1
+	b.bill.successURL = "https://ok"
+	b.bill.cancelURL = "https://no"
+
+	r := httptest.NewRequest(http.MethodPost, "/billing/checkout", strings.NewReader(`{"usd":15}`))
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	w := httptest.NewRecorder()
+	b.checkout(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("checkout = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["url"] != "https://checkout.stripe.test/pay" || resp["credits"].(float64) != 15 {
+		t.Errorf("checkout resp = %+v, want the stripe session url + 15 credits", resp)
+	}
+}
+
+// TestPayoutTransferHTTP covers the real Stripe-HTTP transfer + reversal paths (no seam,
+// keyed, non-stub ids) against a fake Stripe.
+func TestPayoutTransferHTTP(t *testing.T) {
+	fakeStripe(t)
+	b := &broker{}
+	b.bill.creditUSD = 1
+	b.conn = connect{secretKey: "sk_test"} // no transfer seam -> HTTP path
+
+	id, err := b.payoutTransfer("acct_real", "octocat", 3.0, "idem")
+	if err != nil || id != "obj_test" {
+		t.Fatalf("payoutTransfer(http) = %q/%v, want obj_test", id, err)
+	}
+	rid, err := b.payoutTransferReversal("tr_real", 2.0, "idem")
+	if err != nil || rid != "obj_test" {
+		t.Fatalf("payoutTransferReversal(http) = %q/%v, want obj_test", rid, err)
 	}
 }
 

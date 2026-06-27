@@ -127,7 +127,7 @@ func (b *broker) checkout(w http.ResponseWriter, r *http.Request) {
 	form.Set("metadata[user]", user)
 	form.Set("metadata[credits]", strconv.FormatFloat(credits, 'f', 4, 64))
 
-	sreq, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/checkout/sessions", strings.NewReader(form.Encode()))
+	sreq, _ := http.NewRequest(http.MethodPost, stripeAPIBase+"/v1/checkout/sessions", strings.NewReader(form.Encode()))
 	sreq.Header.Set("Authorization", "Bearer "+b.bill.secretKey)
 	sreq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(sreq)

@@ -421,7 +421,7 @@ func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey
 	form.Set("amount", strconv.FormatInt(cents, 10))
 	form.Set("currency", "usd")
 	form.Set("destination", connectID)
-	req, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers", strings.NewReader(form.Encode()))
+	req, _ := http.NewRequest(http.MethodPost, stripeAPIBase+"/v1/transfers", strings.NewReader(form.Encode()))
 	req.Header.Set("Authorization", "Bearer "+b.conn.secretKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Idempotency-Key", idemKey)
@@ -470,7 +470,7 @@ func (b *broker) payoutTransferReversal(transferID string, amount float64, idemK
 	}
 	form := url.Values{}
 	form.Set("amount", strconv.FormatInt(cents, 10))
-	req, _ := http.NewRequest(http.MethodPost, "https://api.stripe.com/v1/transfers/"+transferID+"/reversals", strings.NewReader(form.Encode()))
+	req, _ := http.NewRequest(http.MethodPost, stripeAPIBase+"/v1/transfers/"+transferID+"/reversals", strings.NewReader(form.Encode()))
 	req.Header.Set("Authorization", "Bearer "+b.conn.secretKey)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Idempotency-Key", idemKey)
