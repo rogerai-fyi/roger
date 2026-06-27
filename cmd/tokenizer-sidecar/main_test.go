@@ -7,35 +7,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/rogerai-fyi/roger/internal/tokenizer"
 )
 
-// newCountHandler returns the routes exactly as main() defines them, over a
-// dir-less Counter. Kept in lockstep with cmd/tokenizer-sidecar/main.go.
-func newCountHandler() http.Handler {
-	counter := tokenizer.New("")
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/count", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", http.MethodPost)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req countRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		res := counter.Count(req.Model, req.Text)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(countResponse{Tokens: res.Tokens, Exact: res.Exact, Method: res.Method})
-	})
-	return mux
-}
+// newCountHandler returns the REAL routes from main.go (newMux) over a dir-less Counter,
+// so these tests exercise the production handler wiring (not a copy) and count toward
+// cmd/tokenizer-sidecar coverage.
+func newCountHandler() http.Handler { return newMux("") }
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()

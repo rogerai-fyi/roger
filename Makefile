@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta
+.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate tdd
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -37,6 +37,27 @@ site-serve: site
 # cmd/rogerai-broker).
 test:
 	go test ./...
+
+# ---- spec-first TDD / coverage (see TDD-WORKFLOW.md) -------------------------
+# cover: full self-coverage profile across the module + the total line.
+cover:
+	go test -covermode=atomic -coverprofile=cover.out ./...
+	@go tool cover -func=cover.out | tail -1
+
+# cover-html: per-file green/red drill-down (also what we publish to GitHub Pages).
+cover-html: cover
+	go tool cover -html=cover.out -o coverage.html
+	@echo "wrote coverage.html"
+
+# cover-gate: THE GATE - no zero-coverage package + per-package floors + total floor.
+# Run by CI and the repo-local pre-push hook. Bypass a local push with COVER_GATE_SKIP=1.
+cover-gate:
+	@scripts/cover-gate.sh
+
+# tdd: red-green watch loop for one package - make tdd PKG=./internal/store
+tdd:
+	@command -v gotestsum >/dev/null 2>&1 || go install gotest.tools/gotestsum@latest
+	gotestsum --watch --format testname -- -count=1 $(PKG)
 
 # The CI gate: build, vet, test, and a gofmt cleanliness check.
 check:

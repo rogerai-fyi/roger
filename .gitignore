@@ -18,3 +18,7 @@ CLAUDE.md
 
 # agent worktrees + local claude state
 .claude/
+
+# coverage artifacts (local; CI publishes to Pages)
+cover.out
+coverage.html

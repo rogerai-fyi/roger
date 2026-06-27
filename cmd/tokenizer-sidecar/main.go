@@ -38,14 +38,11 @@ type countResponse struct {
 	Method string `json:"method,omitempty"`
 }
 
-func main() {
-	port := os.Getenv("TOKENIZER_PORT")
-	if port == "" {
-		port = "9099"
-	}
-	dir := os.Getenv("TOKENIZER_DIR")
+// newMux builds the sidecar's HTTP routes over a tokenizer.Counter for TOKENIZER_DIR
+// (empty = tiktoken-exact + heuristic only). Extracted from main() so the real handler
+// wiring is exercised by tests (main() only adds the env/listen glue).
+func newMux(dir string) http.Handler {
 	counter := tokenizer.New(dir)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -66,6 +63,16 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(countResponse{Tokens: res.Tokens, Exact: res.Exact, Method: res.Method})
 	})
+	return mux
+}
+
+func main() {
+	port := os.Getenv("TOKENIZER_PORT")
+	if port == "" {
+		port = "9099"
+	}
+	dir := os.Getenv("TOKENIZER_DIR")
+	mux := newMux(dir)
 
 	addr := "127.0.0.1:" + port
 	if dir != "" {

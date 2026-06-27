@@ -1,5 +1,7 @@
 # RogerAI
 
+[![coverage](https://raw.githubusercontent.com/rogerai-fyi/roger/gh-pages/docs/coverage.svg)](https://rogerai-fyi.github.io/roger/coverage/coverage.html)
+
 **A two-way radio for GPUs.** RogerAI is a marketplace for crowd-sourced, self-hosted LLMs:
 people run open models on their own GPUs and go "on air"; you tune in and pay per token. Every
 token carries a **model-lineage record** - a receipt signed by the provider and counter-signed
