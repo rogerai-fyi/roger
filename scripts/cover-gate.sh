@@ -45,12 +45,24 @@ if [ -z "${ROGERAI_TEST_DATABASE_URL:-}" ]; then
     echo "[cover] starting throwaway Postgres ($RUNTIME) for the store money path…" >&2
     if "$RUNTIME" run -d --name "$PG_CT" -e POSTGRES_PASSWORD=test -e POSTGRES_DB=roger_test \
         -p 5466:5432 docker.io/library/postgres:16 >/dev/null 2>&1; then
-      for _ in $(seq 1 30); do
-        "$RUNTIME" exec "$PG_CT" pg_isready -U postgres >/dev/null 2>&1 && break
+      # pg_isready can flip true while the postgres entrypoint is still creating
+      # POSTGRES_DB on its temporary bootstrap server, so polling it then firing a
+      # one-shot CREATE SCHEMA races (and used to swallow the failure, leaving the
+      # store tests to die with "schema rogerai does not exist"). Instead, retry the
+      # CREATE SCHEMA itself until it succeeds against the real roger_test DB — that
+      # is the readiness signal — and fail loudly if it never does.
+      schema_ok=0
+      for _ in $(seq 1 60); do
+        if "$RUNTIME" exec "$PG_CT" psql -U postgres -d roger_test \
+            -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1; then
+          schema_ok=1; break
+        fi
         sleep 1
       done
-      "$RUNTIME" exec "$PG_CT" psql -U postgres -d roger_test \
-        -c "CREATE SCHEMA IF NOT EXISTS rogerai;" >/dev/null 2>&1
+      if [ "$schema_ok" != 1 ]; then
+        echo "[cover] ERROR: test Postgres never became ready / could not create the rogerai schema" >&2
+        exit 1
+      fi
       export ROGERAI_TEST_DATABASE_URL="postgres://postgres:test@localhost:5466/roger_test?sslmode=disable"
     else
       echo "[cover] WARNING: could not start a test Postgres; postgres.go will count as uncovered" >&2
