@@ -1,24 +1,11 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
-
-// capStores runs the monthly-cap parity suite against Mem always, and Postgres when
-// ROGERAI_TEST_DATABASE_URL is set, so the cap setting + the month-to-date ledger sum
-// behave identically on both backends.
-func capStores(t *testing.T) map[string]Store {
-	t.Helper()
-	out := map[string]Store{"mem": NewMem()}
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		out["postgres"] = freshPostgres(t, dsn)
-	}
-	return out
-}
 
 // spendAt records a captured spend for `user` at unix time `ts` (via Settle, which
 // appends the posted KindSpend ledger row MonthSpendOf sums). The wallet is funded
@@ -37,7 +24,7 @@ func spendAt(t *testing.T, db Store, user string, cost float64, ts int64) {
 }
 
 func TestMonthlyCapStoreParity(t *testing.T) {
-	for name, db := range capStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			u := "u_gh_42"
 

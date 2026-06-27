@@ -1,27 +1,15 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
 )
-
-// recourseStores runs the parity suite on Mem (always) + Postgres (when configured), so
-// the new auto-expiry / forgive / pending-reversal surfaces behave identically on both.
-func recourseStores(t *testing.T) map[string]Store {
-	t.Helper()
-	out := map[string]Store{"mem": NewMem()}
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		out["postgres"] = freshPostgres(t, dsn)
-	}
-	return out
-}
 
 // TestExpireRecountHoldsParity locks the auto-expiry recourse: a hold older than the
 // cutoff clears (node + account), a hold refreshed by a fresh discrepancy survives, and
 // the cleared holds let lots promote again.
 func TestExpireRecountHoldsParity(t *testing.T) {
-	for name, db := range recourseStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			// Place an old node hold + account hold (Mem stamps held-at = now; Postgres
 			// created_at = now). They should clear with a future cutoff.
@@ -64,7 +52,7 @@ func TestExpireRecountHoldsParity(t *testing.T) {
 // TestForgiveOwnerParity locks the admin recourse primitive: ForgiveOwner deletes the
 // owner's strikes, lifts the ban, and clears the account hold, in one call.
 func TestForgiveOwnerParity(t *testing.T) {
-	for name, db := range recourseStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			acct := "pkF"
 			if _, err := db.OwnerStrike(acct, StrikeRecountDiscrepancy, `{"a":1}`, "s1"); err != nil {
@@ -106,7 +94,7 @@ func TestForgiveOwnerParity(t *testing.T) {
 // idempotent on key, open lists the un-done un-dead rows, a success marks it done (drops
 // from open), and a failed attempt dead-letters once it reaches maxAttempts.
 func TestPendingReversalParity(t *testing.T) {
-	for name, db := range recourseStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			pr := PendingReversal{
 				Key: "reverse:dp1:42", DisputeID: "dp1", LotID: 42,

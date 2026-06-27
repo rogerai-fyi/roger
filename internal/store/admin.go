@@ -2,6 +2,7 @@ package store
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -267,6 +268,9 @@ func (m *Mem) AdminAbuse() (AdminAbuse, error) {
 	var a AdminAbuse
 	strikesByAcct := map[string]int{}
 	for _, s := range m.strikes {
+		if strings.HasPrefix(s.Kind, "ban:") {
+			continue // terminal ban marker, not an evidence strike (matches Postgres + OwnerStrikeStats)
+		}
 		strikesByAcct[s.AccountID]++
 		a.TotalStrikes++
 	}

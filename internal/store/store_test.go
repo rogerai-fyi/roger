@@ -358,7 +358,7 @@ func TestSettleFinalizeIdempotentOnRequestID(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
 	// Runs against Mem AND (when ROGERAI_TEST_DATABASE_URL is set) the real Postgres store -
 	// the production money path must be idempotent too, not just the reference.
-	for name, db := range metricsStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			// Unique ids per (store,run) so the shared Postgres DB has no cross-run carryover.
 			uid := name + "-" + time.Now().UTC().Format("150405.000000000")
