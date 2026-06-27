@@ -319,6 +319,7 @@ type offer struct {
 	Model        string  `json:"model"`
 	PriceIn      float64 `json:"price_in"`
 	PriceOut     float64 `json:"price_out"`
+	PriceTier    int     `json:"price_tier"` // broker's neutral 0..4 $-tier (0 = FREE/unknown)
 	Ctx          int     `json:"ctx"`
 	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
 	Online       bool    `json:"online"`
@@ -3800,7 +3801,7 @@ func (m model) confirmView(w int) string {
 	if m.showDetail {
 		b.WriteString("\n")
 		if bd.stations > 1 {
-			b.WriteString(stDim.Render("    live range   ") + stEmber.Render(rangeStr(bd)) + stDim.Render(" $/1M out  ("+fmt.Sprintf("%d", bd.stations)+" on air)") + "\n")
+			b.WriteString(stDim.Render("    live range   ") + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + stDim.Render(" $/1M out  ("+fmt.Sprintf("%d", bd.stations)+" on air)") + "\n")
 		}
 		b.WriteString(stDim.Render("    input price  ") + stEmber.Render(money(st.PriceIn)) + stDim.Render(" $/1M in") + "\n")
 		if m.haveBal {
@@ -4211,7 +4212,7 @@ func (m model) compactHeader(w int) string {
 		o := m.connected
 		mid = stGold.Render(channelGlyph(o)) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
 			sep + stKey.Render(o.Model) +
-			sep + stEmber.Render(dollars(o.PriceOut)+"/1M")
+			sep + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
 	} else {
 		// Browsing: the section + how many stations are on air.
 		on := countOnline(m.offers)
@@ -4315,7 +4316,7 @@ func (m model) header(w int) string {
 		o := m.connected
 		bar := stGold.Render(channelGlyph(o)) + " " + eye + stLive.Render(" on channel ") + stSelText.Render(o.NodeID) +
 			stDim.Render(" · ") + stKey.Render(o.Model) +
-			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") +
+			stDim.Render(" · ") + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut) +
 			stDim.Render(" · ") + m.accountTag(true) +
 			// CONNECTED header: the in-flight count is the live load on the open channel, so
 			// the meter scans with real throughput while the channel is actively serving.
@@ -4881,7 +4882,7 @@ func (m model) browseView(w int) string {
 			// lit ◉ marker and a red "connected" label so it stands out in the list.
 			if connected {
 				b.WriteString(selCarat(false) + " " + stRed.Render(glyphOnAir) + " " + stKey.Render(pad(bd.model, nameW-2)) + "  " +
-					stRed.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + "\n")
+					stRed.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + "\n")
 				continue
 			}
 			freeTag := ""
@@ -4889,7 +4890,7 @@ func (m model) browseView(w int) string {
 				freeTag = "  " + stLive.Render("FREE")
 			}
 			b.WriteString(selCarat(false) + " " + stDim.Render(pad(bd.model, nameW)) + "  " +
-				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + freeTag + "\n")
+				stDim.Render(pad(stationsLbl, 9)) + "  " + stEmber.Render(rangeStr(bd)) + bandTierSuffix(bd) + freeTag + "\n")
 			continue
 		}
 		// Signal from the cheapest station: the broker's 0..100 signal drives the
@@ -5210,6 +5211,58 @@ func bandOverLimit(b band, limits *LimitStore) bool {
 
 // money renders a price as a fixed 2-dp string (the per-1M band prices).
 func money(v float64) string { return fmt.Sprintf("%.2f", v) }
+
+// priceTierBadge maps the broker's neutral price-tier (0..4) + active price to display
+// glyphs + an optional FAVORABLE chip, mirroring the broker's renderPriceTier so every
+// surface reads alike: FREE wins; tier 0 priced shows nothing; only tier 1 is
+// editorialized ("good price"); $$..$$$$ are neutral; never any negative wording.
+func priceTierBadge(tier int, priceOut float64) (bars, chip string) {
+	if priceOut <= 0 {
+		return "FREE", ""
+	}
+	if tier < 1 || tier > 4 {
+		return "", ""
+	}
+	bars = strings.Repeat("$", tier)
+	if tier == 1 {
+		chip = "good price"
+	}
+	return bars, chip
+}
+
+// priceTierCell renders the $-tier as a row suffix: the $-glyphs in the price style plus
+// (tier 1 only) a subtle "good price" chip. Monochrome by design - the chip carries the
+// favorable signal as TEXT, not hue. Returns "" for FREE / unknown (the caller already
+// shows the FREE tag or the raw price).
+func priceTierCell(tier int, priceOut float64) string {
+	bars, chip := priceTierBadge(tier, priceOut)
+	if bars == "" || bars == "FREE" {
+		return ""
+	}
+	out := stEmber.Render(bars)
+	if chip != "" {
+		out += stLive.Render(" " + chip)
+	}
+	return out
+}
+
+// priceTierSuffix is the leading-space " $$ [good price]" suffix appended after a price;
+// empty when there is no $-tier to show (FREE / unknown).
+func priceTierSuffix(tier int, priceOut float64) string {
+	if cell := priceTierCell(tier, priceOut); cell != "" {
+		return " " + cell
+	}
+	return ""
+}
+
+// bandTierSuffix is priceTierSuffix for a band row: the cheapest online station's tier
+// vs the live market. Empty for an offline / free / unknown band.
+func bandTierSuffix(b band) string {
+	if !b.online || b.cheapest == nil {
+		return ""
+	}
+	return priceTierSuffix(b.cheapest.PriceTier, b.minOut)
+}
 
 // dollars renders a money value with Groq-style adaptive precision: balances and
 // "big" amounts at 2dp ($12.34), but tiny per-reply / per-token costs keep enough
