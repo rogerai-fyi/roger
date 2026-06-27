@@ -136,10 +136,17 @@ type pricingPlan struct {
 // streamBill carries the billing context into relayStream (keeps its signature
 // from sprawling).
 type streamBill struct {
-	user    string
-	model   string
-	pricing pricingPlan
-	grantID string
+	user string // the wallet to charge / refund (the payer)
+	// consumer is the SIGNED consumer identity used as the price-LOCK key, kept distinct
+	// from `user` (the payer wallet): for a logged-in caller the payer is the unified
+	// "u_gh_<id>" wallet while the lock keys on the pubkey-derived signed id, exactly as
+	// the non-stream relay does (lockedPrice(user,...)). Keying the lock on the payer
+	// wallet here instead would mint a SEPARATE lock from the non-stream path, so an
+	// owner's mid-engagement price hike would not be held back on the streaming path.
+	consumer string
+	model    string
+	pricing  pricingPlan
+	grantID  string
 }
 
 // resolvePricing decides who pays and at what price for one request:

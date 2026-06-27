@@ -1214,7 +1214,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
 	if req.Stream {
-		b.relayStream(w, t, node, offer, streamBill{user: payer, model: req.Model, pricing: pricing, grantID: grantID}, job, resCh, maxCost)
+		b.relayStream(w, t, node, offer, streamBill{user: payer, consumer: user, model: req.Model, pricing: pricing, grantID: grantID}, job, resCh, maxCost)
 		return
 	}
 
@@ -1455,7 +1455,7 @@ func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol
 // chunks via /agent/stream straight to this client; when it finishes it posts a
 // receipt (resCh) which settles the wallet. No metering headers (already streaming).
 func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, bill streamBill, job protocol.Job, resCh chan protocol.JobResult, maxCost float64) {
-	user, model, pricing, grantID := bill.user, bill.model, bill.pricing, bill.grantID
+	user, consumer, model, pricing, grantID := bill.user, bill.consumer, bill.model, bill.pricing, bill.grantID
 	settled := false
 	defer func() {
 		if !settled && maxCost > 0 {
@@ -1593,7 +1593,11 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
 				pin, pout = curIn, curOut
 				if !scheduled {
-					pin, pout, _ = b.lockedPrice(user, node.NodeID, model, curIn, curOut)
+					// Lock keyed on the SIGNED consumer identity (not the payer wallet) so the
+					// streaming path shares the SAME 24h price-lock the non-stream relay mints -
+					// otherwise a logged-in user's stream would dodge the lock (different key) and
+					// eat an owner's mid-engagement hike. See streamBill.consumer.
+					pin, pout, _ = b.lockedPrice(consumer, node.NodeID, model, curIn, curOut)
 				}
 			}
 			rec.PriceIn, rec.PriceOut = pin, pout
