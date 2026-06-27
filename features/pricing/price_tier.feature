@@ -12,9 +12,10 @@
 # among peers.
 #
 # GROUND TRUTH:
-#   - offer feed: cmd/rogerai-broker/market.go offerView, served on /discover,
-#     /market, and — with the SAME per-offer metrics — private /bands (band.go:208,
-#     via the shared enrichOffersForNode). A new field `price_tier int
+#   - offer feed: cmd/rogerai-broker/market.go offerView, served on /discover and —
+#     with the SAME per-offer metrics — private /bands (band.go:208, via the shared
+#     enrichOffersForNode). (The /market view is a per-MODEL aggregate (marketView) with
+#     no per-offer price, so it carries no tier.) A new field `price_tier int
 #     (json:"price_tier")` carries the result; 0 = no tier.
 #   - external reference: the OUT-price ($/1M) for the SAME open model on a popular
 #     commercial aggregator (OpenRouter's public models API), synced best-effort on a
