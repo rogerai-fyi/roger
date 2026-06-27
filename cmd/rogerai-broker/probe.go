@@ -785,12 +785,7 @@ func (b *broker) probeFailing(nodeID string) bool {
 // deprioritize bar (3): a node must keep failing to be declared dead, not merely be slow
 // once. It still heartbeats, so the proberLoop keeps probing it; a single OK resets the
 // streak and it becomes serving again automatically.
+// (Callers test probeFails >= probeDeadStreak inline, reusing the trustState they already
+// hold under metricsMu - no separate accessor needed, and no name clash with the probeDead
+// probeOutcome.)
 const probeDeadStreak = 6
-
-// probeDead reports whether a node has failed a sustained streak of liveness probes - its
-// model upstream is not actually serving. See probeDeadStreak. Concurrency-safe.
-func (b *broker) probeDead(nodeID string) bool {
-	b.metricsMu.Lock()
-	defer b.metricsMu.Unlock()
-	return b.trust[nodeID].probeFails >= probeDeadStreak
-}
