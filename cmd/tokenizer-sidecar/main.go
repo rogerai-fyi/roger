@@ -67,9 +67,17 @@ func newMux(dir string) http.Handler {
 	return mux
 }
 
+// runFn and fatalFn are behaviour-preserving seams over the real run() and log.Fatal
+// so main()'s tiny env+fatal glue is unit-testable without binding a socket or calling
+// os.Exit. They default to the real implementations; the production path is unchanged.
+var (
+	runFn   = run
+	fatalFn = log.Fatal
+)
+
 func main() {
-	if err := run(os.Getenv("TOKENIZER_PORT"), os.Getenv("TOKENIZER_DIR"), nil, nil); err != nil {
-		log.Fatal(err)
+	if err := runFn(os.Getenv("TOKENIZER_PORT"), os.Getenv("TOKENIZER_DIR"), nil, nil); err != nil {
+		fatalFn(err)
 	}
 }
 
