@@ -71,10 +71,32 @@ type modResult struct {
 // allow reports whether the screen passed (nothing to reject).
 func (r modResult) allow() bool { return r.status == 0 }
 
-// defaultModerationModel is a current Groq Llama Guard model id (verified against
-// Groq's catalog 2026-06-24). Override with MODERATION_MODEL to fix the name without
-// a redeploy if Groq retires/renames it.
-const defaultModerationModel = "meta-llama/llama-guard-4-12b"
+// defaultModerationModel is the current Groq content-safety model. Groq decommissioned
+// the Llama Guard family (meta-llama/llama-guard-4-12b now 404s), so we use OpenAI's
+// open-weight safeguard model, which classifies against a POLICY we supply in the system
+// message (see moderationPolicy) and answers "safe" / "unsafe <codes>". Override with
+// MODERATION_MODEL to fix the name without a redeploy if Groq retires/renames it.
+const defaultModerationModel = "openai/gpt-oss-safeguard-20b"
+
+// moderationPolicy is the system prompt that turns the safeguard model into a strict
+// classifier with a STABLE, parseable output. Category codes mirror the Llama Guard
+// taxonomy so the existing CSAM detection (S4) and ROGERAI_CSAM_CATEGORIES keep working.
+// The model answers "safe" or "unsafe <codes>" on a single line; its chain-of-thought
+// goes to a SEPARATE reasoning channel (parsed out by contentText), not the verdict.
+const moderationPolicy = `You are a strict content-safety classifier. Classify the USER message against this policy.
+Categories:
+S1 Violent crimes or credible threats of violence
+S2 Non-violent crimes (fraud, hacking, theft, trafficking)
+S3 Sex-related crimes (sexual assault, coercion)
+S4 Child sexual exploitation (ANY sexual content involving a minor)
+S5 Weapons of mass harm (explosives, biological, chemical, nuclear, or radiological)
+S6 Self-harm or suicide encouragement
+S7 Hate or harassment targeting a protected group
+S8 Dangerous regulated goods (illegal drug synthesis, untraceable firearms)
+Output EXACTLY one line and nothing else:
+- "safe" if the message violates no category
+- "unsafe <codes>" where <codes> is a comma-separated list of the violated category codes (e.g. "unsafe S4" or "unsafe S1,S5")
+Do not explain in the answer. Output only that one line.`
 
 // defaultCSAMCategories is the built-in child-exploitation category set: Llama Guard's
 // S4 ("Child Sexual Exploitation") and the OpenAI Moderation "sexual/minors" category.
@@ -86,9 +108,15 @@ func loadModeration() moderation {
 		provider: strings.ToLower(strings.TrimSpace(os.Getenv("MODERATION_PROVIDER"))),
 		url:      os.Getenv("MODERATION_URL"),
 		require:  os.Getenv("ROGERAI_REQUIRE_MODERATION") == "1",
-		client:   &http.Client{Timeout: 6 * time.Second},
+		// The safeguard model is a 20B reasoning classifier; give it more headroom than a
+		// tiny Llama Guard pass needed (reasoning tokens count) so a legitimate verdict is
+		// not cut off into a fail-open/closed on every request.
+		client: &http.Client{Timeout: 12 * time.Second},
 
-		groqKey:   os.Getenv("GROQ_API_KEY"),
+		// Dedicated moderation key (MODERATION_GROQ_KEY) so guard traffic is attributable +
+		// rate-limited separately from the concierge's GROQ_API_KEY; fall back to the shared
+		// key when the dedicated one is unset.
+		groqKey:   firstNonEmpty(os.Getenv("MODERATION_GROQ_KEY"), os.Getenv("GROQ_API_KEY")),
 		groqURL:   "https://api.groq.com/openai/v1/chat/completions",
 		groqModel: defaultModerationModel,
 	}
@@ -119,11 +147,15 @@ func loadModeration() moderation {
 	case m.provider == "":
 		log.Printf("MODERATION: DISABLED (no backend). NOT SAFE FOR PUBLIC TRAFFIC - set MODERATION_URL (or MODERATION_PROVIDER=groq + GROQ_API_KEY) + ROGERAI_REQUIRE_MODERATION=1 before launch.")
 	case m.provider == "groq" && m.groqKey == "":
-		log.Printf("MODERATION: provider=groq but GROQ_API_KEY is unset - requests fail %s.", failMode(m.require))
+		log.Printf("MODERATION: provider=groq but no key set - requests fail %s. Set MODERATION_GROQ_KEY (or GROQ_API_KEY).", failMode(m.require))
 	case m.provider == "url" && m.url == "":
 		log.Printf("MODERATION: provider=url but MODERATION_URL is unset - requests fail %s.", failMode(m.require))
 	case m.provider == "groq":
-		log.Printf("MODERATION: enabled via Groq Llama Guard (%s) (require=%v)", m.groqModel, m.require)
+		keySrc := "GROQ_API_KEY"
+		if os.Getenv("MODERATION_GROQ_KEY") != "" {
+			keySrc = "MODERATION_GROQ_KEY"
+		}
+		log.Printf("MODERATION: enabled via Groq safeguard model %s (key=%s, require=%v)", m.groqModel, keySrc, m.require)
 	default:
 		log.Printf("MODERATION: enabled via %s (require=%v)", m.url, m.require)
 	}
@@ -134,6 +166,16 @@ func loadModeration() moderation {
 		log.Printf("MODERATION: CSAM categories %v -> hits are PRESERVED + a CyberTipline report is QUEUED (18 USC 2258A); other unsafe categories are 451-rejected only", sortedKeys(m.csamCats))
 	}
 	return m
+}
+
+// firstNonEmpty returns the first non-empty (after trim) string, or "".
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // loadCSAMCategories parses the configurable child-exploitation category set from a
@@ -268,22 +310,28 @@ func (m moderation) screen(text string) modResult {
 	return modResult{}
 }
 
-// screenGroq screens text with a Groq-hosted Llama Guard model over Groq's
-// OpenAI-compatible chat/completions endpoint (the same shape concierge.go uses).
-// Llama Guard classifies the message and replies with "safe" (ALLOW) or "unsafe"
-// followed by the violated category codes on the next line (e.g. "unsafe\nS1,S3"),
-// which we capture for the block log. Honors the same fail-open/closed posture as the
-// URL backend: on a transport/non-200/parse error, fail-closed (503) when required,
-// else fail-open (served). Caller has already short-circuited empty input.
+// screenGroq screens text with the Groq-hosted safeguard model over Groq's
+// OpenAI-compatible chat/completions endpoint (the same shape concierge.go uses). The
+// model is given moderationPolicy as a system prompt and classifies the USER message,
+// answering "safe" (ALLOW) or "unsafe <codes>" with the violated category codes, which we
+// capture for the block log. Its chain-of-thought lands in a SEPARATE reasoning channel,
+// so we parse message.content ONLY (contentText), not the reasoning. Honors the same
+// fail-open/closed posture as the URL backend: on a transport/non-200/empty error,
+// fail-closed (503) when required, else fail-open (served). Caller short-circuited empty.
 func (m moderation) screenGroq(text string) modResult {
 	payload := map[string]any{
 		"model": m.groqModel,
-		"messages": []map[string]string{
+		"messages": []map[string]any{
+			{"role": "system", "content": moderationPolicy},
 			{"role": "user", "content": text},
 		},
 		"temperature": 0,
-		"max_tokens":  100,
-		"stream":      false,
+		// Headroom for the reasoning channel + the one-line verdict (reasoning tokens count
+		// against this budget; too small truncates the verdict to empty -> a false fail).
+		"max_tokens": 512,
+		// Keep the safety classifier fast and deterministic - it needs only a brief rationale.
+		"reasoning_effort": "low",
+		"stream":           false,
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, m.groqURL, bytes.NewReader(body))
@@ -301,34 +349,55 @@ func (m moderation) screenGroq(text string) modResult {
 		return m.groqFailMode("status "+http.StatusText(resp.StatusCode), nil)
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	verdict := strings.TrimSpace(completionText(rb))
+	verdict := strings.TrimSpace(contentText(rb))
 	if verdict == "" {
 		// No verdict text is an error condition, not an implicit allow.
 		return m.groqFailMode("empty verdict", nil)
 	}
-	// Llama Guard answers "safe" or "unsafe\n<categories>". Anything that does not
-	// clearly begin with "safe" is treated as flagged (fail toward blocking on this
-	// safety surface). The category codes (if any) are captured only for the log.
-	first := verdict
-	if i := strings.IndexAny(first, "\r\n"); i >= 0 {
-		first = first[:i]
-	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(first)), "safe") {
+	// The model answers "safe" or "unsafe <codes>" (codes on the same line). A response
+	// that does not clearly begin with "safe" is treated as flagged (fail toward blocking
+	// on this safety surface). Category codes are captured for the log + CSAM detection.
+	low := strings.ToLower(verdict)
+	if low == "safe" || strings.HasPrefix(low, "safe\n") || strings.HasPrefix(low, "safe\r") || strings.HasPrefix(low, "safe ") || strings.HasPrefix(low, "safe.") {
 		return modResult{}
 	}
-	rawCats := strings.TrimSpace(strings.TrimPrefix(verdict, first))
-	rawCats = strings.ReplaceAll(strings.ReplaceAll(rawCats, "\r", " "), "\n", " ")
-	rawCats = strings.TrimSpace(rawCats)
-	matched := splitCategories(rawCats)
-	if rawCats != "" {
-		log.Printf("MODERATION: blocked by Llama Guard (categories: %s)", strings.Join(matched, ", "))
+	// Collect category-looking tokens (S1, S4, ...) from the whole verdict, dropping the
+	// "safe"/"unsafe" keywords, so the layout (same-line or next-line) does not matter.
+	var matched []string
+	for _, tok := range splitCategories(strings.ReplaceAll(strings.ReplaceAll(verdict, "\r", " "), "\n", " ")) {
+		switch strings.ToLower(strings.TrimSpace(tok)) {
+		case "unsafe", "safe", "":
+			continue
+		}
+		matched = append(matched, tok)
+	}
+	if len(matched) > 0 {
+		log.Printf("MODERATION: blocked by safeguard (categories: %s)", strings.Join(matched, ", "))
 	} else {
-		log.Printf("MODERATION: blocked by Llama Guard")
+		log.Printf("MODERATION: blocked by safeguard (verdict: %.40q)", verdict)
 	}
 	if csam, cat := m.isCSAM(matched); csam {
 		return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy", csam: true, category: cat}
 	}
 	return modResult{status: http.StatusUnavailableForLegalReasons, msg: "request blocked by the content policy"}
+}
+
+// contentText extracts ONLY the assistant message content from an OpenAI/Groq
+// chat-completions response - deliberately NOT the reasoning channel. The safeguard
+// model's rationale goes to message.reasoning; mixing it into the verdict would corrupt
+// the "safe"/"unsafe" parse (unlike completionText, which folds reasoning in for billing).
+func contentText(rb []byte) string {
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(rb, &out) != nil || len(out.Choices) == 0 {
+		return ""
+	}
+	return out.Choices[0].Message.Content
 }
 
 // groqFailMode applies the require posture to a Groq-backend error: fail-closed (503)

@@ -133,6 +133,39 @@ func TestModerationGroqUnsafe(t *testing.T) {
 	}
 }
 
+// TestModerationGroqSafeguardSameLineCSAM guards the safeguard-model output format: the
+// model answers "unsafe S4" with the category on the SAME line. The screen must 451 AND
+// flag CSAM (S4) so the incident is preserved + a CyberTipline report queued. The old
+// Llama-Guard parser expected codes on the NEXT line and would have lost the S4 signal.
+func TestModerationGroqSafeguardSameLineCSAM(t *testing.T) {
+	srv := groqVerdictServer(t, "unsafe S4", nil)
+	defer srv.Close()
+	m := groqMod(srv, true)
+	m.csamCats = loadCSAMCategories("") // defaults: s4, sexual/minors
+	r := m.screen("...redacted...")
+	if r.status != http.StatusUnavailableForLegalReasons {
+		t.Fatalf("unsafe S4 should 451, got %d", r.status)
+	}
+	if !r.csam || strings.ToLower(r.category) != "s4" {
+		t.Fatalf("S4 (same line) must be detected as CSAM, got csam=%v category=%q", r.csam, r.category)
+	}
+}
+
+// TestModerationGroqIgnoresReasoningChannel guards that the verdict is parsed from
+// message.content ONLY: the safeguard model's chain-of-thought (which can literally
+// contain the word "unsafe") lands in message.reasoning and must NOT flip a "safe" verdict
+// to blocked. (completionText folds reasoning in for billing; moderation must not.)
+func TestModerationGroqIgnoresReasoningChannel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","reasoning":"The user might be unsafe, considering S1... but no.","content":"safe"}}]}`))
+	}))
+	defer srv.Close()
+	m := moderation{provider: "groq", require: true, client: srv.Client(), groqKey: "test-key", groqURL: srv.URL, groqModel: "x"}
+	if st := m.screen("is the sky blue?").status; st != 0 {
+		t.Fatalf("a 'safe' content verdict must ALLOW even when the reasoning mentions unsafe categories, got %d", st)
+	}
+}
+
 // TestModerationGroqFailClosed: provider=groq with REQUIRE=1 fails CLOSED (503) when
 // the Groq endpoint errors (unreachable); not-required fails OPEN (allow).
 func TestModerationGroqFailClosed(t *testing.T) {
