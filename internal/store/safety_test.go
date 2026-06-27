@@ -14,11 +14,7 @@ func safetyStores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMem()}
 	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		pg, err := NewPostgres(dsn)
-		if err != nil {
-			t.Fatalf("postgres: %v", err)
-		}
-		out["postgres"] = pg
+		out["postgres"] = freshPostgres(t, dsn)
 	}
 	return out
 }

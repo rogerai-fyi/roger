@@ -21,13 +21,35 @@ func metricsStores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMem()}
 	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		pg, err := NewPostgres(dsn)
-		if err != nil {
-			t.Fatalf("postgres: %v", err)
-		}
-		out["postgres"] = pg
+		out["postgres"] = freshPostgres(t, dsn)
 	}
 	return out
+}
+
+// freshPostgres opens the real Postgres store and TRUNCATEs every data table so the
+// test starts from a clean slate. The DB is shared and persistent (podman container),
+// so without this, rows from a prior run leak into a later run's time window and break
+// count assertions. Go tests in a package run sequentially, so a per-test truncate is
+// safe. Every Postgres-backed parity helper routes through here.
+func freshPostgres(t *testing.T, dsn string) *Postgres {
+	t.Helper()
+	pg, err := NewPostgres(dsn)
+	if err != nil {
+		t.Fatalf("postgres: %v", err)
+	}
+	if _, err := pg.db.Exec(`TRUNCATE
+		rogerai.wallet, rogerai.earnings, rogerai.earning_lots, rogerai.receipts,
+		rogerai.ledger, rogerai.node_owner, rogerai.nodes, rogerai.owners,
+		rogerai.processed_events, rogerai.seed_counter, rogerai.seed_grants,
+		rogerai.grants, rogerai.grant_usage, rogerai.payouts, rogerai.disputes,
+		rogerai.pending_reversals, rogerai.account_settings, rogerai.account_recount_holds,
+		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents,
+		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
+		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands
+		RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate tables: %v", err)
+	}
+	return pg
 }
 
 // serveAt records ONE served+settled request at unix `ts`: the consumer pays `cost`,

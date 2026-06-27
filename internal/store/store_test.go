@@ -356,29 +356,37 @@ func TestReserveReleasesWithLot(t *testing.T) {
 func TestSettleFinalizeIdempotentOnRequestID(t *testing.T) {
 	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
 	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
-	m := NewMem()
-	fundReal(m, "u", 10)
-	_ = m.BindNode("n", "op")
-	_, _ = m.Hold("u", 5)
-	rec := protocol.UsageReceipt{RequestID: "r1", Model: "m", TS: 1}
-	bal1, _ := m.Finalize("u", "n", 5, 2, 1.4, rec)
-	bal2, _ := m.Finalize("u", "n", 5, 2, 1.4, rec) // duplicate -> must be a no-op
-	if !approx(bal1, 8) || !approx(bal2, 8) {
-		t.Fatalf("balances = %v, %v want 8, 8 (a duplicate Finalize must not double-refund)", bal1, bal2)
-	}
-	if e, _ := m.EarningsOf("n"); !approx(e, 1.4) {
-		t.Fatalf("earnings = %v, want 1.4 (not doubled by the duplicate Finalize)", e)
-	}
-	if s, _ := m.EarningSplitOf("op", time.Now()); !approx(s.Payable, 1.4) {
-		t.Fatalf("operator payable = %v, want 1.4 (exactly one lot, no drift)", s.Payable)
-	}
-	// Settle (direct-debit path) is idempotent too.
-	fundReal(m, "v", 10)
-	r2 := protocol.UsageReceipt{RequestID: "r2", Model: "m", TS: 2}
-	sb1, _ := m.Settle("v", "n", 3, 2.1, r2)
-	sb2, _ := m.Settle("v", "n", 3, 2.1, r2) // duplicate -> no-op
-	if !approx(sb1, 7) || !approx(sb2, 7) {
-		t.Fatalf("settle balances = %v, %v want 7, 7 (a duplicate Settle must not double-debit)", sb1, sb2)
+	// Runs against Mem AND (when ROGERAI_TEST_DATABASE_URL is set) the real Postgres store -
+	// the production money path must be idempotent too, not just the reference.
+	for name, db := range metricsStores(t) {
+		t.Run(name, func(t *testing.T) {
+			// Unique ids per (store,run) so the shared Postgres DB has no cross-run carryover.
+			uid := name + "-" + time.Now().UTC().Format("150405.000000000")
+			u, v, node, op := "u-"+uid, "v-"+uid, "n-"+uid, "op-"+uid
+			_ = db.BindNode(node, op)
+			_, _ = db.AddCredits(u, 10)
+			_, _ = db.Hold(u, 5)
+			rec := protocol.UsageReceipt{RequestID: "r1-" + uid, Model: "m", TS: 1}
+			bal1, _ := db.Finalize(u, node, 5, 2, 1.4, rec)
+			bal2, _ := db.Finalize(u, node, 5, 2, 1.4, rec) // duplicate -> must be a no-op
+			if !approx(bal1, 8) || !approx(bal2, 8) {
+				t.Fatalf("[%s] balances = %v, %v want 8, 8 (a duplicate Finalize must not double-refund)", name, bal1, bal2)
+			}
+			if e, _ := db.EarningsOf(node); !approx(e, 1.4) {
+				t.Fatalf("[%s] earnings = %v, want 1.4 (not doubled by the duplicate Finalize)", name, e)
+			}
+			if s, _ := db.EarningSplitOf(op, time.Now()); !approx(s.Payable, 1.4) {
+				t.Fatalf("[%s] operator payable = %v, want 1.4 (exactly one lot, no drift)", name, s.Payable)
+			}
+			// Settle (direct-debit path) is idempotent too.
+			_, _ = db.AddCredits(v, 10)
+			r2 := protocol.UsageReceipt{RequestID: "r2-" + uid, Model: "m", TS: 2}
+			sb1, _ := db.Settle(v, node, 3, 2.1, r2)
+			sb2, _ := db.Settle(v, node, 3, 2.1, r2) // duplicate -> no-op
+			if !approx(sb1, 7) || !approx(sb2, 7) {
+				t.Fatalf("[%s] settle balances = %v, %v want 7, 7 (a duplicate Settle must not double-debit)", name, sb1, sb2)
+			}
+		})
 	}
 }
 
