@@ -30,21 +30,40 @@ func TestReversalRetryOnce(t *testing.T) {
 		}
 	})
 
-	t.Run("persistent failure dead-letters past the max", func(t *testing.T) {
-		t.Setenv("ROGERAI_REVERSAL_MAX_ATTEMPTS", "1")
-		mem := store.NewMem()
-		b := &broker{db: mem}
-		b.bill.creditUSD = 1
-		b.conn = connect{reverseTransfer: func(tid string, cents int64, idem string) (string, error) {
+	failing := func() connect {
+		return connect{reverseTransfer: func(tid string, cents int64, idem string) (string, error) {
 			return "", fmt.Errorf("stripe down")
 		}}
+	}
+
+	t.Run("retryable failure stays open for the next tick", func(t *testing.T) {
+		t.Setenv("ROGERAI_REVERSAL_MAX_ATTEMPTS", "5") // well above 1 attempt -> still retryable
+		mem := store.NewMem()
+		b := &broker{db: mem, conn: failing()}
+		b.bill.creditUSD = 1
 		_ = mem.RecordPendingReversal(store.PendingReversal{
 			Key: "reverse:d2:6", DisputeID: "d2", LotID: 6, AccountID: "acct", TransferID: "tr_2", Amount: 1,
 		})
-		b.reversalRetryOnce() // attempt 1, fails -> at max=1 it dead-letters
-		// The intent is NOT lost: it's recorded as attempted (still tracked for reconciliation).
-		if open, _ := mem.OpenPendingReversals(100); len(open) > 1 {
-			t.Errorf("unexpected open reversal count %d", len(open))
+		b.reversalRetryOnce() // attempt 1 fails, 1 < 5 -> remains an OPEN (retryable) intent
+		open, _ := mem.OpenPendingReversals(100)
+		if len(open) != 1 || open[0].Attempts < 1 {
+			t.Fatalf("a retryable failure should stay open with an incremented attempt, got %+v", open)
+		}
+	})
+
+	t.Run("dead-letters past the max (drops out of the open set)", func(t *testing.T) {
+		t.Setenv("ROGERAI_REVERSAL_MAX_ATTEMPTS", "1") // 1 attempt then terminal
+		mem := store.NewMem()
+		b := &broker{db: mem, conn: failing()}
+		b.bill.creditUSD = 1
+		_ = mem.RecordPendingReversal(store.PendingReversal{
+			Key: "reverse:d3:7", DisputeID: "d3", LotID: 7, AccountID: "acct", TransferID: "tr_3", Amount: 1,
+		})
+		b.reversalRetryOnce() // attempt 1 fails, 1 >= max(1) -> dead-letter
+		// Dead-lettered intents drop out of the OPEN set (terminal, reconciled out of band) -
+		// distinct from the retryable case above where the row stays open.
+		if open, _ := mem.OpenPendingReversals(100); len(open) != 0 {
+			t.Errorf("a dead-lettered reversal should leave the open set, got %d open", len(open))
 		}
 	})
 }
