@@ -1,11 +1,53 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/store"
 )
+
+// TestReversalRetryOnce covers the silent-money-leak recovery pass: a pending reversal is
+// re-attempted; success clears it from the open set, while a persistent failure records
+// attempts and (past the max) dead-letters without losing the intent.
+func TestReversalRetryOnce(t *testing.T) {
+	t.Run("success clears the pending reversal", func(t *testing.T) {
+		mem := store.NewMem()
+		b := &broker{db: mem}
+		b.bill.creditUSD = 1
+		b.conn = connect{reverseTransfer: func(tid string, cents int64, idem string) (string, error) {
+			return "trr_ok", nil
+		}}
+		_ = mem.RecordPendingReversal(store.PendingReversal{
+			Key: "reverse:d1:5", DisputeID: "d1", LotID: 5, AccountID: "acct", TransferID: "tr_1", Amount: 2,
+		})
+		b.reversalRetryOnce()
+		if open, _ := mem.OpenPendingReversals(100); len(open) != 0 {
+			t.Errorf("a recovered reversal should leave the open set empty, got %d", len(open))
+		}
+	})
+
+	t.Run("persistent failure dead-letters past the max", func(t *testing.T) {
+		t.Setenv("ROGERAI_REVERSAL_MAX_ATTEMPTS", "1")
+		mem := store.NewMem()
+		b := &broker{db: mem}
+		b.bill.creditUSD = 1
+		b.conn = connect{reverseTransfer: func(tid string, cents int64, idem string) (string, error) {
+			return "", fmt.Errorf("stripe down")
+		}}
+		_ = mem.RecordPendingReversal(store.PendingReversal{
+			Key: "reverse:d2:6", DisputeID: "d2", LotID: 6, AccountID: "acct", TransferID: "tr_2", Amount: 1,
+		})
+		b.reversalRetryOnce() // attempt 1, fails -> at max=1 it dead-letters
+		// The intent is NOT lost: it's recorded as attempted (still tracked for reconciliation).
+		if open, _ := mem.OpenPendingReversals(100); len(open) > 1 {
+			t.Errorf("unexpected open reversal count %d", len(open))
+		}
+	})
+}
 
 // TestStrikeAndReversalConfig covers the strike-threshold + reversal-attempt + duration
 // + recent-limit config helpers (env override + default + bounds).

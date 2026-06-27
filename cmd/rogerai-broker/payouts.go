@@ -564,28 +564,36 @@ func (b *broker) reversalRetrySweep() {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for range t.C {
-		open, err := b.db.OpenPendingReversals(100)
-		if err != nil {
-			log.Printf("reversal-retry: list failed: %v", err)
+		b.reversalRetryOnce()
+	}
+}
+
+// reversalRetryOnce re-attempts every durable pending Stripe transfer-reversal once (the
+// silent-money-leak recovery). A success marks the intent done + emails the operator; a
+// failure records the attempt and dead-letters past the max. Split out of the ticker loop
+// so the recovery logic is testable without the 5-minute timer.
+func (b *broker) reversalRetryOnce() {
+	open, err := b.db.OpenPendingReversals(100)
+	if err != nil {
+		log.Printf("reversal-retry: list failed: %v", err)
+		return
+	}
+	for _, pr := range open {
+		revID, rerr := b.payoutTransferReversal(pr.TransferID, pr.Amount, pr.Key)
+		if rerr != nil {
+			max := b.reversalMaxAttempts()
+			_ = b.db.MarkReversalAttempt(pr.Key, false, rerr.Error(), max, time.Now())
+			if max > 0 && pr.Attempts+1 >= max {
+				log.Printf("reversal-retry: DEAD-LETTER %s (lot %d, transfer %s, %.4f credits) after %d attempts: %v - MANUAL HANDLING REQUIRED (ledger clawback already stands)",
+					pr.Key, pr.LotID, pr.TransferID, pr.Amount, pr.Attempts+1, rerr)
+			} else {
+				log.Printf("reversal-retry: %s still failing (attempt %d): %v - will retry", pr.Key, pr.Attempts+1, rerr)
+			}
 			continue
 		}
-		for _, pr := range open {
-			revID, rerr := b.payoutTransferReversal(pr.TransferID, pr.Amount, pr.Key)
-			if rerr != nil {
-				max := b.reversalMaxAttempts()
-				_ = b.db.MarkReversalAttempt(pr.Key, false, rerr.Error(), max, time.Now())
-				if max > 0 && pr.Attempts+1 >= max {
-					log.Printf("reversal-retry: DEAD-LETTER %s (lot %d, transfer %s, %.4f credits) after %d attempts: %v - MANUAL HANDLING REQUIRED (ledger clawback already stands)",
-						pr.Key, pr.LotID, pr.TransferID, pr.Amount, pr.Attempts+1, rerr)
-				} else {
-					log.Printf("reversal-retry: %s still failing (attempt %d): %v - will retry", pr.Key, pr.Attempts+1, rerr)
-				}
-				continue
-			}
-			_ = b.db.MarkReversalAttempt(pr.Key, true, "", b.reversalMaxAttempts(), time.Now())
-			log.Printf("reversal-retry: recovered %s - reversed %.4f credits of transfer %s (lot %d) -> %s", pr.Key, pr.Amount, pr.TransferID, pr.LotID, revID)
-			b.emailPayoutReversed(b.emailOf(pr.AccountID), pr.Amount, pr.DisputeID)
-		}
+		_ = b.db.MarkReversalAttempt(pr.Key, true, "", b.reversalMaxAttempts(), time.Now())
+		log.Printf("reversal-retry: recovered %s - reversed %.4f credits of transfer %s (lot %d) -> %s", pr.Key, pr.Amount, pr.TransferID, pr.LotID, revID)
+		b.emailPayoutReversed(b.emailOf(pr.AccountID), pr.Amount, pr.DisputeID)
 	}
 }
 
