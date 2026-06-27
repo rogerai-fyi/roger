@@ -176,6 +176,8 @@ func TestModerationGroqVerdictParsing(t *testing.T) {
 	}{
 		{"safe", false},
 		{"safe.", false},
+		{"safe,", false}, // behavioral delta vs the old prefix-list (which would 451 this)
+		{"safe: no violations", false},
 		{"safe\n", false},
 		{"Safe", false},
 		{"unsafe S1", true},
