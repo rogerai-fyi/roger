@@ -129,6 +129,17 @@ func TestCmdDrPhilAndUse(t *testing.T) {
 	}
 }
 
+// TestCmdSharePricedNeedsLogin covers cmdShare's up-front EARN login-gate: a priced
+// share without a GitHub link fails fast (before any upstream detection or register),
+// pointing the would-be earner at `roger login`.
+func TestCmdSharePricedNeedsLogin(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no auth.json -> not logged in
+	cfg := config{Broker: "https://b", User: "u"}
+	if err := cmdShare(cfg, []string{"--price-out", "0.5"}); err == nil {
+		t.Error("a priced share without login should error (earning needs a linked owner)")
+	}
+}
+
 // TestUsagePrinters covers the help/usage printers (pure prints, must not panic).
 func TestUsagePrinters(t *testing.T) {
 	payoutUsage()
