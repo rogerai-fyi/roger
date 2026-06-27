@@ -31,8 +31,9 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$Repo = 'rogerai-fyi/roger'
-$Bin  = 'rogerai'
+$Repo  = 'rogerai-fyi/roger'
+$Bin   = 'roger'    # the command + the release asset prefix (renamed from 'rogerai' in v4.7.0)
+$Alias = 'rogerai'  # back-compat alias installed alongside, so old muscle memory still works
 
 # ---- pretty output --------------------------------------------------
 function Write-Info($m) { Write-Host "• $m"   -ForegroundColor Blue }
@@ -176,6 +177,21 @@ try {
     }
     try { Remove-Item "$Dest.old" -Force -ErrorAction SilentlyContinue } catch {}
     Write-Ok "installed $Bin → $Dest"
+
+    # The command is `roger` now; install a `rogerai.exe` alias alongside so the old name
+    # keeps working (mirrors install.sh's rogerai symlink). Best-effort - a locked alias
+    # from a running process is non-fatal.
+    $AliasDest = Join-Path $InstallDir "$Alias.exe"
+    if ($AliasDest -ne $Dest) {
+        if (Test-Path $AliasDest) {
+            try { Move-Item -Path $AliasDest -Destination "$AliasDest.old" -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        try {
+            Copy-Item -Path $Dest -Destination $AliasDest -Force
+            Write-Ok "alias $Alias → $AliasDest"
+        } catch { Write-Warn "couldn't install the $Alias alias (a running $Alias.exe may hold a lock) - $Bin still works." }
+        try { Remove-Item "$AliasDest.old" -Force -ErrorAction SilentlyContinue } catch {}
+    }
 
     # ---- add to user PATH (idempotent) ------------------------------
     # Edit the persisted *user* PATH via the registry-backed environment so it

@@ -56,6 +56,14 @@ func TestAssetNameAndCachePath(t *testing.T) {
 	if assetName() == "" {
 		t.Error("assetName empty")
 	}
+	// The release assets are `roger-<os>-<arch>` (renamed from `rogerai-` in v4.7.0); an
+	// `rogerai-` prefix here silently breaks `roger upgrade` on every platform.
+	if !strings.HasPrefix(assetName(), "roger-") {
+		t.Errorf("assetName() = %q, want the published 'roger-' release prefix", assetName())
+	}
+	if strings.HasPrefix(assetName(), "rogerai-") {
+		t.Errorf("assetName() = %q uses the OLD 'rogerai-' prefix - no such release asset exists", assetName())
+	}
 	if cachePath() == "" {
 		t.Error("cachePath empty")
 	}

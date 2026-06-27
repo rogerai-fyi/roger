@@ -32,15 +32,17 @@ const checkTTL = 20 * time.Hour
 type release struct {
 	Tag    string `json:"tag_name"`
 	Assets []struct {
-		AN  string `json:"name"`                 // asset filename, e.g. rogerai-linux-amd64
+		AN  string `json:"name"`                 // asset filename, e.g. roger-linux-amd64
 		URL string `json:"browser_download_url"` // direct download URL
 	} `json:"assets"`
 }
 
-// assetName is the per-platform binary asset name, e.g. rogerai-linux-amd64
-// (rogerai-windows-amd64.exe on Windows).
+// assetName is the per-platform binary asset name, e.g. roger-linux-amd64
+// (roger-windows-amd64.exe on Windows). The prefix is `roger` to match the release
+// assets the CI publishes (renamed from `rogerai` in v4.7.0); using the old prefix here
+// made `roger upgrade` unable to find its asset on every platform.
 func assetName() string {
-	n := fmt.Sprintf("rogerai-%s-%s", runtime.GOOS, runtime.GOARCH)
+	n := fmt.Sprintf("roger-%s-%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		n += ".exe"
 	}
