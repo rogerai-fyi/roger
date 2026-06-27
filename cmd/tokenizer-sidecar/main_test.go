@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -110,5 +111,40 @@ func TestSidecarCountBadJSON(t *testing.T) {
 	w := do(t, newCountHandler(), http.MethodPost, "/count", `{not json`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("malformed body = %d, want 400", w.Code)
+	}
+}
+
+// TestRunServesAndShutsDown exercises the real server lifecycle: run() binds an
+// ephemeral port (port "0"), serves a live /health request over the wire, then returns
+// cleanly when stop is closed. This covers the main() path (env defaults aside) without
+// blocking forever.
+func TestRunServesAndShutsDown(t *testing.T) {
+	ready := make(chan string, 1)
+	stop := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() { errc <- run("0", "", ready, stop) }()
+
+	addr := <-ready // the actual 127.0.0.1:<chosen-port>
+	resp, err := http.Get("http://" + addr + "/health")
+	if err != nil {
+		t.Fatalf("GET /health over the wire: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "ok" {
+		t.Fatalf("/health = %d %q, want 200 ok", resp.StatusCode, body)
+	}
+
+	close(stop) // trigger graceful shutdown
+	if err := <-errc; err != nil {
+		t.Fatalf("run returned %v, want nil after clean shutdown", err)
+	}
+}
+
+// TestRunBadPort: an invalid port makes the bind fail and run() returns the error
+// (the path main() turns into log.Fatal).
+func TestRunBadPort(t *testing.T) {
+	if err := run("not-a-port", "", nil, nil); err == nil {
+		t.Fatal("run with an invalid port should return a bind error")
 	}
 }
