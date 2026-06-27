@@ -84,17 +84,36 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 // pruneStaleNodesSweep runs pruneStaleNodes shortly after startup - after a short delay
 // so a redeploy's still-running providers have re-confirmed liveness via their heartbeat
 // first - and then on a steady cadence. Disabled when staleNodeTTL<=0.
-func (b *broker) pruneStaleNodesSweep() {
+// pruneStaleGrace is the post-restart grace before the FIRST prune pass (live providers
+// re-heartbeat first); pruneStaleInterval is the steady cadence after it. Both are
+// package vars (not literals) ONLY so a test can shrink them - production reads the real
+// 2m/6h defaults, so the behavior is byte-for-byte unchanged. stop is the same nil-in-
+// production test seam as the other sweep loops.
+var (
+	pruneStaleGrace    = 2 * time.Minute
+	pruneStaleInterval = 6 * time.Hour
+)
+
+func (b *broker) pruneStaleNodesSweep(stop <-chan struct{}) {
 	if staleNodeTTL <= 0 {
 		log.Printf("node-prune: DISABLED (ROGERAI_NODE_PRUNE_DAYS<=0)")
 		return
 	}
 	log.Printf("node-prune: ON - registrations offline > %s are removed (first pass in 2m, then every 6h)", staleNodeTTL)
-	time.Sleep(2 * time.Minute) // grace for live providers to re-heartbeat after a restart
+	select { // grace for live providers to re-heartbeat after a restart
+	case <-stop:
+		return
+	case <-time.After(pruneStaleGrace):
+	}
 	b.pruneStaleNodes(time.Now())
-	t := time.NewTicker(6 * time.Hour)
+	t := time.NewTicker(pruneStaleInterval)
 	defer t.Stop()
-	for range t.C {
-		b.pruneStaleNodes(time.Now())
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.pruneStaleNodes(time.Now())
+		}
 	}
 }

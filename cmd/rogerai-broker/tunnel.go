@@ -464,7 +464,10 @@ func (b *broker) attestChallenge(w http.ResponseWriter, r *http.Request) {
 // re-registering) within reattestTTL or it loses the ◆ badge and the confidential
 // route filter stops sending it traffic. This stops a one-time verification from
 // granting the badge forever - the guarantee has to be re-proven on a cadence.
-func (b *broker) reattestSweep() {
+// stop is a test seam: main passes nil (the nil-channel select case never fires, so
+// production waits on the ticker exactly as the old time.Tick loop did); a test passes
+// a closeable channel to drive then halt the sweep deterministically.
+func (b *broker) reattestSweep(stop <-chan struct{}) {
 	ttl := b.attest.reattestTTL
 	if ttl <= 0 {
 		return
@@ -474,8 +477,15 @@ func (b *broker) reattestSweep() {
 	if tick < time.Minute {
 		tick = time.Minute
 	}
-	for range time.Tick(tick) {
-		b.expireStaleAttestations(time.Now(), ttl)
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.expireStaleAttestations(time.Now(), ttl)
+		}
 	}
 }
 
@@ -556,6 +566,11 @@ func (b *broker) sharedFlushDue(node string, now time.Time) bool {
 	return true
 }
 
+// syncTickInterval is the cross-instance liveness/inflight sync cadence. It is a package
+// var (not a const) ONLY so a test can shrink it to drive a sync tick deterministically;
+// production reads the 5s default unchanged.
+var syncTickInterval = 5 * time.Second
+
 // syncLiveness runs only when a shared-state backend is wired in. It periodically
 // pulls the cross-instance liveness snapshot from Valkey and merges any FRESHER
 // peer timestamp into this instance's in-memory lastSeen map. This is what makes
@@ -564,15 +579,21 @@ func (b *broker) sharedFlushDue(node string, now time.Time) bool {
 // as today. We only ever move a node's lastSeen FORWARD (max of local/shared), so a
 // stale snapshot can never make a live node look dead. On a backend error we just
 // skip the round and retry next tick (graceful degrade to local-only liveness).
-func (b *broker) syncLiveness() {
-	const interval = 5 * time.Second
-	t := time.NewTicker(interval)
+// stop is a test seam (nil in production: the nil-channel case never fires, so the
+// loop waits on the ticker exactly as before).
+func (b *broker) syncLiveness(stop <-chan struct{}) {
+	t := time.NewTicker(syncTickInterval)
 	defer t.Stop()
-	for range t.C {
-		if b.shared == nil {
+	for {
+		select {
+		case <-stop:
 			return
+		case <-t.C:
+			if b.shared == nil {
+				return
+			}
+			b.syncLivenessOnce()
 		}
-		b.syncLivenessOnce()
 	}
 }
 
@@ -2145,15 +2166,21 @@ func (b *broker) writeThroughInflight(node string, count int) {
 // swaps it into b.peerInflight, so the hot pick path reads a purely in-memory peer-load
 // view (no Valkey hop) exactly as the liveness merge does. On a backend error it keeps
 // the last merged value (degrade to local-only capacity) and retries next tick.
-func (b *broker) syncInflight() {
-	const interval = 5 * time.Second
-	t := time.NewTicker(interval)
+// stop is a test seam (nil in production: the nil-channel case never fires, so the
+// loop waits on the ticker exactly as before).
+func (b *broker) syncInflight(stop <-chan struct{}) {
+	t := time.NewTicker(syncTickInterval)
 	defer t.Stop()
-	for range t.C {
-		if b.shared == nil || !b.multiInstance {
+	for {
+		select {
+		case <-stop:
 			return
+		case <-t.C:
+			if b.shared == nil || !b.multiInstance {
+				return
+			}
+			b.mergeSharedInflight()
 		}
-		b.mergeSharedInflight()
 	}
 }
 

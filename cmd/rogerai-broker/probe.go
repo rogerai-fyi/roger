@@ -293,9 +293,20 @@ func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float6
 // nodes whose adaptive next-due has arrived. Started from main when the probe is
 // enabled. Each round is jittered (see probeOnce) so a fleet that all came on air
 // together is not probed in a synchronized burst.
-func (b *broker) proberLoop() {
-	for range time.Tick(b.probe.interval) {
-		b.probeOnce()
+// proberLoop runs probeOnce on a fixed cadence until stop is closed. The stop
+// channel is a test seam: main passes nil (a nil channel case never fires, so the
+// production select degenerates to "wait for the ticker forever" - byte-for-byte the
+// old time.Tick loop), while a test passes a closeable channel to drive + halt it.
+func (b *broker) proberLoop(stop <-chan struct{}) {
+	t := time.NewTicker(b.probe.interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.probeOnce()
+		}
 	}
 }
 

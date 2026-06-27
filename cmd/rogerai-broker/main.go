@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -257,17 +258,35 @@ func main() {
 	lock := flag.Duration("price-lock", 24*time.Hour, "how long a quoted price is honored per user+node+model")
 	flag.Parse()
 	// DO App Platform sets $PORT; bind all interfaces there.
+	a := *addr
 	if p := os.Getenv("PORT"); p != "" {
-		*addr = "0.0.0.0:" + p
+		a = "0.0.0.0:" + p
 	}
+	ln, err := net.Listen("tcp", a)
+	if err != nil {
+		log.Fatalf("listen %s: %v", a, err)
+	}
+	// runServe blocks serving on ln until it returns (a serve error). nil stop = the
+	// production daemons run forever (their nil-channel select case never fires).
+	log.Fatal(runServe(ln, *fee, *seed, *lock, nil))
+}
+
+// runServe holds main()'s env/db/seed/key/build/sweeps/serve glue, factored out of
+// main() (which keeps only flag.Parse + the listener bind) so it is testable: a test
+// binds a :0 listener, passes a closeable stop channel, hits a route, then closes stop
+// to halt both the background sweeps and the server. Production passes nil for stop,
+// which leaves the sweep loops waiting on their tickers forever and skips the shutdown
+// watcher - byte-for-byte the old in-main behavior, just serving via Serve(ln) (the
+// exact same path ListenAndServe takes after its own net.Listen).
+func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-chan struct{}) error {
 	if v := os.Getenv("ROGERAI_FEE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			*fee = f
+			fee = f
 		}
 	}
 	if v := os.Getenv("ROGERAI_SEED_CREDITS"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			*seed = f
+			seed = f
 		}
 	}
 
@@ -293,7 +312,7 @@ func main() {
 		}
 	}
 	db.SetSeedLimit(seedLimit)
-	log.Printf("seed: %g credits/new user, capped at %d seeded users (max %g free credits)", *seed, seedLimit, *seed*float64(seedLimit))
+	log.Printf("seed: %g credits/new user, capped at %d seeded users (max %g free credits)", seed, seedLimit, seed*float64(seedLimit))
 
 	priv, err := resolveBrokerKey(os.Getenv("BROKER_PRIVATE_KEY"), requireBrokerKey())
 	if err != nil {
@@ -302,19 +321,19 @@ func main() {
 		// fallback silently breaks all three across a restart. Refuse to boot.
 		log.Fatalf("broker identity: %v (ROGERAI_REQUIRE_BROKER_KEY is set - refusing to boot with an ephemeral key)", err)
 	}
-	b := buildBroker(db, priv, *fee, *seed, *lock)
+	b := buildBroker(db, priv, fee, seed, lock)
 	mux := b.routes()
 
 	if b.probe.enabled() {
-		go b.proberLoop()
+		go b.proberLoop(stop)
 	}
-	go b.reattestSweep()        // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep()     // auto-expire recount holds past the review window (operator recourse)
-	go b.nodeBanSweep()         // auto-lift report-origin node suspensions past the review window (reversible bans)
-	go b.reversalRetrySweep()   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-	go b.pruneStaleNodesSweep() // remove long-dead node registrations (old hostname ids that never re-register)
+	go b.reattestSweep(stop)        // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.recountHoldSweep(stop)     // auto-expire recount holds past the review window (operator recourse)
+	go b.nodeBanSweep(stop)         // auto-lift report-origin node suspensions past the review window (reversible bans)
+	go b.reversalRetrySweep(stop)   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+	go b.pruneStaleNodesSweep(stop) // remove long-dead node registrations (old hostname ids that never re-register)
 
-	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
+	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
 	// Tuned server (replaces the bare http.ListenAndServe). The timeouts that are
 	// SAFE for every route live here; the per-route write/response bound is applied
@@ -338,14 +357,22 @@ func main() {
 	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
 	// never pin a connection, while the streaming/poll routes keep their long windows.
 	srv := &http.Server{
-		Addr:              *addr,
 		Handler:           streamSafeHandler(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64 KiB
 	}
-	log.Fatal(srv.ListenAndServe())
+	// In production stop is nil, so this watcher is never started and the server runs
+	// until Serve returns on its own. A test closes stop to trigger a clean shutdown so
+	// Serve returns http.ErrServerClosed and the goroutine exits.
+	if stop != nil {
+		go func() {
+			<-stop
+			_ = srv.Close()
+		}()
+	}
+	return srv.Serve(ln)
 }
 
 // buildBroker constructs + wires the broker from the resolved db/key/flags + the
@@ -417,7 +444,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		// rather than colliding on one key with mismatched rpm/burst.
 		b.anonRL.name, b.anonRL.shared = "anon", b.shared
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
-		go b.syncLiveness()
+		go b.syncLiveness(nil)
 		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
 		// Valkey backend (the only place jobs/results/chunks can rendezvous across
@@ -433,7 +460,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			// the team no longer has to guess which instance emitted a relay/bus line. This
 			// is gated on multi-instance, so the single-instance log format is unchanged.
 			log.SetPrefix("[" + b.instanceID + "] ")
-			go b.syncInflight() // merge peer inflight on the same cadence as liveness
+			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
 			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
 		}
 	} else if multiInstanceEnabled() {
