@@ -66,6 +66,32 @@ func runShareAsync(t *testing.T, cfg config, args []string) {
 	}
 }
 
+// captureStdout redirects os.Stdout for the duration of fn and returns everything it
+// printed, so a test can assert the exact operator-facing line a branch emits (not just
+// that it returned nil). Drains concurrently so a >64KB write can't deadlock, and the
+// defer restores stdout + unblocks the drain even when fn calls t.Fatalf (runtime.Goexit).
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	defer func() {
+		os.Stdout = orig
+		_ = r.Close()
+	}()
+	fn()
+	_ = w.Close()
+	return <-done
+}
+
 // TestCmdShareDetectionPath drives cmdShare with NO --upstream so the auto-detect branch
 // runs against the fake detector: the first Found is picked, its model + chat endpoint
 // are adopted, and the verified upstream is persisted to config.
