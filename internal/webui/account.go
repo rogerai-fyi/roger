@@ -10,6 +10,13 @@ import (
 // make), so there is one code path per surface and no new shared state. They need a broker
 // (Options.Broker); without one they report "not configured" rather than erroring.
 
+// loginBegin/loginPoll are package vars wrapping the client device-flow calls so the
+// login handlers are testable without reaching github.com (tests stub them).
+var (
+	loginBegin = client.LoginBegin
+	loginPoll  = client.LoginPoll
+)
+
 func (s *Server) brokerReady(w http.ResponseWriter) bool {
 	if s.opts.Broker == "" {
 		http.Error(w, "broker not configured", http.StatusServiceUnavailable)
@@ -47,7 +54,7 @@ func (s *Server) handleLoginBegin(w http.ResponseWriter, r *http.Request) {
 	if !s.brokerReady(w) {
 		return
 	}
-	dev, err := client.LoginBegin(s.opts.Broker, s.opts.ClientID)
+	dev, err := loginBegin(s.opts.Broker, s.opts.ClientID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -72,7 +79,7 @@ func (s *Server) handleLoginPoll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no login in progress — begin first", http.StatusBadRequest)
 		return
 	}
-	login, err := client.LoginPoll(s.opts.Broker, s.opts.ClientID, *dev)
+	login, err := loginPoll(s.opts.Broker, s.opts.ClientID, *dev)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
