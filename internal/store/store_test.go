@@ -245,23 +245,23 @@ func TestChargebackByWalletRecency(t *testing.T) {
 	mk("new", "alice", 20, 2000)
 	mk("bob1", "bob", 15, 1500)
 
-	// Dispute for 25 credits, no request id -> claw alice's lots newest-first up to 25:
-	// the new (20) lot then the old (10) lot (the loop stops once clawed >= 25, so it
-	// claws 20 then 10 reaching 30). Bob's lot is untouched.
+	// Dispute for 25 credits, no request id -> claw alice's lots newest-first up to EXACTLY
+	// 25 (fee=0 here, so cost==gross): the new (20) lot whole, then the old (10) lot
+	// PRO-RATA for the remaining 5. Total clawed == 25 (no overshoot). Bob's lot untouched.
 	clawed, err := m.Chargeback("dp1", "alice", "", 25, time.Now())
 	if err != nil {
 		t.Fatalf("Chargeback err: %v", err)
 	}
-	if clawed != 30 { // newest 20 then old 10 (stops after crossing 25)
-		t.Errorf("clawed = %v, want 30 (newest-first, capped past 25)", clawed)
+	if !approx(clawed, 25) { // 20 whole + 5 partial = exactly the disputed amount
+		t.Errorf("clawed = %v, want 25 (newest 20 whole + 5 pro-rata on the old lot, no overshoot)", clawed)
 	}
 	// alice wallet debited the disputed 25.
 	if bal, _ := m.PeekBalance("alice"); !approx(bal, 100-10-20-25) {
 		t.Errorf("alice balance = %v, want %v", bal, 100-10-20-25)
 	}
-	// pk1 lots from alice are clawed; bob's 15 lot survives as payable.
-	if s, _ := m.EarningSplitOf("pk1", time.Now()); !approx(s.Payable, 15) {
-		t.Errorf("operator payable after claw = %v, want 15 (only bob's lot)", s.Payable)
+	// pk1 payable = bob's 15 + the old lot's un-clawed remainder (10-5=5) = 20.
+	if s, _ := m.EarningSplitOf("pk1", time.Now()); !approx(s.Payable, 20) {
+		t.Errorf("operator payable after partial claw = %v, want 20 (bob 15 + old-lot remainder 5)", s.Payable)
 	}
 
 	// Idempotent: a redelivery of dp1 changes nothing.
@@ -346,6 +346,44 @@ func TestReserveReleasesWithLot(t *testing.T) {
 	// A payout pays the FULL 50 - the reserve is not stranded by the lot going Paid.
 	if p, ok, _, _ := m.RequestPayout("pk1", now, 0); !ok || !approx(p.Amount, 50) {
 		t.Fatalf("payout amount = %v ok=%v, want 50 (reserve paid, not stranded)", p.Amount, ok)
+	}
+}
+
+// TestChargebackPartialDisputeProRata is the regression for the partial-dispute over-claw:
+// a dispute SMALLER than a single lot's consumer cost must recover only the operator's
+// PROPORTIONAL share of the disputed amount (not the whole lot), with conservation intact.
+// Before the fix, the whole $140 lot was clawed for a $100 dispute -> recovered > disputed,
+// no platform-loss row, conservation broken.
+func TestChargebackPartialDisputeProRata(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	fundReal(m, "alice", 1000)
+	_ = m.BindNode("n1", "op1")
+	// One $200-cost request; operator earns $140 (30% fee).
+	_, _ = m.Hold("alice", 200)
+	if _, err := m.Finalize("alice", "n1", 200, 200, 140, protocol.UsageReceipt{RequestID: "r_big", Model: "m", TS: 1}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.ChargebackLineage("dp", "alice", "", 100, time.Now()) // dispute < the one lot's cost
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approx(res.Clawed, 70) { // 140 * (100/200) = the operator's share of the disputed $100
+		t.Fatalf("clawed = %v, want 70 (pro-rata operator share of the $100 dispute, not the whole $140 lot)", res.Clawed)
+	}
+	if !approx(res.PlatformLoss, 30) {
+		t.Fatalf("platform loss = %v, want 30 (the fee share of the disputed $100)", res.PlatformLoss)
+	}
+	if res.Clawed > 100+1e-9 {
+		t.Fatalf("recovered %v exceeds the disputed 100 (over-claw)", res.Clawed)
+	}
+	if !approx(res.Clawed+res.PlatformLoss, 100) { // conservation
+		t.Fatalf("clawed(%v)+loss(%v) != disputed 100", res.Clawed, res.PlatformLoss)
+	}
+	// The operator keeps the remaining $70 (lot reduced by the clawed share, not wiped).
+	if s, _ := m.EarningSplitOf("op1", time.Now()); !approx(s.Payable, 70) {
+		t.Fatalf("operator payable after partial claw = %v, want 70", s.Payable)
 	}
 }
 

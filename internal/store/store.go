@@ -1727,31 +1727,46 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 	}
 
 	var res ChargebackResult
-	recovered := 0.0  // operator GROSS clawed/reversed - what is actually recovered from operators
-	costClawed := 0.0 // CONSUMER cost of the clawed lots - compared to the (consumer-dollar) amount
+	recovered := 0.0    // operator GROSS clawed/reversed - what is actually recovered from operators
+	remaining := amount // CONSUMER cost still to recover (wallet-recency path); caps the claw
 	for _, i := range order {
-		if requestID == "" && costClawed >= amount {
+		if requestID == "" && remaining <= 1e-9 {
 			break
 		}
 		l := &m.lots[i]
-		costClawed += reqCost[l.RequestID]
+		// PRO-RATA on the lot that would overshoot: if this lot's consumer cost exceeds the
+		// disputed cost still remaining, recover only the operator's PROPORTIONAL share
+		// (gross * remaining/cost) so the operator is NEVER clawed beyond the disputed
+		// amount; the rest of the lot stays theirs. A full dispute claws whole lots (frac=1)
+		// exactly as before. Explicit-requestID path always claws whole (no amount cap).
+		frac := 1.0
+		cost := reqCost[l.RequestID]
+		if requestID == "" && cost > 0 && cost > remaining {
+			frac = remaining / cost
+		}
+		clawGross := l.Gross * frac
 		switch l.State {
 		case LotPaid:
-			// Already paid out: claw the lot AND emit a payout_reversed ledger row; the
-			// broker reverses the Stripe transfer for the operator's share (6.4 step 4).
-			l.State = LotClawed
-			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -l.Gross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			// Already paid out: reverse the (proportional) operator share via Stripe (6.4
+			// step 4) + a payout_reversed ledger row.
+			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
 			res.Reversals = append(res.Reversals, Reversal{
 				DisputeID: disputeID, LotID: l.ID, AccountID: l.AccountID,
-				TransferID: transferOf(l.PayoutID), Amount: l.Gross,
+				TransferID: transferOf(l.PayoutID), Amount: clawGross,
 			})
-			recovered += l.Gross
 		default: // held / payable: claw in place, no Stripe action.
-			l.State = LotClawed
-			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -l.Gross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
-			res.Clawed += l.Gross
-			recovered += l.Gross
+			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			res.Clawed += clawGross
 		}
+		recovered += clawGross
+		if frac >= 1.0 {
+			l.State = LotClawed
+		} else {
+			// Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
+			l.Gross -= clawGross
+			l.Reserve -= l.Reserve * frac
+		}
+		remaining -= cost * frac // == min(cost, remaining); reaches 0 on the partial lot
 	}
 
 	// Any disputed amount NOT covered by this consumer's lots is a PLATFORM LOSS - the
