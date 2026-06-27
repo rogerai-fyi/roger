@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -503,9 +504,17 @@ type model struct {
 	// history.go.
 	chatHist   *inputHistory
 	transcript []string
-	connected  *offer
-	endpoint   string
-	apikey     string
+	// chatVP is the INDEPENDENT scroll region for the CHANNEL transcript: the
+	// response area scrolls (PgUp/PgDn, Ctrl+U/D, mouse wheel, and the arrow keys
+	// once command history is exhausted) on its own while the `you ›` input keeps
+	// working and keeps its Up-arrow history recall. It auto-sticks to the bottom on
+	// new output, but holds position when the user has scrolled up. Sized from the
+	// window each Update (see refreshScroll / chatView). The agent has its own
+	// agentVP. Source of truth stays m.transcript; the viewport renders from it.
+	chatVP    viewport.Model
+	connected *offer
+	endpoint  string
+	apikey    string
 	// lastConnected is the band we most recently TUNED IN to (a "sticky" recent
 	// station). It is kept across band re-scans so a band you connected to never
 	// vanishes from the browse list when its node ages out of /discover - it stays as
@@ -593,12 +602,13 @@ type model struct {
 	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
 	// draft). It persists to <config>/rogerai/history-agent. See history.go.
 	agentHist           *inputHistory
-	agentLines          []string      // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
-	agentBusy           bool          // a turn is in flight (drives the working line)
-	agentTurnState      agentPose     // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
-	agentStart          time.Time     // when the in-flight turn began (elapsed readout)
-	agentPendingConfirm *agentConfirm // non-nil while a mutating tool awaits y/N
-	agentCost           float64       // running AGENT session cost in dollars
+	agentLines          []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
+	agentVP             viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
+	agentBusy           bool           // a turn is in flight (drives the working line)
+	agentTurnState      agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
+	agentStart          time.Time      // when the in-flight turn began (elapsed readout)
+	agentPendingConfirm *agentConfirm  // non-nil while a mutating tool awaits y/N
+	agentCost           float64        // running AGENT session cost in dollars
 	// /model selection state. agentPicked marks that the user chose the model
 	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
@@ -907,6 +917,9 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// Per-surface input history (distinct files; load tolerates a missing/corrupt file).
 		cmdHist:  newInputHistory("history-command"),
 		chatHist: newInputHistory("history-chat"), agentHist: newInputHistory("history-agent"),
+		// Independent transcript scroll regions (mouse-wheel enabled by viewport.New); sized
+		// from the window on the first WindowSizeMsg (refreshScroll).
+		chatVP: viewport.New(0, 0), agentVP: viewport.New(0, 0),
 		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
 }
 
@@ -914,7 +927,19 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(fetchOffers(m.broker), fetchBalance(m.broker, m.user), tick())
 }
 
+// Update wraps the message dispatch with a transcript-scroll refresh, so any handler
+// that appends to the CHANNEL or AGENT transcript (a reply, an agent event, a system
+// line) re-sizes + re-feeds its viewport and auto-sticks to the bottom (only when the
+// user is already there) without every return site having to remember to.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	tm, cmd := m.update(msg)
+	if mm, ok := tm.(model); ok {
+		return mm.refreshScroll(), cmd
+	}
+	return tm, cmd
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Refresh the share render cache from the shared controller FIRST, so anything the web
 	// console changed (a model toggled on air, a price edited, a rename) shows up in the
 	// terminal on the next message — most visibly the 160ms tick. Every TUI mutation also
@@ -923,6 +948,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case tea.MouseMsg:
+		// Route the mouse wheel to the active transcript viewport so scrolling the
+		// response area works (the viewport ignores everything but wheel events). Mouse
+		// reporting is enabled via tea.WithMouseCellMotion in RunWithController.
+		switch m.mode {
+		case modeChat:
+			m.chatVP, _ = m.chatVP.Update(msg)
+		case modeAgent:
+			m.agentVP, _ = m.agentVP.Update(msg)
+		}
+		return m, nil
 	case tickMsg:
 		m.frame++
 		if m.alert != nil {
@@ -1230,22 +1266,39 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatIn.Blur()
 			m.status = stDim.Render("peeking at the band - the channel stays open · tab/c to return · esc here disconnects")
 			return m, nil
+		case "pgup":
+			m.chatVP.PageUp()
+			return m, nil
+		case "pgdown":
+			m.chatVP.PageDown()
+			return m, nil
+		case "ctrl+u":
+			m.chatVP.HalfPageUp()
+			return m, nil
+		case "ctrl+d":
+			m.chatVP.HalfPageDown()
+			return m, nil
 		case "up":
 			// Shell-style recall: Up walks to an OLDER sent message (stashing the live
 			// draft on the first Up). Guarded to modeChat (the input is focused here), so
-			// it never fires from BROWSE where up/down move the band cursor. No history =>
-			// the keypress is swallowed (the single-line input has no up action anyway).
+			// it never fires from BROWSE where up/down move the band cursor. With NO command
+			// history to recall, Up instead scrolls the transcript up a line (so the arrows
+			// reach the response area once the input has nothing to recall).
 			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
 				m.chatIn.SetValue(v)
 				m.chatIn.CursorEnd()
+			} else {
+				m.chatVP.ScrollUp(1)
 			}
 			return m, nil
 		case "down":
 			// Down walks to a NEWER sent message; past the newest it restores the stashed
-			// draft. A no-op when not navigating (already at the live draft).
+			// draft. With nothing to recall it scrolls the transcript down a line.
 			if v, ok := m.chatHist.next(); ok {
 				m.chatIn.SetValue(v)
 				m.chatIn.CursorEnd()
+			} else {
+				m.chatVP.ScrollDown(1)
 			}
 			return m, nil
 		case "enter":
@@ -5423,6 +5476,115 @@ func regionCell(region string) string {
 	return "-"
 }
 
+// transcriptContent renders a slice of transcript ENTRIES into the multi-line string a
+// viewport scrolls over: each entry's physical lines (entries may carry embedded
+// newlines, e.g. a multi-line reply) are indented two spaces to match the rest of the
+// view. The viewport itself handles width clipping + height padding, so we don't
+// truncate here. An empty slice yields "" (zero rows).
+func transcriptContent(entries []string) string {
+	var b strings.Builder
+	first := true
+	for _, e := range entries {
+		for _, ln := range strings.Split(e, "\n") {
+			if !first {
+				b.WriteByte('\n')
+			}
+			first = false
+			b.WriteString("  " + ln)
+		}
+	}
+	return b.String()
+}
+
+// lineRows is the number of physical lines in viewport content ("" = 0 rows).
+func lineRows(content string) int {
+	if content == "" {
+		return 0
+	}
+	return strings.Count(content, "\n") + 1
+}
+
+// clampRows bounds a row count to [0, max] - the viewport height is min(content, max)
+// so a short transcript renders exactly as tall as it is (no padding, unchanged layout)
+// and a tall one caps at max rows and becomes scrollable.
+func clampRows(rows, max int) int {
+	if rows > max {
+		rows = max
+	}
+	if rows < 0 {
+		rows = 0
+	}
+	return rows
+}
+
+// chatTranscriptRows is the maximum height (rows) the CHANNEL transcript region may
+// occupy, leaving room for the header, heading, prompt + footer. Kept identical to the
+// pre-viewport tail budget so the layout is unchanged.
+func (m model) chatTranscriptRows() int {
+	max := m.height - 8
+	if m.compact {
+		max = m.height - 6
+	}
+	if max < 6 {
+		max = 12
+	}
+	return max
+}
+
+// agentCornerRows mirrors agentView: the reactive corner-Ping region only shows when a
+// model is active, and its height drives the transcript budget.
+func (m model) agentCornerRows() int {
+	mdl := ""
+	if m.agent != nil {
+		mdl = m.agent.model
+	}
+	if mdl == "" {
+		return 0
+	}
+	return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact))
+}
+
+// agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
+func (m model) agentTranscriptRows(cornerRows int) int {
+	max := m.height - 8 - cornerRows
+	if m.compact {
+		max = m.height - 6 - cornerRows
+	}
+	if max < 6 {
+		max = 12
+	}
+	return max
+}
+
+// refreshScroll keeps both transcript viewports sized to the window and fed from the
+// current transcript slices, auto-sticking to the bottom ONLY when the user was already
+// at the bottom (so a scroll-up holds while new output streams in below). Called after
+// every Update via the Update wrapper, so any handler that appends to a transcript (a
+// reply, an agent event, a system line) gets the right scroll behavior for free.
+func (m model) refreshScroll() model {
+	w := m.effWidth()
+
+	chatBottom := m.chatVP.AtBottom()
+	chatContent := transcriptContent(m.transcript)
+	m.chatVP.Width = w
+	m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
+	m.chatVP.SetContent(chatContent)
+	if chatBottom {
+		m.chatVP.GotoBottom()
+	}
+
+	agentBottom := m.agentVP.AtBottom()
+	agentContent := transcriptContent(m.agentLines)
+	m.agentVP.Width = w
+	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows()))
+	m.agentVP.SetContent(agentContent)
+	if agentBottom {
+		m.agentVP.GotoBottom()
+	}
+
+	return m
+}
+
 func (m model) chatView(w int) string {
 	var b strings.Builder
 	sys := ""
@@ -5442,21 +5604,17 @@ func (m model) chatView(w int) string {
 			stDim.Render("   ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
 	}
-	// Scrollable transcript: keep the tail that fits the pane (you ▸ / them ◂). COMPACT
-	// reclaims two rows (no preset bar / spacer above) so more of the transcript shows.
-	lines := m.transcript
-	max := m.height - 8
-	if m.compact {
-		max = m.height - 6
-	}
-	if max < 6 {
-		max = 12
-	}
-	if len(lines) > max {
-		lines = lines[len(lines)-max:]
-	}
-	for _, l := range lines {
-		b.WriteString("  " + l + "\n")
+	// Scrollable transcript: an independent viewport (you ▸ / them ◂) that the user can
+	// page through (PgUp/PgDn, mouse wheel, arrows once history is exhausted) while the
+	// input below keeps typing. Sized to min(content, budget) so a short transcript reads
+	// exactly as before and a tall one caps + scrolls. The persisted scroll position (and
+	// auto-stick-to-bottom) is managed in refreshScroll; here we only render at it.
+	content := transcriptContent(m.transcript)
+	m.chatVP.Width = w
+	m.chatVP.Height = clampRows(lineRows(content), m.chatTranscriptRows())
+	m.chatVP.SetContent(content)
+	if m.chatVP.Height > 0 {
+		b.WriteString(m.chatVP.View() + "\n")
 	}
 	// While a reply is in flight, Ping relays it: a subtle one-line transmit with an
 	// elapsed-seconds readout so a slow CPU inference reads as progress, not a hang.
@@ -7079,6 +7237,8 @@ func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks 
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
-	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	// WithMouseCellMotion enables mouse reporting so the transcript viewports respond to
+	// the wheel (the viewport reads wheel-up/down events). The text inputs are unaffected.
+	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
