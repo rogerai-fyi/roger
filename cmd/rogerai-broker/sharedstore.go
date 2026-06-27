@@ -183,6 +183,16 @@ type sharedStore interface {
 	// the terminal marker (isDone=true). Torn down on ctx cancel / cancel().
 	busSubscribeStream(ctx context.Context, jobID string) (<-chan streamFrame, func(), error)
 
+	// putNode mirrors a node's full registration JSON (incl. BridgeToken) into the
+	// SHARED registry so EVERY instance can pick it AND authenticate its poll/result -
+	// not only the instance the node dialed. ttl is refreshed on each heartbeat
+	// (markSeen extends it), so a node that stops heartbeating ages out. Multi-instance
+	// scale-out only; flag-off never calls it.
+	putNode(id string, reg []byte, ttl time.Duration) error
+	// allNodes returns every shared node registration (id -> JSON) for the registry
+	// mirror that each instance syncs into its in-memory b.nodes/b.tunnels.
+	allNodes() (map[string][]byte, error)
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -254,6 +264,8 @@ func (m *memStore) busPublishStreamDone(string) error          { return errNoSha
 func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFrame, func(), error) {
 	return nil, func() {}, errNoSharedStore
 }
+func (m *memStore) putNode(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) allNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -435,6 +447,17 @@ func (v *valkeyStore) markSeen(node string, now time.Time) error {
 	pipe := v.rdb.Pipeline()
 	pipe.HSet(ctx, key, livenessField, now.UnixMilli())
 	pipe.PExpire(ctx, key, livenessTTL)
+	// Keep the shared REGISTRY entry (if any) alive as long as the node heartbeats, even
+	// though it only re-registers rarely: a heartbeat that lands on ANY instance extends
+	// the reg TTL so the registry mirror doesn't drop a live node. No-op if no reg key.
+	pipe.PExpire(ctx, regKey(node), livenessTTL)
+	// CRITICAL: also extend the regset INDEX that allNodes() enumerates through. The
+	// reg:<node> value key above is only ever *read* via this set; refreshing the value
+	// without the index lets the index expire after livenessTTL (nodes re-register
+	// rarely), orphaning the kept-alive reg keys -> a peer that restarts or scales out
+	// after the TTL can't re-learn the node (the deferred C2 503/404 break). Mirror the
+	// keyPrefix+"nodes" handling exactly so heartbeats keep BOTH the value and its index.
+	pipe.PExpire(ctx, keyPrefix+"regset", livenessTTL)
 	// Track the node id in a prefixed set so liveness() can enumerate without an
 	// un-prefixed SCAN over the SHARED keyspace (which would touch other projects).
 	pipe.SAdd(ctx, keyPrefix+"nodes", node)
@@ -470,6 +493,54 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 			return out, err
 		}
 		out[id] = time.UnixMilli(ms)
+	}
+	v.setUp(true)
+	return out, nil
+}
+
+// regKey holds a node's full registration JSON, shared so any instance can mirror it.
+func regKey(node string) string { return keyPrefix + "reg:" + node }
+
+func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Set(ctx, regKey(id), reg, ttl)
+	pipe.SAdd(ctx, keyPrefix+"regset", id)
+	pipe.PExpire(ctx, keyPrefix+"regset", ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("putNode", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) allNodes() (map[string][]byte, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	ids, err := v.rdb.SMembers(ctx, keyPrefix+"regset").Result()
+	if err != nil {
+		v.noteErr("allNodes", err)
+		return nil, err
+	}
+	out := make(map[string][]byte, len(ids))
+	for _, id := range ids {
+		raw, err := v.rdb.Get(ctx, regKey(id)).Bytes()
+		if err == redis.Nil {
+			continue // reg expired since the set listing - skip
+		}
+		if err != nil {
+			v.noteErr("allNodes", err)
+			return out, err
+		}
+		out[id] = raw
 	}
 	v.setUp(true)
 	return out, nil

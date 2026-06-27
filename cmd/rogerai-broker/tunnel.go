@@ -367,6 +367,18 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	}
 	b.mu.Unlock()
 
+	// MULTI-INSTANCE registry mirror: publish this PUBLIC node's full registration (incl.
+	// BridgeToken) to the shared store so PEER instances can pick it AND authenticate its
+	// poll/result - the fix for the 2-instance break where a node that dialed instance A
+	// is invisible (503) / un-pollable (404) on instance B. Private bands are NOT mirrored
+	// (cross-instance private is a follow-up), so they never leak into a peer's public
+	// view. Outside b.mu (network I/O); best-effort - the registry sync re-pulls.
+	if b.multiInstance && b.shared != nil && !reg.Private {
+		if raw, mErr := json.Marshal(reg); mErr == nil {
+			_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
+		}
+	}
+
 	// Private band: ensure this node has a band (mint once, idempotent on re-register).
 	// The secret frequency code is returned ONCE here, on the FIRST register that mints
 	// it; every later register returns ONLY band_id (never the code again - this is what
@@ -562,6 +574,63 @@ func (b *broker) syncLiveness() {
 			}
 		}
 		b.mu.Unlock()
+		// MULTI-INSTANCE registry mirror: pull every peer's published registration into
+		// this instance's registry + tunnel stubs, so a node that dialed a DIFFERENT
+		// instance is still pickable + its poll/result authenticatable here (the bus then
+		// rendezvous the job/result). Gated so single-instance stays byte-for-byte unchanged.
+		if b.multiInstance {
+			b.syncRegistry()
+		}
+	}
+}
+
+// syncRegistry mirrors the shared node registry into this instance's in-memory state so
+// any node is pickable + its poll/result authenticatable on ANY instance (the bus then
+// carries the actual job/result). It only ADDS/refreshes peer nodes - never deletes
+// (liveness + the prune sweep age a dead node out) - and never overwrites a node we hold
+// authoritatively (one registered on THIS instance). Private bands are not mirrored.
+func (b *broker) syncRegistry() {
+	if b.shared == nil {
+		return
+	}
+	regs, err := b.shared.allNodes()
+	if err != nil || len(regs) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for id, raw := range regs {
+		if t := b.tunnels[id]; t != nil && t.token != "" {
+			continue // authoritative local registration already present
+		}
+		var reg protocol.NodeRegistration
+		if json.Unmarshal(raw, &reg) != nil {
+			continue
+		}
+		if reg.Private {
+			continue
+		}
+		if reg.NodeID == "" {
+			reg.NodeID = id
+		}
+		b.nodes[id] = reg
+		b.confidential[id] = reg.Confidential
+		// Seed the re-attestation clock for mirrored confidential nodes, exactly as
+		// register() does (tunnel.go:359). Without this the clock is zero on the mirror,
+		// so confidential cross-instance routing would treat the node as never-attested.
+		if reg.Confidential {
+			if b.attestedAt == nil {
+				b.attestedAt = map[string]time.Time{}
+			}
+			if _, ok := b.attestedAt[id]; !ok {
+				b.attestedAt[id] = time.Now()
+			}
+		}
+		if b.tunnels[id] == nil {
+			b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
+		} else {
+			b.tunnels[id].token = reg.BridgeToken
+		}
 	}
 }
 

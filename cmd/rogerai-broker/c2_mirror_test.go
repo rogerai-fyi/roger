@@ -1,0 +1,191 @@
+package main
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/store"
+)
+
+// TestMultiInstanceRegistryMirrorEnablesCrossInstance is the C2 regression guard. Unlike
+// the older rendezvous test (which seeded the node on BOTH instances and so masked the
+// prod break), here the node registers on instance A ONLY and is mirrored to B via the
+// shared registry. This reproduces production (a node dials ONE instance, DO load-
+// balances each request) and proves the fix: B can PICK the node and ACCEPT its poll/
+// result (before the fix, B 503'd on pick and 404'd on poll - "unknown node").
+func TestMultiInstanceRegistryMirrorEnablesCrossInstance(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+	bInst := newMIBroker(t, brokerPriv, db, mr)
+
+	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(nodePub)
+	const token = "tok-mirror"
+	offers := []protocol.ModelOffer{{Model: "free-m"}} // free => no hold
+
+	// Register on A ONLY + mirror to the shared registry exactly as register() now does.
+	miRegisterNode(a, "n1", pubHex, token, offers)
+	raw, _ := json.Marshal(a.nodes["n1"])
+	if err := a.shared.putNode("n1", raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bInst.tunnels["n1"]; ok {
+		t.Fatal("precondition: B must NOT know n1 before the mirror sync")
+	}
+
+	// The registry mirror brings n1 + its bridge token to B.
+	bInst.syncRegistry()
+	bInst.mu.Lock()
+	tun := bInst.tunnels["n1"]
+	_, known := bInst.nodes["n1"]
+	bInst.mu.Unlock()
+	if !known {
+		t.Fatal("after syncRegistry B must know n1 (pickFor would 503 otherwise)")
+	}
+	if tun == nil || tun.token != token {
+		t.Fatalf("after syncRegistry B must hold n1's tunnel + bridge token (agentPoll/agentResult 404'd otherwise); tun=%+v", tun)
+	}
+
+	// End to end: the provider long-polls instance B (which learned n1 ONLY via the
+	// mirror); A dispatches the relay over the bus; B serves; the result returns to A.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		job, ok := pollOnce(t, bInst, "n1", token)
+		if !ok {
+			t.Errorf("B poll got no job - cross-instance dispatch did not arrive via the mirror")
+			return
+		}
+		res := miSignedResult(job.ID, "n1", "free-m", "served via mirror", nodePriv, 200)
+		rb, _ := json.Marshal(res)
+		rr := httptest.NewRequest(http.MethodPost, "/agent/result?node=n1", bytes.NewReader(rb))
+		rr.Header.Set("Authorization", miNodeBearer(token))
+		rw := httptest.NewRecorder()
+		bInst.agentResult(rw, rr)
+		if rw.Code != http.StatusOK {
+			t.Errorf("B agentResult = %d, want 200", rw.Code)
+		}
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	_, userPriv, _ := ed25519.GenerateKey(nil)
+	body := []byte(`{"model":"free-m","max_tokens":8}`)
+	r := miSignedRelayReq(t, userPriv, body, nil)
+	w := httptest.NewRecorder()
+	a.relay(w, r)
+	wg.Wait()
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("relay on A = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "served via mirror") {
+		t.Errorf("relay body = %q, want the completion served cross-instance on B", w.Body.String())
+	}
+}
+
+// TestMarkSeenKeepsRegistryIndexAlive is the regression guard for the DEFERRED C2 break
+// caught in audit: a node registers once (putNode sets reg:<node> AND the regset index,
+// both with livenessTTL=10m) and then only HEARTBEATS - it never re-registers. If markSeen
+// refreshes reg:<node> but not the regset index that allNodes() enumerates through, the
+// index expires after 10m, allNodes() returns empty, and a peer that restarts/scales out
+// later can no longer learn the node (503/404) even though it is alive and heartbeating.
+// This drives ~1h of heartbeats well past the original TTL and asserts the node survives
+// in the index. Without the markSeen regset PExpire this fails at the 10m mark.
+func TestMarkSeenKeepsRegistryIndexAlive(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+	bInst := newMIBroker(t, brokerPriv, db, mr)
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(nodePub)
+	offers := []protocol.ModelOffer{{Model: "free-m"}}
+	miRegisterNode(a, "n1", pubHex, "tok", offers)
+	raw, _ := json.Marshal(a.nodes["n1"])
+	if err := a.shared.putNode("n1", raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	hb, ok := a.shared.(interface {
+		markSeen(string, time.Time) error
+	})
+	if !ok {
+		t.Fatal("shared store does not expose markSeen")
+	}
+
+	// 12 heartbeats, 5m apart (< livenessTTL each step, but cumulatively ~1h - far past
+	// the original 10m putNode TTL). A live node re-registers rarely; only the heartbeat
+	// keeps it on-air. Each step must refresh BOTH reg:<node> and the regset index.
+	for i := 0; i < 12; i++ {
+		mr.FastForward(5 * time.Minute)
+		if err := hb.markSeen("n1", time.Now()); err != nil {
+			t.Fatalf("markSeen #%d: %v", i, err)
+		}
+	}
+
+	regs, err := a.shared.allNodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := regs["n1"]; !ok {
+		t.Fatalf("allNodes() lost n1 after ~1h of heartbeats (regset index expired) - the mirror would silently drop a LIVE node; got %d entries", len(regs))
+	}
+	// A peer that only now syncs (e.g. just scaled out) must still re-learn the live node.
+	bInst.syncRegistry()
+	bInst.mu.Lock()
+	_, known := bInst.nodes["n1"]
+	bInst.mu.Unlock()
+	if !known {
+		t.Fatal("peer could not re-learn n1 from the registry index after heartbeats (scale-out > TTL would 503)")
+	}
+}
+
+// TestSyncRegistryConfidentialSeedsAttestation guards the minor audit finding: a mirrored
+// confidential node must get its re-attestation clock seeded (b.attestedAt) just like a
+// locally-registered one, else cross-instance confidential routing sees a zero clock and
+// treats the node as never-attested.
+func TestSyncRegistryConfidentialSeedsAttestation(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+	bInst := newMIBroker(t, brokerPriv, db, mr)
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(nodePub)
+	reg := protocol.NodeRegistration{
+		NodeID:       "c1",
+		PubKey:       pubHex,
+		BridgeToken:  "tok-conf",
+		Confidential: true,
+		Offers:       []protocol.ModelOffer{{Model: "free-m"}},
+	}
+	raw, _ := json.Marshal(reg)
+	if err := a.shared.putNode("c1", raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	bInst.syncRegistry()
+	bInst.mu.Lock()
+	defer bInst.mu.Unlock()
+	if !bInst.confidential["c1"] {
+		t.Fatal("mirrored node must be marked confidential on the peer")
+	}
+	if bInst.attestedAt["c1"].IsZero() {
+		t.Fatal("mirrored confidential node must have its attestation clock seeded (was zero) - cross-instance confidential routing would treat it as never-attested")
+	}
+}
