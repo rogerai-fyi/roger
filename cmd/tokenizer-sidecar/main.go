@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -67,18 +68,38 @@ func newMux(dir string) http.Handler {
 }
 
 func main() {
-	port := os.Getenv("TOKENIZER_PORT")
+	if err := run(os.Getenv("TOKENIZER_PORT"), os.Getenv("TOKENIZER_DIR"), nil, nil); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run binds the sidecar on 127.0.0.1:<port> (default 9099) and serves until stop is
+// closed (nil = serve forever). When ready != nil the actual listen address is sent
+// once bound, so a test can pass port "0", learn the chosen port, drive requests, then
+// close stop for a clean shutdown. Extracted from main() so the full server lifecycle
+// is exercised by tests; main() is just the env + fatal-log glue.
+func run(port, dir string, ready chan<- string, stop <-chan struct{}) error {
 	if port == "" {
 		port = "9099"
 	}
-	dir := os.Getenv("TOKENIZER_DIR")
-	mux := newMux(dir)
-
-	addr := "127.0.0.1:" + port
-	if dir != "" {
-		log.Printf("tokenizer-sidecar: listening on %s (TOKENIZER_DIR=%s)", addr, dir)
-	} else {
-		log.Printf("tokenizer-sidecar: listening on %s (no TOKENIZER_DIR; tiktoken-exact + heuristic only)", addr)
+	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
+	if err != nil {
+		return err
 	}
-	log.Fatal(http.ListenAndServe(addr, mux))
+	srv := &http.Server{Handler: newMux(dir)}
+	if dir != "" {
+		log.Printf("tokenizer-sidecar: listening on %s (TOKENIZER_DIR=%s)", ln.Addr(), dir)
+	} else {
+		log.Printf("tokenizer-sidecar: listening on %s (no TOKENIZER_DIR; tiktoken-exact + heuristic only)", ln.Addr())
+	}
+	if ready != nil {
+		ready <- ln.Addr().String()
+	}
+	if stop != nil {
+		go func() { <-stop; _ = srv.Close() }()
+	}
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
