@@ -10,27 +10,21 @@
 #   (3) A module-wide TOTAL floor, also ratcheted up.
 #
 # Self-coverage is used (each package's OWN tests cover it) — the honest per-package lens.
-# Usage: scripts/cover-gate.sh [MIN_TOTAL]   (default 59 = today's self-coverage; ratchet up)
+# Usage: scripts/cover-gate.sh [MIN_TOTAL]   (default 85 — the GREEN bar; aim 95%+)
 set -uo pipefail
 
-MIN_TOTAL="${1:-59}"
+# Founder policy: nothing is GREEN below 85% coverage; the aim is 95%+. Until the backfill
+# reaches the bar the gate is RED by design (start with the 0% Postgres ledger). Bypass a
+# local push during the backfill with COVER_GATE_SKIP=1; CI has no bypass.
+GREEN_BAR=85
+MIN_TOTAL="${1:-$GREEN_BAR}"
 PROFILE="${COVER_PROFILE:-cover.out}"
 MOD="github.com/rogerai-fyi/roger"
 
-# Per-package floors (module-relative path). Start at/below today's measured self-coverage
-# so the gate passes now; RAISE these as tests land (especially internal/store once the
-# Postgres money path is covered → target 90+).
-floor_for() {
-  case "$1" in
-    internal/protocol)  echo 80 ;;   # ed25519 signing, pricing, receipts
-    internal/store)     echo 40 ;;   # ledger/billing/payouts — RAISE to 90 after Postgres tests
-    cmd/rogerai-broker) echo 70 ;;   # relay/settle/auth/moderation/multi-instance
-    internal/node)      echo 64 ;;
-    internal/detect)    echo 85 ;;
-    internal/tokenizer) echo 80 ;;
-    *)                  echo 0  ;;
-  esac
-}
+# Every package's floor is the 85% GREEN bar (aim 95%). No per-package exemptions — the
+# founder's rule is no green below 85%. Honestly-untestable glue (main()/serve loops) must
+# be refactored to be testable rather than exempted.
+floor_for() { echo "$GREEN_BAR"; }
 
 echo "[cover] running full suite with coverage…" >&2
 if ! out="$(go test -covermode=atomic -coverprofile="$PROFILE" ./... 2>&1)"; then
