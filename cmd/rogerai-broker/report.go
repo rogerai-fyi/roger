@@ -199,33 +199,33 @@ func (b *broker) nodeBanSweep() {
 		return
 	}
 	window := time.Duration(b.nodeBanDays) * 24 * time.Hour
-	interval := window / 24
-	if interval < time.Hour {
-		interval = time.Hour
-	}
-	if interval > 24*time.Hour {
-		interval = 24 * time.Hour
-	}
+	interval := sweepInterval(window)
 	log.Printf("node-ban: auto-lift ON - report-origin suspensions older than %d day(s) clear if no fresh corroboration (sweep every %s)", b.nodeBanDays, interval)
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for range t.C {
-		cutoff := time.Now().Add(-window)
-		cleared, err := b.db.ExpireNodeBans(cutoff)
-		if err != nil {
-			log.Printf("node-ban: expiry sweep failed: %v", err)
-			continue
-		}
-		if len(cleared) == 0 {
-			continue
-		}
-		b.metricsMu.Lock()
-		for _, id := range cleared {
-			delete(b.banned, id)
-		}
-		b.metricsMu.Unlock()
-		log.Printf("node-ban: auto-lifted %d report-origin suspension(s) older than %d day(s) (no further corroboration) - those nodes can route again", len(cleared), b.nodeBanDays)
+		b.nodeBanSweepOnce(time.Now().Add(-window))
 	}
+}
+
+// nodeBanSweepOnce auto-lifts report-origin node bans older than cutoff and drops the
+// lifted ids from the in-memory ban set (one sweep iteration). Split out of the loop so
+// the expiry + cache-eviction work is testable without the ticker.
+func (b *broker) nodeBanSweepOnce(cutoff time.Time) {
+	cleared, err := b.db.ExpireNodeBans(cutoff)
+	if err != nil {
+		log.Printf("node-ban: expiry sweep failed: %v", err)
+		return
+	}
+	if len(cleared) == 0 {
+		return
+	}
+	b.metricsMu.Lock()
+	for _, id := range cleared {
+		delete(b.banned, id)
+	}
+	b.metricsMu.Unlock()
+	log.Printf("node-ban: auto-lifted %d report-origin suspension(s) older than %d day(s) (no further corroboration) - those nodes can route again", len(cleared), b.nodeBanDays)
 }
 
 // reportRequest is the POST /report contract (a web agent builds the UI to this exact

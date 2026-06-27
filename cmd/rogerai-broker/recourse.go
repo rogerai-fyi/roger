@@ -482,8 +482,28 @@ func (b *broker) recountHoldSweep() {
 		return
 	}
 	window := time.Duration(b.recountHoldDays) * 24 * time.Hour
-	// Sweep at a sane cadence relative to the window (at least hourly, at most daily) so
-	// expiry is timely without hammering the store.
+	interval := sweepInterval(window)
+	log.Printf("recount-hold: auto-expiry ON - holds older than %d day(s) clear if no fresh discrepancy (sweep every %s)", b.recountHoldDays, interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		b.recountHoldSweepOnce(time.Now().Add(-window))
+	}
+}
+
+// recountHoldSweepOnce expires recount holds older than cutoff (one sweep iteration).
+// Split out of the loop so the expiry work is testable without the ticker.
+func (b *broker) recountHoldSweepOnce(cutoff time.Time) {
+	if n, err := b.db.ExpireRecountHolds(cutoff); err != nil {
+		log.Printf("recount-hold: expiry sweep failed: %v", err)
+	} else if n > 0 {
+		log.Printf("recount-hold: auto-expired %d hold(s) older than %d day(s) (no further discrepancy) - those earnings can promote again", n, b.recountHoldDays)
+	}
+}
+
+// sweepInterval picks a sane sweep cadence relative to a hold window: ~1/24 of the
+// window, clamped to [1h, 24h], so expiry is timely without hammering the store.
+func sweepInterval(window time.Duration) time.Duration {
 	interval := window / 24
 	if interval < time.Hour {
 		interval = time.Hour
@@ -491,15 +511,5 @@ func (b *broker) recountHoldSweep() {
 	if interval > 24*time.Hour {
 		interval = 24 * time.Hour
 	}
-	log.Printf("recount-hold: auto-expiry ON - holds older than %d day(s) clear if no fresh discrepancy (sweep every %s)", b.recountHoldDays, interval)
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for range t.C {
-		cutoff := time.Now().Add(-window)
-		if n, err := b.db.ExpireRecountHolds(cutoff); err != nil {
-			log.Printf("recount-hold: expiry sweep failed: %v", err)
-		} else if n > 0 {
-			log.Printf("recount-hold: auto-expired %d hold(s) older than %d day(s) (no further discrepancy) - those earnings can promote again", n, b.recountHoldDays)
-		}
-	}
+	return interval
 }

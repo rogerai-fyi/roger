@@ -75,12 +75,16 @@ func loadConnect() connect {
 
 // stripeForm POSTs an application/x-www-form-urlencoded request to the Stripe API
 // and decodes the JSON response into out. Returns the HTTP status.
+// stripeAPIBase is the Stripe REST base URL. A package var (not a const) so a test can
+// point the Stripe calls at a local httptest server instead of reaching api.stripe.com.
+var stripeAPIBase = "https://api.stripe.com"
+
 func (c connect) stripeForm(method, path string, form url.Values, out any) (int, error) {
 	var body io.Reader
 	if form != nil {
 		body = strings.NewReader(form.Encode())
 	}
-	req, _ := http.NewRequest(method, "https://api.stripe.com"+path, body)
+	req, _ := http.NewRequest(method, stripeAPIBase+path, body)
 	req.Header.Set("Authorization", "Bearer "+c.secretKey)
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
