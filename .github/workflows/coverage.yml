@@ -20,12 +20,33 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
+      # Real Postgres for the store money path (postgres.go) so its coverage is HONEST -
+      # without this, ~half of internal/store counts as uncovered and can never hit the bar.
+      ROGERAI_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/roger_test?sslmode=disable
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: roger_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache: true
+
+      # Provision the `rogerai` schema (prod provisions it out-of-band; NewPostgres only
+      # owns the tables inside it, by design / least privilege).
+      - name: create schema
+        run: psql "$ROGERAI_TEST_DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS rogerai;"
 
       # 1) Tests + coverage profile. Fails the job only if TESTS fail (not on low coverage).
       - name: test + coverage
