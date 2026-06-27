@@ -312,8 +312,16 @@ func Run(cfg Config) error {
 	if _, err := Start(cfg); err != nil {
 		return err
 	}
-	select {} // serve forever
+	serveForever() // serve forever
+	return nil
 }
+
+// serveForever blocks the calling goroutine until the process is killed. It is a
+// package-level seam defaulting to the real block-forever (`select {}`), so the
+// production Run path is byte-for-byte unchanged (serveForever never returns, so the
+// trailing `return nil` is unreachable in production). Tests substitute a returning
+// stub to exercise Run's success path without hanging.
+var serveForever = func() { select {} }
 
 // Start registers the node and launches its outbound poll loops, returning a
 // Session for live stats + Stop (the TUI's in-process /share). It does NOT block.
