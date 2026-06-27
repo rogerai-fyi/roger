@@ -223,22 +223,23 @@
 
       <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="An interactive replay of the RogerAI CLI. Switch between four demos: the bare interactive radio, searching a band and reading the stations serving it, tuning in to get a local OpenAI-compatible endpoint and key, and sharing your own GPU on air to serve a request and earn.">
+           aria-label="An interactive replay of the roger CLI radio. Switch between four demos: booting the dial and reading the band, tuning in to open a channel and get a local OpenAI-compatible endpoint and key, the built-in agent running a tool turn over the channel, and sharing your own GPU on air to serve a request and earn.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span class="term__title" id="termTitle">rogerai - the dial</span>
+          <span class="term__title" id="termTitle">roger — the dial</span>
         </div>
 
-        <!-- station-preset bar: switchable demos, current one lit red -->
+        <!-- station-preset bar: switchable demos, current one lit red. Mirrors the
+             TUI preset bank: [1] TUNE IN · [0] AGENT · [2] SHARE, plus the boot. -->
         <div class="term__presets" id="termPresets" role="group" aria-label="Choose a demo">
-          <button class="term__preset is-on" type="button" data-demo="rogerai" aria-pressed="true">
-            <span class="term__preset-led" aria-hidden="true"></span>rogerai
+          <button class="term__preset is-on" type="button" data-demo="roger" aria-pressed="true">
+            <span class="term__preset-led" aria-hidden="true"></span>roger
           </button>
-          <button class="term__preset" type="button" data-demo="search" aria-pressed="false">
-            <span class="term__preset-led" aria-hidden="true"></span>search
+          <button class="term__preset" type="button" data-demo="tunein" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>tune in
           </button>
-          <button class="term__preset" type="button" data-demo="use" aria-pressed="false">
-            <span class="term__preset-led" aria-hidden="true"></span>use
+          <button class="term__preset" type="button" data-demo="agent" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>agent
           </button>
           <button class="term__preset" type="button" data-demo="share" aria-pressed="false">
             <span class="term__preset-led" aria-hidden="true"></span>share
