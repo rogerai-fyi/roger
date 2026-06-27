@@ -1,12 +1,18 @@
 package store
 
 import (
+	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
+
+// serveSeq makes every serveAt request id unique (production ids always are), so the
+// idempotent Settle/Finalize never dedups distinct seeded entries that share a timestamp.
+var serveSeq atomic.Int64
 
 // metricsStores runs the per-model metrics suite against Mem always, and Postgres when
 // ROGERAI_TEST_DATABASE_URL is set, so the provider/usage rollups (the GROUP BY and the
@@ -35,7 +41,9 @@ func serveAt(t *testing.T, db Store, user, node, model string, in, out int, cost
 		}
 	}
 	if _, err := db.Settle(user, node, cost, ownerShare, protocol.UsageReceipt{
-		RequestID:        "r-" + time.Unix(ts, 0).UTC().Format("20060102-150405.000000000") + "-" + model,
+		// Unique per call (production request ids are always unique). Without the counter,
+		// same-second entries collided on request id and the idempotent Settle deduped them.
+		RequestID:        fmt.Sprintf("r-%s-%s-%d", time.Unix(ts, 0).UTC().Format("20060102-150405.000000000"), model, serveSeq.Add(1)),
 		Model:            model,
 		PromptTokens:     in,
 		CompletionTokens: out,

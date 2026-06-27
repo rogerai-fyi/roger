@@ -349,6 +349,39 @@ func TestReserveReleasesWithLot(t *testing.T) {
 	}
 }
 
+// TestSettleFinalizeIdempotentOnRequestID is the regression for the double-finalize
+// lot<->ledger drift: a second Settle/Finalize for the SAME requestID must be a no-op - no
+// double refund/debit, no doubled earnings, no duplicate earning lot. The broker's `settled`
+// flag normally prevents a second call, but the store primitive must not drift if it recurs.
+func TestSettleFinalizeIdempotentOnRequestID(t *testing.T) {
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	m := NewMem()
+	fundReal(m, "u", 10)
+	_ = m.BindNode("n", "op")
+	_, _ = m.Hold("u", 5)
+	rec := protocol.UsageReceipt{RequestID: "r1", Model: "m", TS: 1}
+	bal1, _ := m.Finalize("u", "n", 5, 2, 1.4, rec)
+	bal2, _ := m.Finalize("u", "n", 5, 2, 1.4, rec) // duplicate -> must be a no-op
+	if !approx(bal1, 8) || !approx(bal2, 8) {
+		t.Fatalf("balances = %v, %v want 8, 8 (a duplicate Finalize must not double-refund)", bal1, bal2)
+	}
+	if e, _ := m.EarningsOf("n"); !approx(e, 1.4) {
+		t.Fatalf("earnings = %v, want 1.4 (not doubled by the duplicate Finalize)", e)
+	}
+	if s, _ := m.EarningSplitOf("op", time.Now()); !approx(s.Payable, 1.4) {
+		t.Fatalf("operator payable = %v, want 1.4 (exactly one lot, no drift)", s.Payable)
+	}
+	// Settle (direct-debit path) is idempotent too.
+	fundReal(m, "v", 10)
+	r2 := protocol.UsageReceipt{RequestID: "r2", Model: "m", TS: 2}
+	sb1, _ := m.Settle("v", "n", 3, 2.1, r2)
+	sb2, _ := m.Settle("v", "n", 3, 2.1, r2) // duplicate -> no-op
+	if !approx(sb1, 7) || !approx(sb2, 7) {
+		t.Fatalf("settle balances = %v, %v want 7, 7 (a duplicate Settle must not double-debit)", sb1, sb2)
+	}
+}
+
 // TestChargebackPartialDisputeProRata is the regression for the partial-dispute over-claw:
 // a dispute SMALLER than a single lot's consumer cost must recover only the operator's
 // PROPORTIONAL share of the disputed amount (not the whole lot), with conservation intact.

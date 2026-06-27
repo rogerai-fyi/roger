@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -42,12 +43,14 @@ func newMetricsBroker(t *testing.T) (*broker, string, ed25519.PrivateKey) {
 	wallet := "u_gh_7" // the github-scoped wallet the operator's web session + signed reads use
 
 	now := time.Now()
+	seq := 0
 	settle := func(model string, in, out int, cost, share float64, ts int64) {
 		if cost > 0 {
 			_, _ = db.AddCredits(wallet, cost)
 		}
+		seq++ // unique request id per call (prod ids always are); else same-ts settles dedup
 		_, _ = db.Settle(wallet, node, cost, share, protocol.UsageReceipt{
-			RequestID: "r-" + model + "-" + time.Unix(ts, 0).Format("150405.000000000"),
+			RequestID: fmt.Sprintf("r-%s-%s-%d", model, time.Unix(ts, 0).Format("150405.000000000"), seq),
 			Model:     model, PromptTokens: in, CompletionTokens: out, TS: ts,
 		})
 	}
