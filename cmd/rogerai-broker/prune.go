@@ -65,6 +65,9 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 		delete(b.trust, id)
 		delete(b.successCount, id)
 		delete(b.concurrentTPS, id)
+		delete(b.lastPersist, id)
+		delete(b.lastSharedSeen, id)
+		delete(b.probeSched, id)
 	}
 	b.metricsMu.Unlock()
 
