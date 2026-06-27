@@ -556,15 +556,22 @@ func (b *broker) reversalMaxAttempts() int {
 // ROGERAI_REVERSAL_MAX_ATTEMPTS and is parked as a dead-letter (logged loudly for manual
 // handling). Idempotent on the Stripe Idempotency-Key, so a re-attempt of a reversal
 // that actually went through at Stripe is a safe no-op. Cheap: only OPEN rows are read.
-func (b *broker) reversalRetrySweep() {
+// stop is the nil-in-production test seam (a nil channel case never fires, so the loop
+// waits on the ticker exactly as before).
+func (b *broker) reversalRetrySweep(stop <-chan struct{}) {
 	if b.db == nil {
 		return
 	}
 	const interval = 5 * time.Minute
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for range t.C {
-		b.reversalRetryOnce()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.reversalRetryOnce()
+		}
 	}
 }
 

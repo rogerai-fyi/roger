@@ -190,7 +190,9 @@ func (b *broker) unbanNode(nodeID string) error {
 // admin keeps it. A no-op when auto-lift is disabled (nodeBanDays<=0) - report-bans then
 // clear only via admin /admin/unban-node or the appeal flow. The in-memory ban cache is
 // refreshed for every node the sweep clears, so routing restores without a restart.
-func (b *broker) nodeBanSweep() {
+// stop is the nil-in-production test seam (a nil channel case never fires, so the loop
+// waits on the ticker exactly as before).
+func (b *broker) nodeBanSweep(stop <-chan struct{}) {
 	if b.nodeBanDays <= 0 {
 		log.Printf("node-ban: auto-lift DISABLED (ROGERAI_NODE_BAN_DAYS<=0) - report-bans clear only via admin /admin/unban-node or an appeal")
 		return
@@ -203,8 +205,13 @@ func (b *broker) nodeBanSweep() {
 	log.Printf("node-ban: auto-lift ON - report-origin suspensions older than %d day(s) clear if no fresh corroboration (sweep every %s)", b.nodeBanDays, interval)
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for range t.C {
-		b.nodeBanSweepOnce(time.Now().Add(-window))
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.nodeBanSweepOnce(time.Now().Add(-window))
+		}
 	}
 }
 

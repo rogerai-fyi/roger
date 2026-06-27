@@ -473,7 +473,9 @@ func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) {
 // recountHoldDays ago that no fresh discrepancy has since refreshed. A no-op (returns
 // immediately) when auto-expiry is disabled (recountHoldDays<=0) - holds then clear only
 // via the admin-reviewed unhold. The sweep is idempotent and cheap.
-func (b *broker) recountHoldSweep() {
+// stop is the nil-in-production test seam (a nil channel case never fires, so the loop
+// waits on the ticker exactly as before).
+func (b *broker) recountHoldSweep(stop <-chan struct{}) {
 	if b.recountHoldDays <= 0 {
 		log.Printf("recount-hold: auto-expiry DISABLED (ROGERAI_RECOUNT_HOLD_DAYS<=0) - holds clear only via admin /admin/unhold")
 		return
@@ -486,8 +488,13 @@ func (b *broker) recountHoldSweep() {
 	log.Printf("recount-hold: auto-expiry ON - holds older than %d day(s) clear if no fresh discrepancy (sweep every %s)", b.recountHoldDays, interval)
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for range t.C {
-		b.recountHoldSweepOnce(time.Now().Add(-window))
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			b.recountHoldSweepOnce(time.Now().Add(-window))
+		}
 	}
 }
 

@@ -32,9 +32,9 @@ func TestRootHandler(t *testing.T) {
 // TestSweepsDisabledGuards covers the auto-expiry sweeps' disabled/early-return guards
 // (they must return immediately, not start a ticker, when disabled or store-less).
 func TestSweepsDisabledGuards(t *testing.T) {
-	(&broker{recountHoldDays: 0}).recountHoldSweep() // auto-expiry disabled -> returns
-	(&broker{nodeBanDays: 0}).nodeBanSweep()         // auto-lift disabled -> returns
-	(&broker{db: nil}).reversalRetrySweep()          // no store -> returns
+	(&broker{recountHoldDays: 0}).recountHoldSweep(nil) // auto-expiry disabled -> returns
+	(&broker{nodeBanDays: 0}).nodeBanSweep(nil)         // auto-lift disabled -> returns
+	(&broker{db: nil}).reversalRetrySweep(nil)          // no store -> returns
 }
 
 // TestGroqCall covers the concierge LLM call: no key -> (",false); with a key it POSTs
