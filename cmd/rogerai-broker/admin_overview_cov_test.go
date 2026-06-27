@@ -106,3 +106,40 @@ func keysOf(m map[string]any) []string {
 	}
 	return ks
 }
+
+// TestAdminOverviewMethodAndDBDown covers the method guard (405) and the DB-down health
+// branch: an admin-keyed overview against an unhealthy store reports db:"down", ready:false
+// (and still returns 200 - the dashboard must render even when the store is unreachable).
+func TestAdminOverviewMethodAndDBDown(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("ROGERAI_REDIS_URL", "")
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := buildBroker(store.NewMem(), priv, 0.30, 100, time.Hour)
+	b.adminKey = "k"
+
+	// Method guard: a POST is 405.
+	wm := httptest.NewRecorder()
+	rm := httptest.NewRequest(http.MethodPost, "/admin/overview", nil)
+	rm.Header.Set("X-Roger-Admin", "k")
+	b.adminOverview(wm, rm)
+	if wm.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST overview = %d, want 405", wm.Code)
+	}
+
+	// DB down -> health.db:"down", ready:false, still 200.
+	b.db = unhealthyStore{b.db}
+	r := httptest.NewRequest(http.MethodGet, "/admin/overview", nil)
+	r.Header.Set("X-Roger-Admin", "k")
+	w := httptest.NewRecorder()
+	b.adminOverview(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("overview (db down) = %d, want 200", w.Code)
+	}
+	var resp struct {
+		Health map[string]any `json:"health"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Health["db"] != "down" || resp.Health["ready"] != false {
+		t.Errorf("health = %+v, want db:down ready:false", resp.Health)
+	}
+}
