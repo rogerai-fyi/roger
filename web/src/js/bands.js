@@ -73,6 +73,18 @@
     if (!p) return "free";
     return "$" + (+p).toFixed(2);
   }
+  // fmtTier renders the broker's neutral $-tier (0..4): "$".."$$$$" + a "good price"
+  // chip on tier 1 ONLY. Mirrors the broker/TUI contract so every surface reads alike:
+  // FREE (price 0) or tier 0 -> "" (the FREE tag / raw price already conveys it); never
+  // any negative wording.
+  function fmtTier(tier, priceOut) {
+    tier = +tier || 0;
+    if (!(priceOut > 0) || tier < 1 || tier > 4) return "";
+    var bars = '<span class="price-tier" title="our read of this price vs the going rate for this model">' +
+      "$".repeat(tier) + '</span>';
+    var chip = tier === 1 ? ' <span class="band-tag band-tag--deal">good price</span>' : "";
+    return " " + bars + chip;
+  }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
   /* ---- PII firewall: callsign + coarse region ------------------- */
@@ -284,7 +296,7 @@
     offers.forEach(function (o) {
       if (!o || !o.model) return;
       var b = by[o.model] || (by[o.model] = {
-        model: o.model, live: 0, total: 0, minIn: Infinity, minOut: Infinity,
+        model: o.model, live: 0, total: 0, minIn: Infinity, minOut: Infinity, priceTier: 0,
         tps: 0, ttft: Infinity, conf: false, free: false, ctx: 0, ctxEst: true,
         ver: false, sched: false,
         // band signal/terms = the strongest online station's broker numbers
@@ -297,7 +309,7 @@
       var pin = (o.price_in != null ? +o.price_in : null);
       var pout = (o.price_out != null ? +o.price_out : null);
       if (pin != null && !isNaN(pin) && pin < b.minIn) b.minIn = pin;
-      if (pout != null && !isNaN(pout) && pout < b.minOut) b.minOut = pout;
+      if (pout != null && !isNaN(pout) && pout < b.minOut) { b.minOut = pout; b.priceTier = (+o.price_tier || 0); }
       var tps = +o.tps || 0; if (tps > b.tps) b.tps = tps;
       var tt = +o.ttft_ms || 0; if (tt > 0 && tt < b.ttft) b.ttft = tt;
       if (o.confidential) b.conf = true;
@@ -327,7 +339,7 @@
         nodeId: o.node_id,
         region: coarseRegion(o.region),
         online: online,
-        priceIn: pin, priceOut: pout,
+        priceIn: pin, priceOut: pout, priceTier: (+o.price_tier || 0),
         tps: tps, ttft: tt,
         quality: o.quality != null ? +o.quality : null,
         // REAL success EWMA, and whether it is measured at all. successSeen=false ->
@@ -357,6 +369,7 @@
         terms: b.terms || normTerms(null),
         priceIn: b.minIn === Infinity ? null : b.minIn,
         priceOut: b.minOut === Infinity ? null : b.minOut,
+        priceTier: b.priceTier || 0,
         tps: b.tps, ttft: b.ttft === Infinity ? 0 : b.ttft,
         success: b.success || 0, successSeen: b.successSeen,
         verified: b.ver, confidential: b.conf, freeNow: b.free,
@@ -507,7 +520,7 @@
     } else {
       var pi = b.priceIn != null ? fmtPrice(b.priceIn) : "-";
       var po = b.priceOut != null ? fmtPrice(b.priceOut) : "-";
-      price = '<b class="mono">' + pi + '</b><span class="band-unit"> · ' + po + '</span>';
+      price = '<b class="mono">' + pi + '</b><span class="band-unit"> · ' + po + '</span>' + fmtTier(b.priceTier, b.priceOut);
     }
     var tps = b.live && b.tps ? '<b class="mono">' + Math.round(b.tps) + '</b><span class="band-unit"> t/s</span>'
                               : '<span class="band-unit--idle">-</span>';
@@ -1006,7 +1019,7 @@
               '">report</button>' +
             '</span>' +
             '<span class="qsl-cs__reg mono">' + regHtml + metaHtml + '</span></span>' +
-          '<span class="mono">' + pin + '<span class="band-unit"> · ' + pout + '</span></span>' +
+          '<span class="mono">' + pin + '<span class="band-unit"> · ' + pout + '</span>' + fmtTier(s.priceTier, s.priceOut) + '</span>' +
           '<span class="mono">' + (s.online && s.tps ? Math.round(s.tps) : '-') + '</span>' +
           '<span class="mono">' + ttft + '</span>' +
           '<span class="mono">' + ok + '</span>');

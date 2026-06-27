@@ -251,6 +251,10 @@
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--free { color: var(--live); border-color: var(--live); }
+/* neutral $-tier read of a band's price vs the going rate for its model (FREE/unknown
+   render nothing). Only the cheapest tier is editorialized, via .band-tag--deal. */
+.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
+.band-tag--deal { color: var(--live); border-color: var(--live); }
 /* verified SERVING probe pass (distinct from the TEE-confidential ◆ mark) */
 .band-tag--ver { color: var(--ink-900); border-color: var(--ink-400); letter-spacing: 0.04em; font-weight: var(--weight-medium); }
 .band-tag--seen { color: var(--ink-400); border-color: var(--hairline-2); letter-spacing: 0.06em; }
