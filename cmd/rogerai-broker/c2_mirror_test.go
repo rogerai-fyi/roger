@@ -189,3 +189,48 @@ func TestSyncRegistryConfidentialSeedsAttestation(t *testing.T) {
 		t.Fatal("mirrored confidential node must have its attestation clock seeded (was zero) - cross-instance confidential routing would treat it as never-attested")
 	}
 }
+
+// TestRehydrateRepublishesToSharedRegistry guards the restart/redeploy gap: after an
+// instance restarts it rehydrates registrations from Postgres, and (multi-instance) must
+// re-publish PUBLIC nodes to the shared registry so a peer can re-learn a heartbeat-only
+// node whose shared reg key lapsed while this instance was down. Private nodes must NOT be
+// published. Every DO deploy rolls instances, so this is the common path.
+func TestRehydrateRepublishesToSharedRegistry(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+
+	pubReg := protocol.NodeRegistration{NodeID: "pub1", BridgeToken: "tok-pub", Offers: []protocol.ModelOffer{{Model: "free-m"}}}
+	privReg := protocol.NodeRegistration{NodeID: "priv1", BridgeToken: "tok-priv", Private: true, Offers: []protocol.ModelOffer{{Model: "free-m"}}}
+	if err := db.UpsertNode(store.NodeRecord{NodeID: "pub1", Reg: pubReg, LastSeen: time.Now().Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertNode(store.NodeRecord{NodeID: "priv1", Reg: privReg, LastSeen: time.Now().Unix()}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newMIBroker(t, brokerPriv, db, mr)
+	a.rehydrateNodes()
+
+	regs, err := a.shared.allNodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := regs["pub1"]; !ok {
+		t.Fatal("rehydrate did not re-publish the public node to the shared registry - a peer could not re-learn it after a redeploy")
+	}
+	if _, ok := regs["priv1"]; ok {
+		t.Fatal("rehydrate must NOT publish a PRIVATE node to the shared registry")
+	}
+
+	// A peer learns the re-published node end to end (registry mirror -> known + tunnel).
+	bInst := newMIBroker(t, brokerPriv, db, mr)
+	bInst.syncRegistry()
+	bInst.mu.Lock()
+	tun := bInst.tunnels["pub1"]
+	_, known := bInst.nodes["pub1"]
+	bInst.mu.Unlock()
+	if !known || tun == nil || tun.token != "tok-pub" {
+		t.Fatalf("peer did not re-learn the rehydrated node (known=%v tun=%+v)", known, tun)
+	}
+}

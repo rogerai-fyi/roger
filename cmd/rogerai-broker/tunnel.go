@@ -649,13 +649,24 @@ func (b *broker) rehydrateNodes() {
 		return
 	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.private == nil {
 		b.private = map[string]bool{}
 	}
 	if b.bandOf == nil {
 		b.bandOf = map[string]string{}
 	}
+	// Re-publish public registrations to the SHARED registry after a restart/redeploy, so
+	// peer instances can re-learn a heartbeat-only node even if its shared reg key lapsed
+	// while this instance was down. markSeen only EXTENDS an existing reg key (PExpire is a
+	// no-op on a missing key), so without this a rehydrated node would stay invisible
+	// cross-instance until it happened to re-register. Mirrors register()'s publish; the
+	// 10m key self-expires for nodes that never come back, and peers gate picking on
+	// liveness regardless. Collected here, published after the lock is dropped.
+	type pubReg struct {
+		id  string
+		raw []byte
+	}
+	var toPublish []pubReg
 	n := 0
 	for _, rec := range recs {
 		reg := rec.Reg
@@ -689,10 +700,23 @@ func (b *broker) rehydrateNodes() {
 		} else {
 			b.tunnels[reg.NodeID].token = reg.BridgeToken
 		}
+		if b.multiInstance && b.shared != nil && !reg.Private {
+			if raw, mErr := json.Marshal(reg); mErr == nil {
+				toPublish = append(toPublish, pubReg{reg.NodeID, raw})
+			}
+		}
 		n++
 	}
 	if n > 0 {
 		log.Printf("re-hydrated %d node registration(s) from the store (liveness re-confirmed on next heartbeat)", n)
+	}
+	b.mu.Unlock()
+	// Publish OUTSIDE the lock: putNode is a Valkey round-trip and rehydrate runs at
+	// startup; no need to hold b.mu across the network calls.
+	for _, p := range toPublish {
+		if err := b.shared.putNode(p.id, p.raw, livenessTTL); err != nil {
+			log.Printf("re-hydrate: shared registry re-publish of node %s failed: %v", p.id, err)
+		}
 	}
 }
 
