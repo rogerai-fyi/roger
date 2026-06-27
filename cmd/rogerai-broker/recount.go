@@ -43,6 +43,15 @@ type recountConfig struct {
 // tolerance so honest cross-model variance never bans an operator.
 const defaultRecountStrikeTolerance = 0.25
 
+// impossibleInputBanMargin is the headroom above the request-body byte count that a node's
+// claimed PROMPT tokens must exceed before the zero-doubt impossible-input ban fires. A
+// chat template can inject a large fixed preamble (system prompt / tool scaffolding) that
+// is NOT present in the request body, so templated prompt tokens can legitimately exceed
+// body bytes by a bounded amount; ~8K tokens (~32KB of pure scaffolding for one request) is
+// far beyond any real template, so a claim past body+margin is abuse beyond doubt. Billing
+// is clamped to body bytes regardless, so this margin only governs the (permanent) BAN.
+const impossibleInputBanMargin = 8192
+
 // loadRecount reads the L1 re-count config. Disabled (no-op) when TOKENIZER_URL
 // is unset, so the broker runs fine with no sidecar.
 func loadRecount() recountConfig {
@@ -151,9 +160,17 @@ func (b *broker) settleRecount(nodeID, requestID, model, completion string, clai
 // It never inflates a claim (we only ever bill the lesser count), and it returns the
 // claim unchanged when re-count is off and the byte floor was not breached.
 func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, claimed, bodyLen int) int {
-	// Defense 1: the zero-doubt byte floor (no sidecar needed).
+	// Defense 1: the zero-doubt byte floor (no sidecar needed). Clamp billing to the only
+	// physically-possible upper bound ALWAYS (safe for the consumer, makes input inflation
+	// unprofitable), but only PERMABAN when the claim exceeds the body by more than any
+	// chat template could plausibly inject. A model with a large fixed system preamble / tool
+	// scaffolding legitimately tokenizes to MORE prompt tokens than the request-body bytes
+	// (the preamble is not in the body), so a small overage must NOT zero-doubt-ban an honest
+	// node. Billing is clamped either way, so the ban only ejects implausible abuse.
 	if bodyLen > 0 && claimed > bodyLen {
-		b.flagImpossibleInput(nodeID, requestID, claimed, bodyLen)
+		if claimed > bodyLen+impossibleInputBanMargin {
+			b.flagImpossibleInput(nodeID, requestID, claimed, bodyLen)
+		}
 		claimed = bodyLen // clamp to the only physically-possible upper bound
 	}
 	// Defense 2: the sidecar input re-count (when configured).

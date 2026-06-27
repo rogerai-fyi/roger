@@ -498,8 +498,8 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		// t.jobs send would enqueue into a stub channel nobody drains whenever the poller
 		// is on another instance, time out after 30s, and FALSE-FAIL a perfectly healthy
 		// node (deprioritizing it / churning trust). busDispatchJob delivers to the poller
-		// on whichever instance it lives. errNoPoller (delivered==0) means nobody is
-		// polling on ANY instance - a genuine liveness failure, recorded as probeDead.
+		// on whichever instance it lives. A dispatch error (no subscriber / bus blip) is not
+		// a node-quality signal, so it skips the round rather than failing (see derr below).
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ch, dcancel, derr := b.busDispatchJob(ctx, node.NodeID, job)
@@ -507,7 +507,15 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 			defer dcancel()
 		}
 		if derr != nil {
-			b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+			// A dispatch that never reached the node is NOT evidence about the node's
+			// quality, so SKIP this round (don't touch trust) rather than record a failure.
+			// Both cases are transient and self-correct next interval:
+			//   - errNoPoller (delivered==0): nobody subscribed at this instant - usually the
+			//     node briefly BETWEEN long-polls (~25s re-poll gap), not death. Recording
+			//     probeDead here is the exact false-positive bus dispatch was meant to remove;
+			//     true death is caught by heartbeat liveness (markSeen TTL), not the probe.
+			//   - any other bus error: a transient Valkey blip would otherwise mark the WHOLE
+			//     fleet's probes dead at once. Skip and retry.
 			return
 		}
 		select {

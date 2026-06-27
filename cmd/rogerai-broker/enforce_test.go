@@ -48,32 +48,59 @@ func enforceBroker(db store.Store) *broker {
 	}
 }
 
-// TestImpossibleInputStrikesAndBans: a claim of MORE prompt tokens than the body has
-// bytes is a zero-doubt signal -> the owner is struck WITH evidence and banned on the
-// first strike. The strike evidence records claimed-vs-bytes.
+// TestImpossibleInputStrikesAndBans: a claim of prompt tokens GROSSLY beyond the body's
+// bytes (past the chat-template overhead margin) is a zero-doubt signal -> the owner is
+// struck WITH evidence and banned on the first strike. The strike evidence records the
+// claimed count.
 func TestImpossibleInputStrikesAndBans(t *testing.T) {
 	db := store.NewMem()
 	b := enforceBroker(db)
 	_ = db.BindNode("node1", "owner1")
 
-	// settleRecountPrompt with claimed (5000) > bodyLen (50) must clamp to 50 AND strike.
-	billed := b.settleRecountPrompt("node1", "rq1", "m", "tiny prompt", 5000, 50)
-	if billed != 50 {
-		t.Errorf("byte-floor clamp = %d, want 50 (clamped to body bytes)", billed)
+	// claimed grossly exceeds body+margin -> clamp to body bytes AND zero-doubt strike/ban.
+	const bodyLen = 50
+	claimed := bodyLen + impossibleInputBanMargin + 5000
+	billed := b.settleRecountPrompt("node1", "rq1", "m", "tiny prompt", claimed, bodyLen)
+	if billed != bodyLen {
+		t.Errorf("byte-floor clamp = %d, want %d (clamped to body bytes)", billed, bodyLen)
 	}
 	strikes, _ := db.StrikesByOwner("owner1", 0)
 	if len(strikes) == 0 {
-		t.Fatal("impossible input must record an owner strike with evidence")
+		t.Fatal("gross impossible input must record an owner strike with evidence")
 	}
-	if !strings.Contains(strikes[len(strikes)-1].Evidence, "5000") {
+	if !strings.Contains(strikes[len(strikes)-1].Evidence, strconv.Itoa(claimed)) {
 		t.Errorf("strike evidence must record the claimed count, got %q", strikes[len(strikes)-1].Evidence)
 	}
 	// Zero-doubt -> banned on the first strike.
 	if banned, _, _ := db.IsOwnerBanned("owner1"); !banned {
-		t.Error("impossible input is zero-doubt and must ban the owner on the first strike")
+		t.Error("gross impossible input is zero-doubt and must ban the owner on the first strike")
 	}
 	if !b.isOwnerBanned("owner1") {
 		t.Error("the in-memory owner-ban cache must reflect the ban immediately")
+	}
+}
+
+// TestImpossibleInputTemplateOverheadClampsNoBan guards the audit false-positive: a node
+// whose claimed prompt tokens exceed the request-body bytes by only a TEMPLATE-scale amount
+// (a large fixed system preamble injected by the chat template, not present in the body)
+// must be BILLING-CLAMPED to body bytes but must NOT be struck or permabanned. Only an
+// overage beyond impossibleInputBanMargin is abuse-beyond-doubt.
+func TestImpossibleInputTemplateOverheadClampsNoBan(t *testing.T) {
+	db := store.NewMem()
+	b := enforceBroker(db) // recount disabled: only the byte-floor defense is exercised
+	_ = db.BindNode("node1", "owner1")
+
+	const bodyLen = 50
+	claimed := bodyLen + impossibleInputBanMargin - 1 // over body, but within template margin
+	billed := b.settleRecountPrompt("node1", "rq1", "m", "tiny prompt", claimed, bodyLen)
+	if billed != bodyLen {
+		t.Errorf("billing must still clamp to body bytes, got %d want %d", billed, bodyLen)
+	}
+	if strikes, _ := db.StrikesByOwner("owner1", 0); len(strikes) != 0 {
+		t.Fatalf("template-scale overage must NOT strike an honest node, got %d strikes", len(strikes))
+	}
+	if banned, _, _ := db.IsOwnerBanned("owner1"); banned {
+		t.Fatal("template-scale overage must NOT permaban an honest node (audit false-positive)")
 	}
 }
 

@@ -301,3 +301,60 @@ func TestMultiInstanceProbeCrossesBus(t *testing.T) {
 		t.Fatalf("probeFails=%d, want 0 for a live cross-instance probe", tq.probeFails)
 	}
 }
+
+// TestSyncRegistryReconvergesRotatedToken guards the major multi-instance bug from the
+// audit: a bridge token rotates (every recover() mints a fresh one) and re-registers on
+// one instance; PEER instances must reconverge to the new token via the shared registry,
+// not pin the old one forever (which would 401 the node on those peers until a full-fleet
+// restart - defeating C2). The fix makes syncRegistry's "trust local" window TIME-BOUNDED:
+// within the grace an instance keeps its own freshly-registered token; after it, the
+// instance reconciles even a locally-held node from the shared registry (source of truth).
+func TestSyncRegistryReconvergesRotatedToken(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	pubHex := hex.EncodeToString(nodePub)
+	offers := []protocol.ModelOffer{{Model: "free-m"}}
+
+	// A holds the node with token T1 (as if it registered it); publish T1 to the shared reg.
+	miRegisterNode(a, "n1", pubHex, "T1", offers)
+	rawT1, _ := json.Marshal(a.nodes["n1"])
+	if err := a.shared.putNode("n1", rawT1, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	a.localRegAt = map[string]time.Time{"n1": time.Now()} // just registered locally
+	a.mu.Unlock()
+
+	// The token rotates and re-registers elsewhere: the shared registry now carries T2.
+	reg2 := a.nodes["n1"]
+	reg2.BridgeToken = "T2"
+	rawT2, _ := json.Marshal(reg2)
+	if err := a.shared.putNode("n1", rawT2, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	// WITHIN the grace: A trusts its own fresh token and does NOT clobber it to a stale read.
+	a.syncRegistry()
+	a.mu.Lock()
+	tok := a.tunnels["n1"].token
+	a.mu.Unlock()
+	if tok != "T1" {
+		t.Fatalf("within grace A should keep its own freshly-registered token T1, got %q", tok)
+	}
+
+	// AFTER the grace lapses: A must reconcile from the shared registry and adopt T2.
+	a.mu.Lock()
+	a.localRegAt["n1"] = time.Now().Add(-2 * syncLocalRegisterGrace)
+	a.mu.Unlock()
+	a.syncRegistry()
+	a.mu.Lock()
+	tok = a.tunnels["n1"].token
+	a.mu.Unlock()
+	if tok != "T2" {
+		t.Fatalf("after grace A must reconverge to the rotated token T2 (else the node 401s on A until a full-fleet restart), got %q", tok)
+	}
+}

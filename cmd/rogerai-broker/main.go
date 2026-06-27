@@ -52,6 +52,7 @@ type broker struct {
 	private      map[string]bool      // node id -> hidden from /discover+/market, freq-code-only routing
 	bandOf       map[string]string    // node id -> band id (the private channel it serves)
 	attestedAt   map[string]time.Time // when each node last passed TEE attestation (for re-attest lapse)
+	localRegAt   map[string]time.Time // when THIS instance last (re)registered a node, so syncRegistry briefly trusts our own fresh bridge token over a possibly-stale shared read (multi-instance token reconvergence)
 	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
 	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
 	quotes       map[string]priceQuote
@@ -299,7 +300,7 @@ func main() {
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
-		attestedAt: map[string]time.Time{}, attest: loadAttestRegistry(),
+		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, attest: loadAttestRegistry(),
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},

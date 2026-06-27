@@ -365,6 +365,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	} else {
 		t.token = reg.BridgeToken
 	}
+	// Stamp a LOCAL (re)register so syncRegistry briefly trusts this fresh bridge token
+	// over a possibly-stale shared read (the shared key is written just below, after this
+	// unlock). After the grace, syncRegistry reconciles even this node from the shared
+	// registry so a token rotated on ANOTHER instance reconverges here instead of pinning
+	// a stale token forever -> 401s (the multi-instance token-oscillation bug).
+	if b.localRegAt == nil {
+		b.localRegAt = map[string]time.Time{}
+	}
+	b.localRegAt[reg.NodeID] = now
 	b.mu.Unlock()
 
 	// MULTI-INSTANCE registry mirror: publish this PUBLIC node's full registration (incl.
@@ -584,11 +593,24 @@ func (b *broker) syncLiveness() {
 	}
 }
 
+// syncLocalRegisterGrace is how long after THIS instance (re)registers a node that
+// syncRegistry leaves that node's token/offers alone, trusting the just-written local
+// reg over the shared read (which the register publishes immediately after, so an
+// in-flight sync must not clobber it back). It is a few sync ticks (interval 5s); after
+// it lapses, even a locally-held node reconciles from the shared registry so a bridge
+// token rotated on a PEER instance reconverges here. Bridge tokens are stable in steady
+// state (they only rotate on a 404/401/403 recover, which the mirror makes rare), so the
+// brief reconvergence delay never costs a healthy node.
+const syncLocalRegisterGrace = 15 * time.Second
+
 // syncRegistry mirrors the shared node registry into this instance's in-memory state so
 // any node is pickable + its poll/result authenticatable on ANY instance (the bus then
-// carries the actual job/result). It only ADDS/refreshes peer nodes - never deletes
-// (liveness + the prune sweep age a dead node out) - and never overwrites a node we hold
-// authoritatively (one registered on THIS instance). Private bands are not mirrored.
+// carries the actual job/result). It ADDS/refreshes peer nodes - never deletes (liveness
+// + the prune sweep age a dead node out). A node THIS instance just (re)registered is left
+// untouched for syncLocalRegisterGrace (so the fresh local token wins a race with a stale
+// shared read); after that it too is reconciled from the shared registry, which is the
+// source of truth for the bridge token (register publishes it on every register). Private
+// bands are not mirrored.
 func (b *broker) syncRegistry() {
 	if b.shared == nil {
 		return
@@ -600,8 +622,14 @@ func (b *broker) syncRegistry() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for id, raw := range regs {
-		if t := b.tunnels[id]; t != nil && t.token != "" {
-			continue // authoritative local registration already present
+		// Trust our OWN just-(re)registered token over the shared read for a short grace
+		// window: the shared key is written right after register's unlock, so an in-flight
+		// sync that read the shared registry a moment before that write must not clobber the
+		// fresh local token back to the previous one. After the grace we reconcile this node
+		// from the shared registry like any other, so a token rotated on a PEER instance
+		// (authority migration) reconverges here instead of pinning a stale token -> 401s.
+		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+			continue
 		}
 		var reg protocol.NodeRegistration
 		if json.Unmarshal(raw, &reg) != nil {
