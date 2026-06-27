@@ -302,6 +302,57 @@ func main() {
 		// fallback silently breaks all three across a restart. Refuse to boot.
 		log.Fatalf("broker identity: %v (ROGERAI_REQUIRE_BROKER_KEY is set - refusing to boot with an ephemeral key)", err)
 	}
+	b := buildBroker(db, priv, *fee, *seed, *lock)
+	mux := b.routes()
+
+	if b.probe.enabled() {
+		go b.proberLoop()
+	}
+	go b.reattestSweep()        // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.recountHoldSweep()     // auto-expire recount holds past the review window (operator recourse)
+	go b.nodeBanSweep()         // auto-lift report-origin node suspensions past the review window (reversible bans)
+	go b.reversalRetrySweep()   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+	go b.pruneStaleNodesSweep() // remove long-dead node registrations (old hostname ids that never re-register)
+
+	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
+
+	// Tuned server (replaces the bare http.ListenAndServe). The timeouts that are
+	// SAFE for every route live here; the per-route write/response bound is applied
+	// selectively in streamSafeHandler so the long-lived routes are never capped.
+	//
+	//   ReadHeaderTimeout - slow-loris guard: bound how long a client may dribble
+	//     request headers. Safe on every route (including streams/long-poll).
+	//   ReadTimeout       - bound the time to read the whole request (headers+body).
+	//     Safe everywhere: our request bodies are small + bounded (LimitReader); the
+	//     LONG wait is on the RESPONSE side (long-poll/stream), which ReadTimeout does
+	//     not touch.
+	//   IdleTimeout       - reap idle keep-alive connections.
+	//   MaxHeaderBytes    - cap header size (cheap DoS guard).
+	//
+	// DELIBERATELY NO global WriteTimeout. A blanket WriteTimeout fires from the
+	// moment the handler is invoked and would KILL the long-lived surfaces:
+	//   - /agent/poll holds a connection open up to 25s waiting for a job (tunnel.go),
+	//   - /v1/chat/completions (stream:true) + /agent/stream pump SSE for up to 300s,
+	//   - /concierge can wait on an upstream model.
+	// Those MUST stay open. Instead the NON-streaming routes are individually bounded
+	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
+	// never pin a connection, while the streaming/poll routes keep their long windows.
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           streamSafeHandler(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 16, // 64 KiB
+	}
+	log.Fatal(srv.ListenAndServe())
+}
+
+// buildBroker constructs + wires the broker from the resolved db/key/flags + the
+// environment (rehydrate, config loaders, optional shared-state layer). It does NOT
+// start the background goroutines that need a wired shared store - those are gated on
+// b.shared (nil in tests) - nor does it serve, so a test can construct + drive it.
+func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, lock time.Duration) *broker {
 	b := &broker{
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
@@ -313,7 +364,7 @@ func main() {
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
 		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
-		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
+		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,
 		banned:                 map[string]bool{},
 		reportEjectAt:          reportEjectThreshold(),
 		reportDecayDays:        reportDecayDays(),
@@ -401,8 +452,13 @@ func main() {
 	}
 	b.concierge.dogfoodFn = b.dogfoodRelay
 	b.concierge.groqFn = b.groqCall
-	log.Printf("price-lock: quoted prices honored for %s per user+node+model", *lock)
+	log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
+	return b
+}
 
+// routes builds the broker's HTTP mux. Split out of main() so the full route table is
+// exercised by a test that drives requests through the returned handler.
+func (b *broker) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/nodes/register", b.register)
 	mux.HandleFunc("/nodes/challenge", b.attestChallenge) // TEE attestation nonce (anti-replay binding)
@@ -465,48 +521,7 @@ func main() {
 		_, _ = w.Write([]byte(openapiSpec))
 	})
 	mux.HandleFunc("/", b.root) // service descriptor - the broker is API-only (no website)
-
-	if b.probe.enabled() {
-		go b.proberLoop()
-	}
-	go b.reattestSweep()        // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep()     // auto-expire recount holds past the review window (operator recourse)
-	go b.nodeBanSweep()         // auto-lift report-origin node suspensions past the review window (reversible bans)
-	go b.reversalRetrySweep()   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-	go b.pruneStaleNodesSweep() // remove long-dead node registrations (old hostname ids that never re-register)
-
-	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, *addr, *fee*100)
-
-	// Tuned server (replaces the bare http.ListenAndServe). The timeouts that are
-	// SAFE for every route live here; the per-route write/response bound is applied
-	// selectively in streamSafeHandler so the long-lived routes are never capped.
-	//
-	//   ReadHeaderTimeout - slow-loris guard: bound how long a client may dribble
-	//     request headers. Safe on every route (including streams/long-poll).
-	//   ReadTimeout       - bound the time to read the whole request (headers+body).
-	//     Safe everywhere: our request bodies are small + bounded (LimitReader); the
-	//     LONG wait is on the RESPONSE side (long-poll/stream), which ReadTimeout does
-	//     not touch.
-	//   IdleTimeout       - reap idle keep-alive connections.
-	//   MaxHeaderBytes    - cap header size (cheap DoS guard).
-	//
-	// DELIBERATELY NO global WriteTimeout. A blanket WriteTimeout fires from the
-	// moment the handler is invoked and would KILL the long-lived surfaces:
-	//   - /agent/poll holds a connection open up to 25s waiting for a job (tunnel.go),
-	//   - /v1/chat/completions (stream:true) + /agent/stream pump SSE for up to 300s,
-	//   - /concierge can wait on an upstream model.
-	// Those MUST stay open. Instead the NON-streaming routes are individually bounded
-	// with http.TimeoutHandler (streamSafeHandler) so a stuck non-stream handler can
-	// never pin a connection, while the streaming/poll routes keep their long windows.
-	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           streamSafeHandler(mux),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 16, // 64 KiB
-	}
-	log.Fatal(srv.ListenAndServe())
+	return mux
 }
 
 // streamRoutes are the paths that MUST keep a long-lived response open and therefore
