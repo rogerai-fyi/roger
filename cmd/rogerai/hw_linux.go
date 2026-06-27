@@ -50,7 +50,7 @@ func detectHWClass() string {
 // command) but discard everything except the COUNT - the per-GPU details never reach
 // the advertised class.
 func nvidiaGPUCount() int {
-	out, ok := runHW("nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader")
+	out, ok := hwRun("nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader")
 	if !ok {
 		return 0
 	}
@@ -60,12 +60,19 @@ func nvidiaGPUCount() int {
 // rocmGPUCount returns the number of AMD GPUs via rocm-smi (product-name listing),
 // or 0 when absent/none.
 func rocmGPUCount() int {
-	out, ok := runHW("rocm-smi", "--showproductname")
+	out, ok := hwRun("rocm-smi", "--showproductname")
 	if !ok {
 		return 0
 	}
 	return detect.CountROCmSMI(out)
 }
+
+// hwRun is a behaviour-preserving seam over the GPU-probe command runner (default
+// runHW, which shells out to nvidia-smi / rocm-smi). Production runs the real probe
+// unchanged; a test points it at a fake that returns canned smi output so the
+// GPU-present branches of nvidiaGPUCount / rocmGPUCount / detectHWClass are reachable
+// on a GPU-less CI box (where the real tools are absent and only the cpu branch runs).
+var hwRun = runHW
 
 // runHW runs a short-lived hardware-probe command and returns its stdout. It is
 // hard-capped at 2s so a wedged tool can never stall share startup, and any error

@@ -42,9 +42,6 @@ func TestWizardNonInteractive(t *testing.T) {
 	if err := cmdOnboard(cfg, nil); err != nil {
 		t.Errorf("cmdOnboard(keep) = %v, want nil", err)
 	}
-
-	// runWizard --free exercises finishShare's detect path (outcome is host-dependent:
-	// it errors when no local LLM is running, succeeds if one is - either way the path
-	// runs without panicking).
-	_, _, _ = runWizard(cfg, wizardOpts{forceFree: true})
+	// (runWizard's --free detect path is covered deterministically in
+	// TestRunWizardForcePaths, which stubs detectFull and asserts the result.)
 }

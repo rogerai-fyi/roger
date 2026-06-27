@@ -396,8 +396,31 @@ func toProtocolWindows(ws []SchedWindow) []protocol.PriceWindow {
 	return out
 }
 
+// runTUI / startWebConsoleFn are behaviour-preserving seams over run()'s two blocking,
+// terminal/port-bound side effects on the no-args launch path: the interactive TUI
+// program (default tui.RunWithController, which blocks until the user quits) and the
+// browser-console http server (default startWebConsole, which binds a localhost port).
+// Production wires the real implementations so the launch path is byte-for-byte
+// unchanged; a test points them at stubs so run()'s no-args branch is reachable without
+// a real TTY or a bound port.
+var (
+	runTUI            = tui.RunWithController
+	startWebConsoleFn = startWebConsole
+)
+
 func main() {
-	cfg := loadConfig()
+	if err := run(os.Args[1:], loadConfig()); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+// run is main()'s testable body: it takes the argv tail (os.Args[1:]) plus the loaded
+// config, wires the startup update banner + the global browser-console flag strip, and
+// either launches the no-args interactive app (via the runTUI / startWebConsoleFn seams)
+// or dispatches a subcommand. It returns an error instead of calling os.Exit so a test
+// can drive every branch; main() owns turning that error into a stderr line + exit 1.
+func run(argv []string, cfg config) error {
 	tui.SetVersion(Version) // help/about surfaces match `roger version`
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
 	// couldn't be deleted while the old process was still running). No-op elsewhere.
@@ -408,9 +431,8 @@ func main() {
 	// Global browser-console flags (--no-webui / --webui / --webui-port=N) are not
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
-	rest, webuiOn, webuiPort := stripWebuiFlags(os.Args[1:], cfg.webuiEnabled(), defaultWebuiPort)
-	os.Args = append([]string{os.Args[0]}, rest...)
-	if len(os.Args) < 2 {
+	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	if len(rest) == 0 {
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
 		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
 		cfg = maybeOnboard(cfg)
@@ -420,28 +442,31 @@ func main() {
 		hooks := tuiHooks(cfg)
 		ctrl := tui.NewController(cfg.Broker, hooks)
 		if webuiOn {
-			startWebConsole(cfg, ctrl, webuiPort)
+			startWebConsoleFn(cfg, ctrl, webuiPort)
 		}
-		if err := tui.RunWithController(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
-		return
+		return runTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl)
 	}
 	// On plain CLI subcommands (not the TUI / the upgrade command itself), print the
 	// banner to stderr so scripted stdout stays clean.
 	if notice != "" {
-		switch os.Args[1] {
+		switch rest[0] {
 		case "upgrade", "update", "self-update", "ping", "--ping", "-ping", "version":
 		default:
 			fmt.Fprintln(os.Stderr, notice)
 		}
 	}
-	if err := dispatch(cfg, os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	return dispatch(cfg, rest)
 }
+
+// detectFull / detectProbeKey are behaviour-preserving seams over the local-LLM
+// detector (default detect.DetectFull / detect.ProbeKey). Production calls the real
+// detector unchanged; a test points them at a fake so cmdShare's no-upstream detection
+// path, finishShare's detect-success path, and cmdDrPhil's upstream check run to
+// completion WITHOUT a live local model server on the box.
+var (
+	detectFull     = detect.DetectFull
+	detectProbeKey = detect.ProbeKey
+)
 
 // errUnknownCommand is returned by dispatch for an unrecognized subcommand (main turns
 // any dispatch error into a stderr line + exit 1). Split out of main() so the command
@@ -710,12 +735,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		var found []detect.Found
 		var needKey []string
 		if savedUp != "" && *upKey != "" {
-			if f, st := detect.ProbeKey(savedUp, *upKey); st == detect.Reachable {
+			if f, st := detectProbeKey(savedUp, *upKey); st == detect.Reachable {
 				found = []detect.Found{f}
 			}
 		}
 		if len(found) == 0 {
-			found, needKey = detect.DetectFull(savedUp)
+			found, needKey = detectFull(savedUp)
 		}
 		if len(found) == 0 {
 			// GUIDED FALLBACK: nothing usable. Walk the user through it instead of
@@ -778,7 +803,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// from the environment (OPENAI_API_KEY / friends) for THIS endpoint and confirm
 		// reachability - but NEVER block here, the agent self-heals if the server is
 		// momentarily down (the same reason the explicit path skips a hard preflight).
-		if f, st := detect.ProbeKey(up, ""); st == detect.Reachable && f.Key != "" {
+		if f, st := detectProbeKey(up, ""); st == detect.Reachable && f.Key != "" {
 			*upKey = f.Key
 		}
 	}
@@ -1035,7 +1060,7 @@ ROGERAI_NO_UPDATE_CHECK=1.
 	}
 	fs.Parse(args)
 	if *check {
-		res, err := update.Check(Version)
+		res, err := updateCheck(Version)
 		if err != nil {
 			fmt.Printf("could not check for updates (offline?): %v\n", err)
 			return nil // never fail the command on a network hiccup
@@ -1047,8 +1072,18 @@ ROGERAI_NO_UPDATE_CHECK=1.
 		}
 		return nil
 	}
-	return update.Upgrade(Version, os.Stdout)
+	return updateUpgrade(Version, os.Stdout)
 }
+
+// updateCheck / updateUpgrade are behaviour-preserving seams over the self-update
+// network boundary (default update.Check / update.Upgrade, both of which hit GitHub).
+// Production wires the real functions so `roger upgrade` is byte-for-byte unchanged; a
+// test points them at fakes so cmdUpgrade's branches are reachable without a real
+// release download / network call.
+var (
+	updateCheck   = update.Check
+	updateUpgrade = update.Upgrade
+)
 
 func cmdTopup(cfg config, args []string) error {
 	usd := 10.0
