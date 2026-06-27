@@ -553,6 +553,17 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	defer tx.Rollback()
+	// Idempotency claim: the receipt row IS the lock. A non-empty request id is
+	// inserted FIRST (owner_share backfilled below once the seed-scaled share is
+	// known); a duplicate finds the row already present, touches NO money, and
+	// returns the unchanged balance. Without this gate a redelivered settle
+	// re-debited the wallet, re-drew seed + re-credited earnings, and minted a
+	// second lot - silently inflating both spend and operator payout.
+	if won, bal, err := p.claimReceipt(tx, user, node, cost, rec); err != nil {
+		return 0, err
+	} else if !won {
+		return bal, tx.Commit()
+	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 RETURNING balance`, user, cost).Scan(&bal); err != nil {
 		return 0, err
@@ -567,12 +578,7 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil {
 		return 0, err
 	}
-	rj, _ := json.Marshal(rec)
-	bpt, bct := billedTokens(rec)
-	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+	if err := p.fillEarnShare(tx, user, node, cost, rec, earnShare); err != nil {
 		return 0, err
 	}
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
@@ -585,6 +591,53 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
 		return 0, err
 	}
 	return bal, tx.Commit()
+}
+
+// claimReceipt is the idempotency gate for Settle/Finalize. For a non-empty
+// request id it inserts the receipt row (with owner_share=0, backfilled by
+// fillEarnShare once the seed-scaled share is computed) and reports whether THIS
+// call won the claim. A losing call (the row already exists) gets won=false plus
+// the wallet's current balance so the caller can commit a clean no-op. An empty
+// request id carries no idempotency key, so it always "wins" and the receipt is
+// written later with the real owner_share - preserving the legacy behaviour.
+func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec protocol.UsageReceipt) (bool, float64, error) {
+	if rec.RequestID == "" {
+		return true, 0, nil
+	}
+	rj, _ := json.Marshal(rec)
+	bpt, bct := billedTokens(rec)
+	res, err := tx.Exec(`INSERT INTO rogerai.receipts
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+	if err != nil {
+		return false, 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		var bal float64
+		if err := tx.QueryRow(`SELECT COALESCE(balance,0) FROM rogerai.wallet WHERE usr=$1`, user).Scan(&bal); err != nil {
+			return false, 0, err
+		}
+		return false, bal, nil
+	}
+	return true, 0, nil
+}
+
+// fillEarnShare records the seed-scaled operator share once it is known: it
+// backfills the claimed receipt row for a non-empty request id, or writes the
+// receipt fresh for the (idempotency-key-less) empty-request-id path.
+func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, rec protocol.UsageReceipt, earnShare float64) error {
+	if rec.RequestID != "" {
+		_, err := tx.Exec(`UPDATE rogerai.receipts SET owner_share=$2 WHERE request_id=$1`, rec.RequestID, earnShare)
+		return err
+	}
+	rj, _ := json.Marshal(rec)
+	bpt, bct := billedTokens(rec)
+	_, err := tx.Exec(`INSERT INTO rogerai.receipts
+		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+	return err
 }
 
 func (p *Postgres) EarningsOf(node string) (float64, error) {
@@ -768,6 +821,14 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		return 0, err
 	}
 	defer tx.Rollback()
+	// Idempotency claim (see Settle): the receipt row is the lock. A redelivered
+	// Finalize must NOT re-credit held-cost, re-earn, or mint a second lot - it
+	// returns the wallet balance untouched.
+	if won, bal, err := p.claimReceipt(tx, user, node, cost, rec); err != nil {
+		return 0, err
+	} else if !won {
+		return bal, tx.Commit()
+	}
 	var bal float64
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
 		return 0, err
@@ -782,17 +843,13 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 		ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil {
 		return 0, err
 	}
-	rj, _ := json.Marshal(rec)
-	bpt, bct := billedTokens(rec)
-	if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-		(request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-		rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil {
+	if err := p.fillEarnShare(tx, user, node, cost, rec, earnShare); err != nil {
 		return 0, err
 	}
 	// Capture: release the full reservation then debit the actual spend. Net wallet
-	// delta == held-cost, matching the cache update above.
-	if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS); err != nil {
+	// delta == held-cost, matching the cache update above. The release carries a
+	// non-empty idem_key so it can never post twice for one request id.
+	if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "release:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
 		return 0, err
 	}
 	if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil {
