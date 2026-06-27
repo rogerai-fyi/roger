@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/detect"
 )
 
 // drphil.go is `roger drphil` (a.k.a. doctor/diagnose): an operator diagnostic that tells
@@ -127,7 +126,7 @@ func cmdDrPhil(cfg config, args []string) error {
 
 	// 4) Local upstream reachability (reuse the share detector): no local model = nothing
 	//    to serve = no earnings, regardless of broker state.
-	found, needKey := detect.DetectFull("")
+	found, needKey := detectFull("")
 	switch {
 	case len(found) > 0:
 		models := []string{}

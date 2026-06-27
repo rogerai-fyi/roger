@@ -129,7 +129,7 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 // onboarded. It does NOT start serving - it sets the user up; `roger share`
 // (or `/share` in the TUI) goes on air.
 func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
-	found, needKey := detect.DetectFull()
+	found, needKey := detectFull()
 	if len(found) == 0 {
 		// GUIDED FALLBACK: walk the user through starting a tool, pasting an endpoint, or
 		// (when a key-protected server is detected) entering its API key, instead of
@@ -294,7 +294,7 @@ func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 			Value(&again).Run(); err != nil || !again {
 			return detect.Found{}, false
 		}
-		found, needKey := detect.DetectFull()
+		found, needKey := detectFull()
 		if len(found) > 0 {
 			fmt.Printf("found %s at %s\n", found[0].Name, found[0].BaseURL)
 			return found[0], true
