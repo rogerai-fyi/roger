@@ -79,6 +79,64 @@ func TestSearchTopupBind(t *testing.T) {
 	}
 }
 
+// fakeGitHubDevice points the device-flow URLs at a local server that returns a device
+// code then an access token, and restores them after the test.
+func fakeGitHubDevice(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/device":
+			_, _ = w.Write([]byte(`{"device_code":"dc","user_code":"WXYZ-1234","verification_uri":"https://gh/device","interval":1,"expires_in":300}`))
+		default: // token poll
+			_, _ = w.Write([]byte(`{"access_token":"gho_token"}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	od, oa := ghDeviceCodeURL, ghAccessTokenURL
+	ghDeviceCodeURL = srv.URL + "/device"
+	ghAccessTokenURL = srv.URL + "/token"
+	t.Cleanup(func() { ghDeviceCodeURL, ghAccessTokenURL = od, oa })
+}
+
+// TestLoginDeviceFlow covers the full GitHub device-login flow against a local GitHub +
+// the fake broker bind: startDeviceFlow, pollDeviceToken, LoginBegin/Poll, Login,
+// LoginReturn — none of which reaches github.com here.
+func TestLoginDeviceFlow(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	fakeGitHubDevice(t)
+	b := fakeBroker(t)
+
+	dev, err := startDeviceFlow("cid")
+	if err != nil || dev.DeviceCode != "dc" || dev.Interval != 1 {
+		t.Fatalf("startDeviceFlow = %+v / %v", dev, err)
+	}
+	if tok, err := pollDeviceToken("cid", dev); err != nil || tok != "gho_token" {
+		t.Fatalf("pollDeviceToken = %q / %v", tok, err)
+	}
+
+	// LoginBegin (no poll) then LoginPoll authorizes + binds.
+	d, err := LoginBegin(b, "cid")
+	if err != nil || d.UserCode != "WXYZ-1234" {
+		t.Fatalf("LoginBegin = %+v / %v", d, err)
+	}
+	if login, err := LoginPoll(b, "cid", d); err != nil || login != "octocat" {
+		t.Fatalf("LoginPoll = %q / %v", login, err)
+	}
+
+	// Login (begin+poll+bind) end-to-end, then LoginReturn (data form).
+	if err := Login(b, "cid"); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if login, err := LoginReturn(b, "cid"); err != nil || login != "octocat" {
+		t.Fatalf("LoginReturn = %q / %v", login, err)
+	}
+	// Login with no client id is a clear error (no network).
+	if err := Login(b, ""); err == nil {
+		t.Error("Login with empty client id should error")
+	}
+}
+
 // TestRangeLabel covers the band-range label formatting (single vs range).
 func TestRangeLabel(t *testing.T) {
 	if got := rangeLabel(BandRange{Min: 2, Max: 2, Stations: 1}); got != "2.00 $/1M out" {
@@ -216,11 +274,13 @@ func TestBrokerReads(t *testing.T) {
 	if _, err := FetchStrikes(b); err != nil {
 		t.Errorf("FetchStrikes: %v", err)
 	}
-	if _, err := ListAppeals(b); err != nil {
+	if ap, err := ListAppeals(b); err != nil {
 		t.Errorf("ListAppeals: %v", err)
+	} else if ap == nil {
+		t.Error("ListAppeals should decode the appeals array (got nil)")
 	}
-	if _, err := FileAppeal(b, "node-1", "false positive"); err != nil {
-		t.Errorf("FileAppeal: %v", err)
+	if res, err := FileAppeal(b, "node-1", "false positive"); err != nil || !res.OK {
+		t.Errorf("FileAppeal = %+v / %v, want ok", res, err)
 	}
 	if err := GrantList(b); err != nil {
 		t.Errorf("GrantList: %v", err)
