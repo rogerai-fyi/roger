@@ -2,6 +2,7 @@ package client
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -84,6 +85,43 @@ func TestUseConfirmYesOpensChannel(t *testing.T) {
 	}
 	if addr != "127.0.0.1:4321" {
 		t.Errorf("relay addr = %q, want 127.0.0.1:4321", addr)
+	}
+}
+
+// fakeBrokerExpensive serves one model above the high-price confirm line (25 $/1M out),
+// to exercise the "TYPE THE OUT-PRICE exactly" fat-finger guard.
+func fakeBrokerExpensive(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"offers":[{"node_id":"pricey-1","model":"big","price_out":25.0,"price_in":5.0,"online":true}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// TestUseHighPriceConfirmExact covers the above-threshold guard: within the (raised) cap
+// but over the $20 confirm line, typing the EXACT price opens the channel.
+func TestUseHighPriceConfirmExact(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	withStdin(t, "25\n")
+	var addr string
+	captureServe(t, &addr)
+	if err := Use(fakeBrokerExpensive(t), "u_gh_1", "big", UseOptions{MaxOut: 30, Port: 9100}); err != nil {
+		t.Fatalf("Use(typed exact price) = %v, want nil", err)
+	}
+	if addr != "127.0.0.1:9100" {
+		t.Errorf("high-price confirm relay addr = %q, want :9100", addr)
+	}
+}
+
+// TestUseHighPriceConfirmMismatch covers the fat-finger guard: a WRONG typed price aborts
+// without serving. No captureServe is installed on purpose - a regression that fell
+// through to the real ListenAndServe would hang this test rather than pass silently.
+func TestUseHighPriceConfirmMismatch(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	withStdin(t, "12\n")
+	if err := Use(fakeBrokerExpensive(t), "u_gh_1", "big", UseOptions{MaxOut: 30}); err != nil {
+		t.Errorf("Use(typed wrong price) = %v, want nil (aborted)", err)
 	}
 }
 
