@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,5 +114,23 @@ func TestAccountLimitHandler(t *testing.T) {
 	if wg.Code != http.StatusOK {
 		t.Fatalf("accountLimit GET = %d, want 200: %s", wg.Code, wg.Body.String())
 	}
-	_ = time.Now
+
+	// PATCH a new cap, then GET it back and assert it persisted.
+	body := strings.NewReader(`{"monthly_cap":42}`)
+	rp := httptest.NewRequest(http.MethodPatch, "/account/limit", body)
+	rp.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
+	wp := httptest.NewRecorder()
+	b.accountLimit(wp, rp)
+	if wp.Code != http.StatusOK {
+		t.Fatalf("accountLimit PATCH = %d, want 200: %s", wp.Code, wp.Body.String())
+	}
+	wg2 := httptest.NewRecorder()
+	b.accountLimit(wg2, sessionReq(b, http.MethodGet, "/account/limit", "octocat", 7))
+	var got struct {
+		MonthlyCap float64 `json:"monthly_cap"`
+	}
+	_ = json.Unmarshal(wg2.Body.Bytes(), &got)
+	if got.MonthlyCap != 42 {
+		t.Errorf("monthly_cap after PATCH = %v, want 42", got.MonthlyCap)
+	}
 }

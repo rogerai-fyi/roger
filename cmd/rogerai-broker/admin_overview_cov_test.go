@@ -90,7 +90,19 @@ func TestAdminOverview(t *testing.T) {
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("overview not JSON: %v", err)
 	}
-	if len(resp) == 0 {
-		t.Error("adminOverview should return a non-empty rollup")
+	// The rollup must carry its three documented sections (HEALTH + MARKETPLACE +
+	// REVENUE), so a regression that drops one is caught - not just "non-empty".
+	for _, k := range []string{"health", "marketplace", "financial"} {
+		if _, ok := resp[k]; !ok {
+			t.Errorf("adminOverview missing %q section; got keys %v", k, keysOf(resp))
+		}
 	}
+}
+
+func keysOf(m map[string]any) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
 }
