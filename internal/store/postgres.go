@@ -1586,32 +1586,48 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 		}
 	}
 	var out ChargebackResult
-	recovered := 0.0  // operator gross recovered (clawed + reversed)
-	costClawed := 0.0 // consumer cost of clawed lots, compared to the consumer-dollar amount
+	recovered := 0.0    // operator gross recovered (clawed + reversed)
+	remaining := amount // consumer cost still to recover (wallet-recency path); caps the claw
 	for _, c := range claws {
-		if requestID == "" && costClawed >= amount {
+		if requestID == "" && remaining <= 1e-9 {
 			break
 		}
-		costClawed += c.cost
-		if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
-			return ChargebackResult{}, err
+		// PRO-RATA on the overshooting lot: recover only the operator's proportional share of
+		// the disputed cost still remaining, so the operator is never clawed beyond the
+		// disputed amount. Full disputes claw whole lots (frac=1); explicit-requestID claws
+		// whole (no amount cap). Mirrors Mem.ChargebackLineage.
+		frac := 1.0
+		if requestID == "" && c.cost > 0 && c.cost > remaining {
+			frac = remaining / c.cost
+		}
+		clawGross := c.gross * frac
+		if frac >= 1.0 {
+			if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil {
+				return ChargebackResult{}, err
+			}
+		} else {
+			// Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
+			if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET gross=gross-$2, reserve=reserve*$3 WHERE id=$1`, c.id, clawGross, 1-frac); err != nil {
+				return ChargebackResult{}, err
+			}
 		}
 		if c.state == LotPaid {
 			// Already paid out: payout_reversed ledger row + a returned Reversal so the
 			// broker issues the Stripe Transfer Reversal (6.4 step 4).
-			if err := appendLedger(tx, c.acct, "operator", KindPayoutReversed, -c.gross, "reverse:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
+			if err := appendLedger(tx, c.acct, "operator", KindPayoutReversed, -clawGross, "reverse:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
 				return ChargebackResult{}, err
 			}
 			out.Reversals = append(out.Reversals, Reversal{
-				DisputeID: disputeID, LotID: c.id, AccountID: c.acct, TransferID: c.transfer, Amount: c.gross,
+				DisputeID: disputeID, LotID: c.id, AccountID: c.acct, TransferID: c.transfer, Amount: clawGross,
 			})
 		} else {
-			if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -c.gross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
+			if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -clawGross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil {
 				return ChargebackResult{}, err
 			}
-			out.Clawed += c.gross
+			out.Clawed += clawGross
 		}
-		recovered += c.gross
+		recovered += clawGross
+		remaining -= c.cost * frac
 	}
 	// Unrecovered remainder is a PLATFORM LOSS (don't claw unrelated operators).
 	if remainder := amount - recovered; remainder > 1e-9 {
