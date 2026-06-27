@@ -646,7 +646,7 @@ func Use(broker, user, model string, opt UseOptions) error {
 		maxOut = ConsumerDefaultMaxOut
 		defaultedCap = true
 	}
-	in := os.Stdin
+	in := useStdin
 	var locked BandRange // the station we resolve + confirm (used for the staged lock)
 	_ = defaultedCap
 
@@ -766,8 +766,18 @@ func Use(broker, user, model string, opt UseOptions) error {
 	opts := ProxyOptions{Broker: broker, User: user, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
-	return http.ListenAndServe(addr, ProxyHandler(opts))
+	return useServe(addr, ProxyHandler(opts))
 }
+
+// useStdin / useServe are seams over the two side effects Use can't run in a test: the
+// interactive confirm reader (default os.Stdin) and the blocking local-proxy listener
+// (default http.ListenAndServe). Tests point useStdin at an os.Pipe and useServe at a
+// capture func so every branch up to and including "channel open" is exercised without
+// reading the real terminal or binding a forever-blocking port.
+var (
+	useStdin = os.Stdin
+	useServe = http.ListenAndServe
+)
 
 // useOnFreq is the private-band branch of Use: resolve a frequency code, confirm the
 // price (same price-safety as the open market), then bind a local endpoint that routes
@@ -839,7 +849,7 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	opts := ProxyOptions{Broker: broker, User: user, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
-	return http.ListenAndServe(addr, ProxyHandler(opts))
+	return useServe(addr, ProxyHandler(opts))
 }
 
 // rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single
