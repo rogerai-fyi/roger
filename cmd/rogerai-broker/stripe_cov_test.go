@@ -15,6 +15,9 @@ import (
 func fakeStripe(t *testing.T) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer sk_test" {
+			t.Errorf("stripe call missing bearer key, got %q", r.Header.Get("Authorization"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/accounts" && r.Method == http.MethodPost:
