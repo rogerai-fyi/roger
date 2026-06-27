@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/store"
@@ -26,6 +27,21 @@ import (
 const (
 	defaultStrikeWarnAt = 3
 	defaultStrikeBanAt  = 5
+	// defaultStrikeDecayDays is the trailing window strikes are counted over for the ban
+	// decision (DECAY): a strike older than this no longer counts toward warn/ban, so an
+	// operator who fixed their issue is not banned on months-old, already-stale noise. The
+	// append-only evidence row is KEPT (StrikesByOwner still shows it); only its weight in
+	// the live ban decision ages out. <=0 disables decay (count all strikes, the old
+	// behavior). Overridable via ROGERAI_STRIKE_DECAY_DAYS.
+	defaultStrikeDecayDays = 30
+	// defaultStrikeCorroborateKinds is the CORROBORATION floor for an accumulating-signal
+	// ban: an accumulating ban requires strikes across at least this many DISTINCT signal
+	// classes (e.g. empty-output AND recount-discrepancy), so one noisy signal class can
+	// never auto-ban an account on its own (a single misbehaving check / tokenizer quirk
+	// is contained). 1 disables corroboration (any single class can ban at the threshold).
+	// The ZERO-DOUBT path (impossible-input arithmetic proof) bypasses this entirely.
+	// Overridable via ROGERAI_STRIKE_CORROBORATE_KINDS.
+	defaultStrikeCorroborateKinds = 2
 )
 
 func strikeWarnAt() int {
@@ -44,6 +60,29 @@ func strikeBanAt() int {
 		}
 	}
 	return defaultStrikeBanAt
+}
+
+// strikeDecayDays is the trailing-window (in days) the ban decision counts strikes over.
+// <=0 disables decay. ROGERAI_STRIKE_DECAY_DAYS overrides (a 0 there explicitly disables).
+func strikeDecayDays() int {
+	if v := os.Getenv("ROGERAI_STRIKE_DECAY_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return defaultStrikeDecayDays
+}
+
+// strikeCorroborateKinds is the minimum number of DISTINCT signal classes required before
+// an accumulating-signal ban. <=1 disables corroboration. ROGERAI_STRIKE_CORROBORATE_KINDS
+// overrides.
+func strikeCorroborateKinds() int {
+	if v := os.Getenv("ROGERAI_STRIKE_CORROBORATE_KINDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultStrikeCorroborateKinds
 }
 
 // ownerOf resolves the DURABLE owner account (owner pubkey) for a node. A public /
@@ -73,30 +112,59 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 	}
 	acct, _ := b.ownerOf(nodeID)
 	ev, _ := json.Marshal(evidence)
-	n, err := b.db.OwnerStrike(acct, kind, string(ev), idemKey)
-	if err != nil {
+	if _, err := b.db.OwnerStrike(acct, kind, string(ev), idemKey); err != nil {
 		log.Printf("strike: OwnerStrike(acct=%s kind=%s) failed: %v", acct, kind, err)
 		return
 	}
 	// Hold ALL of the owner's earning lots from auto-promotion pending review (the
-	// owner-level twin of the node recount hold; survives a node-id rotation).
+	// owner-level twin of the node recount hold; survives a node-id rotation). This is the
+	// conservative, REVERSIBLE freeze (auto-expires via recountHoldSweep, cleared by admin
+	// unhold) - distinct from the durable ban below, which we gate far more tightly.
 	if err := b.db.SetAccountRecountHold(acct, true); err != nil {
 		log.Printf("strike: SetAccountRecountHold(%s) failed: %v", acct, err)
 	}
-	log.Printf("STRIKE owner=%s node=%s kind=%s count=%d (warn=%d ban=%d zeroDoubt=%v)",
-		acct, nodeID, kind, n, b.strikeWarnAt, b.strikeBanAt, zeroDoubt)
+	// Ban decision inputs. zeroDoubt (the impossible-input arithmetic proof) bans on the
+	// first strike, bypassing decay + corroboration. For the ACCUMULATING signals we count
+	// only RECENT strikes (DECAY) and require MORE THAN ONE distinct signal class
+	// (CORROBORATION) before a durable ban, so a single noisy signal class can never ban an
+	// account on its own. The append-only evidence is always kept; only its weight in the
+	// live ban decision ages out.
+	var since int64
+	if b.strikeDecayDays > 0 {
+		since = time.Now().Add(-time.Duration(b.strikeDecayDays) * 24 * time.Hour).Unix()
+	}
+	windowed, distinctKinds, statErr := b.db.OwnerStrikeStats(acct, since)
+	if statErr != nil {
+		log.Printf("strike: OwnerStrikeStats(%s) failed: %v - using conservative single-class count", acct, statErr)
+		windowed, distinctKinds = 1, 1 // fail SOFT: never escalate to a ban on a read error
+	}
+	corroborated := distinctKinds >= b.strikeCorroborateKinds
+	log.Printf("STRIKE owner=%s node=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
+		acct, nodeID, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
 	switch {
-	case zeroDoubt || n >= b.strikeBanAt:
+	case zeroDoubt:
+		// Zero-doubt (impossible-input): arithmetic proof, immediate durable ban.
+		b.banOwner(acct, kind, string(ev))
+		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
+	case windowed >= b.strikeBanAt && corroborated:
+		// Accumulating ban: enough RECENT strikes AND corroborated across signal classes.
 		b.banOwner(acct, kind, string(ev))
 		// Flag-gated transactional notice (async, best-effort): tell the owner the
 		// account was suspended, with the evidence that tripped it. No-op when
 		// RESEND_API_KEY is unset or the owner has no email on file.
 		b.emailAccountBanned(b.emailOf(acct), kind, string(ev))
-	case n >= b.strikeWarnAt:
-		log.Printf("STRIKE WARNING owner=%s kind=%s count=%d/%d - one more class of violation will ban this account",
-			acct, kind, n, b.strikeBanAt)
+	case windowed >= b.strikeBanAt && !corroborated:
+		// At the count threshold but only ONE signal class: do NOT ban (corroboration
+		// guard). The earnings are still held above pending review; a second distinct
+		// signal class - or admin review - is required to escalate to a durable ban.
+		log.Printf("STRIKE owner=%s kind=%s windowed=%d/%d but only %d/%d distinct signal class(es) - HELD (earnings frozen) but NOT banned (corroboration guard); needs a second signal class or admin review",
+			acct, kind, windowed, b.strikeBanAt, distinctKinds, b.strikeCorroborateKinds)
+		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), windowed, b.strikeBanAt)
+	case windowed >= b.strikeWarnAt:
+		log.Printf("STRIKE WARNING owner=%s kind=%s windowed=%d/%d - more violations across another signal class will ban this account",
+			acct, kind, windowed, b.strikeBanAt)
 		// Flag-gated transactional warning (async, best-effort). No-op when disabled.
-		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), n, b.strikeBanAt)
+		b.emailAccountWarning(b.emailOf(acct), kind, string(ev), windowed, b.strikeBanAt)
 	}
 }
 

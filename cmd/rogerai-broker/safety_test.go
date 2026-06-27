@@ -236,8 +236,16 @@ func TestRelayCSAMPreservesNonCSAMDoesNot(t *testing.T) {
 // --- Fix 4: /report endpoint + ban flow -----------------------------------
 
 func postReport(b *broker, body string) *httptest.ResponseRecorder {
+	return postReportIP(b, body, "9.9.9.9")
+}
+
+// postReportIP posts a report from a specific reporter IP (set via CF-Connecting-IP so
+// each call presents a distinct reporter), so a test can drive the distinct-reporter
+// corroboration count (one IP counts once; N distinct IPs corroborate).
+func postReportIP(b *broker, body, ip string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/report", strings.NewReader(body))
-	req.RemoteAddr = "9.9.9.9:1234"
+	req.Header.Set("CF-Connecting-IP", ip)
+	req.RemoteAddr = ip + ":1234"
 	rec := httptest.NewRecorder()
 	b.report(rec, req)
 	return rec
@@ -280,12 +288,13 @@ func TestReportRateLimited(t *testing.T) {
 	}
 }
 
-// TestReportThresholdEjectsNode: once a node crosses the report threshold it is banned
-// and removed from pick/discover/market.
+// TestReportThresholdEjectsNode: once a node is named by enough DISTINCT reporters it is
+// suspended and removed from pick/discover/market.
 func TestReportThresholdEjectsNode(t *testing.T) {
 	db := store.NewMem()
 	b := testBrokerWithDB(db)
 	b.reportEjectAt = 3
+	b.reportDecayDays = 30
 	// Register a serving node so pick would otherwise return it.
 	now := time.Now()
 	b.nodes["badnode"] = protocol.NodeRegistration{NodeID: "badnode", Offers: []protocol.ModelOffer{{Model: "m", PriceOut: 0.1}}}
@@ -299,14 +308,14 @@ func TestReportThresholdEjectsNode(t *testing.T) {
 		t.Fatal("node should be pickable before reports")
 	}
 
-	// Three reports -> crosses threshold -> banned.
-	for i := 0; i < 3; i++ {
-		if rec := postReport(b, `{"category":"abuse","node_id":"badnode"}`); rec.Code != http.StatusOK {
-			t.Fatalf("report %d: want 200, got %d", i, rec.Code)
+	// Three DISTINCT reporters -> crosses corroboration threshold -> suspended.
+	for _, ip := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"} {
+		if rec := postReportIP(b, `{"category":"abuse","node_id":"badnode"}`, ip); rec.Code != http.StatusOK {
+			t.Fatalf("report from %s: want 200, got %d", ip, rec.Code)
 		}
 	}
 	if !b.isBanned("badnode") {
-		t.Fatal("node should be banned after crossing the threshold")
+		t.Fatal("node should be suspended after crossing the corroboration threshold")
 	}
 	// pick now skips it (ejected from routing).
 	b.mu.Lock()
@@ -327,6 +336,69 @@ func TestReportThresholdEjectsNode(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "badnode") {
 			t.Errorf("%s should not surface a banned node, body=%s", path, rec.Body.String())
 		}
+	}
+}
+
+// TestReportDedupOneSourceCannotStack (H2): a single reporter IP can fire many reports
+// but they DEDUP to one distinct reporter, so one source can never stack its way past the
+// corroboration threshold to ban a node.
+func TestReportDedupOneSourceCannotStack(t *testing.T) {
+	db := store.NewMem()
+	b := testBrokerWithDB(db)
+	b.reportEjectAt = 3
+	b.reportDecayDays = 30
+	b.nodes["victim"] = protocol.NodeRegistration{NodeID: "victim", Offers: []protocol.ModelOffer{{Model: "m", PriceOut: 0.1}}}
+	b.lastSeen["victim"] = time.Now()
+	// Ten reports, all from ONE IP.
+	for i := 0; i < 10; i++ {
+		if rec := postReportIP(b, `{"category":"abuse","node_id":"victim"}`, "5.5.5.5"); rec.Code != http.StatusOK {
+			t.Fatalf("report %d: want 200, got %d", i, rec.Code)
+		}
+	}
+	if b.isBanned("victim") {
+		t.Fatal("one source must NOT be able to stack reports to ban a node (dedup by distinct reporter)")
+	}
+	// A non-abuse category (e.g. spam) must not auto-eject even with distinct reporters.
+	for _, ip := range []string{"6.6.6.6", "7.7.7.7", "8.8.8.8"} {
+		postReportIP(b, `{"category":"spam","node_id":"victim"}`, ip)
+	}
+	if b.isBanned("victim") {
+		t.Fatal("spam/quality reports must downrank, not auto-ban")
+	}
+}
+
+// TestReportBanReversibleAndAppealable (3.2/3.3): a report-origin suspension auto-lifts
+// via ExpireNodeBans, an admin can unban, and the owner can appeal a clear false positive
+// into an immediate auto-exoneration.
+func TestReportBanReversibleAndAppealable(t *testing.T) {
+	db := store.NewMem()
+	b := testBrokerWithDB(db)
+	b.reportEjectAt = 3
+	b.reportDecayDays = 30
+	b.nodes["node1"] = protocol.NodeRegistration{NodeID: "node1"}
+	for _, ip := range []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"} {
+		postReportIP(b, `{"category":"abuse","node_id":"node1"}`, ip)
+	}
+	if !b.isBanned("node1") {
+		t.Fatal("node1 should be suspended")
+	}
+	// Admin unban restores routing.
+	if err := b.unbanNode("node1"); err != nil {
+		t.Fatalf("unbanNode: %v", err)
+	}
+	if b.isBanned("node1") {
+		t.Fatal("unbanNode must lift the suspension")
+	}
+	// A report-origin ban auto-lifts once it ages past the window; a manual/permanent ban
+	// (no "report " prefix) never auto-lifts.
+	b.banNode("aged", "report threshold (3 distinct reporters)")
+	b.banNode("perm", "manual: confirmed abuse")
+	cleared, err := db.ExpireNodeBans(time.Now().Add(time.Hour)) // cutoff in the future -> both are "old enough"
+	if err != nil {
+		t.Fatalf("ExpireNodeBans: %v", err)
+	}
+	if len(cleared) != 1 || cleared[0] != "aged" {
+		t.Fatalf("only the report-origin ban should auto-lift, cleared=%v", cleared)
 	}
 }
 

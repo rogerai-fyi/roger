@@ -2,6 +2,7 @@ package store
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -120,16 +121,71 @@ func (m *Mem) ReportCountByNode(nodeID string) (int, error) {
 	return n, nil
 }
 
+// DistinctReporterCountByNode counts DISTINCT non-empty reporter IPs that named a node at
+// or after `since` (the corroboration-and-decay count: one IP counts once, stale reports
+// age out). See the interface doc.
+func (m *Mem) DistinctReporterCountByNode(nodeID string, since int64) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	for _, r := range m.reports {
+		if r.NodeID != nodeID || r.IP == "" {
+			continue
+		}
+		if since > 0 && r.CreatedAt < since {
+			continue
+		}
+		seen[r.IP] = true
+	}
+	return len(seen), nil
+}
+
 func (m *Mem) BanNode(nodeID, reason string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.banned == nil {
 		m.banned = map[string]string{}
 	}
+	if m.bannedAt == nil {
+		m.bannedAt = map[string]int64{}
+	}
 	if _, ok := m.banned[nodeID]; !ok {
 		m.banned[nodeID] = reason
+		m.bannedAt[nodeID] = time.Now().Unix()
 	}
 	return nil
+}
+
+// UnbanNode lifts a node ban (admin node-unban / appeal auto-exoneration). Idempotent.
+func (m *Mem) UnbanNode(nodeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.banned, nodeID)
+	delete(m.bannedAt, nodeID)
+	return nil
+}
+
+// ExpireNodeBans auto-lifts report-origin node suspensions placed at or before olderThan
+// (the node twin of ExpireRecountHolds). Only report-origin bans (reason prefix "report ")
+// auto-clear; an admin/crypto-verified permanent ban is never lifted here.
+func (m *Mem) ExpireNodeBans(olderThan time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cut := olderThan.Unix()
+	var cleared []string
+	for id, reason := range m.banned {
+		if !strings.HasPrefix(reason, "report ") {
+			continue // permanent (admin/crypto) ban: never auto-lifted
+		}
+		if at, ok := m.bannedAt[id]; ok && at <= cut {
+			cleared = append(cleared, id)
+		}
+	}
+	for _, id := range cleared {
+		delete(m.banned, id)
+		delete(m.bannedAt, id)
+	}
+	return cleared, nil
 }
 
 func (m *Mem) BannedNodes() (map[string]string, error) {
@@ -273,6 +329,74 @@ func (m *Mem) ForgiveOwner(accountID string) (int, error) {
 	delete(m.bannedOwners, accountID)
 	delete(m.accountHold, accountID)
 	return forgiven, nil
+}
+
+// OwnerStrikeStats returns the decay-windowed strike count + distinct signal classes for
+// an owner (the reliability inputs to strike(): decay + corroboration). Terminal "ban:*"
+// marker strikes are excluded. since<=0 counts all strikes.
+func (m *Mem) OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kinds := map[string]bool{}
+	for _, s := range m.strikes {
+		if s.AccountID != accountID || strings.HasPrefix(s.Kind, "ban:") {
+			continue
+		}
+		if since > 0 && s.CreatedAt < since {
+			continue
+		}
+		windowed++
+		kinds[s.Kind] = true
+	}
+	return windowed, len(kinds), nil
+}
+
+// AddAppeal records one owner-filed appeal (state "open"). Owner-scoped by AccountID.
+func (m *Mem) AddAppeal(a Appeal) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a.CreatedAt == 0 {
+		a.CreatedAt = time.Now().Unix()
+	}
+	if a.State == "" {
+		a.State = AppealOpen
+	}
+	m.appealID++
+	a.ID = m.appealID
+	m.appeals = append(m.appeals, a)
+	return a.ID, nil
+}
+
+// AppealsByOwner lists an owner's appeals, newest first (owner-scoped status surface).
+func (m *Mem) AppealsByOwner(accountID string, limit int) ([]Appeal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Appeal
+	for i := len(m.appeals) - 1; i >= 0; i-- {
+		if m.appeals[i].AccountID == accountID {
+			out = append(out, m.appeals[i])
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// PendingAppeals lists OPEN appeals across all accounts, newest first (admin queue).
+func (m *Mem) PendingAppeals(limit int) ([]Appeal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Appeal
+	for i := len(m.appeals) - 1; i >= 0; i-- {
+		if m.appeals[i].State == AppealOpen {
+			out = append(out, m.appeals[i])
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // ReportsByNode lists reports for a node, newest first (admin/dashboard helper).

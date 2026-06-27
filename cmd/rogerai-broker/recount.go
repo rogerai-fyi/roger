@@ -25,32 +25,67 @@ import (
 // recountConfig holds the L1 re-count wiring (env, see .env.example).
 type recountConfig struct {
 	url       string  // TOKENIZER_URL (empty = disabled)
-	tolerance float64 // ROGERAI_RECOUNT_TOLERANCE (default 0.02 = 2%)
-	client    *http.Client
+	tolerance float64 // ROGERAI_RECOUNT_TOLERANCE (default 0.02 = 2%): the BILLING cap band
+	// strikeTolerance is the SEPARATE, much WIDER band that an over-report must exceed
+	// before it accrues an owner STRIKE (which can lead to a ban). The broker's tokenizer
+	// is only an approximation of a diverse node's real tokenizer (different BPE merges /
+	// special-token handling / model families), so a small discrepancy is honest tokenizer
+	// variance, not abuse: we still CAP BILLING at the tight `tolerance` (the consumer is
+	// never over-charged), but we only PENALIZE the owner past `strikeTolerance` so honest
+	// nodes on models the broker tokenizes poorly are never struck/banned on variance.
+	// ROGERAI_RECOUNT_STRIKE_TOLERANCE (default 0.25 = 25%); never below `tolerance`.
+	strikeTolerance float64
+	client          *http.Client
 }
+
+// defaultRecountStrikeTolerance is the wide band an over-report must exceed before it
+// accrues an owner strike (tokenizer-variance tolerant). Far above the billing-cap
+// tolerance so honest cross-model variance never bans an operator.
+const defaultRecountStrikeTolerance = 0.25
 
 // loadRecount reads the L1 re-count config. Disabled (no-op) when TOKENIZER_URL
 // is unset, so the broker runs fine with no sidecar.
 func loadRecount() recountConfig {
 	c := recountConfig{
-		url:       os.Getenv("TOKENIZER_URL"),
-		tolerance: 0.02,
-		client:    &http.Client{Timeout: 4 * time.Second},
+		url:             os.Getenv("TOKENIZER_URL"),
+		tolerance:       0.02,
+		strikeTolerance: defaultRecountStrikeTolerance,
+		client:          &http.Client{Timeout: 4 * time.Second},
 	}
 	if v := os.Getenv("ROGERAI_RECOUNT_TOLERANCE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
 			c.tolerance = f
 		}
 	}
+	if v := os.Getenv("ROGERAI_RECOUNT_STRIKE_TOLERANCE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			c.strikeTolerance = f
+		}
+	}
+	// The strike band can never be tighter than the billing band (that would strike on a
+	// discrepancy we did not even cap billing on). Clamp up to the billing tolerance.
+	if c.strikeTolerance < c.tolerance {
+		c.strikeTolerance = c.tolerance
+	}
 	if c.url == "" {
 		log.Printf("L1 re-count: DISABLED (set TOKENIZER_URL to the tokenizer-sidecar, e.g. http://127.0.0.1:9099)")
 	} else {
-		log.Printf("L1 re-count: enabled via %s (tolerance=%.0f%%)", c.url, c.tolerance*100)
+		log.Printf("L1 re-count: enabled via %s (billing tolerance=%.0f%%, strike tolerance=%.0f%%)", c.url, c.tolerance*100, c.strikeTolerance*100)
 	}
 	return c
 }
 
 func (c recountConfig) enabled() bool { return c.url != "" }
+
+// strikeNote renders the trailing log clause for a recount discrepancy: whether the
+// over-report was gross enough (past the wide strike tolerance) to also strike the owner,
+// or only enough to cap billing + hold earnings (honest-variance-tolerant).
+func strikeNote(struck bool) string {
+	if struck {
+		return " + owner STRUCK (gross over-report past strike tolerance)"
+	}
+	return " (within strike tolerance - billing capped, owner NOT struck: honest tokenizer variance)"
+}
 
 // sidecarCount asks the tokenizer-sidecar to count text under model. Returns the
 // token count and whether the count was exact.
@@ -167,10 +202,17 @@ func (b *broker) observeRecountInput(nodeID, requestID string, claimed, recounte
 			}
 		}
 		// Owner-keyed strike (anti-rotation): an input over-report is an accumulating
-		// signal toward warn/ban, with the claimed-vs-recount evidence bound to the owner.
-		b.flagRecountOver(nodeID, requestID, "input", claimed, recounted)
-		log.Printf("L1 INPUT DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged + earnings HELD from promotion pending review",
-			nodeID, claimed, recounted, b.recount.tolerance*100, disc, total)
+		// signal toward warn/ban - BUT only past the WIDE strike tolerance, so honest
+		// tokenizer variance on a model the broker tokenizes poorly never strikes the owner
+		// (the earnings hold above is the conservative, reversible action; the strike, which
+		// can lead to a ban, requires a gross over-report). Recompute the over-ratio off the
+		// same exact recount.
+		over := float64(claimed-recounted) / float64(recounted)
+		if over > b.recount.strikeTolerance {
+			b.flagRecountOver(nodeID, requestID, "input", claimed, recounted)
+		}
+		log.Printf("L1 INPUT DISCREPANCY node=%s claimed=%d recount=%d over=%.0f%% (bill-tol=%.0f%% strike-tol=%.0f%%, node discrepancies=%d/%d) - earnings HELD from promotion%s",
+			nodeID, claimed, recounted, over*100, b.recount.tolerance*100, b.recount.strikeTolerance*100, disc, total, strikeNote(over > b.recount.strikeTolerance))
 	}
 }
 
@@ -224,13 +266,17 @@ func (b *broker) observeRecount(nodeID, requestID string, claimed, recounted int
 			}
 		}
 		// Owner-keyed strike (anti-rotation): an output over-report accrues toward
-		// warn/ban with the claimed-vs-recount evidence bound to the owner account. A
-		// requestID is present on the settle path (the async probe path passes "").
-		if requestID != "" {
+		// warn/ban with the claimed-vs-recount evidence bound to the owner account - BUT
+		// only past the WIDE strike tolerance, so honest tokenizer variance never strikes
+		// the owner (the earnings hold is the conservative reversible action; the strike,
+		// which can lead to a ban, requires a gross over-report). A requestID is present on
+		// the settle path (the async probe path passes "").
+		over := float64(claimed-recounted) / float64(recounted)
+		if requestID != "" && over > b.recount.strikeTolerance {
 			b.flagRecountOver(nodeID, requestID, "output", claimed, recounted)
 		}
-		log.Printf("L1 DISCREPANCY node=%s claimed=%d recount=%d tol=%.0f%% (node discrepancies=%d/%d) - flagged + earnings HELD from promotion pending review",
-			nodeID, claimed, recounted, b.recount.tolerance*100, disc, total)
+		log.Printf("L1 DISCREPANCY node=%s claimed=%d recount=%d over=%.0f%% (bill-tol=%.0f%% strike-tol=%.0f%%, node discrepancies=%d/%d) - earnings HELD from promotion%s",
+			nodeID, claimed, recounted, over*100, b.recount.tolerance*100, b.recount.strikeTolerance*100, disc, total, strikeNote(requestID != "" && over > b.recount.strikeTolerance))
 	}
 }
 

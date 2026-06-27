@@ -478,6 +478,13 @@ func main() {
 	case "support", "community", "help-me", "discord":
 		// Mirror the TUI's /support: open the website (community + Discord live there).
 		err = cmdSupport()
+	case "appeal":
+		// Self-serve recourse: file an appeal against a strike/ban (or `appeal status`).
+		err = cmdAppeal(cfg, os.Args[2:])
+	case "drphil", "dr-phil", "diagnose", "doctor":
+		// "Dr. Phil": operator diagnostic - why isn't my node earning? Auto-fixes what it
+		// can and emits a copy-pasteable appeal bundle if you're banned/held.
+		err = cmdDrPhil(cfg, os.Args[2:])
 	case "ping", "--ping", "-ping":
 		// easter egg: walk the mascot (Ping) across the terminal once, then exit.
 		// Accept the dash forms too - `--ping` is a natural thing to type for a flag-ish
@@ -1573,6 +1580,8 @@ providers (share your GPU):
   roger login                 link GitHub - only needed to EARN
   roger payout                cash out your earnings (status · onboard · request · history)
   roger grant create --name my-bots   a free private key for your bots/family
+  roger drphil                diagnose why your node isn't earning (auto-fixes config)
+  roger appeal --reason "..." contest a strike/ban (self-serve; "appeal status" to track)
 
 more: account · config · support · upgrade
 

@@ -234,6 +234,23 @@ CREATE TABLE IF NOT EXISTS rogerai.banned_nodes (
     node_id    TEXT PRIMARY KEY,
     reason     TEXT,
     created_at TIMESTAMPTZ DEFAULT now());
+-- self-serve appeals (ban hardening 3.3): a banned/struck operator files an appeal that
+-- lands in the admin review queue. account_id is the AUTHENTICATED owner pubkey (never a
+-- request-supplied account), so an appeal can only be filed for the caller. node_id is
+-- optional (set when appealing a specific node ban). state: open -> resolved.
+CREATE TABLE IF NOT EXISTS rogerai.appeals (
+    id         BIGSERIAL PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    node_id    TEXT,
+    reason     TEXT,
+    state      TEXT NOT NULL DEFAULT 'open',
+    note       TEXT,
+    created_at BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS appeals_acct ON rogerai.appeals (account_id, id DESC);
+CREATE INDEX IF NOT EXISTS appeals_open ON rogerai.appeals (id DESC) WHERE state='open';
+-- reporter-IP + window index so the distinct-reporter corroboration count (the ban
+-- decision) stays cheap as the report log grows.
+CREATE INDEX IF NOT EXISTS reports_node_ip_ts ON rogerai.reports (node_id, ip, created_at);
 -- owner-keyed durable bans (anti-rotation): a node_id is a cheap callsign, so the
 -- enforcement that must survive rotation binds to the OWNER ACCOUNT (owner pubkey).
 -- A banned owner is blocked at register + relay pick + settle for every current and

@@ -168,6 +168,13 @@ type broker struct {
 	// report threshold that auto-bans (0 disables auto-eject).
 	banned        map[string]bool
 	reportEjectAt int
+	// reportDecayDays is the trailing window the auto-eject counts DISTINCT corroborating
+	// reporters over (so stale reports age out + a fixed node recovers); nodeBanDays is the
+	// auto-lift window for a report-origin suspension (a report-eject is a time-boxed
+	// suspension, not a permanent ban - permanent bans come only from admin/crypto-verified
+	// abuse). Env ROGERAI_REPORT_DECAY_DAYS / ROGERAI_NODE_BAN_DAYS.
+	reportDecayDays int
+	nodeBanDays     int
 
 	// bannedOwners is the in-memory DURABLE owner-ban set (owner pubkey -> true),
 	// guarded by metricsMu. Re-hydrated from the store at startup and refreshed on a
@@ -178,6 +185,14 @@ type broker struct {
 	bannedOwners map[string]bool
 	strikeWarnAt int
 	strikeBanAt  int
+	// strikeDecayDays / strikeCorroborateKinds harden the ban decision against false
+	// positives (audit 3.2): DECAY counts only strikes inside the trailing window toward a
+	// ban (stale noise ages out, the evidence row is still kept), and CORROBORATION
+	// requires strikes across >1 distinct signal class before an accumulating ban (one
+	// noisy class can never auto-ban alone). The zero-doubt impossible-input arithmetic
+	// proof bypasses both. Env ROGERAI_STRIKE_DECAY_DAYS / ROGERAI_STRIKE_CORROBORATE_KINDS.
+	strikeDecayDays        int
+	strikeCorroborateKinds int
 
 	// recountHoldDays is the auto-expiry window for a recount hold (OPERATOR RECOURSE):
 	// a node/account hold placed pending review auto-clears after this many days IF no
@@ -292,16 +307,20 @@ func main() {
 		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: *fee, seedFunds: *seed, lockWin: *lock,
-		banned:           map[string]bool{},
-		reportEjectAt:    reportEjectThreshold(),
-		maxNodesPerOwner: maxNodesPerOwnerLimit(),
-		freeRegByIP:      map[string][]time.Time{},
-		freeRegPerIP:     freeRegPerIPLimit(),
-		freeRegWindow:    freeRegWindowDur(),
-		bannedOwners:     map[string]bool{},
-		strikeWarnAt:     strikeWarnAt(),
-		strikeBanAt:      strikeBanAt(),
-		recountHoldDays:  recountHoldDays(),
+		banned:                 map[string]bool{},
+		reportEjectAt:          reportEjectThreshold(),
+		reportDecayDays:        reportDecayDays(),
+		nodeBanDays:            nodeBanDays(),
+		maxNodesPerOwner:       maxNodesPerOwnerLimit(),
+		freeRegByIP:            map[string][]time.Time{},
+		freeRegPerIP:           freeRegPerIPLimit(),
+		freeRegWindow:          freeRegWindowDur(),
+		bannedOwners:           map[string]bool{},
+		strikeWarnAt:           strikeWarnAt(),
+		strikeBanAt:            strikeBanAt(),
+		strikeDecayDays:        strikeDecayDays(),
+		strikeCorroborateKinds: strikeCorroborateKinds(),
+		recountHoldDays:        recountHoldDays(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
 		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),
@@ -417,8 +436,11 @@ func main() {
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
 	mux.HandleFunc("/report", b.report)                                                               // public abuse/quality report + node-ban flow
-	mux.HandleFunc("/owner/strikes", b.ownerStrikes)                                                  // owner-authed: the caller's own strikes + evidence (operator recourse)
+	mux.HandleFunc("/owner/strikes", b.ownerStrikes)                                                  // owner-authed: the caller's own strikes + evidence + node-ban status (operator recourse)
+	mux.HandleFunc("/owner/appeal", b.ownerAppeal)                                                    // owner-authed: file a self-serve appeal (GET = the caller's appeals/status)
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
+	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
+	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
 	mux.HandleFunc("/admin/whoami", b.adminWhoami)                                                    // admin-authed: is-this-caller-an-admin probe (the portal gates on this)
 	mux.HandleFunc("/admin/overview", b.adminOverview)                                                // admin-authed: HEALTH + MARKETPLACE + REVENUE rollup
 	mux.HandleFunc("/admin/payouts", b.adminPayouts)                                                  // admin-authed: payout queue + history + open reversals + policy
@@ -437,6 +459,7 @@ func main() {
 	}
 	go b.reattestSweep()        // drop verified-confidential status that has lapsed its re-attest cadence
 	go b.recountHoldSweep()     // auto-expire recount holds past the review window (operator recourse)
+	go b.nodeBanSweep()         // auto-lift report-origin node suspensions past the review window (reversible bans)
 	go b.reversalRetrySweep()   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
 	go b.pruneStaleNodesSweep() // remove long-dead node registrations (old hostname ids that never re-register)
 

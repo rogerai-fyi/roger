@@ -68,6 +68,16 @@ func (p *Postgres) ReportCountByNode(nodeID string) (int, error) {
 	return n, err
 }
 
+// DistinctReporterCountByNode counts DISTINCT non-empty reporter IPs naming a node at or
+// after `since` (corroboration-and-decay count: one IP counts once, stale reports age
+// out). See the interface doc.
+func (p *Postgres) DistinctReporterCountByNode(nodeID string, since int64) (int, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT COUNT(DISTINCT ip) FROM rogerai.reports
+		WHERE node_id=$1 AND ip IS NOT NULL AND ip<>'' AND created_at>=$2`, nodeID, since).Scan(&n)
+	return n, err
+}
+
 func (p *Postgres) ReportsByNode(nodeID string, limit int) ([]Report, error) {
 	if limit <= 0 {
 		limit = 100
@@ -93,6 +103,34 @@ func (p *Postgres) BanNode(nodeID, reason string) error {
 	_, err := p.db.Exec(`INSERT INTO rogerai.banned_nodes(node_id,reason) VALUES($1,$2)
 		ON CONFLICT (node_id) DO NOTHING`, nodeID, reason)
 	return err
+}
+
+// UnbanNode lifts a node ban (admin node-unban / appeal auto-exoneration). Idempotent.
+func (p *Postgres) UnbanNode(nodeID string) error {
+	_, err := p.db.Exec(`DELETE FROM rogerai.banned_nodes WHERE node_id=$1`, nodeID)
+	return err
+}
+
+// ExpireNodeBans auto-lifts report-origin node suspensions placed at or before olderThan
+// (the node twin of ExpireRecountHolds). Only report-origin rows (reason LIKE 'report %')
+// clear; an admin/crypto-verified permanent ban is never auto-lifted. Returns the cleared
+// node ids so the broker can refresh its in-memory ban cache.
+func (p *Postgres) ExpireNodeBans(olderThan time.Time) ([]string, error) {
+	rows, err := p.db.Query(`DELETE FROM rogerai.banned_nodes
+		WHERE created_at<=$1 AND reason LIKE 'report %' RETURNING node_id`, olderThan)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cleared []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		cleared = append(cleared, id)
+	}
+	return cleared, rows.Err()
 }
 
 func (p *Postgres) BannedNodes() (map[string]string, error) {
@@ -161,6 +199,69 @@ func (p *Postgres) StrikesByOwner(accountID string, limit int) ([]Strike, error)
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// OwnerStrikeStats returns the decay-windowed strike count + distinct signal classes for
+// an owner (decay + corroboration inputs). Terminal "ban:*" marker strikes are excluded.
+// since<=0 counts all strikes.
+func (p *Postgres) OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error) {
+	err = p.db.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT kind) FROM rogerai.owner_strikes
+		WHERE account_id=$1 AND created_at>=$2 AND kind NOT LIKE 'ban:%'`, accountID, since).Scan(&windowed, &distinctKinds)
+	return windowed, distinctKinds, err
+}
+
+// AddAppeal records one owner-filed appeal (state "open"). Owner-scoped by account_id.
+func (p *Postgres) AddAppeal(a Appeal) (int64, error) {
+	if a.CreatedAt == 0 {
+		a.CreatedAt = time.Now().Unix()
+	}
+	if a.State == "" {
+		a.State = AppealOpen
+	}
+	var id int64
+	err := p.db.QueryRow(`INSERT INTO rogerai.appeals(account_id,node_id,reason,state,note,created_at)
+		VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+		a.AccountID, nullStr(a.NodeID), nullStr(a.Reason), a.State, nullStr(a.Note), a.CreatedAt).Scan(&id)
+	return id, err
+}
+
+func (p *Postgres) scanAppeals(rows *sql.Rows) ([]Appeal, error) {
+	defer rows.Close()
+	var out []Appeal
+	for rows.Next() {
+		var a Appeal
+		if err := rows.Scan(&a.ID, &a.AccountID, &a.NodeID, &a.Reason, &a.State, &a.Note, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// AppealsByOwner lists an owner's appeals, newest first (owner-scoped status surface).
+func (p *Postgres) AppealsByOwner(accountID string, limit int) ([]Appeal, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.db.Query(`SELECT id,account_id,COALESCE(node_id,''),COALESCE(reason,''),state,COALESCE(note,''),created_at
+		FROM rogerai.appeals WHERE account_id=$1 ORDER BY id DESC LIMIT $2`, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return p.scanAppeals(rows)
+}
+
+// PendingAppeals lists OPEN appeals across all accounts, newest first (the admin queue).
+func (p *Postgres) PendingAppeals(limit int) ([]Appeal, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := p.db.Query(`SELECT id,account_id,COALESCE(node_id,''),COALESCE(reason,''),state,COALESCE(note,''),created_at
+		FROM rogerai.appeals WHERE state=$1 ORDER BY id DESC LIMIT $2`, AppealOpen, limit)
+	if err != nil {
+		return nil, err
+	}
+	return p.scanAppeals(rows)
 }
 
 func (p *Postgres) BanOwner(accountID, reason, evidenceJSON string) error {
