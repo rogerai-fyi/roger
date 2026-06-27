@@ -776,3 +776,21 @@ func (b *broker) probeFailing(nodeID string) bool {
 	defer b.metricsMu.Unlock()
 	return b.trust[nodeID].probeFails >= 3
 }
+
+// probeDeadStreak is the SUSTAINED consecutive-probe-failure count past which a node's
+// model is treated as NOT SERVING (its upstream is down/unloaded - it returns fast
+// 5xx/empty). At/above this, the node is EXCLUDED from pick (a relay returns a clean "no
+// station serving" instead of dispatching into a 504) and shown OFFLINE on /discover +
+// /market (so a consumer never tunes into a dead channel). It is well above probeFailing's
+// deprioritize bar (3): a node must keep failing to be declared dead, not merely be slow
+// once. It still heartbeats, so the proberLoop keeps probing it; a single OK resets the
+// streak and it becomes serving again automatically.
+const probeDeadStreak = 6
+
+// probeDead reports whether a node has failed a sustained streak of liveness probes - its
+// model upstream is not actually serving. See probeDeadStreak. Concurrency-safe.
+func (b *broker) probeDead(nodeID string) bool {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	return b.trust[nodeID].probeFails >= probeDeadStreak
+}

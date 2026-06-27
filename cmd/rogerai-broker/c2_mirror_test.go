@@ -96,6 +96,56 @@ func TestMultiInstanceRegistryMirrorEnablesCrossInstance(t *testing.T) {
 	}
 }
 
+// TestTunnelForLazyLearnsFromShared guards the re-registration-storm fix: a node's
+// poll/heartbeat/result can land on an instance that has not yet synced the registry.
+// tunnelFor must LAZILY learn the node from the shared store (instead of returning nil ->
+// a 404 the node misreads as "broker restarted" -> re-register churn). Here the node is
+// registered on B + published to the shared store; A learns it on demand WITHOUT a
+// syncRegistry pass, with the correct bridge token.
+func TestTunnelForLazyLearnsFromShared(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	db := store.NewMem()
+	a := newMIBroker(t, brokerPriv, db, mr)
+	bInst := newMIBroker(t, brokerPriv, db, mr)
+
+	nodePub, _, _ := ed25519.GenerateKey(nil)
+	const token = "tok-lazy"
+	miRegisterNode(bInst, "n1", hex.EncodeToString(nodePub), token, []protocol.ModelOffer{{Model: "free-m"}})
+	raw, _ := json.Marshal(bInst.nodes["n1"])
+	if err := bInst.shared.putNode("n1", raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	// Precondition: A does NOT know n1 (no syncRegistry has run).
+	a.mu.Lock()
+	_, known := a.tunnels["n1"]
+	a.mu.Unlock()
+	if known {
+		t.Fatal("precondition: A must not know n1 yet")
+	}
+
+	// A poll/heartbeat/result on A calls tunnelFor -> it must learn n1 from the shared store.
+	tun := a.tunnelFor("n1")
+	if tun == nil {
+		t.Fatal("tunnelFor returned nil - A would 404 the node and trigger a re-register storm")
+	}
+	if tun.token != token {
+		t.Fatalf("lazily-learned tunnel has token %q, want %q (auth would fail otherwise)", tun.token, token)
+	}
+	a.mu.Lock()
+	_, nowKnown := a.nodes["n1"]
+	a.mu.Unlock()
+	if !nowKnown {
+		t.Fatal("A must now know n1 in its node registry after the lazy learn")
+	}
+
+	// An unknown node still returns nil (it is unknown on every instance).
+	if a.tunnelFor("ghost") != nil {
+		t.Fatal("tunnelFor must return nil for a node unknown on every instance")
+	}
+}
+
 // TestMarkSeenKeepsRegistryIndexAlive is the regression guard for the DEFERRED C2 break
 // caught in audit: a node registers once (putNode sets reg:<node> AND the regset index,
 // both with livenessTTL=10m) and then only HEARTBEATS - it never re-registers. If markSeen

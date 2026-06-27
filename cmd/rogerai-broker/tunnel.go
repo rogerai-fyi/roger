@@ -662,6 +662,52 @@ func (b *broker) syncRegistry() {
 	}
 }
 
+// tunnelFor returns the node's tunnel, LAZILY learning it from the shared registry on a
+// local miss (multi-instance). This is the cross-instance re-registration-storm fix: a
+// node's poll/heartbeat/result can land (via the load balancer) on an instance that has
+// not yet synced the registry; returning 404 there makes the node misread it as "broker
+// restarted" and re-register (rotating its token), over and over. Instead we fetch the
+// node's published registration from the shared store on demand and build its tunnel stub
+// right here, so the request succeeds and no re-register fires. Returns nil only when the
+// node is unknown on EVERY instance. Single-instance / no shared store: pure local read.
+func (b *broker) tunnelFor(node string) *nodeTunnel {
+	b.mu.Lock()
+	t := b.tunnels[node]
+	b.mu.Unlock()
+	if t != nil || !b.multiInstance || b.shared == nil {
+		return t
+	}
+	raw, ok, err := b.shared.getNode(node)
+	if err != nil || !ok {
+		return nil
+	}
+	var reg protocol.NodeRegistration
+	if json.Unmarshal(raw, &reg) != nil || reg.Private {
+		return nil
+	}
+	if reg.NodeID == "" {
+		reg.NodeID = node
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if t := b.tunnels[node]; t != nil {
+		return t // another concurrent request just learned it
+	}
+	b.nodes[node] = reg
+	b.confidential[node] = reg.Confidential
+	if reg.Confidential {
+		if b.attestedAt == nil {
+			b.attestedAt = map[string]time.Time{}
+		}
+		if _, ok := b.attestedAt[node]; !ok {
+			b.attestedAt[node] = time.Now()
+		}
+	}
+	nt := &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
+	b.tunnels[node] = nt
+	return nt
+}
+
 // rehydrateNodes loads the persisted node registry into the in-memory maps at
 // startup so a broker restart/redeploy does NOT lose registrations. Liveness stays
 // TRUTHFUL: a re-hydrated node is seeded with its PERSISTED last_seen (not "now"),
@@ -812,9 +858,7 @@ func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "missing node_id")
 		return
 	}
-	b.mu.Lock()
-	t := b.tunnels[m.NodeID]
-	b.mu.Unlock()
+	t := b.tunnelFor(m.NodeID)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
@@ -834,9 +878,7 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := r.URL.Query().Get("node")
-	b.mu.Lock()
-	t := b.tunnels[node]
-	b.mu.Unlock()
+	t := b.tunnelFor(node)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
@@ -898,9 +940,7 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := r.URL.Query().Get("node")
-	b.mu.Lock()
-	t := b.tunnels[node]
-	b.mu.Unlock()
+	t := b.tunnelFor(node)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
@@ -1405,6 +1445,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// a CF 524. A genuinely slow provider should be consumed with stream:true (the
 		// streaming branch flushes headers immediately, resetting CF's idle clock).
 		b.exitInflight(node.NodeID, false)
+		// Diagnosability (#2): a silent failover hid WHY a relay failed. Log the node that
+		// produced no result within the window so "is the broker getting a clean response
+		// from that model?" is answerable straight from the logs (pairs with the VOID
+		// no-output line above, which logs a node's non-2xx/empty status).
+		log.Printf("relay TIMEOUT user=%s node=%s model=%s - no result in %s (node slow/unresponsive); 504, failing over",
+			user, node.NodeID, req.Model, nonStreamRelayWait)
 		jsonErr(w, http.StatusGatewayTimeout, "node timed out (use stream:true for slow models)")
 	}
 }
@@ -1926,6 +1972,14 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			continue
 		}
 		tq := b.trust[n.NodeID]
+		// NOT-SERVING gate: a node that has failed a sustained streak of liveness probes has
+		// a dead/unloaded model upstream (it returns fast 5xx/empty). Exclude it entirely -
+		// not even Tier-B probation - so a relay returns a clean "no station serving" rather
+		// than dispatching into a 504. It still heartbeats, so a recovery (one OK probe)
+		// resets the streak and it is eligible again on the next pick.
+		if tq.probeFails >= probeDeadStreak {
+			continue
+		}
 		tps := b.tps[n.NodeID]
 		if minTPS > 0 && tps > 0 && tps < minTPS {
 			continue

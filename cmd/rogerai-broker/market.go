@@ -81,9 +81,15 @@ type offerView struct {
 // stays a cheap read. The returned slice is appended to `out`.
 func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView {
 	age := time.Since(b.lastSeen[n.NodeID])
-	online := age < nodeTTL
+	live := age < nodeTTL // heartbeat-fresh (drives recovery probing below)
 	b.metricsMu.Lock()
 	tq := b.trust[n.NodeID]
+	// A node that heartbeats but has failed a SUSTAINED streak of liveness probes is not
+	// actually serving its model (dead/unloaded upstream) - surface it as OFFLINE so a
+	// consumer never tunes into a dead channel and eats repeated 504s. It still heartbeats,
+	// so the proberLoop keeps probing it (gated on `live` below); one OK probe resets the
+	// streak and it flips back online. See probeDeadStreak.
+	online := live && tq.probeFails < probeDeadStreak
 	tps := b.tps[n.NodeID]
 	inflight := b.inflight[n.NodeID]
 	sr, srSeen := b.success[n.NodeID]
@@ -96,8 +102,8 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	if tq.probed && tq.probeOK {
 		radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
 	}
-	if probeOnBrowse && online && b.probe.enabled() && staleness < 1.0 {
-		b.demandProbeSoonLocked(n.NodeID, now)
+	if probeOnBrowse && live && b.probe.enabled() && staleness < 1.0 {
+		b.demandProbeSoonLocked(n.NodeID, now) // probe even a probe-dead node so it can recover
 	}
 	b.metricsMu.Unlock()
 

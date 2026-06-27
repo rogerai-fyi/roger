@@ -190,6 +190,12 @@ type sharedStore interface {
 	// (markSeen extends it), so a node that stops heartbeating ages out. Multi-instance
 	// scale-out only; flag-off never calls it.
 	putNode(id string, reg []byte, ttl time.Duration) error
+	// getNode returns ONE shared node registration JSON by id (found == false on a miss).
+	// The cheap, targeted twin of allNodes(): the poll/heartbeat/result handlers use it to
+	// LAZILY learn a node that registered on a PEER instance the instant a request for it
+	// arrives - instead of 404ing, which the node misreads as "broker restarted" and
+	// re-registers (the cross-instance re-registration storm). A non-nil err = treat as miss.
+	getNode(id string) ([]byte, bool, error)
 	// allNodes returns every shared node registration (id -> JSON) for the registry
 	// mirror that each instance syncs into its in-memory b.nodes/b.tunnels.
 	allNodes() (map[string][]byte, error)
@@ -266,6 +272,7 @@ func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFra
 	return nil, func() {}, errNoSharedStore
 }
 func (m *memStore) putNode(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) getNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 func (m *memStore) allNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
@@ -546,6 +553,24 @@ func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error {
 	}
 	v.setUp(true)
 	return nil
+}
+
+func (v *valkeyStore) getNode(id string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	raw, err := v.rdb.Get(ctx, regKey(id)).Bytes()
+	if err == redis.Nil {
+		return nil, false, nil // no such node in the shared registry
+	}
+	if err != nil {
+		v.noteErr("getNode", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return raw, true, nil
 }
 
 func (v *valkeyStore) allNodes() (map[string][]byte, error) {
