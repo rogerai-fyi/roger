@@ -77,7 +77,7 @@
 				
 				<option value="file10">github.com/rogerai-fyi/roger/cmd/rogerai-broker/emailtemplates.go (95.1%)</option>
 				
-				<option value="file11">github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go (89.9%)</option>
+				<option value="file11">github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go (91.1%)</option>
 				
 				<option value="file12">github.com/rogerai-fyi/roger/cmd/rogerai-broker/grants_http.go (64.4%)</option>
 				
@@ -219,7 +219,7 @@
 				
 				<option value="file81">github.com/rogerai-fyi/roger/internal/store/safety_postgres.go (0.0%)</option>
 				
-				<option value="file82">github.com/rogerai-fyi/roger/internal/store/store.go (87.0%)</option>
+				<option value="file82">github.com/rogerai-fyi/roger/internal/store/store.go (87.1%)</option>
 				
 				<option value="file83">github.com/rogerai-fyi/roger/internal/tokenizer/hf.go (81.0%)</option>
 				
@@ -4211,13 +4211,18 @@ func (b *broker) resolveGrantToken(tok string) (gc grantContext, ok bool, err st
 
 // grantCapCheck enforces the grant's daily/monthly token caps before dispatch.
 // Returns (0, "") when within caps, else a 429 status + message.
-func (b *broker) grantCapCheck(g store.Grant) (int, string) <span class="cov3" title="3">{
-        if g.DailyCap == 0 &amp;&amp; g.MonthlyCap == 0 </span><span class="cov1" title="1">{
+func (b *broker) grantCapCheck(g store.Grant) (int, string) <span class="cov5" title="6">{
+        if g.DailyCap == 0 &amp;&amp; g.MonthlyCap == 0 </span><span class="cov2" title="2">{
                 return 0, ""
         }</span>
-        <span class="cov2" title="2">u, err := b.db.GrantUsageOf(g.ID, time.Now())
-        if err != nil </span><span class="cov0" title="0">{
-                return 0, "" // fail open on a usage-read error: caps are a guardrail, not auth
+        <span class="cov4" title="4">u, err := b.db.GrantUsageOf(g.ID, time.Now())
+        if err != nil </span><span class="cov2" title="2">{
+                // FAIL CLOSED: a usage-read error must NOT silently uncap a capped grant - that
+                // turned a capped grant into free unlimited service on any Postgres bucket-read
+                // hiccup. Mirror the monthly spend cap's fail-closed posture: reject until usage is
+                // readable again. (Only reached when the grant HAS a cap; uncapped grants returned
+                // above without a read.)
+                return http.StatusTooManyRequests, "grant cap check unavailable - try again shortly"
         }</span>
         <span class="cov2" title="2">if g.DailyCap &gt; 0 &amp;&amp; u.DayTokens &gt;= g.DailyCap </span><span class="cov1" title="1">{
                 return http.StatusTooManyRequests, "grant daily token cap reached"
@@ -9559,13 +9564,13 @@ type tokenBucket struct {
         last   time.Time
 }
 
-func envFloat(key string, def float64) float64 <span class="cov10" title="333">{
+func envFloat(key string, def float64) float64 <span class="cov10" title="337">{
         if v := os.Getenv(key); v != "" </span><span class="cov4" title="12">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil </span><span class="cov4" title="12">{
                         return f
                 }</span>
         }
-        <span class="cov9" title="321">return def</span>
+        <span class="cov9" title="325">return def</span>
 }
 
 // envStr returns the env var or def when unset/empty.
@@ -9576,7 +9581,7 @@ func envStr(key, def string) string <span class="cov4" title="9">{
         <span class="cov3" title="6">return def</span>
 }
 
-func loadRateLimiter() *rateLimiter <span class="cov7" title="69">{
+func loadRateLimiter() *rateLimiter <span class="cov7" title="71">{
         return &amp;rateLimiter{
                 buckets: map[string]*tokenBucket{},
                 rpm:     envFloat("ROGERAI_RATE_RPM", 120),
@@ -11234,7 +11239,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="667">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov8" title="1230">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov4" title="25">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov4" title="22">{
                         best = i
                 }</span>
         }
@@ -14793,10 +14798,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1901">if out &gt; 0 </span><span class="cov8" title="1886">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="681">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="678">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1886">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="655">{
+                                <span class="cov8" title="1886">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="658">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1886">haveRange = true</span>
@@ -25364,7 +25369,7 @@ type bandStore struct {
         byNode map[string]string // node_id -&gt; id (idempotent re-register: one band per node)
 }
 
-func newBandStore() *bandStore <span class="cov10" title="55">{
+func newBandStore() *bandStore <span class="cov10" title="57">{
         return &amp;bandStore{
                 bands: map[string]Band{}, byHash: map[string]string{}, byNode: map[string]string{},
         }
@@ -25778,7 +25783,7 @@ type grantStore struct {
         monUsage map[string]int64  // "id|YYYY-MM" -&gt; tokens
 }
 
-func newGrantStore() *grantStore <span class="cov10" title="55">{
+func newGrantStore() *grantStore <span class="cov10" title="57">{
         return &amp;grantStore{
                 grants: map[string]Grant{}, bySecret: map[string]string{},
                 dayUsage: map[string]int64{}, monUsage: map[string]int64{},
@@ -26227,27 +26232,27 @@ type PayoutPolicy struct {
 // knob, no per-lot reserve accounting) and Option A already chose a hold-not-reserve
 // posture; set ROGERAI_PAYOUT_RESERVE to re-enable a reserve slice if a shorter hold is
 // ever wanted. Override the hold via ROGERAI_PAYOUT_HOLD_DAYS.
-func LoadPayoutPolicy() PayoutPolicy <span class="cov10" title="69">{
+func LoadPayoutPolicy() PayoutPolicy <span class="cov10" title="71">{
         p := PayoutPolicy{HoldDays: 120, Reserve: 0, MinPayout: 25, Schedule: "monthly"}
-        if v := os.Getenv("ROGERAI_PAYOUT_HOLD_DAYS"); v != "" </span><span class="cov8" title="29">{
-                if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov8" title="29">{
+        if v := os.Getenv("ROGERAI_PAYOUT_HOLD_DAYS"); v != "" </span><span class="cov8" title="31">{
+                if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov8" title="31">{
                         p.HoldDays = n
                 }</span>
         }
-        <span class="cov10" title="69">if v := os.Getenv("ROGERAI_PAYOUT_RESERVE"); v != "" </span><span class="cov7" title="21">{
-                if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt;= 0 &amp;&amp; f &lt; 1 </span><span class="cov7" title="21">{
+        <span class="cov10" title="71">if v := os.Getenv("ROGERAI_PAYOUT_RESERVE"); v != "" </span><span class="cov7" title="23">{
+                if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt;= 0 &amp;&amp; f &lt; 1 </span><span class="cov7" title="23">{
                         p.Reserve = f
                 }</span>
         }
-        <span class="cov10" title="69">if v := os.Getenv("ROGERAI_PAYOUT_MIN"); v != "" </span><span class="cov0" title="0">{
+        <span class="cov10" title="71">if v := os.Getenv("ROGERAI_PAYOUT_MIN"); v != "" </span><span class="cov0" title="0">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt;= 0 </span><span class="cov0" title="0">{
                         p.MinPayout = f
                 }</span>
         }
-        <span class="cov10" title="69">if v := os.Getenv("ROGERAI_PAYOUT_SCHEDULE"); v != "" </span><span class="cov0" title="0">{
+        <span class="cov10" title="71">if v := os.Getenv("ROGERAI_PAYOUT_SCHEDULE"); v != "" </span><span class="cov0" title="0">{
                 p.Schedule = v
         }</span>
-        <span class="cov10" title="69">return p</span>
+        <span class="cov10" title="71">return p</span>
 }
 
 // holdDuration converts the policy hold to a duration. Per the founder policy (Option A)
@@ -26256,7 +26261,7 @@ func LoadPayoutPolicy() PayoutPolicy <span class="cov10" title="69">{
 // (addLotLocked sets ReserveReleaseAt == ReleaseAt) - there is no separate reserve tail
 // today. (A later tail would need its own reserveDuration plus payout support; see
 // promoteLocked / RequestPayout.)
-func (p PayoutPolicy) holdDuration() time.Duration <span class="cov8" title="35">{
+func (p PayoutPolicy) holdDuration() time.Duration <span class="cov8" title="38">{
         return time.Duration(p.HoldDays) * 24 * time.Hour
 }</span>
 </pre>
@@ -26422,8 +26427,8 @@ func sortProvider(rows []ProviderModelMetric) <span class="cov3" title="2">{
 }
 
 func sortUsage(rows []UsageModelMetric) <span class="cov3" title="2">{
-        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov3" title="2">{
-                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov3" title="2">{
+        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov5" title="3">{
+                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov5" title="3">{
                         return rows[i].SpendUSD &gt; rows[j].SpendUSD
                 }</span>
                 <span class="cov0" title="0">return rows[i].Model &lt; rows[j].Model</span>
@@ -27138,7 +27143,18 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
                 return 0, err
         }</span>
         <span class="cov0" title="0">defer tx.Rollback()
-        var bal float64
+        // Idempotency claim: the receipt row IS the lock. A non-empty request id is
+        // inserted FIRST (owner_share backfilled below once the seed-scaled share is
+        // known); a duplicate finds the row already present, touches NO money, and
+        // returns the unchanged balance. Without this gate a redelivered settle
+        // re-debited the wallet, re-drew seed + re-credited earnings, and minted a
+        // second lot - silently inflating both spend and operator payout.
+        if won, bal, err := p.claimReceipt(tx, user, node, cost, rec); err != nil </span><span class="cov0" title="0">{
+                return 0, err
+        }</span> else<span class="cov0" title="0"> if !won </span><span class="cov0" title="0">{
+                return bal, tx.Commit()
+        }</span>
+        <span class="cov0" title="0">var bal float64
         if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 RETURNING balance`, user, cost).Scan(&amp;bal); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
@@ -27152,12 +27168,7 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
                 ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
-        <span class="cov0" title="0">rj, _ := json.Marshal(rec)
-        bpt, bct := billedTokens(rec)
-        if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-                (request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-                rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if err := p.fillEarnShare(tx, user, node, cost, rec, earnShare); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
         <span class="cov0" title="0">if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil </span><span class="cov0" title="0">{
@@ -27170,6 +27181,53 @@ func (p *Postgres) Settle(user, node string, cost, ownerShare float64, rec proto
                 return 0, err
         }</span>
         <span class="cov0" title="0">return bal, tx.Commit()</span>
+}
+
+// claimReceipt is the idempotency gate for Settle/Finalize. For a non-empty
+// request id it inserts the receipt row (with owner_share=0, backfilled by
+// fillEarnShare once the seed-scaled share is computed) and reports whether THIS
+// call won the claim. A losing call (the row already exists) gets won=false plus
+// the wallet's current balance so the caller can commit a clean no-op. An empty
+// request id carries no idempotency key, so it always "wins" and the receipt is
+// written later with the real owner_share - preserving the legacy behaviour.
+func (p *Postgres) claimReceipt(tx *sql.Tx, user, node string, cost float64, rec protocol.UsageReceipt) (bool, float64, error) <span class="cov0" title="0">{
+        if rec.RequestID == "" </span><span class="cov0" title="0">{
+                return true, 0, nil
+        }</span>
+        <span class="cov0" title="0">rj, _ := json.Marshal(rec)
+        bpt, bct := billedTokens(rec)
+        res, err := tx.Exec(`INSERT INTO rogerai.receipts
+                (request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+                VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,$10) ON CONFLICT (request_id) DO NOTHING`,
+                rec.RequestID, user, node, rec.Model, bpt, bct, cost, rec.TS, rj, nullStr(rec.GrantID))
+        if err != nil </span><span class="cov0" title="0">{
+                return false, 0, err
+        }</span>
+        <span class="cov0" title="0">if n, _ := res.RowsAffected(); n == 0 </span><span class="cov0" title="0">{
+                var bal float64
+                if err := tx.QueryRow(`SELECT COALESCE(balance,0) FROM rogerai.wallet WHERE usr=$1`, user).Scan(&amp;bal); err != nil </span><span class="cov0" title="0">{
+                        return false, 0, err
+                }</span>
+                <span class="cov0" title="0">return false, bal, nil</span>
+        }
+        <span class="cov0" title="0">return true, 0, nil</span>
+}
+
+// fillEarnShare records the seed-scaled operator share once it is known: it
+// backfills the claimed receipt row for a non-empty request id, or writes the
+// receipt fresh for the (idempotency-key-less) empty-request-id path.
+func (p *Postgres) fillEarnShare(tx *sql.Tx, user, node string, cost float64, rec protocol.UsageReceipt, earnShare float64) error <span class="cov0" title="0">{
+        if rec.RequestID != "" </span><span class="cov0" title="0">{
+                _, err := tx.Exec(`UPDATE rogerai.receipts SET owner_share=$2 WHERE request_id=$1`, rec.RequestID, earnShare)
+                return err
+        }</span>
+        <span class="cov0" title="0">rj, _ := json.Marshal(rec)
+        bpt, bct := billedTokens(rec)
+        _, err := tx.Exec(`INSERT INTO rogerai.receipts
+                (request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
+                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
+                rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID))
+        return err</span>
 }
 
 func (p *Postgres) EarningsOf(node string) (float64, error) <span class="cov0" title="0">{
@@ -27353,7 +27411,15 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
                 return 0, err
         }</span>
         <span class="cov0" title="0">defer tx.Rollback()
-        var bal float64
+        // Idempotency claim (see Settle): the receipt row is the lock. A redelivered
+        // Finalize must NOT re-credit held-cost, re-earn, or mint a second lot - it
+        // returns the wallet balance untouched.
+        if won, bal, err := p.claimReceipt(tx, user, node, cost, rec); err != nil </span><span class="cov0" title="0">{
+                return 0, err
+        }</span> else<span class="cov0" title="0"> if !won </span><span class="cov0" title="0">{
+                return bal, tx.Commit()
+        }</span>
+        <span class="cov0" title="0">var bal float64
         if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&amp;bal); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
@@ -27367,17 +27433,13 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
                 ON CONFLICT (node) DO UPDATE SET balance=rogerai.earnings.balance+$2`, node, earnShare); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
-        <span class="cov0" title="0">rj, _ := json.Marshal(rec)
-        bpt, bct := billedTokens(rec)
-        if _, err := tx.Exec(`INSERT INTO rogerai.receipts
-                (request_id,usr,node,model,prompt_tokens,completion_tokens,cost,owner_share,ts,receipt,grant_id)
-                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (request_id) DO NOTHING`,
-                rec.RequestID, user, node, rec.Model, bpt, bct, cost, earnShare, rec.TS, rj, nullStr(rec.GrantID)); err != nil </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if err := p.fillEarnShare(tx, user, node, cost, rec, earnShare); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
         // Capture: release the full reservation then debit the actual spend. Net wallet
-        // delta == held-cost, matching the cache update above.
-        <span class="cov0" title="0">if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "", StatePosted, rec.RequestID, rec.TS); err != nil </span><span class="cov0" title="0">{
+        // delta == held-cost, matching the cache update above. The release carries a
+        // non-empty idem_key so it can never post twice for one request id.
+        <span class="cov0" title="0">if err := appendLedger(tx, user, "consumer", KindHoldRelease, held, "release:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
         <span class="cov0" title="0">if err := appendLedger(tx, user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS); err != nil </span><span class="cov0" title="0">{
@@ -28171,32 +28233,48 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
                 }</span>
         }
         <span class="cov0" title="0">var out ChargebackResult
-        recovered := 0.0  // operator gross recovered (clawed + reversed)
-        costClawed := 0.0 // consumer cost of clawed lots, compared to the consumer-dollar amount
+        recovered := 0.0    // operator gross recovered (clawed + reversed)
+        remaining := amount // consumer cost still to recover (wallet-recency path); caps the claw
         for _, c := range claws </span><span class="cov0" title="0">{
-                if requestID == "" &amp;&amp; costClawed &gt;= amount </span><span class="cov0" title="0">{
+                if requestID == "" &amp;&amp; remaining &lt;= 1e-9 </span><span class="cov0" title="0">{
                         break</span>
                 }
-                <span class="cov0" title="0">costClawed += c.cost
-                if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil </span><span class="cov0" title="0">{
-                        return ChargebackResult{}, err
+                // PRO-RATA on the overshooting lot: recover only the operator's proportional share of
+                // the disputed cost still remaining, so the operator is never clawed beyond the
+                // disputed amount. Full disputes claw whole lots (frac=1); explicit-requestID claws
+                // whole (no amount cap). Mirrors Mem.ChargebackLineage.
+                <span class="cov0" title="0">frac := 1.0
+                if requestID == "" &amp;&amp; c.cost &gt; 0 &amp;&amp; c.cost &gt; remaining </span><span class="cov0" title="0">{
+                        frac = remaining / c.cost
                 }</span>
+                <span class="cov0" title="0">clawGross := c.gross * frac
+                if frac &gt;= 1.0 </span><span class="cov0" title="0">{
+                        if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET state='clawed' WHERE id=$1`, c.id); err != nil </span><span class="cov0" title="0">{
+                                return ChargebackResult{}, err
+                        }</span>
+                } else<span class="cov0" title="0"> {
+                        // Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
+                        if _, err := tx.Exec(`UPDATE rogerai.earning_lots SET gross=gross-$2, reserve=reserve*$3 WHERE id=$1`, c.id, clawGross, 1-frac); err != nil </span><span class="cov0" title="0">{
+                                return ChargebackResult{}, err
+                        }</span>
+                }
                 <span class="cov0" title="0">if c.state == LotPaid </span><span class="cov0" title="0">{
                         // Already paid out: payout_reversed ledger row + a returned Reversal so the
                         // broker issues the Stripe Transfer Reversal (6.4 step 4).
-                        if err := appendLedger(tx, c.acct, "operator", KindPayoutReversed, -c.gross, "reverse:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil </span><span class="cov0" title="0">{
+                        if err := appendLedger(tx, c.acct, "operator", KindPayoutReversed, -clawGross, "reverse:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil </span><span class="cov0" title="0">{
                                 return ChargebackResult{}, err
                         }</span>
                         <span class="cov0" title="0">out.Reversals = append(out.Reversals, Reversal{
-                                DisputeID: disputeID, LotID: c.id, AccountID: c.acct, TransferID: c.transfer, Amount: c.gross,
+                                DisputeID: disputeID, LotID: c.id, AccountID: c.acct, TransferID: c.transfer, Amount: clawGross,
                         })</span>
                 } else<span class="cov0" title="0"> {
-                        if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -c.gross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil </span><span class="cov0" title="0">{
+                        if err := appendLedger(tx, c.acct, "operator", KindAdjustment, -clawGross, "claw:"+disputeID+":"+strconv.FormatInt(c.id, 10), StatePosted, disputeID, now.Unix()); err != nil </span><span class="cov0" title="0">{
                                 return ChargebackResult{}, err
                         }</span>
-                        <span class="cov0" title="0">out.Clawed += c.gross</span>
+                        <span class="cov0" title="0">out.Clawed += clawGross</span>
                 }
-                <span class="cov0" title="0">recovered += c.gross</span>
+                <span class="cov0" title="0">recovered += clawGross
+                remaining -= c.cost * frac</span>
         }
         // Unrecovered remainder is a PLATFORM LOSS (don't claw unrelated operators).
         <span class="cov0" title="0">if remainder := amount - recovered; remainder &gt; 1e-9 </span><span class="cov0" title="0">{
@@ -29700,6 +29778,7 @@ type Mem struct {
         payouts     []Payout                 // payout history
         payoutID    int64                    // monotonic payout id
         disputes    map[string]bool          // seen stripe dispute ids (idempotency)
+        settled     map[string]bool          // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
         recountHold map[string]int64         // node id -&gt; unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
         nodeAcct    map[string]string        // node id -&gt; owner pubkey (TOFU)
         charges     map[string]charge        // stripe payment_intent/charge id -&gt; checkout mapping
@@ -29750,11 +29829,11 @@ type charge struct {
         credits   float64
 }
 
-func NewMem() *Mem <span class="cov7" title="55">{
+func NewMem() *Mem <span class="cov7" title="57">{
         return &amp;Mem{
                 wallet: map[string]float64{}, seedRemain: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
                 processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
-                idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
+                idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
                 charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
                 overrides: map[string]OfferOverride{},
                 banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
@@ -29764,18 +29843,18 @@ func NewMem() *Mem <span class="cov7" title="55">{
 
 // appendLedgerLocked records one append-only money event. Caller holds m.mu. A
 // duplicate idem_key is a no-op (idempotency for free on every money event).
-func (m *Mem) appendLedgerLocked(holder, side, kind string, amount float64, idemKey, state, ref string, ts int64) <span class="cov10" title="329">{
-        if idemKey != "" </span><span class="cov9" title="210">{
-                if m.idem[idemKey] </span><span class="cov1" title="1">{
+func (m *Mem) appendLedgerLocked(holder, side, kind string, amount float64, idemKey, state, ref string, ts int64) <span class="cov10" title="348">{
+        if idemKey != "" </span><span class="cov9" title="222">{
+                if m.idem[idemKey] </span><span class="cov0" title="0">{
                         return
                 }</span>
-                <span class="cov9" title="209">m.idem[idemKey] = true</span>
+                <span class="cov9" title="222">m.idem[idemKey] = true</span>
         }
-        <span class="cov9" title="328">m.ledgerID++
-        if ts == 0 </span><span class="cov8" title="157">{
+        <span class="cov10" title="348">m.ledgerID++
+        if ts == 0 </span><span class="cov8" title="162">{
                 ts = time.Now().Unix()
         }</span>
-        <span class="cov9" title="328">m.ledger = append(m.ledger, LedgerRow{
+        <span class="cov10" title="348">m.ledger = append(m.ledger, LedgerRow{
                 ID: m.ledgerID, Holder: holder, Side: side, Kind: kind, Amount: amount,
                 IdemKey: idemKey, State: state, Ref: ref, TS: ts,
         })</span>
@@ -29783,12 +29862,12 @@ func (m *Mem) appendLedgerLocked(holder, side, kind string, amount float64, idem
 
 // addLotLocked creates an operator earning lot for a node's owner-share, splitting
 // out the rolling reserve. Caller holds m.mu. No-op if the node has no bound account.
-func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.Time) <span class="cov7" title="52">{
+func (m *Mem) addLotLocked(node, requestID string, ownerShare float64, now time.Time) <span class="cov7" title="55">{
         acct, ok := m.nodeAcct[node]
         if !ok || ownerShare &lt;= 0 </span><span class="cov5" title="17">{
                 return
         }</span>
-        <span class="cov6" title="35">reserve := ownerShare * m.policy.Reserve
+        <span class="cov6" title="38">reserve := ownerShare * m.policy.Reserve
         rel := now.Add(m.policy.holdDuration())
         m.lotID++
         m.lots = append(m.lots, EarningLot{
@@ -29880,12 +29959,12 @@ func (m *Mem) grantSeedLocked(wallet string, seed float64) bool <span class="cov
 // (cleared-topup) credits so the operator earning path only accrues on the real
 // remainder (seed-funded traffic earns the operator nothing - it is treated like a
 // free request on the operator side). This does NOT change the consumer's spend.
-func (m *Mem) consumeSeedLocked(wallet string, cost float64) float64 <span class="cov6" title="47">{
+func (m *Mem) consumeSeedLocked(wallet string, cost float64) float64 <span class="cov7" title="50">{
         if cost &lt;= 0 </span><span class="cov0" title="0">{
                 return 0
         }</span>
-        <span class="cov6" title="47">rem := m.seedRemain[wallet]
-        if rem &lt;= 0 </span><span class="cov6" title="42">{
+        <span class="cov7" title="50">rem := m.seedRemain[wallet]
+        if rem &lt;= 0 </span><span class="cov6" title="45">{
                 return 0
         }</span>
         <span class="cov3" title="5">used := cost
@@ -29899,16 +29978,16 @@ func (m *Mem) consumeSeedLocked(wallet string, cost float64) float64 <span class
 // realEarnShare scales an owner share down to the REAL (non-seed) funded fraction of
 // the cost: if part of the cost was paid from seed credits, that part earns the
 // operator nothing. cost&lt;=0 (free/self) earns nothing. Caller holds m.mu.
-func (m *Mem) realEarnShare(wallet string, cost, ownerShare float64) float64 <span class="cov7" title="52">{
+func (m *Mem) realEarnShare(wallet string, cost, ownerShare float64) float64 <span class="cov7" title="55">{
         if cost &lt;= 0 || ownerShare &lt;= 0 </span><span class="cov3" title="5">{
                 return 0
         }</span>
-        <span class="cov6" title="47">seedUsed := m.consumeSeedLocked(wallet, cost)
+        <span class="cov7" title="50">seedUsed := m.consumeSeedLocked(wallet, cost)
         realFrac := (cost - seedUsed) / cost
         if realFrac &lt;= 0 </span><span class="cov3" title="4">{
                 return 0
         }</span>
-        <span class="cov6" title="43">return ownerShare * realFrac</span>
+        <span class="cov6" title="46">return ownerShare * realFrac</span>
 }
 
 func (m *Mem) BalanceOf(user string, seed float64) (float64, error) <span class="cov5" title="18">{
@@ -29953,16 +30032,16 @@ func (m *Mem) PeekBalance(wallet string) (float64, error) <span class="cov2" tit
 // reflect the verified counts, not the node's unverified claim. The broker re-count is
 // only ever &lt;= the claim on each axis (we never inflate a claim), so this can only
 // lower a count, never raise it.
-func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) <span class="cov8" title="108">{
+func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) <span class="cov8" title="114">{
         promptTok = rec.PromptTokens
         if rec.BrokerPromptTokens &gt; 0 &amp;&amp; rec.BrokerPromptTokens &lt; promptTok </span><span class="cov3" title="4">{
                 promptTok = rec.BrokerPromptTokens
         }</span>
-        <span class="cov8" title="108">completionTok = rec.CompletionTokens
+        <span class="cov8" title="114">completionTok = rec.CompletionTokens
         if rec.BrokerCompletionTokens &gt; 0 &amp;&amp; rec.BrokerCompletionTokens &lt; completionTok </span><span class="cov2" title="3">{
                 completionTok = rec.BrokerCompletionTokens
         }</span>
-        <span class="cov8" title="108">return promptTok, completionTok</span>
+        <span class="cov8" title="114">return promptTok, completionTok</span>
 }
 
 // appendAdjustLocked writes the KindAdjust AUDIT row when the broker billed less than
@@ -29971,9 +30050,9 @@ func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) <spa
 // the platform (and consumer) saved by billing the lesser count. The money delta is 0
 // (the consumer was already charged only the adjusted `cost`); the row exists purely as
 // the provable, queryable record of the adjustment. Caller holds m.mu.
-func (m *Mem) appendAdjustLocked(holder string, rec protocol.UsageReceipt, cost float64) <span class="cov7" title="52">{
+func (m *Mem) appendAdjustLocked(holder string, rec protocol.UsageReceipt, cost float64) <span class="cov7" title="55">{
         bpt, bct := billedTokens(rec)
-        if bpt &gt;= rec.PromptTokens &amp;&amp; bct &gt;= rec.CompletionTokens </span><span class="cov7" title="51">{
+        if bpt &gt;= rec.PromptTokens &amp;&amp; bct &gt;= rec.CompletionTokens </span><span class="cov7" title="54">{
                 return // no downward adjustment on either axis: nothing to audit
         }</span>
         // $0 money delta (the consumer was already charged only the adjusted `cost`); the
@@ -29983,10 +30062,16 @@ func (m *Mem) appendAdjustLocked(holder string, rec protocol.UsageReceipt, cost 
         <span class="cov1" title="1">m.appendLedgerLocked(holder, "consumer", KindAdjust, 0, "adjust:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)</span>
 }
 
-func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) <span class="cov5" title="18">{
+func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) <span class="cov5" title="20">{
         m.mu.Lock()
         defer m.mu.Unlock()
-        m.wallet[user] -= cost
+        if rec.RequestID != "" </span><span class="cov5" title="20">{
+                if m.settled[rec.RequestID] </span><span class="cov1" title="1">{
+                        return m.wallet[user], nil // already settled: idempotent no-op (no double-debit / lot drift)
+                }</span>
+                <span class="cov5" title="19">m.settled[rec.RequestID] = true</span>
+        }
+        <span class="cov5" title="19">m.wallet[user] -= cost
         m.spend[user] += cost
         // Only the REAL (non-seed) funded portion of this cost earns the operator a payable
         // lot: free seed credits must never mint a payout (P0-1). consumeSeed is called
@@ -30002,24 +30087,30 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
         m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
         m.appendAdjustLocked(user, rec, cost)
         m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
-        return m.wallet[user], nil
-}</span>
+        return m.wallet[user], nil</span>
+}
 
-func (m *Mem) Hold(user string, amount float64) (bool, error) <span class="cov9" title="239">{
+func (m *Mem) Hold(user string, amount float64) (bool, error) <span class="cov9" title="241">{
         m.mu.Lock()
         defer m.mu.Unlock()
         if m.wallet[user] &lt; amount </span><span class="cov9" title="198">{
                 return false, nil
         }</span>
-        <span class="cov6" title="41">m.wallet[user] -= amount
+        <span class="cov6" title="43">m.wallet[user] -= amount
         m.appendLedgerLocked(user, "consumer", KindHold, -amount, "", StatePending, "", 0)
         return true, nil</span>
 }
 
-func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) <span class="cov6" title="34">{
+func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) <span class="cov6" title="37">{
         m.mu.Lock()
         defer m.mu.Unlock()
-        m.wallet[user] += held - cost // refund the unused reservation
+        if rec.RequestID != "" </span><span class="cov6" title="37">{
+                if m.settled[rec.RequestID] </span><span class="cov1" title="1">{
+                        return m.wallet[user], nil // already settled: idempotent no-op (no double refund / lot drift)
+                }</span>
+                <span class="cov6" title="36">m.settled[rec.RequestID] = true</span>
+        }
+        <span class="cov6" title="36">m.wallet[user] += held - cost // refund the unused reservation
         m.spend[user] += cost
         // Only the REAL (non-seed) funded portion of this cost earns the operator a payable
         // lot (P0-1): seed-funded spend records the metering receipt but mints no earning.
@@ -30038,8 +30129,8 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
         m.appendLedgerLocked(user, "consumer", KindSpend, -cost, "spend:"+rec.RequestID, StatePosted, rec.RequestID, rec.TS)
         m.appendAdjustLocked(user, rec, cost)
         m.addLotLocked(node, rec.RequestID, earnShare, time.Now())
-        return m.wallet[user], nil
-}</span>
+        return m.wallet[user], nil</span>
+}
 
 func (m *Mem) ReleaseHold(user string, held float64) (float64, error) <span class="cov2" title="3">{
         m.mu.Lock()
@@ -30049,7 +30140,7 @@ func (m *Mem) ReleaseHold(user string, held float64) (float64, error) <span clas
         return m.wallet[user], nil
 }</span>
 
-func (m *Mem) EarningsOf(node string) (float64, error) <span class="cov3" title="6">{
+func (m *Mem) EarningsOf(node string) (float64, error) <span class="cov3" title="7">{
         m.mu.Lock()
         defer m.mu.Unlock()
         return m.earnings[node], nil
@@ -30062,7 +30153,7 @@ func (m *Mem) SpendOf(user string) (float64, error) <span class="cov2" title="3"
 }</span>
 
 func (m *Mem) RecentByUser(user string, limit int) ([]Entry, error) <span class="cov2" title="3">{
-        return m.recent(func(e Entry) bool </span><span class="cov4" title="7">{ return e.User == user }</span>, limit), nil
+        return m.recent(func(e Entry) bool </span><span class="cov3" title="7">{ return e.User == user }</span>, limit), nil
 }
 
 func (m *Mem) RecentByNode(node string, limit int) ([]Entry, error) <span class="cov2" title="2">{
@@ -30109,7 +30200,7 @@ func (m *Mem) recent(pred func(Entry) bool, limit int) []Entry <span class="cov3
         defer m.mu.Unlock()
         var out []Entry
         for _, e := range m.entries </span><span class="cov4" title="11">{
-                if pred(e) </span><span class="cov4" title="7">{
+                if pred(e) </span><span class="cov3" title="7">{
                         out = append(out, e)
                 }</span>
         }
@@ -30120,7 +30211,7 @@ func (m *Mem) recent(pred func(Entry) bool, limit int) []Entry <span class="cov3
         <span class="cov3" title="5">return out</span>
 }
 
-func (m *Mem) AddCredits(user string, amount float64) (float64, error) <span class="cov6" title="41">{
+func (m *Mem) AddCredits(user string, amount float64) (float64, error) <span class="cov6" title="44">{
         m.mu.Lock()
         defer m.mu.Unlock()
         m.wallet[user] += amount
@@ -30259,13 +30350,13 @@ func (m *Mem) DeleteAccount(login string) (bool, error) <span class="cov1" title
         <span class="cov0" title="0">return false, nil</span>
 }
 
-func (m *Mem) BindNode(node, accountID string) error <span class="cov5" title="25">{
+func (m *Mem) BindNode(node, accountID string) error <span class="cov6" title="27">{
         m.mu.Lock()
         defer m.mu.Unlock()
-        if _, ok := m.nodeAcct[node]; !ok </span><span class="cov5" title="25">{ // TOFU: first account wins
+        if _, ok := m.nodeAcct[node]; !ok </span><span class="cov6" title="27">{ // TOFU: first account wins
                 m.nodeAcct[node] = accountID
         }</span>
-        <span class="cov5" title="25">return nil</span>
+        <span class="cov6" title="27">return nil</span>
 }
 
 func (m *Mem) AccountOfNode(node string) (string, bool, error) <span class="cov0" title="0">{
@@ -30377,19 +30468,19 @@ func (m *Mem) DeriveBalance(holder string) (float64, error) <span class="cov3" t
 // Caller holds m.mu. A lot on a node with an OPEN L1 re-count discrepancy
 // (recountHold) is NOT promoted (P0-2): an over-reporting node's earnings stay held
 // pending review instead of auto-promoting to payable on schedule.
-func (m *Mem) promoteLocked(now time.Time) <span class="cov6" title="33">{
-        for i := range m.lots </span><span class="cov7" title="49">{
+func (m *Mem) promoteLocked(now time.Time) <span class="cov6" title="35">{
+        for i := range m.lots </span><span class="cov7" title="51">{
                 l := &amp;m.lots[i]
                 if _, held := m.recountHold[l.Node]; held </span><span class="cov2" title="2">{
                         continue</span> // node under re-count review: hold this lot, don't promote
                 }
-                <span class="cov6" title="47">if _, held := m.accountHold[l.AccountID]; held </span><span class="cov2" title="2">{
+                <span class="cov6" title="49">if _, held := m.accountHold[l.AccountID]; held </span><span class="cov2" title="2">{
                         continue</span> // OWNER under review (survives node-id rotation): hold this lot
                 }
-                <span class="cov6" title="45">if l.State == LotHeld &amp;&amp; now.Unix() &gt;= l.ReleaseAt </span><span class="cov5" title="21">{
+                <span class="cov6" title="47">if l.State == LotHeld &amp;&amp; now.Unix() &gt;= l.ReleaseAt </span><span class="cov5" title="24">{
                         l.State = LotPayable
                         payable := l.Gross - l.Reserve
-                        if payable &gt; 0 </span><span class="cov5" title="21">{
+                        if payable &gt; 0 </span><span class="cov5" title="24">{
                                 m.appendLedgerLocked(l.AccountID, "operator", KindHoldRelease, 0, "promote:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
                         }</span>
                         // The reserve currently releases TOGETHER with the lot: addLotLocked sets
@@ -30401,30 +30492,30 @@ func (m *Mem) promoteLocked(now time.Time) <span class="cov6" title="33">{
                         // real reserve TAIL (ReserveReleaseAt &gt; ReleaseAt) is NOT implemented and would
                         // also require RequestPayout to pay the reserve separately instead of marking the
                         // lot fully paid - build both together if that policy is ever wanted.
-                        <span class="cov5" title="21">if l.Reserve &gt; 0 </span><span class="cov3" title="4">{
+                        <span class="cov5" title="24">if l.Reserve &gt; 0 </span><span class="cov3" title="4">{
                                 m.appendLedgerLocked(l.AccountID, "operator", KindReserveRelease, l.Reserve, "reserve_rel:"+l.RequestID, StatePosted, l.RequestID, now.Unix())
                         }</span>
                 }
         }
 }
 
-func (m *Mem) splitLocked(match func(EarningLot) bool, now time.Time) EarningSplit <span class="cov5" title="20">{
+func (m *Mem) splitLocked(match func(EarningLot) bool, now time.Time) EarningSplit <span class="cov5" title="22">{
         m.promoteLocked(now)
         var s EarningSplit
-        for _, l := range m.lots </span><span class="cov6" title="28">{
+        for _, l := range m.lots </span><span class="cov6" title="30">{
                 if !match(l) </span><span class="cov2" title="2">{
                         continue</span>
                 }
-                <span class="cov6" title="26">switch l.State </span>{
+                <span class="cov6" title="28">switch l.State </span>{
                 case LotHeld:<span class="cov3" title="5">
                         s.Held += l.Gross - l.Reserve
                         s.Reserved += l.Reserve
                         if s.NextRelease == 0 || l.ReleaseAt &lt; s.NextRelease </span><span class="cov3" title="4">{
                                 s.NextRelease = l.ReleaseAt
                         }</span>
-                case LotPayable:<span class="cov4" title="12">
+                case LotPayable:<span class="cov5" title="15">
                         s.Payable += l.Gross - l.Reserve
-                        if now.Unix() &gt;= l.ReserveReleaseAt </span><span class="cov4" title="12">{
+                        if now.Unix() &gt;= l.ReserveReleaseAt </span><span class="cov5" title="15">{
                                 s.Payable += l.Reserve
                         }</span> else<span class="cov0" title="0"> {
                                 s.Reserved += l.Reserve
@@ -30436,13 +30527,13 @@ func (m *Mem) splitLocked(match func(EarningLot) bool, now time.Time) EarningSpl
                         s.Paid += l.Gross</span> // the full lot (gross incl. released reserve) was paid out
                 }
         }
-        <span class="cov5" title="20">return s</span>
+        <span class="cov5" title="22">return s</span>
 }
 
-func (m *Mem) EarningSplitOf(accountID string, now time.Time) (EarningSplit, error) <span class="cov5" title="20">{
+func (m *Mem) EarningSplitOf(accountID string, now time.Time) (EarningSplit, error) <span class="cov5" title="22">{
         m.mu.Lock()
         defer m.mu.Unlock()
-        return m.splitLocked(func(l EarningLot) bool </span><span class="cov6" title="28">{ return l.AccountID == accountID }</span>, now), nil
+        return m.splitLocked(func(l EarningLot) bool </span><span class="cov6" title="30">{ return l.AccountID == accountID }</span>, now), nil
 }
 
 func (m *Mem) EarningSplitOfNode(node string, now time.Time) (EarningSplit, error) <span class="cov0" title="0">{
@@ -30542,7 +30633,7 @@ func (m *Mem) FailPayout(payoutID int64) error <span class="cov1" title="1">{
                 }</span>
         }
         <span class="cov1" title="1">ref := "payout:" + strconv.FormatInt(payoutID, 10)
-        for j := range m.ledger </span><span class="cov4" title="7">{
+        for j := range m.ledger </span><span class="cov3" title="7">{
                 if m.ledger[j].Kind == KindPayout &amp;&amp; m.ledger[j].IdemKey == ref </span><span class="cov1" title="1">{
                         m.ledger[j].State = StateReversed
                 }</span>
@@ -30755,13 +30846,13 @@ func (m *Mem) Chargeback(disputeID, wallet, requestID string, amount float64, no
         return res.Clawed, err
 }</span>
 
-func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error) <span class="cov4" title="8">{
+func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error) <span class="cov4" title="9">{
         m.mu.Lock()
         defer m.mu.Unlock()
         if m.disputes[disputeID] </span><span class="cov2" title="3">{
                 return ChargebackResult{AlreadyHandled: true}, nil // idempotent on the stripe dispute id
         }</span>
-        <span class="cov3" title="5">m.disputes[disputeID] = true
+        <span class="cov3" title="6">m.disputes[disputeID] = true
         m.wallet[wallet] -= amount
         m.appendLedgerLocked(wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix())
 
@@ -30770,14 +30861,14 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
         // (precise path); otherwise the wallet's lots newest-first, capped at the disputed
         // amount. Already-clawed lots are skipped; held/payable AND paid lots are eligible
         // (a paid lot is reversed via Stripe rather than escaping the clawback).
-        notClawed := func(l *EarningLot) bool </span><span class="cov4" title="7">{ return l.State != LotClawed }</span>
+        notClawed := func(l *EarningLot) bool </span><span class="cov4" title="8">{ return l.State != LotClawed }</span>
         // reqCost maps a request to the CONSUMER cost it was billed (entry.Cost), so the claw
         // loop can stop once the clawed lots cover the disputed amount in CONSUMER dollars - the
         // units `amount` is in. Stopping on operator GROSS instead would over-claw by a factor
         // of 1/(1-feeRate): clawing into lots funded by the consumer's OTHER (non-disputed)
         // top-ups and making an honest operator absorb the platform's fee. Empty for the
         // explicit-requestID path (which claws the one request and never caps on amount).
-        <span class="cov3" title="5">reqCost := map[string]float64{}
+        <span class="cov3" title="6">reqCost := map[string]float64{}
         var order []int
         if requestID != "" </span><span class="cov1" title="1">{
                 for i := range m.lots </span><span class="cov1" title="1">{
@@ -30785,26 +30876,26 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
                                 order = append(order, i)
                         }</span>
                 }
-        } else<span class="cov3" title="4"> {
+        } else<span class="cov3" title="5"> {
                 reqTS := map[string]int64{}
-                for _, e := range m.entries </span><span class="cov4" title="8">{
-                        if e.User == wallet </span><span class="cov3" title="6">{
+                for _, e := range m.entries </span><span class="cov4" title="9">{
+                        if e.User == wallet </span><span class="cov3" title="7">{
                                 reqTS[e.RequestID] = e.TS
                                 reqCost[e.RequestID] = e.Cost
                         }</span>
                 }
-                <span class="cov3" title="4">for i := range m.lots </span><span class="cov4" title="8">{
-                        if _, ok := reqTS[m.lots[i].RequestID]; ok &amp;&amp; notClawed(&amp;m.lots[i]) </span><span class="cov3" title="6">{
+                <span class="cov3" title="5">for i := range m.lots </span><span class="cov4" title="9">{
+                        if _, ok := reqTS[m.lots[i].RequestID]; ok &amp;&amp; notClawed(&amp;m.lots[i]) </span><span class="cov3" title="7">{
                                 order = append(order, i)
                         }</span>
                 }
-                <span class="cov3" title="4">sort.SliceStable(order, func(a, b int) bool </span><span class="cov2" title="2">{
+                <span class="cov3" title="5">sort.SliceStable(order, func(a, b int) bool </span><span class="cov2" title="2">{
                         return reqTS[m.lots[order[a]].RequestID] &gt; reqTS[m.lots[order[b]].RequestID]
                 }</span>)
         }
 
         // transfer id a paid lot was paid out on (for the reversal).
-        <span class="cov3" title="5">transferOf := func(payoutID int64) string </span><span class="cov1" title="1">{
+        <span class="cov3" title="6">transferOf := func(payoutID int64) string </span><span class="cov1" title="1">{
                 for _, p := range m.payouts </span><span class="cov1" title="1">{
                         if p.ID == payoutID </span><span class="cov1" title="1">{
                                 return p.StripeTransferID
@@ -30813,41 +30904,56 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
                 <span class="cov0" title="0">return ""</span>
         }
 
-        <span class="cov3" title="5">var res ChargebackResult
-        recovered := 0.0  // operator GROSS clawed/reversed - what is actually recovered from operators
-        costClawed := 0.0 // CONSUMER cost of the clawed lots - compared to the (consumer-dollar) amount
-        for _, i := range order </span><span class="cov4" title="7">{
-                if requestID == "" &amp;&amp; costClawed &gt;= amount </span><span class="cov1" title="1">{
+        <span class="cov3" title="6">var res ChargebackResult
+        recovered := 0.0    // operator GROSS clawed/reversed - what is actually recovered from operators
+        remaining := amount // CONSUMER cost still to recover (wallet-recency path); caps the claw
+        for _, i := range order </span><span class="cov4" title="8">{
+                if requestID == "" &amp;&amp; remaining &lt;= 1e-9 </span><span class="cov1" title="1">{
                         break</span>
                 }
-                <span class="cov3" title="6">l := &amp;m.lots[i]
-                costClawed += reqCost[l.RequestID]
+                <span class="cov3" title="7">l := &amp;m.lots[i]
+                // PRO-RATA on the lot that would overshoot: if this lot's consumer cost exceeds the
+                // disputed cost still remaining, recover only the operator's PROPORTIONAL share
+                // (gross * remaining/cost) so the operator is NEVER clawed beyond the disputed
+                // amount; the rest of the lot stays theirs. A full dispute claws whole lots (frac=1)
+                // exactly as before. Explicit-requestID path always claws whole (no amount cap).
+                frac := 1.0
+                cost := reqCost[l.RequestID]
+                if requestID == "" &amp;&amp; cost &gt; 0 &amp;&amp; cost &gt; remaining </span><span class="cov2" title="2">{
+                        frac = remaining / cost
+                }</span>
+                <span class="cov3" title="7">clawGross := l.Gross * frac
                 switch l.State </span>{
                 case LotPaid:<span class="cov1" title="1">
-                        // Already paid out: claw the lot AND emit a payout_reversed ledger row; the
-                        // broker reverses the Stripe transfer for the operator's share (6.4 step 4).
-                        l.State = LotClawed
-                        m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -l.Gross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+                        // Already paid out: reverse the (proportional) operator share via Stripe (6.4
+                        // step 4) + a payout_reversed ledger row.
+                        m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
                         res.Reversals = append(res.Reversals, Reversal{
                                 DisputeID: disputeID, LotID: l.ID, AccountID: l.AccountID,
-                                TransferID: transferOf(l.PayoutID), Amount: l.Gross,
-                        })
-                        recovered += l.Gross</span>
-                default:<span class="cov3" title="5"> // held / payable: claw in place, no Stripe action.
-                        l.State = LotClawed
-                        m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -l.Gross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
-                        res.Clawed += l.Gross
-                        recovered += l.Gross</span>
+                                TransferID: transferOf(l.PayoutID), Amount: clawGross,
+                        })</span>
+                default:<span class="cov3" title="6"> // held / payable: claw in place, no Stripe action.
+                        m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+                        res.Clawed += clawGross</span>
                 }
+                <span class="cov3" title="7">recovered += clawGross
+                if frac &gt;= 1.0 </span><span class="cov3" title="5">{
+                        l.State = LotClawed
+                }</span> else<span class="cov2" title="2"> {
+                        // Partial claw: keep the lot, reduce its gross + reserve by the clawed fraction.
+                        l.Gross -= clawGross
+                        l.Reserve -= l.Reserve * frac
+                }</span>
+                <span class="cov3" title="7">remaining -= cost * frac</span> // == min(cost, remaining); reaches 0 on the partial lot
         }
 
         // Any disputed amount NOT covered by this consumer's lots is a PLATFORM LOSS - the
         // platform eats it rather than clawing unrelated, honest operators' earnings.
-        <span class="cov3" title="5">if remainder := amount - recovered; remainder &gt; 1e-9 </span><span class="cov2" title="2">{
+        <span class="cov3" title="6">if remainder := amount - recovered; remainder &gt; 1e-9 </span><span class="cov2" title="3">{
                 res.PlatformLoss = remainder
                 m.appendLedgerLocked("platform", "platform", KindPlatformLoss, -remainder, "loss:"+disputeID, StatePosted, disputeID, now.Unix())
         }</span>
-        <span class="cov3" title="5">return res, nil</span>
+        <span class="cov3" title="6">return res, nil</span>
 }
 
 func (m *Mem) LinkCharge(sessionID, paymentIntent, charge_, wallet string, credits float64) error <span class="cov1" title="1">{
@@ -37311,10 +37417,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="616">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="495">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="496">{
                 return s
         }</span>
-        <span class="cov3" title="121">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="120">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -38806,7 +38912,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="334">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="335">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -38828,7 +38934,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="75">
+                case agent.LinkOnAir:<span class="cov3" title="71">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -38885,7 +38991,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="9">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -38936,7 +39042,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov2" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="41">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="38">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
