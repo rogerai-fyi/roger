@@ -14,10 +14,12 @@ import (
 // idempotent Settle/Finalize never dedups distinct seeded entries that share a timestamp.
 var serveSeq atomic.Int64
 
-// metricsStores runs the per-model metrics suite against Mem always, and Postgres when
-// ROGERAI_TEST_DATABASE_URL is set, so the provider/usage rollups (the GROUP BY and the
-// iterate) behave identically on both backends.
-func metricsStores(t *testing.T) map[string]Store {
+// parityStores returns the store backends every parity suite runs against: Mem
+// always, plus a freshly-TRUNCATEd real Postgres when ROGERAI_TEST_DATABASE_URL is
+// set (CI service container / local podman). One canonical helper so Mem and the
+// production SQL path are exercised identically across metrics, money, caps,
+// recourse, safety, bands, grants, overrides, admin, and node CRUD.
+func parityStores(t *testing.T) map[string]Store {
 	t.Helper()
 	out := map[string]Store{"mem": NewMem()}
 	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
@@ -48,6 +50,12 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 		rogerai.checkout_charges, rogerai.offer_overrides, rogerai.private_bands
 		RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate tables: %v", err)
+	}
+	// The schema seeds seed_counter's id=1 row once at migrate; TRUNCATE wiped it, so
+	// re-establish it (grantSeedTx bumps WHERE id=1 and is a no-op without the row).
+	if _, err := pg.db.Exec(`INSERT INTO rogerai.seed_counter(id,count) VALUES(1,0)
+		ON CONFLICT (id) DO UPDATE SET count=0`); err != nil {
+		t.Fatalf("reset seed_counter: %v", err)
 	}
 	return pg
 }
@@ -97,7 +105,7 @@ func findUsage(rows []UsageModelMetric, model string) (UsageModelMetric, bool) {
 // window boundary (a row just outside the window is excluded), node scoping, and
 // Mem+Postgres parity.
 func TestMetricsStoreParity(t *testing.T) {
-	for name, db := range metricsStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			acct := "pk_owner"   // owner pubkey (the account id)
 			node := "node-1"     // bound to acct
@@ -202,7 +210,7 @@ func TestMetricsStoreParity(t *testing.T) {
 // window boundary, node->account scoping, cross-account isolation, and Mem+Postgres
 // parity.
 func TestWindowedEntriesParity(t *testing.T) {
-	for name, db := range metricsStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			defer db.Close()
 			now := time.Now().UTC().Unix()

@@ -1,26 +1,12 @@
 package store
 
 import (
-	"os"
 	"testing"
 	"time"
 )
 
-// safetyStores returns the store backends to run the parity suite against: always Mem,
-// plus Postgres when ROGERAI_TEST_DATABASE_URL is set (CI/local with a real DB). This
-// guarantees the new csam_incidents / reports / banned_nodes tables behave identically
-// on both backends.
-func safetyStores(t *testing.T) map[string]Store {
-	t.Helper()
-	out := map[string]Store{"mem": NewMem()}
-	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		out["postgres"] = freshPostgres(t, dsn)
-	}
-	return out
-}
-
 func TestSafetyStoreParity(t *testing.T) {
-	for name, db := range safetyStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			// --- CSAM preserve + queue + mark reported ---
 			id, err := db.PreserveCSAM(CSAMIncident{
@@ -108,7 +94,7 @@ func TestSafetyStoreParity(t *testing.T) {
 // window, NOT a raw all-time COUNT(*). One IP counts once; reports with no IP and reports
 // older than the window do not count.
 func TestDistinctReporterCount(t *testing.T) {
-	for name, db := range safetyStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			now := time.Now().Unix()
 			// Same IP three times -> counts ONCE.
@@ -135,7 +121,7 @@ func TestDistinctReporterCount(t *testing.T) {
 // OwnerStrikeStats counts only strikes at/after `since` and across how many distinct
 // kinds, excluding terminal ban markers.
 func TestOwnerStrikeStatsDecayAndKinds(t *testing.T) {
-	for name, db := range safetyStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			acct := "pk_decay"
 			_, _ = db.OwnerStrike(acct, StrikeEmptyOutput, "{}", "k1")
@@ -162,7 +148,7 @@ func TestOwnerStrikeStatsDecayAndKinds(t *testing.T) {
 // TestAppealStoreParity locks the self-serve appeal storage: owner-scoped listing + the
 // admin pending queue, identical on Mem and Postgres.
 func TestAppealStoreParity(t *testing.T) {
-	for name, db := range safetyStores(t) {
+	for name, db := range parityStores(t) {
 		t.Run(name, func(t *testing.T) {
 			id, err := db.AddAppeal(Appeal{AccountID: "pk_a", NodeID: "n1", Reason: "false positive"})
 			if err != nil || id == 0 {
