@@ -437,73 +437,76 @@ func main() {
 			fmt.Fprintln(os.Stderr, notice)
 		}
 	}
-	var err error
-	switch os.Args[1] {
-	case "search", "discover", "models":
-		err = client.Search(cfg.Broker)
-	case "balance":
-		err = cmdBalance(cfg, os.Args[2:])
-	case "account", "identity":
-		err = cmdAccount(cfg, os.Args[2:])
-	case "login":
-		err = client.Login(cfg.Broker, gitHubClientID())
-	case "logout":
-		err = client.Logout()
-	case "whoami":
-		err = client.Whoami()
-	case "topup":
-		err = cmdTopup(cfg, os.Args[2:])
-	case "use", "connect", "tune":
-		// `connect`/`tune` mirror the TUI's /connect /tune so the CLI verbs and the
-		// in-app slash commands are one mental model.
-		err = cmdUse(cfg, os.Args[2:])
-	case "share":
-		err = cmdShare(cfg, os.Args[2:])
-	case "limits":
-		// Mirror the TUI's /limits (prints the spend-limits view); editing stays under
-		// `config set-limit` for the flags.
-		err = cmdConfig(append([]string{"limits"}, os.Args[2:]...))
-	case "limit":
-		// `roger limit --monthly $X` sets the per-account MONTHLY SPEND CAP (a budget
-		// limit). Bare `roger limit` shows the current cap + month-to-date spend.
-		err = cmdLimit(cfg, os.Args[2:])
-	case "payout", "payouts", "cashout":
-		err = cmdPayout(cfg, os.Args[2:])
-	case "grant":
-		err = cmdGrant(cfg, os.Args[2:])
-	case "onboard", "setup":
-		err = cmdOnboard(cfg, os.Args[2:])
-	case "config":
-		err = cmdConfig(os.Args[2:])
-	case "support", "community", "help-me", "discord":
-		// Mirror the TUI's /support: open the website (community + Discord live there).
-		err = cmdSupport()
-	case "appeal":
-		// Self-serve recourse: file an appeal against a strike/ban (or `appeal status`).
-		err = cmdAppeal(cfg, os.Args[2:])
-	case "drphil", "dr-phil", "diagnose", "doctor":
-		// "Dr. Phil": operator diagnostic - why isn't my node earning? Auto-fixes what it
-		// can and emits a copy-pasteable appeal bundle if you're banned/held.
-		err = cmdDrPhil(cfg, os.Args[2:])
-	case "ping", "--ping", "-ping":
-		// easter egg: walk the mascot (Ping) across the terminal once, then exit.
-		// Accept the dash forms too - `--ping` is a natural thing to type for a flag-ish
-		// easter egg, and erroring out on it is a worse surprise than just running it.
-		err = tui.PingWalk()
-	case "upgrade", "update", "self-update":
-		err = cmdUpgrade(os.Args[2:])
-	case "version":
-		fmt.Printf("rogerai %s\n", Version)
-	case "-h", "--help", "help":
-		usage()
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
-		usage()
-		os.Exit(1)
-	}
-	if err != nil {
+	if err := dispatch(cfg, os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+}
+
+// errUnknownCommand is returned by dispatch for an unrecognized subcommand (main turns
+// any dispatch error into a stderr line + exit 1). Split out of main() so the command
+// routing is testable without os.Exit / os.Args mutation.
+var errUnknownCommand = fmt.Errorf("unknown command")
+
+// dispatch routes a parsed argv (args[0] is the subcommand, args[1:] its arguments) to
+// the matching handler and returns its error. main() owns the process-exit; this owns
+// only the routing, so a test can drive every verb.
+func dispatch(cfg config, args []string) error {
+	if len(args) == 0 {
+		usage()
+		return nil
+	}
+	switch args[0] {
+	case "search", "discover", "models":
+		return client.Search(cfg.Broker)
+	case "balance":
+		return cmdBalance(cfg, args[1:])
+	case "account", "identity":
+		return cmdAccount(cfg, args[1:])
+	case "login":
+		return client.Login(cfg.Broker, gitHubClientID())
+	case "logout":
+		return client.Logout()
+	case "whoami":
+		return client.Whoami()
+	case "topup":
+		return cmdTopup(cfg, args[1:])
+	case "use", "connect", "tune":
+		return cmdUse(cfg, args[1:])
+	case "share":
+		return cmdShare(cfg, args[1:])
+	case "limits":
+		return cmdConfig(append([]string{"limits"}, args[1:]...))
+	case "limit":
+		return cmdLimit(cfg, args[1:])
+	case "payout", "payouts", "cashout":
+		return cmdPayout(cfg, args[1:])
+	case "grant":
+		return cmdGrant(cfg, args[1:])
+	case "onboard", "setup":
+		return cmdOnboard(cfg, args[1:])
+	case "config":
+		return cmdConfig(args[1:])
+	case "support", "community", "help-me", "discord":
+		return cmdSupport()
+	case "appeal":
+		return cmdAppeal(cfg, args[1:])
+	case "drphil", "dr-phil", "diagnose", "doctor":
+		return cmdDrPhil(cfg, args[1:])
+	case "ping", "--ping", "-ping":
+		return tui.PingWalk()
+	case "upgrade", "update", "self-update":
+		return cmdUpgrade(args[1:])
+	case "version":
+		fmt.Printf("rogerai %s\n", Version)
+		return nil
+	case "-h", "--help", "help":
+		usage()
+		return nil
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q\n", args[0])
+		usage()
+		return errUnknownCommand
 	}
 }
 
