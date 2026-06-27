@@ -4,7 +4,8 @@
 coverage:
   paths:
     - cover.out
-  acceptable: 59%
+  # GREEN bar = 85% (founder policy); aim is 95%+. Red until the backfill reaches it.
+  acceptable: 85%
 codeToTestRatio:
   code:
     - "**/*.go"
@@ -19,7 +20,7 @@ comment:
 report:
   if: is_default_branch
   datastores:
-    - github://rogerai-fyi/roger/gh-pages
+    - github://rogerai-fyi/roger@gh-pages
 diff:
   datastores:
-    - github://rogerai-fyi/roger/gh-pages
+    - github://rogerai-fyi/roger@gh-pages
