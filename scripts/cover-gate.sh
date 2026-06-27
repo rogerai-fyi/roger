@@ -13,17 +13,17 @@
 # Usage: scripts/cover-gate.sh [MIN_TOTAL]   (default 85 — the GREEN bar; aim 95%+)
 set -uo pipefail
 
-# Founder policy: nothing is GREEN below 85% coverage; the aim is 95%+. Until the backfill
-# reaches the bar the gate is RED by design (start with the 0% Postgres ledger). Bypass a
-# local push during the backfill with COVER_GATE_SKIP=1; CI has no bypass.
-GREEN_BAR=85
+# Founder policy: the GREEN bar is 90% (ratcheted up from 85 once every package cleared
+# 90); the aim is 95%+. Bypass a local push only in a genuine emergency with
+# COVER_GATE_SKIP=1; CI has no bypass.
+GREEN_BAR=90
 MIN_TOTAL="${1:-$GREEN_BAR}"
 PROFILE="${COVER_PROFILE:-cover.out}"
 MOD="github.com/rogerai-fyi/roger"
 
-# Every package's floor is the 85% GREEN bar (aim 95%). No per-package exemptions — the
-# founder's rule is no green below 85%. Honestly-untestable glue (main()/serve loops) must
-# be refactored to be testable rather than exempted.
+# Every package's floor is the 90% GREEN bar (aim 95%). No per-package exemptions — the
+# founder's rule is no green below the bar. Honestly-untestable glue (main()/serve loops)
+# must be refactored to be testable rather than exempted.
 floor_for() { echo "$GREEN_BAR"; }
 
 # --- Postgres-aware coverage -------------------------------------------------

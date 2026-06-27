@@ -4,8 +4,9 @@
 coverage:
   paths:
     - cover.out
-  # GREEN bar = 85% (founder policy); aim is 95%+. Red until the backfill reaches it.
-  acceptable: 85%
+  # GREEN bar = 90% (founder policy, ratcheted up from 85 once every package cleared 90);
+  # aim is 95%+.
+  acceptable: 90%
 codeToTestRatio:
   code:
     - "**/*.go"
