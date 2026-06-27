@@ -572,24 +572,31 @@ func (b *broker) syncLiveness() {
 		if b.shared == nil {
 			return
 		}
-		snap, err := b.shared.liveness()
-		if err != nil || len(snap) == 0 {
-			continue
+		b.syncLivenessOnce()
+	}
+}
+
+// syncLivenessOnce pulls the shared liveness snapshot once and merges every peer's
+// newer last_seen into this instance (and, in multi-instance mode, mirrors the shared
+// registry). Split out of the ticker loop so the merge is testable deterministically.
+func (b *broker) syncLivenessOnce() {
+	snap, err := b.shared.liveness()
+	if err != nil || len(snap) == 0 {
+		return
+	}
+	b.mu.Lock()
+	for node, ts := range snap {
+		if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) {
+			b.lastSeen[node] = ts
 		}
-		b.mu.Lock()
-		for node, ts := range snap {
-			if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) {
-				b.lastSeen[node] = ts
-			}
-		}
-		b.mu.Unlock()
-		// MULTI-INSTANCE registry mirror: pull every peer's published registration into
-		// this instance's registry + tunnel stubs, so a node that dialed a DIFFERENT
-		// instance is still pickable + its poll/result authenticatable here (the bus then
-		// rendezvous the job/result). Gated so single-instance stays byte-for-byte unchanged.
-		if b.multiInstance {
-			b.syncRegistry()
-		}
+	}
+	b.mu.Unlock()
+	// MULTI-INSTANCE registry mirror: pull every peer's published registration into
+	// this instance's registry + tunnel stubs, so a node that dialed a DIFFERENT
+	// instance is still pickable + its poll/result authenticatable here (the bus then
+	// rendezvous the job/result). Gated so single-instance stays byte-for-byte unchanged.
+	if b.multiInstance {
+		b.syncRegistry()
 	}
 }
 
