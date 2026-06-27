@@ -492,9 +492,28 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 		v.noteErr("liveness", err)
 		return nil, err
 	}
+	if len(ids) == 0 {
+		v.setUp(true)
+		return map[string]time.Time{}, nil
+	}
+	// Batch the per-node HGETs into ONE pipeline (one round-trip) instead of N sequential
+	// round-trips: same result, but the sync-loop latency no longer grows linearly with
+	// the node count (each saved round-trip is a full Valkey RTT in production).
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.HGet(ctx, livenessKey(id), livenessField)
+	}
+	// Exec surfaces the first command error; a per-key redis.Nil (expired since the
+	// SMEMBERS listing) is reported on that command, not as a fatal Exec error - so we
+	// ignore a redis.Nil from Exec and inspect each command below, skipping the misses.
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("liveness", err)
+		return nil, err
+	}
 	out := make(map[string]time.Time, len(ids))
-	for _, id := range ids {
-		ms, err := v.rdb.HGet(ctx, livenessKey(id), livenessField).Int64()
+	for i, id := range ids {
+		ms, err := cmds[i].Int64()
 		if err == redis.Nil {
 			continue // expired since the set listing - skip
 		}
@@ -540,9 +559,24 @@ func (v *valkeyStore) allNodes() (map[string][]byte, error) {
 		v.noteErr("allNodes", err)
 		return nil, err
 	}
+	if len(ids) == 0 {
+		v.setUp(true)
+		return map[string][]byte{}, nil
+	}
+	// Batch the per-node GETs into ONE pipeline (one round-trip) instead of N sequential
+	// round-trips - the registry mirror sync no longer scales its latency with node count.
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.Get(ctx, regKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("allNodes", err)
+		return nil, err
+	}
 	out := make(map[string][]byte, len(ids))
-	for _, id := range ids {
-		raw, err := v.rdb.Get(ctx, regKey(id)).Bytes()
+	for i, id := range ids {
+		raw, err := cmds[i].Bytes()
 		if err == redis.Nil {
 			continue // reg expired since the set listing - skip
 		}
@@ -604,9 +638,24 @@ func (v *valkeyStore) inflightByNode(selfInstanceID string) (map[string]int, err
 		v.noteErr("inflightByNode", err)
 		return nil, err
 	}
+	if len(nodes) == 0 {
+		v.setUp(true)
+		return map[string]int{}, nil
+	}
+	// Batch the per-node HGETALLs into ONE pipeline (one round-trip) instead of N
+	// sequential round-trips - the peer-inflight merge stops scaling with node count.
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.MapStringStringCmd, len(nodes))
+	for i, node := range nodes {
+		cmds[i] = pipe.HGetAll(ctx, inflightKey(node))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("inflightByNode", err)
+		return nil, err
+	}
 	out := make(map[string]int, len(nodes))
-	for _, node := range nodes {
-		fields, err := v.rdb.HGetAll(ctx, inflightKey(node)).Result()
+	for i, node := range nodes {
+		fields, err := cmds[i].Result()
 		if err == redis.Nil {
 			continue
 		}
