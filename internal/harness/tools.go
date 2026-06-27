@@ -42,8 +42,10 @@ const maxFetchBytes = 256 << 10
 // fetchTimeout bounds web_fetch so a slow URL can't hang the turn.
 const fetchTimeout = 20 * time.Second
 
-// shellTimeout bounds run_shell so a runaway command can't hang the turn.
-const shellTimeout = 60 * time.Second
+// shellTimeout bounds run_shell so a runaway command can't hang the turn. It is a
+// var (defaulting to 60s) only so a test can shorten it to exercise the timeout
+// branch; production behaviour is unchanged (the default is the real ceiling).
+var shellTimeout = 60 * time.Second
 
 // BuiltinTools returns the small, bounded toolset, in a stable order. Read-only
 // tools (read_file, list_dir, web_fetch) auto-run; mutating tools (write_file,
