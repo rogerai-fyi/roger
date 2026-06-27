@@ -1247,16 +1247,20 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		if derr != nil {
 			b.exitInflight(node.NodeID, false)
 			if derr == errNoPoller {
+				b.stats.busNoPoller.Add(1)
 				jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
 			} else {
+				b.stats.busDispatchErr.Add(1)
 				jsonErr(w, http.StatusServiceUnavailable, "dispatch bus unavailable")
 			}
 			return
 		}
+		b.stats.busDispatch.Add(1)
 		busRes = ch
 	} else {
 		select {
 		case t.jobs <- job:
+			b.stats.localDispatch.Add(1)
 		case <-time.After(3 * time.Second):
 			b.exitInflight(node.NodeID, false)
 			jsonErr(w, http.StatusServiceUnavailable, "node busy (no poller free)")
@@ -1497,6 +1501,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		defer streamCancel()
 		busStream, scancel, serr := b.shared.busSubscribeStream(streamCtx, job.ID)
 		if serr != nil {
+			b.stats.busDispatchErr.Add(1)
 			b.exitInflight(node.NodeID, false)
 			return
 		}
@@ -1506,9 +1511,15 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			defer rcancel()
 		}
 		if derr != nil {
+			if derr == errNoPoller {
+				b.stats.busNoPoller.Add(1)
+			} else {
+				b.stats.busDispatchErr.Add(1)
+			}
 			b.exitInflight(node.NodeID, false)
 			return // headers already sent; the client gets an empty stream
 		}
+		b.stats.busDispatch.Add(1)
 		// Pump bus chunks -> client (+ capture). Runs until the done marker or the bus
 		// closes; relays each frame in order and flushes, mirroring agentStream's local
 		// write+flush+capture so settlement reads the same captured completion. pumpDone is
@@ -1564,6 +1575,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	} else {
 		select {
 		case t.jobs <- job:
+			b.stats.localDispatch.Add(1)
 		case <-time.After(3 * time.Second):
 			b.exitInflight(node.NodeID, false)
 			return // headers already sent; the client just gets an empty stream

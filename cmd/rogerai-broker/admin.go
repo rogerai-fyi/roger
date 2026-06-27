@@ -138,6 +138,21 @@ func (b *broker) adminOverview(w http.ResponseWriter, r *http.Request) {
 		} else {
 			health["shared"] = "degraded"
 		}
+		// Total Valkey op errors (publish/subscribe/get/set/...), the central bus/cache
+		// error signal. Surfaced read-only so a growing rate is visible on the dashboard
+		// instead of buried in the rate-limited warning log. Type-assert (only the
+		// valkeyStore tracks it; memStore has no backend to fail).
+		if vs, ok := b.shared.(*valkeyStore); ok {
+			health["valkey_op_errors"] = vs.opErrors.Load()
+		}
+	}
+	// MULTI-INSTANCE: the per-instance id + the cross-instance dispatch counters, so the
+	// team can SEE local vs. bus dispatch (and no-poller / bus-error rates) across the 2+
+	// instances instead of grepping logs. Only present when the rendezvous bus is on; the
+	// single-instance overview is unchanged (no new keys).
+	if b.multiInstance {
+		health["instance_id"] = b.instanceID
+		health["dispatch"] = b.stats.snapshot()
 	}
 
 	fin, _ := b.db.AdminFinancials(now)
