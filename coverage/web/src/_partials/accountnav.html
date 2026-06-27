@@ -1,8 +1,0 @@
-<!-- Account-page footer sub-nav: the same six account pages in the SAME order as
-     the top-right profile dropdown (web/src/js/session.js), minus the page you're
-     on. Separators are drawn by CSS (.acctsubnav a + a::before in account-base.css)
-     so a removed link never leaves a dangling " - ".
-     args: current = dashboard | console | metrics | billing | payouts | account
-     (API keys is intentionally NOT in this set - it lives in the top nav. On
-     keys.html pass no/unknown current, so all six show.) -->
-<p class="fine acctsubnav">{{#unless current=dashboard}}<a href="/dashboard.html">Dashboard</a>{{/unless}}{{#unless current=console}}<a href="/console.html">Console</a>{{/unless}}{{#unless current=metrics}}<a href="/usage.html">Metrics</a>{{/unless}}{{#unless current=billing}}<a href="/billing.html">Billing</a>{{/unless}}{{#unless current=payouts}}<a href="/payouts.html">Payouts</a>{{/unless}}{{#unless current=account}}<a href="/account.html">Account</a>{{/unless}}</p>

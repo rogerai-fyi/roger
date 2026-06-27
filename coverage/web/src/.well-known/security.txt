@@ -1,9 +1,0 @@
-# RogerAI security contact (RFC 9116).
-# Please report vulnerabilities privately. Do not open a public issue or PR.
-Contact: mailto:security@rogerai.fyi
-Contact: https://github.com/rogerai-fyi/roger/security/advisories/new
-Policy: https://rogerai.fyi/security.html
-Policy: https://github.com/rogerai-fyi/roger/blob/main/SECURITY.md
-Preferred-Languages: en
-Canonical: https://rogerai.fyi/.well-known/security.txt
-Expires: 2027-06-01T00:00:00.000Z
