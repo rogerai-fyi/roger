@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,5 +147,86 @@ func TestRunServesAndShutsDown(t *testing.T) {
 func TestRunBadPort(t *testing.T) {
 	if err := run("not-a-port", "", nil, nil); err == nil {
 		t.Fatal("run with an invalid port should return a bind error")
+	}
+}
+
+// TestRunWithDir exercises run()'s TOKENIZER_DIR != "" branch (the alternate startup
+// log line + a dir-backed Counter): it binds an ephemeral port, serves a real /count
+// request whose tiktoken path is independent of the (empty) dir, then shuts down clean.
+func TestRunWithDir(t *testing.T) {
+	dir := t.TempDir()
+	ready := make(chan string, 1)
+	stop := make(chan struct{})
+	errc := make(chan error, 1)
+	go func() { errc <- run("0", dir, ready, stop) }()
+
+	addr := <-ready
+	resp, err := http.Post("http://"+addr+"/count", "application/json",
+		strings.NewReader(`{"model":"gpt-4o","text":"hello world"}`))
+	if err != nil {
+		t.Fatalf("POST /count over the wire: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/count = %d %q, want 200", resp.StatusCode, body)
+	}
+	var res countResponse
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !res.Exact || res.Tokens <= 0 || !strings.HasPrefix(res.Method, "tiktoken:") {
+		t.Fatalf("count = %+v, want exact tiktoken count > 0", res)
+	}
+
+	close(stop)
+	if err := <-errc; err != nil {
+		t.Fatalf("run returned %v, want nil after clean shutdown", err)
+	}
+}
+
+// TestMainSuccess: with the run seam returning nil, main() must NOT invoke fatalFn.
+func TestMainSuccess(t *testing.T) {
+	origRun, origFatal := runFn, fatalFn
+	defer func() { runFn, fatalFn = origRun, origFatal }()
+
+	var gotPort, gotDir string
+	runFn = func(port, dir string, ready chan<- string, stop <-chan struct{}) error {
+		gotPort, gotDir = port, dir
+		return nil
+	}
+	fatalCalled := false
+	fatalFn = func(v ...any) { fatalCalled = true }
+
+	t.Setenv("TOKENIZER_PORT", "12345")
+	t.Setenv("TOKENIZER_DIR", "/some/dir")
+	main()
+
+	if gotPort != "12345" || gotDir != "/some/dir" {
+		t.Fatalf("run got (port=%q dir=%q), want env values", gotPort, gotDir)
+	}
+	if fatalCalled {
+		t.Fatal("fatalFn must NOT be called when run succeeds")
+	}
+}
+
+// TestMainFatalOnError: when the run seam returns an error, main() forwards it to fatalFn.
+func TestMainFatalOnError(t *testing.T) {
+	origRun, origFatal := runFn, fatalFn
+	defer func() { runFn, fatalFn = origRun, origFatal }()
+
+	want := errors.New("bind failed")
+	runFn = func(port, dir string, ready chan<- string, stop <-chan struct{}) error { return want }
+	var got error
+	fatalFn = func(v ...any) {
+		if len(v) == 1 {
+			got, _ = v[0].(error)
+		}
+	}
+
+	main()
+
+	if !errors.Is(got, want) {
+		t.Fatalf("fatalFn got %v, want %v", got, want)
 	}
 }
