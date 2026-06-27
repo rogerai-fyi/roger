@@ -1,14 +1,14 @@
 name: coverage
-# The missing test CI: runs the full suite with coverage, enforces the gate
-# (no zero-coverage package + per-package floors + total floor), posts the octocov
-# PR report/badge, and publishes the per-file green/red HTML to GitHub Pages.
+# Runs the full suite with coverage, publishes the report + badge so coverage is always
+# VISIBLE (even while the 85% gate is red during the TDD backfill), THEN runs the gate last
+# so a sub-85% run goes red without hiding the report.
 on:
   push:
     branches: [main]
   pull_request:
 
 permissions:
-  contents: write        # octocov writes badge/report to gh-pages; Pages publish
+  contents: write        # octocov badge/report + Pages publish to gh-pages
   pull-requests: write   # octocov PR comment
 
 concurrency:
@@ -20,8 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOTOOLCHAIN: local
-      # The Postgres money specs use testcontainers, which drives the Docker daemon
-      # available on GitHub-hosted runners (no service container needed).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -29,25 +27,33 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      # THE GATE: test + coverage + no-zero/per-package/total enforcement.
-      - name: coverage gate
-        run: make cover-gate
+      # 1) Tests + coverage profile. Fails the job only if TESTS fail (not on low coverage).
+      - name: test + coverage
+        run: go test -covermode=atomic -coverprofile=cover.out ./...
 
-      # Per-file green/red HTML for the Pages drill-down.
-      - name: html report
-        run: go tool cover -html=cover.out -o coverage.html
+      # 2) Build the report site — ONLY the html + the func summary (not the whole repo).
+      - name: build report
+        run: |
+          mkdir -p _site
+          go tool cover -html=cover.out -o _site/coverage.html
+          go tool cover -func=cover.out | tee _site/coverage.txt | tail -1
 
-      # octocov: PR coverage table + badge (reads .octocov.yml). Self-hosted, no SaaS.
+      # 3) octocov: PR coverage table + badge to gh-pages (reads .octocov.yml). Never blocks.
       - uses: k1LoW/octocov-action@v1
+        continue-on-error: true
 
-      # Publish the HTML report to GitHub Pages (main only):
-      #   https://rogerai-fyi.github.io/roger/coverage/coverage.html
-      - name: publish coverage report to Pages
+      # 4) Publish the report to gh-pages/coverage (main only) — BEFORE the gate, so a red
+      #    gate never hides it. keep_files:false replaces coverage/ (cleans the earlier dump).
+      #    -> https://rogerai-fyi.github.io/roger/coverage/coverage.html
+      - name: publish report to Pages
         if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
-          keep_files: true
+          publish_dir: _site
           destination_dir: coverage
-          exclude_assets: '**/*.go,**/node_modules/**'
+          keep_files: false
+
+      # 5) THE GATE — last, so it can go RED (sub-85%) without blocking the report/badge.
+      - name: coverage gate (85% bar, aim 95%)
+        run: scripts/cover-gate.sh
