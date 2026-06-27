@@ -7239,6 +7239,16 @@ func RunWithController(broker, user string, limits *LimitStore, notice string, h
 	m.updateLine = notice
 	// WithMouseCellMotion enables mouse reporting so the transcript viewports respond to
 	// the wheel (the viewport reads wheel-up/down events). The text inputs are unaffected.
-	_, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	return runProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+}
+
+// runProgram launches a Bubble Tea program and returns its exit error. It is a
+// behaviour-preserving seam: a package-level var that defaults to the REAL
+// tea.NewProgram(...).Run() so production is byte-for-byte unchanged, and the only
+// reason it exists is so the Run* entry points + PingWalk can be exercised in tests
+// without standing up a real terminal program (a test swaps it for a no-op / driver
+// and restores it). Do NOT add logic here - keep it a thin pass-through.
+var runProgram = func(m tea.Model, opts ...tea.ProgramOption) error {
+	_, err := tea.NewProgram(m, opts...).Run()
 	return err
 }
