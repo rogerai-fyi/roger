@@ -111,3 +111,30 @@ func TestDriveUpdate(t *testing.T) {
 		}
 	}
 }
+
+// TestDriveMessages feeds the model each async message type it handles (the broker /
+// flow / agent results), exercising those Update cases + the resulting renders.
+func TestDriveMessages(t *testing.T) {
+	msgs := []tea.Msg{
+		tea.WindowSizeMsg{Width: 120, Height: 40},
+		tickMsg{},
+		balanceMsg{balance: 12.5, loggedIn: true},
+		payoutStatusMsg{},
+		topupMsg("https://pay.example/checkout"),
+		grantListMsg{},
+		grantMsg{secret: "rog-grant_abc"},
+		loginMsg("octocat"),
+		logoutMsg{},
+		flowErrMsg("a flow failed"),
+		errMsg("an error"),
+		chatErrMsg("chat turn failed"),
+		topupMsg(""), // empty checkout url branch
+	}
+	var model tea.Model = seedFor(120, modeBrowse, false)
+	for _, msg := range msgs {
+		model, _ = model.Update(msg)
+		if strings.TrimSpace(model.View()) == "" {
+			t.Fatalf("View went blank after %T", msg)
+		}
+	}
+}
