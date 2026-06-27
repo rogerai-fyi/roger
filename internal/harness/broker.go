@@ -32,6 +32,12 @@ const brokerTimeout = 300 * time.Second
 // here, not a knob hunt.
 const agentMaxTokens = client.MaxAnswerTokens
 
+// brokerHTTPTimeout is the per-request timeout for the agent relay. It defaults to
+// brokerTimeout and exists as a var ONLY so a test can shorten it to exercise the
+// "no reply within ..." timeout branch; production is byte-for-byte unchanged (the
+// default value is the constant).
+var brokerHTTPTimeout = brokerTimeout
+
 // BrokerCompleter returns a Completer that relays one completion through the broker's
 // OpenAI-compatible endpoint (POST {broker}/v1/chat/completions), exactly like the
 // TUI's plain chat - but it sends the `tools` array AND parses any `tool_calls` back.
@@ -48,12 +54,6 @@ const agentMaxTokens = client.MaxAnswerTokens
 // "use the default consumer cap" (client.EffectiveMaxOut), a positive value is the
 // user's explicit opt-in. Without this an agent turn could silently bind to an
 // exorbitant band (the harness relay previously sent no max-out at all).
-// brokerHTTPTimeout is the per-request timeout for the agent relay. It defaults to
-// brokerTimeout and exists as a var ONLY so a test can shorten it to exercise the
-// "no reply within ..." timeout branch; production is byte-for-byte unchanged (the
-// default value is the constant).
-var brokerHTTPTimeout = brokerTimeout
-
 func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer {
 	httpClient := &http.Client{Timeout: brokerHTTPTimeout}
 	return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) {
