@@ -27,6 +27,11 @@ import (
 //go:embed assets/*
 var assetsFS embed.FS
 
+// randRead is the entropy source for newToken's access token. It defaults to the real
+// crypto/rand reader, so the production path is unchanged; tests override it to exercise
+// the rand-failure fallback.
+var randRead = rand.Read
+
 // Options carry the broker identity the account + browse surfaces need. They are
 // optional: with an empty Broker the share/monitor surfaces still work and the account/
 // browse endpoints report "not configured" rather than erroring.
@@ -178,7 +183,7 @@ func listenFreePort(addr string) (net.Listener, error) {
 
 func newToken() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randRead(b); err != nil {
 		// rand.Read failing is catastrophic; fall back to a fixed-length zero token rather
 		// than panic — the localhost bind still gates access.
 		return strings.Repeat("0", 32)
