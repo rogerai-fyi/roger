@@ -152,7 +152,7 @@ func loadModeration() moderation {
 		log.Printf("MODERATION: provider=url but MODERATION_URL is unset - requests fail %s.", failMode(m.require))
 	case m.provider == "groq":
 		keySrc := "GROQ_API_KEY"
-		if os.Getenv("MODERATION_GROQ_KEY") != "" {
+		if strings.TrimSpace(os.Getenv("MODERATION_GROQ_KEY")) != "" {
 			keySrc = "MODERATION_GROQ_KEY"
 		}
 		log.Printf("MODERATION: enabled via Groq safeguard model %s (key=%s, require=%v)", m.groqModel, keySrc, m.require)
@@ -168,11 +168,13 @@ func loadModeration() moderation {
 	return m
 }
 
-// firstNonEmpty returns the first non-empty (after trim) string, or "".
+// firstNonEmpty returns the first value that is non-empty after trimming, TRIMMED, or "".
+// Trimming the returned value matters: it becomes a Bearer credential, so a whitespace-only
+// or padded env value must not yield a malformed "Bearer   " header.
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
+		if t := strings.TrimSpace(v); t != "" {
+			return t
 		}
 	}
 	return ""
@@ -349,6 +351,12 @@ func (m moderation) screenGroq(text string) modResult {
 		return m.groqFailMode("status "+http.StatusText(resp.StatusCode), nil)
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// VERIFIED LIVE (Groq, openai/gpt-oss-safeguard-20b, 2026-06-27): with moderationPolicy
+	// + reasoning_effort=low + max_tokens=512, the one-line verdict lands in message.content
+	// ("safe", "unsafe S4", "unsafe S5", "unsafe S7") and the rationale in message.reasoning.
+	// So we parse content ONLY. If a future model regression left content EMPTY, this is the
+	// safe outcome anyway: empty -> groqFailMode (fail-closed 503 when require=1; fail-open
+	// when require=0) - never a silent unscreened pass that the policy treats as "safe".
 	verdict := strings.TrimSpace(contentText(rb))
 	if verdict == "" {
 		// No verdict text is an error condition, not an implicit allow.
