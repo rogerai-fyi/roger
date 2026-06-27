@@ -344,28 +344,46 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
 		return m, nil
+	case "pgup":
+		// Scroll the transcript - works even while a turn streams, so a long answer or
+		// tool dump can be read back without losing the live turn.
+		m.agentVP.PageUp()
+		return m, nil
+	case "pgdown":
+		m.agentVP.PageDown()
+		return m, nil
+	case "ctrl+u":
+		m.agentVP.HalfPageUp()
+		return m, nil
+	case "ctrl+d":
+		m.agentVP.HalfPageDown()
+		return m, nil
 	case "up":
 		// Shell-style recall on the AGENT prompt: Up walks to an OLDER sent prompt
 		// (stashing the live draft on the first Up). Distinct from the chat's history.
 		// The /model picker (which uses up/k) returns earlier, so this only fires while
-		// the prompt itself is focused; a running turn ignores edits below anyway.
-		if m.agentBusy {
-			return m, nil
+		// the prompt itself is focused. With nothing to recall (or while a turn streams,
+		// when edits are ignored) Up scrolls the transcript up a line instead.
+		if !m.agentBusy {
+			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
+				m.agentIn.SetValue(v)
+				m.agentIn.CursorEnd()
+				return m, nil
+			}
 		}
-		if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
-			m.agentIn.SetValue(v)
-			m.agentIn.CursorEnd()
-		}
+		m.agentVP.ScrollUp(1)
 		return m, nil
 	case "down":
-		// Down walks to a NEWER sent prompt; past the newest it restores the draft.
-		if m.agentBusy {
-			return m, nil
+		// Down walks to a NEWER sent prompt; past the newest it restores the draft. With
+		// nothing to recall (or while busy) it scrolls the transcript down a line.
+		if !m.agentBusy {
+			if v, ok := m.agentHist.next(); ok {
+				m.agentIn.SetValue(v)
+				m.agentIn.CursorEnd()
+				return m, nil
+			}
 		}
-		if v, ok := m.agentHist.next(); ok {
-			m.agentIn.SetValue(v)
-			m.agentIn.CursorEnd()
-		}
+		m.agentVP.ScrollDown(1)
 		return m, nil
 	case "enter":
 		if m.agentBusy {
@@ -809,20 +827,16 @@ func (m model) agentView(w int) string {
 		}
 		cornerRows = len(corner)
 	}
-	// Scrollable transcript: keep the tail that fits the pane (minus the corner region).
-	lines := m.agentLines
-	max := m.height - 8 - cornerRows
-	if m.compact {
-		max = m.height - 6 - cornerRows
-	}
-	if max < 6 {
-		max = 12
-	}
-	if len(lines) > max {
-		lines = lines[len(lines)-max:]
-	}
-	for _, l := range lines {
-		b.WriteString(truncVisible("  "+l, w) + "\n")
+	// Scrollable transcript: an independent viewport (minus the corner region) the user
+	// can page through (PgUp/PgDn, Ctrl+U/D, mouse wheel, arrows) even while a turn
+	// streams, so a long answer or tool dump can be read back. Sized to min(content,
+	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
+	content := transcriptContent(m.agentLines)
+	m.agentVP.Width = w
+	m.agentVP.Height = clampRows(lineRows(content), m.agentTranscriptRows(cornerRows))
+	m.agentVP.SetContent(content)
+	if m.agentVP.Height > 0 {
+		b.WriteString(m.agentVP.View() + "\n")
 	}
 	// The /model picker: a small modal list of selectable models (recent / last-tuned +
 	// on-air bands). The cursor row is reverse-video with a carat, matching the band /
