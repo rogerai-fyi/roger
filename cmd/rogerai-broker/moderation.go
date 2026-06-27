@@ -21,12 +21,13 @@ import (
 //   - "url" (default when MODERATION_URL is set): point MODERATION_URL at an
 //     OpenAI-moderation-compatible endpoint (the OpenAI Moderation API, or a small
 //     adapter in front of a self-hosted Llama Guard) that speaks {input}->{flagged}.
-//   - "groq": NATIVE Groq Llama Guard. No URL/adapter needed - the broker calls
-//     Groq's OpenAI-compatible chat/completions with a Llama Guard model (reusing the
-//     same GROQ_API_KEY the concierge uses) and parses the "safe"/"unsafe" verdict.
+//   - "groq": NATIVE Groq safeguard. No URL/adapter needed - the broker calls Groq's
+//     OpenAI-compatible chat/completions with a content-safety model (gpt-oss-safeguard,
+//     since Groq retired Llama Guard), supplying a policy prompt, and parses the
+//     "safe"/"unsafe <codes>" verdict. Uses MODERATION_GROQ_KEY (falls back to GROQ_API_KEY).
 //
 // When MODERATION_PROVIDER is empty the backend is inferred: "url" if MODERATION_URL
-// is set, else "groq" if a GROQ_API_KEY is present, else off. The broker itself runs
+// is set, else "groq" if a Groq key is present, else off. The broker itself runs
 // no model - it just calls an endpoint - so this hook adds no model dependency until
 // you configure one.
 //
@@ -43,7 +44,7 @@ type moderation struct {
 	require  bool
 	client   *http.Client
 
-	// Groq Llama Guard backend (provider=="groq").
+	// Groq safeguard backend (provider=="groq").
 	groqKey   string
 	groqURL   string
 	groqModel string
@@ -363,10 +364,15 @@ func (m moderation) screenGroq(text string) modResult {
 		return m.groqFailMode("empty verdict", nil)
 	}
 	// The model answers "safe" or "unsafe <codes>" (codes on the same line). A response
-	// that does not clearly begin with "safe" is treated as flagged (fail toward blocking
-	// on this safety surface). Category codes are captured for the log + CSAM detection.
-	low := strings.ToLower(verdict)
-	if low == "safe" || strings.HasPrefix(low, "safe\n") || strings.HasPrefix(low, "safe\r") || strings.HasPrefix(low, "safe ") || strings.HasPrefix(low, "safe.") {
+	// whose first word is not exactly "safe" is treated as flagged (fail toward blocking on
+	// this safety surface). Use a word boundary so "safe.", "safe,", "safe\t" all allow,
+	// while "unsafe ..." (first word "unsafe", never "safe") correctly falls through.
+	low := strings.ToLower(strings.TrimSpace(verdict))
+	firstWord := low
+	if i := strings.IndexFunc(low, func(r rune) bool { return r < 'a' || r > 'z' }); i >= 0 {
+		firstWord = low[:i]
+	}
+	if firstWord == "safe" {
 		return modResult{}
 	}
 	// Collect category-looking tokens (S1, S4, ...) from the whole verdict, dropping the

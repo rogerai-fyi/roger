@@ -166,6 +166,35 @@ func TestModerationGroqIgnoresReasoningChannel(t *testing.T) {
 	}
 }
 
+// TestModerationGroqVerdictParsing exercises the safe/unsafe word-boundary parse across
+// the verdict shapes the safeguard model emits, so a stray punctuation/format never flips
+// allow<->block: a first word of exactly "safe" allows; anything else fails toward blocking.
+func TestModerationGroqVerdictParsing(t *testing.T) {
+	cases := []struct {
+		verdict   string
+		wantBlock bool
+	}{
+		{"safe", false},
+		{"safe.", false},
+		{"safe\n", false},
+		{"Safe", false},
+		{"unsafe S1", true},
+		{"unsafe S4", true},
+		{"unsafe", true},        // flagged even with no codes (fail toward blocking)
+		{"unsafe\nS1,S3", true}, // next-line codes still block
+		{"I cannot help", true}, // unexpected -> fail toward blocking
+	}
+	for _, c := range cases {
+		srv := groqVerdictServer(t, c.verdict, nil)
+		st := groqMod(srv, false).screen("text").status
+		srv.Close()
+		blocked := st == http.StatusUnavailableForLegalReasons
+		if blocked != c.wantBlock {
+			t.Errorf("verdict %q: blocked=%v (status %d), want blocked=%v", c.verdict, blocked, st, c.wantBlock)
+		}
+	}
+}
+
 // TestModerationGroqFailClosed: provider=groq with REQUIRE=1 fails CLOSED (503) when
 // the Groq endpoint errors (unreachable); not-required fails OPEN (allow).
 func TestModerationGroqFailClosed(t *testing.T) {
