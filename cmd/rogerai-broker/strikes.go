@@ -247,9 +247,12 @@ func (b *broker) rehydrateOwnerBans() {
 	}
 }
 
-// flagImpossibleInput is the ZERO-DOUBT input-inflation signal: a node claimed MORE
-// prompt tokens than the request body has UTF-8 bytes, which no tokenizer can produce.
-// It bans the owner on the first strike (arithmetic proof, no false positives).
+// flagImpossibleInput is the ZERO-DOUBT input-inflation signal: a node claimed prompt
+// tokens GROSSLY beyond the request body's UTF-8 bytes - past impossibleInputBanMargin, the
+// headroom that absorbs legitimate chat-template preamble overhead - which no tokenizer can
+// produce. It bans the owner on the first strike (arithmetic proof, no false positives).
+// The caller (settleRecountPrompt) applies the margin gate; billing is clamped to body
+// bytes for ANY overage, so this fires only for abuse beyond doubt.
 func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen int) {
 	b.strike(nodeID, store.StrikeImpossibleInput, "imposs:"+requestID, true, map[string]any{
 		"request_id":     requestID,

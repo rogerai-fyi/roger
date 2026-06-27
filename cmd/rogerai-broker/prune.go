@@ -46,6 +46,8 @@ func (b *broker) pruneStaleNodes(now time.Time) int {
 		delete(b.confidential, id)
 		delete(b.private, id)
 		delete(b.bandOf, id)
+		delete(b.attestedAt, id)
+		delete(b.localRegAt, id)
 	}
 	b.mu.Unlock()
 
