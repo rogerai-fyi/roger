@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
 )
@@ -20,10 +21,30 @@ import (
 // public POST /report abuse endpoint, and the report-threshold node ban/eject that
 // reuses the probe-eject idea (a banned node is treated as not-serving in pick).
 
-// defaultReportEjectAt is the per-node report count that auto-ejects a node from
-// routing. Override with ROGERAI_REPORT_EJECT_AT (0 disables auto-eject; a node can
-// still be manually banned).
+// defaultReportEjectAt is the number of DISTINCT corroborating reporters (distinct
+// reporter IPs, within the decay window) that auto-suspends a node from routing. It is no
+// longer a raw all-time COUNT(*): one source can no longer stack N reports to ban a node
+// (H2), and stale reports age out. Override with ROGERAI_REPORT_EJECT_AT (0 disables
+// auto-eject; a node can still be manually banned).
 const defaultReportEjectAt = 5
+
+// defaultReportDecayDays is the trailing window the distinct-reporter corroboration count
+// is taken over (DECAY): reports older than this no longer count toward an eject, so a
+// node that fixed its issue recovers automatically. Override ROGERAI_REPORT_DECAY_DAYS.
+const defaultReportDecayDays = 30
+
+// defaultNodeBanDays is the auto-lift window for a report-origin node suspension: a
+// report-eject is a TIME-BOXED suspension (reversible, appealable), not a permanent ban -
+// it auto-clears after this many days unless fresh corroboration re-arms it or an admin
+// confirms it. Permanent bans come only from admin action / crypto-verified abuse, never
+// raw report count. Override ROGERAI_NODE_BAN_DAYS (<=0 disables auto-lift).
+const defaultNodeBanDays = 3
+
+// reportBanReasonPrefix marks a ban as report-origin (a temporary, auto-lifting
+// suspension). ExpireNodeBans only auto-clears bans whose reason starts with "report " -
+// an admin/crypto-verified permanent ban never carries this prefix, so it is never
+// auto-lifted. Keep in sync with the store's ExpireNodeBans filter.
+const reportBanReasonPrefix = "report threshold"
 
 func reportEjectThreshold() int {
 	if v := os.Getenv("ROGERAI_REPORT_EJECT_AT"); v != "" {
@@ -32,6 +53,24 @@ func reportEjectThreshold() int {
 		}
 	}
 	return defaultReportEjectAt
+}
+
+func reportDecayDays() int {
+	if v := os.Getenv("ROGERAI_REPORT_DECAY_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultReportDecayDays
+}
+
+func nodeBanDays() int {
+	if v := os.Getenv("ROGERAI_NODE_BAN_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return defaultNodeBanDays
 }
 
 // csamKey derives the AES-256 key for encrypting preserved CSAM content from the
@@ -125,6 +164,70 @@ func (b *broker) banNode(nodeID, reason string) {
 	}
 }
 
+// unbanNode lifts a node ban: clears the durable row + the in-memory set so the node can
+// route again immediately. The recovery path for a report-eject (admin node-unban + the
+// self-serve appeal auto-exoneration). Idempotent.
+func (b *broker) unbanNode(nodeID string) error {
+	if nodeID == "" {
+		return nil
+	}
+	if err := b.db.UnbanNode(nodeID); err != nil {
+		return err
+	}
+	b.metricsMu.Lock()
+	was := b.banned[nodeID]
+	delete(b.banned, nodeID)
+	b.metricsMu.Unlock()
+	if was {
+		log.Printf("ban: node=%s UN-banned - routing restored", nodeID)
+	}
+	return nil
+}
+
+// nodeBanSweep auto-lifts TEMPORARY report-origin node suspensions past the review window
+// (the node twin of recountHoldSweep): a report-eject is a time-boxed suspension, not a
+// permanent sentence, so it auto-clears after nodeBanDays unless fresh corroboration /
+// admin keeps it. A no-op when auto-lift is disabled (nodeBanDays<=0) - report-bans then
+// clear only via admin /admin/unban-node or the appeal flow. The in-memory ban cache is
+// refreshed for every node the sweep clears, so routing restores without a restart.
+func (b *broker) nodeBanSweep() {
+	if b.nodeBanDays <= 0 {
+		log.Printf("node-ban: auto-lift DISABLED (ROGERAI_NODE_BAN_DAYS<=0) - report-bans clear only via admin /admin/unban-node or an appeal")
+		return
+	}
+	if b.db == nil {
+		return
+	}
+	window := time.Duration(b.nodeBanDays) * 24 * time.Hour
+	interval := window / 24
+	if interval < time.Hour {
+		interval = time.Hour
+	}
+	if interval > 24*time.Hour {
+		interval = 24 * time.Hour
+	}
+	log.Printf("node-ban: auto-lift ON - report-origin suspensions older than %d day(s) clear if no fresh corroboration (sweep every %s)", b.nodeBanDays, interval)
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		cutoff := time.Now().Add(-window)
+		cleared, err := b.db.ExpireNodeBans(cutoff)
+		if err != nil {
+			log.Printf("node-ban: expiry sweep failed: %v", err)
+			continue
+		}
+		if len(cleared) == 0 {
+			continue
+		}
+		b.metricsMu.Lock()
+		for _, id := range cleared {
+			delete(b.banned, id)
+		}
+		b.metricsMu.Unlock()
+		log.Printf("node-ban: auto-lifted %d report-origin suspension(s) older than %d day(s) (no further corroboration) - those nodes can route again", len(cleared), b.nodeBanDays)
+	}
+}
+
 // reportRequest is the POST /report contract (a web agent builds the UI to this exact
 // shape). All fields except category are optional; category is one of the enumerated
 // values (unknown values are accepted as "other" so the surface never hard-rejects a
@@ -190,11 +293,20 @@ func (b *broker) report(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("report: category=%s node=%q request=%q ip=%s", cat, nodeID, strings.TrimSpace(req.RequestID), ip)
 
-	// Per-node threshold auto-eject: once a node accumulates enough reports it is flipped
-	// OUT of pick/market/discover (reuses the ban/eject mechanism). Threshold 0 disables.
-	if nodeID != "" && b.reportEjectAt > 0 && !b.isBanned(nodeID) {
-		if n, err := b.db.ReportCountByNode(nodeID); err == nil && n >= b.reportEjectAt {
-			b.banNode(nodeID, "report threshold ("+strconv.Itoa(n)+" reports)")
+	// Per-node CORROBORATED auto-eject: a node is suspended only once enough DISTINCT
+	// reporters (distinct reporter IPs) name it WITHIN the decay window - never on a raw
+	// all-time count, so one source can't stack N reports (H2) and stale reports age out.
+	// csam/quality/spam are evidence, not an auto-ban trigger (csam preserves+queues for
+	// human review; quality/spam downrank via trust, not eject); only "abuse" corroborates
+	// an auto-suspension. The resulting suspension is TIME-BOXED + appealable (banNode tags
+	// it report-origin so nodeBanSweep auto-lifts it). Threshold 0 disables.
+	if nodeID != "" && cat == "abuse" && b.reportEjectAt > 0 && !b.isBanned(nodeID) {
+		since := int64(0)
+		if b.reportDecayDays > 0 {
+			since = time.Now().Add(-time.Duration(b.reportDecayDays) * 24 * time.Hour).Unix()
+		}
+		if n, err := b.db.DistinctReporterCountByNode(nodeID, since); err == nil && n >= b.reportEjectAt {
+			b.banNode(nodeID, reportBanReasonPrefix+" ("+strconv.Itoa(n)+" distinct reporters)")
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"received": true})

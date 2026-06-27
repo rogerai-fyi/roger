@@ -367,6 +367,14 @@ type Store interface {
 	AddReport(r Report) (int64, error)
 	// ReportCountByNode returns how many reports name a node (drives the ban threshold).
 	ReportCountByNode(nodeID string) (int, error)
+	// DistinctReporterCountByNode returns how many DISTINCT reporters (distinct non-empty
+	// reporter IP) named a node at or after `since` (unix seconds). This is the
+	// corroboration-and-decay count the auto-eject uses INSTEAD of a raw all-time
+	// COUNT(*): one source can no longer stack N reports to ban a node (it counts once),
+	// and stale reports outside the trailing window age out (a node that fixed its issue
+	// recovers automatically). A report with no reporter IP does not count toward
+	// corroboration.
+	DistinctReporterCountByNode(nodeID string, since int64) (int, error)
 	// ReportsByNode lists a node's reports (admin/dashboard), newest first.
 	ReportsByNode(nodeID string, limit int) ([]Report, error)
 	// BanNode flips a node OUT of routing (pick/market/discover) with a reason.
@@ -375,6 +383,18 @@ type Store interface {
 	// BannedNodes returns the banned node set (id -> reason), re-hydrated at startup so
 	// a ban survives a broker restart.
 	BannedNodes() (map[string]string, error)
+	// UnbanNode lifts a node ban (the missing node recovery path): deletes the
+	// banned_nodes row so the node can route again. Idempotent (unbanning a clean node is
+	// a no-op). Used by the admin node-unban + the self-serve appeal auto-exoneration.
+	UnbanNode(nodeID string) error
+	// ExpireNodeBans auto-lifts TEMPORARY report-origin node suspensions first placed at
+	// or before `olderThan` (the node twin of ExpireRecountHolds): a report-threshold
+	// eject is a time-boxed suspension pending review, not a permanent sentence, so it
+	// auto-clears after a configurable window unless fresh corroboration / an admin keeps
+	// it. It ONLY clears report-origin bans (reason starts with "report ") - an admin or
+	// crypto-verified permanent ban is never auto-lifted. Returns the node ids it cleared
+	// so the broker can refresh its in-memory ban cache. Idempotent.
+	ExpireNodeBans(olderThan time.Time) (cleared []string, err error)
 
 	// --- owner-keyed durable bans + strikes (anti-abuse, OWNER not node_id) ----
 	//
@@ -415,6 +435,31 @@ type Store interface {
 	// forgiven (for the audit log). Idempotent: forgiving a clean account is a no-op.
 	// The broker also refreshes its in-memory owner-ban cache after calling this.
 	ForgiveOwner(accountID string) (forgiven int, err error)
+	// OwnerStrikeStats returns the RECENT (decay-windowed) anti-abuse posture for an
+	// owner account: how many strikes were accrued at or after `since` (unix seconds) and
+	// across how many DISTINCT signal classes (kinds). It drives the reliability rules in
+	// strike(): decay (only strikes inside the trailing window count toward a ban, so old
+	// resolved noise ages out) and corroboration (an accumulating-signal ban requires
+	// MORE THAN ONE distinct signal class, so a single noisy class can never ban alone).
+	// Terminal "ban:*" marker strikes are excluded (they are an audit record of the ban,
+	// not an independent signal). `since`<=0 counts all strikes.
+	OwnerStrikeStats(accountID string, since int64) (windowed, distinctKinds int, err error)
+
+	// --- self-serve appeals (ban hardening 3.3) ----------------------------
+	//
+	// A banned/struck operator files an appeal here; it lands in the admin review queue.
+	// Owner-scoped: the account_id is the AUTHENTICATED owner pubkey, never a
+	// request-supplied account, so an appeal can only ever be filed for the caller.
+
+	// AddAppeal records one owner-filed appeal (node ban and/or account strike/ban) with
+	// the operator's note, state "open". Returns the appeal id.
+	AddAppeal(a Appeal) (int64, error)
+	// AppealsByOwner lists an owner account's appeals, newest first (the caller's own
+	// appeal history / status surface). Owner-scoped by account_id.
+	AppealsByOwner(accountID string, limit int) ([]Appeal, error)
+	// PendingAppeals lists OPEN appeals across all accounts, newest first (the admin
+	// review queue). Admin-gated at the handler.
+	PendingAppeals(limit int) ([]Appeal, error)
 
 	// --- failed-reversal retry (silent-money-leak guard) ---------------------
 	// RecordPendingReversal durably records the intent to reverse an already-paid,
@@ -486,6 +531,26 @@ const (
 	StrikeImpossibleInput    = "impossible-input"    // claimed prompt tokens > body bytes (zero-doubt)
 	StrikeEmptyOutput        = "empty-output"        // billed input but produced no usable output (voided)
 	StrikeRecountDiscrepancy = "recount-discrepancy" // node over-reported past the recount tolerance
+)
+
+// Appeal is one operator-filed self-serve appeal against an anti-abuse action (a node
+// report-ban and/or an account strike/ban). It is owner-scoped (AccountID is the
+// authenticated owner pubkey, never a request-supplied account) and lands in the admin
+// review queue. NodeID is optional (set when appealing a specific node ban).
+type Appeal struct {
+	ID        int64  `json:"id"`
+	AccountID string `json:"account_id"` // owner pubkey (the authenticated caller)
+	NodeID    string `json:"node_id,omitempty"`
+	Reason    string `json:"reason"`         // the operator's note/evidence
+	State     string `json:"state"`          // open | resolved
+	Note      string `json:"note,omitempty"` // outcome note set on review (e.g. auto-exonerated)
+	CreatedAt int64  `json:"created_at"`
+}
+
+// Appeal states.
+const (
+	AppealOpen     = "open"
+	AppealResolved = "resolved"
 )
 
 // Owner is a monetizing account: a GitHub identity bound to the CLI's signing
@@ -563,6 +628,9 @@ type Mem struct {
 	reports  []Report          // abuse/quality reports (POST /report)
 	reportID int64             // monotonic report id
 	banned   map[string]string // node id -> ban reason (ejected from pick/market/discover)
+	bannedAt map[string]int64  // node id -> unix when the ban was placed (report-ban auto-expiry)
+	appeals  []Appeal          // owner-filed self-serve appeals (admin review queue)
+	appealID int64             // monotonic appeal id
 
 	// owner-keyed durable anti-abuse (anti-rotation): strikes carry provable evidence
 	// bound to the OWNER ACCOUNT (owner pubkey), bannedOwners is the durable owner ban
@@ -602,7 +670,7 @@ func NewMem() *Mem {
 		idem: map[string]bool{}, disputes: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
-		banned:    map[string]string{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
+		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
 	}
 }

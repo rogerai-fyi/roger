@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
@@ -148,15 +149,232 @@ func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) {
 		strikes = []store.Strike{}
 	}
 	banned, reason, _ := b.db.IsOwnerBanned(acct)
+	// Surface each owned node's ban status + reason (3.3.1): a banned operator must be able
+	// to SEE why, not just silently fall out of routing. banned_nodes was previously
+	// invisible to owners. node_bans maps node_id -> reason for every owned node currently
+	// ejected.
+	nodeBans := map[string]string{}
+	if nodes, err := b.db.NodesOfAccount(acct); err == nil {
+		var allBans map[string]string
+		for _, n := range nodes {
+			if !b.isBanned(n) {
+				continue
+			}
+			if allBans == nil {
+				allBans, _ = b.db.BannedNodes() // reason lookup, fetched lazily once
+			}
+			nodeBans[n] = allBans[n]
+		}
+	}
+	appeals, _ := b.db.AppealsByOwner(acct, 20)
+	if appeals == nil {
+		appeals = []store.Appeal{}
+	}
+	appealNote := "You are in good standing - nothing to appeal."
+	if banned || len(nodeBans) > 0 || len(strikes) > 0 {
+		appealNote = "If you believe this is a mistake, file a self-serve appeal: `roger appeal --reason \"...\"` (or POST /owner/appeal). An admin reviews the evidence above; clear false positives can auto-clear."
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"strikes":     strikes,
 		"count":       len(strikes),
 		"banned":      banned,
 		"ban_reason":  reason,
+		"node_bans":   nodeBans,
+		"appeals":     appeals,
 		"warn_at":     b.strikeWarnAt,
 		"ban_at":      b.strikeBanAt,
-		"appeal_note": "Dispute a hold by contacting support with your request id(s); an admin reviews the evidence above.",
+		"appeal_note": appealNote,
 	})
+}
+
+// ownerAppealRequest is the POST /owner/appeal body: the operator's free-text reason and
+// an OPTIONAL node_id (when appealing a specific node ban). The account is NEVER taken
+// from the request - it is the authenticated owner pubkey (payoutOwner), so an appeal can
+// only ever be filed for the caller.
+type ownerAppealRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ownerAppeal handles /owner/appeal: the self-serve appeal flow (3.3). Owner-authed via
+// payoutOwner (web session OR a signed CLI request bound to a GitHub owner), strictly
+// owner-scoped (the account is the authenticated pubkey, never request-supplied), so a
+// caller can only ever appeal for their own account/nodes - cross-account filing is
+// structurally impossible.
+//
+//	GET  -> the caller's own appeals (status surface)
+//	POST {node_id?, reason} -> file an appeal. If node_id is given it MUST belong to the
+//	     caller (NodesOfAccount); a report-origin node ban that is BELOW the live
+//	     corroboration threshold is auto-exonerated (lifted immediately) - a clear false
+//	     positive recovers without waiting for a human - and every appeal is enqueued for
+//	     admin review with the evidence trail.
+func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
+		jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var body []byte
+	if r.Method == http.MethodPost {
+		body, _ = io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	}
+	_, o, ok := b.payoutOwner(r, body)
+	if !ok {
+		jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
+		return
+	}
+	if o.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "no operator account for this login (run `roger login` on a node first)")
+		return
+	}
+	acct := o.Pubkey
+
+	// GET: the caller's appeal history / status.
+	if r.Method == http.MethodGet {
+		appeals, err := b.db.AppealsByOwner(acct, 50)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, "store error")
+			return
+		}
+		if appeals == nil {
+			appeals = []store.Appeal{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})
+		return
+	}
+
+	// POST: file an appeal.
+	var req ownerAppealRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			jsonErr(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if len(reason) > 4096 {
+		reason = reason[:4096]
+	}
+	nodeID := strings.TrimSpace(req.NodeID)
+	// A node_id, when given, MUST belong to the caller. This is the owner-scoping gate:
+	// the caller can never appeal (or auto-lift) another account's node.
+	if nodeID != "" {
+		nodes, err := b.db.NodesOfAccount(acct)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, "store error")
+			return
+		}
+		owned := false
+		for _, n := range nodes {
+			if n == nodeID {
+				owned = true
+				break
+			}
+		}
+		if !owned {
+			jsonErr(w, http.StatusForbidden, "that node is not bound to your account")
+			return
+		}
+	}
+	id, err := b.db.AddAppeal(store.Appeal{AccountID: acct, NodeID: nodeID, Reason: reason})
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "could not record appeal")
+		return
+	}
+	out := map[string]any{"ok": true, "appeal_id": id, "state": store.AppealOpen}
+	log.Printf("APPEAL filed id=%d owner=%s node=%q - queued for admin review", id, acct, nodeID)
+
+	// Auto-exoneration for a CLEAR false positive: a report-origin node suspension that is
+	// no longer corroborated (distinct reporters within the window are below the live eject
+	// threshold) is lifted immediately, rather than stranding an honest operator until a
+	// human looks. An admin/crypto-verified permanent ban (no "report " prefix) is NEVER
+	// auto-lifted here - only a human can clear those.
+	if nodeID != "" && b.isBanned(nodeID) {
+		bans, _ := b.db.BannedNodes()
+		reasonStr := bans[nodeID]
+		if strings.HasPrefix(reasonStr, "report ") && b.reportEjectAt > 0 {
+			since := int64(0)
+			if b.reportDecayDays > 0 {
+				since = time.Now().Add(-time.Duration(b.reportDecayDays) * 24 * time.Hour).Unix()
+			}
+			if n, err := b.db.DistinctReporterCountByNode(nodeID, since); err == nil && n < b.reportEjectAt {
+				if err := b.unbanNode(nodeID); err == nil {
+					out["auto_exonerated"] = true
+					out["node_unbanned"] = nodeID
+					log.Printf("APPEAL id=%d: node=%s auto-EXONERATED (%d distinct reporters < %d threshold) - routing restored pending review", id, nodeID, n, b.reportEjectAt)
+				}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// adminAppeals handles GET /admin/appeals (admin-authed): the OPEN appeal review queue
+// (newest first) - the admin side of the self-serve appeal flow. An admin reviews each
+// appeal's evidence here, then resolves it via /admin/unhold (forgive strikes / lift owner
+// ban) or /admin/unban-node (lift a node ban). Counts/rows only; no secrets.
+func (b *broker) adminAppeals(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	if b.requireAdmin(w, r) {
+		return
+	}
+	appeals, err := b.db.PendingAppeals(200)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	if appeals == nil {
+		appeals = []store.Appeal{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})
+}
+
+// adminUnbanNodeRequest is the POST /admin/unban-node body.
+type adminUnbanNodeRequest struct {
+	Node string `json:"node"`
+}
+
+// adminUnbanNode handles POST /admin/unban-node (admin-authed): lift a node ban - the
+// missing node recovery path. It deletes the banned_nodes row and clears the in-memory
+// set so the node routes again immediately. Mirrors adminUnhold's auth + CORS shape.
+func (b *broker) adminUnbanNode(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	if b.requireAdmin(w, r) {
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	var req adminUnbanNodeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	node := strings.TrimSpace(req.Node)
+	if node == "" {
+		jsonErr(w, http.StatusBadRequest, "node required")
+		return
+	}
+	if err := b.unbanNode(node); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "could not unban node")
+		return
+	}
+	log.Printf("ADMIN UNBAN-NODE node=%s - ban lifted, routing restored", node)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "node_unbanned": node})
 }
 
 // adminUnholdRequest is the POST /admin/unhold body. Either node OR account (or both)
