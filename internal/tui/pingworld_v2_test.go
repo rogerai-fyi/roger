@@ -296,7 +296,7 @@ func TestPingWorldQuietSeam(t *testing.T) {
 	quiet = true
 	called := false
 	restore := withStubRunProgram(nil, func(tea.Model, []tea.ProgramOption) { called = true })
-	if err := PingWorld(); err != nil {
+	if err := PingWorld(""); err != nil {
 		t.Fatalf("quiet PingWorld should return nil, got %v", err)
 	}
 	if called {
@@ -310,7 +310,7 @@ func TestPingWorldQuietSeam(t *testing.T) {
 	sentinel := errMsgSentinel("world-exit")
 	restore = withStubRunProgram(sentinel, func(m tea.Model, o []tea.ProgramOption) { launched = m; opts = o })
 	defer restore()
-	if err := PingWorld(); err != sentinel {
+	if err := PingWorld("broker"); err != sentinel {
 		t.Fatalf("animated PingWorld should propagate the program error, got %v", err)
 	}
 	if _, ok := launched.(pingWorldModel); !ok {
