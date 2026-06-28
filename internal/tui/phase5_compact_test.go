@@ -53,3 +53,20 @@ func TestCompactHeaderShowsCounts(t *testing.T) {
 		t.Errorf("compact header should show 'N on air · M bands', got:\n%s", out)
 	}
 }
+
+// TestCompactWindowshadeNarrowRendersAll: on a NARROW terminal the windowshade is single-column
+// (one band per row) - it must render EVERY on-air band, not drop odd-indexed ones (the audit's
+// w<36 catch: the step must match the column count or the cursor could land on an unseen band).
+func TestCompactWindowshadeNarrowRendersAll(t *testing.T) {
+	m := seedFor(30, modeBrowse, true) // narrow -> single column
+	m.connected = nil
+	m.scanned = true
+	m.bands = []band{onAirBand("alpha", 70), onAirBand("bravo", 50), onAirBand("charlie", 30)} // odd count
+	m.clampBrowse()
+	out := stripANSI(m.browseView(30))
+	for _, name := range []string{"alpha", "bravo", "charlie"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("narrow windowshade dropped on-air band %q (single column must render all):\n%s", name, out)
+		}
+	}
+}
