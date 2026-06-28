@@ -64,20 +64,23 @@ func TestWorldSizeBoundsAndDegenerate(t *testing.T) {
 }
 
 func TestWorldHasOneOnAirStar(t *testing.T) {
-	buf := worldBuffer(80, 24, 0, 5)
-	stars := 0
-	for _, row := range buf {
-		for _, c := range row {
-			if c.r == '◉' {
-				if !c.eye {
-					t.Error("the on-air star ◉ must be red (eye)")
+	// exactly one red ◉ on EVERY frame (a shooting star / twinkle must never clobber it).
+	for f := 0; f < 200; f += 13 {
+		buf := worldBuffer(80, 24, f, 5)
+		stars := 0
+		for _, row := range buf {
+			for _, c := range row {
+				if c.r == '◉' {
+					if !c.eye {
+						t.Errorf("frame %d: on-air star ◉ must be red (eye)", f)
+					}
+					stars++
 				}
-				stars++
 			}
 		}
-	}
-	if stars != 1 {
-		t.Errorf("want exactly one on-air star, got %d", stars)
+		if stars != 1 {
+			t.Errorf("frame %d: want exactly one on-air star, got %d", f, stars)
+		}
 	}
 }
 
