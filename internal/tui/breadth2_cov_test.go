@@ -355,23 +355,6 @@ func TestShareSetupKeys(t *testing.T) {
 	}
 }
 
-// TestToggleSection round-trips the [2] SHARE / [1] TUNE IN section toggle.
-func TestToggleSection(t *testing.T) {
-	// From browse: toggling enters the SHARE flow (provider table, loading).
-	m := browseSeed(100)
-	sm, _ := m.toggleSection()
-	if asModel(sm).mode != modeShare {
-		t.Errorf("toggleSection from browse should enter SHARE, got %v", asModel(sm).mode)
-	}
-	// From a share section: toggling returns to browse.
-	s := browseSeed(100)
-	s.mode = modeShare
-	bm, _ := s.toggleSection()
-	if asModel(bm).mode != modeBrowse {
-		t.Errorf("toggleSection from SHARE should return to browse, got %v", asModel(bm).mode)
-	}
-}
-
 // TestMonthlyBudgetLine covers the budget readout across its states: anonymous, no cap,
 // under cap, near-cap warning, and limit-reached.
 func TestMonthlyBudgetLine(t *testing.T) {

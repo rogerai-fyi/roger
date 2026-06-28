@@ -41,10 +41,16 @@ func TestSortKeyDistinctFromShare(t *testing.T) {
 		t.Errorf("S should advance the sort dial (was %d, still %d)", before, after.sortMode)
 	}
 
-	// Lowercase s opens SHARE.
+	// Lowercase s NOW also sorts (founder change: s no longer jumps to SHARE - that was
+	// confusing next to [2]/the SHARE page; SHARE is reached via [2] / ←→). It must advance the
+	// sort and stay in BROWSE, never open SHARE.
+	beforeS := asModel(browseWithBands(t)).sortMode
 	s := keyPress(browseWithBands(t), "s")
-	if !asModel(s).inShareSection() {
-		t.Errorf("lowercase s should open SHARE, got mode %v", asModel(s).mode)
+	if asModel(s).inShareSection() {
+		t.Errorf("lowercase s should NOT open SHARE anymore (it sorts); got share section")
+	}
+	if asModel(s).sortMode == beforeS {
+		t.Errorf("lowercase s should advance the sort dial like S (was %d, still %d)", beforeS, asModel(s).sortMode)
 	}
 }
 
