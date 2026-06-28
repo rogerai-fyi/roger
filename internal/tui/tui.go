@@ -8,6 +8,7 @@
 package tui
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -505,6 +506,12 @@ type model struct {
 	// history.go.
 	chatHist   *inputHistory
 	transcript []string
+	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
+	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
+	lastReply string
+	// mouseOff: mouse reporting is currently disabled (ctrl+o / `/mouse`) so the user can
+	// click-drag select+copy natively; toggling back restores wheel/PgUp scrollback.
+	mouseOff bool
 	// chatVP is the INDEPENDENT scroll region for the CHANNEL transcript: the
 	// response area scrolls (PgUp/PgDn, Ctrl+U/D, mouse wheel, and the arrow keys
 	// once command history is exhausted) on its own while the `you ›` input keeps
@@ -1070,6 +1077,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// is not a silent no-response.
 			reply = stDim.Render("(the station replied with no text)")
 		} else {
+			m.lastReply = msg.reply // raw text, for ctrl+y / /copy
 			reply = stLive.Render("◂ ") + reply
 		}
 		m.transcript = append(m.transcript, reply)
@@ -1302,6 +1310,26 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.chatVP.ScrollDown(1)
 			}
 			return m, nil
+		case "ctrl+y":
+			// Yank the last station reply to the clipboard (OSC 52 + local tool). Plain `y`
+			// would type into the channel, so copy is on ctrl+y (and /copy).
+			if m.lastReply == "" {
+				m.status = stDim.Render("nothing to copy yet · shift+drag to select text")
+				return m, nil
+			}
+			m.status = stLive.Render("✓ copied the last reply  ·  /copy all for the whole session")
+			return m, clipboardWrite(m.lastReply)
+		case "ctrl+o":
+			// Toggle mouse reporting: OFF lets the terminal do native click-drag select+copy
+			// (mouse capture and native selection are mutually exclusive); ON restores wheel
+			// + PgUp/PgDn scrollback.
+			m.mouseOff = !m.mouseOff
+			if m.mouseOff {
+				m.status = stLive.Render("native select ON · drag to copy · ctrl+o restores scroll")
+				return m, tea.DisableMouse
+			}
+			m.status = stDim.Render("scroll ON · ctrl+o for native select/copy")
+			return m, tea.EnableMouseCellMotion
 		case "enter":
 			p := strings.TrimSpace(m.chatIn.Value())
 			if p == "" || m.connected == nil {
@@ -1666,7 +1694,40 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		sysLine("endpoint " + m.endpoint + " · key " + m.apikey + " · model " + m.connected.Model)
+		sysLine("/connect for paste-ready opencode/env snippets (auto-copied)")
 		return m, nil
+	case "connect", "conn":
+		if m.endpoint == "" || m.connected == nil {
+			sysLine("no endpoint yet - tune into a channel first")
+			return m, nil
+		}
+		base, key, mdl := m.endpoint, m.apikey, m.connected.Model
+		sysLine("CONNECT - point any OpenAI-compatible agent (opencode, a local bot) at this channel:")
+		sysLine("    base url   " + base)
+		sysLine("    api key    " + key)
+		sysLine("    model      " + mdl)
+		sysLine("    opencode   OPENAI_BASE_URL=" + base + " OPENAI_API_KEY=" + key + " opencode")
+		sysLine("    ✓ export block copied to your clipboard")
+		return m, clipboardWrite(connectExport(base, key, mdl))
+	case "copy", "y":
+		target, label := m.lastReply, "the last reply"
+		if strings.EqualFold(arg, "all") {
+			target, label = m.transcriptText(), "the transcript"
+		}
+		if strings.TrimSpace(target) == "" {
+			sysLine("nothing to copy yet")
+			return m, nil
+		}
+		sysLine("✓ copied " + label + " to the clipboard")
+		return m, clipboardWrite(target)
+	case "mouse":
+		m.mouseOff = !m.mouseOff
+		if m.mouseOff {
+			sysLine("native select ON · drag to copy · /mouse restores scroll")
+			return m, tea.DisableMouse
+		}
+		sysLine("scroll ON · /mouse for native select")
+		return m, tea.EnableMouseCellMotion
 	case "support":
 		// Opens the site (community + Discord); self-gated on an interactive TTY, URL
 		// printed as the fallback.
@@ -1676,8 +1737,9 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 	case "help", "h":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
-		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf) · /endpoint (/ep)")
-		sysLine("/support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
+		sysLine("/connect (/conn) · /endpoint (/ep) · /copy [all] · /mouse · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("copy: ctrl+y last reply · /copy all · shift+drag to select  ·  scroll: PgUp/PgDn · wheel · ctrl+o native-select toggle")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
 	case "disconnect", "leave", "dc":
@@ -2004,6 +2066,44 @@ func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeShare
 		return m, nil
 	}
+}
+
+// osc52 is the OSC 52 clipboard escape for s (base64, BEL-terminated). It is a
+// non-rendering control sequence the terminal consumes to set the system clipboard, so it
+// reaches the clipboard even over SSH where wl-copy/xclip aren't local - and it does not
+// draw, so emitting it under the alt-screen renderer is safe.
+func osc52(s string) string {
+	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(s)) + "\a"
+}
+
+// clipboardWrite returns a tea.Cmd that copies s to the clipboard BOTH ways - the OSC 52
+// terminal escape (SSH-safe) and the local clipboard tool (copyToClipboard) - off the
+// render path. The caller sets its own optimistic "copied" toast.
+func clipboardWrite(s string) tea.Cmd {
+	if s == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		fmt.Print(osc52(s))
+		copyToClipboard(s)
+		return nil
+	}
+}
+
+// transcriptText is the whole channel transcript as clean, unstyled text (ANSI stripped),
+// for `/copy all`.
+func (m model) transcriptText() string {
+	lines := make([]string, 0, len(m.transcript))
+	for _, l := range m.transcript {
+		lines = append(lines, ansi.Strip(l))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// connectExport is the paste-ready shell block that points an OpenAI-compatible agent
+// (opencode, a local bot) at the tuned-in channel's endpoint.
+func connectExport(base, key, model string) string {
+	return "export OPENAI_BASE_URL=" + base + "\nexport OPENAI_API_KEY=" + key + "\nexport OPENAI_MODEL=" + model
 }
 
 // copyToClipboard best-effort copies s to the OS clipboard via the platform tool
