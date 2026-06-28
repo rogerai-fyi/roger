@@ -1275,6 +1275,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if k.String() == "ctrl+c" {
 		return m.requestQuit()
 	}
+	// alt+m is the typing-SAFE global minimize: it toggles the dense compact "windowshade"
+	// (the 2000s-MP3-player feel) from ANY mode - including chat / AGENT / the command palette
+	// / numeric editors, where plain m is a literal character. Plain m still toggles compact on
+	// the nav screens via presetForKey; alt+m (and /compact) make it reachable "from anywhere".
+	if k.String() == "alt+m" {
+		return m.toggleCompact(), nil
+	}
 	switch m.mode {
 	case modeCommand:
 		switch k.String() {
@@ -1781,6 +1788,10 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		// /ping (alias /zen): drop into the fullscreen Ping World screensaver - the very
 		// same world `roger --ping` runs. Any key wakes back to this channel.
 		return m.enterPingWorld()
+	case "compact", "min", "minimize":
+		// /compact (/min): minimize to the dense windowshade from a channel without losing
+		// your typing - the same toggle as alt+m / m. Run it again (or m) to expand.
+		return m.toggleCompact(), nil
 	case "support":
 		// Opens the site (community + Discord); self-gated on an interactive TTY, URL
 		// printed as the fallback.
@@ -1791,7 +1802,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
 		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
-		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("copy: ctrl+y last reply · /copy all · shift+drag to select  ·  scroll: PgUp/PgDn · wheel · ctrl+o native-select toggle")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
@@ -1883,6 +1894,9 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 	case "ping", "zen":
 		// fullscreen Ping World screensaver from the command palette (any key wakes).
 		return m.enterPingWorld()
+	case "compact", "min", "minimize":
+		// minimize to the dense windowshade from the palette (same as alt+m / m).
+		return m.toggleCompact(), nil
 	case "quit", "q":
 		return m.requestQuit()
 	default:
@@ -6961,7 +6975,7 @@ func (m model) helpView() string {
 		{"~", "PRIVATE FREQ: enter a frequency code to tune onto a hidden band - esc returns to OPEN MARKET"},
 		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
-		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
+		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
@@ -7005,7 +7019,8 @@ func (m model) helpView() string {
 		stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
 		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
 	b.WriteString("  " + stDim.Render("view: ") + stKey.Render("m") +
-		stDim.Render(" toggles COMPACT - the calm, dense, animation-free windowshade") + "\n")
+		stDim.Render(" toggles COMPACT - the calm, dense windowshade · ") + stKey.Render("alt+m") +
+		stDim.Render(" (or ") + stKey.Render("/compact") + stDim.Render(") minimizes from anywhere, even mid-chat") + "\n")
 	b.WriteString("  " + stDim.Render("vim extras (also work): ") + stKey.Render("j/k") + stDim.Render(" move · ") +
 		stKey.Render("c") + stDim.Render(" channel · ") + stKey.Render("l/h") + stDim.Render(" inspect/back") + "\n")
 
