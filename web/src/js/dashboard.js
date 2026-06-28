@@ -30,7 +30,9 @@
   // hover/tap via RogerFmt; fall back to a plain format if fmt.js didn't load. opts.usd = money.
   function bindNum(id, v, opts) {
     var el = $(id); if (!el) return;
-    if (window.RogerFmt) RogerFmt.bind(el, n0(v), opts);
+    // Missing / non-numeric stat -> "-" (no data), same as before; never coerce to 0/$0.00.
+    if (typeof v !== "number" || !isFinite(v)) { el.textContent = "-"; return; }
+    if (window.RogerFmt) RogerFmt.bind(el, v, opts);
     else el.textContent = (opts && opts.usd) ? cr(v) : num(v);
   }
   function n0(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
