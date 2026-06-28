@@ -3842,10 +3842,10 @@ func (m model) paletteView(w int) string {
 	if len(matches) == 0 {
 		return "  " + stDim.Render("no command matches - esc to cancel")
 	}
-	const cap = 8
+	const maxRows = 8
 	more := 0
-	if len(matches) > cap {
-		more, matches = len(matches)-cap, matches[:cap]
+	if len(matches) > maxRows {
+		more, matches = len(matches)-maxRows, matches[:maxRows]
 	}
 	var b strings.Builder
 	b.WriteString("  " + stDim.Render("commands") + stTag.Render("  type to filter · ⏎ run · esc close") + "\n")
