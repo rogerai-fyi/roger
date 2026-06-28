@@ -434,6 +434,12 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// source of truth for the published price. `overrides` names which models carry an
 	// active owner-authored web price, so `share` can note "broker override active".
 	resp := map[string]any{"ok": true, "effective_offers": reg.Offers}
+	// Echo whether the confidential ◆ badge was GRANTED this register, so a node that
+	// CLAIMED confidential learns the outcome instead of being silently downgraded: in
+	// fail-soft mode (require=0) a claim that fails attestation still registers as
+	// standard, and only this echo lets `roger share` warn the operator (e.g. an
+	// unblessed launch measurement). Always present so the absence of a badge is explicit.
+	resp["confidential"] = confidential
 	if len(overriddenModels) > 0 {
 		resp["overrides"] = overriddenModels
 	}

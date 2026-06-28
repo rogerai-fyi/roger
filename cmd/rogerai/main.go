@@ -652,7 +652,7 @@ func cmdShare(cfg config, args []string) error {
 	priceIn := fs.Float64("price-in", defIn, "$/1M input tokens to EARN (default 0 = free, no login needed)")
 	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
 	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
-	confidential := fs.Bool("confidential", false, "advertise as confidential - requires real TEE hardware (AMD SEV-SNP); a fresh hardware quote is generated + verified by the broker")
+	confidential := fs.Bool("confidential", false, "GATED enterprise tier: advertise as confidential - needs data-center silicon (AMD EPYC SEV-SNP + an H100-class confidential GPU), not consumer hardware. Apply at "+confidentialApplyURL+" (see docs/tee-eligibility.md)")
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
@@ -861,10 +861,17 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// exactly what the editor produced. Explicit flags always win.
 	*priceIn, *priceOut, sched = seedSharePricing(cfg, mdl, *priceIn, *priceOut, sched, sharePricingFlags{setIn, setOut, setFreeWin, setSched})
 	if *confidential {
-		// Fail FAST and CLEARLY on hardware without a TEE, rather than sending a fake
-		// claim: the node-side attestation generates a REAL SEV-SNP quote at register
-		// time and errors out here if no TEE device is present.
-		fmt.Println("confidential: generating a real TEE attestation quote at registration (needs AMD SEV-SNP hardware) - the broker verifies it before granting the badge.")
+		// Preflight FIRST (cheap, local, no broker round-trip): if this host is not an AMD
+		// SEV-SNP confidential VM there is no /dev/sev-guest and we cannot produce a real
+		// quote, so abort here with an actionable message rather than sending a fake claim
+		// or failing deep in registration. This is the "wrong hardware" case; the distinct
+		// "right hardware, unblessed image" case is surfaced AFTER register (the broker owns
+		// the measurement allowlist) via the confidential-grant echo below.
+		if err := agent.ConfidentialPreflight(); err != nil {
+			fmt.Println(confidentialIneligibleMsg())
+			return err
+		}
+		fmt.Println("confidential: SEV-SNP device present - generating a real attestation quote at registration; the broker verifies it (signature chain + nonce binding + allowlisted launch measurement) before granting the ◆ badge.")
 	}
 
 	if *private {
@@ -915,6 +922,9 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// one. One source of truth: the price the broker actually publishes.
 		effIn, effOut, override := sess.EffectivePrice()
 		fmt.Println(onAirLine(mdl, station, effIn, effOut, override))
+		if line := confidentialFeedback(sess.RequestedConfidential(), sess.Confidential()); line != "" {
+			fmt.Println(line)
+		}
 		fmt.Println(earningsLine())
 		shareBlock() // serve forever (a test seam makes this return)
 		return nil
@@ -923,6 +933,9 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	sess, err := agentStart(cfgRun)
 	if err != nil {
 		return err
+	}
+	if line := confidentialFeedback(sess.RequestedConfidential(), sess.Confidential()); line != "" {
+		fmt.Println(line)
 	}
 	if _, code, display := sess.Band(); code != "" {
 		fmt.Printf("\n  %s YOUR FREQUENCY CODE (shown once - copy it now)\n", "◉")
@@ -969,6 +982,45 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 // single on-air line above.
 func earningsLine() string {
 	return "earnings: rogerai.fyi/dashboard.html  (or: roger payout status)"
+}
+
+// confidentialApplyURL is where an operator with qualifying data-center silicon applies to
+// the gated confidential ◆ tier. The tier is NOT self-serve (it needs hardware almost
+// nobody running a home GPU has - see confidentialIneligibleMsg), so the CLI points here
+// rather than implying anyone can flip it on.
+const confidentialApplyURL = "https://rogerai.fyi/confidential"
+
+// confidentialIneligibleMsg is the guidance printed when `roger share --confidential` runs
+// on a host with no SEV-SNP device. It is honest about WHY this is not consumer hardware
+// (CPU TEE + a confidential GPU, both data-center only) and routes the operator to the
+// standard tier (which still earns, with co-signed lineage receipts) or the apply page.
+func confidentialIneligibleMsg() string {
+	return "confidential ◆ is a gated, data-center-only tier - it needs an AMD EPYC (Milan+) host\n" +
+		"with SEV-SNP AND an H100-class confidential GPU, so it does not run on consumer CPUs/GPUs\n" +
+		"(Threadripper, Ryzen, and gaming GPUs do not qualify). Two honest options:\n" +
+		"  • just run `roger share` (standard) - you serve + earn the same way, and every request\n" +
+		"    carries a co-signed lineage receipt (verifiable, attributable serving).\n" +
+		"  • if you DO have qualifying hardware, apply: " + confidentialApplyURL + "\n" +
+		"  (background: docs/tee-eligibility.md)"
+}
+
+// confidentialFeedback returns the one-line confidential-tier outcome for a go-live, or
+// "" when this session did not ask for the confidential tier. It closes the silent-
+// downgrade gap: the broker echoes whether the ◆ badge was GRANTED, so a node that
+// CLAIMED confidential but landed as standard (fail-soft, e.g. an unblessed launch
+// measurement or a transient attestation failure) is told plainly - rather than wrongly
+// implying it is confidential. A granted node gets the verified line. Pure (booleans in)
+// so the three outcomes are unit-testable without constructing a live agent.Session.
+func confidentialFeedback(requested, granted bool) string {
+	if !requested {
+		return ""
+	}
+	if granted {
+		return "confidential: ◆ VERIFIED by the broker (real TEE attestation passed) - this band serves confidential traffic."
+	}
+	return "confidential: NOT granted - running STANDARD this session. The broker did not verify the attestation " +
+		"(most often: your launch measurement is not on the broker's allowlist, i.e. an unblessed image). " +
+		"You are still serving + earning as a standard node; see docs/tee-eligibility.md or apply at " + confidentialApplyURL + "."
 }
 
 // waitOnAir blocks until the session's link reaches LinkOnAir (the broker has ACKed a

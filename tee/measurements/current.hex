@@ -1,0 +1,16 @@
+# RogerAI confidential-tier launch-measurement allowlist (AMD SEV-SNP).
+#
+# One 96-hex (48-byte) launch measurement per line. Lines starting with '#' and blank
+# lines are ignored (cmd/rogerai-broker/attest.go parseMeasurements). Point the broker at
+# this file with ROGERAI_TEE_MEASUREMENTS_FILE to turn the tier on.
+#
+# Pin one line per blessed (image version, vCPU count) tuple. During a rollover keep BOTH
+# the old and new lines until providers have migrated, then remove the old (revokes the
+# old image within the re-attest TTL).
+#
+# === EMPTY until the reproducible image is built + its measurement is verified. ===
+# While empty, the confidential tier is FAIL-CLOSED: no node is ever granted the badge.
+# Add real measurements with:  tee/measure.sh ... >> tee/measurements/current.hex
+#
+# Example (DO NOT trust this value - it is illustrative only, not a real measurement):
+# 0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
