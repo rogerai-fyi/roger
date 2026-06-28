@@ -857,77 +857,24 @@ paths:
         - { in: query, name: job, required: true, schema: { type: string } }
       responses: { "200": { description: piped }, "401": { description: bad node token }, "404": { description: no active stream } }
 
-  /admin/whoami:
+  /admin/live:
     get:
       tags: [admin]
-      summary: Probe whether the caller is the platform super-admin
+      summary: Live in-memory operational snapshot (for the private roger-admin portal)
       description: |
-        SUPER-ADMIN only. Returns `{admin:true,...}` when the caller is the founder,
-        else 403. Authenticated by EITHER the broker key in `X-Roger-Admin` (the
-        `adminKey` scheme) OR a logged-in GitHub web session whose id equals the
-        configured `ADMIN_GITHUB_ID`. The admin web portal hits this first and shows a
-        deny plate to a non-admin (no data is fetched). Closed-by-default: if neither
-        credential is configured the whole admin surface 403s.
+        SUPER-ADMIN only. The broker's LIVE in-memory state that CANNOT be read from
+        Postgres: readiness/health (uptime, version, total relayed requests, DB + Valkey
+        health, per-instance dispatch counters in multi-instance mode), the live
+        marketplace counts (on-air nodes, models live, private/banned nodes), and the
+        seed/fee/stripe config. The founder dashboard + the financial / payout / abuse /
+        activity QUERY LOGIC moved to the PRIVATE rogerai-fyi/roger-admin service, which
+        reads Postgres directly and merges in this live feed to render the dashboard.
+        Authenticated by EITHER the broker key in `X-Roger-Admin` (the `adminKey` scheme)
+        OR a logged-in GitHub web session whose id equals `ADMIN_GITHUB_ID`.
+        Closed-by-default: if neither credential is configured the whole admin surface 403s.
       security: [ { adminKey: [] }, { cookieAuth: [] } ]
       responses:
-        "200": { description: admin identity }
-        "403": { description: not the super-admin }
-  /admin/overview:
-    get:
-      tags: [admin]
-      summary: Platform HEALTH + MARKETPLACE + REVENUE rollup
-      description: |
-        SUPER-ADMIN only (see /admin/whoami auth). Aggregates platform-wide health
-        (readiness, uptime, version, total relayed requests), the live marketplace
-        (on-air nodes, models live, request/token totals all-time + window), and the
-        financial rollup (platform fee, consumer spend, provider earned, top-up volume,
-        the held/payable/paid/clawed earnings split, wallet counts, Stripe mode,
-        seed-remaining). The page's primary auto-refreshed read.
-      security: [ { adminKey: [] }, { cookieAuth: [] } ]
-      parameters:
-        - { in: query, name: days, schema: { type: integer, default: 1, minimum: 1, maximum: 366 }, description: marketplace window in days (default 1 = today) }
-      responses:
-        "200": { description: overview }
-        "403": { description: not the super-admin }
-  /admin/payouts:
-    get:
-      tags: [admin]
-      summary: Payout queue + history + open reversals + policy
-      description: |
-        SUPER-ADMIN only. Returns every operator's payable/held/pending/paid posture
-        (the queue, most-owed first), the platform payout history, the open Stripe
-        transfer-reversals still owed, and the active payout policy. The reviewed
-        unhold control is POST /admin/unhold.
-      security: [ { adminKey: [] }, { cookieAuth: [] } ]
-      responses:
-        "200": { description: payouts management view }
-        "403": { description: not the super-admin }
-  /admin/abuse:
-    get:
-      tags: [admin]
-      summary: Abuse + safety rollup (counts only)
-      description: |
-        SUPER-ADMIN only. Banned operators (with reason + strike count), struck-account
-        and total-strike counts, the CSAM report-queue depth, abuse-report count,
-        dispute/chargeback count, banned-node count, and accounts under a recount hold.
-        Returns COUNTS and ban metadata only; never any preserved CSAM content.
-      security: [ { adminKey: [] }, { cookieAuth: [] } ]
-      responses:
-        "200": { description: abuse/safety view }
-        "403": { description: not the super-admin }
-  /admin/activity:
-    get:
-      tags: [admin]
-      summary: Recent cross-account ledger event stream (lineage)
-      description: |
-        SUPER-ADMIN only. The most-recent ledger rows across EVERY holder, newest
-        first - the platform-wide activity/lineage stream. A snapshot poll (real-time
-        streaming is deferred).
-      security: [ { adminKey: [] }, { cookieAuth: [] } ]
-      parameters:
-        - { in: query, name: limit, schema: { type: integer, default: 100, minimum: 1, maximum: 500 }, description: max events (default 100, max 500) }
-      responses:
-        "200": { description: activity stream }
+        "200": { description: live operational snapshot (health + marketplace_live + seed/fee/stripe) }
         "403": { description: not the super-admin }
   /admin/unhold:
     post:
