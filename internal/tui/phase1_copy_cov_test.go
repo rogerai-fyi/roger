@@ -100,6 +100,38 @@ func TestCtrlYYanksLastReply(t *testing.T) {
 	}
 }
 
+func TestClearAndDisconnectResetLastReply(t *testing.T) {
+	// /clear: stale lastReply must be wiped so ctrl+y/`/copy` can't yank cleared text.
+	m := chatModelForCopy()
+	m.lastReply = "secret prior answer"
+	m.transcript = []string{stLive.Render("◂ secret prior answer")}
+	out, _ := m.runSession("/clear")
+	if got := asModel(out).lastReply; got != "" {
+		t.Errorf("/clear left lastReply = %q, want empty", got)
+	}
+	// disconnect: same — leaving a channel must drop the prior reply.
+	m2 := chatModelForCopy()
+	m2.lastReply = "prior channel reply"
+	out2, _ := m2.disconnect()
+	if got := asModel(out2).lastReply; got != "" {
+		t.Errorf("disconnect left lastReply = %q, want empty", got)
+	}
+}
+
+func TestClipboardWriteCmdRuns(t *testing.T) {
+	// Exercise the actual cmd body (OSC52 emit + copyToClipboard) — not just cmd != nil.
+	if clipboardWrite("") != nil {
+		t.Error("clipboardWrite(\"\") should return a nil cmd")
+	}
+	cmd := clipboardWrite("payload")
+	if cmd == nil {
+		t.Fatal("clipboardWrite(non-empty) should return a cmd")
+	}
+	if msg := cmd(); msg != nil { // runs fmt.Print(osc52) + copyToClipboard
+		t.Errorf("clipboardWrite cmd should return a nil msg, got %#v", msg)
+	}
+}
+
 func TestCtrlOTogglesNativeSelect(t *testing.T) {
 	out, cmd := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	if !asModel(out).mouseOff || cmd == nil {

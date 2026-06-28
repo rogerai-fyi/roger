@@ -1647,6 +1647,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "clear":
 		m.transcript = nil
+		m.lastReply = "" // cleared transcript -> nothing left to copy
 		m.sessCost = 0
 		sysLine("transcript cleared")
 		return m, nil
@@ -3229,6 +3230,7 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 	was := m.connected.Model
 	m.connected = nil
 	m.transcript = nil
+	m.lastReply = "" // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
 	m.sessCost = 0
 	m.sysPrompt = ""
 	m.minimized = false
