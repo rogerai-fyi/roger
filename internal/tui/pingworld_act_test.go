@@ -85,16 +85,24 @@ func TestWorldAlwaysHasRedEyeAcrossCycle(t *testing.T) {
 	for _, seed := range []int{0, 3, 7, 11, 14} {
 		for _, sz := range [][2]int{{80, 24}, {50, 16}, {20, 8}, {30, 6}, {16, 5}, {40, 10}} {
 			for f := 0; f < waCycle*waWindow*2; f++ {
-				eyes := 0
+				eyes, red := 0, 0
 				for _, row := range worldBuffer(sz[0], sz[1], f, seed) {
 					for _, c := range row {
+						if c.eye {
+							red++ // any red eye: a Ping '•' OR the on-air ◉
+						}
 						if c.eye && c.r == '•' {
 							eyes++
 						}
 					}
 				}
+				// At these (reasonable) sizes the clamped baby keeps a Ping '•' on screen...
 				if eyes == 0 {
 					t.Fatalf("seed %d size %v frame %d: NO red Ping eye on screen", seed, sz, f)
+				}
+				// ...and the UNIVERSAL law (>=1 red eye, • or ◉) must hold at any size.
+				if red == 0 {
+					t.Fatalf("seed %d size %v frame %d: NO red eye at all (• or ◉)", seed, sz, f)
 				}
 			}
 		}

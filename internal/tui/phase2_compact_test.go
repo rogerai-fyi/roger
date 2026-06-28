@@ -121,3 +121,36 @@ func TestCompactHeaderShowsSpectrumWideDropsNarrow(t *testing.T) {
 		t.Errorf("narrow compact header overflows: %d > 34", vis)
 	}
 }
+
+// TestTintSpectrumTwoTone covers the EQ two-tone branch: hot peaks (▆▇█) glow via stLive, the
+// rest stay stDim. Asserted as the exact transform (color-independent under a NO_COLOR test).
+func TestTintSpectrumTwoTone(t *testing.T) {
+	if got, want := tintSpectrum("▇▁"), stLive.Render("▇")+stDim.Render("▁"); got != want {
+		t.Errorf("tintSpectrum two-tone = %q, want peak=stLive floor=stDim (%q)", got, want)
+	}
+	if got, want := tintSpectrum("█▆▅"), stLive.Render("█")+stLive.Render("▆")+stDim.Render("▅"); got != want {
+		t.Errorf("tintSpectrum = %q, want █▆ as peaks (stLive), ▅ dim (%q)", got, want)
+	}
+}
+
+// TestTopSignalsSortsAndCaps covers the truncation branch: only on-air bands, strongest first,
+// capped at n.
+func TestTopSignalsSortsAndCaps(t *testing.T) {
+	var offers []offer
+	for i := 0; i < 12; i++ {
+		offers = append(offers, offer{Online: true, Signal: i * 7}) // 0,7,...,77
+	}
+	offers = append(offers, offer{Online: false, Signal: 100}) // offline: excluded
+	got := topSignals(offers, 8)
+	if len(got) != 8 {
+		t.Fatalf("topSignals should cap at 8, got %d", len(got))
+	}
+	if got[0] != 77 || got[1] != 70 {
+		t.Errorf("topSignals should be strongest-first, got %v", got[:2])
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] > got[i-1] {
+			t.Errorf("topSignals not sorted descending at %d: %v", i, got)
+		}
+	}
+}
