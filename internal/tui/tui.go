@@ -501,7 +501,12 @@ type model struct {
 	// any key restores prevMode. The world advances on the shared 160ms tick (see tickMsg).
 	prevMode mode
 	world    pingWorldModel
-	cmd      textinput.Model
+	// message-in reveal: when a chat reply lands, msgInFrom marks where its block starts in
+	// transcript and msgInFrame stamps the frame, so refreshScroll dims that block for a beat
+	// then lets it settle to full ink (a calm "ink-settling" arrival). See revealBlock.
+	msgInFrom  int
+	msgInFrame int
+	cmd        textinput.Model
 	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
 	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
 	cmdHist *inputHistory
@@ -1094,6 +1099,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.lastReply = msg.reply // raw text, for ctrl+y / /copy
 			reply = stLive.Render("◂ ") + reply
 		}
+		m.msgInFrom, m.msgInFrame = len(m.transcript), m.frame // mark this block for the settle-in
 		m.transcript = append(m.transcript, reply)
 		m.transcript = append(m.transcript, replyFooter(msg, m.showStats)...)
 		// Refresh the wallet after a billed turn so the header balance stays true.
@@ -1702,7 +1708,8 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "clear":
 		m.transcript = nil
-		m.lastReply = "" // cleared transcript -> nothing left to copy
+		m.lastReply = ""                 // cleared transcript -> nothing left to copy
+		m.msgInFrom, m.msgInFrame = 0, 0 // drop any pending message-in reveal
 		m.sessCost = 0
 		sysLine("transcript cleared")
 		return m, nil
@@ -5783,6 +5790,27 @@ func regionCell(region string) string {
 // viewport scrolls over: each entry's physical lines (entries may carry embedded
 // newlines, e.g. a multi-line reply) are indented two spaces to match the rest of the
 // view. The viewport itself handles width clipping + height padding, so we don't
+// msgRevealFrames is how many ~160ms ticks a freshly-arrived reply block stays dimmed before
+// settling to full ink (the message-in "ink-settling"). 2 ticks ≈ 1/3s - subtle, not sluggish.
+const msgRevealFrames = 2
+
+// revealBlock dims the freshly-appended transcript block (entries [from:]) for the first
+// msgRevealFrames frames of its age, so an incoming reply gently settles in instead of snapping.
+// It re-styles those entries to dim (keeping their text via ansi.Strip), and returns the lines
+// UNCHANGED once settled (age>=msgRevealFrames), under reduced motion (reduce), for a negative
+// age, or an out-of-range from. Pure in (lines, from, age, reduce).
+func revealBlock(lines []string, from, age int, reduce bool) []string {
+	if reduce || age < 0 || age >= msgRevealFrames || from < 0 || from >= len(lines) {
+		return lines
+	}
+	out := make([]string, len(lines))
+	copy(out, lines)
+	for i := from; i < len(out); i++ {
+		out[i] = stDim.Render(ansi.Strip(out[i]))
+	}
+	return out
+}
+
 // truncate here. An empty slice yields "" (zero rows).
 func transcriptContent(entries []string) string {
 	var b strings.Builder
@@ -5868,7 +5896,13 @@ func (m model) refreshScroll() model {
 	w := m.effWidth()
 
 	chatBottom := m.chatVP.AtBottom()
-	chatContent := transcriptContent(m.transcript)
+	// Settle a freshly-arrived reply block in (dim -> full ink) over a couple of ticks; frozen
+	// under quiet/compact (reduced motion). msgInFrame==0 means nothing pending.
+	chatLines := m.transcript
+	if m.msgInFrame > 0 {
+		chatLines = revealBlock(m.transcript, m.msgInFrom, m.frame-m.msgInFrame, quiet || m.compact)
+	}
+	chatContent := transcriptContent(chatLines)
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
 	m.chatVP.SetContent(chatContent)
