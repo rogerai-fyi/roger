@@ -26,12 +26,22 @@
   function show(id) { var el = $(id); if (el) el.hidden = false; }
   function hide(id) { var el = $(id); if (el) el.hidden = true; }
   function text(id, v) { var el = $(id); if (el) el.textContent = v; }
+  // A big, growing stat tile: render the compact form (1.1B / $1.23) with the exact value on
+  // hover/tap via RogerFmt; fall back to a plain format if fmt.js didn't load. opts.usd = money.
+  function bindNum(id, v, opts) {
+    var el = $(id); if (!el) return;
+    if (window.RogerFmt) RogerFmt.bind(el, n0(v), opts);
+    else el.textContent = (opts && opts.usd) ? cr(v) : num(v);
+  }
   function n0(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
 
   // Money in dollars (1 credit = $1). Adaptive precision so a real cost never
   // reads as $0.00 (same rule as account.js cr()).
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
+    // Delegate to the ONE canonical renderer so every $ on the site reads the same as the
+    // CLI/TUI; fall back to a local sub-cent-aware format only if fmt.js didn't load.
+    if (window.RogerFmt) return RogerFmt.usd(n);
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);
@@ -248,10 +258,10 @@
     }
 
     // ---- STAT TILES (period totals). ----
-    text("statReq", num(tot.requests));
-    text("statTok", num(totalTokens));
-    if (isConsumer) { text("statSpend", cr(tot.spend)); show("tileSpend"); }
-    if (isProvider) { text("statEarn", cr(tot.earned)); show("tileEarn"); }
+    bindNum("statReq", tot.requests);
+    bindNum("statTok", totalTokens);
+    if (isConsumer) { bindNum("statSpend", tot.spend, { usd: true }); show("tileSpend"); }
+    if (isProvider) { bindNum("statEarn", tot.earned, { usd: true }); show("tileEarn"); }
     show("stats");
 
     // ---- TIME-SERIES CHARTS ----

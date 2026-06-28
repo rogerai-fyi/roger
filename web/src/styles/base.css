@@ -707,3 +707,22 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   animation: onairBeat var(--carrier) var(--ease-in-out) infinite;
 }
 @media (prefers-reduced-motion: reduce) { [data-onair="live"] .beacon__dot { animation: none; } }
+
+/* RogerFmt: a compact number (1.1B / $0.00000036) whose EXACT value reveals on hover (native
+   title) or tap (the .rfmt-pop overlay). A faint dotted underline (the <abbr> convention) hints
+   it's expandable, without changing the resting weight/color. The popover is absolutely
+   positioned, so revealing the exact value never shifts layout. */
+.rfmt {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--ink-300);
+  text-underline-offset: 3px;
+}
+.rfmt:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: 2px; }
+.rfmt-pop {
+  position: absolute; z-index: 2000; pointer-events: none;
+  padding: 4px 8px; border-radius: var(--r-xs);
+  font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.2;
+  background: var(--ink-900); color: var(--paper); white-space: nowrap;
+  box-shadow: var(--e-2);
+}
