@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -281,5 +282,20 @@ func TestPingWorldQuietSeam(t *testing.T) {
 	}
 	if len(opts) != 1 {
 		t.Errorf("PingWorld should pass exactly the alt-screen option, got %d", len(opts))
+	}
+}
+
+// TestWorldFoldsUnderASCII: on a legacy console (ROGERAI_ASCII=1) the screensaver renders
+// only ASCII - the signature non-ASCII glyphs are folded to stand-ins (◉->@, ✦->*, ░->.).
+func TestWorldFoldsUnderASCII(t *testing.T) {
+	t.Setenv("ROGERAI_ASCII", "1")
+	out := stripANSI(renderWorld(90, 22, 0, 7))
+	for _, bad := range []rune{'◉', '✦', '✧', '░', '▒', '▓', '•'} {
+		if strings.ContainsRune(out, bad) {
+			t.Errorf("ASCII mode still rendered the non-ASCII glyph %q", string(bad))
+		}
+	}
+	if !strings.ContainsRune(out, '@') { // the on-air ◉ folds to @
+		t.Error("expected the folded on-air star '@' under ASCII mode")
 	}
 }
