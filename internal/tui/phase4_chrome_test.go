@@ -51,8 +51,9 @@ func TestStatusToastStampsOnChange(t *testing.T) {
 	}
 }
 
-// TestStatusToastAutoDismisses: in a MAIN view the tick clears a stale status after toastFrames;
-// a fresh status stays; a MODAL screen never auto-clears (the status is its prompt).
+// TestStatusToastAutoDismisses: a stale transient status auto-dismisses after toastFrames - in
+// CHANNEL to empty, in BROWSE back to the persistent ambient summary (never blank, so no
+// flicker); a fresh status stays; a MODAL screen never auto-clears (the status is its prompt).
 func TestStatusToastAutoDismisses(t *testing.T) {
 	mk := func(md mode, age int) model {
 		m := seedFor(120, md, false)
@@ -61,12 +62,19 @@ func TestStatusToastAutoDismisses(t *testing.T) {
 		m.frame = 5 + age
 		return m
 	}
-	// main view, well past the window -> cleared (the tick's frame++ counts toward elapsed).
-	if out, _ := mk(modeBrowse, toastFrames+1).Update(tickMsg{}); asModel(out).status != "" {
-		t.Error("a stale status in a main view should auto-dismiss on tick")
+	// CHANNEL: stale transient -> empty (no ambient summary there).
+	if out, _ := mk(modeChat, toastFrames+1).Update(tickMsg{}); asModel(out).status != "" {
+		t.Error("a stale status in CHANNEL should auto-dismiss to empty")
 	}
-	// main view, clearly fresh -> kept
-	if out, _ := mk(modeBrowse, 2).Update(tickMsg{}); asModel(out).status == "" {
+	// BROWSE: stale transient -> reverts to the ambient summary (NOT the toast, NOT blank).
+	out, _ := mk(modeBrowse, toastFrames+1).Update(tickMsg{})
+	if s := stripANSI(asModel(out).status); strings.Contains(s, "did a thing") {
+		t.Errorf("browse toast should auto-dismiss, still showing %q", s)
+	} else if !strings.Contains(s, "on air") {
+		t.Errorf("browse toast must revert to the ambient summary (no flicker), got %q", s)
+	}
+	// clearly fresh -> kept
+	if out, _ := mk(modeChat, 2).Update(tickMsg{}); stripANSI(asModel(out).status) != "did a thing" {
 		t.Error("a fresh status should NOT be dismissed yet")
 	}
 	// modal screen, stale -> kept (it's the modal's prompt)

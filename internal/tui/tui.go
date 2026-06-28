@@ -261,17 +261,28 @@ func selCarat(sel bool) string {
 }
 
 const caratSlideFrames = 2 // ticks the cursor `>` eases in after a move
-const toastFrames = 20      // ticks (~3s) a transient status lingers before auto-dismiss
+const toastFrames = 20     // ticks (~3s) a transient status lingers before auto-dismiss
 
 // caratGutter renders the 2-char selected-row gutter with a 1-frame slide cue: the cursor `>`
 // eases in from the right (" >") for the first caratSlideFrames ticks after a move (caratFrame),
 // then settles to "> ". Always exactly 2 columns (no row jiggle) and NO_COLOR-safe (the carat
 // glyph itself moves). 0 caratFrame (fresh model / no move yet) = the settled "> ".
 func (m model) caratGutter() string {
-	if m.caratFrame > 0 && m.frame-m.caratFrame >= 0 && m.frame-m.caratFrame < caratSlideFrames {
+	if m.mode == modeBrowse && m.caratFrame > 0 && m.frame-m.caratFrame >= 0 && m.frame-m.caratFrame < caratSlideFrames {
 		return " " + stSelText.Render(">")
 	}
 	return stSelText.Render(">") + " "
+}
+
+// ambientStatus is the PERSISTENT browse footer summary (bands · stations on air). It is what
+// the status line falls back to when a transient toast auto-dismisses, so the browse footer
+// never flickers blank between scans. "" outside the band views (CHANNEL's transcript carries
+// the signal), so there the toast clears to empty.
+func (m model) ambientStatus() string {
+	if m.mode == modeBrowse || m.mode == modeCommand {
+		return fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
+	}
+	return ""
 }
 
 // rowSel renders a table row body so the SELECTED row is k9s-style reverse-video
@@ -526,7 +537,7 @@ type model struct {
 	// statusFrame stamps when the status line last changed, so the tick auto-dismisses it as a
 	// transient toast in the main views (A.6.6). Stamped centrally in Update. 0 = nothing fresh.
 	statusFrame int
-	cmd        textinput.Model
+	cmd         textinput.Model
 	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
 	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
 	cmdHist *inputHistory
@@ -1019,7 +1030,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// confirmations don't linger forever. Modal screens keep their status (it's the prompt).
 		if m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame >= toastFrames &&
 			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent) {
-			m.status = ""
+			// Revert to the persistent ambient summary (browse) instead of blanking, so the
+			// footer never flickers empty between scans; CHANNEL/AGENT have none -> clears to "".
+			m.status = m.ambientStatus()
 		}
 		if m.alert != nil {
 			if a := m.alert.take(); a != "" {
@@ -1097,7 +1110,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// sub-screen's own status with the periodic scan summary - it's a browse-mode
 		// affordance only; in CHANNEL the transcript carries the signal.
 		if !notified && !m.relaying && (m.mode == modeBrowse || m.mode == modeCommand) {
-			m.status = fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
+			m.status = m.ambientStatus()
 		}
 		return m, nil
 	case sharesDetectedMsg:
@@ -5314,7 +5327,7 @@ func (m model) browseView(w int) string {
 			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOut(bd), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
-			b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
+			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(priceInOut(bd), 17))
