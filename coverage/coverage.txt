@@ -1,9 +1,9 @@
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:18:		accountExport			96.2%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:65:		accountDelete			88.5%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:108:		billing				92.3%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:136:		usage				85.7%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:181:		groupSpend			85.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:210:		nonNilLedger			100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:110:		billing				92.3%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:138:		usage				85.7%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:183:		groupSpend			85.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:212:		nonNilLedger			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:31:		adminGitHubID			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:41:		adminWindowDays			83.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:55:		stripeMode			100.0%
