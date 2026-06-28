@@ -1058,9 +1058,55 @@ func cacheTTLJitter(ttl time.Duration) time.Duration {
 // itself (and refuses to cache an anon caller), so one account's payload can never be
 // served to another. compute returns the value to JSON-encode; serveCachedJSON marshals
 // it once and caches the serialized bytes.
+// localCacheEntry is one in-process cache slot: the serialized JSON body + its expiry.
+type localCacheEntry struct {
+	body   []byte
+	expiry time.Time
+}
+
+// localCacheCap bounds the in-process fallback map so a pathological variety of query/identity
+// keys can't grow it unboundedly; past it the map is reset (a coarse but safe eviction - this
+// path is the small-scale / single-instance fallback; real scale uses the shared Redis cache).
+const localCacheCap = 256
+
+// localCachedJSON is the in-process fallback for serveCachedJSON when no shared (Redis) backend
+// is set: it returns the cached JSON bytes for key if still fresh, else computes + marshals +
+// stores them under ttl. compute() is run OUTSIDE localCacheMu (it takes b.mu/metricsMu), so a
+// rare concurrent miss may double-compute - acceptable for this fallback. nil on a marshal error.
+func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() any) []byte {
+	now := time.Now()
+	b.localCacheMu.Lock()
+	if e, ok := b.localCache[key]; ok && now.Before(e.expiry) {
+		body := e.body
+		b.localCacheMu.Unlock()
+		return body
+	}
+	b.localCacheMu.Unlock()
+
+	body, err := json.Marshal(compute())
+	if err != nil {
+		return nil
+	}
+	b.localCacheMu.Lock()
+	if b.localCache == nil || len(b.localCache) > localCacheCap {
+		b.localCache = make(map[string]localCacheEntry)
+	}
+	b.localCache[key] = localCacheEntry{body: body, expiry: now.Add(ttl)}
+	b.localCacheMu.Unlock()
+	return body
+}
+
 func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) {
-	// Flag OFF / no shared backend: the existing direct path, byte-for-byte.
+	// No shared (Redis) backend: still amortize via the IN-PROCESS TTL cache so a single
+	// instance doesn't recompute the full market on every hit. Safe - same key scoping as the
+	// shared path. On a marshal error, fall back to the direct encoder so the request still serves.
 	if b.shared == nil {
+		if body := b.localCachedJSON(key, ttl, compute); body != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(body)
+			return
+		}
 		writeJSON(w, http.StatusOK, compute())
 		return
 	}
