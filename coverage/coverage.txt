@@ -516,7 +516,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai/main.go:362:			toCfgWindows			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:373:			toTUIWindows			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:388:			toProtocolWindows		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:411:			main				33.3%
-github.com/rogerai-fyi/roger/cmd/rogerai/main.go:423:			run				100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai/main.go:423:			run				86.7%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:479:			dispatch			90.3%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:546:			cmdSupport			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:554:			cmdUse				96.6%
