@@ -5695,26 +5695,12 @@ func bandTierSuffix(b band) string {
 // significant digits to never collapse to $0.00 (e.g. $0.000123). 1 credit = $1,
 // so this is a pure display relabel of the credit unit. Display only - settlement
 // math is untouched.
+// dollars renders money through the ONE canonical formatter (client.FormatUSD) so the TUI
+// and the CLI read identically - no second copy of the rule to drift. See client.FormatUSD:
+// 0 -> "$0.00"; a sub-cent value -> ~3 significant figures (e.g. $0.00000036) so a real charge
+// never reads as free; >= $0.01 -> two decimals.
 func dollars(v float64) string {
-	if v < 0 {
-		// Defensive: real money is never negative here (balances/costs are >= 0);
-		// a negative slipping through renders as a plain dash rather than "$-…".
-		return "-"
-	}
-	if v == 0 {
-		return "$0.00"
-	}
-	if v >= 0.01 {
-		return "$" + fmt.Sprintf("%.2f", v)
-	}
-	// sub-cent: ~3 significant figures, in plain decimal (no exponent, no trailing
-	// zeros) so a real cost never reads as $0.00 (e.g. $0.000123).
-	s := strconv.FormatFloat(v, 'g', 3, 64)
-	if strings.ContainsAny(s, "eE") {
-		// FormatFloat may pick scientific notation for very small values; expand it.
-		s = strconv.FormatFloat(v, 'f', -1, 64)
-	}
-	return "$" + s
+	return client.FormatUSD(v)
 }
 
 // rangeStr renders a band's cross-station out-price spread as "min ~ max", or a

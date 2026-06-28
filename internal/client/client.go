@@ -962,6 +962,32 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
 	return r.Reply, r.Status, r.Cost, e
 }
 
+// FormatUSD is the ONE canonical money renderer for every consumer surface, so a cost or
+// balance reads identically in the TUI and the CLI: the TUI's dollars() delegates here, and
+// the in-channel reply footer's legacy Status line uses it. The rule:
+//   - 0            -> "$0.00"
+//   - 0 < v < 0.01 -> ~3 significant figures as a PLAIN decimal (e.g. $0.00000036), so a real
+//                     sub-cent charge never reads as free
+//   - v >= 0.01    -> two decimals (e.g. $0.12)
+//   - v < 0        -> "-" (never real money here)
+func FormatUSD(v float64) string {
+	if v < 0 {
+		return "-"
+	}
+	if v == 0 {
+		return "$0.00"
+	}
+	if v >= 0.01 {
+		return "$" + fmt.Sprintf("%.2f", v)
+	}
+	s := strconv.FormatFloat(v, 'g', 3, 64)
+	if strings.ContainsAny(s, "eE") {
+		// FormatFloat may pick scientific for very small values; expand to plain decimal.
+		s = strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return "$" + s
+}
+
 // ChatDetailed sends one message through the broker and returns the reply plus the
 // per-turn metrics (see ChatResult). Used by the TUI's in-CHANNEL chat / session.
 // Every failure path returns a clear, human-readable error so the TUI never shows a
@@ -1057,8 +1083,10 @@ func ChatDetailed(broker, user, model, prompt string, confidential bool, maxOut 
 			Provider: provider,
 			Cost:     costCr,
 			Latency:  time.Since(start),
-			// Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
-			Status: fmt.Sprintf("%s · $%s", provider, costStr),
+			// Display in dollars (1 credit = $1) via the ONE canonical renderer, so the legacy
+			// fallback footer matches the TUI's dollars() exactly (a relabel only; settlement
+			// math unchanged). costCr is the parsed exact value from the X-RogerAI-Cost header.
+			Status: fmt.Sprintf("%s · %s", provider, FormatUSD(costCr)),
 		}
 		// Per-turn metrics from the broker's response headers (best-effort: any missing one
 		// stays zero and the renderer omits it). The signed receipt carries the BILLED token

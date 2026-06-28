@@ -8,8 +8,10 @@
 #                                      (6 significant figures, plain decimal, no scientific, no round6 truncation)
 #   cmd/rogerai-broker/tunnel.go     - X-RogerAI-Cost header is fmtCostHeader(cost); the LEDGER captures the
 #                                      UNROUNDED cost (Finalize/Settle get the full-precision value)
-#   internal/tui/tui.go dollars()    - the consumer renderer: 0 -> "$0.00"; a sub-cent value shows ~3
-#                                      significant figures (e.g. $0.00000034); >= $0.01 shows 2 dp
+#   internal/client/client.go FormatUSD() - the ONE canonical consumer renderer: 0 -> "$0.00"; a
+#                                      sub-cent value shows ~3 significant figures (e.g. $0.00000034);
+#                                      >= $0.01 shows 2 dp. internal/tui dollars() delegates to it,
+#                                      and the CLI reply-footer Status uses it - so TUI + CLI match.
 #   internal/webui/assets/console.js - fmtUSD = "$" + n.toFixed(2)  (the WEB console still shows 2 dp; out of scope here)
 #
 # Two distinct numbers, pinned separately here:
