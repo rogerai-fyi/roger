@@ -674,6 +674,26 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   text-align: right;
 }
 
+/* The OC orange: a custom 3D fruit mark replacing the orange emoji in the colophon. Sphere depth
+   is SVG radial gradients; CSS gives it a slow juicy bob + a gloss shimmer, a hover grow, and
+   a press-to-squeeze - all CSS-only (CSP-safe, no JS) and reduced-motion aware. */
+.orange3d { display: inline-block; width: 1.35em; height: 1.35em; vertical-align: -0.34em; line-height: 0; cursor: pointer; }
+.orange3d svg {
+  width: 100%; height: 100%; overflow: visible; transform-origin: 50% 62%;
+  filter: drop-shadow(0 0.04em 0.07em rgba(120, 50, 0, 0.5));
+  animation: o3d-bob 5.5s ease-in-out infinite;
+}
+.orange3d__leaf { transform-origin: 38px 9px; animation: o3d-leaf 5.5s ease-in-out infinite; }
+.orange3d__gloss { animation: o3d-shine 5.5s ease-in-out infinite; }
+.orange3d:hover svg { animation: none; transform: scale(1.16) rotate(3deg); }
+.orange3d:active svg { animation: none; transform: scale(1.22, 0.86) rotate(1deg); }
+@keyframes o3d-bob   { 0%, 100% { transform: translateY(0) rotate(-5deg); } 50% { transform: translateY(-0.07em) rotate(5deg); } }
+@keyframes o3d-leaf  { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(4deg); } }
+@keyframes o3d-shine { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+  .orange3d svg, .orange3d__leaf, .orange3d__gloss { animation: none; }
+}
+
 /* the ((.)) market status beacon (shared: home market / models dial) */
 /* market status beacon ((•)) - reacts to live state */
 .beacon { font-family: var(--font-mono); color: var(--ink-500); white-space: nowrap; }
