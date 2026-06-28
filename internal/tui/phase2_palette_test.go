@@ -47,3 +47,16 @@ func TestCommandModeRendersPalette(t *testing.T) {
 		t.Error("palette should filter OUT /quit for query 'co'")
 	}
 }
+
+// TestPaletteViewBranches covers paletteView's overflow ('+N more') and empty-match branches.
+func TestPaletteViewBranches(t *testing.T) {
+	m := seedFor(120, modeCommand, false)
+	m.cmd.SetValue("") // empty query -> all 16 entries, capped at 8 -> a "+N more" footer
+	if v := stripANSI(m.paletteView(120)); !strings.Contains(v, "more") {
+		t.Errorf("empty query should overflow with a '+N more' footer:\n%s", v)
+	}
+	m.cmd.SetValue("zzzzzz") // no match
+	if v := stripANSI(m.paletteView(120)); !strings.Contains(v, "no command matches") {
+		t.Errorf("a no-match query should say 'no command matches':\n%s", v)
+	}
+}
