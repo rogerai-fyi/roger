@@ -299,3 +299,36 @@ func TestWorldFoldsUnderASCII(t *testing.T) {
 		t.Error("expected the folded on-air star '@' under ASCII mode")
 	}
 }
+
+// TestWorldPondReflectsUnderShore: the pond is additive - the ROGER·AI shore band is preserved,
+// the bottom rows carry water ripples + a moon reflection, and no pond cell is ever red.
+func TestWorldPondReflectsUnderShore(t *testing.T) {
+	h := 20
+	buf := worldBuffer(100, h, 12, 7)
+	band := pondRowStr(buf[h-3]) // the surface/shore band row (horizon+1)
+	if !strings.ContainsAny(band, "▓▒░R") {
+		t.Errorf("the ROGER·AI shore band must be preserved (pond is additive); got %q", band)
+	}
+	water := false
+	for y := h - 2; y < h; y++ {
+		for _, c := range buf[y] {
+			if c.r == '~' || c.r == '(' || c.r == ')' {
+				water = true
+			}
+			if c.eye {
+				t.Errorf("a pond/reflection cell must never be red (row %d)", y)
+			}
+		}
+	}
+	if !water {
+		t.Error("expected pond ripples / a moon reflection below the shore")
+	}
+}
+
+func pondRowStr(row []worldCell) string {
+	rs := make([]rune, len(row))
+	for i, c := range row {
+		rs[i] = c.r
+	}
+	return string(rs)
+}
