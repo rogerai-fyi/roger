@@ -239,7 +239,7 @@
 				
 				<option value="file91">github.com/rogerai-fyi/roger/internal/tui/pingwalk.go (100.0%)</option>
 				
-				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (97.9%)</option>
+				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (98.0%)</option>
 				
 				<option value="file93">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.3%)</option>
 				
@@ -6062,10 +6062,10 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
                         <span class="cov2" title="5">a.providers++
                         a.inflight += inflight
                         in, _, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="4">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="5">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
-                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="4">{
+                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="3">{
                                 a.bestTPS = tps
                         }</span>
                         <span class="cov2" title="5">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov1" title="1">{
@@ -11715,7 +11715,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="120">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="125">{
                         best = i
                 }</span>
         }
@@ -15308,10 +15308,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="686">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="691">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="671">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="665">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -17956,9 +17956,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="477">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="480">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="474">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="477">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18776,7 +18776,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="886">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="820">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18790,7 +18790,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="88
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -19005,23 +19005,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="869">{
+        for </span><span class="cov9" title="802">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="4">
+                case &lt;-sess.stop:<span class="cov2" title="3">
                         return</span> // /share went off air
-                default:<span class="cov9" title="865"></span>
+                default:<span class="cov9" title="799"></span>
                 }
-                <span class="cov9" title="865">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="799">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="4">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="861">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="854">{
+                <span class="cov9" title="794">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="787">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19330,7 +19330,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19514,12 +19514,12 @@ func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
@@ -24701,8 +24701,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="24">{
-                if s != nil </span><span class="cov7" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -25104,7 +25104,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="135">{
+        for len(s) &lt; 3 </span><span class="cov5" title="123">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25112,17 +25112,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov2" title="4">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2004">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5887">{
+        for n &gt; 0 </span><span class="cov9" title="5898">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2004">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -33111,7 +33111,7 @@ type inputHistory struct {
 // history-chat). A missing or unreadable/corrupt file yields an empty-but-usable
 // history (never an error) so recall degrades gracefully and the TUI always starts.
 // The cursor begins at the bottom (not navigating).
-func newInputHistory(name string) *inputHistory <span class="cov9" title="1557">{
+func newInputHistory(name string) *inputHistory <span class="cov9" title="1560">{
         h := &amp;inputHistory{path: historyPath(name)}
         h.load()
         h.cursor = len(h.entries)
@@ -33122,51 +33122,51 @@ func newInputHistory(name string) *inputHistory <span class="cov9" title="1557">
 // so the history files sit beside dj.md / config.json. It falls back to ~/.config so a
 // headless/minimal env still gets a stable path; "" only when nothing resolves (the
 // store then runs purely in-memory for the session).
-func historyPath(name string) string <span class="cov9" title="1560">{
+func historyPath(name string) string <span class="cov9" title="1563">{
         d, err := os.UserConfigDir()
         if err != nil || d == "" </span><span class="cov1" title="1">{
                 if home, herr := os.UserHomeDir(); herr == nil &amp;&amp; home != "" </span><span class="cov0" title="0">{
                         d = filepath.Join(home, ".config")
                 }</span>
         }
-        <span class="cov9" title="1560">if d == "" </span><span class="cov1" title="1">{
+        <span class="cov9" title="1563">if d == "" </span><span class="cov1" title="1">{
                 return ""
         }</span>
-        <span class="cov9" title="1559">return filepath.Join(d, "rogerai", name)</span>
+        <span class="cov9" title="1562">return filepath.Join(d, "rogerai", name)</span>
 }
 
 // load reads the persisted entries (newline-delimited, oldest first). Blank lines are
 // skipped; consecutive duplicates collapsed; the list is clamped to the last
 // historyCap. Any read error (missing/corrupt file) leaves entries empty - it never
 // surfaces an error to the caller.
-func (h *inputHistory) load() <span class="cov9" title="1557">{
+func (h *inputHistory) load() <span class="cov9" title="1560">{
         if h.path == "" </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov9" title="1557">f, err := os.Open(h.path)
-        if err != nil </span><span class="cov8" title="780">{
+        <span class="cov9" title="1560">f, err := os.Open(h.path)
+        if err != nil </span><span class="cov8" title="782">{
                 return // missing/unreadable - start empty
         }</span>
-        <span class="cov8" title="777">defer f.Close()
+        <span class="cov8" title="778">defer f.Close()
         var out []string
         sc := bufio.NewScanner(f)
         // Allow long single-line prompts (the default 64 KiB token cap is plenty, but be
         // explicit so a big pasted prompt is not silently dropped).
         sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-        for sc.Scan() </span><span class="cov10" title="2431">{
+        for sc.Scan() </span><span class="cov10" title="2435">{
                 line := sc.Text()
                 if strings.TrimSpace(line) == "" </span><span class="cov1" title="2">{
                         continue</span>
                 }
-                <span class="cov9" title="2429">if n := len(out); n &gt; 0 &amp;&amp; out[n-1] == line </span><span class="cov1" title="1">{
+                <span class="cov9" title="2433">if n := len(out); n &gt; 0 &amp;&amp; out[n-1] == line </span><span class="cov1" title="1">{
                         continue</span> // collapse consecutive duplicates
                 }
-                <span class="cov9" title="2428">out = append(out, line)</span>
+                <span class="cov9" title="2432">out = append(out, line)</span>
         }
-        <span class="cov8" title="777">if len(out) &gt; historyCap </span><span class="cov1" title="1">{
+        <span class="cov8" title="778">if len(out) &gt; historyCap </span><span class="cov1" title="1">{
                 out = out[len(out)-historyCap:]
         }</span>
-        <span class="cov8" title="777">h.entries = out</span>
+        <span class="cov8" title="778">h.entries = out</span>
 }
 
 // add records a freshly SENT input as the newest entry and resets navigation to the
@@ -33967,11 +33967,32 @@ func dayNightDarkness(frame int) int <span class="cov6" title="29391">{
         <span class="cov5" title="4815">return (p - half) * 100 / half</span> // day -&gt; night
 }
 
-// moonSprite is the calm lunar anchor (v2 P0-4): a small disc that hangs high in the sky. Dim
-// ink only - NEVER red (the beacon + on-air star keep the one-red discipline).
-var moonSprite = []string{" .-. ", "(   )", " `-' "}
+// globeRamp is the limb-darkened shading band for the rotating planet (faint rim -&gt; bright
+// centre -&gt; faint rim); scrolling it fakes a 3D rotation.
+var globeRamp = []rune("░▒▓▓▒░")
 
-// moonPos returns the moon's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
+// globeLines renders the planet Ping gazes at as a small ROTATING 3D sphere: the surface band
+// sweeps diagonally to fake rotation and the ( ) rims + limb-darkened ░▒▓ give the round, lit
+// curve. Pure in frame (slow, calm); dim ink, NEVER red. 5 rows x 8 cols.
+func globeLines(frame int) []string <span class="cov6" title="29364">{
+        surf := func(n, row int) string </span><span class="cov7" title="88092">{
+                b := make([]rune, n)
+                for i := range b </span><span class="cov7" title="352368">{
+                        // diagonal scroll = rotation (frame) + per-latitude tilt (row).
+                        b[i] = globeRamp[((i+2*row+frame/3)%len(globeRamp)+len(globeRamp))%len(globeRamp)]
+                }</span>
+                <span class="cov7" title="88092">return string(b)</span>
+        }
+        <span class="cov6" title="29364">return []string{
+                "  .--.  ",
+                " (" + surf(4, 0) + ") ",
+                " (" + surf(4, 1) + ") ",
+                " (" + surf(4, 2) + ") ",
+                "  `--'  ",
+        }</span>
+}
+
+// moonPos returns the planet's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
 // 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
 // with the on-air star's (1/2).
 func moonPos(w, skyRows, frame, seed int) (int, int) <span class="cov6" title="29385">{
@@ -33998,22 +34019,22 @@ func starColumn(x0, frame, w, tier int) int <span class="cov7" title="418310">{
 
 // blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
 // rune == eye is marked red (eye=true). Out-of-bounds cells are clipped, never wrap-corrupt.
-func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov7" title="336617">{
+func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov7" title="354275">{
         if len(buf) == 0 </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov7" title="336617">w := len(buf[0])
-        for dy, line := range lines </span><span class="cov8" title="553039">{
+        <span class="cov7" title="354275">w := len(buf[0])
+        for dy, line := range lines </span><span class="cov8" title="629415">{
                 ry := y + dy
-                if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov5" title="9695">{
+                if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov5" title="9697">{
                         continue</span>
                 }
-                <span class="cov8" title="543344">cx := x
-                for _, r := range line </span><span class="cov9" title="7345010">{
-                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov9" title="3447975">{
+                <span class="cov8" title="619718">cx := x
+                for _, r := range line </span><span class="cov9" title="8096621">{
+                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov9" title="3916162">{
                                 buf[ry][cx] = worldCell{r: r, eye: eye != 0 &amp;&amp; r == eye}
                         }</span>
-                        <span class="cov9" title="7345010">cx++</span>
+                        <span class="cov9" title="8096621">cx++</span>
                 }
         }
 }
@@ -34169,10 +34190,10 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov6" title="
                 <span class="cov5" title="6396">blit(buf, 0, 1, []string{string(row)}, 0)</span>
         }
 
-        // LAYER 1.5 — the moon: a calm lunar anchor hanging high, drifting the sky slowly. Dim
+        // LAYER 1.5 — the planet: a slowly ROTATING 3D globe hanging high, drifting the sky. Dim
         // ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
         <span class="cov6" title="29359">mx, my := moonPos(w, skyRows, frame, seed)
-        blit(buf, mx, my, moonSprite, 0)
+        blit(buf, mx, my, globeLines(frame), 0)
 
         // (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
         onAirX := int(worldHash(0, 1, seed) % uint32(w))
@@ -34269,8 +34290,17 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov6" title="
                 }</span>
         }
 
+        // on-air blip: a faint ring pulses outward from the station every ~30 frames (a radio blip
+        // that says "live"), dim, expanding 1-&gt;3 cells then resetting. Distinct from the Ping-driven
+        // transmit halo above.
+        <span class="cov6" title="29359">if b := frame % 30; b &lt; 9 </span><span class="cov5" title="8829">{
+                rad := 1 + b/3 // 1,2,3
+                blit(buf, onAirX-rad, onAirY, []string{"("}, 0)
+                blit(buf, onAirX+rad, onAirY, []string{")"}, 0)
+        }</span>
+
         // the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby,
-        // breathe-halo) ever overwrites the sky's single red glint (off the baby's rim row).
+        // breathe-halo, blip) ever overwrites the sky's single red glint (off the baby's rim row).
         <span class="cov6" title="29359">blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
         return buf</span>
@@ -34289,30 +34319,30 @@ func compositeWorld(buf [][]worldCell) string <span class="cov2" title="13">{
                         b.WriteByte('\n')
                 }</span>
                 <span class="cov3" title="205">i := 0
-                for i &lt; len(row) </span><span class="cov5" title="2994">{
+                for i &lt; len(row) </span><span class="cov5" title="3016">{
                         c := row[i]
                         j := i + 1
-                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov6" title="13191">{
+                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov6" title="13169">{
                                 j++
                         }</span>
-                        <span class="cov5" title="2994">seg := make([]rune, 0, j-i)
+                        <span class="cov5" title="3016">seg := make([]rune, 0, j-i)
                         for k := i; k &lt; j; k++ </span><span class="cov6" title="16185">{
                                 seg = append(seg, row[k].r)
                         }</span>
                         // Fold non-ASCII art to ASCII stand-ins on a legacy console (no-op on UTF-8), so
                         // the screensaver degrades cleanly instead of mojibake-ing ░▒▓ ◉ ✦ etc.
-                        <span class="cov5" title="2994">s := glyphs.Fold(string(seg))
+                        <span class="cov5" title="3016">s := glyphs.Fold(string(seg))
                         switch </span>{
-                        case c.r == ' ':<span class="cov4" title="1555">
+                        case c.r == ' ':<span class="cov4" title="1564">
                                 b.WriteString(s)</span>
                         case c.eye:<span class="cov2" title="29">
                                 b.WriteString(stPingEye.Render(s))</span>
                         case c.bright:<span class="cov3" title="116">
                                 b.WriteString(stLive.Render(s))</span>
-                        default:<span class="cov4" title="1294">
+                        default:<span class="cov4" title="1307">
                                 b.WriteString(stDim.Render(s))</span>
                         }
-                        <span class="cov5" title="2994">i = j</span>
+                        <span class="cov5" title="3016">i = j</span>
                 }
         }
         <span class="cov2" title="13">return b.String()</span>
@@ -34712,7 +34742,7 @@ type alertBox struct {
 }
 
 func (a *alertBox) set(s string) <span class="cov1" title="1">{ a.mu.Lock(); a.msg = s; a.mu.Unlock() }</span>
-func (a *alertBox) take() string <span class="cov4" title="316">{
+func (a *alertBox) take() string <span class="cov4" title="317">{
         a.mu.Lock()
         defer a.mu.Unlock()
         s := a.msg
@@ -34762,8 +34792,8 @@ type LimitStore struct {
         Save       func(models map[string]Limit, def Limit) // persist (nil = no-op)
 }
 
-func (s *LimitStore) resolve(model string) Limit <span class="cov6" title="31029">{
-        if s == nil </span><span class="cov6" title="31017">{
+func (s *LimitStore) resolve(model string) Limit <span class="cov6" title="31031">{
+        if s == nil </span><span class="cov6" title="31019">{
                 return Limit{}
         }</span>
         <span class="cov2" title="12">if l, ok := s.Models[model]; ok </span><span class="cov2" title="12">{
@@ -35197,12 +35227,12 @@ type logoutMsg struct{}
 // simply not surfaced - the SHARE view still renders).
 type payoutStatusMsg payoutSnapshot
 
-func New(broker, user string) model <span class="cov4" title="485">{
+func New(broker, user string) model <span class="cov4" title="486">{
         return NewWith(broker, user, nil)
 }</span>
 
 // NewWith builds the model with a spend-limit store (nil = no caps / no persist).
-func NewWith(broker, user string, limits *LimitStore) model <span class="cov4" title="488">{
+func NewWith(broker, user string, limits *LimitStore) model <span class="cov4" title="489">{
         return NewWithHooks(broker, user, limits, Hooks{})
 }</span>
 
@@ -35210,14 +35240,14 @@ func NewWith(broker, user string, limits *LimitStore) model <span class="cov4" t
 // of the live share state). The host calls this once and hands the SAME *node.Controller
 // to both NewWithHooksController and the web console, so a change in one front-end shows
 // up in the other.
-func NewController(broker string, hooks Hooks) *node.Controller <span class="cov4" title="516">{
+func NewController(broker string, hooks Hooks) *node.Controller <span class="cov4" title="517">{
         // The live broadcast station: the saved/auto-generated callsign (NEVER the hostname),
         // slugged so it matches the node id exactly; a fresh callsign if the host supplied none.
         station := agent.SlugStation(hooks.Station)
-        if station == "" </span><span class="cov4" title="511">{
+        if station == "" </span><span class="cov4" title="512">{
                 station = agent.GenerateStation()
         }</span>
-        <span class="cov4" title="516">return node.New(node.Config{
+        <span class="cov4" title="517">return node.New(node.Config{
                 Broker: broker, HW: hooks.HW, Station: station,
                 ShareModel: hooks.ShareModel, SharePriceI: hooks.SharePriceI, SharePriceO: hooks.SharePriceO,
                 MaxOnAir:    hooks.ShareMaxOnAir,
@@ -35235,13 +35265,13 @@ func NewController(broker string, hooks Hooks) *node.Controller <span class="cov
 // NewWithHooks is NewWith plus the host-supplied hooks for the in-TUI provider /
 // account / money flows. It builds its own controller; use NewWithHooksController to
 // share one with the web console.
-func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model <span class="cov4" title="511">{
+func NewWithHooks(broker, user string, limits *LimitStore, hooks Hooks) model <span class="cov4" title="512">{
         return NewWithHooksController(broker, user, limits, hooks, NewController(broker, hooks))
 }</span>
 
 // NewWithHooksController is NewWithHooks over an EXISTING shared controller, so the TUI
 // and the browser console drive one node.
-func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks, ctrl *node.Controller) model <span class="cov4" title="516">{
+func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks, ctrl *node.Controller) model <span class="cov4" title="517">{
         m := newBase(broker, user, limits)
         m.hooks = hooks
         // Reflect the locally-linked login at startup so the header shows the right state
@@ -35256,7 +35286,7 @@ func NewWithHooksController(broker, user string, limits *LimitStore, hooks Hooks
         return m
 }</span>
 
-func newBase(broker, user string, limits *LimitStore) model <span class="cov4" title="516">{
+func newBase(broker, user string, limits *LimitStore) model <span class="cov4" title="517">{
         ci := textinput.New()
         // We render the `rog ›` lockup ourselves in promptLine, so the input carries no
         // prompt of its own (avoids a doubled marker). Its View() still echoes live.
@@ -35292,22 +35322,22 @@ func (m model) Init() tea.Cmd <span class="cov1" title="1">{
 // that appends to the CHANNEL or AGENT transcript (a reply, an agent event, a system
 // line) re-sizes + re-feeds its viewport and auto-sticks to the bottom (only when the
 // user is already there) without every return site having to remember to.
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title="2645">{
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title="2650">{
         tm, cmd := m.update(msg)
-        if mm, ok := tm.(model); ok </span><span class="cov5" title="2490">{
+        if mm, ok := tm.(model); ok </span><span class="cov5" title="2495">{
                 return mm.refreshScroll(), cmd
         }</span>
         <span class="cov3" title="155">return tm, cmd</span>
 }
 
-func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title="2645">{
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title="2650">{
         // Refresh the share render cache from the shared controller FIRST, so anything the web
         // console changed (a model toggled on air, a price edited, a rename) shows up in the
         // terminal on the next message — most visibly the 160ms tick. Every TUI mutation also
         // re-syncs locally, so this never fights an in-flight keystroke.
         m.syncShareCache()
         switch msg := msg.(type) </span>{
-        case tea.WindowSizeMsg:<span class="cov4" title="322">
+        case tea.WindowSizeMsg:<span class="cov4" title="323">
                 m.width, m.height = msg.Width, msg.Height
                 m.world.w, m.world.h = msg.Width, msg.Height</span> // keep the screensaver fullscreen on resize
         case tea.MouseMsg:<span class="cov3" title="60">
@@ -35321,7 +35351,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                         m.agentVP, _ = m.agentVP.Update(msg)</span>
                 }
                 <span class="cov3" title="60">return m, nil</span>
-        case tickMsg:<span class="cov4" title="314">
+        case tickMsg:<span class="cov4" title="315">
                 m.frame++
                 // The in-TUI Ping World owns the beat while it's up: advance its frame and keep the
                 // fast tick (it IS the motion), bypassing the compact/idle slow-tick below. Any key
@@ -35330,7 +35360,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                         m.world.frame++
                         return m, tick()
                 }</span>
-                <span class="cov4" title="313">if m.alert != nil </span><span class="cov4" title="313">{
+                <span class="cov4" title="314">if m.alert != nil </span><span class="cov4" title="314">{
                         if a := m.alert.take(); a != "" </span><span class="cov0" title="0">{
                                 m.status = stEmber.Render("⚡ " + a)
                         }</span>
@@ -35338,7 +35368,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 // While the staged tune-in is playing, advance it on the carrier beat (it owns
                 // the tick until it drops into CHANNEL). It never fires a /discover re-scan mid
                 // lock, so the sequence stays smooth.
-                <span class="cov4" title="313">if m.mode == modeConnecting </span><span class="cov1" title="5">{
+                <span class="cov4" title="314">if m.mode == modeConnecting </span><span class="cov1" title="5">{
                         return m.advanceConnect()
                 }</span>
                 // COMPACT (windowshade): treat compact like prefers-reduced-motion. When nothing
@@ -35347,17 +35377,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 // yet still updates on real events (offers, balance, chat replies arrive via their
                 // own Cmds). A relay / staged tune-in / SHARE detection still needs the live beat,
                 // so those keep the fast tick even in compact.
-                <span class="cov4" title="308">if m.compact &amp;&amp; !m.relaying &amp;&amp; m.mode != modeConnecting &amp;&amp; !m.shareLoading </span><span class="cov0" title="0">{
+                <span class="cov4" title="309">if m.compact &amp;&amp; !m.relaying &amp;&amp; m.mode != modeConnecting &amp;&amp; !m.shareLoading </span><span class="cov0" title="0">{
                         return m, tea.Batch(slowTick(), fetchOffers(m.broker))
                 }</span>
                 // Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
                 // pull a fresh /discover so the band table + the "is a station on air" check
                 // stay live without the user pressing r. This keeps the consumer + share views
                 // honest about who is actually on air (the broker ages a node out at ~35s).
-                <span class="cov4" title="308">if m.frame%rescanEveryFrames == 0 </span><span class="cov0" title="0">{
+                <span class="cov4" title="309">if m.frame%rescanEveryFrames == 0 </span><span class="cov0" title="0">{
                         return m, tea.Batch(tick(), fetchOffers(m.broker))
                 }</span>
-                <span class="cov4" title="308">return m, tick()</span>
+                <span class="cov4" title="309">return m, tick()</span>
         case freqResolvedMsg:<span class="cov2" title="9">
                 if !msg.ok </span><span class="cov1" title="3">{
                         // Uniform negative (wrong / revoked / expired / off air - indistinguishable).
@@ -35374,13 +35404,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 m.mode = modeBrowse
                 m.status = stRed.Render(glyphOnAir+" PRIVATE FREQ") + stDim.Render(" tuned · esc for OPEN MARKET")
                 return m, nil</span>
-        case offersMsg:<span class="cov4" title="276">
+        case offersMsg:<span class="cov4" title="277">
                 // A private freq is tuned: ignore the periodic public-market scan so it does not
                 // clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
                 if m.tuneFreq != "" </span><span class="cov0" title="0">{
                         return m, nil
                 }</span>
-                <span class="cov4" title="276">m.offers = []offer(msg)
+                <span class="cov4" title="277">m.offers = []offer(msg)
                 m.scanErr = false
                 m.scanned = true    // a scan returned (even empty) -&gt; stop showing the loading pose
                 m.loadedOnce = true // the first scan has come back: never re-enter the initial loading pose
@@ -35405,15 +35435,15 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 // Don't clobber a fresh dip-under notification, an in-flight relay, or a modal
                 // sub-screen's own status with the periodic scan summary - it's a browse-mode
                 // affordance only; in CHANNEL the transcript carries the signal.
-                <span class="cov4" title="276">if !notified &amp;&amp; !m.relaying &amp;&amp; (m.mode == modeBrowse || m.mode == modeCommand) </span><span class="cov4" title="276">{
+                <span class="cov4" title="277">if !notified &amp;&amp; !m.relaying &amp;&amp; (m.mode == modeBrowse || m.mode == modeCommand) </span><span class="cov4" title="277">{
                         m.status = fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
                 }</span>
-                <span class="cov4" title="276">return m, nil</span>
+                <span class="cov4" title="277">return m, nil</span>
         case sharesDetectedMsg:<span class="cov1" title="4">
                 return m.onSharesDetected(msg.found, msg.needKey)</span>
-        case balanceMsg:<span class="cov4" title="344">
+        case balanceMsg:<span class="cov4" title="345">
                 m.loggedIn = msg.loggedIn
-                if msg.loggedIn </span><span class="cov4" title="339">{
+                if msg.loggedIn </span><span class="cov4" title="340">{
                         m.balance, m.haveBal = msg.balance, true
                         m.monthlyCap, m.monthlySpend = msg.monthlyCap, msg.monthlySpend
                 }</span> else<span class="cov1" title="5"> {
@@ -35423,7 +35453,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 }</span>
                 // One-shot: a logged-in owner can have provider earnings, so fetch the payout
                 // snapshot once (off the event loop) to drive the SHARE-view cash-out hint.
-                <span class="cov4" title="344">if m.loggedInState() &amp;&amp; !m.payoutFetched </span><span class="cov4" title="337">{
+                <span class="cov4" title="345">if m.loggedInState() &amp;&amp; !m.payoutFetched </span><span class="cov4" title="338">{
                         m.payoutFetched = true
                         return m, fetchPayoutStatus(m.broker)
                 }</span>
@@ -35561,24 +35591,24 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
                 m.status = stDim.Render("AGENT ready - ask it to do something")
                 return m, fetchBalance(m.broker, m.user)</span>
-        case tea.KeyMsg:<span class="cov4" title="1255">
+        case tea.KeyMsg:<span class="cov4" title="1256">
                 return m.onKey(msg)</span>
         }
         // route to the active text input
-        <span class="cov4" title="322">var cmd tea.Cmd
+        <span class="cov4" title="323">var cmd tea.Cmd
         switch m.mode </span>{
         case modeCommand:<span class="cov0" title="0">
                 m.cmd, cmd = m.cmd.Update(msg)</span>
         case modeChat:<span class="cov2" title="13">
                 m.chatIn, cmd = m.chatIn.Update(msg)</span>
         }
-        <span class="cov4" title="322">return m, cmd</span>
+        <span class="cov4" title="323">return m, cmd</span>
 }
 
 // enterPingWorld stashes the current mode and drops into the fullscreen Ping World
 // screensaver - the very same world `roger --ping` runs (pingWorldModel). It advances on the
 // shared 160ms tick (tickMsg) and any key wakes back to prevMode (onKey's intercept).
-func (m model) enterPingWorld() (tea.Model, tea.Cmd) <span class="cov1" title="5">{
+func (m model) enterPingWorld() (tea.Model, tea.Cmd) <span class="cov2" title="6">{
         m.prevMode = m.mode
         m.mode = modePingWorld
         // Blur the active text input so its blink Cmd-chain stops firing into the dropped-msg
@@ -35590,17 +35620,17 @@ func (m model) enterPingWorld() (tea.Model, tea.Cmd) <span class="cov1" title="5
         return m, tick()
 }</span>
 
-func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) <span class="cov4" title="1255">{
+func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) <span class="cov4" title="1256">{
         // SCREENSAVER WAKE: while the Ping World is up, ANY key (even ctrl+c) just wakes us back
         // to where we came from - it never quits RogerAI or leaks the keystroke into the prior
         // mode. A real quit then takes a second ctrl+c from the restored view (the on-air guard).
-        if m.mode == modePingWorld </span><span class="cov1" title="5">{
+        if m.mode == modePingWorld </span><span class="cov2" title="6">{
                 m.mode = m.prevMode
                 m.status = stDim.Render("welcome back - the band's still here")
                 // Re-focus + re-arm the cursor blink for whichever input we woke back into (the
                 // blink Cmd-chain died while the world owned the tick), batched with the normal beat.
                 switch m.prevMode </span>{
-                case modeChat:<span class="cov1" title="5">
+                case modeChat:<span class="cov2" title="6">
                         return m, tea.Batch(tick(), m.chatIn.Focus())</span>
                 case modeCommand:<span class="cov0" title="0">
                         return m, tea.Batch(tick(), m.cmd.Focus())</span>
@@ -36372,17 +36402,17 @@ func (m *model) setShareRows(rows []shareRow) <span class="cov3" title="131">{
 // sharePrivate/station/prices/shareUp/shareKey/share/onAir) from the shared controller,
 // so a change made in the web console appears in the terminal on the next tick. Every
 // share mutation the TUI makes goes THROUGH the controller, then calls this to re-read.
-func (m *model) syncShareCache() <span class="cov5" title="3330">{
+func (m *model) syncShareCache() <span class="cov5" title="3336">{
         if m.ctrl == nil </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov5" title="3330">m.ctrl.SetLoggedIn(m.loggedInState())
+        <span class="cov5" title="3336">m.ctrl.SetLoggedIn(m.loggedInState())
         nr := m.ctrl.Rows()
         rows := make([]shareRow, len(nr))
         for i, r := range nr </span><span class="cov4" title="491">{
                 rows[i] = shareRow{model: r.Model, ctx: r.Ctx, ctxEstimated: r.CtxEstimated, upstream: r.Upstream, upstreamKey: r.UpstreamKey}
         }</span>
-        <span class="cov5" title="3330">m.shareRows = rows
+        <span class="cov5" title="3336">m.shareRows = rows
         m.shares = m.ctrl.Sessions()
         m.sharePrivate = m.ctrl.Private()
         m.prices = m.ctrl.Prices()
@@ -36391,7 +36421,7 @@ func (m *model) syncShareCache() <span class="cov5" title="3330">{
         m.shareKey = m.ctrl.UpstreamKey()
         m.shareSavedUp, m.shareSavedKey = m.ctrl.SavedUpstream()
         m.share, m.onAir = m.ctrl.Headline()
-        if m.shareCursor &gt;= len(m.shareRows) </span><span class="cov5" title="2915">{
+        if m.shareCursor &gt;= len(m.shareRows) </span><span class="cov5" title="2921">{
                 m.shareCursor = 0
         }</span>
 }
@@ -37859,14 +37889,14 @@ const narrowCols = 64
 // 1-column sliver. A genuinely small terminal draws at its REAL width (floored at
 // 40), so the rules + footer match the viewport instead of overflowing at 88.
 // (TUI-V2-CRITIQUE A.)
-func (m model) effWidth() int <span class="cov5" title="3129">{
+func (m model) effWidth() int <span class="cov5" title="3134">{
         if m.width == 0 </span><span class="cov3" title="73">{
                 return 88
         }</span>
-        <span class="cov5" title="3056">if m.width &lt; 40 </span><span class="cov2" title="32">{
+        <span class="cov5" title="3061">if m.width &lt; 40 </span><span class="cov2" title="32">{
                 return 40
         }</span>
-        <span class="cov5" title="3024">return m.width</span>
+        <span class="cov5" title="3029">return m.width</span>
 }
 
 // narrow reports whether to use the single-column reflow (real width is small).
@@ -39095,18 +39125,18 @@ func (m model) selectedBand() (band, bool) <span class="cov2" title="16">{
 // Called after anything that can change the visible-set size (a re-scan, a filter
 // edit, a toggle, a sort) so the cursor never points past the list and the window
 // never strands rows. Pointer receiver: it mutates the model in place.
-func (m *model) clampBrowse() <span class="cov4" title="933">{
+func (m *model) clampBrowse() <span class="cov4" title="934">{
         n := len(m.visibleBands())
         if m.cursor &gt;= n </span><span class="cov2" title="12">{
                 m.cursor = n - 1
         }</span>
-        <span class="cov4" title="933">if m.cursor &lt; 0 </span><span class="cov2" title="8">{
+        <span class="cov4" title="934">if m.cursor &lt; 0 </span><span class="cov2" title="8">{
                 m.cursor = 0
         }</span>
-        <span class="cov4" title="933">if m.browseTop &gt; m.cursor </span><span class="cov1" title="4">{
+        <span class="cov4" title="934">if m.browseTop &gt; m.cursor </span><span class="cov1" title="4">{
                 m.browseTop = m.cursor
         }</span>
-        <span class="cov4" title="933">if m.browseTop &lt; 0 </span><span class="cov0" title="0">{
+        <span class="cov4" title="934">if m.browseTop &lt; 0 </span><span class="cov0" title="0">{
                 m.browseTop = 0
         }</span>
 }
@@ -39172,7 +39202,7 @@ func (m model) balDollars() string <span class="cov1" title="3">{
 
 // loggedInState reports whether the user has a real account wallet: the broker's
 // logged_in flag, or (before the first balance comes back) a locally-linked login.
-func (m model) loggedInState() bool <span class="cov5" title="5631">{ return m.loggedIn || m.ghLogin != "" }</span>
+func (m model) loggedInState() bool <span class="cov5" title="5639">{ return m.loggedIn || m.ghLogin != "" }</span>
 
 // accountTag renders the header/footer account lockup: logged in shows
 // "✓ @login · $balance"; anonymous shows a calm, steady "not logged in · /login to
@@ -39231,14 +39261,14 @@ func sortLabel(mode int) string <span class="cov3" title="91">{
 // sort orders by what the meter shows: the broker's 0..100 signal (cheapest
 // station) when carried, else the legacy measured tok/s. An on-air band with no
 // traffic still sorts by its baseline signal instead of dropping to 0.
-func bandSignal(b band) float64 <span class="cov10" title="9861027">{
+func bandSignal(b band) float64 <span class="cov10" title="9861029">{
         if b.cheapest == nil </span><span class="cov0" title="0">{
                 return 0
         }</span>
-        <span class="cov10" title="9861027">if b.cheapest.Signal &gt; 0 </span><span class="cov2" title="7">{
+        <span class="cov10" title="9861029">if b.cheapest.Signal &gt; 0 </span><span class="cov2" title="7">{
                 return float64(b.cheapest.Signal)
         }</span>
-        <span class="cov9" title="9861020">return b.cheapest.TPS</span>
+        <span class="cov9" title="9861022">return b.cheapest.TPS</span>
 }
 
 // visibleBands is the DERIVED browse list: m.bands run through the active name
@@ -39249,25 +39279,25 @@ func bandSignal(b band) float64 <span class="cov10" title="9861027">{
 // match. Cheap to recompute each frame (a filter + a stable sort over the grouped
 // bands, not the raw offers); at thousands of bands this is the only full pass and
 // it is O(n log n) once, while RENDER stays O(window).
-func (m model) visibleBands() []band <span class="cov5" title="2230">{
+func (m model) visibleBands() []band <span class="cov5" title="2231">{
         q := strings.ToLower(strings.TrimSpace(m.filterApplied))
         out := make([]band, 0, len(m.bands))
-        for _, b := range m.bands </span><span class="cov8" title="549029">{
+        for _, b := range m.bands </span><span class="cov8" title="549031">{
                 if q != "" &amp;&amp; !strings.Contains(strings.ToLower(b.model), q) </span><span class="cov7" title="100711">{
                         continue</span>
                 }
-                <span class="cov8" title="448318">if m.fFree &amp;&amp; !b.free </span><span class="cov1" title="4">{
+                <span class="cov8" title="448320">if m.fFree &amp;&amp; !b.free </span><span class="cov1" title="4">{
                         continue</span>
                 }
-                <span class="cov8" title="448314">if m.fConf &amp;&amp; b.lineage == 0 </span><span class="cov1" title="4">{ // confidential == lineage in /discover
+                <span class="cov8" title="448316">if m.fConf &amp;&amp; b.lineage == 0 </span><span class="cov1" title="4">{ // confidential == lineage in /discover
                         continue</span>
                 }
-                <span class="cov8" title="448310">if m.fOn &amp;&amp; !b.online </span><span class="cov0" title="0">{
+                <span class="cov8" title="448312">if m.fOn &amp;&amp; !b.online </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov8" title="448310">out = append(out, b)</span>
+                <span class="cov8" title="448312">out = append(out, b)</span>
         }
-        <span class="cov5" title="2230">sort.SliceStable(out, func(i, j int) bool </span><span class="cov9" title="4930517">{
+        <span class="cov5" title="2231">sort.SliceStable(out, func(i, j int) bool </span><span class="cov9" title="4930518">{
                 a, b := out[i], out[j]
                 switch m.sortMode </span>{
                 case sortCheapest:<span class="cov1" title="3">
@@ -39280,14 +39310,14 @@ func (m model) visibleBands() []band <span class="cov5" title="2230">{
                         return bandSignal(a) &gt; bandSignal(b)</span>
                 case sortStations:<span class="cov1" title="1">
                         return a.stations &gt; b.stations</span>
-                default:<span class="cov9" title="4930512"> // sortSignal: live first, then strongest signal
+                default:<span class="cov9" title="4930513"> // sortSignal: live first, then strongest signal
                         if a.online != b.online </span><span class="cov0" title="0">{
                                 return a.online
                         }</span>
-                        <span class="cov9" title="4930512">return bandSignal(a) &gt; bandSignal(b)</span>
+                        <span class="cov9" title="4930513">return bandSignal(a) &gt; bandSignal(b)</span>
                 }
         })
-        <span class="cov5" title="2230">return out</span>
+        <span class="cov5" title="2231">return out</span>
 }
 
 // filtersActive reports whether any name filter or quick toggle is narrowing the
@@ -39763,68 +39793,68 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string <span class="
 // the cheapest station, and flags. Bands are sorted cheapest-first, with any band
 // whose cheapest station is over the user's limit sorted last (it still shows,
 // flagged "above limit" per the design). Offline-only bands sort after online.
-func groupBands(offers []offer, limits *LimitStore) []band <span class="cov4" title="289">{
+func groupBands(offers []offer, limits *LimitStore) []band <span class="cov4" title="290">{
         byModel := map[string]*band{}
         order := []string{}
-        for _, o := range offers </span><span class="cov5" title="2432">{
+        for _, o := range offers </span><span class="cov5" title="2434">{
                 b, ok := byModel[o.Model]
-                if !ok </span><span class="cov5" title="2426">{
+                if !ok </span><span class="cov5" title="2428">{
                         b = &amp;band{model: o.Model}
                         byModel[o.Model] = b
                         order = append(order, o.Model)
                 }</span>
-                <span class="cov5" title="2432">oc := o
+                <span class="cov5" title="2434">oc := o
                 b.all = append(b.all, oc)
-                if o.Confidential </span><span class="cov4" title="218">{
+                if o.Confidential </span><span class="cov4" title="219">{
                         b.lineage++
                 }</span>
-                <span class="cov5" title="2432">if !o.Online </span><span class="cov1" title="1">{
+                <span class="cov5" title="2434">if !o.Online </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov5" title="2431">if o.FreeNow </span><span class="cov2" title="11">{
+                <span class="cov5" title="2433">if o.FreeNow </span><span class="cov2" title="11">{
                         b.free = true
                 }</span>
-                <span class="cov5" title="2431">if o.Verified </span><span class="cov1" title="3">{
+                <span class="cov5" title="2433">if o.Verified </span><span class="cov1" title="3">{
                         b.verified = true // a serving-probe pass on any online station (✓)
                 }</span>
                 // Real live load: sum the broker's in-flight count across the band's online
                 // stations. This (not a frame counter) is what makes the meter animate ONLY when
                 // the band is genuinely serving traffic.
-                <span class="cov5" title="2431">if o.InFlight &gt; 0 </span><span class="cov1" title="4">{
+                <span class="cov5" title="2433">if o.InFlight &gt; 0 </span><span class="cov1" title="4">{
                         b.inFlight += o.InFlight
                 }</span>
-                <span class="cov5" title="2431">if b.stations == 0 || o.PriceOut &lt; b.minOut </span><span class="cov5" title="2427">{
+                <span class="cov5" title="2433">if b.stations == 0 || o.PriceOut &lt; b.minOut </span><span class="cov5" title="2429">{
                         b.minOut = o.PriceOut
                         b.cheapest = &amp;b.all[len(b.all)-1]
                 }</span>
-                <span class="cov5" title="2431">if b.stations == 0 || o.PriceOut &gt; b.maxOut </span><span class="cov5" title="2430">{
+                <span class="cov5" title="2433">if b.stations == 0 || o.PriceOut &gt; b.maxOut </span><span class="cov5" title="2432">{
                         b.maxOut = o.PriceOut
                 }</span>
                 // Headline in-price: the cheapest active input price across online stations,
                 // tracked independently of the out-price so the band row can show $/1M in·out
                 // exactly like the web /models row (which reports minIn · minOut).
-                <span class="cov5" title="2431">if b.stations == 0 || o.PriceIn &lt; b.minIn </span><span class="cov5" title="2426">{
+                <span class="cov5" title="2433">if b.stations == 0 || o.PriceIn &lt; b.minIn </span><span class="cov5" title="2428">{
                         b.minIn = o.PriceIn
                 }</span>
-                <span class="cov5" title="2431">b.stations++
+                <span class="cov5" title="2433">b.stations++
                 b.online = true</span>
         }
-        <span class="cov4" title="289">out := make([]band, 0, len(order))
-        for _, m := range order </span><span class="cov5" title="2426">{
+        <span class="cov4" title="290">out := make([]band, 0, len(order))
+        for _, m := range order </span><span class="cov5" title="2428">{
                 out = append(out, *byModel[m])
         }</span>
-        <span class="cov4" title="289">sort.SliceStable(out, func(i, j int) bool </span><span class="cov6" title="15398">{
+        <span class="cov4" title="290">sort.SliceStable(out, func(i, j int) bool </span><span class="cov6" title="15399">{
                 oi := bandOverLimit(out[i], limits)
                 oj := bandOverLimit(out[j], limits)
                 if out[i].online != out[j].online </span><span class="cov0" title="0">{
                         return out[i].online // online first
                 }</span>
-                <span class="cov6" title="15398">if oi != oj </span><span class="cov0" title="0">{
+                <span class="cov6" title="15399">if oi != oj </span><span class="cov0" title="0">{
                         return !oi // within-limit before above-limit
                 }</span>
-                <span class="cov6" title="15398">return out[i].minOut &lt; out[j].minOut</span> // then cheapest first
+                <span class="cov6" title="15399">return out[i].minOut &lt; out[j].minOut</span> // then cheapest first
         })
-        <span class="cov4" title="289">return out</span>
+        <span class="cov4" title="290">return out</span>
 }
 
 // mergeStickyBand keeps a band you recently TUNED IN to in the browse list even
@@ -39836,8 +39866,8 @@ func groupBands(offers []offer, limits *LimitStore) []band <span class="cov4" ti
 // Otherwise we append a synthetic OFFLINE band carrying the remembered station, so
 // the row stays present, marked offline/available, and is still selectable to
 // re-tune. nil-safe: with no sticky band the input list passes through unchanged.
-func (m *model) mergeStickyBand(bands []band) []band <span class="cov4" title="284">{
-        if m.lastConnected == nil </span><span class="cov4" title="282">{
+func (m *model) mergeStickyBand(bands []band) []band <span class="cov4" title="285">{
+        if m.lastConnected == nil </span><span class="cov4" title="283">{
                 return bands
         }</span>
         <span class="cov1" title="2">want := m.lastConnected.Model
@@ -39871,11 +39901,11 @@ func (m *model) mergeStickyBand(bands []band) []band <span class="cov4" title="2
 
 // bandOverLimit reports whether a band's cheapest online station is over the
 // user's per-model out-price max (so it sorts last and is flagged).
-func bandOverLimit(b band, limits *LimitStore) bool <span class="cov6" title="30986">{
+func bandOverLimit(b band, limits *LimitStore) bool <span class="cov6" title="30988">{
         if !b.online </span><span class="cov1" title="2">{
                 return false
         }</span>
-        <span class="cov6" title="30984">lim := limits.resolve(b.model)
+        <span class="cov6" title="30986">lim := limits.resolve(b.model)
         return lim.MaxOut &gt; 0 &amp;&amp; b.minOut &gt; lim.MaxOut</span>
 }
 
@@ -40225,79 +40255,79 @@ func revealBlock(lines []string, from, age int, reduce bool) []string <span clas
 }
 
 // truncate here. An empty slice yields "" (zero rows).
-func transcriptContent(entries []string) string <span class="cov5" title="5095">{
+func transcriptContent(entries []string) string <span class="cov5" title="5105">{
         var b strings.Builder
         first := true
-        for _, e := range entries </span><span class="cov6" title="9796">{
-                for _, ln := range strings.Split(e, "\n") </span><span class="cov6" title="9796">{
-                        if !first </span><span class="cov6" title="9307">{
+        for _, e := range entries </span><span class="cov6" title="9798">{
+                for _, ln := range strings.Split(e, "\n") </span><span class="cov6" title="9798">{
+                        if !first </span><span class="cov6" title="9308">{
                                 b.WriteByte('\n')
                         }</span>
-                        <span class="cov6" title="9796">first = false
+                        <span class="cov6" title="9798">first = false
                         b.WriteString("  " + ln)</span>
                 }
         }
-        <span class="cov5" title="5095">return b.String()</span>
+        <span class="cov5" title="5105">return b.String()</span>
 }
 
 // lineRows is the number of physical lines in viewport content ("" = 0 rows).
-func lineRows(content string) int <span class="cov5" title="5095">{
-        if content == "" </span><span class="cov5" title="4606">{
+func lineRows(content string) int <span class="cov5" title="5105">{
+        if content == "" </span><span class="cov5" title="4615">{
                 return 0
         }</span>
-        <span class="cov4" title="489">return strings.Count(content, "\n") + 1</span>
+        <span class="cov4" title="490">return strings.Count(content, "\n") + 1</span>
 }
 
 // clampRows bounds a row count to [0, max] - the viewport height is min(content, max)
 // so a short transcript renders exactly as tall as it is (no padding, unchanged layout)
 // and a tall one caps at max rows and becomes scrollable.
-func clampRows(rows, max int) int <span class="cov5" title="5095">{
+func clampRows(rows, max int) int <span class="cov5" title="5105">{
         if rows &gt; max </span><span class="cov3" title="145">{
                 rows = max
         }</span>
-        <span class="cov5" title="5095">if rows &lt; 0 </span><span class="cov0" title="0">{
+        <span class="cov5" title="5105">if rows &lt; 0 </span><span class="cov0" title="0">{
                 rows = 0
         }</span>
-        <span class="cov5" title="5095">return rows</span>
+        <span class="cov5" title="5105">return rows</span>
 }
 
 // chatTranscriptRows is the maximum height (rows) the CHANNEL transcript region may
 // occupy, leaving room for the header, heading, prompt + footer. Kept identical to the
 // pre-viewport tail budget so the layout is unchanged.
-func (m model) chatTranscriptRows() int <span class="cov5" title="2536">{
+func (m model) chatTranscriptRows() int <span class="cov5" title="2541">{
         max := m.height - 8
         if m.compact </span><span class="cov2" title="21">{
                 max = m.height - 6
         }</span>
-        <span class="cov5" title="2536">if max &lt; 6 </span><span class="cov2" title="27">{
+        <span class="cov5" title="2541">if max &lt; 6 </span><span class="cov2" title="27">{
                 max = 12
         }</span>
-        <span class="cov5" title="2536">return max</span>
+        <span class="cov5" title="2541">return max</span>
 }
 
 // agentCornerRows mirrors agentView: the reactive corner-Ping region only shows when a
 // model is active, and its height drives the transcript budget.
-func (m model) agentCornerRows() int <span class="cov5" title="2490">{
+func (m model) agentCornerRows() int <span class="cov5" title="2495">{
         mdl := ""
         if m.agent != nil </span><span class="cov3" title="197">{
                 mdl = m.agent.model
         }</span>
-        <span class="cov5" title="2490">if mdl == "" </span><span class="cov5" title="2431">{
+        <span class="cov5" title="2495">if mdl == "" </span><span class="cov5" title="2436">{
                 return 0
         }</span>
         <span class="cov3" title="59">return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact))</span>
 }
 
 // agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
-func (m model) agentTranscriptRows(cornerRows int) int <span class="cov5" title="2559">{
+func (m model) agentTranscriptRows(cornerRows int) int <span class="cov5" title="2564">{
         max := m.height - 8 - cornerRows
         if m.compact </span><span class="cov2" title="16">{
                 max = m.height - 6 - cornerRows
         }</span>
-        <span class="cov5" title="2559">if max &lt; 6 </span><span class="cov2" title="25">{
+        <span class="cov5" title="2564">if max &lt; 6 </span><span class="cov2" title="25">{
                 max = 12
         }</span>
-        <span class="cov5" title="2559">return max</span>
+        <span class="cov5" title="2564">return max</span>
 }
 
 // refreshScroll keeps both transcript viewports sized to the window and fed from the
@@ -40305,7 +40335,7 @@ func (m model) agentTranscriptRows(cornerRows int) int <span class="cov5" title=
 // at the bottom (so a scroll-up holds while new output streams in below). Called after
 // every Update via the Update wrapper, so any handler that appends to a transcript (a
 // reply, an agent event, a system line) gets the right scroll behavior for free.
-func (m model) refreshScroll() model <span class="cov5" title="2490">{
+func (m model) refreshScroll() model <span class="cov5" title="2495">{
         w := m.effWidth()
 
         chatBottom := m.chatVP.AtBottom()
@@ -40315,24 +40345,24 @@ func (m model) refreshScroll() model <span class="cov5" title="2490">{
         if m.msgInFrame &gt; 0 </span><span class="cov1" title="1">{
                 chatLines = revealBlock(m.transcript, m.msgInFrom, m.frame-m.msgInFrame, quiet || m.compact)
         }</span>
-        <span class="cov5" title="2490">chatContent := transcriptContent(chatLines)
+        <span class="cov5" title="2495">chatContent := transcriptContent(chatLines)
         m.chatVP.Width = w
         m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
         m.chatVP.SetContent(chatContent)
-        if chatBottom </span><span class="cov5" title="2416">{
+        if chatBottom </span><span class="cov5" title="2421">{
                 m.chatVP.GotoBottom()
         }</span>
 
-        <span class="cov5" title="2490">agentBottom := m.agentVP.AtBottom()
+        <span class="cov5" title="2495">agentBottom := m.agentVP.AtBottom()
         agentContent := transcriptContent(m.agentLines)
         m.agentVP.Width = w
         m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows()))
         m.agentVP.SetContent(agentContent)
-        if agentBottom </span><span class="cov5" title="2466">{
+        if agentBottom </span><span class="cov5" title="2471">{
                 m.agentVP.GotoBottom()
         }</span>
 
-        <span class="cov5" title="2490">return m</span>
+        <span class="cov5" title="2495">return m</span>
 }
 
 func (m model) chatView(w int) string <span class="cov3" title="46">{
@@ -40523,11 +40553,11 @@ func (m model) headlineBadge() string <span class="cov2" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40547,7 +40577,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="347">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="326">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40569,7 +40599,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="77">
+                case agent.LinkOnAir:<span class="cov3" title="73">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -40626,7 +40656,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="9">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -40677,7 +40707,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov2" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="42">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="40">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -41808,21 +41838,21 @@ func tintSignal(raw string, signal int, tps float64, online bool) string <span c
 func normalizeUpstream(u string) string <span class="cov1" title="3">{ return node.NormalizeUpstream(u) }</span>
 
 // plural renders "1 band" / "3 bands": a count with its noun, +s unless n == 1.
-func plural(n int, noun string) string <span class="cov4" title="586">{
+func plural(n int, noun string) string <span class="cov4" title="588">{
         if n == 1 </span><span class="cov3" title="78">{
                 return "1 " + noun
         }</span>
-        <span class="cov4" title="508">return fmt.Sprintf("%d %ss", n, noun)</span>
+        <span class="cov4" title="510">return fmt.Sprintf("%d %ss", n, noun)</span>
 }
 
-func countOnline(o []offer) int <span class="cov4" title="588">{
+func countOnline(o []offer) int <span class="cov4" title="589">{
         n := 0
-        for _, x := range o </span><span class="cov5" title="5236">{
-                if x.Online </span><span class="cov5" title="5236">{
+        for _, x := range o </span><span class="cov5" title="5238">{
+                if x.Online </span><span class="cov5" title="5238">{
                         n++
                 }</span>
         }
-        <span class="cov4" title="588">return n</span>
+        <span class="cov4" title="589">return n</span>
 }
 
 // rescanEveryFrames sets the live band re-scan cadence: at the 160ms tick, ~31
@@ -41830,7 +41860,7 @@ func countOnline(o []offer) int <span class="cov4" title="588">{
 // just went on/off air is reflected within one cadence.
 const rescanEveryFrames = 31
 
-func tick() tea.Cmd <span class="cov4" title="326">{
+func tick() tea.Cmd <span class="cov4" title="329">{
         return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg </span><span class="cov1" title="1">{ return tickMsg{} }</span>)
 }
 
@@ -41894,7 +41924,7 @@ func fetchBalance(broker, user string) tea.Cmd <span class="cov2" title="13">{
 // fetchPayoutStatus reads the operator's Connect/KYC + payable snapshot off the
 // event loop (the SAME signed CLI path `roger payout` uses), for the SHARE-view
 // earnings hint. Best-effort: any error returns a not-loaded snapshot (no hint).
-func fetchPayoutStatus(broker string) tea.Cmd <span class="cov4" title="342">{
+func fetchPayoutStatus(broker string) tea.Cmd <span class="cov4" title="343">{
         return func() tea.Msg </span><span class="cov1" title="1">{
                 st, err := client.FetchPayoutStatus(broker)
                 if err != nil </span><span class="cov0" title="0">{
@@ -43079,12 +43109,12 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov2" title=
         }</span>
         <span class="cov1" title="1">start, _ := strconv.Atoi(port)
         var lastErr error
-        for p := start; p &lt; start+64; p++ </span><span class="cov1" title="2">{
+        for p := start; p &lt; start+64; p++ </span><span class="cov2" title="3">{
                 ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
                 if err == nil </span><span class="cov1" title="1">{
                         return ln, nil
                 }</span>
-                <span class="cov1" title="1">lastErr = err</span>
+                <span class="cov1" title="2">lastErr = err</span>
         }
         // Last resort: let the OS pick any free port rather than dead-end.
         <span class="cov0" title="0">if ln, err := net.Listen("tcp", net.JoinHostPort(host, "0")); err == nil </span><span class="cov0" title="0">{
