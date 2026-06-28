@@ -30,8 +30,14 @@
   // hover/tap via RogerFmt; fall back to a plain format if fmt.js didn't load. opts.usd = money.
   function bindNum(id, v, opts) {
     var el = $(id); if (!el) return;
-    // Missing / non-numeric stat -> "-" (no data), same as before; never coerce to 0/$0.00.
-    if (typeof v !== "number" || !isFinite(v)) { el.textContent = "-"; return; }
+    // Missing / non-numeric stat -> plain "-" (no data); never coerce to 0/$0.00. Also clear
+    // any interactive formatter state left by a prior bind, so a "-" tile isn't a stale button.
+    if (typeof v !== "number" || !isFinite(v)) {
+      el.textContent = "-";
+      el.classList.remove("rfmt");
+      ["role", "tabindex", "aria-label", "aria-expanded", "data-exact", "title"].forEach(function (a) { el.removeAttribute(a); });
+      return;
+    }
     if (window.RogerFmt) RogerFmt.bind(el, v, opts);
     else el.textContent = (opts && opts.usd) ? cr(v) : num(v);
   }
