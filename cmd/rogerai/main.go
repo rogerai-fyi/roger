@@ -38,7 +38,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "4.11.0"
+var Version = "4.12.0"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -1672,6 +1672,7 @@ func usage() {
 
   roger                         open the app (browse, tune in, chat) + browser console
   roger --no-webui              open the app WITHOUT the browser console
+  roger --ping                  full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   roger balance               your wallet balance
