@@ -394,3 +394,54 @@ func TestWorldAuroraAtNightNeverRed(t *testing.T) {
 		}
 	}
 }
+
+// TestWandererSpawnVaries: the wanderer comes and goes (P1-8) - the hash gate yields both
+// "crossing" and "absent" windows, so the cast changes instead of an always-on drifter.
+func TestWandererSpawnVaries(t *testing.T) {
+	present, absent := 0, 0
+	for win := 0; win < 90; win++ {
+		if worldHash(win, 13, 7)%3 != 0 {
+			present++
+		} else {
+			absent++
+		}
+	}
+	if present == 0 || absent == 0 {
+		t.Errorf("wanderer spawn should vary: present=%d absent=%d", present, absent)
+	}
+}
+
+// TestWorldTransmitBreathesAtStar: while Ping is in the transmit act, a dim halo pulses beside
+// the on-air ◉ - the ◉ stays the SINGLE red glint and the halo is never red.
+func TestWorldTransmitBreathesAtStar(t *testing.T) {
+	seed := 7
+	tf := -1
+	for f := 0; f < waCycle*waWindow*3; f++ {
+		if worldActAt(f/waWindow, seed) == waTransmit && f%4 < 2 {
+			tf = f
+			break
+		}
+	}
+	if tf < 0 {
+		t.Fatal("schedule never hits a transmit act - check worldActAt weights")
+	}
+	buf := worldBuffer(100, 24, tf, seed)
+	ox, oy, stars := -1, -1, 0
+	for y, row := range buf {
+		for x, c := range row {
+			if c.r == '◉' {
+				ox, oy, stars = x, y, stars+1
+			}
+		}
+	}
+	if stars != 1 {
+		t.Fatalf("want exactly one on-air ◉ during transmit, got %d", stars)
+	}
+	if ox-1 >= 0 {
+		if c := buf[oy][ox-1]; c.r != '(' {
+			t.Errorf("expected a breathe-halo '(' left of ◉, got %q", string(c.r))
+		} else if c.eye {
+			t.Error("the breathe halo must be dim, never red")
+		}
+	}
+}
