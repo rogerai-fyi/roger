@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rogerai-fyi/roger/internal/store"
 )
@@ -32,6 +33,79 @@ type failStore struct {
 	failForgive   bool
 	failWalletCh  bool
 	failCreditOn  bool
+
+	// safety / strike surfaces (report.go + strikes.go error branches)
+	failAddReport    bool
+	failPreserveCSAM bool
+	failBanNode      bool
+	failUnbanNode    bool
+	failExpireBans   bool
+	failBannedNodes  bool
+	failOwnerStrike  bool
+	failStrikeStats  bool
+	failBanOwner     bool
+	failBannedOwners bool
+}
+
+func (f *failStore) AddReport(r store.Report) (int64, error) {
+	if f.failAddReport {
+		return 0, errBoom
+	}
+	return f.Store.AddReport(r)
+}
+func (f *failStore) PreserveCSAM(inc store.CSAMIncident) (int64, error) {
+	if f.failPreserveCSAM {
+		return 0, errBoom
+	}
+	return f.Store.PreserveCSAM(inc)
+}
+func (f *failStore) BanNode(nodeID, reason string) error {
+	if f.failBanNode {
+		return errBoom
+	}
+	return f.Store.BanNode(nodeID, reason)
+}
+func (f *failStore) UnbanNode(nodeID string) error {
+	if f.failUnbanNode {
+		return errBoom
+	}
+	return f.Store.UnbanNode(nodeID)
+}
+func (f *failStore) ExpireNodeBans(olderThan time.Time) ([]string, error) {
+	if f.failExpireBans {
+		return nil, errBoom
+	}
+	return f.Store.ExpireNodeBans(olderThan)
+}
+func (f *failStore) BannedNodes() (map[string]string, error) {
+	if f.failBannedNodes {
+		return nil, errBoom
+	}
+	return f.Store.BannedNodes()
+}
+func (f *failStore) OwnerStrike(accountID, kind, evidenceJSON, idemKey string) (int, error) {
+	if f.failOwnerStrike {
+		return 0, errBoom
+	}
+	return f.Store.OwnerStrike(accountID, kind, evidenceJSON, idemKey)
+}
+func (f *failStore) OwnerStrikeStats(accountID string, since int64) (int, int, error) {
+	if f.failStrikeStats {
+		return 0, 0, errBoom
+	}
+	return f.Store.OwnerStrikeStats(accountID, since)
+}
+func (f *failStore) BanOwner(accountID, reason, evidenceJSON string) error {
+	if f.failBanOwner {
+		return errBoom
+	}
+	return f.Store.BanOwner(accountID, reason, evidenceJSON)
+}
+func (f *failStore) BannedOwners() (map[string]string, error) {
+	if f.failBannedOwners {
+		return nil, errBoom
+	}
+	return f.Store.BannedOwners()
 }
 
 func (f *failStore) WalletByCharge(ref string) (string, float64, bool, error) {
