@@ -37,11 +37,14 @@
   margin-top: var(--s-6); display: grid; gap: var(--s-4);
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-@media (max-width: 880px) { .man-quick__grid { grid-template-columns: 1fr; } }
+/* Single column on a phone. minmax(0, 1fr) - NOT a bare 1fr (= minmax(auto,1fr)) - so the
+   column may shrink below a child <pre>'s min-content instead of being forced wide by it. */
+@media (max-width: 880px) { .man-quick__grid { grid-template-columns: minmax(0, 1fr); } }
 .man-quick__card {
   border: 1px solid var(--hairline-2); border-radius: var(--r-lg);
   background: var(--white); box-shadow: var(--e-1);
   padding: clamp(18px, 2vw, 24px);
+  min-width: 0; /* a grid item defaults to min-width:auto; 0 lets the <pre> scroll, not bleed */
 }
 .man-quick__step {
   display: inline-block;
@@ -50,7 +53,7 @@
 }
 .man-quick__card p { margin-top: var(--s-3); color: var(--ink-700); font-size: var(--t-sm); line-height: 1.6; }
 .man-quick__card pre {
-  margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto;
+  margin-top: var(--s-3); padding: 14px 16px; overflow-x: auto; max-width: 100%;
   background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
 }
@@ -68,7 +71,10 @@
 /* the document body: a contents rail beside the flowing sections */
 .man-doc { padding-block: var(--s-8) var(--section-y); }
 .man-doc__grid { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
-@media (max-width: 880px) { .man-doc__grid { grid-template-columns: 1fr; } }
+@media (max-width: 880px) { .man-doc__grid { grid-template-columns: minmax(0, 1fr); } }
+/* the flowing content column: a grid item, so cap its min-width or a long <pre> pushes the
+   whole column (and the body text with it) off the right of a phone screen. */
+.man-doc__body { min-width: 0; }
 
 /* sticky contents */
 .man-toc { position: sticky; top: 88px; align-self: start; }
@@ -110,7 +116,7 @@
 
 /* a copy line / command block, mono, manual-grey */
 .man-sec pre {
-  margin-top: var(--s-4); padding: 14px 16px; overflow-x: auto;
+  margin-top: var(--s-4); padding: 14px 16px; overflow-x: auto; max-width: 100%;
   background: var(--paper-3); border: 1px solid var(--hairline-2); border-radius: var(--r-md);
   font-size: var(--t-sm); line-height: 1.55; color: var(--ink-900);
 }
@@ -120,6 +126,7 @@
   font-family: var(--font-mono); font-size: 0.88em;
   background: var(--paper-2); border: 1px solid var(--hairline);
   border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+  overflow-wrap: anywhere; /* a long inline token (a URL/flag) wraps instead of bleeding */
 }
 
 /* a numbered figure caption inside the manual (reuses .fig look) */
