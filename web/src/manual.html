@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.11.0</b></span>
+          <span>Version: <b data-cli-version>v4.12.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -819,7 +819,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.11.0</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.12.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -850,6 +850,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>upgrade</code></td><td>self-update the binary; <code>--check</code> only reports availability (aliases: <code>update</code>, <code>self-update</code>)</td></tr>
                   <tr><td><code>version</code></td><td>print the client version</td></tr>
                   <tr><td><code>ping</code></td><td>easter egg: the mascot walks the terminal</td></tr>
+                  <tr><td><code>--ping</code></td><td>easter egg: the full-screen "Ping World" screensaver (or <kbd>z</kbd> in the app)</td></tr>
                   <tr><td><code>help</code></td><td>usage (aliases: <code>-h</code>, <code>--help</code>)</td></tr>
                 </tbody>
               </table>
@@ -1097,8 +1098,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.11.0</span><span class="man-plate__v">A full-screen "Ping World" screensaver - run <code>roger --ping</code>, or press <kbd>z</kbd> / <code>/ping</code> in the TUI: a slow, relaxing animated planet (a rotating 3D globe, a day/night sky, Ping ambling the rim with the band on air) you can leave up without dropping your channel or your share. The terminal is calmer, too - minimize to a dense compact "windowshade" from anywhere (<kbd>m</kbd> / <kbd>alt+m</kbd>) with a live signal EQ, a <code>/</code> command palette, and channel replies that settle in instead of snapping.</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">v4.10.0</span><span class="man-plate__v">Bands and models now show a price tier ($ to $$$$) at a glance - how a band's price compares to the going rate for that model - with a <code>good price</code> tag on the best deals, in the terminal and on the web.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.12.0</span><span class="man-plate__v">The "Ping World" screensaver now has color, a full day/night world, and live on-air signal towers - plus a steadier dial and an <code>/agent</code> shortcut in the channel.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.11.0</span><span class="man-plate__v">A full-screen "Ping World" screensaver (<code>roger --ping</code>, or <kbd>z</kbd> / <code>/ping</code> in the TUI) you can leave up without dropping your channel - plus a compact "windowshade" minimize (<kbd>m</kbd>) and a <code>/</code> command palette.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.10.0</span><span class="man-plate__v">Bands now show a price tier ($ to $$$$) at a glance, with a <code>good price</code> tag on the best deals - in the terminal and on the web.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.9.0</span><span class="man-plate__v">Scrollback in the channel and agent chat - mouse wheel, <kbd>PgUp</kbd>/<kbd>PgDn</kbd>, and arrow keys.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.8.5</span><span class="man-plate__v">Channel replies now show per-turn tokens in/out, throughput, and response time alongside the cost (<code>/stats</code> adds the locked price); fixed the Windows installer and <code>roger upgrade</code> downloading the renamed <code>roger</code> binary.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.8.4</span><span class="man-plate__v">Channel chat now fails over past a slow or unresponsive station automatically.</span></div>
