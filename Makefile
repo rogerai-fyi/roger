@@ -1,4 +1,4 @@
-.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate tdd
+.PHONY: build demo clean kill test check site site-serve smoke smoke-live beta cover cover-html cover-gate cover-gate-fast tdd
 GOTOOLCHAIN := local
 export GOTOOLCHAIN
 
@@ -53,6 +53,20 @@ cover-html: cover
 # Run by CI and the repo-local pre-push hook. Bypass a local push with COVER_GATE_SKIP=1.
 cover-gate:
 	@scripts/cover-gate.sh
+
+# cover-gate-fast: the FAST gate for DOC/WEB-ONLY pushes (no .go changed). Coverage cannot
+# regress without Go changes, so this SKIPS the slow Postgres coverage and only sanity-checks:
+# go build + vet + the web build + the manual version-sync. The repo-local pre-push hook
+# auto-selects this when a push touches no .go files; otherwise the full `make cover-gate` runs.
+# Do NOT use this for a Go change - it does not measure coverage. (Phase 5 E3.)
+cover-gate-fast:
+	@echo "[cover-gate-fast] no-Go push: build + vet + web build + version-sync (Postgres coverage skipped)"
+	@go build ./...
+	@go vet ./...
+	@node web/build.mjs >/dev/null
+	@ver=$$(sed -n 's/^\(const\|var\) Version = "\([0-9][^"]*\)".*/\2/p' cmd/rogerai/main.go | head -n1); \
+		if grep -q "$$ver" web/dist/manual.html; then echo "[cover-gate-fast] OK - built manual mentions v$$ver"; \
+		else echo "[cover-gate-fast] FAIL - web/dist/manual.html missing v$$ver (update web/src/manual.html)"; exit 1; fi
 
 # tdd: red-green watch loop for one package - make tdd PKG=./internal/store
 tdd:
