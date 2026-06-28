@@ -518,8 +518,10 @@ func dispatch(cfg config, args []string) error {
 		return cmdAppeal(cfg, args[1:])
 	case "drphil", "dr-phil", "diagnose", "doctor":
 		return cmdDrPhil(cfg, args[1:])
-	case "ping", "--ping", "-ping":
-		return tui.PingWalk()
+	case "ping":
+		return tui.PingWalk() // the quick 2-lap walk easter egg
+	case "--ping", "-ping":
+		return tui.PingWorld() // the full-screen "Ping World" screensaver
 	case "upgrade", "update", "self-update":
 		return cmdUpgrade(args[1:])
 	case "version":
