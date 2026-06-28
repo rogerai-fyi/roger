@@ -30,6 +30,14 @@ test("usd: matches Go FormatUSD (0, sub-cent 3-sig-fig, >=$0.01 two dp, guards)"
   for (const [in_, want] of cases) assert.equal(R.usd(in_), want, `usd(${in_})`);
 });
 
+test("usdSigned: signed magnitude (the signed payouts/adjustment ledger)", () => {
+  assert.equal(R.usdSigned(0), "$0.00");
+  assert.equal(R.usdSigned(12.5), "$12.50");        // non-negative == usd()
+  assert.equal(R.usdSigned(-12.5), "-$12.50");      // a payout/chargeback row keeps its sign
+  assert.equal(R.usdSigned(-0.00000036), "-$0.00000036");
+  assert.equal(R.usdSigned(NaN), "-");
+});
+
 test("usdExact: full precision, never $0.00 for a real charge", () => {
   assert.equal(R.usdExact(3e-9), "$0.000000003");
   assert.equal(R.usdExact(0.00000036), "$0.00000036");

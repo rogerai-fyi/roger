@@ -26,6 +26,7 @@
   // real sub-cent earning never reads as $0.00.
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (window.RogerFmt) return RogerFmt.usdSigned(n); // canonical money renderer (web == CLI/TUI)
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);
@@ -139,7 +140,7 @@
       var meta = document.createElement("span");
       meta.className = "po-break__meta";
       var node = m.node_id ? m.node_id : "node";
-      meta.textContent = node + " - " + (m.requests || 0) + " req";
+      meta.textContent = node + " - " + (window.RogerFmt ? RogerFmt.count(m.requests || 0) : (m.requests || 0)) + " req";
       left.appendChild(name);
       left.appendChild(meta);
       var right = document.createElement("span");

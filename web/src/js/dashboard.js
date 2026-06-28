@@ -30,14 +30,8 @@
   // hover/tap via RogerFmt; fall back to a plain format if fmt.js didn't load. opts.usd = money.
   function bindNum(id, v, opts) {
     var el = $(id); if (!el) return;
-    // Missing / non-numeric stat -> plain "-" (no data); never coerce to 0/$0.00. Also clear
-    // any interactive formatter state left by a prior bind, so a "-" tile isn't a stale button.
-    if (typeof v !== "number" || !isFinite(v)) {
-      el.textContent = "-";
-      el.classList.remove("rfmt");
-      ["role", "tabindex", "aria-label", "aria-expanded", "data-exact", "title"].forEach(function (a) { el.removeAttribute(a); });
-      return;
-    }
+    // RogerFmt.bind renders the compact form + exact-value reveal, and handles missing data
+    // ("-", no stale button) itself. Fallback (fmt.js absent): cr()/num() also return "-".
     if (window.RogerFmt) RogerFmt.bind(el, v, opts);
     else el.textContent = (opts && opts.usd) ? cr(v) : num(v);
   }
@@ -49,7 +43,7 @@
     if (typeof n !== "number" || !isFinite(n)) return "-";
     // Delegate to the ONE canonical renderer so every $ on the site reads the same as the
     // CLI/TUI; fall back to a local sub-cent-aware format only if fmt.js didn't load.
-    if (window.RogerFmt) return RogerFmt.usd(n);
+    if (window.RogerFmt) return RogerFmt.usdSigned(n);
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);

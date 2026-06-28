@@ -36,6 +36,7 @@
   // $0.00 (same rule as account.js cr()).
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (window.RogerFmt) return RogerFmt.usdSigned(n); // canonical money renderer (web == CLI/TUI)
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);
@@ -49,6 +50,14 @@
   function num(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
     return Math.round(n).toLocaleString("en-US");
+  }
+  // compact count (k/M/B/T) for tight table cells; falls back to grouped num().
+  function cfmt(n) { return window.RogerFmt ? RogerFmt.count(n) : num(n); }
+  // A growing stat tile: compact form + exact value on hover/tap; fallback to num().
+  function bindNum(id, v) {
+    var el = $(id); if (!el) return;
+    if (window.RogerFmt) RogerFmt.bind(el, v);
+    else el.textContent = num(v);
   }
   function n0(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
 
@@ -363,8 +372,8 @@
     var t = rollupTotals(daily);
     if (!daily || !daily.length || t.requests === 0) { setState("prov", "empty"); return; }
 
-    text("provReq", num(t.requests));
-    text("provTokOut", num(t.tokens_out));
+    bindNum("provReq", t.requests);
+    bindNum("provTokOut", t.tokens_out);
     text("provEarn", cr(t.earned));
     show("provTotals");
 
@@ -382,7 +391,7 @@
     if (sorted.length) {
       var barsEl = $("provBars");
       sorted.forEach(function (r) {
-        barsEl.appendChild(barRow(r.model, r.tokens_out, num(r.tokens_out), max));
+        barsEl.appendChild(barRow(r.model, r.tokens_out, cfmt(r.tokens_out), max));
       });
       show("provChart");
 
@@ -390,8 +399,8 @@
       sorted.forEach(function (r) {
         var tr = document.createElement("tr");
         tr.appendChild(cell(r.model, "mx-model"));
-        tr.appendChild(cell(num(r.requests), "num"));
-        tr.appendChild(cell(num(r.tokens_out), "num"));
+        tr.appendChild(cell(cfmt(r.requests), "num"));
+        tr.appendChild(cell(cfmt(r.tokens_out), "num"));
         tr.appendChild(cell(cr(r.earned), "num mx-money"));
         body.appendChild(tr);
       });
@@ -408,8 +417,8 @@
     if (!daily || !daily.length || t.requests === 0) { setState("use", "empty"); return; }
 
     var totTok = t.tokens_in + t.tokens_out;
-    text("useReq", num(t.requests));
-    text("useTok", num(totTok));
+    bindNum("useReq", t.requests);
+    bindNum("useTok", totTok);
     text("useSpend", cr(t.spend));
     show("useTotals");
 
@@ -427,7 +436,7 @@
     var max = sorted.reduce(function (m, x) { return Math.max(m, x.tok); }, 0);
     if (sorted.length) {
       var barsEl = $("useBars");
-      sorted.forEach(function (x) { barsEl.appendChild(barRow(x.r.model, x.tok, num(x.tok), max)); });
+      sorted.forEach(function (x) { barsEl.appendChild(barRow(x.r.model, x.tok, cfmt(x.tok), max)); });
       show("useChart");
 
       var body = $("useRows");
@@ -435,8 +444,8 @@
         var r = x.r;
         var tr = document.createElement("tr");
         tr.appendChild(cell(r.model, "mx-model"));
-        tr.appendChild(cell(num(r.requests), "num"));
-        tr.appendChild(cell(num(x.tok), "num"));
+        tr.appendChild(cell(cfmt(r.requests), "num"));
+        tr.appendChild(cell(cfmt(x.tok), "num"));
         tr.appendChild(cell(cr(r.spend), "num mx-money"));
         body.appendChild(tr);
       });

@@ -45,6 +45,15 @@
     // charge always shows a nonzero digit (never "$0.00"/"$0").
     return "$" + plainDecimal(Number(v.toPrecision(3)));
   };
+  // SIGNED money: the payouts/adjustment ledger is signed (a payout/chargeback/debit is
+  // negative). usd() collapses negatives to "-" (Go parity, where money is always >= 0); this
+  // keeps the sign + magnitude ("-$12.34"), so a signed ledger row or a clawed-back balance is
+  // never blanked. A non-negative value reads identically to usd().
+  R.usdSigned = function (v) {
+    v = Number(v);
+    if (!isFinite(v)) return "-";
+    return v < 0 ? "-" + R.usd(-v) : R.usd(v);
+  };
   // The EXACT money value for the reveal: full precision, grouped, never collapsed to $0.00 for
   // a real charge.
   R.usdExact = function (v) {
@@ -125,8 +134,19 @@
   R.bind = function (el, n, opts) {
     if (!el) return el;
     opts = opts || {};
-    var compact = opts.usd ? R.usd(n) : R.count(n);
-    var exact = opts.usd ? R.usdExact(n) : R.exact(n);
+    var v = Number(n);
+    // missing / non-numeric -> a plain "-" (no data), and strip any interactive state left by
+    // a prior bind, so a "-" cell is never a stale button. Centralized here so every caller
+    // gets it for free.
+    if (!isFinite(v)) {
+      el.textContent = "-";
+      el.classList.remove("rfmt");
+      ["role", "tabindex", "aria-label", "aria-expanded", "data-exact", "title"].forEach(function (a) { el.removeAttribute(a); });
+      el.__rfmt = false; // re-binding back to a finite value re-wires the button affordance
+      return el;
+    }
+    var compact = opts.usd ? R.usd(v) : R.count(v);
+    var exact = opts.usd ? R.usdExact(v) : R.exact(v);
     el.textContent = compact;
     el.title = exact;                       // desktop hover: native tooltip
     el.setAttribute("data-exact", exact);
