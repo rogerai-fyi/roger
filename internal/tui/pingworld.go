@@ -104,11 +104,32 @@ func dayNightDarkness(frame int) int {
 	return (p - half) * 100 / half // day -> night
 }
 
-// moonSprite is the calm lunar anchor (v2 P0-4): a small disc that hangs high in the sky. Dim
-// ink only - NEVER red (the beacon + on-air star keep the one-red discipline).
-var moonSprite = []string{" .-. ", "(   )", " `-' "}
+// globeRamp is the limb-darkened shading band for the rotating planet (faint rim -> bright
+// centre -> faint rim); scrolling it fakes a 3D rotation.
+var globeRamp = []rune("░▒▓▓▒░")
 
-// moonPos returns the moon's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
+// globeLines renders the planet Ping gazes at as a small ROTATING 3D sphere: the surface band
+// sweeps diagonally to fake rotation and the ( ) rims + limb-darkened ░▒▓ give the round, lit
+// curve. Pure in frame (slow, calm); dim ink, NEVER red. 5 rows x 8 cols.
+func globeLines(frame int) []string {
+	surf := func(n, row int) string {
+		b := make([]rune, n)
+		for i := range b {
+			// diagonal scroll = rotation (frame) + per-latitude tilt (row).
+			b[i] = globeRamp[((i+2*row+frame/3)%len(globeRamp)+len(globeRamp))%len(globeRamp)]
+		}
+		return string(b)
+	}
+	return []string{
+		"  .--.  ",
+		" (" + surf(4, 0) + ") ",
+		" (" + surf(4, 1) + ") ",
+		" (" + surf(4, 2) + ") ",
+		"  `--'  ",
+	}
+}
+
+// moonPos returns the planet's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
 // 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
 // with the on-air star's (1/2).
 func moonPos(w, skyRows, frame, seed int) (int, int) {
@@ -306,10 +327,10 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		blit(buf, 0, 1, []string{string(row)}, 0)
 	}
 
-	// LAYER 1.5 — the moon: a calm lunar anchor hanging high, drifting the sky slowly. Dim
+	// LAYER 1.5 — the planet: a slowly ROTATING 3D globe hanging high, drifting the sky. Dim
 	// ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
 	mx, my := moonPos(w, skyRows, frame, seed)
-	blit(buf, mx, my, moonSprite, 0)
+	blit(buf, mx, my, globeLines(frame), 0)
 
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
@@ -406,8 +427,17 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
+	// on-air blip: a faint ring pulses outward from the station every ~30 frames (a radio blip
+	// that says "live"), dim, expanding 1->3 cells then resetting. Distinct from the Ping-driven
+	// transmit halo above.
+	if b := frame % 30; b < 9 {
+		rad := 1 + b/3 // 1,2,3
+		blit(buf, onAirX-rad, onAirY, []string{"("}, 0)
+		blit(buf, onAirX+rad, onAirY, []string{")"}, 0)
+	}
+
 	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby,
-	// breathe-halo) ever overwrites the sky's single red glint (off the baby's rim row).
+	// breathe-halo, blip) ever overwrites the sky's single red glint (off the baby's rim row).
 	blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
 	return buf
