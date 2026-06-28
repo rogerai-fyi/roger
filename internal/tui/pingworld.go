@@ -367,10 +367,14 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	px := worldPingX(frame, seed, maxI(1, w-pingWalkW)) // always fully on-screen
 	blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
 
-	// a second wanderer (a far/cornerHead Ping) drifting the other way + a baby trailing Ping.
-	span := w + pingWalkW
-	wx := w - 1 - (frame/5)%span + pingWalkW
-	blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
+	// a wandering Ping drifts the other way - but it COMES AND GOES (v2 P1-8): a hash-gated
+	// window decides whether one is currently crossing, so the cast varies run-to-run instead
+	// of an always-present drifter (sometimes Ping ambles alone with the ducklings).
+	if worldHash(frame/80, 13, seed)%3 != 0 { // ~2/3 of windows have a wanderer crossing
+		span := w + pingWalkW
+		wx := w - 1 - (frame/5)%span + pingWalkW
+		blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
+	}
 
 	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
 	if worldHash(frame/40, 7, seed)%4 == 0 {
@@ -390,8 +394,20 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	blit(buf, px-8, horizon, []string{"(·)"}, 0)  // near follower (dim)
 	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
 
-	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby)
-	// ever overwrites the sky's single red glint (it sits in the sky, off the baby's rim row).
+	// transmit-to-star (v2 P1-5): while Ping is broadcasting, the on-air ◉ "breathes back" - a
+	// faint dim halo pulses around it (the ◉ itself stays the SINGLE red glint, painted last).
+	if worldActAt(frame/waWindow, seed) == waTransmit {
+		if frame%4 < 2 {
+			blit(buf, onAirX-1, onAirY, []string{"("}, 0)
+			blit(buf, onAirX+1, onAirY, []string{")"}, 0)
+		} else {
+			blit(buf, onAirX-2, onAirY, []string{"·"}, 0)
+			blit(buf, onAirX+2, onAirY, []string{"·"}, 0)
+		}
+	}
+
+	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby,
+	// breathe-halo) ever overwrites the sky's single red glint (off the baby's rim row).
 	blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
 	return buf
