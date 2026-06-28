@@ -89,6 +89,85 @@ func TestPingWorldBlursAndRefocusesChat(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Ping World v2 — P0-2: depth-weighted 3-tier starfield (genuine parallax)
+// ---------------------------------------------------------------------------
+
+// TestStarTierFarHeavy: stars bucket into far/mid/near, weighted FAR-heavy so the sky reads
+// as depth (most stars distant) rather than a flat even speckle - and all three tiers appear.
+func TestStarTierFarHeavy(t *testing.T) {
+	var far, mid, near int
+	for i := 1; i < 6000; i++ {
+		switch starTier(i, 3) {
+		case 0:
+			far++
+		case 1:
+			mid++
+		case 2:
+			near++
+		default:
+			t.Fatalf("starTier returned an out-of-range tier for i=%d", i)
+		}
+	}
+	if !(far > mid && far > near) {
+		t.Errorf("starfield should be far-heavy (depth): far=%d mid=%d near=%d", far, mid, near)
+	}
+	if mid == 0 || near == 0 {
+		t.Errorf("all three depth tiers must appear: far=%d mid=%d near=%d", far, mid, near)
+	}
+}
+
+// TestStarColumnParallax: the depth illusion - far stars are STATIC, near stars drift FASTER
+// than mid across the same frame window, and every tier stays in-bounds for all frames.
+func TestStarColumnParallax(t *testing.T) {
+	w, x0 := 100, 50
+	if starColumn(x0, 0, w, 0) != starColumn(x0, 9999, w, 0) {
+		t.Error("far stars must be static (no parallax drift)")
+	}
+	dNear := (starColumn(x0, 0, w, 2) - starColumn(x0, 240, w, 2) + w) % w
+	dMid := (starColumn(x0, 0, w, 1) - starColumn(x0, 240, w, 1) + w) % w
+	if !(dNear > dMid) {
+		t.Errorf("near stars must parallax faster than mid: near moved %d, mid moved %d", dNear, dMid)
+	}
+	for _, tier := range []int{0, 1, 2} {
+		for f := 0; f < 600; f += 7 {
+			if c := starColumn(x0, f, w, tier); c < 0 || c >= w {
+				t.Fatalf("starColumn out of bounds: tier %d frame %d -> %d (w=%d)", tier, f, c, w)
+			}
+		}
+	}
+}
+
+// TestStarfieldBrightNearStars: the buffer carries bright (near) stars, they're drawn ONLY
+// from the near-glyph set, and a bright cell is NEVER red - depth brightness must not violate
+// the ONE-RED law (bright = brighter ink, not a second red).
+func TestStarfieldBrightNearStars(t *testing.T) {
+	nearSet := map[rune]bool{}
+	for _, r := range starsNear {
+		nearSet[r] = true
+	}
+	bright := 0
+	for f := 0; f < 120; f += 6 {
+		for _, row := range worldBuffer(120, 40, f, 11) {
+			for _, c := range row {
+				if !c.bright {
+					continue
+				}
+				bright++
+				if c.eye {
+					t.Errorf("frame %d: a bright star cell is also red (eye) - violates ONE-RED", f)
+				}
+				if !nearSet[c.r] {
+					t.Errorf("frame %d: bright cell %q is not a near-star glyph", f, string(c.r))
+				}
+			}
+		}
+	}
+	if bright == 0 {
+		t.Error("expected some bright near-tier stars in the sky")
+	}
+}
+
 // TestPingWorldQuietSeam mirrors TestPingWalkSeam for the screensaver: the quiet (non-TTY)
 // branch prints a static postcard and returns nil WITHOUT touching the program seam; the
 // animated branch routes a pingWorldModel through runProgram with alt-screen and propagates
