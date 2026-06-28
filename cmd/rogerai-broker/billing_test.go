@@ -168,7 +168,7 @@ func TestLoadBillingProdFlag(t *testing.T) {
 
 	t.Run("sk_live key enables LIVE mode", func(t *testing.T) {
 		t.Setenv("ROGERAI_REQUIRE_LIVE", "")
-		t.Setenv("STRIPE_SECRET_KEY", "sk_live_realprodkey")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_live_not_a_real_key")
 		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_live")
 		b := loadBilling()
 		if b.secretKey == "" {
@@ -213,7 +213,7 @@ func TestLoadBillingProdFlag(t *testing.T) {
 
 	t.Run("REQUIRE_LIVE plus sk_live key stays enabled", func(t *testing.T) {
 		t.Setenv("ROGERAI_REQUIRE_LIVE", "1")
-		t.Setenv("STRIPE_SECRET_KEY", "sk_live_realprodkey")
+		t.Setenv("STRIPE_SECRET_KEY", "sk_live_not_a_real_key")
 		t.Setenv("STRIPE_WEBHOOK_SECRET", "whsec_live")
 		b := loadBilling()
 		if got := mode(b); got != "LIVE" {
