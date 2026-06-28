@@ -2,7 +2,8 @@
 
 The brief: a **super-minimal, white, no-build static site** for a CLI tool - a
 curl-install hero, an animated terminal demo, and a quiet animated "radio map"
-background. Deployable as-is to **Cloudflare Pages**.
+background. Hosted on **DigitalOcean App Platform** behind a **Cloudflare**
+CDN/DNS proxy - *not* Cloudflare Pages (see the Deploy section + `EDGE.md`).
 
 ## The decision: hand-written vanilla, no framework, no bundler
 
@@ -74,23 +75,24 @@ python3 -m http.server 5173
 
 Or just open `index.html` directly (fonts/canvas behave best when served).
 
-## Deploy to Cloudflare Pages
+## Deploy (DigitalOcean App Platform + Cloudflare edge)
 
-This is a pure static site - **no build command**.
+The site is **not** on Cloudflare Pages. Two layers:
 
-**Dashboard (Git-connected):**
-1. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**.
-2. Pick the repo.
-3. **Framework preset:** *None*. **Build command:** *(leave empty)*.
-   **Build output directory:** `web`.
-4. Deploy. Add the custom domain `rogerai.fyi` under **Custom domains**.
+**Host / origin - DigitalOcean App Platform.** One app spec
+([`../.do/app.yaml`](../.do/app.yaml)) defines both the `broker` service and the
+`site` static site; both `deploy_on_push: true` on `main`. At deploy time DO runs
+the build (`build_command: node web/build.mjs`, `output_dir: web/dist`) and serves
+the result from DO Spaces.
 
-**Wrangler (direct upload), from the repo root:**
-```sh
-npx wrangler pages deploy web --project-name rogerai
-```
+**Edge - Cloudflare (CDN/DNS proxy).** The apex and the `broker.` subdomain are
+proxied by Cloudflare in front of the DO origin - visible as `x-do-app-origin` +
+`server: cloudflare` in the live response headers. Because DO static hosting can't
+emit custom response headers, the security headers in
+[`src/_headers`](src/_headers) and the `www -> apex` redirect in
+[`src/_redirects`](src/_redirects) live as Cloudflare **Transform / Redirect
+Rules**, not as files the host reads. The exact rules + an apply script are in
+**[`EDGE.md`](EDGE.md)**.
 
-Because `install.sh` lives in `web/`, it is served at
+Because `install.sh` is copied to the output root, it is served at
 `https://rogerai.fyi/install.sh` - exactly what the hero `curl` pipes to.
-(Cloudflare serves it as `text/x-sh`/`application/octet-stream`; `curl … | sh`
-doesn't care about the content type.)

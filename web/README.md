@@ -5,8 +5,11 @@ local-AI enthusiasts who put their self-hosted LLMs **on air** so others can
 **tune in** and pay per token. One `rogerai` CLI (an interactive TUI) does all
 of it.
 
-This is a **static, no-build** site - vanilla HTML/CSS/JS, deployable as-is to
-Cloudflare Pages (output dir = `web/`).
+This is a vanilla HTML/CSS/JS site with a tiny dependency-free Node build
+(`web/build.mjs` stitches the shared partials -> `web/dist/`). It's hosted on
+**DigitalOcean App Platform** (origin) behind **Cloudflare** (CDN/DNS proxy) -
+*not* Cloudflare Pages. See [`../.do/app.yaml`](../.do/app.yaml), the Deploy
+section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
 
 ## What's on the page
 
@@ -48,11 +51,24 @@ it. Keep the matching circle beacon in `favicon.svg`, `logo.svg` and Ping's eye
 
 ## Deploy
 
-DigitalOcean App Platform runs the build at deploy time
-(`build_command: node web/build.mjs`, `output_dir: web/dist`); see
-**[`../.do/app.yaml`](../.do/app.yaml)**. The hero `curl` resolves to
-**[`src/install.sh`](src/install.sh)**, copied to the output root. The rationale
-for the tech choices is in **[`TECH.md`](TECH.md)**.
+Two layers (this is **not** Cloudflare Pages):
+
+**Host / origin - DigitalOcean App Platform.** A single app spec
+(**[`../.do/app.yaml`](../.do/app.yaml)**) defines both the `broker` service and
+the `site` static site; both `deploy_on_push: true` on `main`. At deploy time DO
+runs the build (`build_command: node web/build.mjs`, `output_dir: web/dist`) and
+serves the result. The hero `curl` resolves to
+**[`src/install.sh`](src/install.sh)**, copied to the output root.
+
+**Edge - Cloudflare (CDN/DNS proxy).** The apex and the `broker.` subdomain are
+proxied by Cloudflare in front of the DO origin (`x-do-app-origin` + `server:
+cloudflare` in the live headers). DO static hosting can't emit custom response
+headers, so the security headers in [`src/_headers`](src/_headers) and the `www ->
+apex` redirect in [`src/_redirects`](src/_redirects) are **not** applied by the
+host - they're mirrored to the Cloudflare edge as Transform / Redirect Rules. The
+exact rules + an apply script are in **[`EDGE.md`](EDGE.md)**.
+
+The rationale for the tech choices is in **[`TECH.md`](TECH.md)**.
 
 ## install.sh
 

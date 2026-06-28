@@ -7,7 +7,7 @@ import "sync/atomic"
 // VISIBLE on the admin overview, instead of inferring it from grep over logs. Every bump
 // is a single atomic add on the relay path (no mutex, no allocation), so it is invisible
 // to request latency. The counters are monotonic since process start and surfaced
-// READ-ONLY on the admin-gated /admin/overview.
+// READ-ONLY on the admin-gated /admin/live.
 //
 // They are PURE TELEMETRY: they change no request behavior and are byte-for-byte invisible
 // to clients. localDispatch is bumped on the single-instance fast-path too, but that only

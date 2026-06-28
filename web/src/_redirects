@@ -1,2 +1,5 @@
-# Canonicalize www -> apex (Cloudflare Pages).
+# Canonicalize www -> apex. SOURCE OF TRUTH for the rule, but NOT applied by hosting:
+# the site runs on DigitalOcean App Platform, which does not read this Cloudflare-Pages-
+# style file. Mirrored to a Cloudflare Redirect Rule by web/scripts/cf-edge.mjs - see
+# web/EDGE.md. (www currently returns 200, not 301, until that rule is applied.)
 https://www.rogerai.fyi/* https://rogerai.fyi/:splat 301!
