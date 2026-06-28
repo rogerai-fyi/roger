@@ -1,0 +1,44 @@
+# gitleaks config for RogerAI.
+#
+# We extend gitleaks' default ruleset and allowlist a small set of AUDITED false positives.
+# A full-history scan (`gitleaks detect --log-opts=--all`) surfaced ONLY these, and each was
+# verified to be a non-secret: a test fixture, the PUBLIC GitHub OAuth client id, a doc curl
+# placeholder, an env-var line, or a generated artifact. No real credential is committed -
+# all real secrets are env-sourced (GITHUB_OAUTH_CLIENT_SECRET, STRIPE_SECRET_KEY,
+# BROKER_PRIVATE_KEY, RESEND_API_KEY) and .env.example ships them empty.
+#
+# RULE: re-audit any NEW finding before adding it here. This file must never be used to
+# hide a real secret - rotate + purge those instead.
+
+title = "RogerAI gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Audited false positives (see header). Verified: no real secret committed."
+
+# Generated / published artifacts (not source): the gh-pages octocov report + mirrored docs,
+# and the built static site (gitignored on main, present in some historical commits).
+paths = [
+  '''^coverage/''',
+  '''web/dist/''',
+]
+
+# Specific non-secret strings the default rules flag. Matched against the detected secret.
+regexes = [
+  # PUBLIC GitHub OAuth client id - public by design (see cmd/rogerai/main.go defaultGitHubClientID).
+  '''Ov23liQE7Z6ITMbeJoF3''',
+  # Historical fake Stripe test fixture (the current code uses sk_live_not_a_real_key, which
+  # does not match the stripe rule); kept so the history scan stays clean.
+  '''sk_live_realprodkey''',
+  '''sk_live_not_a_real_key''',
+  # TUI keybinding help string ("keys: pgup/pgdown/ctrl+u/ctrl+d"), not an API key.
+  '''pgup/pgdown/ctrl\+u/ctrl\+d''',
+  # An env-var line mis-flagged as KEY=value after an empty TOKENIZER_URL= in .env.example.
+  '''ROGERAI_RECOUNT_TOLERANCE=0\.02''',
+  # Docs: the non-secret local proxy key default printed by `roger use`.
+  '''roger-local''',
+  # Docs: a historical placeholder example bearer token in the manual.
+  '''sk-roger-\.\.\.''',
+]
