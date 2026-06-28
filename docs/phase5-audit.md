@@ -70,3 +70,23 @@ the web manual's command list may not mention `roger --ping`. A one-line add eac
 3. **P1** (pickFor lock) — after a relay benchmark + mutex profile confirms it; the biggest
    structural perf item, but measure first.
 4. **P4 / P2 / P5 / E3 / E4** — opportunistic polish.
+
+---
+
+## P1 — measured (BenchmarkPickFor, cmd/rogerai-broker/pick_bench_test.go)
+
+Ran on the dev box (Threadripper, GOMAXPROCS=4):
+
+| nodes | ns/op | B/op | allocs/op |
+|---|---|---|---|
+| 10 | 2.5µs | 12.6 KB | 9 |
+| 100 | 25µs | 104 KB | 15 |
+| 500 | 95µs | 417 KB | 19 |
+| parallel (100) | 21.7µs | 104 KB | 15 |
+
+**Verdict — DEFER P1.** At the 2-instance cap (tens of nodes) routing is 2.5–25µs/relay,
+negligible. The parallel run ≈ the sequential nodes=100 run, which *confirms* the lock fully
+serializes picks (no parallel speedup) — but that only bites past the cap at high node counts.
+The benchmark stands as the baseline for when the cap lifts. The more interesting latent cost is
+**allocations** (104KB→417KB/pick, ~1KB/candidate) — that's the real P2 target (investigate the
+per-candidate alloc) before the lock. Neither is worth optimizing at today's scale.
