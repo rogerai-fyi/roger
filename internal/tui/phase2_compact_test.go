@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func altM() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}, Alt: true} }
@@ -72,5 +74,50 @@ func TestPlainMStillMinimizesInBrowse(t *testing.T) {
 	out, _ := seedFor(120, modeBrowse, false).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
 	if !asModel(out).compact {
 		t.Error("plain m in browse should still minimize (presetForKey path)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MP3-player polish: the compact windowshade's spectrum/EQ strip
+// ---------------------------------------------------------------------------
+
+// TestMiniSpectrumMapping: 0..100 signal scores map to the 8 block bars, always exactly n
+// runes, low/missing channels read as the floor bar, and out-of-range clamps.
+func TestMiniSpectrumMapping(t *testing.T) {
+	if got := miniSpectrum([]int{0, 50, 100}, 3); got != "▁▄█" {
+		t.Errorf("miniSpectrum([0 50 100],3) = %q, want %q", got, "▁▄█")
+	}
+	if got := miniSpectrum([]int{90}, 4); got != "▇▁▁▁" { // one hot bar, then floor padding
+		t.Errorf("miniSpectrum([90],4) = %q, want %q (floor-padded)", got, "▇▁▁▁")
+	}
+	if got := miniSpectrum(nil, 5); len([]rune(got)) != 5 {
+		t.Errorf("miniSpectrum(nil,5) should be exactly 5 floor bars, got %q", got)
+	}
+	if miniSpectrum(nil, 0) != "" {
+		t.Error("miniSpectrum(_,0) should be empty")
+	}
+	if got := miniSpectrum([]int{150, -20}, 2); got != "█▁" { // clamp high->█, low->floor
+		t.Errorf("miniSpectrum clamp = %q, want %q", got, "█▁")
+	}
+}
+
+// TestCompactHeaderShowsSpectrumWideDropsNarrow: the visualizer pane (▕…▏) appears in a wide
+// windowshade and is dropped on a tight one - and the strip never overflows the width.
+func TestCompactHeaderShowsSpectrumWideDropsNarrow(t *testing.T) {
+	m := seedFor(120, modeBrowse, true) // compact
+	wide := stripANSI(m.compactHeader(120))
+	firstLine := strings.SplitN(wide, "\n", 2)[0]
+	if !strings.Contains(firstLine, "▕") || !strings.Contains(firstLine, "▏") {
+		t.Errorf("wide compact header should show the visualizer pane ▕…▏:\n%s", firstLine)
+	}
+	if vis := lipgloss.Width(strings.SplitN(m.compactHeader(120), "\n", 2)[0]); vis > 120 {
+		t.Errorf("wide compact header overflows: %d > 120", vis)
+	}
+	narrow := strings.SplitN(stripANSI(m.compactHeader(34)), "\n", 2)[0]
+	if strings.Contains(narrow, "▕") {
+		t.Errorf("narrow compact header should DROP the visualizer to fit:\n%s", narrow)
+	}
+	if vis := lipgloss.Width(strings.SplitN(m.compactHeader(34), "\n", 2)[0]); vis > 34 {
+		t.Errorf("narrow compact header overflows: %d > 34", vis)
 	}
 }

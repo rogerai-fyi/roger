@@ -4376,6 +4376,68 @@ func (m model) modeName() string {
 //
 //	browsing: (•) ROGER·AI · TUNE IN · 3 on air · ◆ @bownux $42.17   m:expand
 //	on air:   (•) ROGER·AI · ◆ on @nyx · gpt-oss-20b · $0.30/1M · $42.17   m:expand
+//
+// spectrumBlocks is the 8-level bar ramp for the compact windowshade's EQ/visualizer.
+var spectrumBlocks = []rune("▁▂▃▄▅▆▇█")
+
+const compactSpectrumN = 8 // bars in the compact visualizer pane
+
+// miniSpectrum renders an n-cell EQ/spectrum strip from 0..100 signal scores - the compact
+// windowshade's Winamp-style visualizer. Static (data-driven, no frame) so it honors compact's
+// reduced-motion; missing/low channels read as the floor bar; out-of-range clamps; ALWAYS
+// exactly n runes. Pure (the caller tints it - ink only, never red).
+func miniSpectrum(sigs []int, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	out := make([]rune, n)
+	last := len(spectrumBlocks) - 1
+	for i := 0; i < n; i++ {
+		sig := 0
+		if i < len(sigs) {
+			sig = sigs[i]
+		}
+		if sig < 0 {
+			sig = 0
+		}
+		if sig > 100 {
+			sig = 100
+		}
+		out[i] = spectrumBlocks[sig*last/100]
+	}
+	return string(out)
+}
+
+// topSignals returns up to n on-air bands' 0..100 signal scores, strongest first - the data
+// behind the compact spectrum strip.
+func topSignals(offers []offer, n int) []int {
+	sigs := make([]int, 0, len(offers))
+	for _, o := range offers {
+		if o.Online {
+			sigs = append(sigs, o.Signal)
+		}
+	}
+	sort.Slice(sigs, func(i, j int) bool { return sigs[i] > sigs[j] })
+	if len(sigs) > n {
+		sigs = sigs[:n]
+	}
+	return sigs
+}
+
+// tintSpectrum two-tones the EQ bars: the hot peaks (▆▇█) glow brighter (stLive), the rest
+// stay dim - a calm "loud channels light up" EQ look, NO red so the beacon stays the one glint.
+func tintSpectrum(bars string) string {
+	var b strings.Builder
+	for _, r := range bars {
+		if r == '▆' || r == '▇' || r == '█' {
+			b.WriteString(stLive.Render(string(r)))
+		} else {
+			b.WriteString(stDim.Render(string(r)))
+		}
+	}
+	return b.String()
+}
+
 func (m model) compactHeader(w int) string {
 	dot := stRed.Render(beaconDot())
 	brand := stBrand.Render("ROGER") + stTag.Render("·AI")
@@ -4386,7 +4448,8 @@ func (m model) compactHeader(w int) string {
 	if m.connected != nil {
 		// Channel context: the load-bearing "what am I on + price + balance".
 		o := m.connected
-		mid = stGold.Render(channelGlyph(o)) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
+		// "♪ now playing" framing: the tuned-in model reads like a track on a deck.
+		mid = stLive.Render("♪ ") + stGold.Render(channelGlyph(o)) + stLive.Render(" on ") + stSelText.Render("@"+o.NodeID) +
 			sep + stKey.Render(o.Model) +
 			sep + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
 	} else {
@@ -4419,11 +4482,22 @@ func (m model) compactHeader(w int) string {
 		}
 	}
 
-	left := dot + " " + brand + sep + mid + sep + acct
+	hintVis := lipgloss.Width(hint)
+	base := dot + " " + brand + sep + mid + sep + acct
+	left := base
+	// MP3-player flourish: a tiny static spectrum/EQ pane (▕…▏) after the wordmark - the
+	// Winamp windowshade visualizer. Data-driven (top on-air signals) so it's meaningful yet
+	// still (compact is reduced-motion). Added only when it fits, and dropped FIRST on a tight
+	// strip so the load-bearing section/channel/balance never get squeezed out.
+	if spec := tintSpectrum(miniSpectrum(topSignals(m.offers, compactSpectrumN), compactSpectrumN)); spec != "" {
+		withSpec := dot + " " + brand + " " + stDim.Render("▕") + spec + stDim.Render("▏") + sep + mid + sep + acct
+		if lipgloss.Width(withSpec)+2+hintVis <= w {
+			left = withSpec
+		}
+	}
 	// Right-align the hint when there's room; otherwise it trails inline. We measure on
 	// the visible (ANSI-stripped) width so color never throws off the geometry.
 	leftVis := lipgloss.Width(left)
-	hintVis := lipgloss.Width(hint)
 	rule := stHeadRule.Render(strings.Repeat("-", w))
 	if leftVis+2+hintVis <= w {
 		gap := w - leftVis - hintVis
