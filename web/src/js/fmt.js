@@ -56,7 +56,7 @@
   };
 
   // ---- counts (compact k/M/B/T; full grouping under 1,000) --------------------------------
-  var UNITS = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
+  var UNITS = [[1e15, "Q"], [1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "k"]];
   R.count = function (n) {
     n = Number(n);
     if (!isFinite(n)) return "-";
@@ -96,9 +96,18 @@
     window.addEventListener("resize", hide);
     return pop;
   }
-  function hide() { if (pop) pop.hidden = true; }
+  function hide() {
+    if (!pop) return;
+    pop.hidden = true;
+    if (pop.__for) { pop.__for.setAttribute("aria-expanded", "false"); pop.__for = null; }
+  }
   function show(el) {
+    // re-tapping the number that's already open toggles the popover closed.
+    if (pop && !pop.hidden && pop.__for === el) { hide(); return; }
+    hide(); // collapse any other open one first
     var p = ensurePop();
+    p.__for = el;
+    el.setAttribute("aria-expanded", "true");
     p.textContent = el.getAttribute("data-exact") || el.title || el.textContent;
     p.style.left = "-9999px"; p.style.top = "0"; p.hidden = false; // off-screen to measure
     var r = el.getBoundingClientRect();
@@ -126,6 +135,7 @@
     if (!el.__rfmt) {
       el.__rfmt = true;
       el.setAttribute("role", "button");
+      el.setAttribute("aria-expanded", "false");
       if (!el.hasAttribute("tabindex")) el.tabIndex = 0;
       el.addEventListener("click", function (e) { e.stopPropagation(); show(el); });
       el.addEventListener("keydown", function (e) {
