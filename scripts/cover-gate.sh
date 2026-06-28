@@ -10,7 +10,7 @@
 #   (3) A module-wide TOTAL floor, also ratcheted up.
 #
 # Self-coverage is used (each package's OWN tests cover it) — the honest per-package lens.
-# Usage: scripts/cover-gate.sh [MIN_TOTAL]   (default 85 — the GREEN bar; aim 95%+)
+# Usage: scripts/cover-gate.sh [MIN_TOTAL]   (default 90 — the GREEN bar; aim 95%+)
 set -uo pipefail
 
 # Founder policy: the GREEN bar is 90% (ratcheted up from 85 once every package cleared
