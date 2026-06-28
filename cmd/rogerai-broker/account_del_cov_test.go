@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/rogerai-fyi/roger/internal/store"
 )
 
 // TestAccountDelete covers the GDPR soft-delete: unauthenticated -> 401, a positive
@@ -46,29 +44,5 @@ func TestAccountDelete(t *testing.T) {
 	}
 	if _, ok, _ := b.db.OwnerByLogin("octocat"); ok {
 		t.Error("a deleted login should no longer resolve (anonymized)")
-	}
-}
-
-// TestAdminActivity covers the admin cross-account ledger stream: 403 without the key,
-// and a keyed GET returns the recent ledger rows.
-func TestAdminActivity(t *testing.T) {
-	mem := store.NewMem()
-	_, _ = mem.AddCredits("u1", 10) // a topup ledger row to surface
-	b := &broker{db: mem, adminKey: "super-secret"}
-
-	// No admin key -> 403.
-	w := httptest.NewRecorder()
-	b.adminActivity(w, httptest.NewRequest(http.MethodGet, "/admin/activity", nil))
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("adminActivity without key = %d, want 403", w.Code)
-	}
-
-	// Keyed -> 200.
-	r := httptest.NewRequest(http.MethodGet, "/admin/activity?limit=10", nil)
-	r.Header.Set("X-Roger-Admin", "super-secret")
-	w2 := httptest.NewRecorder()
-	b.adminActivity(w2, r)
-	if w2.Code != http.StatusOK {
-		t.Fatalf("adminActivity keyed = %d, want 200: %s", w2.Code, w2.Body.String())
 	}
 }

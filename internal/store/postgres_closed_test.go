@@ -508,29 +508,4 @@ func TestPostgresClosedPoolPropagatesErrors(t *testing.T) {
 		errZeroI(t, "ForgiveOwner", n, err)
 	}
 
-	// --- admin aggregates ---
-	{
-		_, err := pg.AdminFinancials(now)
-		errNil(t, "AdminFinancials", err)
-	}
-	{
-		_, err := pg.AdminMarketTotals(0, now.Unix())
-		errNil(t, "AdminMarketTotals", err)
-	}
-	{
-		rows, err := pg.AdminPayoutQueue(now, 10)
-		errEmpty(t, "AdminPayoutQueue", rows, err)
-	}
-	{
-		ps, err := pg.AdminAllPayouts(10)
-		errEmpty(t, "AdminAllPayouts", ps, err)
-	}
-	{
-		_, err := pg.AdminAbuse()
-		errNil(t, "AdminAbuse", err)
-	}
-	{
-		rows, err := pg.AdminActivity(10)
-		errEmpty(t, "AdminActivity", rows, err)
-	}
 }

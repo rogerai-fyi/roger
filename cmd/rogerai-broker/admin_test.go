@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -45,16 +44,14 @@ func TestAdminGateRejectsNonAdmin(t *testing.T) {
 	b.lastSeen = nil
 	b.private = nil
 
+	// The portal-facing live feed is the gated read; the gate (requireAdmin) is the same code
+	// path for every /admin/* endpoint, so this proves the security contract for the surface.
 	endpoints := []struct {
 		name string
 		fn   http.HandlerFunc
 		path string
 	}{
-		{"overview", b.adminOverview, "/admin/overview"},
-		{"payouts", b.adminPayouts, "/admin/payouts"},
-		{"abuse", b.adminAbuse, "/admin/abuse"},
-		{"activity", b.adminActivity, "/admin/activity"},
-		{"whoami", b.adminWhoami, "/admin/whoami"},
+		{"live", b.adminLive, "/admin/live"},
 	}
 
 	for _, ep := range endpoints {
@@ -101,108 +98,15 @@ func TestAdminSurfaceClosedWhenUnconfigured(t *testing.T) {
 	b, _, _ := newAdminBroker(t)
 	b.adminKey = ""
 	b.adminGitHubID = 0
-	r := httptest.NewRequest(http.MethodGet, "/admin/overview", nil)
+	r := httptest.NewRequest(http.MethodGet, "/admin/live", nil)
 	r.Header.Set("X-Roger-Admin", "admin-secret-key")
 	w := httptest.NewRecorder()
-	b.adminOverview(w, r)
+	b.adminLive(w, r)
 	if w.Code != http.StatusForbidden {
-		t.Errorf("overview with no creds configured = %d, want 403 (closed)", w.Code)
+		t.Errorf("live with no creds configured = %d, want 403 (closed)", w.Code)
 	}
 }
 
-// TestAdminOverviewAggregates locks that the overview actually COMPUTES the rollup: after
-// a topup + a paid settle, the platform fee, consumer spend, operator earned, and the
-// marketplace request total reflect the real money/receipts (no zeros, no drift).
-func TestAdminOverviewAggregates(t *testing.T) {
-	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
-	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
-	b, db, _ := newAdminBroker(t)
-	b.nodes = nil
-	b.lastSeen = nil
-	b.private = nil
-	b.feeRate = 0.30
-
-	// A consumer tops up $100 and spends $10 on a request; the owner share (70%) is $7.
-	_, _ = db.AddCredits("u_gh_7", 100)
-	_, _ = db.Settle("u_gh_7", "n", 10, 7, rec("rq1"))
-
-	r := httptest.NewRequest(http.MethodGet, "/admin/overview?days=30", nil)
-	r.Header.Set("X-Roger-Admin", "admin-secret-key")
-	w := httptest.NewRecorder()
-	b.adminOverview(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("overview = %d, want 200 (%s)", w.Code, w.Body.String())
-	}
-	var resp struct {
-		Marketplace struct {
-			RequestsTotal int64 `json:"requests_total"`
-		} `json:"marketplace"`
-		Financial struct {
-			PlatformFee    float64 `json:"platform_fee"`
-			ConsumerSpend  float64 `json:"consumer_spend"`
-			OperatorEarned float64 `json:"operator_earned"`
-			TopupVolume    float64 `json:"topup_volume"`
-			WalletCount    int     `json:"wallet_count"`
-		} `json:"financial"`
-		Health struct {
-			Ready bool `json:"ready"`
-		} `json:"health"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Financial.ConsumerSpend != 10 {
-		t.Errorf("consumer_spend = %v, want 10", resp.Financial.ConsumerSpend)
-	}
-	if resp.Financial.OperatorEarned != 7 {
-		t.Errorf("operator_earned = %v, want 7", resp.Financial.OperatorEarned)
-	}
-	if resp.Financial.PlatformFee != 3 {
-		t.Errorf("platform_fee = %v, want 3 (spend 10 - earned 7)", resp.Financial.PlatformFee)
-	}
-	if resp.Financial.TopupVolume != 100 {
-		t.Errorf("topup_volume = %v, want 100", resp.Financial.TopupVolume)
-	}
-	if resp.Financial.WalletCount < 1 {
-		t.Errorf("wallet_count = %d, want >=1", resp.Financial.WalletCount)
-	}
-	if resp.Marketplace.RequestsTotal != 1 {
-		t.Errorf("requests_total = %d, want 1", resp.Marketplace.RequestsTotal)
-	}
-	if !resp.Health.Ready {
-		t.Error("health.ready = false, want true (Mem store healthy)")
-	}
-}
-
-// TestAdminPayoutQueueComputes locks the payouts view: the queue reports the operator's
-// payable balance after a (held=0) settle, so an admin can see who is owed.
-func TestAdminPayoutQueueComputes(t *testing.T) {
-	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
-	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
-	b, db, priv := newAdminBroker(t)
-	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
-	_ = db.BindNode("n2", pubHex)
-	_, _ = db.AddCredits("u_gh_7", 50)
-	_, _ = db.Settle("u_gh_7", "n2", 50, 35, rec("rq2"))
-
-	r := httptest.NewRequest(http.MethodGet, "/admin/payouts", nil)
-	r.Header.Set("X-Roger-Admin", "admin-secret-key")
-	w := httptest.NewRecorder()
-	b.adminPayouts(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("payouts = %d, want 200 (%s)", w.Code, w.Body.String())
-	}
-	var resp struct {
-		Queue []store.AdminPayoutQueueRow `json:"queue"`
-	}
-	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	var found bool
-	for _, q := range resp.Queue {
-		if q.AccountID == pubHex && q.Payable == 35 {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("queue missing payable=35 for the operator account: %+v", resp.Queue)
-	}
-}
+// The financial / payout-queue COMPUTATION specs moved with the queries to the private
+// roger-admin repo (db_test.go: TestFinancialsWithData / TestPayoutQueueWithData), which now
+// owns that logic. The broker keeps only the live feed (adminLive) + the gate, tested above.

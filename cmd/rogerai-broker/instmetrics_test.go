@@ -203,18 +203,18 @@ func TestValkeyOpErrorsCounter(t *testing.T) {
 	}
 }
 
-// TestAdminOverviewMultiInstanceFields: the admin overview exposes instance_id + the
-// dispatch counters ONLY in multi-instance mode; the single-instance overview has neither
-// key (so the single-instance response shape is unchanged).
-func TestAdminOverviewMultiInstanceFields(t *testing.T) {
-	overviewHealth := func(b *broker) map[string]any {
+// TestAdminLiveMultiInstanceFields: the admin live feed exposes instance_id + the dispatch
+// counters ONLY in multi-instance mode; the single-instance feed has neither key (so the
+// single-instance response shape is unchanged).
+func TestAdminLiveMultiInstanceFields(t *testing.T) {
+	liveHealth := func(b *broker) map[string]any {
 		b.adminKey = "admin-secret-key"
-		r := httptest.NewRequest(http.MethodGet, "/admin/overview", nil)
+		r := httptest.NewRequest(http.MethodGet, "/admin/live", nil)
 		r.Header.Set("X-Roger-Admin", "admin-secret-key")
 		w := httptest.NewRecorder()
-		b.adminOverview(w, r)
+		b.adminLive(w, r)
 		if w.Code != http.StatusOK {
-			t.Fatalf("adminOverview = %d, want 200 (body=%s)", w.Code, w.Body.String())
+			t.Fatalf("adminLive = %d, want 200 (body=%s)", w.Code, w.Body.String())
 		}
 		var resp struct {
 			Health map[string]any `json:"health"`
@@ -230,7 +230,7 @@ func TestAdminOverviewMultiInstanceFields(t *testing.T) {
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
 	mi := newMIBroker(t, brokerPriv, store.NewMem(), mr)
 	mi.stats.busDispatch.Add(3)
-	h := overviewHealth(mi)
+	h := liveHealth(mi)
 	if h["instance_id"] != mi.instanceID || mi.instanceID == "" {
 		t.Errorf("instance_id = %v, want %q", h["instance_id"], mi.instanceID)
 	}
@@ -245,7 +245,7 @@ func TestAdminOverviewMultiInstanceFields(t *testing.T) {
 	// Single-instance: neither key present (response shape unchanged).
 	_, brokerPriv2, _ := ed25519.GenerateKey(nil)
 	si := newMIBroker(t, brokerPriv2, store.NewMem(), nil)
-	h2 := overviewHealth(si)
+	h2 := liveHealth(si)
 	if _, present := h2["instance_id"]; present {
 		t.Errorf("single-instance overview must NOT include instance_id, got %v", h2["instance_id"])
 	}

@@ -43,24 +43,6 @@ func TestSortUsageTieBreaks(t *testing.T) {
 	}
 }
 
-// TestSortPayoutQueueTieBreaks exercises sortPayoutQueue: Payable desc, then Held desc on
-// a payable tie, then AccountID asc on a payable+held tie.
-func TestSortPayoutQueueTieBreaks(t *testing.T) {
-	rows := []AdminPayoutQueueRow{
-		{AccountID: "acctB", Payable: 1, Held: 5}, // payable+held tie with next -> AccountID
-		{AccountID: "acctA", Payable: 1, Held: 5},
-		{AccountID: "acctC", Payable: 1, Held: 9}, // same payable, higher held -> before the ties
-		{AccountID: "acctD", Payable: 8, Held: 0}, // highest payable -> first
-	}
-	sortPayoutQueue(rows)
-	want := []string{"acctD", "acctC", "acctA", "acctB"}
-	for i, w := range want {
-		if rows[i].AccountID != w {
-			t.Errorf("row %d = %q, want %q (order %+v)", i, rows[i].AccountID, w, rows)
-		}
-	}
-}
-
 // TestSeedLotsForTest covers the Mem.SeedLotsForTest seam: it wholesale-replaces the lot
 // slice, advances the auto-increment lot id past the highest seeded id (so a later
 // Finalize never reuses a seeded id), and the seeded lots drive EarningSplitOf - one lot
