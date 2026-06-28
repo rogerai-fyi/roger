@@ -1853,6 +1853,11 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		}
 		sysLine("scroll ON · /mouse for native select")
 		return m, tea.EnableMouseCellMotion
+	case "agent":
+		// /agent: jump straight to the AGENT on THIS channel's model (a shortcut - enterAgent
+		// resolves the open channel, so the agent runs on the band you're tuned in to). esc
+		// returns; [0] also opens it.
+		return m.enterAgent()
 	case "ping", "zen":
 		// /ping (alias /zen): drop into the fullscreen Ping World screensaver - the very
 		// same world `roger --ping` runs. Any key wakes back to this channel.
@@ -1871,7 +1876,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
 		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
-		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("/agent (run the agent on this model) · /connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("copy: ctrl+y last reply · /copy all · shift+drag to select  ·  scroll: PgUp/PgDn · wheel · ctrl+o native-select toggle")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
@@ -5985,10 +5990,20 @@ func clampRows(rows, max int) int {
 // occupy, leaving room for the header, heading, prompt + footer. Kept identical to the
 // pre-viewport tail budget so the layout is unchanged.
 func (m model) chatTranscriptRows() int {
-	max := m.height - 8
+	chrome := 8
 	if m.compact {
-		max = m.height - 6
+		chrome = 6
 	}
+	// Reserve the transient status + update-notice rows WHEN PRESENT so a toast never pushes
+	// the channel hint bar off the bottom of the terminal (the "disappearing menu" fix): the
+	// footer hint always stays on screen; the transcript gives back a row instead.
+	if m.status != "" {
+		chrome++
+	}
+	if m.updateLine != "" {
+		chrome++
+	}
+	max := m.height - chrome
 	if max < 6 {
 		max = 12
 	}
