@@ -1029,6 +1029,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// exits back to prevMode (see onKey's modePingWorld intercept).
 		if m.mode == modePingWorld {
 			m.world.frame++
+			// keep the LIVE signal towers fresh: a calm re-scan every worldRescanFrames (the
+			// normal browse rescan is skipped while the world owns the tick). offersMsg rebuilds
+			// m.world.data. A screensaver should breathe, so this is slower than browse's ~5s.
+			if m.broker != "" && m.world.frame%worldRescanFrames == 0 {
+				return m, tea.Batch(tick(), fetchOffers(m.broker))
+			}
 			return m, tick()
 		}
 		// TOAST (A.6.6): auto-dismiss a transient status after toastFrames in the MAIN views, so
@@ -1107,6 +1113,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadedOnce = true // the first scan has come back: never re-enter the initial loading pose
 		m.offers = []offer(msg)
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
+		m.world.data = buildWorldData(m.bands) // refresh the screensaver's LIVE signal towers
 		// Clamp the cursor + window into the FILTERED view (the list the user actually
 		// navigates), so a re-scan that shrinks the matches never strands the cursor.
 		m.clampBrowse()
@@ -1308,7 +1315,8 @@ func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	// Blurring both is harmless - only the focused one was animating.
 	m.chatIn.Blur()
 	m.cmd.Blur()
-	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff)}
+	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff),
+		data: buildWorldData(m.bands)} // seed the LIVE signal towers from the current on-air bands
 	return m, tick()
 }
 
@@ -4533,7 +4541,12 @@ func (m model) compactHeader(w int) string {
 			sep + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
 	} else {
 		// Browsing: the section + how many stations are on air.
-		on := countOnline(m.offers)
+		on := 0 // on-air BANDS (matches the windowshade deck + the "M bands" total below)
+		for _, bd := range m.bands {
+			if bd.online {
+				on++
+			}
+		}
 		summary := "scanning…"
 		if m.scanned {
 			summary = fmt.Sprintf("%d on air · %d bands", on, len(m.bands))
@@ -7594,6 +7607,10 @@ const rescanEveryFrames = 31
 // rescan that load-balanced onto a still-syncing broker instance) is absorbed without flicker,
 // short enough that a genuine "all stations gone" still surfaces. See the offersMsg handler.
 const emptyScansToBlank = 3
+
+// worldRescanFrames is the LIVE-towers re-scan cadence while the Ping World screensaver is up:
+// ~60 frames (~10s) - slower than the browse rescan, because a screensaver should breathe.
+const worldRescanFrames = 60
 
 func tick() tea.Cmd {
 	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
