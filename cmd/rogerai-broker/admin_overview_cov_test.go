@@ -61,10 +61,10 @@ func TestWebhookBranches(t *testing.T) {
 	}
 }
 
-// TestAdminOverview covers the admin dashboard rollup: 403 without the key, and a keyed
-// GET that returns the HEALTH + MARKETPLACE + REVENUE payload (drives liveMarket +
-// AdminFinancials + AdminMarketTotals through the real store).
-func TestAdminOverview(t *testing.T) {
+// TestAdminLive covers the broker's slim live feed: 403 without the key, and a keyed GET that
+// returns the in-memory snapshot (health + live marketplace + seed/fee/stripe) the private
+// roger-admin portal merges with its own Postgres rollups.
+func TestAdminLive(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("ROGERAI_REDIS_URL", "")
 	_, priv, _ := ed25519.GenerateKey(nil)
@@ -73,28 +73,27 @@ func TestAdminOverview(t *testing.T) {
 
 	// No admin key -> 403.
 	w := httptest.NewRecorder()
-	b.adminOverview(w, httptest.NewRequest(http.MethodGet, "/admin/overview", nil))
+	b.adminLive(w, httptest.NewRequest(http.MethodGet, "/admin/live", nil))
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("adminOverview without key = %d, want 403", w.Code)
+		t.Fatalf("adminLive without key = %d, want 403", w.Code)
 	}
 
-	// Keyed -> 200 with a structured rollup.
-	r := httptest.NewRequest(http.MethodGet, "/admin/overview?days=7", nil)
+	// Keyed -> 200 with the live snapshot.
+	r := httptest.NewRequest(http.MethodGet, "/admin/live", nil)
 	r.Header.Set("X-Roger-Admin", "super-secret")
 	w2 := httptest.NewRecorder()
-	b.adminOverview(w2, r)
+	b.adminLive(w2, r)
 	if w2.Code != http.StatusOK {
-		t.Fatalf("adminOverview keyed = %d, want 200: %s", w2.Code, w2.Body.String())
+		t.Fatalf("adminLive keyed = %d, want 200: %s", w2.Code, w2.Body.String())
 	}
 	var resp map[string]any
 	if err := json.Unmarshal(w2.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("overview not JSON: %v", err)
+		t.Fatalf("live not JSON: %v", err)
 	}
-	// The rollup must carry its three documented sections (HEALTH + MARKETPLACE +
-	// REVENUE), so a regression that drops one is caught - not just "non-empty".
-	for _, k := range []string{"health", "marketplace", "financial"} {
+	// Must carry the live sections so a regression that drops one is caught.
+	for _, k := range []string{"health", "marketplace_live", "seed_funded", "fee_rate", "stripe_mode"} {
 		if _, ok := resp[k]; !ok {
-			t.Errorf("adminOverview missing %q section; got keys %v", k, keysOf(resp))
+			t.Errorf("adminLive missing %q; got keys %v", k, keysOf(resp))
 		}
 	}
 }
@@ -107,10 +106,10 @@ func keysOf(m map[string]any) []string {
 	return ks
 }
 
-// TestAdminOverviewMethodAndDBDown covers the method guard (405) and the DB-down health
-// branch: an admin-keyed overview against an unhealthy store reports db:"down", ready:false
-// (and still returns 200 - the dashboard must render even when the store is unreachable).
-func TestAdminOverviewMethodAndDBDown(t *testing.T) {
+// TestAdminLiveMethodAndDBDown covers the method guard (405) and the DB-down health branch:
+// an admin-keyed live read against an unhealthy store reports db:"down", ready:false (and
+// still returns 200 - the dashboard must render even when the store is unreachable).
+func TestAdminLiveMethodAndDBDown(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("ROGERAI_REDIS_URL", "")
 	_, priv, _ := ed25519.GenerateKey(nil)
@@ -119,21 +118,21 @@ func TestAdminOverviewMethodAndDBDown(t *testing.T) {
 
 	// Method guard: a POST is 405.
 	wm := httptest.NewRecorder()
-	rm := httptest.NewRequest(http.MethodPost, "/admin/overview", nil)
+	rm := httptest.NewRequest(http.MethodPost, "/admin/live", nil)
 	rm.Header.Set("X-Roger-Admin", "k")
-	b.adminOverview(wm, rm)
+	b.adminLive(wm, rm)
 	if wm.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("POST overview = %d, want 405", wm.Code)
+		t.Fatalf("POST live = %d, want 405", wm.Code)
 	}
 
 	// DB down -> health.db:"down", ready:false, still 200.
 	b.db = unhealthyStore{b.db}
-	r := httptest.NewRequest(http.MethodGet, "/admin/overview", nil)
+	r := httptest.NewRequest(http.MethodGet, "/admin/live", nil)
 	r.Header.Set("X-Roger-Admin", "k")
 	w := httptest.NewRecorder()
-	b.adminOverview(w, r)
+	b.adminLive(w, r)
 	if w.Code != http.StatusOK {
-		t.Fatalf("overview (db down) = %d, want 200", w.Code)
+		t.Fatalf("live (db down) = %d, want 200", w.Code)
 	}
 	var resp struct {
 		Health map[string]any `json:"health"`

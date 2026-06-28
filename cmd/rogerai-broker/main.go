@@ -552,11 +552,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
 	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
 	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
-	mux.HandleFunc("/admin/whoami", b.adminWhoami)                                                    // admin-authed: is-this-caller-an-admin probe (the portal gates on this)
-	mux.HandleFunc("/admin/overview", b.adminOverview)                                                // admin-authed: HEALTH + MARKETPLACE + REVENUE rollup
-	mux.HandleFunc("/admin/payouts", b.adminPayouts)                                                  // admin-authed: payout queue + history + open reversals + policy
-	mux.HandleFunc("/admin/abuse", b.adminAbuse)                                                      // admin-authed: banned owners, strikes, CSAM queue, disputes (counts only)
-	mux.HandleFunc("/admin/activity", b.adminActivity)                                                // admin-authed: recent cross-account ledger event stream (lineage)
+	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
 	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)
 	mux.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {

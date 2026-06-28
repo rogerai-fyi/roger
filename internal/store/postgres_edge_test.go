@@ -275,8 +275,9 @@ func TestFailPayoutUnknownIsNoOp(t *testing.T) {
 	if err := pg.FailPayout(999999); err != nil {
 		t.Fatalf("FailPayout(unknown) err = %v, want nil (no-op)", err)
 	}
-	if ps, _ := pg.AdminAllPayouts(10); len(ps) != 0 {
-		t.Fatalf("FailPayout(unknown) must not create a payout; got %d", len(ps))
+	var n int
+	if err := pg.db.QueryRow(`SELECT COUNT(*) FROM rogerai.payouts`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("FailPayout(unknown) must not create a payout; count=%d err=%v", n, err)
 	}
 }
 
