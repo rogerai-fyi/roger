@@ -65,7 +65,7 @@ func TestFold(t *testing.T) {
 func TestFoldWorldGlyphs(t *testing.T) {
 	t.Setenv("ROGERAI_ASCII", "1")
 	cases := map[string]string{
-		"✦✧": "**", "˙": "'", "·": ".", "♪": ">", "░▒▓": ".:#",
+		"✦✧": "**", "˙": "'", "·": ".", "♪": ">", "░▒▓": ".:#", "≈∼∽≋": "~~~~",
 	}
 	for in, want := range cases {
 		if got := Fold(in); got != want {
