@@ -349,7 +349,9 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	}
 
 	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
-	// transmit) instead of a metronomic slide; the eye stays the red dot in every act.
+	// transmit). The eye is the red '•' in every act EXCEPT the brief transmit swell, where the
+	// tx pose's own broadcasting 'O' shows (dim) - so the "at least one red eye" law is carried
+	// by the always-on-screen baby duckling below (and the on-air ◉), never assumed of Ping.
 	pingLines, pingEye := worldPingPose(frame, seed)
 	px := worldPingX(frame, seed, maxI(1, w-pingWalkW)) // always fully on-screen
 	blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
@@ -358,7 +360,10 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	span := w + pingWalkW
 	wx := w - 1 - (frame/5)%span + pingWalkW
 	blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
-	blit(buf, px-4, horizon, []string{"(•)"}, '•') // baby (•) duckling
+	// the baby (•) duckling trails Ping but is clamped on-screen, so its red eye GUARANTEES the
+	// one-red 'at least one eye' law on every frame (even mid-transmit, even if the wanderer has
+	// drifted off the edge).
+	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
 
 	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
 	if worldHash(frame/40, 7, seed)%4 == 0 {
