@@ -4513,66 +4513,9 @@ func (m model) modeName() string {
 //	browsing: (•) ROGER·AI · TUNE IN · 3 on air · ◆ @bownux $42.17   m:expand
 //	on air:   (•) ROGER·AI · ◆ on @nyx · gpt-oss-20b · $0.30/1M · $42.17   m:expand
 //
-// spectrumBlocks is the 8-level bar ramp for the compact windowshade's EQ/visualizer.
+// spectrumBlocks is the 8-level bar ramp (▁..█) used for the compact windowshade's per-band
+// signal bars (see compactBandCell).
 var spectrumBlocks = []rune("▁▂▃▄▅▆▇█")
-
-const compactSpectrumN = 8 // bars in the compact visualizer pane
-
-// miniSpectrum renders an n-cell EQ/spectrum strip from 0..100 signal scores - the compact
-// windowshade's Winamp-style visualizer. Static (data-driven, no frame) so it honors compact's
-// reduced-motion; missing/low channels read as the floor bar; out-of-range clamps; ALWAYS
-// exactly n runes. Pure (the caller tints it - ink only, never red).
-func miniSpectrum(sigs []int, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	out := make([]rune, n)
-	last := len(spectrumBlocks) - 1
-	for i := 0; i < n; i++ {
-		sig := 0
-		if i < len(sigs) {
-			sig = sigs[i]
-		}
-		if sig < 0 {
-			sig = 0
-		}
-		if sig > 100 {
-			sig = 100
-		}
-		out[i] = spectrumBlocks[sig*last/100]
-	}
-	return string(out)
-}
-
-// topSignals returns up to n on-air bands' 0..100 signal scores, strongest first - the data
-// behind the compact spectrum strip.
-func topSignals(offers []offer, n int) []int {
-	sigs := make([]int, 0, len(offers))
-	for _, o := range offers {
-		if o.Online {
-			sigs = append(sigs, o.Signal)
-		}
-	}
-	sort.Slice(sigs, func(i, j int) bool { return sigs[i] > sigs[j] })
-	if len(sigs) > n {
-		sigs = sigs[:n]
-	}
-	return sigs
-}
-
-// tintSpectrum two-tones the EQ bars: the hot peaks (▆▇█) glow brighter (stLive), the rest
-// stay dim - a calm "loud channels light up" EQ look, NO red so the beacon stays the one glint.
-func tintSpectrum(bars string) string {
-	var b strings.Builder
-	for _, r := range bars {
-		if r == '▆' || r == '▇' || r == '█' {
-			b.WriteString(stLive.Render(string(r)))
-		} else {
-			b.WriteString(stDim.Render(string(r)))
-		}
-	}
-	return b.String()
-}
 
 func (m model) compactHeader(w int) string {
 	dot := stRed.Render(beaconDot())
@@ -4593,7 +4536,7 @@ func (m model) compactHeader(w int) string {
 		on := countOnline(m.offers)
 		summary := "scanning…"
 		if m.scanned {
-			summary = fmt.Sprintf("%d on air", on)
+			summary = fmt.Sprintf("%d on air · %d bands", on, len(m.bands))
 		}
 		section := "TUNE IN"
 		if m.inShareSection() {
@@ -4619,18 +4562,9 @@ func (m model) compactHeader(w int) string {
 	}
 
 	hintVis := lipgloss.Width(hint)
-	base := dot + " " + brand + sep + mid + sep + acct
-	left := base
-	// MP3-player flourish: a tiny static spectrum/EQ pane (▕…▏) after the wordmark - the
-	// Winamp windowshade visualizer. Data-driven (top on-air signals) so it's meaningful yet
-	// still (compact is reduced-motion). Added only when it fits, and dropped FIRST on a tight
-	// strip so the load-bearing section/channel/balance never get squeezed out.
-	if spec := tintSpectrum(miniSpectrum(topSignals(m.offers, compactSpectrumN), compactSpectrumN)); spec != "" {
-		withSpec := dot + " " + brand + " " + stDim.Render("▕") + spec + stDim.Render("▏") + sep + mid + sep + acct
-		if lipgloss.Width(withSpec)+2+hintVis <= w {
-			left = withSpec
-		}
-	}
+	// The abstract EQ pane was replaced by per-band signal bars in the windowshade list (which
+	// are meaningful at a glance); the header now carries the clear "N on air · M bands" count.
+	left := dot + " " + brand + sep + mid + sep + acct
 	// Right-align the hint when there's room; otherwise it trails inline. We measure on
 	// the visible (ANSI-stripped) width so color never throws off the geometry.
 	leftVis := lipgloss.Width(left)
@@ -5007,6 +4941,12 @@ func (m model) visibleBands() []band {
 		if m.fOn && !b.online {
 			continue
 		}
+		// COMPACT windowshade: an at-a-glance deck of what's LIVE - show on-air bands only.
+		// (Cursor/tune/render all read visibleBands, so navigation stays consistent; the total
+		// band count still shows in the compact header.)
+		if m.compact && !b.online {
+			continue
+		}
 		out = append(out, b)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -5098,6 +5038,61 @@ func windowFor(top, cursor, rows, n int) (int, int) {
 	return top, top + rows
 }
 
+// compactBandList renders the COMPACT windowshade band deck: ON-AIR bands only, packed two per
+// row as a name + a STATIC signal bar (reduced motion - the bar height is the band's signal,
+// not a frame). The selected band carries the › cursor. No column grid, offline rows, prices,
+// ctx, or flags - just the at-a-glance "what's live + how strong". Width-clamped per cell.
+func (m model) compactBandList(w int, vis []band, total int) string {
+	if len(vis) == 0 {
+		return "  " + stDim.Render(beaconDot()+" no stations on air right now · ") + stKey.Render("[2]") +
+			stDim.Render(" share · ") + stKey.Render("m") + stDim.Render(" expand · r re-scan") + "\n"
+	}
+	var b strings.Builder
+	colW := w / 2
+	if colW < 18 {
+		colW = w // too slim to pair: one band per row
+	}
+	for i := 0; i < len(vis); i += 2 {
+		row := "  " + m.compactBandCell(vis[i], i == m.cursor, colW-3)
+		if i+1 < len(vis) && colW != w {
+			row += " " + m.compactBandCell(vis[i+1], i+1 == m.cursor, colW-3)
+		}
+		b.WriteString(truncVisible(row, w) + "\n")
+	}
+	return b.String()
+}
+
+// compactBandCell is one windowshade cell: a 2-col marker (› cursor + ◉ on-air), the band name,
+// and a static signal bar. The selected band's name is highlighted.
+func (m model) compactBandCell(bd band, sel bool, width int) string {
+	sig := int(bandSignal(bd))
+	if sig < 0 {
+		sig = 0
+	}
+	if sig > 100 {
+		sig = 100
+	}
+	bar := strings.Repeat(string(spectrumBlocks[sig*(len(spectrumBlocks)-1)/100]), 5)
+	nameW := width - 9 // 2 marker + 1 sp + name + 1 sp + 5 bar
+	if nameW > 18 {
+		nameW = 18 // keep names tight so the bar sits close (no big gap); 2 cells still fit
+	}
+	if nameW < 6 {
+		nameW = 6
+	}
+	name := bd.model
+	if len([]rune(name)) > nameW {
+		name = string([]rune(name)[:nameW])
+	}
+	marker := stDim.Render(" ") + stRed.Render(glyphOnAir) // unselected: " ◉"
+	nameSty := stKey
+	if sel {
+		marker = stSelText.Render(">") + stRed.Render(glyphOnAir) // selected: ">◉" (the TUI carat)
+		nameSty = stSelText
+	}
+	return marker + " " + nameSty.Render(fmt.Sprintf("%-*s", nameW, name)) + " " + stDim.Render(bar)
+}
+
 func (m model) browseView(w int) string {
 	if len(m.bands) == 0 {
 		// ASYNC LOADING: the initial /discover (and any r re-scan) runs off the Bubble
@@ -5145,6 +5140,12 @@ func (m model) browseView(w int) string {
 	vis := m.visibleBands()
 	total := len(m.bands)
 	matched := len(vis)
+	// COMPACT windowshade: an at-a-glance deck of ON-AIR bands only - 2-up, name + a static
+	// signal bar, no column grid / offline rows / prices / flags. The calm minimal view (the
+	// founder's "true windowshade"); the counts live in the compact header.
+	if m.compact {
+		return m.compactBandList(w, vis, total)
+	}
 	// Section heading, manual-style: a thin tab + a count, like the web's §-markers.
 	// COMPACT drops the prose count to a terse "N" and (below) the column-header row,
 	// so more bands fit per screen - the windowshade density. The sort label rides in
