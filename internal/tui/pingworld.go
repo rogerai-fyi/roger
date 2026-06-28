@@ -3,7 +3,7 @@ package tui
 // `roger --ping` (and the in-TUI `/ping` / `z`): the "Ping World" screensaver - a slow,
 // relaxing little planet where Ping ambles along the horizon, another Ping or two wander by,
 // stars twinkle + parallax-drift, and ONE star pulses red = a station on air (the band, seen
-// from Ping's world at night). Design: scratchpad-ping-screensaver-design.md.
+// from Ping's world at night). Design: docs/tui-ping-world-design.md.
 //
 // Two invariants the design (and a test) pin:
 //   1. ONE RED. The whole world is ink/dim EXCEPT each Ping's eye and the single on-air star.
@@ -59,10 +59,8 @@ func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m pingWorldModel) View() string { return renderWorld(m.w, m.h, m.frame, m.seed) }
 
-// hashAt is the deterministic desync used for star placement/twinkle and wanderer spawn -
-// pure in (a,b,seed) so the world is reproducible yet never metronomic.
-func (m pingWorldModel) hashAt(a, b int) uint32 { return worldHash(a, b, m.seed) }
-
+// worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
+// (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
 func worldHash(a, b, seed int) uint32 { return pingHash(a*7349 + b*916703 + seed*2654435761) }
 
 // blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
@@ -126,8 +124,9 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		g := twinkle[int(worldHash(i, frame/8, seed))%len(twinkle)]
 		blit(buf, x0, y, []string{string(g)}, 0)
 	}
-	// the ONE on-air station: a red ◉, always present, painted on top of the starfield.
-	blit(buf, int(worldHash(0, 1, seed)%uint32(w)), int(worldHash(0, 2, seed)%uint32(skyRows)), []string{"◉"}, '◉')
+	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
+	onAirX := int(worldHash(0, 1, seed) % uint32(w))
+	onAirY := int(worldHash(0, 2, seed) % uint32(skyRows))
 
 	// LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
 	if horizon >= 0 && horizon < h {
@@ -173,6 +172,10 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 			blit(buf, sx, sy, []string{"╲."}, 0)
 		}
 	}
+
+	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star) ever
+	// overwrites the sky's single red glint.
+	blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
 	return buf
 }

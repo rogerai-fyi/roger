@@ -398,6 +398,7 @@ const (
 	modeLogin          // [L] confirmable login/logout panel (never an instant action)
 	modeBandDetail     // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
 	modeFreqEntry      // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
+	modePingWorld      // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -495,7 +496,12 @@ type model struct {
 	width, height int
 	frame         int
 	mode          mode
-	cmd           textinput.Model
+	// prevMode + world back the in-TUI Ping World screensaver (`/ping` or z): we stash the
+	// mode we came from, run the same pingWorldModel the standalone `roger --ping` uses, and
+	// any key restores prevMode. The world advances on the shared 160ms tick (see tickMsg).
+	prevMode mode
+	world    pingWorldModel
+	cmd      textinput.Model
 	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
 	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
 	cmdHist *inputHistory
@@ -956,6 +962,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.world.w, m.world.h = msg.Width, msg.Height // keep the screensaver fullscreen on resize
 	case tea.MouseMsg:
 		// Route the mouse wheel to the active transcript viewport so scrolling the
 		// response area works (the viewport ignores everything but wheel events). Mouse
@@ -969,6 +976,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tickMsg:
 		m.frame++
+		// The in-TUI Ping World owns the beat while it's up: advance its frame and keep the
+		// fast tick (it IS the motion), bypassing the compact/idle slow-tick below. Any key
+		// exits back to prevMode (see onKey's modePingWorld intercept).
+		if m.mode == modePingWorld {
+			m.world.frame++
+			return m, tick()
+		}
 		if m.alert != nil {
 			if a := m.alert.take(); a != "" {
 				m.status = stEmber.Render("⚡ " + a)
@@ -1213,7 +1227,25 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// enterPingWorld stashes the current mode and drops into the fullscreen Ping World
+// screensaver - the very same world `roger --ping` runs (pingWorldModel). It advances on the
+// shared 160ms tick (tickMsg) and any key wakes back to prevMode (onKey's intercept).
+func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
+	m.prevMode = m.mode
+	m.mode = modePingWorld
+	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff)}
+	return m, tick()
+}
+
 func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// SCREENSAVER WAKE: while the Ping World is up, ANY key (even ctrl+c) just wakes us back
+	// to where we came from - it never quits RogerAI or leaks the keystroke into the prior
+	// mode. A real quit then takes a second ctrl+c from the restored view (the on-air guard).
+	if m.mode == modePingWorld {
+		m.mode = m.prevMode
+		m.status = stDim.Render("welcome back - the band's still here")
+		return m, tick() // resume the normal beat
+	}
 	// The quit-confirm modal owns every key while open (answer the on-air guard).
 	if m.mode == modeQuitConfirm {
 		switch k.String() {
@@ -1500,6 +1532,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch k.String() {
 		case "q":
 			return m.requestQuit()
+		case "z":
+			// z = zone out: drop into the fullscreen Ping World screensaver (any key wakes).
+			return m.enterPingWorld()
 		case "/", ":":
 			m.mode = modeCommand
 			m.cmd.Focus()
@@ -1729,6 +1764,10 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		}
 		sysLine("scroll ON · /mouse for native select")
 		return m, tea.EnableMouseCellMotion
+	case "ping", "zen":
+		// /ping (alias /zen): drop into the fullscreen Ping World screensaver - the very
+		// same world `roger --ping` runs. Any key wakes back to this channel.
+		return m.enterPingWorld()
 	case "support":
 		// Opens the site (community + Discord); self-gated on an interactive TTY, URL
 		// printed as the fallback.
@@ -1739,7 +1778,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /help.
 		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
-		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
+		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
 		sysLine("copy: ctrl+y last reply · /copy all · shift+drag to select  ·  scroll: PgUp/PgDn · wheel · ctrl+o native-select toggle")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
@@ -1828,6 +1867,9 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		// either way as the fallback.
 		openURL(supportURL)
 		m.status = stDim.Render("support: ") + stKey.Render(supportURL) + stDim.Render(" - community + Discord on the site")
+	case "ping", "zen":
+		// fullscreen Ping World screensaver from the command palette (any key wakes).
+		return m.enterPingWorld()
 	case "quit", "q":
 		return m.requestQuit()
 	default:
@@ -3630,6 +3672,11 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 
 // ---- view ----
 func (m model) View() string {
+	// The in-TUI Ping World screensaver paints fullscreen - no header/preset/footer chrome,
+	// just the world (any key wakes back to prevMode; see onKey).
+	if m.mode == modePingWorld {
+		return m.world.View()
+	}
 	w := m.effWidth()
 	var b strings.Builder
 	// COMPACT (the "windowshade"): no expanded preset bar and no spacer - the dense
@@ -6902,6 +6949,7 @@ func (m model) helpView() string {
 		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
 		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
 		{"m", "COMPACT: a calm, dense, animation-free windowshade view"},
+		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
 	}
@@ -6917,6 +6965,7 @@ func (m model) helpView() string {
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
 		{"/support", "open rogerai.fyi - community + Discord (CLI: roger support)"},
+		{"/ping (/zen · z)", "SCREENSAVER: Ping's world fullscreen (CLI: roger --ping) - any key wakes"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
 	var b strings.Builder
