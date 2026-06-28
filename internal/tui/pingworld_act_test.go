@@ -80,8 +80,10 @@ func TestWorldPingPoseAlwaysRedEye(t *testing.T) {
 // on-screen baby duckling keeps >=1 red '•' eye on EVERY frame - the one-red 'at least one
 // eye' law, made robust (the audit's minor finding on the transmit act).
 func TestWorldAlwaysHasRedEyeAcrossCycle(t *testing.T) {
-	for _, seed := range []int{0, 3, 7, 11} {
-		for _, sz := range [][2]int{{80, 24}, {50, 16}} {
+	// Include SHORT heights (h=5..10): there the shooting star reaches the horizon row, so this
+	// is where the baby's eye could be clobbered if paint order is wrong (the audit's catch).
+	for _, seed := range []int{0, 3, 7, 11, 14} {
+		for _, sz := range [][2]int{{80, 24}, {50, 16}, {20, 8}, {30, 6}, {16, 5}, {40, 10}} {
 			for f := 0; f < waCycle*waWindow*2; f++ {
 				eyes := 0
 				for _, row := range worldBuffer(sz[0], sz[1], f, seed) {
