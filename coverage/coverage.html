@@ -239,7 +239,7 @@
 				
 				<option value="file91">github.com/rogerai-fyi/roger/internal/tui/pingwalk.go (100.0%)</option>
 				
-				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (96.8%)</option>
+				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (97.1%)</option>
 				
 				<option value="file93">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.2%)</option>
 				
@@ -3126,11 +3126,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov3" title="6">{
+        for _, n := range b.nodes </span><span class="cov4" title="7">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
+                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -8690,7 +8690,7 @@ var canaryFingerprints = []canaryFingerprint{
 // nextCanary returns the fingerprint for round n (round-robin over the set). Taking
 // the round number keeps selection deterministic + testable and guarantees every
 // fingerprint is exercised over a full cycle (no RNG-skew that could starve one).
-func nextCanary(round uint64) canaryFingerprint <span class="cov5" title="21">{
+func nextCanary(round uint64) canaryFingerprint <span class="cov5" title="22">{
         return canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
 }</span>
 
@@ -8831,11 +8831,11 @@ type probeState struct {
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
 // metricsMu.
-func (b *broker) probeSchedLocked() map[string]*probeState <span class="cov4" title="12">{
+func (b *broker) probeSchedLocked() map[string]*probeState <span class="cov4" title="13">{
         if b.probeSched == nil </span><span class="cov2" title="4">{
                 b.probeSched = map[string]*probeState{}
         }</span>
-        <span class="cov4" title="12">return b.probeSched</span>
+        <span class="cov4" title="13">return b.probeSched</span>
 }
 
 // markMeasured records that a node's performance was just established for FREE by a
@@ -8924,11 +8924,11 @@ func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float6
 func (b *broker) proberLoop(stop &lt;-chan struct{}) <span class="cov1" title="1">{
         t := time.NewTicker(b.probe.interval)
         defer t.Stop()
-        for </span><span class="cov1" title="2">{
+        for </span><span class="cov2" title="3">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         return</span>
-                case &lt;-t.C:<span class="cov1" title="1">
+                case &lt;-t.C:<span class="cov1" title="2">
                         b.probeOnce()</span>
                 }
         }
@@ -8942,15 +8942,15 @@ func (b *broker) proberLoop(stop &lt;-chan struct{}) <span class="cov1" title="1
 const probeJitter = 5 * time.Second
 
 // jitterWindow is the effective per-round jitter span for this config.
-func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="11">{
+func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="12">{
         w := probeJitter
-        if half := c.interval / 2; half &lt; w </span><span class="cov3" title="7">{
+        if half := c.interval / 2; half &lt; w </span><span class="cov3" title="8">{
                 w = half
         }</span>
-        <span class="cov4" title="11">if w &lt; 0 </span><span class="cov1" title="1">{
+        <span class="cov4" title="12">if w &lt; 0 </span><span class="cov1" title="1">{
                 w = 0
         }</span>
-        <span class="cov4" title="11">return w</span>
+        <span class="cov4" title="12">return w</span>
 }
 
 // probeOnce snapshots the online, idle nodes and probes a per-owner-capped sample
@@ -8958,7 +8958,7 @@ func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="11">
 // paying traffic. The per-owner cap + per-round rotation mean a large owner is
 // sampled a few nodes at a time instead of all at once; per-probe jitter spreads
 // the round so there is no synchronized burst.
-func (b *broker) probeOnce() <span class="cov3" title="6">{
+func (b *broker) probeOnce() <span class="cov3" title="7">{
         round := atomic.AddUint64(&amp;b.probe.round, 1) - 1
         fp := nextCanary(round)
 
@@ -9015,22 +9015,22 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
                 }
                 <span class="cov3" title="7">cands = append(cands, cand{node: n, model: model, owner: owner})</span>
         }
-        <span class="cov3" title="6">b.metricsMu.Unlock()
+        <span class="cov3" title="7">b.metricsMu.Unlock()
         b.mu.Unlock()
 
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="7">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="4">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov3" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
         // round-dependent offset, so over successive rounds the whole fleet is covered.
-        <span class="cov3" title="6">byOwner := map[string][]cand{}
+        <span class="cov3" title="7">byOwner := map[string][]cand{}
         var owners []string
         for _, c := range cands </span><span class="cov3" title="7">{
                 if _, seen := byOwner[c.owner]; !seen </span><span class="cov2" title="3">{
@@ -9038,7 +9038,7 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
                 }</span>
                 <span class="cov3" title="7">byOwner[c.owner] = append(byOwner[c.owner], c)</span>
         }
-        <span class="cov3" title="6">var targets []target
+        <span class="cov3" title="7">var targets []target
         for _, ow := range owners </span><span class="cov2" title="3">{
                 group := byOwner[ow]
                 cap := b.probe.perOwner
@@ -9061,7 +9061,7 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
         // node sits through without real traffic doubles its personal interval up to the
         // ceiling, so a persistently-idle node collapses toward the ~15m cap. markMeasured
         // (real traffic) and demandProbeSoon (browse/route) reset this.
-        <span class="cov3" title="6">b.metricsMu.Lock()
+        <span class="cov3" title="7">b.metricsMu.Lock()
         for _, t := range targets </span><span class="cov2" title="4">{
                 st := sched[t.node.NodeID]
                 if st == nil </span><span class="cov0" title="0">{
@@ -9073,7 +9073,7 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
                         st.backoff++
                 }</span>
         }
-        <span class="cov3" title="6">b.metricsMu.Unlock()
+        <span class="cov3" title="7">b.metricsMu.Unlock()
 
         // Probe nodes concurrently: each probeNode blocks waiting for its result, so
         // running them in parallel keeps one slow/dead node from stalling the round.
@@ -9344,7 +9344,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
         tq.probeOK = alive
         if alive </span><span class="cov2" title="3">{
                 tq.probeFails = 0
-                if ttftMs &gt; 0 </span><span class="cov1" title="1">{
+                if ttftMs &gt; 0 </span><span class="cov1" title="2">{
                         tq.ttftMs = ewma(tq.ttftMs, ttftMs, 0.3)
                 }</span>
                 <span class="cov2" title="3">if tps &gt; 0 </span><span class="cov2" title="3">{
@@ -9388,8 +9388,8 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 }
 
 // ewma updates an EWMA, seeding it on the first sample (cur == 0).
-func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="6">{
-        if cur &lt;= 0 </span><span class="cov3" title="5">{
+func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="7">{
+        if cur &lt;= 0 </span><span class="cov3" title="6">{
                 return sample
         }</span>
         <span class="cov1" title="1">return alpha*sample + (1-alpha)*cur</span>
@@ -15308,10 +15308,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="687">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="689">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="669">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="668">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -17956,9 +17956,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="486">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="473">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="483">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="470">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18776,7 +18776,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1963">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="798">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18790,7 +18790,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="19
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18798,12 +18798,12 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 rr.mu.Unlock()
                 return
         }</span>
-        <span class="cov4" title="19">if rr.busy </span><span class="cov3" title="10">{
+        <span class="cov4" title="19">if rr.busy </span><span class="cov4" title="10">{
                 // A re-register is in flight for this generation; wait for it and ride it.
-                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov3" title="10">{
+                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov4" title="10">{
                         rr.cond.Wait()
                 }</span>
-                <span class="cov3" title="10">rr.mu.Unlock()
+                <span class="cov4" title="10">rr.mu.Unlock()
                 return</span>
         }
         <span class="cov3" title="9">rr.busy = true
@@ -18815,14 +18815,14 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
         // fresh bridge token, so the broker's tunnel adopts the token we will now use.
         backoff := []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
         attempt := 0
-        for </span><span class="cov3" title="11">{
+        for </span><span class="cov4" title="11">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         rr.finishBusy()
                         return</span>
-                default:<span class="cov3" title="10"></span>
+                default:<span class="cov4" title="10"></span>
                 }
-                <span class="cov3" title="10">newTok := randHex(16)
+                <span class="cov4" title="10">newTok := randHex(16)
                 reg := rr.reg
                 reg.BridgeToken = newTok
                 // Re-attestation: a confidential node must present a FRESH nonce-bound quote on
@@ -18840,7 +18840,7 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                                 reg.AttestNonce = ""
                         }</span>
                 }
-                <span class="cov3" title="10">reg.TS = time.Now().Unix()
+                <span class="cov4" title="10">reg.TS = time.Now().Unix()
                 reg.SignRegistration(rr.priv)
                 // A re-register of a PRIVATE node returns only band_id (never the code again),
                 // so the result is intentionally ignored here - the secret is shown only at the
@@ -18961,7 +18961,7 @@ func Start(cfg Config) (*Session, error) <span class="cov3" title="6">{
                         return nil, fmt.Errorf("confidential attestation: %w", err)
                 }</span>
         }
-        <span class="cov2" title="5">reg.TS = time.Now().Unix()
+        <span class="cov3" title="5">reg.TS = time.Now().Unix()
         reg.SignRegistration(priv) // prove we hold PubKey's private key
         regRes, err := register(cfg.Broker, reg)
         if err != nil </span><span class="cov1" title="2">{
@@ -19005,23 +19005,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="1944">{
+        for </span><span class="cov9" title="781">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov1" title="2">
+                case &lt;-sess.stop:<span class="cov2" title="4">
                         return</span> // /share went off air
-                default:<span class="cov9" title="1942"></span>
+                default:<span class="cov9" title="777"></span>
                 }
-                <span class="cov9" title="1942">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="777">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="6">{
+                if err != nil </span><span class="cov2" title="4">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="1936">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1929">{
+                <span class="cov9" title="773">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="766">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19098,7 +19098,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
                         sess.setLink(LinkReconnecting)
                         return
                 }</span>
-                <span class="cov2" title="5">status := resp.StatusCode
+                <span class="cov3" title="5">status := resp.StatusCode
                 resp.Body.Close()
                 switch </span>{
                 case status == http.StatusOK:<span class="cov2" title="3">
@@ -19118,7 +19118,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
         defer t.Stop()
         for </span><span class="cov3" title="8">{
                 select </span>{
-                case &lt;-stop:<span class="cov2" title="5">
+                case &lt;-stop:<span class="cov3" title="5">
                         return</span>
                 case &lt;-t.C:<span class="cov1" title="2">
                         beat()</span>
@@ -19133,14 +19133,14 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
 // operator's OWN upstream key can never leave the machine in a job result. A no-op
 // when no key is configured (and never called with an empty key, which would match
 // everywhere).
-func redactUpstreamKey(b []byte, key string) []byte <span class="cov3" title="10">{
-        if key == "" </span><span class="cov2" title="5">{
+func redactUpstreamKey(b []byte, key string) []byte <span class="cov4" title="10">{
+        if key == "" </span><span class="cov3" title="5">{
                 return b
         }</span>
-        <span class="cov2" title="5">return bytes.ReplaceAll(b, []byte(key), []byte("[redacted]"))</span>
+        <span class="cov3" title="5">return bytes.ReplaceAll(b, []byte(key), []byte("[redacted]"))</span>
 }
 
-func isStream(body []byte) bool <span class="cov2" title="5">{
+func isStream(body []byte) bool <span class="cov3" title="5">{
         var p struct {
                 Stream bool `json:"stream"`
         }
@@ -19217,8 +19217,8 @@ func withUsageOption(body []byte) []byte <span class="cov3" title="6">{
         if json.Unmarshal(body, &amp;m) != nil </span><span class="cov1" title="1">{
                 return body
         }</span>
-        <span class="cov2" title="5">m["stream_options"] = json.RawMessage(`{"include_usage":true}`)
-        if b, err := json.Marshal(m); err == nil </span><span class="cov2" title="5">{
+        <span class="cov3" title="5">m["stream_options"] = json.RawMessage(`{"include_usage":true}`)
+        if b, err := json.Marshal(m); err == nil </span><span class="cov3" title="5">{
                 return b
         }</span>
         <span class="cov0" title="0">return body</span>
@@ -19330,7 +19330,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19359,7 +19359,7 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
                 }</span>
                 <span class="cov2" title="3">return registerResult{}, fmt.Errorf("broker returned status %d", resp.StatusCode)</span>
         }
-        <span class="cov3" title="12">var rr registerResult
+        <span class="cov4" title="12">var rr registerResult
         // 64KB: the response now carries the effective offers (which can include a
         // time-of-use schedule), so allow more than the old band-only 4KB.
         _ = json.NewDecoder(io.LimitReader(resp.Body, 1&lt;&lt;16)).Decode(&amp;rr)
@@ -19481,7 +19481,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19489,15 +19489,15 @@ func GenerateStation() string <span class="cov7" title="201">{
 
 // randIndex returns a uniform crypto/rand index in [0,n) (n&gt;0). Falls back to 0 only if
 // the system RNG fails, which never happens in practice.
-func randIndex(n int) int <span class="cov8" title="805">{
+func randIndex(n int) int <span class="cov10" title="805">{
         if n &lt;= 0 </span><span class="cov1" title="2">{
                 return 0
         }</span>
-        <span class="cov8" title="803">bn, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+        <span class="cov9" title="803">bn, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
         if err != nil </span><span class="cov0" title="0">{
                 return 0
         }</span>
-        <span class="cov8" title="803">return int(bn.Int64())</span>
+        <span class="cov9" title="803">return int(bn.Int64())</span>
 }
 
 // SlugStation normalizes a station callsign to the SAME broker-safe slug the node id
@@ -19505,26 +19505,26 @@ func randIndex(n int) int <span class="cov8" title="805">{
 // TUI call this so what the owner types, what is persisted, and what appears in
 // /discover all match. An input that slugs to nothing returns "" (callers then
 // auto-generate), distinct from ShareNodeID which never returns a bare/empty id.
-func SlugStation(s string) string <span class="cov2" title="5">{ return slugify(s) }</span>
+func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(s) }</span>
 
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
-        for _, r := range strings.ToLower(s) </span><span class="cov8" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+        for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -24781,11 +24781,11 @@ type Totals struct {
 
 func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov1" title="1">
+        case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov7" title="9">
+        default:<span class="cov6" title="8">
                 return "connecting"</span>
         }
 }
@@ -25100,7 +25100,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="134">{
+        for len(s) &lt; 3 </span><span class="cov5" title="101">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25108,17 +25108,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="5">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2003">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5886">{
+        for n &gt; 0 </span><span class="cov9" title="5922">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2003">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -31520,8 +31520,8 @@ func (m *Mem) EarningRollups(accountID string) (byModel, byNode []EarningRollup,
                 for k, a := range t </span><span class="cov4" title="12">{
                         out = append(out, EarningRollup{Key: k, Amount: a.amount, Lots: a.lots})
                 }</span>
-                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="6">{
-                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="5">{
+                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="7">{
+                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="6">{
                                 return out[i].Amount &gt; out[j].Amount
                         }</span>
                         <span class="cov1" title="1">return out[i].Key &lt; out[j].Key</span>
@@ -33512,7 +33512,7 @@ func tintEyeLine(line, eyeGlyph string) string <span class="cov5" title="540">{
 // the frame counter. It is fully deterministic (same frame -&gt; same value) so tests
 // stay reproducible, while reading as "random" across frames so the mascot never
 // looks like a metronome.
-func pingHash(x int) uint32 <span class="cov10" title="263662">{
+func pingHash(x int) uint32 <span class="cov10" title="291159">{
         z := uint32(x)*2654435761 + 0x9e3779b9
         z ^= z &gt;&gt; 15
         z *= 0x85ebca6b
@@ -33922,7 +33922,7 @@ func (m pingWorldModel) View() string <span class="cov1" title="2">{ return rend
 
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
-func worldHash(a, b, seed int) uint32 <span class="cov8" title="258116">{ return pingHash(a*7349 + b*916703 + seed*2654435761) }</span>
+func worldHash(a, b, seed int) uint32 <span class="cov9" title="285613">{ return pingHash(a*7349 + b*916703 + seed*2654435761) }</span>
 
 // Depth-weighted starfield (v2 P0-2): three tiers give the sky genuine parallax instead of a
 // flat speckle. Far stars are tiny/faint/static, mid drift slowly, near are bright + drift
@@ -33935,50 +33935,79 @@ var (
 
 // starTier buckets star i into 0=far, 1=mid, 2=near, weighted FAR-heavy (~4/6 far) so most of
 // the sky reads as distant - the essence of depth.
-func starTier(i, seed int) int <span class="cov8" title="68641">{
+func starTier(i, seed int) int <span class="cov8" title="69004">{
         switch worldHash(i, 9, seed) % 6 </span>{
-        case 4:<span class="cov7" title="12201">
+        case 4:<span class="cov7" title="12247">
                 return 1</span> // mid  (~1/6)
-        case 5:<span class="cov6" title="10843">
+        case 5:<span class="cov6" title="10908">
                 return 2</span> // near (~1/6)
-        default:<span class="cov7" title="45597">
+        default:<span class="cov7" title="45849">
                 return 0</span> // far  (~4/6)
         }
 }
 
+// dayNightPeriod is the frames in one full day&lt;-&gt;night cycle (~a few minutes at ~140ms/frame).
+const dayNightPeriod = 1600
+
+// dayNightDarkness returns 0..100 sky darkness: 100 = deep night (all stars out), 0 = midday
+// (only the brightest near stars + moon remain). A slow triangle wave, starting at night
+// (frame 0). Pure in frame - so the sky "breathes" yet stays reproducible.
+func dayNightDarkness(frame int) int <span class="cov5" title="549">{
+        half := dayNightPeriod / 2
+        p := ((frame % dayNightPeriod) + dayNightPeriod) % dayNightPeriod
+        if p &lt; half </span><span class="cov5" title="535">{
+                return 100 - p*100/half // night -&gt; day
+        }</span>
+        <span class="cov2" title="14">return (p - half) * 100 / half</span> // day -&gt; night
+}
+
+// moonSprite is the calm lunar anchor (v2 P0-4): a small disc that hangs high in the sky. Dim
+// ink only - NEVER red (the beacon + on-air star keep the one-red discipline).
+var moonSprite = []string{" .-. ", "(   )", " `-' "}
+
+// moonPos returns the moon's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
+// 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
+// with the on-air star's (1/2).
+func moonPos(w, skyRows, frame, seed int) (int, int) <span class="cov5" title="543">{
+        ww := maxI(1, w)
+        x := ((int(worldHash(0, 5, seed)%uint32(ww)) + frame/24) % ww) % ww
+        y := int(worldHash(0, 6, seed) % uint32(maxI(1, skyRows/3)))
+        return x, y
+}</span>
+
 // starColumn is star i's drifting column for its tier, wrapped into [0,w): far is static, mid
 // drifts slowly, near drifts fastest (parallax). w is assumed &gt; 0 (worldBuffer guards it).
-func starColumn(x0, frame, w, tier int) int <span class="cov8" title="62906">{
+func starColumn(x0, frame, w, tier int) int <span class="cov7" title="53901">{
         div := 0
         switch tier </span>{
-        case 2:<span class="cov6" title="9974">
+        case 2:<span class="cov6" title="10039">
                 div = 10</span> // near: fastest
-        case 1:<span class="cov6" title="11288">
+        case 1:<span class="cov6" title="9276">
                 div = 28</span> // mid: slow
-        default:<span class="cov7" title="41644">
+        default:<span class="cov7" title="34586">
                 return ((x0 % w) + w) % w</span> // far: static
         }
-        <span class="cov7" title="21262">return ((x0-frame/div)%w + w) % w</span>
+        <span class="cov7" title="19315">return ((x0-frame/div)%w + w) % w</span>
 }
 
 // blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
 // rune == eye is marked red (eye=true). Out-of-bounds cells are clipped, never wrap-corrupt.
-func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov6" title="3090">{
+func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov6" title="3625">{
         if len(buf) == 0 </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov6" title="3090">w := len(buf[0])
-        for dy, line := range lines </span><span class="cov6" title="6174">{
+        <span class="cov6" title="3625">w := len(buf[0])
+        for dy, line := range lines </span><span class="cov6" title="7761">{
                 ry := y + dy
-                if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov2" title="6">{
+                if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov2" title="8">{
                         continue</span>
                 }
-                <span class="cov6" title="6168">cx := x
-                for _, r := range line </span><span class="cov8" title="128562">{
-                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov8" title="89874">{
+                <span class="cov6" title="7753">cx := x
+                for _, r := range line </span><span class="cov8" title="137200">{
+                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov8" title="94616">{
                                 buf[ry][cx] = worldCell{r: r, eye: eye != 0 &amp;&amp; r == eye}
                         }</span>
-                        <span class="cov8" title="128562">cx++</span>
+                        <span class="cov8" title="137200">cx++</span>
                 }
         }
 }
@@ -33989,18 +34018,18 @@ func renderWorld(w, h, frame, seed int) string <span class="cov2" title="12">{ r
 
 // worldBuffer builds the back-&gt;front composited cell buffer (pure + seeded); nil for a
 // degenerate size. Split out so tests can assert the ONE-RED invariant on the cells directly.
-func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="517">{
+func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="520">{
         if w &lt;= 0 || h &lt;= 0 </span><span class="cov1" title="3">{
                 return nil
         }</span>
-        <span class="cov4" title="514">buf := make([][]worldCell, h)
-        for y := range buf </span><span class="cov7" title="14407">{
+        <span class="cov4" title="517">buf := make([][]worldCell, h)
+        for y := range buf </span><span class="cov7" title="14477">{
                 buf[y] = make([]worldCell, w)
-                for x := range buf[y] </span><span class="cov10" title="1321885">{
+                for x := range buf[y] </span><span class="cov10" title="1329845">{
                         buf[y][x] = worldCell{r: ' '}
                 }</span>
         }
-        <span class="cov4" title="514">horizon := h - 4
+        <span class="cov4" title="517">horizon := h - 4
         if horizon &lt; 2 </span><span class="cov1" title="1">{
                 horizon = h - 1
         }</span>
@@ -34009,58 +34038,70 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="
         // bucketed into far/mid/near tiers for genuine parallax (see starTier/starColumn). Far are
         // faint+static, mid drift slowly, near are bright + drift fastest. Star 0 is the RED on-air
         // station, painted LAST so nothing twinkles over it.
-        <span class="cov4" title="514">skyRows := horizon
+        <span class="cov4" title="517">skyRows := horizon
         if skyRows &lt; 1 </span><span class="cov1" title="1">{
                 skyRows = 1
         }</span>
-        <span class="cov4" title="514">nStars := (w * skyRows) / 18
-        for i := 1; i &lt; nStars; i++ </span><span class="cov8" title="62642">{
+        <span class="cov4" title="517">nStars := (w * skyRows) / 18
+        darkness := dayNightDarkness(frame) // day washes the faint stars out; the sky breathes
+        for i := 1; i &lt; nStars; i++ </span><span class="cov8" title="63005">{
                 tier := starTier(i, seed)
-                set := starsFar
+                // Faint far/mid stars fade as it brightens toward day; the bright near stars persist
+                // (like real first-magnitude stars + planets lingering at dusk). The moon + on-air ◉
+                // are separate and always shown.
+                if tier != 2 &amp;&amp; int(worldHash(i, 4, seed)%100) &gt;= darkness </span><span class="cov6" title="9368">{
+                        continue</span>
+                }
+                <span class="cov7" title="53637">set := starsFar
                 bright := false
                 switch tier </span>{
-                case 2:<span class="cov6" title="9886">
+                case 2:<span class="cov6" title="9951">
                         set, bright = starsNear, true</span>
-                case 1:<span class="cov6" title="11200">
+                case 1:<span class="cov6" title="9188">
                         set = starsMid</span>
                 }
-                <span class="cov8" title="62642">x0 := starColumn(int(worldHash(i, 1, seed)%uint32(w)), frame, w, tier)
+                <span class="cov7" title="53637">x0 := starColumn(int(worldHash(i, 1, seed)%uint32(w)), frame, w, tier)
                 y := int(worldHash(i, 2, seed) % uint32(skyRows))
                 g := set[int(worldHash(i, frame/8, seed))%len(set)]
-                if y &gt;= 0 &amp;&amp; y &lt; len(buf) &amp;&amp; x0 &gt;= 0 &amp;&amp; x0 &lt; w </span><span class="cov8" title="62642">{ // in-bounds by construction; guard anyway
+                if y &gt;= 0 &amp;&amp; y &lt; len(buf) &amp;&amp; x0 &gt;= 0 &amp;&amp; x0 &lt; w </span><span class="cov7" title="53637">{ // in-bounds by construction; guard anyway
                         buf[y][x0] = worldCell{r: g, bright: bright}
                 }</span>
         }
+        // LAYER 1.5 — the moon: a calm lunar anchor hanging high, drifting the sky slowly. Dim
+        // ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
+        <span class="cov4" title="517">mx, my := moonPos(w, skyRows, frame, seed)
+        blit(buf, mx, my, moonSprite, 0)
+
         // (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
-        <span class="cov4" title="514">onAirX := int(worldHash(0, 1, seed) % uint32(w))
+        onAirX := int(worldHash(0, 1, seed) % uint32(w))
         onAirY := int(worldHash(0, 2, seed) % uint32(skyRows))
 
         // LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
-        if horizon &gt;= 0 &amp;&amp; horizon &lt; h </span><span class="cov4" title="514">{
+        if horizon &gt;= 0 &amp;&amp; horizon &lt; h </span><span class="cov4" title="517">{
                 rim := make([]rune, w)
-                for x := 0; x &lt; w; x++ </span><span class="cov7" title="46053">{
+                for x := 0; x &lt; w; x++ </span><span class="cov7" title="46393">{
                         rim[x] = '_'
                 }</span>
-                <span class="cov4" title="514">blit(buf, 0, horizon, []string{string(rim)}, 0)
-                if horizon+1 &lt; h </span><span class="cov4" title="513">{
+                <span class="cov4" title="517">blit(buf, 0, horizon, []string{string(rim)}, 0)
+                if horizon+1 &lt; h </span><span class="cov4" title="516">{
                         ramp := []rune("░▒▓▒░  ·  ") // banded surface = the band's "skin"
                         brand := []rune(" R O G E R · A I ")
                         s := make([]rune, 0, w+len(ramp))
-                        for len(s) &lt; w </span><span class="cov6" title="4606">{
+                        for len(s) &lt; w </span><span class="cov6" title="4640">{
                                 s = append(s, ramp...)
                         }</span>
-                        <span class="cov4" title="513">s = s[:w]
+                        <span class="cov4" title="516">s = s[:w]
                         // stamp the brand in the middle of the surface band
-                        if w &gt; len(brand)+4 </span><span class="cov4" title="513">{
+                        if w &gt; len(brand)+4 </span><span class="cov4" title="516">{
                                 off := (w - len(brand)) / 2
                                 copy(s[off:], brand)
                         }</span>
-                        <span class="cov4" title="513">blit(buf, 0, horizon+1, []string{string(s)}, 0)</span>
+                        <span class="cov4" title="516">blit(buf, 0, horizon+1, []string{string(s)}, 0)</span>
                 }
         }
 
         // LAYER 5 — Ping ambles along the rim (slow stroll; legs alternate), eye = the red dot.
-        <span class="cov4" title="514">pf := pingWalkFrames[(frame/3)%len(pingWalkFrames)]
+        <span class="cov4" title="517">pf := pingWalkFrames[(frame/3)%len(pingWalkFrames)]
         px := (frame / 2) % maxI(1, w-pingWalkW) // a slow stroll, always fully on-screen
         blit(buf, px, horizon-len(pf.lines)+1, pf.lines[:], '•')
 
@@ -34071,7 +34112,7 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="
         blit(buf, px-4, horizon, []string{"(•)"}, '•') // baby (•) duckling
 
         // LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
-        if worldHash(frame/40, 7, seed)%4 == 0 </span><span class="cov3" title="68">{
+        if worldHash(frame/40, 7, seed)%4 == 0 </span><span class="cov3" title="69">{
                 k := frame % 40
                 if k &lt; 6 </span><span class="cov2" title="7">{
                         sx := int(worldHash(frame/40, 8, seed)%uint32(maxI(1, w-8))) + k*2
@@ -34082,7 +34123,7 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="
 
         // the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star) ever
         // overwrites the sky's single red glint.
-        <span class="cov4" title="514">blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
+        <span class="cov4" title="517">blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
         return buf</span>
 }
@@ -34100,38 +34141,38 @@ func compositeWorld(buf [][]worldCell) string <span class="cov2" title="12">{
                         b.WriteByte('\n')
                 }</span>
                 <span class="cov4" title="183">i := 0
-                for i &lt; len(row) </span><span class="cov5" title="1846">{
+                for i &lt; len(row) </span><span class="cov5" title="1868">{
                         c := row[i]
                         j := i + 1
-                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov7" title="12359">{
+                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov7" title="12337">{
                                 j++
                         }</span>
-                        <span class="cov5" title="1846">seg := make([]rune, 0, j-i)
+                        <span class="cov5" title="1868">seg := make([]rune, 0, j-i)
                         for k := i; k &lt; j; k++ </span><span class="cov7" title="14205">{
                                 seg = append(seg, row[k].r)
                         }</span>
-                        <span class="cov5" title="1846">s := string(seg)
+                        <span class="cov5" title="1868">s := string(seg)
                         switch </span>{
-                        case c.r == ' ':<span class="cov5" title="982">
+                        case c.r == ' ':<span class="cov5" title="994">
                                 b.WriteString(s)</span>
                         case c.eye:<span class="cov3" title="23">
                                 b.WriteString(stPingEye.Render(s))</span>
                         case c.bright:<span class="cov3" title="107">
                                 b.WriteString(stLive.Render(s))</span>
-                        default:<span class="cov5" title="734">
+                        default:<span class="cov5" title="744">
                                 b.WriteString(stDim.Render(s))</span>
                         }
-                        <span class="cov5" title="1846">i = j</span>
+                        <span class="cov5" title="1868">i = j</span>
                 }
         }
         <span class="cov2" title="12">return b.String()</span>
 }
 
-func maxI(a, b int) int <span class="cov4" title="521">{
-        if a &gt; b </span><span class="cov1" title="1">{
+func maxI(a, b int) int <span class="cov5" title="1610">{
+        if a &gt; b </span><span class="cov1" title="2">{
                 return a
         }</span>
-        <span class="cov4" title="520">return b</span>
+        <span class="cov5" title="1608">return b</span>
 }
 
 // PingWorld runs the `roger --ping` screensaver: the live animated Ping world until any key.
@@ -38701,8 +38742,8 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
         <span class="cov0" title="0">return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)</span>
 }
 
-func truncVisible(s string, n int) string <span class="cov4" title="681">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="559">{
+func truncVisible(s string, n int) string <span class="cov4" title="688">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="566">{
                 return s
         }</span>
         <span class="cov3" title="122">return ansi.Truncate(s, n, "")</span>
@@ -38910,7 +38951,7 @@ func (m model) balDollars() string <span class="cov1" title="3">{
 
 // loggedInState reports whether the user has a real account wallet: the broker's
 // logged_in flag, or (before the first balance comes back) a locally-linked login.
-func (m model) loggedInState() bool <span class="cov5" title="5614">{ return m.loggedIn || m.ghLogin != "" }</span>
+func (m model) loggedInState() bool <span class="cov5" title="5615">{ return m.loggedIn || m.ghLogin != "" }</span>
 
 // accountTag renders the header/footer account lockup: logged in shows
 // "✓ @login · $balance"; anonymous shows a calm, steady "not logged in · /login to
@@ -39677,16 +39718,16 @@ func bandTierSuffix(b band) string <span class="cov3" title="45">{
 // significant digits to never collapse to $0.00 (e.g. $0.000123). 1 credit = $1,
 // so this is a pure display relabel of the credit unit. Display only - settlement
 // math is untouched.
-func dollars(v float64) string <span class="cov4" title="1046">{
+func dollars(v float64) string <span class="cov4" title="1053">{
         if v &lt; 0 </span><span class="cov0" title="0">{
                 // Defensive: real money is never negative here (balances/costs are &gt;= 0);
                 // a negative slipping through renders as a plain dash rather than "$-…".
                 return "-"
         }</span>
-        <span class="cov4" title="1046">if v == 0 </span><span class="cov4" title="302">{
+        <span class="cov4" title="1053">if v == 0 </span><span class="cov4" title="306">{
                 return "$0.00"
         }</span>
-        <span class="cov4" title="744">if v &gt;= 0.01 </span><span class="cov4" title="732">{
+        <span class="cov4" title="747">if v &gt;= 0.01 </span><span class="cov4" title="735">{
                 return "$" + fmt.Sprintf("%.2f", v)
         }</span>
         // sub-cent: ~3 significant figures, in plain decimal (no exponent, no trailing
@@ -40261,11 +40302,11 @@ func (m model) headlineBadge() string <span class="cov2" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40278,15 +40319,15 @@ const onAirMaxRows = 8
 
 // liveShares returns the on-air sessions sorted stably by model id, so the ON AIR
 // panel renders the same band order every frame (Go map iteration is randomized).
-func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
+func (m model) liveShares() []*agent.Session <span class="cov2" title="28">{
         out := make([]*agent.Session, 0, len(m.shares))
-        for _, s := range m.shares </span><span class="cov3" title="134">{
-                if s != nil </span><span class="cov3" title="133">{
+        for _, s := range m.shares </span><span class="cov3" title="137">{
+                if s != nil </span><span class="cov3" title="136">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="340">{ return out[i].Model() &lt; out[j].Model() }</span>)
-        <span class="cov2" title="27">return out</span>
+        <span class="cov2" title="28">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="337">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="28">return out</span>
 }
 
 // onAirPanel renders the live ON AIR provider instrument: ONE compact row per live
@@ -40297,15 +40338,15 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
 // none are). Many bands fold past onAirMaxRows into a "+K more". NO_COLOR / narrow
 // safe: the plain words carry it, color + glyphs are decoration; each row is
 // truncated to the panel width.
-func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
+func (m model) onAirPanel(w int) string <span class="cov2" title="22">{
         live := m.liveShares()
         if len(live) == 0 </span><span class="cov1" title="2">{
                 return ""
         }</span>
         // Aggregate link state for the beacon: ON AIR if ANY band's broker link is live,
         // else the worst-case (RECONNECTING) so we never falsely claim on-air.
-        <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
-        for _, s := range live </span><span class="cov3" title="90">{
+        <span class="cov2" title="20">anyOnAir, anyReconnecting := false, false
+        for _, s := range live </span><span class="cov3" title="93">{
                 switch s.Link() </span>{
                 case agent.LinkOnAir:<span class="cov3" title="71">
                         anyOnAir = true</span>
@@ -40313,70 +40354,70 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         anyReconnecting = true</span>
                 }
         }
-        <span class="cov2" title="19">var badge string
+        <span class="cov2" title="20">var badge string
         switch </span>{
         case anyOnAir:<span class="cov2" title="14">
                 badge = stRed.Render(glyphOnAir + " ON AIR")</span>
         case anyReconnecting:<span class="cov1" title="2">
                 badge = stEmber.Render(glyphOffAir+" RECONNECTING") + stDim.Render(" - broker not acknowledging")</span>
-        default:<span class="cov1" title="3">
+        default:<span class="cov1" title="4">
                 badge = stDim.Render(glyphOffAir + " connecting…")</span>
         }
 
-        <span class="cov2" title="19">n := len(live)
+        <span class="cov2" title="20">n := len(live)
         bands := "bands"
         if n == 1 </span><span class="cov2" title="9">{
                 bands = "band"
         }</span>
-        <span class="cov2" title="19">head := badge + "  " + stDim.Render(fmt.Sprintf("sharing %d %s", n, bands))
+        <span class="cov2" title="20">head := badge + "  " + stDim.Render(fmt.Sprintf("sharing %d %s", n, bands))
         inner := w - 4 // stPanel border (2) + padding (2)
         if inner &lt; 8 </span><span class="cov0" title="0">{
                 inner = 8
         }</span>
 
         // Totals sum EVERY live band, listed or folded.
-        <span class="cov2" title="19">var totReqs, totToks int64
+        <span class="cov2" title="20">var totReqs, totToks int64
         var totEarn float64
-        for _, s := range live </span><span class="cov3" title="90">{
+        for _, s := range live </span><span class="cov3" title="93">{
                 r, t := s.Served()
                 totReqs += r
                 totToks += t
                 totEarn += s.Earnings()
         }</span>
         // Per-band rows (compact), capped at onAirMaxRows with a "+K more" fold.
-        <span class="cov2" title="19">shown := live
+        <span class="cov2" title="20">shown := live
         folded := 0
         if len(live) &gt; onAirMaxRows </span><span class="cov2" title="7">{
                 shown = live[:onAirMaxRows]
                 folded = len(live) - onAirMaxRows
         }</span>
         // Elide long node ids so a row stays on one line at narrow widths.
-        <span class="cov2" title="19">nodeCap := 18
+        <span class="cov2" title="20">nodeCap := 18
         if inner &lt; 64 </span><span class="cov1" title="2">{
                 nodeCap = 10
         }</span>
-        <span class="cov2" title="19">rows := make([]string, 0, len(shown)+1)
-        for _, s := range shown </span><span class="cov3" title="74">{
+        <span class="cov2" title="20">rows := make([]string, 0, len(shown)+1)
+        for _, s := range shown </span><span class="cov3" title="77">{
                 in, out := s.Price()
                 reqs, toks := s.Served()
                 price := stLive.Render("FREE")
-                if in &gt; 0 || out &gt; 0 </span><span class="cov3" title="68">{
+                if in &gt; 0 || out &gt; 0 </span><span class="cov3" title="71">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
-                <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                <span class="cov3" title="77">dot := stRed.Render(glyphOnAir)
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="10">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
-                <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
+                <span class="cov3" title="77">row := "  " + dot + " " + stKey.Render(s.Model()) +
                         stDim.Render(" · ") + stSelText.Render(elide(s.Node(), nodeCap)) +
                         stDim.Render(" · ") + price +
                         stDim.Render(fmt.Sprintf(" · %d req · %d out · ", reqs, toks)) + stEmber.Render(dollars(s.Earnings()))
                 rows = append(rows, row)</span>
         }
-        <span class="cov2" title="19">if folded &gt; 0 </span><span class="cov2" title="7">{
+        <span class="cov2" title="20">if folded &gt; 0 </span><span class="cov2" title="7">{
                 rows = append(rows, stDim.Render(fmt.Sprintf("  +%d more on air", folded)))
         }</span>
-        <span class="cov2" title="19">totals := stDim.Render("  TOTALS    ") +
+        <span class="cov2" title="20">totals := stDim.Render("  TOTALS    ") +
                 stLive.Render(fmt.Sprintf("%d", totReqs)) +
                 stDim.Render(fmt.Sprintf(" requests · %d out tokens · ", totToks)) +
                 stEmber.Render(dollars(totEarn)) + stDim.Render("  (settles on the broker)")
@@ -40390,16 +40431,16 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         // they are never left wondering where their money lands - one tasteful line either way.
         if hint := m.payoutHint(); hint != "" </span><span class="cov0" title="0">{
                 lines = append(lines, "  "+hint)
-        }</span> else<span class="cov2" title="19"> {
+        }</span> else<span class="cov2" title="20"> {
                 lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fyi/dashboard.html")+stDim.Render("  (or: roger payout status)"))
         }</span>
-        <span class="cov2" title="19">lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
+        <span class="cov2" title="20">lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
         // Every line is truncated to the inner content width so the bordered plate never
         // overflows the terminal, at any width and any band count.
-        for i, ln := range lines </span><span class="cov3" title="157">{
+        for i, ln := range lines </span><span class="cov3" title="164">{
                 lines[i] = truncVisible(ln, inner)
         }</span>
-        <span class="cov2" title="19">return stPanel.Render(strings.Join(lines, "\n"))</span>
+        <span class="cov2" title="20">return stPanel.Render(strings.Join(lines, "\n"))</span>
 }
 
 // compactOnAirLine is the windowshade (compact mode) one-line ON AIR summary: the
@@ -40415,7 +40456,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov2" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="40">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -40435,12 +40476,12 @@ func (m model) compactOnAirLine(w int) string <span class="cov2" title="6">{
 
 // elide shortens s to at most n runes, using an ellipsis when it must cut. Used to
 // keep long node ids on a single compact row in the ON AIR panel.
-func elide(s string, n int) string <span class="cov3" title="77">{
+func elide(s string, n int) string <span class="cov3" title="80">{
         if n &lt; 1 </span><span class="cov1" title="1">{
                 n = 1
         }</span>
-        <span class="cov3" title="77">r := []rune(s)
-        if len(r) &lt;= n </span><span class="cov3" title="76">{
+        <span class="cov3" title="80">r := []rune(s)
+        if len(r) &lt;= n </span><span class="cov3" title="79">{
                 return s
         }</span>
         <span class="cov1" title="1">if n &lt;= 1 </span><span class="cov0" title="0">{
@@ -40455,8 +40496,8 @@ func elide(s string, n int) string <span class="cov3" title="77">{
 // NO_COLOR and narrow widths (the caller truncates to width). The two states that
 // matter to a provider: KYC not done -&gt; point at onboarding; payable at/above the
 // minimum -&gt; point at `roger payout` to withdraw.
-func (m model) payoutHint() string <span class="cov3" title="76">{
-        if !m.loggedInState() || !m.payout.loaded </span><span class="cov3" title="63">{
+func (m model) payoutHint() string <span class="cov3" title="77">{
+        if !m.loggedInState() || !m.payout.loaded </span><span class="cov3" title="64">{
                 return ""
         }</span>
         <span class="cov2" title="13">min := m.payout.min
