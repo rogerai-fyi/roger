@@ -1,24 +1,31 @@
 /* =====================================================================
    RogerAI - the demo console: a tape-deck / station-preset player.
 
-   Four switchable demos, each an animated terminal replay, selected from a
-   radio-preset bar ( [ roger ] [ tune in ] [ agent ] [ share ] ) with the
-   current preset lit red. The four tapes mirror the real TUI preset bank you
-   get from a bare `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). Transport
-   controls (play / pause / replay) and a tuning-bar progress readout, all
-   radio/tape-deck styled.
+   Five switchable demos, each an animated terminal replay, selected from a radio-
+   preset bar ( [ roger ] [ tune in ] [ agent ] [ share ] [ payouts ] ) with the
+   current preset lit red. The tapes follow the roger arc - borrow -> automate ->
+   lend -> get paid - and mirror the real TUI preset bank you get from a bare
+   `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). Transport controls (play / pause
+   / replay) and a tuning-bar progress readout, all radio/tape-deck styled. tune in
+   and agent are deliberately distinct: tune in hands an ENDPOINT to your tools;
+   agent is roger ITSELF running a multi-tool job.
 
      roger    - boot the dial: type `roger`, acquire the carrier (an animated
                 sweep), reveal the preset bank + brand lockup, then read the
                 live band (stations fade in, signal bars fill).
-     tune in  - the [1] TUNE IN consumer walk: lock the strongest station ->
-                CHANNEL OPEN + the drop-in endpoint plate (BASE URL / API KEY /
-                MODEL), then one chat turn with a co-signed receipt.
-     agent    - the [0] AGENT harness (dj.md persona): one tool turn over the
-                open channel - prompt -> routing -> tool call box -> result ->
-                answer + co-signed receipt.
-     share    - the [2] SHARE provider walk: scan local backends, the detected-
-                models table, go (( ON AIR )), an incoming request + earnings tick.
+     tune in  - BORROW: lock the strongest station -> CHANNEL OPEN + the drop-in
+                endpoint plate, then YOUR tool (a curl, the OpenAI SDK, Cursor,
+                bots) hits 127.0.0.1; tokens stream, the wallet debits live, and a
+                dropped station triggers under-the-hood failover (no retry).
+     agent    - AUTOMATE: roger is itself an agent (the [0] AGENT dj.md harness) -
+                hand it a JOB and it plans + runs several tools (run/read/grep)
+                autonomously, then synthesizes an answer + a multi-tool receipt.
+     share    - LEND: scan local backends, the detected-models table, the price
+                editor (vs the live median) + a free overnight schedule, go ON AIR,
+                the broker canary verify, then a live request log + earnings/slots.
+     payouts  - GET PAID: the on-air earnings hint -> `roger payout status` (KYC +
+                payable vs held + the 120-day/$25/monthly policy) -> `roger payout
+                request` -> sent to the bank via Stripe Connect.
 
    Engine: each demo compiles to a flat list of "frames" (a screen of lines +
    a hold duration); typing a command expands to one frame per character. The
