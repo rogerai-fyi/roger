@@ -6,7 +6,7 @@
   90.6%  github.com/rogerai-fyi/roger/internal/detect
  100.0%  github.com/rogerai-fyi/roger/internal/glyphs
   99.6%  github.com/rogerai-fyi/roger/internal/harness
-  90.0%  github.com/rogerai-fyi/roger/internal/node
+  90.4%  github.com/rogerai-fyi/roger/internal/node
   98.6%  github.com/rogerai-fyi/roger/internal/protocol
   90.1%  github.com/rogerai-fyi/roger/internal/store
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer

@@ -801,7 +801,7 @@ github.com/rogerai-fyi/roger/internal/node/controller.go:472:		atLimitLocked			1
 github.com/rogerai-fyi/roger/internal/node/controller.go:474:		onAirCountLocked		100.0%
 github.com/rogerai-fyi/roger/internal/node/controller.go:486:		NormalizeUpstream		100.0%
 github.com/rogerai-fyi/roger/internal/node/controller.go:502:		SchedToProtocol			33.3%
-github.com/rogerai-fyi/roger/internal/node/snapshot.go:45:		linkLabel			50.0%
+github.com/rogerai-fyi/roger/internal/node/snapshot.go:45:		linkLabel			75.0%
 github.com/rogerai-fyi/roger/internal/node/snapshot.go:57:		Snapshot			100.0%
 github.com/rogerai-fyi/roger/internal/node/snapshot.go:102:		Rows				100.0%
 github.com/rogerai-fyi/roger/internal/node/snapshot.go:112:		Sessions			100.0%

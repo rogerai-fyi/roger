@@ -189,7 +189,7 @@
 				
 				<option value="file66">github.com/rogerai-fyi/roger/internal/node/controller.go (87.8%)</option>
 				
-				<option value="file67">github.com/rogerai-fyi/roger/internal/node/snapshot.go (95.7%)</option>
+				<option value="file67">github.com/rogerai-fyi/roger/internal/node/snapshot.go (97.1%)</option>
 				
 				<option value="file68">github.com/rogerai-fyi/roger/internal/protocol/auth.go (100.0%)</option>
 				
@@ -11667,7 +11667,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="124">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="125">{
                         best = i
                 }</span>
         }
@@ -15254,10 +15254,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="689">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="691">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="668">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="666">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -17848,9 +17848,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="475">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="493">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="472">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="490">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18651,7 +18651,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="792">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="778">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18877,23 +18877,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="776">{
+        for </span><span class="cov9" title="763">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov3" title="5">
+                case &lt;-sess.stop:<span class="cov3" title="6">
                         return</span> // /share went off air
-                default:<span class="cov9" title="771"></span>
+                default:<span class="cov9" title="757"></span>
                 }
-                <span class="cov9" title="771">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="757">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="3">{
+                if err != nil </span><span class="cov1" title="2">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="768">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="761">{
+                <span class="cov9" title="755">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="748">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -24546,8 +24546,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov6" title="14">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="36">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="21">{
-                if s != nil </span><span class="cov7" title="21">{
+        for _, s := range c.sessions </span><span class="cov7" title="18">{
+                if s != nil </span><span class="cov7" title="18">{
                         n++
                 }</span>
         }
@@ -24628,13 +24628,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov6" title="8">{
+func linkLabel(s agent.LinkState) string <span class="cov5" title="6">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov0" title="0">
+        case agent.LinkOnAir:<span class="cov1" title="1">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov0" title="0">
                 return "reconnecting"</span>
-        default:<span class="cov6" title="8">
+        default:<span class="cov5" title="5">
                 return "connecting"</span>
         }
 }
@@ -24663,7 +24663,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="8">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -24949,7 +24949,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="117">{
+        for len(s) &lt; 3 </span><span class="cov5" title="122">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -24957,17 +24957,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="4">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2004">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5904">{
+        for n &gt; 0 </span><span class="cov9" title="5901">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2004">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -37991,12 +37991,12 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
                 return net.Listen("tcp", net.JoinHostPort(host, "0"))
         }</span>
         <span class="cov1" title="2">var lastErr error
-        for p := start; p &lt; start+200; p++ </span><span class="cov1" title="3">{
+        for p := start; p &lt; start+200; p++ </span><span class="cov1" title="4">{
                 ln, lerr := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
                 if lerr == nil </span><span class="cov1" title="2">{
                         return ln, nil
                 }</span>
-                <span class="cov1" title="1">lastErr = lerr</span>
+                <span class="cov1" title="2">lastErr = lerr</span>
         }
         <span class="cov0" title="0">return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)</span>
 }
@@ -39560,7 +39560,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="289">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="338">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -39582,7 +39582,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="71">
+                case agent.LinkOnAir:<span class="cov3" title="74">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -39639,7 +39639,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="10">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
