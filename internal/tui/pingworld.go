@@ -153,6 +153,91 @@ func blit(buf [][]worldCell, x, y int, lines []string, eye rune) {
 	}
 }
 
+// Ping's behavior loop (v2 P0-1): instead of a mechanical edge-to-edge slide, Ping lives a
+// small repeating "day" - mostly ambling, with pauses, a look-around, a short run, and a
+// transmit wink. Pure + seeded; the schedule repeats every waCycle windows so worldPingX can
+// integrate the per-window speed in O(waCycle). The eye stays the red '•' in EVERY act, so the
+// ONE-RED 'at least one red eye' law holds no matter where the wandering Pings have drifted.
+type worldAct int
+
+const (
+	waAmble    worldAct = iota // a slow stroll (speed 1)
+	waRun                      // a brief trot (speed 3)
+	waPause                    // stands a beat (idle bob)
+	waLook                     // looks around
+	waTransmit                 // a little on-air wink toward the band
+)
+
+const (
+	waWindow = 20 // frames per act (~3s at ~140ms/frame)
+	waCycle  = 24 // acts before the loop repeats (~1min)
+)
+
+// worldActAt is the (periodic, seeded) act for window wi - weighted heavily toward calm amble.
+func worldActAt(wi, seed int) worldAct {
+	switch worldHash(((wi%waCycle)+waCycle)%waCycle, 11, seed) % 12 {
+	case 0, 1:
+		return waPause
+	case 2:
+		return waLook
+	case 3:
+		return waRun
+	case 4:
+		return waTransmit
+	default:
+		return waAmble // ~7/12
+	}
+}
+
+// worldActSpeed is the per-frame columns an act advances (only amble/run move).
+func worldActSpeed(a worldAct) int {
+	switch a {
+	case waAmble:
+		return 1
+	case waRun:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// worldPingX integrates the act speeds into Ping's column, wrapped into [0,span). Bounded to
+// O(waCycle) by summing one loop cycle (the schedule is periodic in waCycle). 0 for span<=0.
+func worldPingX(frame, seed, span int) int {
+	if span <= 0 || frame < 0 {
+		return 0
+	}
+	wi, prog := frame/waWindow, frame%waWindow
+	cycLen := 0
+	for k := 0; k < waCycle; k++ {
+		cycLen += worldActSpeed(worldActAt(k, seed)) * waWindow
+	}
+	pos := (wi / waCycle) * cycLen
+	for k := 0; k < wi%waCycle; k++ {
+		pos += worldActSpeed(worldActAt(k, seed)) * waWindow
+	}
+	pos += worldActSpeed(worldActAt(wi, seed)) * prog
+	return ((pos % span) + span) % span
+}
+
+// worldPingPose returns Ping's sprite lines + the red eye for the act at this frame. The eye is
+// ALWAYS '•' (Ping never closes it - see the one-red note above).
+func worldPingPose(frame, seed int) ([]string, rune) {
+	wi, local := frame/waWindow, frame%waWindow
+	switch worldActAt(wi, seed) {
+	case waRun:
+		return pingWalkFrames[(frame/2)%len(pingWalkFrames)].lines[:], '•' // faster legs
+	case waPause:
+		return pingIdleFrames[(frame/4)%len(pingIdleFrames)].lines[:], '•'
+	case waLook:
+		return pingLookFrames[(local/4)%len(pingLookFrames)].lines[:], '•'
+	case waTransmit:
+		return pingTxFrames[(local/2)%len(pingTxFrames)].lines[:], '•'
+	default: // waAmble
+		return pingWalkFrames[(frame/3)%len(pingWalkFrames)].lines[:], '•'
+	}
+}
+
 // renderWorld is the pure, seeded screensaver frame: the cell buffer composited + tinted
 // (ink/dim everywhere, red ONLY on eye cells). "" for a degenerate size.
 func renderWorld(w, h, frame, seed int) string { return compositeWorld(worldBuffer(w, h, frame, seed)) }
@@ -241,10 +326,11 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
-	// LAYER 5 — Ping ambles along the rim (slow stroll; legs alternate), eye = the red dot.
-	pf := pingWalkFrames[(frame/3)%len(pingWalkFrames)]
-	px := (frame / 2) % maxI(1, w-pingWalkW) // a slow stroll, always fully on-screen
-	blit(buf, px, horizon-len(pf.lines)+1, pf.lines[:], '•')
+	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
+	// transmit) instead of a metronomic slide; the eye stays the red dot in every act.
+	pingLines, pingEye := worldPingPose(frame, seed)
+	px := worldPingX(frame, seed, maxI(1, w-pingWalkW)) // always fully on-screen
+	blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
 
 	// a second wanderer (a far/cornerHead Ping) drifting the other way + a baby trailing Ping.
 	span := w + pingWalkW
