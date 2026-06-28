@@ -1201,9 +1201,9 @@ github.com/rogerai-fyi/roger/internal/tui/pingworld.go:208:		worldPingX			100.0%
 github.com/rogerai-fyi/roger/internal/tui/pingworld.go:227:		worldPingPose			100.0%
 github.com/rogerai-fyi/roger/internal/tui/pingworld.go:245:		renderWorld			100.0%
 github.com/rogerai-fyi/roger/internal/tui/pingworld.go:249:		worldBuffer			100.0%
-github.com/rogerai-fyi/roger/internal/tui/pingworld.go:386:		compositeWorld			100.0%
-github.com/rogerai-fyi/roger/internal/tui/pingworld.go:422:		maxI				100.0%
-github.com/rogerai-fyi/roger/internal/tui/pingworld.go:432:		PingWorld			100.0%
+github.com/rogerai-fyi/roger/internal/tui/pingworld.go:392:		compositeWorld			100.0%
+github.com/rogerai-fyi/roger/internal/tui/pingworld.go:428:		maxI				100.0%
+github.com/rogerai-fyi/roger/internal/tui/pingworld.go:438:		PingWorld			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:132:			anim				100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:238:			beaconPulse			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:242:			beaconDot			100.0%
@@ -1295,7 +1295,7 @@ github.com/rogerai-fyi/roger/internal/tui/tui.go:3639:			cyclePreset			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3653:			presetForKey			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3708:			View				97.5%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3826:			paletteMatch			100.0%
-github.com/rogerai-fyi/roger/internal/tui/tui.go:3840:			paletteView			94.1%
+github.com/rogerai-fyi/roger/internal/tui/tui.go:3840:			paletteView			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3868:			promptLine			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3882:			quitConfirmView			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:3901:			bandDetailView			92.0%
