@@ -628,6 +628,7 @@ type model struct {
 	relayStart    time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
 	scanErr       bool      // last band scan failed (broker unreachable) -> Ping "...static"
 	scanned       bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	emptyScans    int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
 	minimized     bool      // header toggle: thin one-line bar vs the full lockup
 	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
 	// animation-free alternate view toggled by [m] in every non-text-entry context.
@@ -1084,10 +1085,23 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.tuneFreq != "" {
 			return m, nil
 		}
-		m.offers = []offer(msg)
 		m.scanErr = false
-		m.scanned = true    // a scan returned (even empty) -> stop showing the loading pose
+		m.scanned = true // a scan returned (even empty) -> stop showing the loading pose
+		// GLITCH FIX (band-list flicker): with 2 load-balanced broker instances, a re-scan can
+		// land on the instance still mirroring the shared registry and return an EMPTY /discover
+		// for a beat. Don't blank a POPULATED list on a single transient empty - keep the
+		// last-known offers and only accept an empty once it's SUSTAINED (emptyScansToBlank
+		// consecutive) or it's the first load. A genuine "all gone" still surfaces after the
+		// short grace; the alternating-instance flicker stops (a full scan resets the counter).
+		if len(msg) == 0 && m.loadedOnce && len(m.offers) > 0 {
+			if m.emptyScans++; m.emptyScans < emptyScansToBlank {
+				return m, nil // ignore the blip - keep the current band list + status
+			}
+		} else {
+			m.emptyScans = 0
+		}
 		m.loadedOnce = true // the first scan has come back: never re-enter the initial loading pose
+		m.offers = []offer(msg)
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
 		// Clamp the cursor + window into the FILTERED view (the list the user actually
 		// navigates), so a re-scan that shrinks the matches never strands the cursor.
@@ -7541,6 +7555,12 @@ func countOnline(o []offer) int {
 // frames is ~5s, comfortably under the broker's ~35s on-air TTL so a node that
 // just went on/off air is reflected within one cadence.
 const rescanEveryFrames = 31
+
+// emptyScansToBlank is how many CONSECUTIVE empty /discover scans the band list tolerates before
+// it actually blanks. At the ~5s rescan cadence, 3 ≈ 15s - long enough that a transient empty (a
+// rescan that load-balanced onto a still-syncing broker instance) is absorbed without flicker,
+// short enough that a genuine "all stations gone" still surfaces. See the offersMsg handler.
+const emptyScansToBlank = 3
 
 func tick() tea.Cmd {
 	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
