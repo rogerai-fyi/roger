@@ -1969,7 +1969,11 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 
 	b.metricsMu.Lock()
 	totalReqs := b.totalReqs.Load()
-	var cands []cand
+	// Pre-size to the node count (the upper bound on candidates): the eligibility pass appends
+	// one cand per surviving node, so a single right-sized allocation avoids the slice's
+	// doubling reallocs (P2 - cuts allocs/op + B/op on the hot routing path). Same access as the
+	// range below (both under metricsMu).
+	cands := make([]cand, 0, len(b.nodes))
 	rangeMin, rangeMax := 0.0, 0.0
 	haveRange := false
 
