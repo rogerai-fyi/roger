@@ -260,6 +260,20 @@ func selCarat(sel bool) string {
 	return " "
 }
 
+const caratSlideFrames = 2 // ticks the cursor `>` eases in after a move
+const toastFrames = 20      // ticks (~3s) a transient status lingers before auto-dismiss
+
+// caratGutter renders the 2-char selected-row gutter with a 1-frame slide cue: the cursor `>`
+// eases in from the right (" >") for the first caratSlideFrames ticks after a move (caratFrame),
+// then settles to "> ". Always exactly 2 columns (no row jiggle) and NO_COLOR-safe (the carat
+// glyph itself moves). 0 caratFrame (fresh model / no move yet) = the settled "> ".
+func (m model) caratGutter() string {
+	if m.caratFrame > 0 && m.frame-m.caratFrame >= 0 && m.frame-m.caratFrame < caratSlideFrames {
+		return " " + stSelText.Render(">")
+	}
+	return stSelText.Render(">") + " "
+}
+
 // rowSel renders a table row body so the SELECTED row is k9s-style reverse-video
 // (a full-width accent background bar) and unselected rows are plain. The `plain`
 // text for a selected row should carry no per-cell color - one reverse-video style
@@ -506,6 +520,12 @@ type model struct {
 	// then lets it settle to full ink (a calm "ink-settling" arrival). See revealBlock.
 	msgInFrom  int
 	msgInFrame int
+	// caratFrame stamps the frame the browse cursor last moved, so the selected-row `>` eases
+	// in for a beat (caratGutter) - a 1-cell motion cue. 0 = no pending slide.
+	caratFrame int
+	// statusFrame stamps when the status line last changed, so the tick auto-dismisses it as a
+	// transient toast in the main views (A.6.6). Stamped centrally in Update. 0 = nothing fresh.
+	statusFrame int
 	cmd        textinput.Model
 	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
 	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
@@ -951,8 +971,15 @@ func (m model) Init() tea.Cmd {
 // line) re-sizes + re-feeds its viewport and auto-sticks to the bottom (only when the
 // user is already there) without every return site having to remember to.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	prevStatus := m.status
 	tm, cmd := m.update(msg)
 	if mm, ok := tm.(model); ok {
+		// Stamp the frame whenever the status line CHANGES, so the tick can auto-dismiss it as
+		// a transient toast (A.6.6) - this central stamp avoids touching the ~50 assignment
+		// sites. A cleared status ("") needs no stamp.
+		if mm.status != prevStatus && mm.status != "" {
+			mm.statusFrame = mm.frame
+		}
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd
@@ -987,6 +1014,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modePingWorld {
 			m.world.frame++
 			return m, tick()
+		}
+		// TOAST (A.6.6): auto-dismiss a transient status after toastFrames in the MAIN views, so
+		// confirmations don't linger forever. Modal screens keep their status (it's the prompt).
+		if m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame >= toastFrames &&
+			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent) {
+			m.status = ""
 		}
 		if m.alert != nil {
 			if a := m.alert.take(); a != "" {
@@ -1620,11 +1653,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.caratFrame = m.frame // ease the cursor in (caratGutter)
 			}
 			m.scrollBrowse()
 		case "down", "j":
 			if m.cursor < len(m.visibleBands())-1 { // navigate the FILTERED + SORTED view
 				m.cursor++
+				m.caratFrame = m.frame // ease the cursor in (caratGutter)
 			}
 			m.scrollBrowse()
 		case "enter":
@@ -5203,7 +5238,7 @@ func (m model) browseView(w int) string {
 				plain = glyphOnAir + " " + fmt.Sprintf("%s  %s  %s", pad(bd.model, nameW-2), pad(stationsLbl, 9), rangeStr(bd))
 			}
 			if sel {
-				b.WriteString(selCarat(true) + " " + rowSel(true, plain, tableW) + "\n")
+				b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 				continue
 			}
 			// Unselected: dim band, tinted price + FREE tag. A connected row leads with the
