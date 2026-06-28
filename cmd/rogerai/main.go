@@ -521,7 +521,7 @@ func dispatch(cfg config, args []string) error {
 	case "ping":
 		return tui.PingWalk() // the quick 2-lap walk easter egg
 	case "--ping", "-ping":
-		return tui.PingWorld() // the full-screen "Ping World" screensaver
+		return tui.PingWorld(cfg.Broker) // the full-screen "Ping World" screensaver (live towers)
 	case "upgrade", "update", "self-update":
 		return cmdUpgrade(args[1:])
 	case "version":
