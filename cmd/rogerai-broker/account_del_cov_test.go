@@ -35,6 +35,15 @@ func TestAccountDelete(t *testing.T) {
 	if wok.Code != http.StatusOK {
 		t.Fatalf("delete(clean) = %d, want 200: %s", wok.Code, wok.Body.String())
 	}
+	// Deleting the account must expire BOTH the session cookie AND the readable
+	// signed-in hint - otherwise the deleted user's browser keeps the stale flag and
+	// goes on probing /account (401). (features/security/web_session_hint.feature.)
+	for _, name := range []string{sessionCookie, signedInHint} {
+		c := cookieByName(wok, name)
+		if c == nil || c.MaxAge >= 0 || c.Value != "" {
+			t.Errorf("delete must expire %q, got %+v", name, c)
+		}
+	}
 	if _, ok, _ := b.db.OwnerByLogin("octocat"); ok {
 		t.Error("a deleted login should no longer resolve (anonymized)")
 	}

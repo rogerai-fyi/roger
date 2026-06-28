@@ -99,7 +99,9 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Revoke the web session regardless (so the now-anonymized account can't be read).
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
+	// Clear BOTH the session cookie and the signed-in hint - otherwise the deleted user's
+	// browser keeps the stale roger_signed_in flag and goes on probing /account (401).
+	clearWebSessionCookies(w)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": done})
 }
 
