@@ -3847,17 +3847,19 @@ func (m model) paletteView(w int) string {
 	if len(matches) > maxRows {
 		more, matches = len(matches)-maxRows, matches[:maxRows]
 	}
+	// Each row is clamped to w (ANSI-safe) so the palette never wraps on a narrow terminal.
+	clamp := func(s string) string { return truncVisible(s, w) }
 	var b strings.Builder
-	b.WriteString("  " + stDim.Render("commands") + stTag.Render("  type to filter · ⏎ run · esc close") + "\n")
+	b.WriteString(clamp("  "+stDim.Render("commands")+stTag.Render("  type to filter · ⏎ run · esc close")) + "\n")
 	for _, c := range matches {
 		key := ""
 		if c.key != "" {
 			key = stTag.Render("  " + c.key)
 		}
-		b.WriteString("   " + stKey.Render(fmt.Sprintf("%-14s", c.name)) + stDim.Render(c.desc) + key + "\n")
+		b.WriteString(clamp("   "+stKey.Render(fmt.Sprintf("%-14s", c.name))+stDim.Render(c.desc)+key) + "\n")
 	}
 	if more > 0 {
-		b.WriteString("   " + stTag.Render(fmt.Sprintf("+%d more - keep typing to narrow", more)) + "\n")
+		b.WriteString(clamp("   "+stTag.Render(fmt.Sprintf("+%d more - keep typing to narrow", more))) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

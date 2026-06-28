@@ -371,9 +371,10 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
-	// the baby (•) duckling trails Ping, clamped on-screen, and is painted AFTER the shooting
-	// star (which can reach the horizon row at short heights) so its red eye GUARANTEES the
-	// one-red 'at least one eye' law on EVERY frame - even mid-transmit, even at h=8.
+	// the baby (•) duckling trails Ping, clamped on-screen, painted AFTER the shooting star
+	// (which can reach the horizon row at short heights) so its red '•' survives at every
+	// reasonable size - even mid-transmit, even at h=8. (The single ◉ below is the UNIVERSAL
+	// red-eye backstop that holds even at degenerate sizes like w=1 where the baby clips off.)
 	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
 
 	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby)
