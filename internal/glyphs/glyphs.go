@@ -116,6 +116,9 @@ var asciiFold = map[rune]rune{
 	'│': '|', '─': '-', '╰': '+', '╯': '+', '╮': '+', '╭': '+', '╲': '\\', '╱': '/',
 	'▔': '"', '╿': '|', '╽': '|', '∩': 'n',
 	'▁': '.', '▂': ':', '▃': '-', '▄': '=', '▅': '+', '▆': '*', '▇': '#', '█': '@',
+	// Ping World screensaver glyphs (stars / surface shades / moon-adjacent / now-playing).
+	'✦': '*', '✧': '*', '˙': '\'', '·': '.', '♪': '>',
+	'░': '.', '▒': ':', '▓': '#',
 }
 
 // Fold replaces non-ASCII art/signal runes with ASCII stand-ins WHEN ASCII() is in

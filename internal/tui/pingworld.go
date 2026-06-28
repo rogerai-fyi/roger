@@ -19,6 +19,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
 const worldTickMs = 120 // ~8fps: smoother than the 160ms TUI tick, still calm
@@ -378,7 +380,9 @@ func compositeWorld(buf [][]worldCell) string {
 			for k := i; k < j; k++ {
 				seg = append(seg, row[k].r)
 			}
-			s := string(seg)
+			// Fold non-ASCII art to ASCII stand-ins on a legacy console (no-op on UTF-8), so
+			// the screensaver degrades cleanly instead of mojibake-ing ░▒▓ ◉ ✦ etc.
+			s := glyphs.Fold(string(seg))
 			switch {
 			case c.r == ' ':
 				b.WriteString(s)

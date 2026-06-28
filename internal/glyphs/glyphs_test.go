@@ -59,3 +59,17 @@ func TestFold(t *testing.T) {
 		t.Fatalf("Fold on capable terminal must be a no-op, got %q", got)
 	}
 }
+
+// TestFoldWorldGlyphs covers the Ping World screensaver glyphs added to asciiFold, so the
+// screensaver degrades cleanly on a legacy console.
+func TestFoldWorldGlyphs(t *testing.T) {
+	t.Setenv("ROGERAI_ASCII", "1")
+	cases := map[string]string{
+		"✦✧": "**", "˙": "'", "·": ".", "♪": ">", "░▒▓": ".:#",
+	}
+	for in, want := range cases {
+		if got := Fold(in); got != want {
+			t.Errorf("Fold(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
