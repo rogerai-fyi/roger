@@ -223,14 +223,14 @@
 
       <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="An interactive replay of the roger CLI radio. Switch between four demos: booting the dial and reading the band, tuning in to open a channel and get a local OpenAI-compatible endpoint and key, the built-in agent running a tool turn over the channel, and sharing your own GPU on air to serve a request and earn.">
+           aria-label="An interactive replay of the roger CLI radio. Switch between five demos that follow the roger arc: booting the dial and reading the band; tuning in to get a local OpenAI-compatible endpoint your own tools point at, with automatic failover and a live wallet debit; the built-in agent running a multi-step, multi-tool job on its own; sharing your GPU on air with a price, schedule, attestation and live requests; and cashing out earnings as a payout.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="term__title" id="termTitle">roger — the dial</span>
         </div>
 
-        <!-- station-preset bar: switchable demos, current one lit red. Mirrors the
-             TUI preset bank: [1] TUNE IN · [0] AGENT · [2] SHARE, plus the boot. -->
+        <!-- station-preset bar: switchable demos, current one lit red. Follows the roger
+             arc: boot -> borrow (tune in) -> automate (agent) -> lend (share) -> get paid. -->
         <div class="term__presets" id="termPresets" role="group" aria-label="Choose a demo">
           <button class="term__preset is-on" type="button" data-demo="roger" aria-pressed="true">
             <span class="term__preset-led" aria-hidden="true"></span>roger
@@ -243,6 +243,9 @@
           </button>
           <button class="term__preset" type="button" data-demo="share" aria-pressed="false">
             <span class="term__preset-led" aria-hidden="true"></span>share
+          </button>
+          <button class="term__preset" type="button" data-demo="payouts" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>payouts
           </button>
         </div>
 

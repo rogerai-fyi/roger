@@ -176,7 +176,26 @@
     ];
   }
 
-  /* ---- the four demos (mirror the TUI preset bank) ------------------- */
+  // walletLine renders the consumer's live wallet readout (debited per token) -
+  // the spend story that makes TUNE IN about *your tools using a metered endpoint*.
+  function walletLine(bal) {
+    return dim("  ▸ wallet ") + money("$" + bal) + dim("  · debited live, per token");
+  }
+  // obox draws a left-border tool box (no right border, so no per-line padding math)
+  // for the AGENT tape's tool calls. title rides the top rule; lines are the body.
+  function obox(title, lines) {
+    var out = [dim("  ┌ ") + gold("◆ " + title) + " " + dim(new Array(Math.max(2, 48 - title.length)).join("─"))];
+    lines.forEach(function (l) { out.push(dim("  │ ") + l); });
+    out.push(dim("  └" + new Array(56).join("─")));
+    return out;
+  }
+
+  /* ---- the five tapes: the roger arc (mirror the TUI preset bank) -----
+     roger (the lay of the land) -> tune in (BORROW: a drop-in endpoint your own
+     tools hit, with failover + live wallet debit) -> agent (roger's BUILT-IN agent
+     runs a multi-step, multi-tool job) -> share (LEND: price + schedule + verify +
+     live requests) -> payouts (cash out). tune in = "endpoint for your tools";
+     agent = "autonomous worker" - deliberately distinct. ------------------- */
   var DEMOS = {
     // `roger` - boot the dial: type the command, acquire the carrier (animated
     // sweep), reveal the preset bank, then read the live band.
@@ -208,8 +227,10 @@
       }
     },
 
-    // `tune in` - the [1] TUNE IN consumer walk: lock the strongest station ->
-    // CHANNEL OPEN + the drop-in endpoint plate, then one chat turn + receipt.
+    // `tune in` - BORROW a model: tune in, get a drop-in OpenAI-compatible endpoint
+    // your OWN tools point at (curl / SDK / Cursor / bots), watch tokens stream + the
+    // wallet debit live, and see the one-stable-endpoint failover heal a dropped
+    // station under the hood. NOT in-TUI chat - that's what makes it != AGENT.
     tunein: {
       label: "tune in", title: "roger — tune in",
       build: function () {
@@ -229,36 +250,52 @@
             ok("  ◉") + " lineage handshake  " + gold("◆ weights·shard·token") + "   " + ok("ok")
           ];
           for (var i = 0; i < steps.length; i++) c.show(base.concat(steps.slice(0, i + 1)), STEP);
-          // CHANNEL OPEN + the BASE URL / API KEY / MODEL plate.
+          // CHANNEL OPEN + the drop-in BASE URL / API KEY / MODEL plate.
           c.show(base.concat(steps, [""], endpointPlate("@nightowl")), END_HOLD);
-          // one chat turn over the open channel.
-          var chatHead = [
-            ok("  ◉ CHANNEL OPEN") + "  " + head(BAND) + " " + dim("via @nightowl") + "   " + gold("◆ verified"),
+
+          // THE POINT: point any OpenAI client at 127.0.0.1. Shown as a curl, but it is
+          // the same line for the OpenAI SDK, Cursor, Cline, your agents/bots.
+          var useHead = [
+            ok("  ◉ CHANNEL OPEN") + "  " + dim("point any OpenAI tool at ") + money("127.0.0.1:" + PORT) + "   " + gold("◆ verified"),
             RULE
           ];
-          c.type(chatHead, "summarize this repo in one line", AFTER_TYPE);
-          c.show(chatHead.concat([
-            PROMPT + head("summarize this repo in one line"), "",
-            dim("  ((•)) ") + live("◉ receiving") + dim("  @nightowl · 58 t/s") + CURSOR
+          c.type(useHead, "curl 127.0.0.1:" + PORT + "/v1/chat/completions \\", AFTER_TYPE);
+          var curl = useHead.concat([
+            PROMPT + head("curl 127.0.0.1:" + PORT + "/v1/chat/completions \\"),
+            dim("       -H ") + "\"Authorization: Bearer " + money("roger-local") + "\" \\",
+            dim("       -d ") + "'{\"model\":\"" + head(BAND) + "\", \"messages\": […]}'"
+          ]);
+          c.show(curl, STAGE);
+          // streaming response + the wallet ticking down per token.
+          c.show(curl.concat(["",
+            dim("  ((•)) ") + live("◉ streaming") + dim("  @nightowl · 58 t/s") + CURSOR,
+            walletLine("12.4802")
           ]), STEP);
-          c.show(chatHead.concat([
-            PROMPT + head("summarize this repo in one line"), "",
+          c.show(curl.concat(["",
             dim("  ((•)) ") + ok("◉") + dim("  @nightowl"), "",
-            "  A peer-to-peer marketplace + CLI to rent home-GPU LLMs by the token.", "",
-            dim("  ◆ receipt co-signed · ") + money("47 tok · $0.000014") + dim(" · 70% to @nightowl")
+            "  Refactored the handler into three functions; tests still pass.", "",
+            walletLine("12.4799"),
+            dim("  ◆ receipt co-signed · ") + money("131 tok · $0.000039") + dim(" · 70% to @nightowl")
           ]), STAGE);
-          // a glimpse of compact `m` (windowshade) mode.
-          c.show([
-            dim("  press ") + span("t-sel", " m ") + dim("  · windowshade -> compact"), "",
-            ok("◉") + " " + head(BAND) + dim("  @nightowl ") + live("▆▆▆▆▆▅·") + dim("  58 t/s  ") + money("0.22 $/M") + dim("  ◆"),
-            dim("  ▸ on channel · 3 stations on band · calm mode")
-          ], END_HOLD);
+          // failover: ONE stable endpoint - a station drops mid-stream, roger re-routes
+          // under the hood, no retry in your code (internal/client/failover.go).
+          c.show(curl.concat(["",
+            dim("  ((•)) ") + live("◉ @nightowl dropped mid-stream") + dim(" …") + CURSOR
+          ]), STEP);
+          c.show(curl.concat(["",
+            ok("  ◉ failover") + dim("  re-routed ") + head("@nightowl") + dim(" → ") + head("@glacier") +
+              dim("  · same URL + key, no retry in your code"), "",
+            dim("  ((•)) ") + ok("◉") + dim("  @glacier · stream resumed · 47 t/s"),
+            walletLine("12.4796")
+          ]), END_HOLD);
         });
       }
     },
 
-    // `agent` - the [0] AGENT harness (dj.md persona): one tool turn over the
-    // open channel - prompt -> routing -> tool call -> result -> answer + receipt.
+    // `agent` - roger is ITSELF an agent (the [0] AGENT dj.md harness): hand it a JOB
+    // and it plans, runs SEVERAL tools autonomously over the band, and finishes the
+    // task. The multi-step, multi-tool loop is what makes it != TUNE IN (which just
+    // hands an endpoint to YOUR tools). Each turn is metered + co-signed.
     agent: {
       label: "agent", title: "roger — agent",
       build: function () {
@@ -269,41 +306,53 @@
             RULE
           ];
           c.show(agentHead.concat([
-            dim("  the embedded agent runs tools over your open channel."), "",
-            dim("  ▸ ask it to do something - it routes the turn to the band.")
+            dim("  roger is itself an agent - hand it a JOB, not a question."), "",
+            dim("  ▸ it plans, runs many tools, and finishes the task on its own.")
           ]), STAGE);
-          c.type(agentHead, "/agent how many Go files in cmd/ ?", AFTER_TYPE);
-          c.show(agentHead.concat([
-            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
-            dim("  ((•)) ") + live("◉ thinking") + dim("  routing to band…") + CURSOR
-          ]), STEP);
-          c.show(agentHead.concat([
-            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
-            dim("  ((•)) ") + ok("◉") + dim("  tool call"), "",
-            dim("  ┌ ") + gold("◆ tool") + dim(" ─ run ─────────────────────────────────────────┐"),
-            dim("  │ ") + head("$ ") + "find cmd -name '*.go' | wc -l" + dim("                          │"),
-            dim("  └────────────────────────────────────────────────────────────┘")
+          var task = "/agent find the package with the worst test coverage and why";
+          c.type(agentHead, task, AFTER_TYPE);
+          var P = PROMPT + head(task);
+          // plan
+          c.show(agentHead.concat([P, "",
+            dim("  ((•)) ") + live("◉ planning") + dim("  3 steps · routing to band…") + CURSOR
           ]), STAGE);
-          c.show(agentHead.concat([
-            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
-            dim("  ((•)) ") + ok("◉") + dim("  tool result"), "",
-            dim("  ┌ ") + gold("◆ tool") + dim(" ─ run ─────────────────────────────────────────┐"),
-            dim("  │ ") + head("$ ") + "find cmd -name '*.go' | wc -l" + dim("                          │"),
-            dim("  │ ") + ok("9") + dim("                                                            │"),
-            dim("  └────────────────────────────────────────────────────────────┘")
-          ]), STEP);
-          c.show(agentHead.concat([
-            PROMPT + head("/agent how many Go files in cmd/ ?"), "",
-            dim("  ((•)) ") + ok("◉") + dim("  @nightowl"), "",
-            "  9 Go files under cmd/ - one per binary (broker, cli, sidecar).", "",
-            dim("  ◆ receipt co-signed · ") + money("1 tool · 88 tok · $0.000026") + dim(" · ") + live("roger that.")
+          // step 1/3 - run the coverage suite
+          c.show(agentHead.concat([P, "",
+            dim("  ((•)) ") + ok("◉") + dim("  step 1/3 · run")
+          ], obox("tool · run", [
+            head("$ ") + "go test ./... -cover | sort -t% -k1 | head -1",
+            ok("internal/store") + dim("   ") + live("71.2%") + dim("   ← lowest")
+          ])), STAGE);
+          // step 2/3 - read the offending file
+          c.show(agentHead.concat([P, "",
+            dim("  ((•)) ") + ok("◉") + dim("  step 2/3 · read")
+          ], obox("tool · read", [
+            head("internal/store/ledger.go") + dim("  (412 lines)"),
+            dim("  cold: ") + "settleRecount() error branches"
+          ])), STAGE);
+          // step 3/3 - grep the tests to confirm the gap
+          c.show(agentHead.concat([P, "",
+            dim("  ((•)) ") + ok("◉") + dim("  step 3/3 · grep")
+          ], obox("tool · grep", [
+            head("$ ") + "grep -c settleRecount internal/store/*_test.go",
+            ok("0") + dim("   no test exercises the recount error path")
+          ])), STAGE);
+          // synthesized answer + the multi-tool receipt
+          c.show(agentHead.concat([P, "",
+            dim("  ((•)) ") + ok("◉") + dim("  done · 3 tools"), "",
+            "  " + head("internal/store") + " is lowest at " + live("71.2%") + " - settleRecount()'s",
+            "  error branches are untested. Add a case where the broker recount",
+            "  disagrees with the node's claim and assert the hold is refunded.", "",
+            dim("  ◆ receipt co-signed · ") + money("3 tools · 1.24k tok · $0.00031") + dim(" · ") + live("roger that.")
           ]), END_HOLD);
         });
       }
     },
 
-    // `share` - the [2] SHARE provider walk: scan local backends, the detected-
-    // models table, go ON AIR, an incoming request + earnings tick.
+    // `share` - LEND your GPU: scan backends -> detected models -> SET A PRICE (the
+    // in-TUI pricing editor vs the live band median) + a free overnight schedule -> go
+    // ON AIR -> the broker CANARY verifies you -> live requests stream in -> earnings +
+    // the on-air slots. Richer + longer than a single go-live.
     share: {
       label: "share", title: "roger — share",
       build: function () {
@@ -338,7 +387,7 @@
           c.show(scanHead.concat(probes, ["",
             ok("  ◉") + dim("  3 backends up · ") + head("4 models") + dim(" detected across the box")
           ]), STAGE);
-          // the detected-models table; pick qwen3-coder-30b, go ON AIR.
+          // the detected-models table; pick qwen3-coder-30b.
           var shareHead = [
             "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  your models, detected") + "   " + gold("◆ provider"),
             RULE,
@@ -357,36 +406,115 @@
             c.show(shareHead.concat(locals.slice(0, li + 1).map(function (m) { return localRow(m, false); })), STEP);
           }
           c.show(shareHead.concat(locals.map(function (m, i) { return localRow(m, i === 1); }), [RULE,
-            dim("  ▸ ") + head("qwen3-coder-30b") + dim(" going on air at ") + money("0.30 $/M out") + dim("…")
+            dim("  ▸ ") + head("qwen3-coder-30b") + dim(" · set your rate…")
           ]), STAGE);
-          // ON AIR: the single go-live line (mirrors `roger share`'s onAirLine).
-          var onair = [
-            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  on air") + "   " + gold("◆ provider"), RULE,
-            ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
-              dim(" · ") + money("earning $0.30/1M") + dim(" · view at rogerai.fyi")
+
+          // --- PRICE editor: set the out-price against the live band median ---
+          var priceHead = [
+            "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  set your rate · ") + head("qwen3-coder-30b") + "   " + gold("◆ provider"),
+            RULE
           ];
-          c.show(onair, STAGE);
-          var live1 = onair.concat(["",
-            dim("  ┌ live ──────────────────────────────────────────────────────┐"),
-            dim("  │ ") + ok("◉ on air ") + gold("◆") + dim(" │ ") + head("@you    ") +
-              dim(" │ ") + live("incoming request from @ssh-bot…") + dim("            │"),
-            dim("  └────────────────────────────────────────────────────────────┘")
-          ]);
-          c.show(live1, STAGE);
-          c.show(live1.concat(["",
-            ok("  ◉") + " served " + head("742 tok out") + dim(" @ ") + money("0.30 $/M") +
-              dim("  ·  earned ") + money("+$0.000223") + dim("  (70% keep)"),
-            dim("  balance ") + money("$42.18") + dim("  ·  your GPU is paying rent. ") + live("roger that.")
-          ]), END_HOLD);
+          function priceScreen(out, note) {
+            return priceHead.concat([
+              dim("  $/1M in    ") + money("0.20"),
+              dim("  $/1M out   ") + span("t-sel", " " + out + " ◂") + dim("   ") + note,
+              dim("  schedule   ") + "free 03:00–03:30 UTC " + dim("· earn the rest of the day"), "",
+              "  " + span("t-sel", " enter ") + dim(" go on air   ") + span("t-sel", " s ") + dim(" schedule   ") + span("t-sel", " esc ") + dim(" back")
+            ]);
+          }
+          c.show(priceScreen("0.27", dim("band median 0.27 $/M")), STAGE);
+          c.show(priceScreen("0.30", live("a touch above median · fair")), STAGE);
+
+          // --- go ON AIR + the broker CANARY verify (now routable + scored) ---
+          var onairHead = "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  on air") + "   " + gold("◆ provider");
+          var liveOne = ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) + dim(" · ") + money("$0.30/1M out");
+          c.show([onairHead, RULE,
+            ok("  ◉ ON AIR") + "  " + head("@you ") + gold("◆") + dim(" · ") + head(BAND) +
+              dim(" · ") + money("earning $0.30/1M") + dim(" · ") + live("station live")
+          ], STAGE);
+          c.show([onairHead, RULE, liveOne, "",
+            ok("  ◉") + dim(" canary probe   broker sent a test request …") + CURSOR
+          ], STEP);
+          c.show([onairHead, RULE, liveOne, "",
+            ok("  ◉") + dim(" canary probe   ") + gold("◆ verified") + dim("  · now routable + scored on the band")
+          ], STAGE);
+
+          // --- live requests stream in (left-border log, grows row by row) ---
+          var reqs = [
+            ok("◉ ") + head(pad("@ssh-bot", 13)) + dim(pad("318 tok", 10)) + money("+$0.000095"),
+            ok("◉ ") + head(pad("@cursor-ide", 13)) + dim(pad("742 tok", 10)) + money("+$0.000223"),
+            ok("◉ ") + head(pad("@nightly-ci", 13)) + dim(pad("1.2k tok", 10)) + money("+$0.000360")
+          ];
+          function liveLog(n) {
+            var rows = [onairHead, RULE, dim("  ┌ live · incoming ") + dim(new Array(38).join("─"))];
+            for (var i = 0; i < n; i++) rows.push(dim("  │ ") + reqs[i]);
+            if (n < reqs.length) rows.push(dim("  │ ") + live("◉ serving…") + CURSOR);
+            rows.push(dim("  └" + new Array(56).join("─")));
+            return rows;
+          }
+          for (var r = 1; r <= reqs.length; r++) c.show(liveLog(r), STAGE);
+
+          // --- earnings + on-air slots + the payout hint (segue to PAYOUTS) ---
+          c.show([onairHead, RULE,
+            dim("  served today  ") + head("362 req") + dim("   ·   earned ") + money("+$3.78") + dim("  (70% keep)"),
+            dim("  balance       ") + money("$42.18 payable") + dim("   ·   ON AIR ") + head("1/4 slots"), "",
+            dim("  ▸ your GPU is paying rent. cash out with ") + span("t-sel", " [$] PAYOUT ")
+          ], END_HOLD);
+        });
+      }
+    },
+
+    // `payouts` - MONETIZE: the money-OUT story. The on-air earnings hint -> `roger
+    // payout status` (KYC + payable vs held + policy) -> `roger payout request` -> sent
+    // to the bank via Stripe Connect. Completes the arc: borrow -> automate -> lend ->
+    // get paid. (Grounds: cmd/rogerai payoutStatus output; 120-day hold · $25 · monthly.)
+    payouts: {
+      label: "payouts", title: "roger — payouts",
+      build: function () {
+        return compile(function (c) {
+          // the on-air earnings surface, balance ticking up, with the payout hint.
+          var earnHead = "  " + BRAND + "   " + span("t-sel", " •[2] SHARE ") + dim("  earnings") + "   " + gold("◆ provider");
+          var bal = ["38.40", "41.02", "42.18"];
+          for (var i = 0; i < bal.length; i++) {
+            c.show([earnHead, RULE,
+              ok("  ◉ ON AIR") + dim("  @you ◆ · ") + head(BAND) + dim(" · 1/4 slots"), "",
+              dim("  served today  ") + head((280 + i * 40) + " req") + dim("   ·   ") + money("$" + bal[i]) + dim(" balance · 70% keep"),
+              dim("  ▸ ") + money("$" + bal[i] + " payable") + dim("  ·  run ") + span("t-sel", " roger payout ")
+            ], i < bal.length - 1 ? STEP : STAGE);
+          }
+          // `roger payout status`: KYC + payable vs held + the policy.
+          c.type([], "roger payout status", AFTER_TYPE);
+          c.show([
+            PROMPT + head("roger payout status"), "",
+            head("  PAYOUT"),
+            dim("    KYC        ") + ok("active") + dim("  (Stripe Connect complete)"),
+            dim("    payable    ") + money("$42.18") + dim("   (ready to cash out)"),
+            dim("    held       ") + money("$18.40") + dim("   (inside the 120-day hold)"),
+            dim("    paid out   ") + money("$306.50") + dim("   (lifetime)"),
+            dim("    next due   ") + head("2026-07-15") + dim("   (held earnings become payable)"),
+            dim("    policy     120-day hold · $25 min · monthly")
+          ], END_HOLD);
+          // `roger payout request`: send the payable balance to the bank.
+          c.type([], "roger payout request", AFTER_TYPE);
+          c.show([
+            PROMPT + head("roger payout request"), "",
+            ok("  ◉") + dim(" requesting ") + money("$42.18") + dim(" → Stripe Connect …") + CURSOR
+          ], STEP);
+          c.show([
+            PROMPT + head("roger payout request"), "",
+            ok("  ◉ PAYOUT SENT") + dim("  ") + money("$42.18") + dim(" → your bank · arrives in ~2 days"), "",
+            dim("  held earnings roll to payable on a 120-day basis · paid monthly."), "",
+            dim("  ▸ borrow · automate · lend · get paid. ") + live("roger that.")
+          ], END_HOLD);
         });
       }
     }
   };
 
   /* ---- engine -------------------------------------------------------- */
-  // playlist order: when a demo finishes we auto-advance to the next preset
-  // and play it (roger -> tune in -> agent -> share -> back to roger).
-  var ORDER = ["roger", "tunein", "agent", "share"];
+  // playlist order: when a demo finishes we auto-advance to the next preset and play
+  // it - the roger arc: roger -> tune in -> agent -> share -> payouts -> back to roger.
+  var ORDER = ["roger", "tunein", "agent", "share", "payouts"];
   var NEXT_HOLD = 1500;         // ms to show the "NEXT:" indicator before switching
   function nextOf(name) {
     var i = ORDER.indexOf(name);
