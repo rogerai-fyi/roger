@@ -1233,6 +1233,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	m.prevMode = m.mode
 	m.mode = modePingWorld
+	// Blur the active text input so there's no live-but-frozen cursor sitting behind the
+	// world (its blink Cmd-chain can't run while the screensaver owns the tick). The wake
+	// re-focuses it. Blurring both is harmless - only the focused one was animating.
+	m.chatIn.Blur()
+	m.cmd.Blur()
 	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff)}
 	return m, tick()
 }
@@ -1244,6 +1249,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == modePingWorld {
 		m.mode = m.prevMode
 		m.status = stDim.Render("welcome back - the band's still here")
+		// Re-focus + re-arm the cursor blink for whichever input we woke back into (the
+		// blink Cmd-chain died while the world owned the tick), batched with the normal beat.
+		switch m.prevMode {
+		case modeChat:
+			return m, tea.Batch(tick(), m.chatIn.Focus())
+		case modeCommand:
+			return m, tea.Batch(tick(), m.cmd.Focus())
+		}
 		return m, tick() // resume the normal beat
 	}
 	// The quit-confirm modal owns every key while open (answer the on-air guard).
