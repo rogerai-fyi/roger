@@ -16,8 +16,9 @@
 //   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs --apply         # write the rules
 //   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs --apply --report-only   # CSP as Report-Only
 //
-// Env: CF_API_TOKEN (required for --apply; a token scoped to Zone.Rules + Zone:Read on the
-//      rogerai.fyi zone). CF_ZONE overrides the zone name (default rogerai.fyi).
+// Env: CF_API_TOKEN (or CLOUDFLARE_API_TOKEN) - required for --apply; a token with Zone:Read +
+//      Zone Transform Rules:Edit + Dynamic URL Redirects:Edit on the rogerai.fyi zone.
+//      CF_ZONE overrides the zone name (default rogerai.fyi).
 //
 // Dependency-free: Node >=18 (global fetch). No npm install.
 
@@ -100,8 +101,8 @@ function redirectRule() {
 
 // ---- Cloudflare API helpers ---------------------------------------------------------------
 async function cf(method, urlPath, body) {
-  const token = process.env.CF_API_TOKEN;
-  if (!token) throw new Error("CF_API_TOKEN is not set");
+  const token = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
+  if (!token) throw new Error("CF_API_TOKEN / CLOUDFLARE_API_TOKEN is not set");
   const res = await fetch(API + urlPath, {
     method,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
