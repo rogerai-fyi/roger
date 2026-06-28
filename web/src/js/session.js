@@ -14,6 +14,20 @@
 
   var BROKER = "https://broker.rogerai.fyi";
 
+  // The /account check is a CREDENTIALED cross-origin request the broker only honors
+  // for its single configured web origin (ROGERAI_WEB_ORIGIN, default the production
+  // https://rogerai.fyi - see corsCreds in cmd/rogerai-broker/auth.go). On ANY other
+  // origin (a local `dist/` preview on http://127.0.0.1, a staging host) that request
+  // is guaranteed to be CORS-blocked - which the browser logs as a console error even
+  // though we catch the rejection - AND a visitor there is logged-out by definition (no
+  // session cookie for this origin). So skip the call entirely off the production web
+  // origin: identical logged-out result, no console noise. (Set window.ROGER_BROKER_CHECK
+  // = true before this script to force the check, e.g. when developing against a local
+  // broker whose ROGERAI_WEB_ORIGIN is set to your dev origin.)
+  function onProdWebOrigin() {
+    return location.protocol === "https:" && /(^|\.)rogerai\.fyi$/.test(location.hostname);
+  }
+
   // The "Log in" anchor to replace. Prefer an explicit hook; fall back to the
   // homepage nav's utility login link by href.
   function findLoginLink() {
@@ -29,6 +43,10 @@
 
   var loginLink = findLoginLink();
   if (!loginLink) return; // nothing to swap on this page
+
+  // Off the production web origin the credentialed check can only CORS-fail + spam the
+  // console; the static logged-out nav is already correct there. Skip unless forced.
+  if (!onProdWebOrigin() && !window.ROGER_BROKER_CHECK) return;
 
   fetch(BROKER + "/account", { credentials: "include" })
     .then(function (r) { return r.ok ? r.json() : null; })
