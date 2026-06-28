@@ -5048,13 +5048,13 @@ func (m model) compactBandList(w int, vis []band, total int) string {
 			stDim.Render(" share · ") + stKey.Render("m") + stDim.Render(" expand · r re-scan") + "\n"
 	}
 	var b strings.Builder
-	colW := w / 2
+	colW, step := w/2, 2
 	if colW < 18 {
-		colW = w // too slim to pair: one band per row
+		colW, step = w, 1 // too slim to pair: ONE band per row (step matches, so none dropped)
 	}
-	for i := 0; i < len(vis); i += 2 {
+	for i := 0; i < len(vis); i += step {
 		row := "  " + m.compactBandCell(vis[i], i == m.cursor, colW-3)
-		if i+1 < len(vis) && colW != w {
+		if step == 2 && i+1 < len(vis) {
 			row += " " + m.compactBandCell(vis[i+1], i+1 == m.cursor, colW-3)
 		}
 		b.WriteString(truncVisible(row, w) + "\n")
