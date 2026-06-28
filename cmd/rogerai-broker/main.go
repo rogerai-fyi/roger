@@ -134,6 +134,15 @@ type broker struct {
 	// write-throughs liveness and feeds a background merge loop. See sharedstore.go.
 	shared sharedStore
 
+	// localCache is the IN-PROCESS fallback for the hot read-path cache (serveCachedJSON) when
+	// no shared (Redis) backend is configured: a tiny TTL map so a single-instance / no-Redis
+	// deploy still collapses repeated full-market recomputes within the short TTL window. Safe
+	// because it reuses serveCachedJSON's existing cache KEY (public market keyed by query;
+	// authed feeds keyed per-identity, anon refused), so it inherits that scoping. Guarded by
+	// localCacheMu; bounded (cleared past localCacheCap entries) so query variety can't grow it.
+	localCacheMu sync.Mutex
+	localCache   map[string]localCacheEntry
+
 	// multiInstance turns on the PRE-SCALE Stage 2 cross-instance job/result/stream
 	// RENDEZVOUS bus (sharedstore.go): a job picked on THIS instance can be served by a
 	// provider long-polling a PEER instance, and the result/stream flows back over the

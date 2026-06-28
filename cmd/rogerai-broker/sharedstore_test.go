@@ -119,9 +119,15 @@ func TestValkeyCacheDegradesOnClose(t *testing.T) {
 // TestServeCachedJSONFlagOff proves the flag-OFF invariant: with b.shared == nil,
 // serveCachedJSON computes + serves DIRECTLY every call (no caching), byte-for-byte
 // today's behavior.
+// TestServeCachedJSONFlagOff: with NO shared (Redis) backend, serveCachedJSON now amortizes via
+// the IN-PROCESS TTL cache (P3) - three calls within the TTL collapse to ONE compute and serve
+// the identical body. (Before P3 flag-off recomputed every call; the local fallback gives a
+// single-instance / no-Redis deploy the same hot-path amortization as the shared cache path,
+// keyed by the same scoped key so it's leak-safe.)
 func TestServeCachedJSONFlagOff(t *testing.T) {
 	b := &broker{} // shared == nil
 	calls := 0
+	var bodies []string
 	h := func(w http.ResponseWriter, r *http.Request) {
 		b.serveCachedJSON(w, "k", 3*time.Second, func() any {
 			calls++
@@ -134,9 +140,13 @@ func TestServeCachedJSONFlagOff(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("code = %d", w.Code)
 		}
+		bodies = append(bodies, w.Body.String())
 	}
-	if calls != 3 {
-		t.Errorf("flag-off must compute every call, computed %d/3 times", calls)
+	if calls != 1 {
+		t.Errorf("flag-off now caches in-process: want 1 compute within the TTL, got %d", calls)
+	}
+	if bodies[0] != bodies[2] {
+		t.Errorf("flag-off responses within the TTL must be the identical cached body:\n%q\n%q", bodies[0], bodies[2])
 	}
 }
 
