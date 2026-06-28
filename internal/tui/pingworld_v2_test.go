@@ -199,23 +199,59 @@ func TestMoonPosUpperSkySlowDrift(t *testing.T) {
 	}
 }
 
-// TestWorldShowsMoonNeverRed: the moon's disc appears in the upper sky and is NEVER red.
-func TestWorldShowsMoonNeverRed(t *testing.T) {
+// TestWorldShowsPlanetNeverRed: the planet/globe hangs in the upper sky and is NEVER red.
+func TestWorldShowsPlanetNeverRed(t *testing.T) {
 	buf := worldBuffer(100, 22, 0, 4)
-	upper := len(buf) / 3 // clearly above the horizon/Ping
+	upper := len(buf) / 2 // the globe (5 rows) sits in the upper sky
 	found := false
 	for y := 0; y < upper; y++ {
 		for _, c := range buf[y] {
-			if c.r == '(' || c.r == ')' { // disc walls - up here, only the moon
+			if c.r == '(' || c.r == ')' { // the globe's rim curve - up here, only the planet
 				found = true
 				if c.eye {
-					t.Error("a moon cell must never be red (eye)")
+					t.Error("a planet cell must never be red (eye)")
 				}
 			}
 		}
 	}
 	if !found {
-		t.Error("expected the moon disc in the upper sky")
+		t.Error("expected the planet/globe in the upper sky")
+	}
+}
+
+// TestWorldGlobeRotates: the planet is a rotating 3D sphere - its surface evolves across frames
+// (rotation), stays 5x8 with the ( ) rim curve, deterministic, and shaded only with the globe
+// ramp (no red).
+func TestWorldGlobeRotates(t *testing.T) {
+	g0, g1 := globeLines(0), globeLines(30)
+	if len(g0) != 5 {
+		t.Fatalf("globe should be 5 rows, got %d", len(g0))
+	}
+	same := true
+	for i := range g0 {
+		if len([]rune(g0[i])) != 8 {
+			t.Errorf("globe row %d width %d, want 8", i, len([]rune(g0[i])))
+		}
+		if g0[i] != g1[i] {
+			same = false
+		}
+	}
+	if same {
+		t.Error("the globe must rotate (surface evolves across frames)")
+	}
+	if globeLines(7)[2] != globeLines(7)[2] { // determinism sanity (same frame -> same)
+		t.Error("globe must be deterministic per frame")
+	}
+	ramp := map[rune]bool{'(': true, ')': true, ' ': true, '.': true, '-': true, '\'': true, '`': true}
+	for _, r := range globeRamp {
+		ramp[r] = true
+	}
+	for _, line := range globeLines(11) {
+		for _, r := range line {
+			if !ramp[r] {
+				t.Errorf("globe glyph %q is outside the rim/ramp set", string(r))
+			}
+		}
 	}
 }
 

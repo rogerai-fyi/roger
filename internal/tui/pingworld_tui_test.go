@@ -126,3 +126,34 @@ func TestPingInHelpListing(t *testing.T) {
 		t.Errorf("/help should list /ping; got:\n%s", body)
 	}
 }
+
+// TestScreensaverPreservesTuneIn GUARANTEES the founder's requirement that the screensaver does
+// not interrupt TUNING: entering the Ping World (and waking) preserves the tuned-in channel +
+// its endpoint/key, so an external agent pointed at the channel keeps working and the user
+// returns to exactly the same session. (SHARING is governed separately: the on-air heartbeat +
+// relay serving run in node.Controller's OWN goroutine, independent of the TUI tick, so a
+// sharing node stays live while screensavering - and the screensaver code never touches share
+// state; syncShareCache reflects the controller every Update regardless of mode.)
+func TestScreensaverPreservesTuneIn(t *testing.T) {
+	m := pwModel(modeChat)
+	m.connected = &offer{NodeID: "nyx-home", Model: "gpt-oss-20b", Online: true}
+	m.endpoint = "http://127.0.0.1:4141/v1"
+	m.apikey = "roger-local"
+
+	saver, _ := m.enterPingWorld()
+	sv := asModel(saver)
+	if sv.connected == nil || sv.endpoint == "" {
+		t.Fatal("entering the screensaver must NOT drop the tuned-in channel")
+	}
+	woke, _ := sv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	wm := asModel(woke)
+	if wm.mode != modeChat {
+		t.Errorf("waking should restore the channel mode, got %v", wm.mode)
+	}
+	if wm.connected == nil || wm.connected.Model != "gpt-oss-20b" {
+		t.Error("waking must preserve the tuned-in channel")
+	}
+	if wm.endpoint != "http://127.0.0.1:4141/v1" || wm.apikey != "roger-local" {
+		t.Error("waking must preserve the channel endpoint + key (external agents stay pointed)")
+	}
+}
