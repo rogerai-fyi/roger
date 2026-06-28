@@ -81,9 +81,34 @@ func TestSlashCopyLastReplyAndAll(t *testing.T) {
 }
 
 func TestSlashMouseToggle(t *testing.T) {
-	out, cmd := chatModelForCopy().runSession("/mouse")
-	if !asModel(out).mouseOff || cmd == nil {
-		t.Error("/mouse should toggle native-select ON (mouseOff=true) + return DisableMouse")
+	// Default is native-select (mouseOff=true, copy works). /mouse toggles INTO wheel-scroll
+	// (mouseOff=false), and again back to native-select.
+	m := chatModelForCopy()
+	if !m.mouseOff {
+		t.Fatal("default should be native-select (mouseOff=true) so copy works out of the box")
+	}
+	out, cmd := m.runSession("/mouse")
+	if asModel(out).mouseOff || cmd == nil {
+		t.Error("/mouse from the default should enable wheel-scroll (mouseOff=false) + a cmd")
+	}
+	out2, cmd2 := asModel(out).runSession("/mouse")
+	if !asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("/mouse again should restore native-select (mouseOff=true) + DisableMouse")
+	}
+}
+
+// TestSlashHelpAliases: /? (the short help) + /commands + /help + /h all show the command
+// list (not "unknown"), and the listing surfaces /agent.
+func TestSlashHelpAliases(t *testing.T) {
+	for _, c := range []string{"/?", "/commands", "/help", "/h"} {
+		out, _ := chatModelForCopy().runSession(c)
+		tx := stripANSI(strings.Join(asModel(out).transcript, "\n"))
+		if strings.Contains(tx, "unknown") {
+			t.Errorf("%q should show the command list, got unknown: %s", c, tx)
+		}
+		if !strings.Contains(tx, "/agent") {
+			t.Errorf("%q listing should surface /agent; got: %s", c, tx)
+		}
 	}
 }
 
@@ -145,8 +170,13 @@ func TestChannelFooterDedupAndHints(t *testing.T) {
 }
 
 func TestCtrlOTogglesNativeSelect(t *testing.T) {
+	// Default native-select; ctrl+o toggles to wheel-scroll, then back to native-select.
 	out, cmd := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlO})
-	if !asModel(out).mouseOff || cmd == nil {
-		t.Error("ctrl+o should disable mouse (native select ON) + return a cmd")
+	if asModel(out).mouseOff || cmd == nil {
+		t.Error("ctrl+o from the default should enable wheel-scroll (mouseOff=false) + a cmd")
+	}
+	out2, cmd2 := asModel(out).Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	if !asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("ctrl+o again should restore native-select (mouseOff=true) + a cmd")
 	}
 }

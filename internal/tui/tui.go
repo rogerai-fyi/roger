@@ -555,8 +555,8 @@ type model struct {
 	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
 	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
 	lastReply string
-	// mouseOff: mouse reporting is currently disabled (ctrl+o / `/mouse`) so the user can
-	// click-drag select+copy natively; toggling back restores wheel/PgUp scrollback.
+	// mouseOff: mouse reporting is off (the DEFAULT, keyboard-first like opencode) so the user
+	// can click-drag select+copy ANY text natively; ctrl+o / `/mouse` toggles wheel-scroll on.
 	mouseOff bool
 	// chatVP is the INDEPENDENT scroll region for the CHANNEL transcript: the
 	// response area scrolls (PgUp/PgDn, Ctrl+U/D, mouse wheel, and the arrow keys
@@ -958,7 +958,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 	ci.Placeholder = "search · connect · chat · share · login · topup · grant · limits · balance · help · quit"
 	ch := textinput.New()
 	ch.Prompt = ""
-	ch.Placeholder = "type to talk on channel  ·  / for in-session commands"
+	ch.Placeholder = "type to talk  ·  /? for commands  ·  drag to copy"
 	ag := textinput.New()
 	ag.Prompt = ""
 	ag.Placeholder = "ask the agent to do something"
@@ -975,7 +975,11 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// Independent transcript scroll regions (mouse-wheel enabled by viewport.New); sized
 		// from the window on the first WindowSizeMsg (refreshScroll).
 		chatVP: viewport.New(0, 0), agentVP: viewport.New(0, 0),
-		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits}
+		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits,
+		// mouse capture OFF by default (keyboard-first, like opencode): the terminal owns the
+		// mouse so native drag-select + copy works on ANY text out of the box. ctrl+o / /mouse
+		// opts INTO wheel-scroll. Scrollback is always available via PgUp/PgDn + arrows.
+		mouseOff: true}
 }
 
 func (m model) Init() tea.Cmd {
@@ -1884,12 +1888,12 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		openURL(supportURL)
 		sysLine("support: " + supportURL + " · community + Discord on the site")
 		return m, nil
-	case "help", "h":
+	case "help", "h", "?", "commands":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
-		// aliases), so no real command is hidden from /help.
-		sysLine("/model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
-		sysLine("/agent (run the agent on this model) · /connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /help (/h)")
-		sysLine("copy: ctrl+y last reply · /copy all · shift+drag to select  ·  scroll: PgUp/PgDn · wheel · ctrl+o native-select toggle")
+		// aliases), so no real command is hidden from /? (the short help; /help + /commands alias it).
+		sysLine("/agent (run the agent on this model) · /model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
+		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /? (/help /h /commands)")
+		sysLine("copy: DRAG to select any text (native) · ctrl+y last reply · /copy all  ·  scroll: PgUp/PgDn · arrows · ctrl+o for wheel")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil
 	case "disconnect", "leave", "dc":
@@ -1904,7 +1908,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		}
 		return m.disconnect()
 	default:
-		sysLine("unknown: /" + cmd + " · /help for in-session commands")
+		sysLine("unknown: /" + cmd + " · /? for commands")
 		return m, nil
 	}
 }
@@ -3366,7 +3370,7 @@ func (m model) finishConnect() (tea.Model, tea.Cmd) {
 	m.connectStage = connectStageDone
 	m.chatIn.Focus()
 	if len(m.transcript) == 0 {
-		m.transcript = append(m.transcript, stDim.Render("◂ ")+stLive.Render("roger that")+stDim.Render(" - channel open. type to talk, /help for in-session commands."))
+		m.transcript = append(m.transcript, stDim.Render("◂ ")+stLive.Render("roger that")+stDim.Render(" - channel open. type to talk, /? for commands · drag to copy any text."))
 	}
 	m.status = stGold.Render(channelGlyph(o)+" ") + stLive.Render("on channel ") + o.NodeID + stDim.Render(" - endpoint live · roger that")
 	return m, textinput.Blink
@@ -7045,7 +7049,7 @@ func (m model) compactFooter(w int) string {
 	var keys string
 	switch m.mode {
 	case modeChat:
-		keys = "talk · esc disconnect · tab peek"
+		keys = "talk · esc disconnect · tab peek · drag to copy · ctrl+o scroll"
 	case modeShare:
 		keys = "↑↓ · ⏎/a air · p price · r"
 	case modeLimits:
@@ -7769,9 +7773,11 @@ func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks 
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
-	// WithMouseCellMotion enables mouse reporting so the transcript viewports respond to
-	// the wheel (the viewport reads wheel-up/down events). The text inputs are unaffected.
-	return runProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Mouse capture is OFF at startup (keyboard-first, like opencode) so the terminal owns the
+	// mouse and native drag-select + copy works on ANY text immediately. The user opts INTO
+	// wheel-scroll with ctrl+o / /mouse (EnableMouseCellMotion); scrollback also works via
+	// PgUp/PgDn + arrows regardless. (m.mouseOff defaults true to match this start state.)
+	return runProgram(m, tea.WithAltScreen())
 }
 
 // runProgram launches a Bubble Tea program and returns its exit error. It is a
