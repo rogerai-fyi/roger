@@ -168,6 +168,86 @@ func TestStarfieldBrightNearStars(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Ping World v2 — P0-4 moon + P0-3 day/night
+// ---------------------------------------------------------------------------
+
+// TestMoonPosUpperSkySlowDrift: the moon hangs HIGH and drifts slowly (a calm arc), always
+// in-bounds.
+func TestMoonPosUpperSkySlowDrift(t *testing.T) {
+	w, sky := 100, 18
+	x0, y0 := moonPos(w, sky, 0, 3)
+	if x0 < 0 || x0 >= w || y0 < 0 || y0 >= sky {
+		t.Fatalf("moon out of bounds: (%d,%d) for %dx%d", x0, y0, w, sky)
+	}
+	if y0 > sky/2 {
+		t.Errorf("moon should hang in the UPPER sky, got y=%d (sky %d)", y0, sky)
+	}
+	if x1, _ := moonPos(w, sky, 1, 3); x1 != x0 {
+		t.Error("moon should drift slowly (no move frame-to-frame)")
+	}
+	moved := false
+	for f := 1; f < 600; f++ {
+		if x, _ := moonPos(w, sky, f, 3); x != x0 {
+			moved = true
+			break
+		}
+	}
+	if !moved {
+		t.Error("moon should drift over time")
+	}
+}
+
+// TestWorldShowsMoonNeverRed: the moon's disc appears in the upper sky and is NEVER red.
+func TestWorldShowsMoonNeverRed(t *testing.T) {
+	buf := worldBuffer(100, 22, 0, 4)
+	upper := len(buf) / 3 // clearly above the horizon/Ping
+	found := false
+	for y := 0; y < upper; y++ {
+		for _, c := range buf[y] {
+			if c.r == '(' || c.r == ')' { // disc walls - up here, only the moon
+				found = true
+				if c.eye {
+					t.Error("a moon cell must never be red (eye)")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected the moon disc in the upper sky")
+	}
+}
+
+// TestDayNightThinsSky: the slow day/night cycle thins faint stars by day; frame 0 (night) has
+// a fuller sky than mid-cycle (day), and darkness stays in 0..100.
+func TestDayNightThinsSky(t *testing.T) {
+	if dayNightDarkness(0) <= dayNightDarkness(dayNightPeriod/2) {
+		t.Error("frame 0 should be darker (night) than mid-cycle (day)")
+	}
+	for f := 0; f < 4000; f += 137 {
+		if d := dayNightDarkness(f); d < 0 || d > 100 {
+			t.Fatalf("darkness out of range at f=%d: %d", f, d)
+		}
+	}
+	night := skyCellCount(worldBuffer(120, 24, 10, 7)) // deep night, no shooting star (10%40>=6)
+	day := skyCellCount(worldBuffer(120, 24, 810, 7))  // ~midday, no shooting star (810%40>=6)
+	if !(night > day) {
+		t.Errorf("the sky should thin out by day: night=%d day=%d", night, day)
+	}
+}
+
+func skyCellCount(buf [][]worldCell) int {
+	n := 0
+	for y := 0; y < len(buf)-5; y++ { // rows clearly above the horizon
+		for _, c := range buf[y] {
+			if c.r != ' ' {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // TestPingWorldQuietSeam mirrors TestPingWalkSeam for the screensaver: the quiet (non-TTY)
 // branch prints a static postcard and returns nil WITHOUT touching the program seam; the
 // animated branch routes a pingWorldModel through runProgram with alt-screen and propagates
