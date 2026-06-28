@@ -1,0 +1,42 @@
+name: tee-measurement
+# Drift gate for the confidential CVM launch measurement: rebuild the reproducible image,
+# recompute its SEV-SNP measurement, and fail on any mismatch against the committed
+# allowlist (tee/measurements/current.hex). Pre-launch it SKIPS (green) while the image is
+# being stood up - see tee/verify-drift.sh - so it never blocks unrelated work; it goes
+# live automatically once a real measurement is pinned.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'image/cvm/**'
+      - 'tee/**'
+      - '.github/workflows/tee-measurement.yml'
+  pull_request:
+    paths:
+      - 'image/cvm/**'
+      - 'tee/**'
+      - '.github/workflows/tee-measurement.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tee-measurement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Nix is only needed once a real image exists; install it so the gate can build.
+      # verify-drift.sh self-skips if nix/sev-snp-measure are unavailable, so this step
+      # failing to provide them never fails the gate pre-launch.
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        continue-on-error: true
+      - name: Install sev-snp-measure
+        run: pipx install sev-snp-measure || pip install --user sev-snp-measure || true
+        continue-on-error: true
+      - name: Verify measurement (drift gate)
+        run: bash tee/verify-drift.sh

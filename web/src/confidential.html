@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Confidential tier - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card">
+    <h1>Confidential ◆ tier</h1>
+    <p class="sub">Hardware-attested inference for the rare operator who has the silicon for
+      it. This is a gated, data-center-only tier — not a self-serve toggle.</p>
+
+    <section class="panel">
+      <h2>What it is</h2>
+      <p>A confidential node proves, with <b>hardware attestation</b>, that inference runs
+        inside a Trusted Execution Environment whose memory the host cannot read. The broker
+        verifies a real <b>AMD SEV-SNP</b> quote (signature chain, freshness/binding, and an
+        allow-listed launch measurement) before granting the ◆ badge, and confidential
+        demand routes <b>only</b> to verified nodes.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Why it needs data-center hardware</h2>
+      <p>Real confidentiality has to protect the data <em>where it is processed</em>. For LLM
+        serving that means <b>two</b> TEEs, not one:</p>
+      <ul>
+        <li><b>CPU TEE — AMD SEV-SNP</b> (EPYC Milan / 7003 or newer). Encrypts VM memory and
+          produces the signed attestation quote.</li>
+        <li><b>Confidential GPU — NVIDIA H100-class (Hopper+) in CC mode.</b> The model and
+          KV-cache live in <b>VRAM</b>, which SEV-SNP does not protect — so a CPU TEE alone
+          is not enough.</li>
+      </ul>
+      <p>Both are data-center parts. There is currently <b>no consumer path</b> to attested
+        confidential GPU inference — not AMD (Threadripper / Ryzen lack SEV-SNP), not Intel
+        (SGX deprecated on consumer, TDX is Xeon-only), and no consumer GPU has a
+        confidential mode. Anyone advertising "confidential" on a gaming GPU is overstating
+        it.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Don't have the hardware? You still earn.</h2>
+      <p>The <b>standard</b> tier is the path for everyone else, and it pays the same way.
+        RogerAI's consumer-grade guarantee is not "the host can't see your data" — it is
+        <b>verifiable, attributable serving</b>: every request carries a
+        <b>co-signed lineage receipt</b> (signed by the serving node, counter-signed by the
+        broker, hash-chained), so which node served which request can be proven and cannot be
+        forged. Just run <code class="inline">roger share</code>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Apply</h2>
+      <p>If you operate <b>EPYC SEV-SNP hosts with H100-class confidential GPUs</b> and want to
+        serve the confidential tier, get in touch with your setup (CPU/GPU model, host OS,
+        whether you control the VM firmware):</p>
+      <p><a href="mailto:confidential@rogerai.fyi?subject=Confidential%20tier%20application">confidential@rogerai.fyi</a></p>
+      <p class="fine">Operator details once approved: the confidential runbook (reproducible
+        CVM image + measurement pinning) ships with the CLI source.</p>
+    </section>
+
+    <p class="fine"><a href="/security.html">Security</a> - <a href="/models.html">Models</a> - <a href="/manual.html">Manual</a> - <a href="/account.html">Account</a></p>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/promo.js"></script>
+</body>
+</html>

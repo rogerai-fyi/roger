@@ -90,7 +90,24 @@ type Session struct {
 	effPriceIn     float64
 	effPriceOut    float64
 	overrideActive bool // an owner web-console price override is active for this model
+
+	// confidential reports whether the broker GRANTED the confidential ◆ badge on the
+	// last register (the response echo). It is meaningful only when this session asked
+	// for confidential (cfg.Confidential): a true here means a real TEE quote verified;
+	// a false on a confidential request means the claim was downgraded to standard
+	// (fail-soft) and the CLI/TUI should say so rather than imply a badge.
+	confidential bool
 }
+
+// Confidential reports whether the broker granted the confidential ◆ badge on the last
+// register. It is only meaningful when this session requested confidential (cfg.Confidential):
+// a confidential request that returns false here was downgraded to standard (the broker
+// ran require=0 and the quote did not verify - e.g. an unblessed launch measurement).
+func (s *Session) Confidential() bool { return s.confidential }
+
+// RequestedConfidential reports whether this session ASKED for the confidential tier,
+// so the CLI/TUI can tell "did not ask" apart from "asked but downgraded".
+func (s *Session) RequestedConfidential() bool { return s.cfg.Confidential }
 
 // EffectivePrice returns the broker-EFFECTIVE published price for this session's model
 // (after any owner web-console override) and whether such an override is active. The
@@ -365,7 +382,10 @@ func Start(cfg Config) (*Session, error) {
 	// restart. All pollers + the heartbeat read its token each iteration.
 	rereg := newReregistrar(cfg.Broker, reg, priv)
 	sess := &Session{cfg: cfg, stop: make(chan struct{}), rereg: rereg,
-		bandID: regRes.BandID, bandCode: regRes.BandCode, bandDisplay: regRes.BandDisplay}
+		bandID: regRes.BandID, bandCode: regRes.BandCode, bandDisplay: regRes.BandDisplay,
+		// Adopt the broker's confidential-grant echo: a confidential request that was
+		// downgraded to standard (fail-soft) lands here as false so the CLI can warn.
+		confidential: regRes.Confidential}
 	// Adopt the broker-EFFECTIVE price for this model (after any owner web-console
 	// override) so the CLI surfaces the real published number, not the requested one.
 	sess.effPriceIn, sess.effPriceOut, sess.overrideActive = effectivePriceFor(regRes, cfg.Model, cfg.PriceIn, cfg.PriceOut)
@@ -691,6 +711,9 @@ type registerResult struct {
 	// locally-requested one). Overrides names the models that carry an active override.
 	EffectiveOffers []protocol.ModelOffer `json:"effective_offers"`
 	Overrides       []string              `json:"overrides"`
+	// Confidential is the broker's echo of whether the confidential ◆ badge was granted
+	// this register (false when not claimed or when a claim was downgraded to standard).
+	Confidential bool `json:"confidential"`
 }
 
 // effectivePriceFor resolves the broker-EFFECTIVE published price for `model` from a

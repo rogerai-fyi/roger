@@ -19,8 +19,8 @@ func TestMainVersion(t *testing.T) {
 
 // TestCmdShareFlagBranches covers cmdShare's post-detection flag handling on the explicit
 // --upstream path: a bad --free-window and a bad --schedule error out; --private without a
-// login errors; and a valid --confidential + --free-window + --schedule combo reaches
-// go-live (async) through the stubbed seams.
+// login errors; and a valid --free-window + --schedule combo reaches go-live (async)
+// through the stubbed seams.
 func TestCmdShareFlagBranches(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	stubShareSeams(t)
@@ -38,11 +38,14 @@ func TestCmdShareFlagBranches(t *testing.T) {
 		t.Error("cmdShare --private without login should error")
 	}
 
-	// Valid confidential + schedule combo reaches go-live.
+	// Valid free-window + schedule combo reaches go-live. (--confidential is NOT used
+	// here: on a non-CVM host it aborts at the SEV-SNP preflight - that abort path is
+	// covered by TestCmdShareConfidentialNoDeviceAborts; this case exercises the
+	// schedule-building branches + the go-live tail.)
 	done := make(chan error, 1)
 	go func() {
 		done <- cmdShare(cfg, []string{
-			"m1", "--upstream", up, "--advanced", "--confidential",
+			"m1", "--upstream", up, "--advanced",
 			"--free-window", "03:00-03:30",
 			"--schedule", `[{"start":"18:00","end":"22:00","price_out":0.5}]`,
 		})
@@ -50,10 +53,10 @@ func TestCmdShareFlagBranches(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("cmdShare(confidential+schedule) = %v, want nil", err)
+			t.Fatalf("cmdShare(free-window+schedule) = %v, want nil", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("cmdShare(confidential+schedule) did not return")
+		t.Fatal("cmdShare(free-window+schedule) did not return")
 	}
 }
 

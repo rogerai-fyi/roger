@@ -37,6 +37,26 @@ const teeSEVSNP teeKind = "sev-snp"
 // set by the build-tagged generateQuote implementation.
 func detectTEE() teeKind { return teeAvailable() }
 
+// ErrNoTEEDevice is the typed preflight failure for a host that is not an AMD SEV-SNP
+// confidential VM (no /dev/sev-guest). The CLI surfaces it verbatim so an operator who
+// ran `roger share --confidential` on the wrong host gets an actionable message and we
+// abort BEFORE any broker round-trip - distinct from the broker-side "measurement not
+// allowlisted" rejection (right hardware, unblessed image).
+var ErrNoTEEDevice = fmt.Errorf("not an AMD SEV-SNP confidential VM (no /dev/sev-guest)")
+
+// ConfidentialPreflight is the cheap, local "are you even eligible for the confidential
+// tier" check `roger share --confidential` runs FIRST: it returns ErrNoTEEDevice when no
+// TEE device is present (so we never attempt a quote / registration on a non-CVM host),
+// or nil when a real TEE backend is available. It does NOT contact the broker and does
+// NOT prove the launch measurement is allowlisted - that gate is broker-side, surfaced
+// after registration via Session.Confidential().
+func ConfidentialPreflight() error {
+	if detectTEE() == "" {
+		return ErrNoTEEDevice
+	}
+	return nil
+}
+
 // reportData64 computes the 64-byte report_data the quote must carry: it must match
 // protocol.AttestationReportData(pubkey, nonce) exactly so the broker's binding check
 // passes. Computed here (not via the protocol hex round-trip) from the raw key bytes.

@@ -57,6 +57,7 @@ const CSS_BUNDLES = {
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger
   "privacy.html":   [...CSS_ACCOUNT],                    // legal plate: shared chrome only
   "security.html":  [...CSS_ACCOUNT],                    // legal plate: shared chrome only
+  "confidential.html": [...CSS_ACCOUNT],                 // gated TEE-tier info: shared chrome only
   "tos.html":       [...CSS_ACCOUNT],                    // legal plate: shared chrome only
 };
 
