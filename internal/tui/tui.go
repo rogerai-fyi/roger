@@ -515,9 +515,13 @@ type quote struct {
 }
 
 type model struct {
-	broker, user  string
-	offers        []offer
-	cursor        int
+	broker, user string
+	offers       []offer
+	cursor       int
+	// selectedModel is the band the cursor is ON (by name), so the selection STICKS to that
+	// band across re-sorts/redraws (signal sorting reshuffles positions every rescan). Without
+	// it, the cursor is a bare index and a re-sort mid-scroll would land Enter on the wrong band.
+	selectedModel string
 	width, height int
 	frame         int
 	mode          mode
@@ -1633,10 +1637,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.filterIn.CursorEnd()
 			m.filterIn.Focus()
 			return m, textinput.Blink
-		case "S":
-			// S cycles the sort dial (strongest / cheapest / fastest / most-stations),
-			// mirroring the /bands web page so CLI + web match. Re-sorting can move the
-			// selected band, so re-clamp the window.
+		case "s", "S":
+			// s/S BOTH cycle the sort dial (strongest / cheapest / fastest / most-stations),
+			// mirroring the /bands web page. (s used to jump to SHARE, but that's confusing
+			// next to [2]/the SHARE page - per the founder, s is just sort now.) The sticky
+			// cursor keeps the selected band put across the re-sort.
 			m.sortMode = (m.sortMode + 1) % sortCount
 			m.clampBrowse()
 			m.status = stDim.Render("sort: " + sortLabel(m.sortMode))
@@ -1682,12 +1687,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 				m.caratFrame = m.frame // ease the cursor in (caratGutter)
 			}
+			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
 		case "down", "j":
 			if m.cursor < len(m.visibleBands())-1 { // navigate the FILTERED + SORTED view
 				m.cursor++
 				m.caratFrame = m.frame // ease the cursor in (caratGutter)
 			}
+			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
 		case "enter":
 			// Enter on the band you are ALREADY connected to jumps straight into the open
@@ -1736,9 +1743,6 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.chatIn.Focus()
 				return m, textinput.Blink
 			}
-		case "s":
-			// The one obvious section toggle: jump to SHARE (provide). esc/s returns.
-			return m.toggleSection()
 		case "?":
 			m.mode = modeHelp
 		case "r":
@@ -3872,7 +3876,7 @@ type paletteCmd struct{ name, desc, key string }
 var paletteCmds = []paletteCmd{
 	{"/search", "re-scan the band for stations", "r"},
 	{"/connect", "tune in to the selected station", "⏎"},
-	{"/share", "put your GPU on air (earn or free)", "2 · s"},
+	{"/share", "put your GPU on air (earn or free)", "2"},
 	{"/limits", "your per-model spend caps", "3"},
 	{"/login", "link GitHub (needed to earn)", "L"},
 	{"/balance", "wallet balance", ""},
@@ -4471,19 +4475,6 @@ func (m model) sectionBadge() string {
 	return stSelText.Render("TUNE IN") + stDim.Render(" [s]")
 }
 
-// toggleSection flips between the TUNE IN and SHARE sections - the one obvious key
-// (s) that makes "I can both consume and provide" unmistakable. Entering SHARE
-// runs detection (opening the provider table or the guided fallback); leaving SHARE
-// returns to the band browser. A live CHANNEL is left intact (tab back to it).
-func (m model) toggleSection() (tea.Model, tea.Cmd) {
-	if m.inShareSection() {
-		m.mode = modeBrowse
-		m.status = stDim.Render("TUNE IN - browse the band, enter to tune in")
-		return m, nil
-	}
-	return m.doShare(nil)
-}
-
 // modeName returns the current mode's short label for the indicator, so the
 // header badge names the actual screen (not a stale BROWSE) while you are in a
 // confirm / over-limit / limits sub-screen.
@@ -4821,18 +4812,44 @@ func (m model) selectedBand() (band, bool) {
 // edit, a toggle, a sort) so the cursor never points past the list and the window
 // never strands rows. Pointer receiver: it mutates the model in place.
 func (m *model) clampBrowse() {
-	n := len(m.visibleBands())
+	vis := m.visibleBands()
+	n := len(vis)
+	// STICKY SELECTION: keep the cursor on the SAME band across re-sorts/redraws. A periodic
+	// re-scan re-sorts the list (by signal), so a bare positional cursor would suddenly point at
+	// a different band - Enter would then tune the WRONG one. Re-find the selected model in the
+	// new order and move the cursor to it.
+	if m.selectedModel != "" {
+		for i, b := range vis {
+			if b.model == m.selectedModel {
+				m.cursor = i
+				break
+			}
+		}
+	}
 	if m.cursor >= n {
 		m.cursor = n - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+	// Remember the band now under the cursor, so the next re-sort re-anchors to it.
+	if n > 0 && m.cursor >= 0 && m.cursor < n {
+		m.selectedModel = vis[m.cursor].model
+	}
 	if m.browseTop > m.cursor {
 		m.browseTop = m.cursor
 	}
 	if m.browseTop < 0 {
 		m.browseTop = 0
+	}
+}
+
+// syncSelected records the band currently under the cursor (by name) so a later re-sort can
+// re-anchor the cursor to it (the sticky-selection contract). Called right after a cursor move.
+func (m *model) syncSelected() {
+	vis := m.visibleBands()
+	if m.cursor >= 0 && m.cursor < len(vis) {
+		m.selectedModel = vis[m.cursor].model
 	}
 }
 
@@ -7042,7 +7059,7 @@ func (m model) compactFooter(w int) string {
 	case modeOverLimit:
 		keys = "⏎ save · ↑↓ · w wait · esc"
 	default:
-		keys = "↑↓ · ⏎ tune in · s share · / · ?"
+		keys = "↑↓ · ⏎ tune · s sort · / · ?"
 	}
 	hint := stDim.Render(keys) + stDim.Render("  ·  ") + stKey.Render("m") + stDim.Render(" expand") +
 		stDim.Render("  ·  ") + m.accountTag(true)
@@ -7180,16 +7197,16 @@ func (m model) footer(w int) string {
 	} else if m.connected != nil {
 		// Connected: lead with the channel + disconnect hints (load-bearing here); the
 		// filter/sort keys still ride along but the toggles drop to keep the line tight.
-		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab channel · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · d disconnect · tab channel · s sort")
 	} else if m.tuneFreq != "" {
 		// On a PRIVATE FREQ: the load-bearing key is esc (back to OPEN MARKET). Teach it
 		// up front so leaving the hidden channel is always discoverable.
-		left = stDim.Render("↑↓ pick · enter tune in · i log · esc OPEN MARKET · S sort · s share")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · esc OPEN MARKET · s sort")
 	} else {
 		// ~ freq is the discoverable PRIVATE FREQUENCY affordance: it opens a small input
 		// to enter a private band's frequency code. The trailing "s" (share) is terse so the
 		// freq affordance AND the ←/→ section hint both fit the 80-col grid (78 cols).
-		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · S sort · ←/→ section · s")
+		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · s sort · ←/→ section")
 	}
 	confMode := ""
 	if m.confidentialOnly {
@@ -7230,7 +7247,7 @@ func (m model) helpView() string {
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"~", "PRIVATE FREQ: enter a frequency code to tune onto a hidden band - esc returns to OPEN MARKET"},
 		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
-		{"s", "switch to SHARE: put your own GPU on air (earn or free)"},
+		{"s · S", "SORT the band (strongest / cheapest / fastest / most-stations)"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
@@ -7272,7 +7289,7 @@ func (m model) helpView() string {
 	}
 	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /support /disconnect /quit") + "\n")
 	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("←/→") + stDim.Render(" switch section (cycle the [0]…[?] bar) · ") +
-		stKey.Render("s") + stDim.Render(" toggles TUNE IN ⇄ SHARE · ") +
+		stKey.Render("[2]") + stDim.Render(" SHARE · ") +
 		stKey.Render("tab") + stDim.Render(" peeks at the band from a channel") + "\n")
 	b.WriteString("  " + stDim.Render("view: ") + stKey.Render("m") +
 		stDim.Render(" toggles COMPACT - the calm, dense windowshade · ") + stKey.Render("alt+m") +
