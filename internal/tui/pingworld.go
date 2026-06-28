@@ -31,11 +31,74 @@ import (
 const worldTickMs = 120 // ~8fps: smoother than the 160ms TUI tick, still calm
 
 // worldCell is one composited cell. eye=true is the ONLY thing rendered red; bright=true is a
-// near/foreground star drawn in brighter ink (a depth cue, NEVER red - one-red is untouched).
+// near/foreground element drawn brighter (a depth cue, NEVER red - one-red is untouched); tone is
+// an optional COOL ambient color (sky/globe/aurora/water) - cool by law, so the red beacon stays
+// the singular HOT glint (see toneStyle).
 type worldCell struct {
 	r      rune
 	eye    bool
 	bright bool
+	tone   worldTone
+}
+
+// worldTone is a cell's optional COOL ambient color. The screensaver is the ONE place RogerAI's
+// strict mono+red brand relaxes into color (founder: "is it possible to add more color
+// somewhere?") - but every tone is COOL (blue/teal/green/violet), so the on-air ◉ + Ping's eye •
+// stay the ONLY hot (red) glints and pop HARDER against the cool world. toneNone = default dim ink.
+type worldTone uint8
+
+const (
+	toneNone    worldTone = iota // dim ink (default): ground, characters, brand, towers, beacon
+	toneSky                      // frost blue: the drifting stars
+	toneSun                      // warm gold: the daytime sun (NOT red - red stays the beacon)
+	toneEarth                    // teal: the night moon/globe
+	toneAurora                   // green: the deep-night aurora wisp
+	toneAuroraV                  // violet: the aurora tail + the day flower + the butterfly's wings
+	toneLeaf                     // grass green: the daytime plants growing from the ground
+	toneWater                    // blue: the still shore pond + its reflection
+)
+
+// The screensaver's COOL palette - kept SEPARATE from tui.go's brand mono+red on purpose: this is
+// the relax-view Easter egg, not a brand surface. Nord-leaning, AdaptiveColor so it tracks the
+// terminal background and strips cleanly under NO_COLOR. NONE is red - red is reserved for on-air.
+var (
+	cSky     = lipgloss.AdaptiveColor{Light: "#5E81AC", Dark: "#81A1C1"} // frost blue (stars)
+	cSun     = lipgloss.AdaptiveColor{Light: "#C8881A", Dark: "#EBCB8B"} // warm gold (the sun)
+	cEarth   = lipgloss.AdaptiveColor{Light: "#3B6E6A", Dark: "#88C0D0"} // teal (the moon/globe)
+	cAurora  = lipgloss.AdaptiveColor{Light: "#4F894C", Dark: "#A3BE8C"} // green (aurora)
+	cAuroraV = lipgloss.AdaptiveColor{Light: "#8A5CA8", Dark: "#B48EAD"} // violet (aurora/flower/wings)
+	cLeaf    = lipgloss.AdaptiveColor{Light: "#5E8C3A", Dark: "#A3BE8C"} // grass green (plants)
+	cWater   = lipgloss.AdaptiveColor{Light: "#4C6F9C", Dark: "#5E81AC"} // deeper blue (pond)
+)
+
+// toneStyle maps a cool tone to its lipgloss style (bright = a touch bolder, for near elements).
+// Under NO_COLOR lipgloss renders these plain, so the screensaver degrades to mono. toneNone (and
+// any unknown) falls back to the shared dim ink. It NEVER returns red - that's the one-red law.
+func toneStyle(t worldTone, bright bool) lipgloss.Style {
+	var c lipgloss.AdaptiveColor
+	switch t {
+	case toneSky:
+		c = cSky
+	case toneSun:
+		c = cSun
+	case toneEarth:
+		c = cEarth
+	case toneAurora:
+		c = cAurora
+	case toneAuroraV:
+		c = cAuroraV
+	case toneLeaf:
+		c = cLeaf
+	case toneWater:
+		c = cWater
+	default:
+		return stDim
+	}
+	st := lipgloss.NewStyle().Foreground(c)
+	if bright {
+		st = st.Bold(true)
+	}
+	return st
 }
 
 // worldStation is one ON-AIR band feeding the LIVE screensaver (rendered as a signal tower);
@@ -187,6 +250,74 @@ func globeLines(frame int) []string {
 	}
 }
 
+// sunLines is the daytime sun: a bright gold disc ringed by rays. toneSun is warm GOLD, distinct
+// from the reserved on-air RED. 3x3, small + calm - the arc across the sky supplies the motion.
+func sunLines() []string {
+	return []string{
+		"\\|/",
+		"-☀-",
+		"/|\\",
+	}
+}
+
+// sunArc is the sun's position over the day: up ONLY while it's day (darkness<50), rising from the
+// horizon at dawn, arcing to near the top at noon, setting at dusk. Pure in frame; (x,y) is the
+// sprite's top-left, kept in-bounds (blit clips anyway). The daytime window is the middle half of
+// the cycle (centered on noon), matching dayNightDarkness<50.
+func sunArc(w, skyRows, frame int) (up bool, x, y int) {
+	d := dayNightDarkness(frame)
+	if d >= 50 || w <= 0 || skyRows <= 0 {
+		return false, 0, 0
+	}
+	p := ((frame % dayNightPeriod) + dayNightPeriod) % dayNightPeriod
+	q0, q1 := dayNightPeriod/4, 3*dayNightPeriod/4 // the daytime window (darkness<50)
+	x = (p - q0) * maxI(1, w-1) / maxI(1, q1-q0)   // sweep left -> right across the day
+	if x < 0 {
+		x = 0
+	}
+	if x >= w {
+		x = w - 1
+	}
+	y = (skyRows - 1) * d / 50 // noon (d=0) -> top; dawn/dusk (d~50) -> near the horizon
+	if y < 0 {
+		y = 0
+	}
+	if y >= skyRows {
+		y = skyRows - 1
+	}
+	return true, x, y
+}
+
+// plantMax is the tallest a daytime plant grows (stem cells including the bloom on top).
+const plantMax = 3
+
+// plantStage maps the day's darkness to a plant's growth 0..plantMax: dormant (0) at/under deep
+// night (darkness>=50), tallest at high noon (darkness 0), growing monotonically between.
+func plantStage(darkness int) int {
+	if darkness >= 50 {
+		return 0
+	}
+	return plantMax - darkness*plantMax/50
+}
+
+// paintPlant grows a plant up from base (the row just above the rim): a green stem topped by a
+// leafy sprout (young) or, at full height, a violet flower. Stem/leaf = toneLeaf (green); the
+// bloom borrows toneAuroraV (violet). Colored ink, never red.
+func paintPlant(buf [][]worldCell, x, base, stage int) {
+	if stage <= 0 {
+		return
+	}
+	for i := 0; i < stage-1; i++ { // the stem
+		blitT(buf, x, base-i, []string{"|"}, 0, toneLeaf)
+	}
+	topY := base - (stage - 1)
+	if stage >= plantMax { // bloomed: a violet flower on the green stem
+		blitT(buf, x, topY, []string{"❀"}, 0, toneAuroraV)
+	} else { // young: a leafy sprout
+		blitT(buf, x, topY, []string{"Y"}, 0, toneLeaf)
+	}
+}
+
 // moonPos returns the planet's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
 // 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
 // with the on-air star's (1/2).
@@ -212,9 +343,15 @@ func starColumn(x0, frame, w, tier int) int {
 	return ((x0-frame/div)%w + w) % w
 }
 
-// blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
-// rune == eye is marked red (eye=true). Out-of-bounds cells are clipped, never wrap-corrupt.
+// blit paints sprite lines into the buffer at (x,y) in dim ink (no tone); see blitT.
 func blit(buf [][]worldCell, x, y int, lines []string, eye rune) {
+	blitT(buf, x, y, lines, eye, toneNone)
+}
+
+// blitT is blit with a COOL tone: spaces are transparent, a cell whose rune == eye is marked red
+// (eye=true) AND left tone-free (the eye is red-only - it beats any passed tone), and every other
+// painted cell takes the tone. Out-of-bounds cells are clipped, never wrap-corrupt.
+func blitT(buf [][]worldCell, x, y int, lines []string, eye rune, tone worldTone) {
 	if len(buf) == 0 {
 		return
 	}
@@ -227,7 +364,12 @@ func blit(buf [][]worldCell, x, y int, lines []string, eye rune) {
 		cx := x
 		for _, r := range line {
 			if r != ' ' && cx >= 0 && cx < w {
-				buf[ry][cx] = worldCell{r: r, eye: eye != 0 && r == eye}
+				isEye := eye != 0 && r == eye
+				ct := tone
+				if isEye {
+					ct = toneNone // the eye is red-only; never also a cool tone
+				}
+				buf[ry][cx] = worldCell{r: r, eye: isEye, tone: ct}
 			}
 			cx++
 		}
@@ -361,12 +503,17 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	}
 	nStars := (w * skyRows) / 18
 	darkness := dayNightDarkness(frame) // day washes the faint stars out; the sky breathes
+	day := darkness < 50                // the sun-up half: sun, plants, birds + the butterfly come out
 	for i := 1; i < nStars; i++ {
 		tier := starTier(i, seed)
-		// Faint far/mid stars fade as it brightens toward day; the bright near stars persist
-		// (like real first-magnitude stars + planets lingering at dusk). The moon + on-air ◉
-		// are separate and always shown.
-		if tier != 2 && int(worldHash(i, 4, seed)%100) >= darkness {
+		// Faint far/mid stars fade as it brightens toward day; the bright near stars linger at
+		// dusk but wash out at full day (darkness<20) for a clean daytime sky. The sun/moon +
+		// on-air ◉ are separate.
+		if tier == 2 {
+			if darkness < 20 {
+				continue // full day: even the near stars are washed out
+			}
+		} else if int(worldHash(i, 4, seed)%100) >= darkness {
 			continue
 		}
 		set := starsFar
@@ -381,24 +528,37 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		y := int(worldHash(i, 2, seed) % uint32(skyRows))
 		g := set[int(worldHash(i, frame/8, seed))%len(set)]
 		if y >= 0 && y < len(buf) && x0 >= 0 && x0 < w { // in-bounds by construction; guard anyway
-			buf[y][x0] = worldCell{r: g, bright: bright}
+			buf[y][x0] = worldCell{r: g, bright: bright, tone: toneSky} // the starfield reads frost-blue
 		}
 	}
 	// LAYER 0.5 — a faint aurora wisp near the top, ONLY at deep night, drifting slowly. Dim
 	// ink, never red; behind the moon + on-air star (both painted later).
-	if darkness > 70 && skyRows >= 3 {
+	if darkness > 70 && skyRows >= 3 && len(buf) > 1 {
 		aur := []rune("≈ ∼ ∽ ≋   ") // gappy so it reads as a wisp, not a solid bar
-		row := make([]rune, w)
 		for x := 0; x < w; x++ {
-			row[x] = aur[(x+frame/12)%len(aur)]
+			r := aur[(x+frame/12)%len(aur)]
+			if r == ' ' {
+				continue
+			}
+			tone := toneAurora // green, shimmering to violet along the wisp (both cool, never red)
+			if (x/4+frame/10)%2 == 0 {
+				tone = toneAuroraV
+			}
+			buf[1][x] = worldCell{r: r, tone: tone}
 		}
-		blit(buf, 0, 1, []string{string(row)}, 0)
 	}
 
-	// LAYER 1.5 — the planet: a slowly ROTATING 3D globe hanging high, drifting the sky. Dim
-	// ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
+	// LAYER 1.5 — the celestial body, swapping with the day: by NIGHT a slowly ROTATING teal 3D
+	// globe (the moon Ping gazes at); by DAY a gold SUN arcing across the sky. Never red; the
+	// on-air ◉ is still painted LAST, on top.
 	mx, my := moonPos(w, skyRows, frame, seed)
-	blit(buf, mx, my, globeLines(frame), 0)
+	if day {
+		if upSun, sx, sy := sunArc(w, skyRows, frame); upSun {
+			blitT(buf, sx, sy, sunLines(), 0, toneSun)
+		}
+	} else {
+		blitT(buf, mx, my, globeLines(frame), 0, toneEarth)
+	}
 
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
@@ -435,6 +595,18 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		}
 	}
 
+	// LAYER 3.2 — daytime PLANTS growing from the ground: seeded columns sprout green stems that
+	// grow taller toward noon and bloom a violet flower at full height (dormant at night). Painted
+	// behind Ping + the ducklings (they walk in front).
+	if stage := plantStage(darkness); stage > 0 && horizon >= 2 {
+		for px := 3; px < w-2; px += 9 {
+			jx := px + int(worldHash(px, 21, seed)%5) // a little seeded jitter so it isn't a grid
+			if jx >= 0 && jx < w {
+				paintPlant(buf, jx, horizon-1, stage)
+			}
+		}
+	}
+
 	// LAYER 3.5 — LIVE signal towers (one per on-air band): a dim │ mast rising from the rim,
 	// height = the band's real signal, a bright cell SCANNING up the mast when it's actively
 	// serving (inFlight>0). Painted after the horizon, before Ping (Ping walks in front). The
@@ -456,11 +628,41 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 				ripple[x] = ' ' // transparent in blit - leaves the row calm
 			}
 		}
-		blit(buf, 0, wy, []string{string(ripple)}, 0)
+		blitT(buf, 0, wy, []string{string(ripple)}, 0, toneWater)
 	}
-	if rw := horizon + 2; rw < h { // the moon's wobbling reflection on the near water
+	if rw := horizon + 2; rw < h && !day { // the moon's wobbling reflection (night only)
 		rmx := (mx + frame/6) % maxI(1, w)
-		blit(buf, rmx, rw, []string{"(.)"}, 0)
+		blitT(buf, rmx, rw, []string{"(.)"}, 0, toneWater)
+	}
+
+	// LAYER 4.5 — daytime life: a BIRD flock crosses the sky (comes + goes on seeded windows, like
+	// the night wanderer) and the BUTTERFLY (the new character) flutters low by the plants on a
+	// gentle bob. Both gone at night. Dim silhouette birds; violet butterfly. Never red.
+	if day {
+		if skyRows >= 4 && worldHash(frame/90, 17, seed)%3 != 0 { // ~2/3 of windows have a flock
+			by := 2 + int(worldHash(frame/90, 18, seed)%uint32(maxI(1, skyRows/3)))
+			bx := (frame / 4) % maxI(1, w+12)
+			wing := "v"
+			if frame%6 < 3 {
+				wing = "^" // flap
+			}
+			for k := 0; k < 3; k++ { // a little V of three
+				blit(buf, bx-k*3, by-(k%2), []string{wing}, 0)
+			}
+		}
+		if horizon >= 4 {
+			bob := []int{0, 1, 1, 2, 1, 1, 0, 0}[(frame/4)%8]
+			bx := 4 + (frame/3)%maxI(1, w-8)
+			by := horizon - 3 - bob
+			if by < 1 {
+				by = 1
+			}
+			wings := "<o>"
+			if frame%4 < 2 {
+				wings = ">o<" // wings open / closed
+			}
+			blitT(buf, bx, by, []string{wings}, 0, toneAuroraV)
+		}
 	}
 
 	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
@@ -471,6 +673,17 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	px := worldPingX(frame, seed, maxI(1, w-pingWalkW)) // always fully on-screen
 	blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
 
+	// Ping naps at deep night while he pauses: a soft Zzz drifts up over his head (his eye stays
+	// the red • - the law is carried regardless). More life, no extra red.
+	if darkness > 80 && worldActAt(frame/waWindow, seed) == waPause {
+		zRow := horizon - len(pingLines) - (frame/10)%2 // drifts up a cell
+		z := "z"
+		if (frame/8)%2 == 0 {
+			z = "Z"
+		}
+		blit(buf, px+pingWalkW/2, zRow, []string{z}, 0)
+	}
+
 	// a wandering Ping drifts the other way - but it COMES AND GOES (v2 P1-8): a hash-gated
 	// window decides whether one is currently crossing, so the cast varies run-to-run instead
 	// of an always-present drifter (sometimes Ping ambles alone with the ducklings).
@@ -480,8 +693,8 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
 	}
 
-	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
-	if worldHash(frame/40, 7, seed)%4 == 0 {
+	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky, NIGHT only.
+	if !day && worldHash(frame/40, 7, seed)%4 == 0 {
 		k := frame % 40
 		if k < 6 {
 			sx := int(worldHash(frame/40, 8, seed)%uint32(maxI(1, w-8))) + k*2
@@ -494,9 +707,10 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	// duckling - clamped on-screen, painted AFTER the shooting star - keeps the red '•' so it
 	// survives at every reasonable size, even mid-transmit, even at h=8. (The single ◉ below is
 	// the UNIVERSAL red-eye backstop at degenerate sizes like w=1 where the lead clips off.)
-	blit(buf, px-12, horizon, []string{"(·)"}, 0) // far follower (dim)
-	blit(buf, px-8, horizon, []string{"(·)"}, 0)  // near follower (dim)
-	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
+	wad := (frame / 5) % 2                                  // the ducklings waddle: followers bob out of phase
+	blit(buf, px-12, horizon-wad, []string{"(·)"}, 0)       // far follower (dim)
+	blit(buf, px-8, horizon-(1-wad), []string{"(·)"}, 0)    // near follower (dim)
+	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•') // lead - steady red-eye backstop
 
 	// transmit-to-star (v2 P1-5): while Ping is broadcasting, the on-air ◉ "breathes back" - a
 	// faint dim halo pulses around it (the ◉ itself stays the SINGLE red glint, painted last).
@@ -614,7 +828,7 @@ func compositeWorld(buf [][]worldCell) string {
 		for i < len(row) {
 			c := row[i]
 			j := i + 1
-			for j < len(row) && row[j].eye == c.eye && row[j].bright == c.bright && (row[j].r == ' ') == (c.r == ' ') {
+			for j < len(row) && row[j].eye == c.eye && row[j].bright == c.bright && row[j].tone == c.tone && (row[j].r == ' ') == (c.r == ' ') {
 				j++
 			}
 			seg := make([]rune, 0, j-i)
@@ -628,7 +842,9 @@ func compositeWorld(buf [][]worldCell) string {
 			case c.r == ' ':
 				b.WriteString(s)
 			case c.eye:
-				b.WriteString(stPingEye.Render(s))
+				b.WriteString(stPingEye.Render(s)) // the ONE hot color
+			case c.tone != toneNone:
+				b.WriteString(toneStyle(c.tone, c.bright).Render(s)) // cool ambient color
 			case c.bright:
 				b.WriteString(stLive.Render(s))
 			default:
