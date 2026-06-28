@@ -90,3 +90,31 @@ serializes picks (no parallel speedup) — but that only bites past the cap at h
 The benchmark stands as the baseline for when the cap lifts. The more interesting latent cost is
 **allocations** (104KB→417KB/pick, ~1KB/candidate) — that's the real P2 target (investigate the
 per-candidate alloc) before the lock. Neither is worth optimizing at today's scale.
+
+---
+
+## Phase 5 — final status (2026-06-28)
+
+- **E1** ✅ `helpVersion` is runtime-set (no stale fallback).
+- **E2** ✅ `release.yml` stamps `-X main.Version` from the git tag.
+- **P3** ✅ in-process `/discover` + `/market` cache fallback for no-Redis deploys.
+- **P1** ✅ measured → **DEFER** (routing 2.5–25µs at the 2-instance cap; see above).
+- **E4** ✅ `roger --ping` surfaced in the CLI `usage()` + the web command table (shipped v4.12.0).
+- **P2** ✅ pre-sized `pickFor`'s `cands` slice → ~half the allocs/B per pick (10→5, 15→8, 19→10
+  allocs/op; ~30–40% faster ns/op). Behavior unchanged (routing tests green).
+- **E3** ✅ `make cover-gate-fast` (build + vet + web build + manual version-sync, ~1.4s) +
+  the repo-local pre-push hook auto-selects it when a push touches **no** `.go` file (Go coverage
+  can't regress without Go changes); any `.go` in the range → the full `make cover-gate`. The
+  hook lives in `.git/hooks/pre-push` (not version-controlled); the `make` target is the shared bit.
+- **P5** — the founder admin **view** (`admin.html`/`js`/`css`) was extracted to the **private**
+  `rogerai-fyi/roger-admin` repo and removed from the public site. The broker `/admin/*` **API +
+  store queries** stay here: they merge the broker's **live in-memory state** (node registry,
+  dispatch) with Postgres, so they're fused to the broker process and already founder-gated. A
+  standalone-service extraction (Postgres-direct + a broker live-feed) is **deferred**.
+- **P4** — **DEFERRED (fights the design).** Reusing the screensaver frame buffer would need a
+  shared mutable buffer pointer threaded through the **pure/seeded** `worldBuffer*` functions and
+  the value-type `pingWorldModel` (a parallel `…Into` path), muddying a deliberately clean design
+  for ~nil benefit — it's an ~8fps idle relax view where GC churn is a non-issue. Revisit only if
+  the screensaver ever runs hot.
+
+Net: every actionable Phase 5 item shipped; **P4** and the **P5 backend** are documented defers.
