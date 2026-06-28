@@ -3,20 +3,24 @@
 # Ground truth:
 #   internal/protocol/protocol.go    - Cost() and CostWith2(): (in*priceIn + out*priceOut)/1e6
 #   internal/protocol/cost_math_test.go - the exact, table-driven arithmetic lock
-#   cmd/rogerai-broker/main.go:857   - round6(f) = float64(int64(f*1e6+0.5))/1e6  (banker-less, round-half-up)
-#   cmd/rogerai-broker/tunnel.go     - X-RogerAI-Cost header is round6(cost); the LEDGER captures the
+#   cmd/rogerai-broker/main.go       - round6(f) = float64(int64(f*1e6+0.5))/1e6 (still used for the BALANCE/quality headers)
+#   cmd/rogerai-broker/httputil.go   - fmtCostHeader(cost): the EXACT cost for the X-RogerAI-Cost header
+#                                      (6 significant figures, plain decimal, no scientific, no round6 truncation)
+#   cmd/rogerai-broker/tunnel.go     - X-RogerAI-Cost header is fmtCostHeader(cost); the LEDGER captures the
 #                                      UNROUNDED cost (Finalize/Settle get the full-precision value)
-#   internal/webui/assets/console.js - fmtUSD = "$" + n.toFixed(2)  (UI shows 2 dp today)
+#   internal/tui/tui.go dollars()    - the consumer renderer: 0 -> "$0.00"; a sub-cent value shows ~3
+#                                      significant figures (e.g. $0.00000034); >= $0.01 shows 2 dp
+#   internal/webui/assets/console.js - fmtUSD = "$" + n.toFixed(2)  (the WEB console still shows 2 dp; out of scope here)
 #
 # Two distinct numbers, pinned separately here:
 #   * The CAPTURED cost (what the wallet is actually debited) is full float precision.
-#   * The DISPLAYED cost (X-RogerAI-Cost header / dashboard) is round6, which rounds a
-#     sub-$0.0000005 per-request cost to a bare 0.
+#   * The DISPLAYED cost (X-RogerAI-Cost header -> dollars()) shows the EXACT value, so a real
+#     sub-microcredit charge reads as e.g. $0.00000034, never as a bare $0.00.
 #
-# DECISION PINNED BY THIS SPEC: a cost that is nonzero but rounds to zero under round6 must
-# be DISPLAYED as "<$0.000001", never as a bare "$0.00"/"0", so a real (if tiny) charge is
-# never shown to the user as free. (See the flagged note: this display rule is NOT yet
-# implemented - round6 currently emits a bare 0 - so these scenarios are the target contract.)
+# DECISION PINNED BY THIS SPEC (REVISED 2026-06-28, founder-approved): show the EXACT cost, not a
+# "<$0.000001" floor. A nonzero charge displays its true value (down to the renderer's significant
+# figures) so it is never shown as free; only a genuinely zero cost reads "$0.00". This SUPERSEDES
+# the earlier "<$0.000001" floor decision - round6 no longer truncates the cost header.
 #
 # NO step definitions and NO Go. Spec only.
 
@@ -86,25 +90,27 @@ Feature: Per-request cost is exact, free models are $0, and tiny costs display h
   # THE round6 BOUNDARY: where a real sub-microcredit cost rounds to a bare 0.
   # ----------------------------------------------------------------------------
 
-  Rule: round6 rounds half-up to 6 decimals; sub-$0.0000005 rounds to 0
+  Rule: The cost is captured + SENT at full precision; round6 stays only on the balance/quality grid
 
-    Scenario: 34 tokens at $0.01 per 1M is a real $0.00000034 cost that round6 shows as 0
+    Scenario: 34 tokens at $0.01 per 1M is a real $0.00000034 cost - captured AND sent exactly
       Given a receipt with 34 completion tokens at price_out 0.01 per 1M
       When the cost is computed
       Then the captured cost in credits is 0.00000034
-      And the round6 display value is 0.000000
-      And the wallet is still debited the full 0.00000034 credits
+      And the wallet is debited the full 0.00000034 credits
+      And the X-RogerAI-Cost header sends 0.00000034 exactly (NOT round6'd to a bare 0)
 
-    Scenario: 285 tokens at $0.01 per 1M crosses the boundary and round6 shows 0.000003
+    Scenario: 285 tokens at $0.01 per 1M is captured AND sent exactly (no round6 grid snap)
       Given a receipt with 285 completion tokens at price_out 0.01 per 1M
       When the cost is computed
       Then the captured cost in credits is 0.00000285
-      And the round6 display value is 0.000003
+      And the X-RogerAI-Cost header sends 0.00000285 exactly
 
-    Scenario Outline: round6 boundary table
-      Given a raw cost of <raw> credits
+    # round6 the FUNCTION is unchanged (it still rounds the balance/quality headers half-up to
+    # the 1e-6 grid); it is just no longer applied to the per-request COST header.
+    Scenario Outline: round6 the function rounds half-up to the 1e-6 grid
+      Given a raw value of <raw> credits
       When round6 is applied
-      Then the displayed value is <rounded>
+      Then round6 returns <rounded>
 
       Examples: half-up at the 1e-6 grid
         | raw         | rounded   |
@@ -121,40 +127,43 @@ Feature: Per-request cost is exact, free models are $0, and tiny costs display h
         | 1.2345675   | 1.234568  |
 
   # ----------------------------------------------------------------------------
-  # DISPLAY RULE (pinned target): nonzero-but-rounded must read "<$0.000001".
+  # DISPLAY RULE (pinned target, REVISED): show the EXACT cost, never a bare $0.00 for a charge.
   # ----------------------------------------------------------------------------
 
-  Rule: A nonzero cost that rounds to zero displays as "<$0.000001", not a bare "$0.00"
+  Rule: A nonzero cost displays its EXACT value; only a genuinely zero cost reads "$0.00"
 
-    Scenario: A real sub-microcredit charge is shown as "<$0.000001"
+    Scenario: A real sub-microcredit charge shows its exact value, not $0.00
       Given a captured cost of 0.00000034 credits
-      When the cost is rendered for the consumer
-      Then the displayed cost reads "<$0.000001"
+      When the cost is rendered for the consumer (dollars())
+      Then the displayed cost reads "$0.00000034"
       And it never reads "$0.00" for a nonzero charge
 
-    Scenario: A genuinely free request reads exactly "$0.000000"
+    Scenario: A genuinely free request reads exactly "$0.00"
       Given a captured cost of 0.000000 credits
-      When the cost is rendered for the consumer
-      Then the displayed cost reads "$0.000000"
+      When the cost is rendered for the consumer (dollars())
+      Then the displayed cost reads "$0.00"
 
-    Scenario: A cost at or above one microcredit reads its rounded numeric value
+    Scenario: A sub-cent cost above a microcredit shows its exact value
       Given a captured cost of 0.00000285 credits
-      When the cost is rendered for the consumer
-      Then the displayed cost reads "$0.000003"
+      When the cost is rendered for the consumer (dollars())
+      Then the displayed cost reads "$0.00000285"
 
-    Scenario Outline: Display-rule decision table
+    # dollars() renders 0 as "$0.00", a sub-cent value at ~3 significant figures (exact, plain
+    # decimal, no scientific), and a value >= $0.01 at 2 dp. A free request ($0.00) and a tiny
+    # paid request ($0.00000034) are now visibly DISTINCT, so a charge never looks free.
+    Scenario Outline: Display-rule decision table (exact value)
       Given a captured cost of <captured> credits
-      When the cost is rendered for the consumer
+      When the cost is rendered for the consumer (dollars())
       Then the displayed cost reads <display>
 
       Examples:
-        | captured    | display       |
-        | 0.000000    | "$0.000000"   |
-        | 0.00000034  | "<$0.000001"  |
-        | 0.00000049  | "<$0.000001"  |
-        | 0.00000050  | "$0.000001"   |
-        | 0.00000285  | "$0.000003"   |
-        | 0.045000    | "$0.045000"   |
+        | captured    | display         |
+        | 0.000000    | "$0.00"         |
+        | 0.00000034  | "$0.00000034"   |
+        | 0.00000050  | "$0.0000005"    |
+        | 0.00000285  | "$0.00000285"   |
+        | 0.00345000  | "$0.00345"      |
+        | 0.12000000  | "$0.12"         |
 
   # ----------------------------------------------------------------------------
   # FREE MODEL: price 0 on both axes is ALWAYS exactly $0.
@@ -168,7 +177,7 @@ Feature: Per-request cost is exact, free models are $0, and tiny costs display h
       When the cost is computed
       Then the cost in credits is 0.000000
       And no hold is placed and no ledger money rows are written
-      And the displayed cost reads "$0.000000"
+      And the displayed cost reads "$0.00"
 
       Examples:
         | prompt  | completion |

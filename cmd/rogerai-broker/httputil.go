@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
 
 // ftoa renders a float as its compact JSON number form (used for X-RogerAI-*
@@ -10,6 +11,26 @@ import (
 func ftoa(f float64) string {
 	b, _ := json.Marshal(f)
 	return string(b)
+}
+
+// fmtCostHeader formats a billed cost for the X-RogerAI-Cost DISPLAY header at its EXACT
+// value, replacing the old round6(cost) that collapsed a real sub-microcredit charge to a
+// bare "0". A few output tokens at $0.01/1M cost ~$0.00000036; round6 floored that to 0, so
+// the consumer's per-reply + session cost read "$0.00" as if it were free. This sends the
+// exact value ("0.00000036") so dollars() renders the truth. It rounds to 6 SIGNIFICANT
+// figures (cleaning float noise like 0.1+0.2 -> 0.3) and re-emits a plain decimal (never
+// scientific) so a tiny value parses + renders cleanly client-side. Billing settles at full
+// precision elsewhere - this is display only. A zero/negative cost sends "0" (a free turn).
+func fmtCostHeader(cost float64) string {
+	if cost <= 0 {
+		return "0"
+	}
+	g := strconv.FormatFloat(cost, 'g', 6, 64)
+	f, err := strconv.ParseFloat(g, 64)
+	if err != nil {
+		f = cost
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
