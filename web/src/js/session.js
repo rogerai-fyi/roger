@@ -14,18 +14,16 @@
 
   var BROKER = "https://broker.rogerai.fyi";
 
-  // The /account check is a CREDENTIALED cross-origin request the broker only honors
-  // for its single configured web origin (ROGERAI_WEB_ORIGIN, default the production
-  // https://rogerai.fyi - see corsCreds in cmd/rogerai-broker/auth.go). On ANY other
-  // origin (a local `dist/` preview on http://127.0.0.1, a staging host) that request
-  // is guaranteed to be CORS-blocked - which the browser logs as a console error even
-  // though we catch the rejection - AND a visitor there is logged-out by definition (no
-  // session cookie for this origin). So skip the call entirely off the production web
-  // origin: identical logged-out result, no console noise. (Set window.ROGER_BROKER_CHECK
-  // = true before this script to force the check, e.g. when developing against a local
-  // broker whose ROGERAI_WEB_ORIGIN is set to your dev origin.)
-  function onProdWebOrigin() {
-    return location.protocol === "https:" && /(^|\.)rogerai\.fyi$/.test(location.hostname);
+  // The /account check is a CREDENTIALED request that returns 401 for a logged-out
+  // visitor (and CORS-fails entirely off the production origin). We can't read the real
+  // session cookie (HttpOnly, on the broker's domain), but the broker ALSO sets a
+  // non-secret, readable `roger_signed_in=1` flag at login (cleared at logout) on the web
+  // domain - see signedInHint in cmd/rogerai-broker/auth.go. Probe /account ONLY when that
+  // flag is present, so a logged-out visitor makes ZERO request (no 401, no CORS noise);
+  // on localhost the flag's domain doesn't match so it's absent too. window.ROGER_BROKER_CHECK
+  // forces the probe for local-broker dev where the hint domain won't match.
+  function signedInHint() {
+    return /(?:^|;\s*)roger_signed_in=1(?:;|$)/.test(document.cookie);
   }
 
   // The "Log in" anchor to replace. Prefer an explicit hook; fall back to the
@@ -44,9 +42,9 @@
   var loginLink = findLoginLink();
   if (!loginLink) return; // nothing to swap on this page
 
-  // Off the production web origin the credentialed check can only CORS-fail + spam the
-  // console; the static logged-out nav is already correct there. Skip unless forced.
-  if (!onProdWebOrigin() && !window.ROGER_BROKER_CHECK) return;
+  // No signed-in hint -> logged out (or an origin that can't read it, e.g. localhost):
+  // leave the static nav and make NO request. This is what removes the logged-out 401.
+  if (!signedInHint() && !window.ROGER_BROKER_CHECK) return;
 
   fetch(BROKER + "/account", { credentials: "include" })
     .then(function (r) { return r.ok ? r.json() : null; })

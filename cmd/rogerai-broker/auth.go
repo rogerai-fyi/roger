@@ -137,6 +137,50 @@ func (b *broker) requireOwner(r *http.Request) (store.Owner, bool) {
 
 const sessionCookie = "roger_session"
 
+// signedInHint is a NON-secret, JS-READABLE companion to the HttpOnly sessionCookie. It
+// carries no identity, no signature - just presence ("1") - so the web front-end can tell a
+// logged-in visitor from a logged-out one WITHOUT a credentialed GET /account probe that
+// 401s (red in the console) on every logged-out page load. The page's JS cannot read the
+// HttpOnly, broker-domain session cookie, so this readable flag is what lets it skip the
+// probe when there is no session. Set at login, cleared at logout, same lifetime as the
+// session. Safe to be readable: it grants nothing; spends still require an Ed25519 signature.
+const signedInHint = "roger_signed_in"
+
+// webOriginHost is the host of ROGERAI_WEB_ORIGIN (e.g. "rogerai.fyi"), used as the Domain
+// of the signed-in hint cookie so the web page's JS can read it (the broker, on a subdomain
+// like broker.rogerai.fyi, may set a cookie for its parent domain). "" when it can't be
+// parsed - the hint is then host-only on the broker (still set, just not cross-subdomain
+// readable), and the front-end falls back to probing.
+func webOriginHost() string {
+	u, err := url.Parse(envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi"))
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// setWebSessionCookies sets the real credential (the HttpOnly, signed session cookie) AND
+// the readable signed-in hint, both expiring at exp. Used by the OAuth callback so the two
+// are always set together.
+func (b *broker) setWebSessionCookies(w http.ResponseWriter, login string, id, exp int64) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: b.signSession(login, id, exp), Path: "/",
+		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name: signedInHint, Value: "1", Path: "/", Domain: webOriginHost(),
+		Expires: time.Unix(exp, 0), Secure: true, SameSite: http.SameSiteLaxMode,
+		// Deliberately NOT HttpOnly: the web JS must read it to skip the logged-out probe.
+	})
+}
+
+// clearWebSessionCookies expires BOTH the session cookie and the signed-in hint, so logging
+// out leaves no stale "you're signed in" flag behind. Used by /auth/logout.
+func clearWebSessionCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
+	http.SetCookie(w, &http.Cookie{Name: signedInHint, Value: "", Path: "/", Domain: webOriginHost(), MaxAge: -1, Secure: true, SameSite: http.SameSiteLaxMode})
+}
+
 func githubClientID() string { return os.Getenv("GITHUB_OAUTH_CLIENT_ID") }
 func githubSecret() string   { return os.Getenv("GITHUB_OAUTH_CLIENT_SECRET") }
 func webRedirectURI() string {
@@ -252,10 +296,9 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	// REQUIRES Secure. Low risk: the cookie is HttpOnly, spends still require an
 	// Ed25519 signature, and the only cookie-readable surfaces are GET reads + the
 	// logout POST. The short-lived oauth_state cookie stays Lax (same-site callback).
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: b.signSession(gu.Login, gu.ID, exp), Path: "/",
-		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
-	})
+	// Set the HttpOnly session credential AND the readable signed-in hint together, so the
+	// web front-end can skip the logged-out /account probe (no 401 noise) - see signedInHint.
+	b.setWebSessionCookies(w, gu.Login, gu.ID, exp)
 	// Clear the state cookie.
 	http.SetCookie(w, &http.Cookie{Name: "roger_oauth_state", Value: "", Path: "/", MaxAge: -1})
 	http.Redirect(w, r, dashboardURL(), http.StatusFound)
@@ -397,7 +440,8 @@ func (b *broker) authLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode})
+	// Clear BOTH the session credential and the readable signed-in hint.
+	clearWebSessionCookies(w)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
