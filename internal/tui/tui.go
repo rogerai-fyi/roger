@@ -3786,11 +3786,80 @@ func (m model) View() string {
 	// mystery WHERE to type: a labeled `rog ›` line that echoes every keystroke
 	// live (its textinput View() is re-rendered each Update). modeChat owns its own
 	// always-live prompt inside chatView.
+	if m.mode == modeCommand {
+		// progressive disclosure: the live-filtered command palette above the prompt.
+		b.WriteString("\n" + m.paletteView(w))
+	}
 	if m.mode == modeBrowse || m.mode == modeCommand {
 		b.WriteString("\n" + m.promptLine(w))
 	}
 	b.WriteString("\n" + m.footer(w))
 	return b.String()
+}
+
+// paletteCmd is one entry in the `/` command palette (A.5 progressive disclosure): a runnable
+// /command, a plain one-liner, and its key shortcut. Kept in lock-step with run()'s verbs so
+// nothing listed here is a dead command.
+type paletteCmd struct{ name, desc, key string }
+
+var paletteCmds = []paletteCmd{
+	{"/search", "re-scan the band for stations", "r"},
+	{"/connect", "tune in to the selected station", "⏎"},
+	{"/share", "put your GPU on air (earn or free)", "2 · s"},
+	{"/limits", "your per-model spend caps", "3"},
+	{"/login", "link GitHub (needed to earn)", "L"},
+	{"/balance", "wallet balance", ""},
+	{"/topup", "add funds", ""},
+	{"/grant", "private free keys for bots/family", ""},
+	{"/confidential", "route only to TEE-attested nodes", "C"},
+	{"/endpoint", "the OpenAI-compatible endpoint + key", ""},
+	{"/config", "broker + identity", ""},
+	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
+	{"/ping", "the Ping World screensaver", "z"},
+	{"/support", "rogerai.fyi - community + Discord", ""},
+	{"/help", "the full operating manual", "?"},
+	{"/quit", "quit RogerAI", "q"},
+}
+
+// paletteMatch returns the palette entries whose name contains the (case-insensitive) query;
+// an empty query lists them all. Pure - the filter behind the live `/` palette.
+func paletteMatch(query string) []paletteCmd {
+	q := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(query, "/")))
+	out := make([]paletteCmd, 0, len(paletteCmds))
+	for _, c := range paletteCmds {
+		if q == "" || strings.Contains(strings.TrimPrefix(c.name, "/"), q) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// paletteView renders the live-filtered command palette shown while typing in modeCommand: a
+// compact, calm list (command · description · shortcut), capped so it never floods a short
+// terminal. The list filters as you type; enter still runs whatever is in the prompt.
+func (m model) paletteView(w int) string {
+	matches := paletteMatch(m.cmd.Value())
+	if len(matches) == 0 {
+		return "  " + stDim.Render("no command matches - esc to cancel")
+	}
+	const cap = 8
+	more := 0
+	if len(matches) > cap {
+		more, matches = len(matches)-cap, matches[:cap]
+	}
+	var b strings.Builder
+	b.WriteString("  " + stDim.Render("commands") + stTag.Render("  type to filter · ⏎ run · esc close") + "\n")
+	for _, c := range matches {
+		key := ""
+		if c.key != "" {
+			key = stTag.Render("  " + c.key)
+		}
+		b.WriteString("   " + stKey.Render(fmt.Sprintf("%-14s", c.name)) + stDim.Render(c.desc) + key + "\n")
+	}
+	if more > 0 {
+		b.WriteString("   " + stTag.Render(fmt.Sprintf("+%d more - keep typing to narrow", more)) + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // promptLine renders the always-visible command prompt. It shows the live
