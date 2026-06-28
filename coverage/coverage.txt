@@ -516,7 +516,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai/main.go:362:			toCfgWindows			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:373:			toTUIWindows			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:388:			toProtocolWindows		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:411:			main				33.3%
-github.com/rogerai-fyi/roger/cmd/rogerai/main.go:423:			run				100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai/main.go:423:			run				86.7%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:479:			dispatch			87.5%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:548:			cmdSupport			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai/main.go:556:			cmdUse				96.6%
@@ -1488,4 +1488,4 @@ github.com/rogerai-fyi/roger/internal/webui/server.go:133:		localhostOnly			100.
 github.com/rogerai-fyi/roger/internal/webui/server.go:150:		Listen				75.0%
 github.com/rogerai-fyi/roger/internal/webui/server.go:160:		listenFreePort			80.0%
 github.com/rogerai-fyi/roger/internal/webui/server.go:184:		newToken			100.0%
-total:									(statements)			92.4%
+total:									(statements)			92.3%
