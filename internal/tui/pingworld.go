@@ -328,6 +328,26 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
+	// LAYER 4 — a still pond at the shore: the banded surface above is the beach, and the
+	// bottom rows give back a dim, rippled reflection of the moon (water for a duck). Dim ink,
+	// NEVER red - even reflections stay dim, reinforcing the one-red law. Additive: the
+	// ROGER·AI shore band is untouched.
+	for wy := horizon + 2; wy < h; wy++ {
+		ripple := make([]rune, w)
+		for x := 0; x < w; x++ {
+			if (x+frame/6+wy)%7 == 0 { // mostly-still water, a slow drifting ripple
+				ripple[x] = '~'
+			} else {
+				ripple[x] = ' ' // transparent in blit - leaves the row calm
+			}
+		}
+		blit(buf, 0, wy, []string{string(ripple)}, 0)
+	}
+	if rw := horizon + 2; rw < h { // the moon's wobbling reflection on the near water
+		rmx := (mx + frame/6) % maxI(1, w)
+		blit(buf, rmx, rw, []string{"(.)"}, 0)
+	}
+
 	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
 	// transmit) instead of a metronomic slide; the eye stays the red dot in every act.
 	pingLines, pingEye := worldPingPose(frame, seed)
