@@ -332,3 +332,65 @@ func pondRowStr(row []worldCell) string {
 	}
 	return string(rs)
 }
+
+// TestWorldHasDucklingTrail: a trail of dim follower ducklings lags behind Ping (P1-4), and the
+// lead duckling still carries the red '•' guarantee.
+func TestWorldHasDucklingTrail(t *testing.T) {
+	// pick a frame where Ping has roamed right so the followers are on-screen.
+	var buf [][]worldCell
+	for f := 0; f < 400; f++ {
+		b := worldBuffer(100, 22, f, 7)
+		if worldPingX(f, 7, 100-pingWalkW) >= 16 {
+			buf = b
+			break
+		}
+	}
+	if buf == nil {
+		t.Fatal("no frame with Ping roamed right enough to show followers")
+	}
+	hz := len(buf) - 4 // horizon row
+	dimDuck, redLead := 0, 0
+	for _, c := range buf[hz] {
+		if c.r == '·' && !c.eye {
+			dimDuck++ // a follower duckling's dim body dot
+		}
+		if c.r == '•' && c.eye {
+			redLead++ // the lead duckling (or Ping) red eye
+		}
+	}
+	if dimDuck < 1 {
+		t.Errorf("expected dim follower duckling(s) on the horizon row, got %d", dimDuck)
+	}
+	if redLead < 1 {
+		t.Error("expected a red lead duckling/Ping eye on the horizon row")
+	}
+}
+
+// TestWorldAuroraAtNightNeverRed: a dim aurora wisp appears at deep night (not midday) and is
+// never red.
+func TestWorldAuroraAtNightNeverRed(t *testing.T) {
+	isAurora := func(r rune) bool { return r == '≈' || r == '∼' || r == '∽' || r == '≋' }
+	night := worldBuffer(100, 24, 0, 7) // frame 0 = deep night (darkness 100)
+	got := 0
+	for _, row := range night {
+		for _, c := range row {
+			if isAurora(c.r) {
+				got++
+				if c.eye {
+					t.Error("aurora cell must never be red")
+				}
+			}
+		}
+	}
+	if got == 0 {
+		t.Error("expected an aurora wisp at deep night")
+	}
+	day := worldBuffer(100, 24, dayNightPeriod/2, 7) // midday: darkness ~0
+	for _, row := range day {
+		for _, c := range row {
+			if isAurora(c.r) {
+				t.Error("aurora should NOT show at midday")
+			}
+		}
+	}
+}

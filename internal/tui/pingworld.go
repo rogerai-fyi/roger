@@ -295,6 +295,17 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 			buf[y][x0] = worldCell{r: g, bright: bright}
 		}
 	}
+	// LAYER 0.5 — a faint aurora wisp near the top, ONLY at deep night, drifting slowly. Dim
+	// ink, never red; behind the moon + on-air star (both painted later).
+	if darkness > 70 && skyRows >= 3 {
+		aur := []rune("≈ ∼ ∽ ≋   ") // gappy so it reads as a wisp, not a solid bar
+		row := make([]rune, w)
+		for x := 0; x < w; x++ {
+			row[x] = aur[(x+frame/12)%len(aur)]
+		}
+		blit(buf, 0, 1, []string{string(row)}, 0)
+	}
+
 	// LAYER 1.5 — the moon: a calm lunar anchor hanging high, drifting the sky slowly. Dim
 	// ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
 	mx, my := moonPos(w, skyRows, frame, seed)
@@ -371,10 +382,12 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
-	// the baby (•) duckling trails Ping, clamped on-screen, painted AFTER the shooting star
-	// (which can reach the horizon row at short heights) so its red '•' survives at every
-	// reasonable size - even mid-transmit, even at h=8. (The single ◉ below is the UNIVERSAL
-	// red-eye backstop that holds even at degenerate sizes like w=1 where the baby clips off.)
+	// A duckling trail follows Ping (v2 P1-4): two dim followers lag behind, and the LEAD
+	// duckling - clamped on-screen, painted AFTER the shooting star - keeps the red '•' so it
+	// survives at every reasonable size, even mid-transmit, even at h=8. (The single ◉ below is
+	// the UNIVERSAL red-eye backstop at degenerate sizes like w=1 where the lead clips off.)
+	blit(buf, px-12, horizon, []string{"(·)"}, 0) // far follower (dim)
+	blit(buf, px-8, horizon, []string{"(·)"}, 0)  // near follower (dim)
 	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
 
 	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby)
