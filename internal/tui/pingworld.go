@@ -360,10 +360,6 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	span := w + pingWalkW
 	wx := w - 1 - (frame/5)%span + pingWalkW
 	blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
-	// the baby (•) duckling trails Ping but is clamped on-screen, so its red eye GUARANTEES the
-	// one-red 'at least one eye' law on every frame (even mid-transmit, even if the wanderer has
-	// drifted off the edge).
-	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
 
 	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
 	if worldHash(frame/40, 7, seed)%4 == 0 {
@@ -375,8 +371,13 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		}
 	}
 
-	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star) ever
-	// overwrites the sky's single red glint.
+	// the baby (•) duckling trails Ping, clamped on-screen, and is painted AFTER the shooting
+	// star (which can reach the horizon row at short heights) so its red eye GUARANTEES the
+	// one-red 'at least one eye' law on EVERY frame - even mid-transmit, even at h=8.
+	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•')
+
+	// the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby)
+	// ever overwrites the sky's single red glint (it sits in the sky, off the baby's rim row).
 	blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
 	return buf
