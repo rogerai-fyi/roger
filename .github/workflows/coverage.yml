@@ -1,7 +1,6 @@
 name: coverage
 # Runs the full suite with coverage, publishes the report + badge so coverage is always
-# VISIBLE (even while the 85% gate is red during the TDD backfill), THEN runs the gate last
-# so a sub-85% run goes red without hiding the report.
+# VISIBLE, THEN runs the gate last so a sub-90% run goes red without hiding the report.
 on:
   push:
     branches: [main]
@@ -60,8 +59,8 @@ jobs:
           go tool cover -func=cover.out | tee _site/coverage.txt | tail -1
           pct=$(go tool cover -func=cover.out | awk '/^total:/{gsub("%","",$3);print $3}')
           # Branded, self-contained badge (no SaaS): a dark ROGER·AI pill with the
-          # signal-meter motif + a colored % segment - green at/above the 85% bar, amber below.
-          if awk -v p="$pct" 'BEGIN{exit !(p+0>=85)}'; then color="#3fb950"; else color="#d29922"; fi
+          # signal-meter motif + a colored % segment - green at/above the 90% bar, amber below.
+          if awk -v p="$pct" 'BEGIN{exit !(p+0>=90)}'; then color="#3fb950"; else color="#d29922"; fi
           printf '%s' "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"20\" role=\"img\" aria-label=\"ROGER·AI coverage: ${pct}%\"><title>ROGER·AI coverage: ${pct}%</title><clipPath id=\"r\"><rect width=\"200\" height=\"20\" rx=\"3\"/></clipPath><linearGradient id=\"s\" x2=\"0\" y2=\"100%\"><stop offset=\"0\" stop-color=\"#fff\" stop-opacity=\".07\"/><stop offset=\"1\" stop-opacity=\".07\"/></linearGradient><g clip-path=\"url(#r)\"><rect width=\"200\" height=\"20\" fill=\"#0d1117\"/><rect x=\"142\" width=\"58\" height=\"20\" fill=\"${color}\"/><rect width=\"200\" height=\"20\" fill=\"url(#s)\"/></g><g fill=\"#3fb950\"><rect x=\"9\" y=\"13\" width=\"2.5\" height=\"3\"/><rect x=\"13\" y=\"11\" width=\"2.5\" height=\"5\"/><rect x=\"17\" y=\"8\" width=\"2.5\" height=\"8\"/><rect x=\"21\" y=\"5\" width=\"2.5\" height=\"11\"/></g><g font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\"><text x=\"30\" y=\"14\" fill=\"#fff\" font-weight=\"bold\">ROGER·AI</text><text x=\"92\" y=\"14\" fill=\"#8b949e\">coverage</text><text x=\"171\" y=\"14\" fill=\"#fff\" font-weight=\"bold\" text-anchor=\"middle\">${pct}%</text></g></svg>" > _site/badge.svg
 
           # Per-PACKAGE summary from cover.out (the reassuring greens), so the public page
@@ -90,6 +89,6 @@ jobs:
           destination_dir: coverage
           keep_files: false
 
-      # 5) THE GATE — last, so it can go RED (sub-85%) without blocking the report/badge.
-      - name: coverage gate (85% bar, aim 95%)
+      # 5) THE GATE — last, so it can go RED (sub-90%) without blocking the report/badge.
+      - name: coverage gate (90% bar, aim 95%)
         run: scripts/cover-gate.sh
