@@ -37,6 +37,7 @@
 
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (window.RogerFmt) return RogerFmt.usdSigned(n); // canonical money renderer (web == CLI/TUI)
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);
@@ -50,11 +51,19 @@
     if (typeof n !== "number" || !isFinite(n)) return "-";
     return Math.round(n).toLocaleString("en-US");
   }
+  // compact count for tight table cells (k/M/B/T via the shared formatter); local fallback.
   function kfmt(n) {
     n = n0(n);
+    if (window.RogerFmt) return RogerFmt.count(n);
     if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "") + "M";
     if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace(/\.0$/, "") + "k";
     return String(Math.round(n));
+  }
+  // A growing stat tile: compact form + exact value on hover/tap; fallback to num().
+  function bindNum(id, v) {
+    var el = $(id); if (!el) return;
+    if (window.RogerFmt) RogerFmt.bind(el, v);
+    else el.textContent = num(v);
   }
   // relative time for the log ("12s", "4m", "3h", "2d"); falls back to a date.
   function ago(ts) {
@@ -116,8 +125,9 @@
     // role line
     text("role", isOwner ? "Operator console" : "Consumer console");
 
-    // ---- stat tiles ----
-    text("ctrReq", num(n0(c.requests_today)));
+    // ---- stat tiles ---- (requests can grow large -> compact + exact reveal; nodes/bands
+    // stay plain, they're small counts)
+    bindNum("ctrReq", n0(c.requests_today));
     if (isOwner) {
       text("ctrMoney", cr(n0(c.earned_today)));
       text("ctrMoneyK", "Earned today");

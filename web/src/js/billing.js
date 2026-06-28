@@ -34,6 +34,7 @@
   // real cost never reads as $0.00.
   function cr(n) {
     if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (window.RogerFmt) return RogerFmt.usdSigned(n); // canonical money renderer (web == CLI/TUI)
     if (n === 0) return "$0.00";
     var s = n < 0 ? "-" : "";
     var a = Math.abs(n);
