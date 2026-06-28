@@ -87,6 +87,35 @@ func starTier(i, seed int) int {
 	}
 }
 
+// dayNightPeriod is the frames in one full day<->night cycle (~a few minutes at ~140ms/frame).
+const dayNightPeriod = 1600
+
+// dayNightDarkness returns 0..100 sky darkness: 100 = deep night (all stars out), 0 = midday
+// (only the brightest near stars + moon remain). A slow triangle wave, starting at night
+// (frame 0). Pure in frame - so the sky "breathes" yet stays reproducible.
+func dayNightDarkness(frame int) int {
+	half := dayNightPeriod / 2
+	p := ((frame % dayNightPeriod) + dayNightPeriod) % dayNightPeriod
+	if p < half {
+		return 100 - p*100/half // night -> day
+	}
+	return (p - half) * 100 / half // day -> night
+}
+
+// moonSprite is the calm lunar anchor (v2 P0-4): a small disc that hangs high in the sky. Dim
+// ink only - NEVER red (the beacon + on-air star keep the one-red discipline).
+var moonSprite = []string{" .-. ", "(   )", " `-' "}
+
+// moonPos returns the moon's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
+// 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
+// with the on-air star's (1/2).
+func moonPos(w, skyRows, frame, seed int) (int, int) {
+	ww := maxI(1, w)
+	x := ((int(worldHash(0, 5, seed)%uint32(ww)) + frame/24) % ww) % ww
+	y := int(worldHash(0, 6, seed) % uint32(maxI(1, skyRows/3)))
+	return x, y
+}
+
 // starColumn is star i's drifting column for its tier, wrapped into [0,w): far is static, mid
 // drifts slowly, near drifts fastest (parallax). w is assumed > 0 (worldBuffer guards it).
 func starColumn(x0, frame, w, tier int) int {
@@ -155,8 +184,15 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		skyRows = 1
 	}
 	nStars := (w * skyRows) / 18
+	darkness := dayNightDarkness(frame) // day washes the faint stars out; the sky breathes
 	for i := 1; i < nStars; i++ {
 		tier := starTier(i, seed)
+		// Faint far/mid stars fade as it brightens toward day; the bright near stars persist
+		// (like real first-magnitude stars + planets lingering at dusk). The moon + on-air ◉
+		// are separate and always shown.
+		if tier != 2 && int(worldHash(i, 4, seed)%100) >= darkness {
+			continue
+		}
 		set := starsFar
 		bright := false
 		switch tier {
@@ -172,6 +208,11 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 			buf[y][x0] = worldCell{r: g, bright: bright}
 		}
 	}
+	// LAYER 1.5 — the moon: a calm lunar anchor hanging high, drifting the sky slowly. Dim
+	// ink, never red (painted over the stars; the on-air ◉ is still painted LAST, on top).
+	mx, my := moonPos(w, skyRows, frame, seed)
+	blit(buf, mx, my, moonSprite, 0)
+
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
 	onAirY := int(worldHash(0, 2, seed) % uint32(skyRows))
