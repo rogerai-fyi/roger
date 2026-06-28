@@ -77,7 +77,7 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		}
 	})
 
-	t.Run("RunWithController reuses the shared controller + altscreen/mouse", func(t *testing.T) {
+	t.Run("RunWithController reuses the shared controller + altscreen (no mouse capture)", func(t *testing.T) {
 		var got model
 		var opts []tea.ProgramOption
 		restore := withStubRunProgram(nil, func(m tea.Model, o []tea.ProgramOption) { got = m.(model); opts = o })
@@ -92,9 +92,13 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		if got.updateLine != "note" {
 			t.Errorf("RunWithController should set the notice, got %q", got.updateLine)
 		}
-		// AltScreen + MouseCellMotion are passed (the wheel-scroll contract).
-		if len(opts) != 2 {
-			t.Errorf("RunWithController should pass alt-screen + mouse motion (2 opts), got %d", len(opts))
+		// Only AltScreen is passed: mouse capture is OFF by default so native drag-select +
+		// copy works on any text (opencode-style); the user opts into wheel-scroll via ctrl+o.
+		if len(opts) != 1 {
+			t.Errorf("RunWithController should pass alt-screen ONLY (1 opt; mouse capture off), got %d", len(opts))
+		}
+		if !got.mouseOff {
+			t.Errorf("RunWithController model should start mouseOff=true (native copy default)")
 		}
 	})
 
