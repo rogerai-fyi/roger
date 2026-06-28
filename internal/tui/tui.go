@@ -1233,9 +1233,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	m.prevMode = m.mode
 	m.mode = modePingWorld
-	// Blur the active text input so there's no live-but-frozen cursor sitting behind the
-	// world (its blink Cmd-chain can't run while the screensaver owns the tick). The wake
-	// re-focuses it. Blurring both is harmless - only the focused one was animating.
+	// Blur the active text input so its blink Cmd-chain stops firing into the dropped-msg
+	// void while the screensaver owns the tick; the wake re-focuses it to re-arm the blink.
+	// Blurring both is harmless - only the focused one was animating.
 	m.chatIn.Blur()
 	m.cmd.Blur()
 	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff)}

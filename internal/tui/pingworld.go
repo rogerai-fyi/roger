@@ -23,10 +23,12 @@ import (
 
 const worldTickMs = 120 // ~8fps: smoother than the 160ms TUI tick, still calm
 
-// worldCell is one composited cell. eye=true is the ONLY thing rendered red.
+// worldCell is one composited cell. eye=true is the ONLY thing rendered red; bright=true is a
+// near/foreground star drawn in brighter ink (a depth cue, NEVER red - one-red is untouched).
 type worldCell struct {
-	r   rune
-	eye bool
+	r      rune
+	eye    bool
+	bright bool
 }
 
 type pingWorldModel struct {
@@ -62,6 +64,43 @@ func (m pingWorldModel) View() string { return renderWorld(m.w, m.h, m.frame, m.
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
 func worldHash(a, b, seed int) uint32 { return pingHash(a*7349 + b*916703 + seed*2654435761) }
+
+// Depth-weighted starfield (v2 P0-2): three tiers give the sky genuine parallax instead of a
+// flat speckle. Far stars are tiny/faint/static, mid drift slowly, near are bright + drift
+// fastest. Glyph sets are disjoint so a cell's depth is legible at a glance.
+var (
+	starsFar  = []rune{'.', '˙', '·'} // distant: tiny faint specks, twinkle in place
+	starsMid  = []rune{',', '+', '*'} // middle distance: medium, slow drift
+	starsNear = []rune{'o', '✦', '✧'} // foreground: bold + bright, fastest parallax
+)
+
+// starTier buckets star i into 0=far, 1=mid, 2=near, weighted FAR-heavy (~4/6 far) so most of
+// the sky reads as distant - the essence of depth.
+func starTier(i, seed int) int {
+	switch worldHash(i, 9, seed) % 6 {
+	case 4:
+		return 1 // mid  (~1/6)
+	case 5:
+		return 2 // near (~1/6)
+	default:
+		return 0 // far  (~4/6)
+	}
+}
+
+// starColumn is star i's drifting column for its tier, wrapped into [0,w): far is static, mid
+// drifts slowly, near drifts fastest (parallax). w is assumed > 0 (worldBuffer guards it).
+func starColumn(x0, frame, w, tier int) int {
+	div := 0
+	switch tier {
+	case 2:
+		div = 10 // near: fastest
+	case 1:
+		div = 28 // mid: slow
+	default:
+		return ((x0 % w) + w) % w // far: static
+	}
+	return ((x0-frame/div)%w + w) % w
+}
 
 // blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
 // rune == eye is marked red (eye=true). Out-of-bounds cells are clipped, never wrap-corrupt.
@@ -107,22 +146,31 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 		horizon = h - 1
 	}
 
-	// LAYER 0/1/2 — starfield: ~1 star per 18 cells of SKY (above the horizon). Far stars are
-	// static + twinkle; near stars drift slowly. Star 0 is the single RED on-air station.
+	// LAYER 0/1/2 — depth-weighted starfield: ~1 star per 18 cells of SKY (above the horizon),
+	// bucketed into far/mid/near tiers for genuine parallax (see starTier/starColumn). Far are
+	// faint+static, mid drift slowly, near are bright + drift fastest. Star 0 is the RED on-air
+	// station, painted LAST so nothing twinkles over it.
 	skyRows := horizon
 	if skyRows < 1 {
 		skyRows = 1
 	}
 	nStars := (w * skyRows) / 18
-	twinkle := []rune{'.', '˙', '\'', ',', '+', '*'}
-	for i := 1; i < nStars; i++ { // i=0 is the on-air star, painted LAST (on top, never twinkled over)
-		x0 := int(worldHash(i, 1, seed) % uint32(w))
-		y := int(worldHash(i, 2, seed) % uint32(skyRows))
-		if worldHash(i, 3, seed)%5 == 0 { // ~1/5 stars are "near" and parallax-drift
-			x0 = ((x0-frame/16)%w + w) % w
+	for i := 1; i < nStars; i++ {
+		tier := starTier(i, seed)
+		set := starsFar
+		bright := false
+		switch tier {
+		case 2:
+			set, bright = starsNear, true
+		case 1:
+			set = starsMid
 		}
-		g := twinkle[int(worldHash(i, frame/8, seed))%len(twinkle)]
-		blit(buf, x0, y, []string{string(g)}, 0)
+		x0 := starColumn(int(worldHash(i, 1, seed)%uint32(w)), frame, w, tier)
+		y := int(worldHash(i, 2, seed) % uint32(skyRows))
+		g := set[int(worldHash(i, frame/8, seed))%len(set)]
+		if y >= 0 && y < len(buf) && x0 >= 0 && x0 < w { // in-bounds by construction; guard anyway
+			buf[y][x0] = worldCell{r: g, bright: bright}
+		}
 	}
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
@@ -184,8 +232,8 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 var cornerWanderer = []string{"(( • ))", " \\(   )/", "  ╰───╯"}
 
 // compositeWorld flattens the cell buffer into a styled string: spaces stay bare, eye cells go
-// red (stPingEye), everything else ink/dim (stDim). Same-style runs are batched into one
-// Render call so a full frame is cheap.
+// red (stPingEye), bright (near-star) cells go brighter ink (stLive), everything else dim
+// (stDim). Same-style runs are batched into one Render call so a full frame is cheap.
 func compositeWorld(buf [][]worldCell) string {
 	var b strings.Builder
 	for y, row := range buf {
@@ -196,7 +244,7 @@ func compositeWorld(buf [][]worldCell) string {
 		for i < len(row) {
 			c := row[i]
 			j := i + 1
-			for j < len(row) && row[j].eye == c.eye && (row[j].r == ' ') == (c.r == ' ') {
+			for j < len(row) && row[j].eye == c.eye && row[j].bright == c.bright && (row[j].r == ' ') == (c.r == ' ') {
 				j++
 			}
 			seg := make([]rune, 0, j-i)
@@ -209,6 +257,8 @@ func compositeWorld(buf [][]worldCell) string {
 				b.WriteString(s)
 			case c.eye:
 				b.WriteString(stPingEye.Render(s))
+			case c.bright:
+				b.WriteString(stLive.Render(s))
 			default:
 				b.WriteString(stDim.Render(s))
 			}
