@@ -7278,7 +7278,11 @@ func (m model) helpView() string {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-16s", g[0])) + stDim.Render(g[1]) + "\n")
 	}
 
-	b.WriteString("\n  " + stDim.Render("rogerai "+helpVersion+" · press any key to go back") + "\n")
+	lockup := "rogerai"
+	if helpVersion != "" {
+		lockup += " " + helpVersion
+	}
+	b.WriteString("\n  " + stDim.Render(lockup+" · press any key to go back") + "\n")
 	return b.String()
 }
 
@@ -7288,8 +7292,10 @@ func (m model) helpView() string {
 // the community link stays the footer.
 const supportURL = "https://rogerai.fyi"
 
-// helpVersion is the client version shown in help; set by the host via SetVersion.
-var helpVersion = "v4.8.5"
+// helpVersion is the client version shown in help; set by the host via SetVersion (always, in
+// the real CLI). Empty default so a missed SetVersion shows no version rather than a STALE one
+// (the prior hardcoded fallback drifted every release); render omits it when empty.
+var helpVersion = ""
 
 // SetVersion lets the host (cmd/rogerai) inject the build version so the help /
 // about surfaces match `roger version`.
