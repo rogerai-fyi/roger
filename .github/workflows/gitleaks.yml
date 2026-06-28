@@ -1,0 +1,36 @@
+name: gitleaks
+# Secret-leak scan: run gitleaks over the FULL git history on every push to main and every
+# pull request, using the repo's audited .gitleaks.toml allowlist. The job FAILS if a secret
+# is committed. The allowlist suppresses only precise, audited false positives (by exact
+# value, never by path), so a real secret bundled anywhere is still caught. Policy + the
+# audited list live in .gitleaks.toml. We install the gitleaks binary directly (pinned)
+# rather than the gitleaks-action, which would require a paid license for org-owned repos.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitleaks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so `detect --log-opts=--all` can scan every commit
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Scan full history
+        run: gitleaks detect --source . --config .gitleaks.toml --log-opts="--all" --redact --no-banner
