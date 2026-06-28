@@ -14,6 +14,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,10 +34,23 @@ type worldCell struct {
 	bright bool
 }
 
+// worldStation is one ON-AIR band feeding the LIVE screensaver (rendered as a signal tower);
+// worldData is the live snapshot injected into the world. A nil *worldData is the pure seeded
+// world - byte-identical to before - so every existing test + the offline path are unchanged.
+type worldStation struct {
+	model    string
+	signal   int // 0..100 -> tower height
+	inFlight int // >0 -> the tower scans (actively serving)
+}
+type worldData struct {
+	stations []worldStation // on-air bands, strongest-signal first, capped
+}
+
 type pingWorldModel struct {
 	w, h  int
 	frame int
 	seed  int
+	data  *worldData // LIVE on-air snapshot (nil = the seeded world); set by the host
 }
 
 type worldTickMsg struct{}
@@ -61,7 +75,7 @@ func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m pingWorldModel) View() string { return renderWorld(m.w, m.h, m.frame, m.seed) }
+func (m pingWorldModel) View() string { return renderWorldData(m.w, m.h, m.frame, m.seed, m.data) }
 
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
@@ -263,11 +277,21 @@ func worldPingPose(frame, seed int) ([]string, rune) {
 
 // renderWorld is the pure, seeded screensaver frame: the cell buffer composited + tinted
 // (ink/dim everywhere, red ONLY on eye cells). "" for a degenerate size.
-func renderWorld(w, h, frame, seed int) string { return compositeWorld(worldBuffer(w, h, frame, seed)) }
+func renderWorld(w, h, frame, seed int) string { return renderWorldData(w, h, frame, seed, nil) }
 
-// worldBuffer builds the back->front composited cell buffer (pure + seeded); nil for a
-// degenerate size. Split out so tests can assert the ONE-RED invariant on the cells directly.
-func worldBuffer(w, h, frame, seed int) [][]worldCell {
+// renderWorldData is renderWorld with an optional LIVE data snapshot (nil = byte-identical to
+// the pure seeded world, so every existing test + the offline standalone path are unchanged).
+func renderWorldData(w, h, frame, seed int, d *worldData) string {
+	return compositeWorld(worldBufferData(w, h, frame, seed, d))
+}
+
+// worldBuffer builds the pure SEEDED cell buffer (no live data); nil for a degenerate size.
+func worldBuffer(w, h, frame, seed int) [][]worldCell { return worldBufferData(w, h, frame, seed, nil) }
+
+// worldBufferData builds the back->front composited cell buffer. d is an optional LIVE snapshot
+// (on-air bands -> signal towers on the horizon + the ◉ riding the strongest); nil => the pure
+// seeded world. Split out so tests assert the ONE-RED invariant on the cells directly.
+func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
@@ -335,6 +359,13 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
 	onAirY := int(worldHash(0, 2, seed) % uint32(skyRows))
+	// LIVE DATA: each on-air band becomes a signal tower on the horizon; the ◉ rides the
+	// STRONGEST band's tower top. towers is empty in the seeded (d==nil) world, so the ◉ keeps
+	// its seeded sky position there.
+	towers := worldTowers(w, horizon, d)
+	if len(towers) > 0 {
+		onAirX, onAirY = towers[0].x, towers[0].tipY // the flagship (strongest) tower top
+	}
 
 	// LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
 	if horizon >= 0 && horizon < h {
@@ -358,6 +389,14 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 			}
 			blit(buf, 0, horizon+1, []string{string(s)}, 0)
 		}
+	}
+
+	// LAYER 3.5 — LIVE signal towers (one per on-air band): a dim │ mast rising from the rim,
+	// height = the band's real signal, a bright cell SCANNING up the mast when it's actively
+	// serving (inFlight>0). Painted after the horizon, before Ping (Ping walks in front). The
+	// flagship's tip is left for the ◉ (painted last); the rest get a dim ○. Empty when seeded.
+	for ti, t := range towers {
+		paintTower(buf, t, horizon, ti == 0, frame)
 	}
 
 	// LAYER 4 — a still pond at the shore: the banded surface above is the beach, and the
@@ -445,6 +484,78 @@ func worldBuffer(w, h, frame, seed int) [][]worldCell {
 
 // cornerWanderer is a small 3-line "other Ping" (reuses the corner-head silhouette).
 var cornerWanderer = []string{"(( • ))", " \\(   )/", "  ╰───╯"}
+
+// tower is one laid-out LIVE signal tower: column x, tipY (top row), + its station.
+type tower struct {
+	x, tipY int
+	st      worldStation
+}
+
+// worldTowers lays out one tower per on-air band, evenly spaced across the width, height scaled
+// by the band's signal (taller = stronger), STRONGEST first. Empty for a nil/empty snapshot or a
+// too-small world (so the seeded world is untouched).
+func worldTowers(w, horizon int, d *worldData) []tower {
+	if d == nil || len(d.stations) == 0 || horizon < 3 || w < 6 {
+		return nil
+	}
+	maxH := horizon - 1
+	if maxH > 8 {
+		maxH = 8
+	}
+	n := len(d.stations)
+	out := make([]tower, 0, n)
+	for i, s := range d.stations {
+		h := 1 + s.signal*(maxH-1)/100 // 1..maxH
+		if h < 1 {
+			h = 1
+		}
+		if h > maxH {
+			h = maxH
+		}
+		out = append(out, tower{x: (i + 1) * w / (n + 1), tipY: horizon - h, st: s})
+	}
+	return out
+}
+
+// paintTower draws a tower's dim │ mast from the rim up to its tip. The flagship leaves its tip
+// for the ◉ (painted last); the rest get a dim ○ tip. A busy tower (inFlight>0) shows a single
+// BRIGHT cell scanning up the mast (the "actively serving" pulse). Dim/bright ink, never red.
+func paintTower(buf [][]worldCell, t tower, horizon int, flagship bool, frame int) {
+	base := horizon - 1
+	for y := t.tipY + 1; y <= base; y++ { // the mast below the tip
+		blit(buf, t.x, y, []string{"│"}, 0)
+	}
+	if height := base - t.tipY; t.st.inFlight > 0 && height > 0 { // a bright scan rides a serving tower
+		scanY := base - (frame/2)%(height+1)
+		if scanY >= t.tipY && scanY >= 0 && scanY < len(buf) && t.x >= 0 && len(buf) > 0 && t.x < len(buf[0]) {
+			buf[scanY][t.x] = worldCell{r: '│', bright: true}
+		}
+	}
+	if !flagship { // dim ○ tip; the flagship's tip is the ◉ (painted last)
+		blit(buf, t.x, t.tipY, []string{"○"}, 0)
+	}
+}
+
+// buildWorldData snapshots the LIVE on-air bands into the screensaver's data (the signal towers).
+// Strongest-signal first, capped; nil when nothing is on air -> the calm seeded world.
+func buildWorldData(bands []band) *worldData {
+	var st []worldStation
+	for _, b := range bands {
+		if !b.online {
+			continue
+		}
+		st = append(st, worldStation{model: b.model, signal: int(bandSignal(b)), inFlight: b.inFlight})
+	}
+	if len(st) == 0 {
+		return nil
+	}
+	sort.Slice(st, func(i, j int) bool { return st[i].signal > st[j].signal })
+	const maxTowers = 8
+	if len(st) > maxTowers {
+		st = st[:maxTowers]
+	}
+	return &worldData{stations: st}
+}
 
 // compositeWorld flattens the cell buffer into a styled string: spaces stay bare, eye cells go
 // red (stPingEye), bright (near-star) cells go brighter ink (stLive), everything else dim
