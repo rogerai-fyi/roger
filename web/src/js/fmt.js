@@ -58,10 +58,11 @@
   // a real charge.
   R.usdExact = function (v) {
     v = Number(v);
-    if (!isFinite(v) || v < 0) return "-";
+    if (!isFinite(v)) return "-";
+    var sign = v < 0 ? "-" : ""; v = Math.abs(v); // signed, to match usdSigned on the reveal
     if (v === 0) return "$0.00";
-    if (v >= 0.01) return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
-    return "$" + plainDecimal(v);
+    if (v >= 0.01) return sign + "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+    return sign + "$" + plainDecimal(v);
   };
 
   // ---- counts (compact k/M/B/T; full grouping under 1,000) --------------------------------
@@ -145,7 +146,9 @@
       el.__rfmt = false; // re-binding back to a finite value re-wires the button affordance
       return el;
     }
-    var compact = opts.usd ? R.usd(v) : R.count(v);
+    // money uses the SIGNED renderer so a bound money tile matches the cr() cells (a negative
+    // never blanks to "-"); counts use count(). The reveal (usdExact/exact) is signed too.
+    var compact = opts.usd ? R.usdSigned(v) : R.count(v);
     var exact = opts.usd ? R.usdExact(v) : R.exact(v);
     el.textContent = compact;
     el.title = exact;                       // desktop hover: native tooltip

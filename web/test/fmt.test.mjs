@@ -43,6 +43,8 @@ test("usdExact: full precision, never $0.00 for a real charge", () => {
   assert.equal(R.usdExact(0.00000036), "$0.00000036");
   assert.equal(R.usdExact(1234.5678), "$1,234.5678");
   assert.equal(R.usdExact(0), "$0.00");
+  assert.equal(R.usdExact(-1234.5678), "-$1,234.5678"); // signed, matches usdSigned on the reveal
+  assert.equal(R.usdExact(-3e-9), "-$0.000000003");
 });
 
 test("count: compact k/M/B/T, promotes at band tops (no '1000k')", () => {
