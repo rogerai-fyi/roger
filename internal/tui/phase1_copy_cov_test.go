@@ -132,6 +132,18 @@ func TestClipboardWriteCmdRuns(t *testing.T) {
 	}
 }
 
+func TestChannelFooterDedupAndHints(t *testing.T) {
+	m := seedFor(120, modeChat, false)
+	m.connected = &offer{NodeID: "nyx", Model: "gpt-oss-20b", Online: true}
+	v := stripANSI(m.View())
+	if strings.Contains(v, "enter sends") {
+		t.Error("channel still renders the duplicate in-view key line ('enter sends')")
+	}
+	if !strings.Contains(v, "copy") || !strings.Contains(v, "/connect") {
+		t.Errorf("channel hint bar should surface copy + /connect; rendered:\n%s", v)
+	}
+}
+
 func TestCtrlOTogglesNativeSelect(t *testing.T) {
 	out, cmd := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlO})
 	if !asModel(out).mouseOff || cmd == nil {

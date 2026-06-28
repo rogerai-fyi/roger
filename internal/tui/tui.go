@@ -5786,11 +5786,9 @@ func (m model) chatView(w int) string {
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
 	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
-	// COMPACT omits this verbose in-view key line - the terse compactFooter teaches the
-	// keys (esc disconnect · tab peek), keeping the channel dense and width-safe.
-	if !m.compact {
-		b.WriteString("  " + stDim.Render("enter sends  ·  ") + stKey.Render("esc") + stDim.Render(" disconnects (leave this channel)  ·  ") + stKey.Render("tab") + stDim.Render(" peek at the band  ·  /help") + "\n")
-	}
+	// Phase 2 (de-crowd): the single hint bar (the footer, Zone 4) is the ONE place the
+	// channel keys are taught - the duplicate in-view key line that used to print here is
+	// gone, giving the transcript back a row.
 	return b.String()
 }
 
@@ -6822,10 +6820,12 @@ func (m model) footer(w int) string {
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	}
 	if m.mode == modeChat {
+		// One contextual hint (Zone 4): the keys live NOW, including the copy + connect
+		// affordances; the full set (/quit, ⌃c, etc.) lives in /help.
 		if m.narrow() {
-			left = stDim.Render("talk · esc disconnect · tab peek · ⌃c quit")
+			left = stDim.Render("talk · esc leave · ") + stKey.Render("⌃y") + stDim.Render(" copy · /help")
 		} else {
-			left = stDim.Render("type to talk  ·  esc disconnect  ·  tab peek at the band  ·  /quit leaves channel  ·  ⌃c quit app")
+			left = stDim.Render("talk  ·  ") + stKey.Render("⏎") + stDim.Render(" send  ·  ") + stKey.Render("esc") + stDim.Render(" leave  ·  ") + stKey.Render("tab") + stDim.Render(" peek  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  /connect  ·  / commands")
 		}
 	} else if m.filterMode {
 		// FILTER ENTRY: teach the live-filter keys (type / esc / enter), not the browse keys.
