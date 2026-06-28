@@ -56,9 +56,11 @@ func TestWorldSizeBoundsAndDegenerate(t *testing.T) {
 	}
 	_ = renderWorld(1, 1, 5, 1) // must not panic
 	w := 64
-	for _, line := range strings.Split(renderWorld(w, 20, 33, 2), "\n") {
-		if vis := len([]rune(stripANSI(line))); vis > w {
-			t.Errorf("line overflows width: %d > %d", vis, w)
+	for i, line := range strings.Split(renderWorld(w, 20, 33, 2), "\n") {
+		// EXACT width: the compositor emits every cell (trailing spaces included), so each
+		// row must be precisely w runes - this catches both overflow AND any short row.
+		if vis := len([]rune(stripANSI(line))); vis != w {
+			t.Errorf("row %d width %d, want exactly %d", i, vis, w)
 		}
 	}
 }
