@@ -44,6 +44,7 @@ test("count: compact k/M/B/T, promotes at band tops (no '1000k')", () => {
     [1000000, "1M"], [1111111, "1.1M"], [12000000, "12M"],
     [999999999, "1B"],         // promoted, NOT "1000M"
     [1111111111, "1.1B"], [12000000000, "12B"], [1.5e12, "1.5T"],
+    [999.9e12, "1Q"], [1.5e15, "1.5Q"],   // promotes past T (no "1000T")
     [-1500, "-1.5k"], [NaN, "-"], [Infinity, "-"],
   ];
   for (const [in_, want] of cases) assert.equal(R.count(in_), want, `count(${in_})`);
