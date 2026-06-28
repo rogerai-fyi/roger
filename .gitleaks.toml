@@ -18,14 +18,10 @@ useDefault = true
 [allowlist]
 description = "Audited false positives (see header). Verified: no real secret committed."
 
-# Generated / published artifacts (not source): the gh-pages octocov report + mirrored docs,
-# and the built static site (gitignored on main, present in some historical commits).
-paths = [
-  '''^coverage/''',
-  '''web/dist/''',
-]
-
 # Specific non-secret strings the default rules flag. Matched against the detected secret.
+# We DELIBERATELY allowlist by exact value, NOT by path: a broad path allowlist (e.g. the
+# generated coverage/ report or web/dist/ build output) could mask a real secret bundled
+# into generated output, so every suppression here is a precise, audited string.
 regexes = [
   # PUBLIC GitHub OAuth client id - public by design (see cmd/rogerai/main.go defaultGitHubClientID).
   '''Ov23liQE7Z6ITMbeJoF3''',
