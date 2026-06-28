@@ -75,3 +75,22 @@ func TestWorldTowersFlagshipTallest(t *testing.T) {
 		t.Errorf("strongest tower should be taller (tipY %d should be < %d)", towers[0].tipY, towers[1].tipY)
 	}
 }
+
+// TestWorldFetchSeededFallback: the standalone fetch degrades to nil (the seeded world) on no
+// broker / an unreachable one, never erroring; and the model applies a live snapshot + fetches
+// on Init when a broker is set.
+func TestWorldFetchSeededFallback(t *testing.T) {
+	if msg := worldFetch("")(); msg.(worldDataMsg).data != nil {
+		t.Error(`worldFetch("") should yield nil data (seeded)`)
+	}
+	if msg := worldFetch("http://127.0.0.1:0")(); msg.(worldDataMsg).data != nil {
+		t.Error("worldFetch(unreachable) should yield nil data (graceful seeded fallback)")
+	}
+	d := &worldData{stations: []worldStation{{model: "m", signal: 50}}}
+	if m2, _ := (pingWorldModel{}).Update(worldDataMsg{d}); m2.(pingWorldModel).data != d {
+		t.Error("worldDataMsg should set the model's live data")
+	}
+	if (pingWorldModel{broker: "http://x"}).Init() == nil {
+		t.Error("a broker'd model should fetch on Init")
+	}
+}

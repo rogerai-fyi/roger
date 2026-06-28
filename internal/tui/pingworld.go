@@ -13,11 +13,15 @@ package tui
 //      pingHash), so it is reproducible and unit-testable, like idleScene's desync.
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
 
+	"encoding/json"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -47,11 +51,16 @@ type worldData struct {
 }
 
 type pingWorldModel struct {
-	w, h  int
-	frame int
-	seed  int
-	data  *worldData // LIVE on-air snapshot (nil = the seeded world); set by the host
+	w, h   int
+	frame  int
+	seed   int
+	data   *worldData // LIVE on-air snapshot (nil = the seeded world); set by the host
+	broker string     // standalone only: the broker to /discover for live towers ("" = seeded)
 }
+
+// worldDataMsg carries a fresh LIVE snapshot to the standalone screensaver (nil data on any
+// fetch error => the calm seeded world).
+type worldDataMsg struct{ data *worldData }
 
 type worldTickMsg struct{}
 
@@ -59,7 +68,12 @@ func worldTick() tea.Cmd {
 	return tea.Tick(worldTickMs*time.Millisecond, func(time.Time) tea.Msg { return worldTickMsg{} })
 }
 
-func (m pingWorldModel) Init() tea.Cmd { return worldTick() }
+func (m pingWorldModel) Init() tea.Cmd {
+	if m.broker != "" {
+		return tea.Batch(worldTick(), worldFetch(m.broker)) // live towers from the first frame
+	}
+	return worldTick()
+}
 
 func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -68,11 +82,41 @@ func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m, tea.Quit // any key wakes (standalone)
+	case worldDataMsg:
+		m.data = msg.data // refresh the live towers (nil => seeded fallback)
+		return m, nil
 	case worldTickMsg:
 		m.frame++
+		// keep the live towers fresh on a calm cadence (a screensaver should breathe).
+		if m.broker != "" && m.frame%worldRescanFrames == 0 {
+			return m, tea.Batch(worldTick(), worldFetch(m.broker))
+		}
 		return m, worldTick()
 	}
 	return m, nil
+}
+
+// worldFetch pulls /discover ONCE for the standalone screensaver and turns it into live tower
+// data. Any error (offline / timeout / malformed / no broker) yields nil -> the calm seeded
+// world. It's always a Cmd (never blocks the render) and never crashes the screensaver.
+func worldFetch(broker string) tea.Cmd {
+	return func() tea.Msg {
+		if broker == "" {
+			return worldDataMsg{nil}
+		}
+		resp, err := http.Get(broker + "/discover")
+		if err != nil {
+			return worldDataMsg{nil}
+		}
+		defer resp.Body.Close()
+		var d struct {
+			Offers []offer `json:"offers"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&d); err != nil && !errors.Is(err, io.EOF) {
+			return worldDataMsg{nil}
+		}
+		return worldDataMsg{buildWorldData(groupBands(d.Offers, nil))}
+	}
 }
 
 func (m pingWorldModel) View() string { return renderWorldData(m.w, m.h, m.frame, m.seed, m.data) }
@@ -606,13 +650,15 @@ func maxI(a, b int) int {
 // PingWorld runs the `roger --ping` screensaver: the live animated Ping world until any key.
 // Under NO_COLOR / non-TTY (quiet) it prints ONE static postcard frame (lipgloss renders
 // plain) + a friendly radio line and returns - no cursor churn in a pipe.
-func PingWorld() error {
+func PingWorld(broker string) error {
 	if quiet {
 		fmt.Println()
-		fmt.Println(renderWorld(78, 18, 0, 7)) // one stable, color-free postcard frame
+		fmt.Println(renderWorld(78, 18, 0, 7)) // one stable, color-free seeded postcard (no network)
 		fmt.Println()
 		fmt.Println(lipgloss.NewStyle().Foreground(cDim).Render("  ((•)) roger that - Ping's out on the band. any key wakes the world."))
 		return nil
 	}
-	return runProgram(pingWorldModel{seed: int(time.Now().UnixNano() & 0x7fffffff)}, tea.WithAltScreen())
+	// broker set => the model fetches /discover for LIVE signal towers (falls back to the seeded
+	// world on any error); the live beat re-fetches on a calm cadence.
+	return runProgram(pingWorldModel{seed: int(time.Now().UnixNano() & 0x7fffffff), broker: broker}, tea.WithAltScreen())
 }
