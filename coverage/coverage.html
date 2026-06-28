@@ -135,7 +135,7 @@
 				
 				<option value="file39">github.com/rogerai-fyi/roger/cmd/rogerai/hw_linux.go (96.0%)</option>
 				
-				<option value="file40">github.com/rogerai-fyi/roger/cmd/rogerai/main.go (95.1%)</option>
+				<option value="file40">github.com/rogerai-fyi/roger/cmd/rogerai/main.go (95.0%)</option>
 				
 				<option value="file41">github.com/rogerai-fyi/roger/cmd/rogerai/onair_lock.go (91.4%)</option>
 				
@@ -239,17 +239,19 @@
 				
 				<option value="file91">github.com/rogerai-fyi/roger/internal/tui/pingwalk.go (100.0%)</option>
 				
-				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.1%)</option>
+				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (85.3%)</option>
 				
-				<option value="file93">github.com/rogerai-fyi/roger/internal/update/update.go (98.9%)</option>
+				<option value="file93">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.1%)</option>
 				
-				<option value="file94">github.com/rogerai-fyi/roger/internal/webui/account.go (97.7%)</option>
+				<option value="file94">github.com/rogerai-fyi/roger/internal/update/update.go (98.9%)</option>
 				
-				<option value="file95">github.com/rogerai-fyi/roger/internal/webui/actions.go (94.7%)</option>
+				<option value="file95">github.com/rogerai-fyi/roger/internal/webui/account.go (97.7%)</option>
 				
-				<option value="file96">github.com/rogerai-fyi/roger/internal/webui/api.go (87.5%)</option>
+				<option value="file96">github.com/rogerai-fyi/roger/internal/webui/actions.go (94.7%)</option>
 				
-				<option value="file97">github.com/rogerai-fyi/roger/internal/webui/server.go (94.4%)</option>
+				<option value="file97">github.com/rogerai-fyi/roger/internal/webui/api.go (87.5%)</option>
+				
+				<option value="file98">github.com/rogerai-fyi/roger/internal/webui/server.go (94.4%)</option>
 				
 				</select>
 			</div>
@@ -11713,7 +11715,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="126">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="119">{
                         best = i
                 }</span>
         }
@@ -15306,10 +15308,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="690">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="686">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="666">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="670">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -16738,8 +16740,10 @@ func dispatch(cfg config, args []string) error <span class="cov6" title="32">{
                 return cmdAppeal(cfg, args[1:])</span>
         case "drphil", "dr-phil", "diagnose", "doctor":<span class="cov2" title="2">
                 return cmdDrPhil(cfg, args[1:])</span>
-        case "ping", "--ping", "-ping":<span class="cov0" title="0">
-                return tui.PingWalk()</span>
+        case "ping":<span class="cov0" title="0">
+                return tui.PingWalk()</span> // the quick 2-lap walk easter egg
+        case "--ping", "-ping":<span class="cov0" title="0">
+                return tui.PingWorld()</span> // the full-screen "Ping World" screensaver
         case "upgrade", "update", "self-update":<span class="cov0" title="0">
                 return cmdUpgrade(args[1:])</span>
         case "version":<span class="cov2" title="3">
@@ -17952,9 +17956,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="489">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="477">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="486">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="474">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18772,7 +18776,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="811">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="815">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -19001,23 +19005,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="791">{
+        for </span><span class="cov9" title="797">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov1" title="1">
+                case &lt;-sess.stop:<span class="cov2" title="3">
                         return</span> // /share went off air
-                default:<span class="cov9" title="790"></span>
+                default:<span class="cov9" title="794"></span>
                 }
-                <span class="cov9" title="790">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="794">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="7">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="783">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="776">{
+                <span class="cov9" title="789">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="782">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -24693,8 +24697,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="24">{
-                if s != nil </span><span class="cov7" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -25096,7 +25100,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="107">{
+        for len(s) &lt; 3 </span><span class="cov5" title="95">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25109,7 +25113,7 @@ func itoa3(n int) string <span class="cov8" title="2008">{
         }</span>
         <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5916">{
+        for n &gt; 0 </span><span class="cov9" title="5928">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -33473,32 +33477,32 @@ var pingWalkFrames = []pingFrame{
 // renderPing tints a frame: body volt, the eye glyph live-red, nothing else.
 // Under quiet, lipgloss strips color and we return plain ASCII. eyeGlyph is the
 // run that should be red (e.g. "•", "O", "-", "○"); empty means "no live eye".
-func renderPing(f pingFrame, eyeGlyph string) string <span class="cov5" title="54">{
+func renderPing(f pingFrame, eyeGlyph string) string <span class="cov4" title="54">{
         // On a legacy Windows console the box-drawing + bullet runes garble; fold the
         // whole frame (and the eye glyph, so the red-tint index search still matches) to
         // ASCII stand-ins. A no-op on capable terminals - the art is unchanged there.
         eyeGlyph = glyphs.Fold(eyeGlyph)
         var b strings.Builder
-        for i, line := range f.lines </span><span class="cov6" title="270">{
-                if i &gt; 0 </span><span class="cov6" title="216">{
+        for i, line := range f.lines </span><span class="cov5" title="270">{
+                if i &gt; 0 </span><span class="cov5" title="216">{
                         b.WriteByte('\n')
                 }</span>
-                <span class="cov6" title="270">b.WriteString(tintEyeLine(glyphs.Fold(line), eyeGlyph))</span>
+                <span class="cov5" title="270">b.WriteString(tintEyeLine(glyphs.Fold(line), eyeGlyph))</span>
         }
-        <span class="cov5" title="54">return b.String()</span>
+        <span class="cov4" title="54">return b.String()</span>
 }
 
 // tintEyeLine recolors the first occurrence of eyeGlyph in line as the eye and
 // the rest as body. Keeps "one red glyph per frame" without a full glyph parser.
-func tintEyeLine(line, eyeGlyph string) string <span class="cov7" title="540">{
+func tintEyeLine(line, eyeGlyph string) string <span class="cov6" title="540">{
         if eyeGlyph == "" </span><span class="cov0" title="0">{
                 return stPingBody.Render(line)
         }</span>
-        <span class="cov7" title="540">idx := strings.Index(line, eyeGlyph)
-        if idx &lt; 0 </span><span class="cov7" title="398">{
+        <span class="cov6" title="540">idx := strings.Index(line, eyeGlyph)
+        if idx &lt; 0 </span><span class="cov6" title="398">{
                 return stPingBody.Render(line)
         }</span>
-        <span class="cov6" title="142">pre := line[:idx]
+        <span class="cov5" title="142">pre := line[:idx]
         post := line[idx+len(eyeGlyph):]
         return stPingBody.Render(pre) + stPingEye.Render(eyeGlyph) + stPingBody.Render(post)</span>
 }
@@ -33508,7 +33512,7 @@ func tintEyeLine(line, eyeGlyph string) string <span class="cov7" title="540">{
 // the frame counter. It is fully deterministic (same frame -&gt; same value) so tests
 // stay reproducible, while reading as "random" across frames so the mascot never
 // looks like a metronome.
-func pingHash(x int) uint32 <span class="cov10" title="5546">{
+func pingHash(x int) uint32 <span class="cov10" title="40670">{
         z := uint32(x)*2654435761 + 0x9e3779b9
         z ^= z &gt;&gt; 15
         z *= 0x85ebca6b
@@ -33521,7 +33525,7 @@ func pingHash(x int) uint32 <span class="cov10" title="5546">{
 // splices in a blink, a wave, a head-tilt scan, or a small transmit pulse - each on
 // its own cadence so the cycles never align into a repetitive beat. The pose phase
 // is itself stretched (frame/3) so the breathe is smooth, not snappy.
-func idleScene(f int) (pingFrame, string) <span class="cov8" title="2008">{
+func idleScene(f int) (pingFrame, string) <span class="cov7" title="2008">{
         // Which "act" we are in is chosen per ~20-frame (~3.2s) window, so an act holds
         // long enough to read. The window index is hashed so consecutive windows differ
         // unpredictably (a wave isn't always followed by a scan).
@@ -33531,70 +33535,70 @@ func idleScene(f int) (pingFrame, string) <span class="cov8" title="2008">{
 
         // A blink is a brief 1-frame flash that can land in any window, on a phase the
         // hash scatters so it never blinks on the same beat twice.
-        if local == int(pingHash(win*7)%18) </span><span class="cov5" title="101">{
+        if local == int(pingHash(win*7)%18) </span><span class="cov4" title="101">{
                 return pingBlinkFrame, "-"
         }</span>
 
-        <span class="cov8" title="1907">switch </span>{
+        <span class="cov7" title="1907">switch </span>{
         case roll &lt; 16 &amp;&amp; local &lt; len(pingWaveFrames)*2:<span class="cov4" title="44">
                 // Wave: play the 3-pose wave once (held 2 frames each) early in the window.
                 return pingWaveFrames[(local/2)%len(pingWaveFrames)], "•"</span>
-        case roll &lt; 30 &amp;&amp; local &lt; len(pingScanFrames)*4:<span class="cov6" title="129">
+        case roll &lt; 30 &amp;&amp; local &lt; len(pingScanFrames)*4:<span class="cov5" title="129">
                 // Head-tilt scan: lean left/right slowly (4 frames per lean).
                 return pingScanFrames[(local/4)%len(pingScanFrames)], "•"</span>
-        case roll &lt; 44 &amp;&amp; local &lt; len(pingLookFrames)*4:<span class="cov6" title="158">
+        case roll &lt; 44 &amp;&amp; local &lt; len(pingLookFrames)*4:<span class="cov5" title="158">
                 // Look-around: the eye darts left then right (the eye glyph itself is offset in
                 // these frames, so tintEyeLine recolors it wherever it lands).
                 return pingLookFrames[(local/4)%len(pingLookFrames)], "•"</span>
-        case roll &lt; 56 &amp;&amp; local &lt; len(pingHeadsetFrames)*3:<span class="cov5" title="82">
+        case roll &lt; 56 &amp;&amp; local &lt; len(pingHeadsetFrames)*3:<span class="cov4" title="82">
                 // Adjust-headset: an arm reaches up to the cans and settles them (3 frames each).
                 return pingHeadsetFrames[(local/3)%len(pingHeadsetFrames)], "•"</span>
-        case roll &lt; 66:<span class="cov7" title="772">
+        case roll &lt; 66:<span class="cov6" title="772">
                 // A small on-air transmit pulse: borrow the first two tx poses for a wink of
                 // broadcast, then settle back to the bob for the rest of the window.
-                if local &lt; 4 </span><span class="cov4" title="24">{
+                if local &lt; 4 </span><span class="cov3" title="24">{
                         eye := "O"
                         if local &lt; 2 </span><span class="cov3" title="12">{
                                 eye = "•"
                         }</span>
-                        <span class="cov4" title="24">return pingTxFrames[local/2], eye</span>
+                        <span class="cov3" title="24">return pingTxFrames[local/2], eye</span>
                 }
         }
         // Baseline: the eased bob, phase-stretched (frame/3) and window-offset so two
         // idle stretches never bob in lockstep.
-        <span class="cov8" title="1470">idx := ((f / 3) + int(pingHash(win)%uint32(len(pingIdleFrames)))) % len(pingIdleFrames)
+        <span class="cov7" title="1470">idx := ((f / 3) + int(pingHash(win)%uint32(len(pingIdleFrames)))) % len(pingIdleFrames)
         return pingIdleFrames[idx], "•"</span>
 }
 
 // pingPose returns the current Ping art for a state, advanced by frame. It is
 // centered to width w so it sits in the dead space without shifting content.
 // A short radio line is printed beneath, dim. quiet freezes to one pose.
-func pingPose(state pingState, frame, w int, line string) string <span class="cov4" title="25">{
+func pingPose(state pingState, frame, w int, line string) string <span class="cov3" title="25">{
         f := anim(frame)
         var pf pingFrame
         var eye string
         switch state </span>{
-        case pingTx:<span class="cov3" title="8">
+        case pingTx:<span class="cov2" title="8">
                 pf = pingTxFrames[f%len(pingTxFrames)]
                 // eye swells with the arc: rest •, then O, then O, then (O) -&gt; the "O".
                 eye = "O"
                 if f%len(pingTxFrames) == 0 </span><span class="cov1" title="2">{
                         eye = "•"
                 }</span>
-        case pingStatic:<span class="cov3" title="9">
+        case pingStatic:<span class="cov2" title="9">
                 pf = pingStaticFrame
                 eye = "○"</span>
-        default:<span class="cov3" title="8"> // idle: the desynchronized repertoire (bob / blink / wave / scan / pulse)
+        default:<span class="cov2" title="8"> // idle: the desynchronized repertoire (bob / blink / wave / scan / pulse)
                 if quiet </span><span class="cov0" title="0">{
                         // Frozen pose for a pipe / NO_COLOR: the canonical standing-by frame.
                         pf, eye = pingIdleFrames[0], "•"
-                }</span> else<span class="cov3" title="8"> {
+                }</span> else<span class="cov2" title="8"> {
                         pf, eye = idleScene(f)
                 }</span>
         }
-        <span class="cov4" title="25">art := renderPing(pf, eye)
+        <span class="cov3" title="25">art := renderPing(pf, eye)
         block := lipgloss.PlaceHorizontal(w, lipgloss.Center, art)
-        if line != "" </span><span class="cov4" title="25">{
+        if line != "" </span><span class="cov3" title="25">{
                 caption := lipgloss.PlaceHorizontal(w, lipgloss.Center, stPingDim.Render(line))
                 return block + "\n\n" + caption
         }</span>
@@ -33664,13 +33668,13 @@ var cornerToolFrames = []cornerHead{
 }
 
 // cornerEye returns the live-red eye glyph for a corner frame ("•", "O", "-").
-func cornerEyeFor(state agentPose, f int) string <span class="cov5" title="64">{
+func cornerEyeFor(state agentPose, f int) string <span class="cov4" title="64">{
         switch state </span>{
-        case poseStreaming:<span class="cov5" title="63">
+        case poseStreaming:<span class="cov4" title="63">
                 if f%len(cornerStreamFrames) == 0 </span><span class="cov3" title="16">{
                         return "•"
                 }</span>
-                <span class="cov5" title="47">return "O"</span>
+                <span class="cov4" title="47">return "O"</span>
         default:<span class="cov1" title="1">
                 return "•"</span>
         }
@@ -33688,39 +33692,39 @@ var cornerWords = map[agentPose][]string{
 
 // cornerWord picks the status word for a pose + frame (advancing ~every 1.3s). quiet
 // freezes to the first so a pipe sees a stable label.
-func cornerWord(state agentPose, frame int) string <span class="cov5" title="111">{
+func cornerWord(state agentPose, frame int) string <span class="cov4" title="111">{
         ws := cornerWords[state]
         if len(ws) == 0 </span><span class="cov0" title="0">{
                 return ""
         }</span>
-        <span class="cov5" title="111">if quiet </span><span class="cov5" title="108">{
+        <span class="cov4" title="111">if quiet </span><span class="cov4" title="108">{
                 return ws[0]
         }</span>
-        <span class="cov2" title="3">return ws[(frame/8)%len(ws)]</span>
+        <span class="cov1" title="3">return ws[(frame/8)%len(ws)]</span>
 }
 
 // cornerFrameFor selects the corner-Ping head + eye for a state on a given frame. It
 // runs each state's own little cycle off the shared frame counter, with the waiting bob
 // splicing in a desynchronized blink so it never looks like a metronome. quiet freezes
 // to the canonical standing-by head.
-func cornerFrameFor(state agentPose, frame int) (cornerHead, string) <span class="cov7" title="485">{
-        if quiet </span><span class="cov6" title="244">{
+func cornerFrameFor(state agentPose, frame int) (cornerHead, string) <span class="cov6" title="485">{
+        if quiet </span><span class="cov5" title="244">{
                 return cornerWaitFrames[0], "•"
         }</span>
-        <span class="cov6" title="241">f := frame
+        <span class="cov5" title="241">f := frame
         switch state </span>{
-        case poseThinking:<span class="cov5" title="60">
+        case poseThinking:<span class="cov4" title="60">
                 return cornerThinkFrames[(f/2)%len(cornerThinkFrames)], "•"</span>
-        case poseStreaming:<span class="cov5" title="61">
+        case poseStreaming:<span class="cov4" title="61">
                 i := f % len(cornerStreamFrames)
                 return cornerStreamFrames[i], cornerEyeFor(state, f)</span>
-        case poseTool:<span class="cov5" title="60">
+        case poseTool:<span class="cov4" title="60">
                 return cornerToolFrames[(f/3)%len(cornerToolFrames)], "•"</span>
-        default:<span class="cov5" title="60"> // poseWaiting: gentle bob + a desynchronized blink
-                if f%17 == int(pingHash(f/17)%14) </span><span class="cov2" title="3">{
+        default:<span class="cov4" title="60"> // poseWaiting: gentle bob + a desynchronized blink
+                if f%17 == int(pingHash(f/17)%14) </span><span class="cov1" title="3">{
                         return cornerBlinkFrame, "-"
                 }</span>
-                <span class="cov5" title="57">return cornerWaitFrames[(f/4)%len(cornerWaitFrames)], "•"</span>
+                <span class="cov4" title="57">return cornerWaitFrames[(f/4)%len(cornerWaitFrames)], "•"</span>
         }
 }
 
@@ -33730,23 +33734,23 @@ func cornerFrameFor(state agentPose, frame int) (cornerHead, string) <span class
 // compact / quiet reduced-motion) it collapses to a single status line `(( • )) word`
 // so it never crowds a slim view. It returns nil when there is no active model (the
 // caller hides it entirely). frame drives the animation off the shared tick.
-func agentCornerPing(state agentPose, frame int, narrow, compact bool) []string <span class="cov5" title="105">{
+func agentCornerPing(state agentPose, frame int, narrow, compact bool) []string <span class="cov4" title="105">{
         word := cornerWord(state, frame)
         // Narrow / compact / quiet: one clean status line, no multi-row art.
-        if narrow || compact </span><span class="cov4" title="20">{
+        if narrow || compact </span><span class="cov3" title="20">{
                 eye := stPingEye.Render("•")
                 return []string{stPingDim.Render("((") + " " + eye + " " + stPingDim.Render("))") + "  " + stPingDim.Render(word)}
         }</span>
-        <span class="cov5" title="85">head, eye := cornerFrameFor(state, frame)
+        <span class="cov4" title="85">head, eye := cornerFrameFor(state, frame)
         out := make([]string, 0, 3)
-        for i, ln := range head.lines </span><span class="cov6" title="255">{
+        for i, ln := range head.lines </span><span class="cov5" title="255">{
                 line := tintEyeLine(ln, eye)
-                if i == 0 </span><span class="cov5" title="85">{
+                if i == 0 </span><span class="cov4" title="85">{
                         line += "   " + stPingDim.Render(word)
                 }</span>
-                <span class="cov6" title="255">out = append(out, line)</span>
+                <span class="cov5" title="255">out = append(out, line)</span>
         }
-        <span class="cov5" title="85">return out</span>
+        <span class="cov4" title="85">return out</span>
 }
 </pre>
 		
@@ -33853,7 +33857,246 @@ func PingWalk() error <span class="cov3" title="2">{
 }
 </pre>
 		
-		<pre class="file" id="file92" style="display: none">// Package tui is the interactive `rogerai` experience - a two-way radio for GPUs,
+		<pre class="file" id="file92" style="display: none">package tui
+
+// `roger --ping` (and the in-TUI `/ping` / `z`): the "Ping World" screensaver - a slow,
+// relaxing little planet where Ping ambles along the horizon, another Ping or two wander by,
+// stars twinkle + parallax-drift, and ONE star pulses red = a station on air (the band, seen
+// from Ping's world at night). Design: scratchpad-ping-screensaver-design.md.
+//
+// Two invariants the design (and a test) pin:
+//   1. ONE RED. The whole world is ink/dim EXCEPT each Ping's eye and the single on-air star.
+//      Enforced by compositing into a cell buffer whose `eye` bit is the only thing tinted red
+//      (this fixes tintEyeLine's "first eye per line only" limit when several Pings share a row).
+//   2. PURE + SEEDED. renderWorld(w,h,frame,seed) is deterministic (positions/twinkle from
+//      pingHash), so it is reproducible and unit-testable, like idleScene's desync.
+
+import (
+        "fmt"
+        "strings"
+        "time"
+
+        tea "github.com/charmbracelet/bubbletea"
+        "github.com/charmbracelet/lipgloss"
+)
+
+const worldTickMs = 120 // ~8fps: smoother than the 160ms TUI tick, still calm
+
+// worldCell is one composited cell. eye=true is the ONLY thing rendered red.
+type worldCell struct {
+        r   rune
+        eye bool
+}
+
+type pingWorldModel struct {
+        w, h  int
+        frame int
+        seed  int
+}
+
+type worldTickMsg struct{}
+
+func worldTick() tea.Cmd <span class="cov1" title="1">{
+        return tea.Tick(worldTickMs*time.Millisecond, func(time.Time) tea.Msg </span><span class="cov0" title="0">{ return worldTickMsg{} }</span>)
+}
+
+func (m pingWorldModel) Init() tea.Cmd <span class="cov0" title="0">{ return worldTick() }</span>
+
+func (m pingWorldModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov1" title="3">{
+        switch msg := msg.(type) </span>{
+        case tea.WindowSizeMsg:<span class="cov1" title="1">
+                m.w, m.h = msg.Width, msg.Height
+                return m, nil</span>
+        case tea.KeyMsg:<span class="cov1" title="1">
+                return m, tea.Quit</span> // any key wakes (standalone)
+        case worldTickMsg:<span class="cov1" title="1">
+                m.frame++
+                return m, worldTick()</span>
+        }
+        <span class="cov0" title="0">return m, nil</span>
+}
+
+func (m pingWorldModel) View() string <span class="cov0" title="0">{ return renderWorld(m.w, m.h, m.frame, m.seed) }</span>
+
+// hashAt is the deterministic desync used for star placement/twinkle and wanderer spawn -
+// pure in (a,b,seed) so the world is reproducible yet never metronomic.
+func (m pingWorldModel) hashAt(a, b int) uint32 <span class="cov0" title="0">{ return worldHash(a, b, m.seed) }</span>
+
+func worldHash(a, b, seed int) uint32 <span class="cov8" title="35124">{ return pingHash(a*7349 + b*916703 + seed*2654435761) }</span>
+
+// blit paints sprite lines into the buffer at (x,y); spaces are transparent, and a cell whose
+// rune == eye is marked red (eye=true). Out-of-bounds cells are clipped, never wrap-corrupt.
+func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov7" title="9179">{
+        if len(buf) == 0 </span><span class="cov0" title="0">{
+                return
+        }</span>
+        <span class="cov7" title="9179">w := len(buf[0])
+        for dy, line := range lines </span><span class="cov7" title="9635">{
+                ry := y + dy
+                if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov2" title="6">{
+                        continue</span>
+                }
+                <span class="cov7" title="9629">cx := x
+                for _, r := range line </span><span class="cov8" title="26498">{
+                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov8" title="20759">{
+                                buf[ry][cx] = worldCell{r: r, eye: eye != 0 &amp;&amp; r == eye}
+                        }</span>
+                        <span class="cov8" title="26498">cx++</span>
+                }
+        }
+}
+
+// renderWorld is the pure, seeded screensaver frame: the cell buffer composited + tinted
+// (ink/dim everywhere, red ONLY on eye cells). "" for a degenerate size.
+func renderWorld(w, h, frame, seed int) string <span class="cov2" title="9">{ return compositeWorld(worldBuffer(w, h, frame, seed)) }</span>
+
+// worldBuffer builds the back-&gt;front composited cell buffer (pure + seeded); nil for a
+// degenerate size. Split out so tests can assert the ONE-RED invariant on the cells directly.
+func worldBuffer(w, h, frame, seed int) [][]worldCell <span class="cov4" title="79">{
+        if w &lt;= 0 || h &lt;= 0 </span><span class="cov1" title="3">{
+                return nil
+        }</span>
+        <span class="cov4" title="76">buf := make([][]worldCell, h)
+        for y := range buf </span><span class="cov6" title="1981">{
+                buf[y] = make([]worldCell, w)
+                for x := range buf[y] </span><span class="cov10" title="183841">{
+                        buf[y][x] = worldCell{r: ' '}
+                }</span>
+        }
+        <span class="cov4" title="76">horizon := h - 4
+        if horizon &lt; 2 </span><span class="cov1" title="1">{
+                horizon = h - 1
+        }</span>
+
+        // LAYER 0/1/2 — starfield: ~1 star per 18 cells of SKY (above the horizon). Far stars are
+        // static + twinkle; near stars drift slowly. Star 0 is the single RED on-air station.
+        <span class="cov4" title="76">skyRows := horizon
+        if skyRows &lt; 1 </span><span class="cov1" title="1">{
+                skyRows = 1
+        }</span>
+        <span class="cov4" title="76">nStars := (w * skyRows) / 18
+        twinkle := []rune{'.', '˙', '\'', ',', '+', '*'}
+        for i := 1; i &lt; nStars; i++ </span><span class="cov7" title="8724">{ // i=0 is the on-air star, painted LAST (on top, never twinkled over)
+                x0 := int(worldHash(i, 1, seed) % uint32(w))
+                y := int(worldHash(i, 2, seed) % uint32(skyRows))
+                if worldHash(i, 3, seed)%5 == 0 </span><span class="cov6" title="1963">{ // ~1/5 stars are "near" and parallax-drift
+                        x0 = ((x0-frame/16)%w + w) % w
+                }</span>
+                <span class="cov7" title="8724">g := twinkle[int(worldHash(i, frame/8, seed))%len(twinkle)]
+                blit(buf, x0, y, []string{string(g)}, 0)</span>
+        }
+        // the ONE on-air station: a red ◉, always present, painted on top of the starfield.
+        <span class="cov4" title="76">blit(buf, int(worldHash(0, 1, seed)%uint32(w)), int(worldHash(0, 2, seed)%uint32(skyRows)), []string{"◉"}, '◉')
+
+        // LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
+        if horizon &gt;= 0 &amp;&amp; horizon &lt; h </span><span class="cov4" title="76">{
+                rim := make([]rune, w)
+                for x := 0; x &lt; w; x++ </span><span class="cov7" title="6215">{
+                        rim[x] = '_'
+                }</span>
+                <span class="cov4" title="76">blit(buf, 0, horizon, []string{string(rim)}, 0)
+                if horizon+1 &lt; h </span><span class="cov4" title="75">{
+                        ramp := []rune("░▒▓▒░  ·  ") // banded surface = the band's "skin"
+                        brand := []rune(" R O G E R · A I ")
+                        s := make([]rune, 0, w+len(ramp))
+                        for len(s) &lt; w </span><span class="cov5" title="622">{
+                                s = append(s, ramp...)
+                        }</span>
+                        <span class="cov4" title="75">s = s[:w]
+                        // stamp the brand in the middle of the surface band
+                        if w &gt; len(brand)+4 </span><span class="cov4" title="75">{
+                                off := (w - len(brand)) / 2
+                                copy(s[off:], brand)
+                        }</span>
+                        <span class="cov4" title="75">blit(buf, 0, horizon+1, []string{string(s)}, 0)</span>
+                }
+        }
+
+        // LAYER 5 — Ping ambles along the rim (slow stroll; legs alternate), eye = the red dot.
+        <span class="cov4" title="76">pf := pingWalkFrames[(frame/3)%len(pingWalkFrames)]
+        px := (frame / 2) % maxI(1, w-pingWalkW) // a slow stroll, always fully on-screen
+        blit(buf, px, horizon-len(pf.lines)+1, pf.lines[:], '•')
+
+        // a second wanderer (a far/cornerHead Ping) drifting the other way + a baby trailing Ping.
+        span := w + pingWalkW
+        wx := w - 1 - (frame/5)%span + pingWalkW
+        blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
+        blit(buf, px-4, horizon, []string{"(•)"}, '•') // baby (•) duckling
+
+        // LAYER 6 — an occasional shooting star streak (transient, calm), upper sky only.
+        if worldHash(frame/40, 7, seed)%4 == 0 </span><span class="cov3" title="16">{
+                k := frame % 40
+                if k &lt; 6 </span><span class="cov0" title="0">{
+                        sx := int(worldHash(frame/40, 8, seed)%uint32(maxI(1, w-8))) + k*2
+                        sy := 1 + k
+                        blit(buf, sx, sy, []string{"╲."}, 0)
+                }</span>
+        }
+
+        <span class="cov4" title="76">return buf</span>
+}
+
+// cornerWanderer is a small 3-line "other Ping" (reuses the corner-head silhouette).
+var cornerWanderer = []string{"(( • ))", " \\(   )/", "  ╰───╯"}
+
+// compositeWorld flattens the cell buffer into a styled string: spaces stay bare, eye cells go
+// red (stPingEye), everything else ink/dim (stDim). Same-style runs are batched into one
+// Render call so a full frame is cheap.
+func compositeWorld(buf [][]worldCell) string <span class="cov2" title="9">{
+        var b strings.Builder
+        for y, row := range buf </span><span class="cov4" title="117">{
+                if y &gt; 0 </span><span class="cov4" title="111">{
+                        b.WriteByte('\n')
+                }</span>
+                <span class="cov4" title="117">i := 0
+                for i &lt; len(row) </span><span class="cov6" title="1164">{
+                        c := row[i]
+                        j := i + 1
+                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov7" title="7797">{
+                                j++
+                        }</span>
+                        <span class="cov6" title="1164">seg := make([]rune, 0, j-i)
+                        for k := i; k &lt; j; k++ </span><span class="cov7" title="8961">{
+                                seg = append(seg, row[k].r)
+                        }</span>
+                        <span class="cov6" title="1164">s := string(seg)
+                        switch </span>{
+                        case c.r == ' ':<span class="cov5" title="622">
+                                b.WriteString(s)</span>
+                        case c.eye:<span class="cov3" title="16">
+                                b.WriteString(stPingEye.Render(s))</span>
+                        default:<span class="cov5" title="526">
+                                b.WriteString(stDim.Render(s))</span>
+                        }
+                        <span class="cov6" title="1164">i = j</span>
+                }
+        }
+        <span class="cov2" title="9">return b.String()</span>
+}
+
+func maxI(a, b int) int <span class="cov4" title="76">{
+        if a &gt; b </span><span class="cov1" title="1">{
+                return a
+        }</span>
+        <span class="cov4" title="75">return b</span>
+}
+
+// PingWorld runs the `roger --ping` screensaver: the live animated Ping world until any key.
+// Under NO_COLOR / non-TTY (quiet) it prints ONE static postcard frame (lipgloss renders
+// plain) + a friendly radio line and returns - no cursor churn in a pipe.
+func PingWorld() error <span class="cov0" title="0">{
+        if quiet </span><span class="cov0" title="0">{
+                fmt.Println()
+                fmt.Println(renderWorld(78, 18, 0, 7)) // one stable, color-free postcard frame
+                fmt.Println()
+                fmt.Println(lipgloss.NewStyle().Foreground(cDim).Render("  ((•)) roger that - Ping's out on the band. any key wakes the world."))
+                return nil
+        }</span>
+        <span class="cov0" title="0">return runProgram(pingWorldModel{seed: int(time.Now().UnixNano() &amp; 0x7fffffff)}, tea.WithAltScreen())</span>
+}
+</pre>
+		
+		<pre class="file" id="file93" style="display: none">// Package tui is the interactive `rogerai` experience - a two-way radio for GPUs,
 // and the terminal twin of the website's "Live Operating Manual". Stations
 // (providers) go on air; you tune in to a channel and talk. The look is the web's:
 // ~95% monochrome + ONE red beacon, the shared instrument glyphs (◉ on air, ○ off
@@ -39807,7 +40050,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="288">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="351">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -39829,7 +40072,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="76">
+                case agent.LinkOnAir:<span class="cov3" title="71">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -39886,7 +40129,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -41275,7 +41518,7 @@ var runProgram = func(m tea.Model, opts ...tea.ProgramOption) error <span class=
 }</span>
 </pre>
 		
-		<pre class="file" id="file93" style="display: none">// Package update is the self-update path for the rogerai client: `roger upgrade`
+		<pre class="file" id="file94" style="display: none">// Package update is the self-update path for the rogerai client: `roger upgrade`
 // downloads the latest GitHub release asset for this os/arch, verifies its sha256
 // against the published checksums, and atomically swaps the running binary; a
 // separate async, cached (~daily) check shows a subtle "update available" line at
@@ -41686,7 +41929,7 @@ func expectedSum(r release, name string) (string, bool, error) <span class="cov6
 }
 </pre>
 		
-		<pre class="file" id="file94" style="display: none">package webui
+		<pre class="file" id="file95" style="display: none">package webui
 
 import (
         "net/http"
@@ -41939,7 +42182,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) <span clas
 }
 </pre>
 		
-		<pre class="file" id="file95" style="display: none">package webui
+		<pre class="file" id="file96" style="display: none">package webui
 
 import (
         "encoding/json"
@@ -42092,7 +42335,7 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) <span clas
 }
 </pre>
 		
-		<pre class="file" id="file96" style="display: none">package webui
+		<pre class="file" id="file97" style="display: none">package webui
 
 import (
         "encoding/json"
@@ -42167,7 +42410,7 @@ func writeJSON(w http.ResponseWriter, v any) <span class="cov10" title="41">{
 }</span>
 </pre>
 		
-		<pre class="file" id="file97" style="display: none">// Package webui serves the browser-based node console: a localhost web app that is a
+		<pre class="file" id="file98" style="display: none">// Package webui serves the browser-based node console: a localhost web app that is a
 // live twin of the terminal TUI. It drives the SAME *node.Controller the TUI holds, so a
 // model toggled on air in the browser flips the TUI row and vice-versa.
 //
