@@ -1452,7 +1452,11 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				b.markMeasured(node.NodeID)
 				w.Header().Set("X-RogerAI-Receipt", protocol.EncodeReceipt(rec))
 				w.Header().Set("X-RogerAI-Provider", node.NodeID)
-				w.Header().Set("X-RogerAI-Cost", ftoa(round6(cost)))
+				// EXACT cost (not round6): a real sub-microcredit charge (e.g. a few output
+				// tokens at $0.01/1M ~ $0.00000036) must reach the client nonzero so dollars()
+				// shows the truth, never a bare $0.00 for a paid turn. See fmtCostHeader; the
+				// LEDGER still settles `cost` at full precision (settleRequest above).
+				w.Header().Set("X-RogerAI-Cost", fmtCostHeader(cost))
 				w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
 				lockedUntil := int64(0)
 				if !until.IsZero() {
