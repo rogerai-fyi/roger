@@ -155,7 +155,7 @@
 				
 				<option value="file49">github.com/rogerai-fyi/roger/internal/client/appeal.go (100.0%)</option>
 				
-				<option value="file50">github.com/rogerai-fyi/roger/internal/client/client.go (93.2%)</option>
+				<option value="file50">github.com/rogerai-fyi/roger/internal/client/client.go (93.4%)</option>
 				
 				<option value="file51">github.com/rogerai-fyi/roger/internal/client/console.go (100.0%)</option>
 				
@@ -241,7 +241,7 @@
 				
 				<option value="file92">github.com/rogerai-fyi/roger/internal/tui/pingworld.go (95.4%)</option>
 				
-				<option value="file93">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.0%)</option>
+				<option value="file93">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.1%)</option>
 				
 				<option value="file94">github.com/rogerai-fyi/roger/internal/update/update.go (98.9%)</option>
 				
@@ -11745,7 +11745,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="121">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="125">{
                         best = i
                 }</span>
         }
@@ -15388,10 +15388,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="686">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="688">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="670">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="668">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -18856,7 +18856,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="843">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="844">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -19087,15 +19087,15 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
         for </span><span class="cov9" title="826">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="4">
+                case &lt;-sess.stop:<span class="cov2" title="3">
                         return</span> // /share went off air
-                default:<span class="cov9" title="822"></span>
+                default:<span class="cov9" title="823"></span>
                 }
-                <span class="cov9" title="822">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="823">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="4">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
@@ -20882,6 +20882,32 @@ func Chat(broker, user, model, prompt string, confidential bool, maxOut float64)
         return r.Reply, r.Status, r.Cost, e
 }</span>
 
+// FormatUSD is the ONE canonical money renderer for every consumer surface, so a cost or
+// balance reads identically in the TUI and the CLI: the TUI's dollars() delegates here, and
+// the in-channel reply footer's legacy Status line uses it. The rule:
+//   - 0            -&gt; "$0.00"
+//   - 0 &lt; v &lt; 0.01 -&gt; ~3 significant figures as a PLAIN decimal (e.g. $0.00000036), so a real
+//                     sub-cent charge never reads as free
+//   - v &gt;= 0.01    -&gt; two decimals (e.g. $0.12)
+//   - v &lt; 0        -&gt; "-" (never real money here)
+func FormatUSD(v float64) string <span class="cov7" title="16">{
+        if v &lt; 0 </span><span class="cov1" title="1">{
+                return "-"
+        }</span>
+        <span class="cov7" title="15">if v == 0 </span><span class="cov5" title="6">{
+                return "$0.00"
+        }</span>
+        <span class="cov6" title="9">if v &gt;= 0.01 </span><span class="cov3" title="3">{
+                return "$" + fmt.Sprintf("%.2f", v)
+        }</span>
+        <span class="cov5" title="6">s := strconv.FormatFloat(v, 'g', 3, 64)
+        if strings.ContainsAny(s, "eE") </span><span class="cov3" title="3">{
+                // FormatFloat may pick scientific for very small values; expand to plain decimal.
+                s = strconv.FormatFloat(v, 'f', -1, 64)
+        }</span>
+        <span class="cov5" title="6">return "$" + s</span>
+}
+
 // ChatDetailed sends one message through the broker and returns the reply plus the
 // per-turn metrics (see ChatResult). Used by the TUI's in-CHANNEL chat / session.
 // Every failure path returns a clear, human-readable error so the TUI never shows a
@@ -20977,8 +21003,10 @@ func ChatDetailed(broker, user, model, prompt string, confidential bool, maxOut 
                         Provider: provider,
                         Cost:     costCr,
                         Latency:  time.Since(start),
-                        // Display in dollars (1 credit = $1); a relabel only, settlement math unchanged.
-                        Status: fmt.Sprintf("%s · $%s", provider, costStr),
+                        // Display in dollars (1 credit = $1) via the ONE canonical renderer, so the legacy
+                        // fallback footer matches the TUI's dollars() exactly (a relabel only; settlement
+                        // math unchanged). costCr is the parsed exact value from the X-RogerAI-Cost header.
+                        Status: fmt.Sprintf("%s · %s", provider, FormatUSD(costCr)),
                 }
                 // Per-turn metrics from the broker's response headers (best-effort: any missing one
                 // stays zero and the renderer omits it). The signed receipt carries the BILLED token
@@ -24781,8 +24809,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="27">{
-                if s != nil </span><span class="cov7" title="26">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -24863,13 +24891,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="12">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov1" title="1">
+        case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov7" title="10">
+        default:<span class="cov6" title="7">
                 return "connecting"</span>
         }
 }
@@ -24898,7 +24926,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="8">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -25184,7 +25212,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="98">{
+        for len(s) &lt; 3 </span><span class="cov5" title="117">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25192,17 +25220,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5924">{
+        for n &gt; 0 </span><span class="cov9" title="5906">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -27247,8 +27275,8 @@ func sortProvider(rows []ProviderModelMetric) <span class="cov4" title="6">{
 }
 
 func sortUsage(rows []UsageModelMetric) <span class="cov4" title="6">{
-        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov4" title="8">{
-                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov4" title="7">{
+        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov4" title="7">{
+                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov4" title="6">{
                         return rows[i].SpendUSD &gt; rows[j].SpendUSD
                 }</span>
                 <span class="cov1" title="1">return rows[i].Model &lt; rows[j].Model</span>
@@ -39236,10 +39264,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="781">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="644">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="645">{
                 return s
         }</span>
-        <span class="cov3" title="137">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="136">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -40304,27 +40332,13 @@ func bandTierSuffix(b band) string <span class="cov3" title="40">{
 // significant digits to never collapse to $0.00 (e.g. $0.000123). 1 credit = $1,
 // so this is a pure display relabel of the credit unit. Display only - settlement
 // math is untouched.
+// dollars renders money through the ONE canonical formatter (client.FormatUSD) so the TUI
+// and the CLI read identically - no second copy of the rule to drift. See client.FormatUSD:
+// 0 -&gt; "$0.00"; a sub-cent value -&gt; ~3 significant figures (e.g. $0.00000036) so a real charge
+// never reads as free; &gt;= $0.01 -&gt; two decimals.
 func dollars(v float64) string <span class="cov4" title="1042">{
-        if v &lt; 0 </span><span class="cov0" title="0">{
-                // Defensive: real money is never negative here (balances/costs are &gt;= 0);
-                // a negative slipping through renders as a plain dash rather than "$-…".
-                return "-"
-        }</span>
-        <span class="cov4" title="1042">if v == 0 </span><span class="cov4" title="302">{
-                return "$0.00"
-        }</span>
-        <span class="cov4" title="740">if v &gt;= 0.01 </span><span class="cov4" title="728">{
-                return "$" + fmt.Sprintf("%.2f", v)
-        }</span>
-        // sub-cent: ~3 significant figures, in plain decimal (no exponent, no trailing
-        // zeros) so a real cost never reads as $0.00 (e.g. $0.000123).
-        <span class="cov2" title="12">s := strconv.FormatFloat(v, 'g', 3, 64)
-        if strings.ContainsAny(s, "eE") </span><span class="cov1" title="1">{
-                // FormatFloat may pick scientific notation for very small values; expand it.
-                s = strconv.FormatFloat(v, 'f', -1, 64)
-        }</span>
-        <span class="cov2" title="12">return "$" + s</span>
-}
+        return client.FormatUSD(v)
+}</span>
 
 // rangeStr renders a band's cross-station out-price spread as "min ~ max", or a
 // single point when there is only one station (never fake a spread, per design).
@@ -40898,11 +40912,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40922,7 +40936,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="313">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="303">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40944,7 +40958,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="70">
+                case agent.LinkOnAir:<span class="cov3" title="74">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41001,7 +41015,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -41052,7 +41066,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="37">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="40">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -41524,11 +41538,11 @@ func (m model) editorLivePreview() string <span class="cov2" title="11">{
         aIn, aOut, free, scheduled := offer.ActivePrice(now)
         // Name the source so the operator knows WHY: which window, FREE, or the flat base.
         src := "base"
-        if scheduled </span><span class="cov1" title="1">{
+        if scheduled </span><span class="cov2" title="9">{
                 // Find the first matching window to label it HH:MM-HH:MM (first match wins,
                 // same as ActivePrice).
-                for _, w := range offer.Schedule </span><span class="cov1" title="1">{
-                        if w.Matches(now) </span><span class="cov1" title="1">{
+                for _, w := range offer.Schedule </span><span class="cov2" title="9">{
+                        if w.Matches(now) </span><span class="cov2" title="9">{
                                 src = "window " + w.Start + "-" + w.End + " UTC"
                                 break</span>
                         }
@@ -41542,7 +41556,7 @@ func (m model) editorLivePreview() string <span class="cov2" title="11">{
                 prefix = "now: "
                 // Compact the source label too (drop "window "/" UTC").
                 switch </span>{
-                case scheduled &amp;&amp; !free:<span class="cov0" title="0">
+                case scheduled &amp;&amp; !free:<span class="cov1" title="4">
                         src = "win"</span>
                 case free &amp;&amp; scheduled:<span class="cov0" title="0">
                         src = "win"</span>
