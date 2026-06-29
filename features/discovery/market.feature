@@ -18,10 +18,13 @@ Feature: Discovery — the public marketplace
     When a consumer GETs /discover
     Then both models' public offers are listed with their node + price
 
-  Scenario: A stale node is not listed
+  # Spec correction (deployed code is source of truth): computeDiscover LISTS every public
+  # node with an Online flag (a consumer sees an offline station), so a stale node is shown
+  # OFFLINE on /discover rather than omitted; only the /market AGGREGATE drops it.
+  Scenario: A stale node reads OFFLINE on /discover and drops out of the /market aggregate
     Given a node on air for "gpt-oss-20b" that has not heartbeat within nodeTTL
     When a consumer GETs /discover
-    Then that node's offer is omitted (only live stations show)
+    Then that node is shown OFFLINE on /discover and omitted from the /market aggregate
 
   Scenario: A PRIVATE node is hidden from public discovery
     Given a node sharing "gpt-oss-20b" on a PRIVATE band
