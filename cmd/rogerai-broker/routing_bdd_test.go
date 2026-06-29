@@ -35,8 +35,8 @@ import (
 
 type routeState struct {
 	b   *broker
-	mem *store.Mem      // underlying store, for owner/node bindings
-	cs  *countingStore  // AccountOfNode-counting wrapper installed as b.db
+	mem *store.Mem     // underlying store, for owner/node bindings
+	cs  *countingStore // AccountOfNode-counting wrapper installed as b.db
 	now time.Time
 	ids []string // every node id added this scenario (for "both nodes are candidates")
 
@@ -62,8 +62,6 @@ func (s *routeState) reset() {
 	s.b = routeBroker(s.now, map[string]protocol.NodeRegistration{})
 	s.b.db = s.cs
 	s.b.bannedOwners = map[string]bool{}
-	s.b.successCount = map[string]int{}
-	s.b.concurrentTPS = map[string]float64{}
 	s.b.feeRate = 0.30
 	s.ids = nil
 	s.model, s.confidentialOnly = "", false

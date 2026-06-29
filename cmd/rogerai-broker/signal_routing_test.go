@@ -9,19 +9,23 @@ import (
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
-// pickBroker builds a broker with all the per-node metric maps initialised so the
-// composite pick has somewhere to read tps / inflight / success / trust from.
+// routeBroker builds a broker with ALL the per-node metric maps initialised so the
+// composite pick has somewhere to read tps / inflight / success / successCount /
+// concurrentTPS / trust from (the score reads successCount + concurrentTPS too, so they
+// are seeded here rather than re-added per suite).
 func routeBroker(now time.Time, nodes map[string]protocol.NodeRegistration) *broker {
 	b := &broker{
-		nodes:        nodes,
-		lastSeen:     map[string]time.Time{},
-		confidential: map[string]bool{},
-		private:      map[string]bool{},
-		banned:       map[string]bool{},
-		tps:          map[string]float64{},
-		inflight:     map[string]int{},
-		success:      map[string]float64{},
-		trust:        map[string]trustState{},
+		nodes:         nodes,
+		lastSeen:      map[string]time.Time{},
+		confidential:  map[string]bool{},
+		private:       map[string]bool{},
+		banned:        map[string]bool{},
+		tps:           map[string]float64{},
+		inflight:      map[string]int{},
+		success:       map[string]float64{},
+		successCount:  map[string]int{},
+		concurrentTPS: map[string]float64{},
+		trust:         map[string]trustState{},
 	}
 	for id := range nodes {
 		b.lastSeen[id] = now
@@ -65,7 +69,7 @@ func TestPickProbedFastBeatsSlowAtEqualPrice(t *testing.T) {
 	b.trust["slow"] = trustState{probed: true, probeOK: true, ttftMs: 1800}
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "fast" {
 		t.Errorf("pick = %q ok=%v, want fast (higher composite at equal price)", n.NodeID, ok)
@@ -86,7 +90,7 @@ func TestPickHigherCompositeWithinPriceTolerance(t *testing.T) {
 	b.trust["cheap"] = trustState{probed: true, probeOK: true, ttftMs: 1900}
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "fast" {
 		t.Errorf("pick = %q ok=%v, want fast (higher value-per-credit within price tolerance)", n.NodeID, ok)
@@ -107,7 +111,7 @@ func TestPickLoadTieBreakSpreads(t *testing.T) {
 	b.inflight["busy"] = 5 // busy carries load; idle has none
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "idle" {
 		t.Errorf("pick = %q ok=%v, want idle (least-loaded tie-break)", n.NodeID, ok)
@@ -128,7 +132,7 @@ func TestPickFailingDeprioritized(t *testing.T) {
 	b.trust["failing"] = trustState{probed: true, probeOK: false, probeFails: 4, ttftMs: 100}
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "healthy" {
 		t.Errorf("pick = %q ok=%v, want healthy (failing deprioritized despite cheaper+faster)", n.NodeID, ok)
@@ -137,7 +141,7 @@ func TestPickFailingDeprioritized(t *testing.T) {
 	// Failing is still served when it is the only option (availability).
 	b.mu.Lock()
 	delete(b.nodes, "healthy")
-	n2, _, ok2 := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n2, _, ok2 := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok2 || n2.NodeID != "failing" {
 		t.Errorf("pick = %q ok=%v, want failing as last resort", n2.NodeID, ok2)
@@ -161,7 +165,7 @@ func TestBrokerAndClientPickAgree(t *testing.T) {
 	b.trust["c"] = trustState{probed: true, probeOK: true, ttftMs: 600}
 
 	b.mu.Lock()
-	bn, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	bn, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok {
 		t.Fatal("broker pick found nothing")

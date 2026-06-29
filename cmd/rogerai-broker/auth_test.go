@@ -78,8 +78,8 @@ func TestAuthGitHubBindsOwner(t *testing.T) {
 // TestKeypairBindsToOneWallet verifies the identity+wallet unification: a signed
 // keypair resolves to its anonymous pubkey-derived id BEFORE login, and to the SAME
 // "u_gh_<githubID>" wallet the web session uses AFTER login - one wallet per account.
-// It also checks the anon-vs-logged-in gate (loggedInWallet) and that seed credits
-// land on the github account exactly once.
+// It also checks the anon-vs-logged-in gate (dashIdentityBody + walletLoggedIn, the same
+// primitives /balance uses) and that seed credits land on the github account exactly once.
 func TestKeypairBindsToOneWallet(t *testing.T) {
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": 7, "login": "octocat"})
@@ -95,6 +95,16 @@ func TestKeypairBindsToOneWallet(t *testing.T) {
 	pubHex := hex.EncodeToString(priv.Public().(ed25519.PublicKey))
 	signedID := protocol.UserIDFromPubkey(pubHex)
 
+	// loggedInWallet replicates the prod logged-in gate (dashIdentityBody + walletLoggedIn,
+	// the SAME primitives /balance uses) now that the standalone wrapper is gone: a request
+	// is "logged in" only when its identity resolves AND maps to a github-scoped wallet.
+	loggedInWallet := func(r *http.Request) (string, bool) {
+		if id, ok := b.dashIdentityBody(r, nil); ok && walletLoggedIn(id) {
+			return id, true
+		}
+		return "", false
+	}
+
 	// A signed /balance read BEFORE login resolves to the anonymous pubkey-derived id,
 	// and the gate reports not-logged-in (no wallet).
 	balReq := func() *httptest.ResponseRecorder {
@@ -104,13 +114,13 @@ func TestKeypairBindsToOneWallet(t *testing.T) {
 		b.balance(w, r)
 		return w
 	}
-	if id, ok := b.loggedInWallet(httptest.NewRequest(http.MethodGet, "/x", nil), nil); ok {
+	if id, ok := loggedInWallet(httptest.NewRequest(http.MethodGet, "/x", nil)); ok {
 		t.Errorf("unsigned request should not be logged in (got %q)", id)
 	}
 	{
 		r := httptest.NewRequest(http.MethodGet, "/x", nil)
 		signReq(r, priv, nil)
-		if id, ok := b.loggedInWallet(r, nil); ok {
+		if id, ok := loggedInWallet(r); ok {
 			t.Errorf("anon keypair should not be logged in (got %q)", id)
 		}
 	}
@@ -142,7 +152,7 @@ func TestKeypairBindsToOneWallet(t *testing.T) {
 	// Now the SAME keypair resolves to the github wallet (one wallet) + is logged in.
 	r := httptest.NewRequest(http.MethodGet, "/x", nil)
 	signReq(r, priv, nil)
-	wal, ok := b.loggedInWallet(r, nil)
+	wal, ok := loggedInWallet(r)
 	if !ok || wal != "u_gh_7" {
 		t.Fatalf("post-login wallet = %q ok=%v, want u_gh_7", wal, ok)
 	}

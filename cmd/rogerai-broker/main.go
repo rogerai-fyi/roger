@@ -826,7 +826,7 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 // has logged in (its pubkey is bound to a non-anonymized GitHub owner) resolves to
 // the SAME "u_gh_<githubID>" wallet the web session uses - so the CLI and the web
 // read/spend ONE wallet. An unbound keypair (not logged in) keeps its pubkey-derived
-// id, which is an ANONYMOUS, no-seed wallet (see loggedInWallet for the spend gate).
+// id, which is an ANONYMOUS, no-seed wallet (walletLoggedIn gates the spend path on it).
 //
 // The signed `id` is still used directly for self-use ownership checks (ownsNode
 // compares the pubkey-derived id to the node's owner pubkey); only the MONEY key is
@@ -850,24 +850,6 @@ func (b *broker) walletOf(r *http.Request, id string) string {
 		return w
 	}
 	return id
-}
-
-// loggedInWallet resolves the GitHub-scoped wallet for a request that proves it owns
-// a logged-in keypair: the request must be cryptographically SIGNED (authed) AND its
-// pubkey bound to a non-anonymized owner. Returns ok=false for an anonymous/unbound
-// keypair (no wallet, no balance - free models + grant keys only). This is the gate
-// the spend path uses to reject a paid request from a not-logged-in caller, and the
-// dashboard uses to hide the balance when anonymous. It never seeds.
-func (b *broker) loggedInWallet(r *http.Request, body []byte) (wallet string, ok bool) {
-	id, authed, iok := b.identityOf(r, body)
-	if !iok || !authed {
-		return "", false
-	}
-	w := b.walletOf(r, id)
-	if strings.HasPrefix(w, "u_gh_") {
-		return w, true
-	}
-	return "", false
 }
 
 // reservedID reports whether an id belongs to a namespace that an UNSIGNED legacy

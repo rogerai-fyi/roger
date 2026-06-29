@@ -40,7 +40,7 @@ func BenchmarkPickFor(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				br.mu.Lock()
-				br.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+				br.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 				br.mu.Unlock()
 			}
 		})
@@ -56,7 +56,7 @@ func BenchmarkPickForParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			br.mu.Lock()
-			br.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+			br.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 			br.mu.Unlock()
 		}
 	})

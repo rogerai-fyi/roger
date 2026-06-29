@@ -40,8 +40,6 @@ func (s *dmState) reset() {
 	s.now = time.Now()
 	s.b = routeBroker(s.now, map[string]protocol.NodeRegistration{})
 	s.b.db = store.NewMem()
-	s.b.successCount = map[string]int{}
-	s.b.concurrentTPS = map[string]float64{}
 	s.b.probeSched = map[string]*probeState{}
 	s.b.localCache = map[string]localCacheEntry{}
 	s.offers, s.market, s.computeCalls = nil, nil, 0

@@ -201,7 +201,7 @@ func TestOwnerBanBlocksRelayPickUnderNewNodeID(t *testing.T) {
 	b.lastSeen["new-id"] = now
 
 	b.mu.Lock()
-	_, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	_, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if ok {
 		t.Error("a banned owner's fresh node id must be dropped from relay pick (anti-rotation)")
@@ -212,7 +212,7 @@ func TestOwnerBanBlocksRelayPickUnderNewNodeID(t *testing.T) {
 	b.nodes["honest-id"] = protocol.NodeRegistration{NodeID: "honest-id", Offers: []protocol.ModelOffer{{Model: "m", PriceOut: 0.1}}}
 	b.lastSeen["honest-id"] = now
 	b.mu.Lock()
-	node, _, ok2 := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	node, _, ok2 := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok2 || node.NodeID != "honest-id" {
 		t.Errorf("an un-banned owner's node must remain pickable, got node=%q ok=%v", node.NodeID, ok2)

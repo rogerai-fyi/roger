@@ -233,7 +233,7 @@ func TestFreqRoutesOnlyToBandNode(t *testing.T) {
 
 	// Without a freq, the private node is invisible to pick (public market path).
 	b.mu.Lock()
-	_, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	_, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if ok {
 		t.Errorf("private node picked on the OPEN MARKET path (no freq) - must be hidden")
@@ -245,7 +245,7 @@ func TestFreqRoutesOnlyToBandNode(t *testing.T) {
 		t.Fatalf("resolveFreqAllow(real) = allow=%v band=%+v present=%v", allow, band, present)
 	}
 	b.mu.Lock()
-	node, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, allow)
+	node, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, allow, pickReq{})
 	b.mu.Unlock()
 	if !ok || node.NodeID != "priv1" {
 		t.Errorf("freq-admitted pick = %+v ok=%v, want priv1", node, ok)

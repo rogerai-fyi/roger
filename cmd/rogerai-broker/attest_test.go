@@ -366,7 +366,7 @@ func TestConfidentialRouteFilterOnlyVerified(t *testing.T) {
 	b.confidential = map[string]bool{"verified": true, "standard": false}
 
 	b.mu.Lock()
-	node, _, ok := b.pick("m", true, 0, 0, 0, "", nil, nil, nil)
+	node, _, ok := b.pickFor("m", true, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || node.NodeID != "verified" {
 		t.Fatalf("confidential pick = %q (ok=%v), want the verified node despite the cheaper standard one", node.NodeID, ok)
@@ -375,7 +375,7 @@ func TestConfidentialRouteFilterOnlyVerified(t *testing.T) {
 	// Drop the verified node's status (re-attest lapse) -> NO confidential route exists.
 	b.confidential["verified"] = false
 	b.mu.Lock()
-	_, _, ok2 := b.pick("m", true, 0, 0, 0, "", nil, nil, nil)
+	_, _, ok2 := b.pickFor("m", true, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if ok2 {
 		t.Error("with no verified node, confidential routing must find nothing (never falls back to standard)")

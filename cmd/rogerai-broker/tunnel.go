@@ -1937,15 +1937,6 @@ type pickReq struct {
 	rng          *rand.Rand // nil => deterministic top-1 (no P2C spread)
 }
 
-// pick is the back-compat entry point (existing signature): cheapest-RIGHT-NOW
-// online node offering the model, now ranked by the smart-router v2 composite
-// instead of value-per-credit. It delegates to pickFor with the default balanced,
-// deterministic profile so every existing caller/test keeps its behaviour. Caller
-// holds b.mu.
-func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
-	return b.pickFor(model, confidentialOnly, minTPS, maxPriceIn, maxPriceOut, pin, exclude, allow, privateAllow, pickReq{})
-}
-
 // pickFor is the smart-router v2 selection (the winning spec). For each ELIGIBLE
 // candidate it computes
 //
