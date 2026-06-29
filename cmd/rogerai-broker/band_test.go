@@ -349,7 +349,9 @@ func TestBandOffersCarryRealMetrics(t *testing.T) {
 }
 
 // TestRegisterPriceCeiling: a public node whose price exceeds the hard ceiling is
-// rejected at register with copy steering to --private.
+// rejected at register with copy that states the REAL remedy (lower the price below the
+// ceiling) and does NOT suggest --private as a price bypass - the ceiling is global for
+// every band (pinned across public/private/confidential by TestRegisterCeilingGlobalAllBands).
 func TestRegisterPriceCeiling(t *testing.T) {
 	b, _, nodePriv, nodePubHex := newBandBroker(t)
 	reg := protocol.NodeRegistration{
@@ -363,7 +365,11 @@ func TestRegisterPriceCeiling(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("over-ceiling register = %d, want 400", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "--private") {
-		t.Errorf("ceiling rejection should steer to --private, got %q", w.Body.String())
+	resp := w.Body.String()
+	if !strings.Contains(resp, "lower the price below the ceiling") {
+		t.Errorf("ceiling rejection should state the real remedy (lower the price), got %q", resp)
+	}
+	if strings.Contains(resp, "--private") {
+		t.Errorf("ceiling rejection must NOT suggest --private as a price bypass, got %q", resp)
 	}
 }

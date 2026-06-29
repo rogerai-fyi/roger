@@ -43,17 +43,19 @@ func effectiveRelayMaxOut(reqMaxOut float64) float64 {
 }
 
 // registerPriceCeiling returns a non-empty rejection message if any offer (base price
-// or any scheduled window) exceeds the public hard ceiling. The copy steers a genuine
-// "I want to be unreachable to the public" case to --private rather than an absurd
-// price. Returns "" when every price is within bounds.
+// or any scheduled window) exceeds the public hard ceiling. The copy states the REAL
+// remedy - lower the price below the ceiling - and deliberately does NOT suggest
+// --private as an escape: the ceiling is GLOBAL (it binds private + confidential bands
+// too; --private only hides a station from the public market, it is not a price bypass).
+// Returns "" when every price is within bounds.
 func registerPriceCeiling(offers []protocol.ModelOffer) string {
 	outCap, inCap := maxPriceOutCeiling(), maxPriceInCeiling()
 	check := func(in, out float64) string {
 		if out > outCap {
-			return fmt.Sprintf("output price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower it, or use `--private` to share on a hidden frequency band instead", out, outCap)
+			return fmt.Sprintf("output price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", out, outCap)
 		}
 		if in > inCap {
-			return fmt.Sprintf("input price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower it, or use `--private` to share on a hidden frequency band instead", in, inCap)
+			return fmt.Sprintf("input price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", in, inCap)
 		}
 		return ""
 	}
