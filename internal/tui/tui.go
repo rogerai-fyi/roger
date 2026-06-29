@@ -660,6 +660,9 @@ type model struct {
 	agentLines          []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
 	agentVP             viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
 	agentBusy           bool           // a turn is in flight (drives the working line)
+	agentCanceling      bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
+	agentQueued         []string       // prompts typed mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue)
+	agentLastEvent      time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
 	agentTurnState      agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
 	agentStart          time.Time      // when the in-flight turn began (elapsed readout)
 	agentPendingConfirm *agentConfirm  // non-nil while a mutating tool awaits y/N
@@ -1302,10 +1305,29 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case agentCostMsg:
 		m.agentCost += float64(msg)
-		return m, nil
+		m.agentLastEvent = time.Now() // a cost tick is activity too (proof of life)
+		// CRITICAL: a cost tick must NOT stop the stream. The drain (waitAgentEvent) is the
+		// single reader of the events channel; if this handler returns without re-arming it,
+		// draining halts at the FIRST cost event of a turn, the turn's real agentDoneMsg is
+		// never observed, agentBusy never clears, and the turn appears hung forever (the
+		// 835s freeze: working line + corner Ping spin on, input blocked, esc stuck on
+		// "cancelling…"). Re-arm so the rest of the turn keeps flowing.
+		return m, m.waitAgentEvent()
 	case agentDoneMsg:
 		m.agentBusy = false
+		m.agentCanceling = false
 		m.agentTurnState = poseWaiting // turn finished: the corner Ping stands by
+		// Auto-send the next queued prompt (typed mid-turn), Claude-style. dequeue runs any
+		// leading slash-commands inline and starts the first chat turn; the rest wait for it.
+		if len(m.agentQueued) > 0 {
+			nm, cmd := m.dequeueAgentPrompts()
+			if nm.agentBusy {
+				nm.status = stDim.Render("sent the queued message")
+			} else {
+				nm.status = stDim.Render("AGENT ready - ask it to do something")
+			}
+			return nm, tea.Batch(cmd, fetchBalance(nm.broker, nm.user))
+		}
 		m.status = stDim.Render("AGENT ready - ask it to do something")
 		return m, fetchBalance(m.broker, m.user)
 	case tea.KeyMsg:
@@ -6055,7 +6077,7 @@ func (m model) agentCornerRows() int {
 	if mdl == "" {
 		return 0
 	}
-	return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact))
+	return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact, m.agentBusy))
 }
 
 // agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
@@ -6242,7 +6264,13 @@ func (m model) transmitLineFor(elapsedSec int) string {
 // is alive, not hung.
 func transmitLine(frame, elapsedSec int) string {
 	line := workingSpinner(frame)
-	if elapsedSec >= 2 {
+	switch {
+	case elapsedSec >= 90:
+		// Very slow: surface the hard per-call ceiling so the wait reads as BOUNDED, not
+		// bottomless - the "is it hung?" question gets a concrete deadline (the relay times
+		// out at ~5m), instead of an open-ended spinner.
+		line += stDim.Render(fmt.Sprintf("  %ds  (still holding · the station has up to ~5m before it times out)", elapsedSec))
+	case elapsedSec >= 2:
 		line += stDim.Render(fmt.Sprintf("  %ds  (slow stations can take a minute - holding the channel)", elapsedSec))
 	}
 	return line

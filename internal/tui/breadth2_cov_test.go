@@ -34,11 +34,11 @@ func TestPingAnimationArms(t *testing.T) {
 	}
 
 	// cornerFrameFor: every pose, many frames, must yield a non-empty head/eye (the
-	// blink splice fires on a hash hit somewhere in this range).
+	// blink splice fires on a hash hit somewhere in this range, but ONLY while live).
 	sawBlink := false
 	for _, p := range []agentPose{poseWaiting, poseThinking, poseStreaming, poseTool} {
 		for f := 0; f < 60; f++ {
-			head, eye := cornerFrameFor(p, f)
+			head, eye := cornerFrameFor(p, f, true)
 			if head == (cornerHead{}) || eye == "" {
 				t.Fatalf("cornerFrameFor(%v,%d) returned an empty frame", p, f)
 			}
@@ -48,11 +48,11 @@ func TestPingAnimationArms(t *testing.T) {
 		}
 	}
 	if !sawBlink {
-		t.Error("the waiting corner-Ping should blink (eye '-') at least once across 60 frames")
+		t.Error("the waiting corner-Ping should blink (eye '-') at least once across 60 live frames")
 	}
 
 	// agentCornerPing full (multi-row) block + cornerWord vary by state.
-	full := agentCornerPing(poseStreaming, 1, false, false)
+	full := agentCornerPing(poseStreaming, 1, false, false, true)
 	if len(full) != 3 {
 		t.Errorf("the full corner-Ping should be a 3-line head, got %d lines", len(full))
 	}

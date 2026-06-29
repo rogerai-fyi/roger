@@ -363,7 +363,13 @@ func cornerWord(state agentPose, frame int) string {
 // runs each state's own little cycle off the shared frame counter, with the waiting bob
 // splicing in a desynchronized blink so it never looks like a metronome. quiet freezes
 // to the canonical standing-by head.
-func cornerFrameFor(state agentPose, frame int) (cornerHead, string) {
+//
+// live reports whether the animation clock is actually advancing. It matters ONLY for the
+// idle (poseWaiting) blink: when the screen is idle the frame FREEZES (so native selection
+// survives), and a frozen frame that happened to land on the blink would stick the
+// operator looking asleep (closed eye '-') ~1/17 of the time. So the blink plays only
+// while live; a frozen idle corner always shows the open-eye standing-by frame.
+func cornerFrameFor(state agentPose, frame int, live bool) (cornerHead, string) {
 	if quiet {
 		return cornerWaitFrames[0], "•"
 	}
@@ -376,8 +382,8 @@ func cornerFrameFor(state agentPose, frame int) (cornerHead, string) {
 		return cornerStreamFrames[i], cornerEyeFor(state, f)
 	case poseTool:
 		return cornerToolFrames[(f/cornerCadence)%len(cornerToolFrames)], "•"
-	default: // poseWaiting: gentle bob + a desynchronized blink
-		if f%17 == int(pingHash(f/17)%14) {
+	default: // poseWaiting: gentle bob + a desynchronized blink (only while animating)
+		if live && f%17 == int(pingHash(f/17)%14) {
 			return cornerBlinkFrame, "-"
 		}
 		return cornerWaitFrames[(f/cornerCadence)%len(cornerWaitFrames)], "•"
@@ -389,15 +395,16 @@ func cornerFrameFor(state agentPose, frame int) (cornerHead, string) {
 // 3-line Ping head with its status word beside the top line. On a narrow terminal (or
 // compact / quiet reduced-motion) it collapses to a single status line `(( • )) word`
 // so it never crowds a slim view. It returns nil when there is no active model (the
-// caller hides it entirely). frame drives the animation off the shared tick.
-func agentCornerPing(state agentPose, frame int, narrow, compact bool) []string {
+// caller hides it entirely). frame drives the animation off the shared tick; live reports
+// whether that clock is advancing (idle freezes it - see cornerFrameFor).
+func agentCornerPing(state agentPose, frame int, narrow, compact, live bool) []string {
 	word := cornerWord(state, frame)
 	// Narrow / compact / quiet: one clean status line, no multi-row art.
 	if narrow || compact {
 		eye := stPingEye.Render("•")
 		return []string{stPingDim.Render("((") + " " + eye + " " + stPingDim.Render("))") + "  " + stPingDim.Render(word)}
 	}
-	head, eye := cornerFrameFor(state, frame)
+	head, eye := cornerFrameFor(state, frame, live)
 	out := make([]string, 0, 3)
 	for i, ln := range head.lines {
 		line := tintEyeLine(ln, eye)

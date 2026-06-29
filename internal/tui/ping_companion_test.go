@@ -107,7 +107,7 @@ func TestCornerWordsPerState(t *testing.T) {
 // underlying per-state frame banks are distinct repertoires.
 func TestCornerPingPoseChanges(t *testing.T) {
 	render := func(s agentPose) string {
-		return strings.Join(agentCornerPing(s, 4, false, false), "\n")
+		return strings.Join(agentCornerPing(s, 4, false, false, true), "\n")
 	}
 	all := []string{render(poseWaiting), render(poseThinking), render(poseStreaming), render(poseTool)}
 	for i := range all {
@@ -118,7 +118,7 @@ func TestCornerPingPoseChanges(t *testing.T) {
 		}
 	}
 	// Determinism: same state + frame -> same render.
-	if render(poseThinking) != strings.Join(agentCornerPing(poseThinking, 4, false, false), "\n") {
+	if render(poseThinking) != strings.Join(agentCornerPing(poseThinking, 4, false, false, true), "\n") {
 		t.Errorf("corner Ping render is not deterministic")
 	}
 	// The streaming frame bank swells the eye to O (the on-air signal) on its off-beats.
@@ -147,7 +147,7 @@ func TestCornerPingReducedMotion(t *testing.T) {
 	// quiet is computed once at package init; force the reduced-motion path directly via
 	// the compact flag, which the renderer treats as reduced-motion (one status line).
 	for _, s := range []agentPose{poseWaiting, poseThinking, poseStreaming, poseTool} {
-		lines := agentCornerPing(s, 7, false, true) // compact -> one clean line
+		lines := agentCornerPing(s, 7, false, true, false) // compact -> one clean line
 		if len(lines) != 1 {
 			t.Errorf("reduced-motion corner Ping should be one line, got %d", len(lines))
 		}
