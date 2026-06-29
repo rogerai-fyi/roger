@@ -17,6 +17,12 @@ import (
 // 4-4 with a dash for readability) is the SECRET: 40 bits of entropy. The broker
 // stores ONLY sha256(canonical tail); resolve hashes the tail alone. The cosmetic
 // frequency is never folded into the key, so it can be regenerated/display-only.
+//
+// SECURITY: the full code (with the tail) is the SECRET, shown ONCE at mint for the
+// owner to save. What is PERSISTED is a separate MASKED display - the same cosmetic
+// frequency but with the tail replaced by maskedTail ("147.520 MHz · ••••-••••") - so
+// the stored value carries NO secret and CanonicalBandTail can NEVER recover a tail
+// from it (the band cannot be reconstructed/resolved from persisted state).
 
 // crockfordAlphabet is Douglas Crockford's base32 alphabet: digits + uppercase
 // letters with I, L, O, U removed (to avoid 1/I, 0/O confusion and an accidental
@@ -26,16 +32,26 @@ const crockfordAlphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 // bandTailLen is the number of Crockford symbols in the secret tail (8 => 40 bits).
 const bandTailLen = 8
 
-// NewBandCode mints a fresh frequency code: a cosmetic dotted-decimal frequency
-// (display only) plus a random 40-bit Crockford tail (the secret). It returns:
+// maskedTail is the placeholder shown in the PERSISTED cosmetic display in place of the
+// secret tail. It contains NO Crockford symbols (the bullets/dash are all dropped by
+// CanonicalBandTail), so a stored display canonicalizes to only the 6 frequency digits
+// (< bandTailLen) and can therefore NEVER yield a resolvable tail.
+const maskedTail = "••••-••••"
+
+// NewBandCode mints a fresh frequency code. It returns THREE strings, separating the
+// one-time SECRET from what is safe to persist:
 //
-//	display - the full cosmetic string, e.g. "147.520 MHz · 8F3K-9M2Q" (shown ONCE)
-//	tail    - the canonical secret tail, e.g. "8F3K9M2Q" (no dash/space), for hashing
+//	code    - the full shareable code, e.g. "147.520 MHz · 8F3K-9M2Q". This carries the
+//	          secret tail and resolves the band; it is shown ONCE at mint for the owner to
+//	          save and is NEVER persisted.
+//	display - a TRULY cosmetic, NON-RECOVERABLE display, e.g. "147.520 MHz · ••••-••••".
+//	          Safe to persist + re-show: CanonicalBandTail(display) == "" (no tail), so it
+//	          can never reconstruct or resolve the band.
+//	tail    - the canonical secret tail, e.g. "8F3K9M2Q" (no dash/space), for hashing.
 //
-// The cosmetic frequency is derived from random bytes too (purely for flavor); it
-// carries NO secret and is safe to store as code_display. crypto/rand backs both so
-// the tail is unguessable (40 bits => ~1.1e12 codes).
-func NewBandCode() (display, tail string) {
+// The broker persists ONLY sha256(tail) + the masked display; the full code is never
+// stored. crypto/rand backs the tail (40 bits => ~1.1e12 codes, unguessable).
+func NewBandCode() (code, display, tail string) {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	// Cosmetic frequency: a plausible "MHz" channel from the first bytes. Range
@@ -53,8 +69,9 @@ func NewBandCode() (display, tail string) {
 		sb.WriteByte(crockfordAlphabet[int(raw[i])&0x1f])
 	}
 	t := sb.String()
-	display = freq + " · " + t[:4] + "-" + t[4:]
-	return display, t
+	code = freq + " · " + t[:4] + "-" + t[4:] // the SECRET full code, shown ONCE at mint
+	display = freq + " · " + maskedTail        // cosmetic, non-recoverable, safe to persist
+	return code, display, t
 }
 
 // CanonicalBandTail extracts the secret tail from anything the user might type and

@@ -26,11 +26,11 @@ func newBandID() string {
 }
 
 // mintBandForNode mints a private band bound to nodeID for owner, enforcing the
-// free cap (CountActiveBands vs BandQuota). It returns the band plus the secret
-// frequency code shown ONCE (empty display means "already had a band" is handled by
-// the caller via BandByNode before calling this). On a cap hit it returns a non-nil
-// error message string the caller surfaces as a 403. The code is generated with
-// crypto/rand; only sha256(canonical tail) + the cosmetic display are stored.
+// free cap (CountActiveBands vs BandQuota). It returns the band plus the secret full
+// frequency CODE shown ONCE (the caller reveals it once; band.CodeDisplay is the masked,
+// non-recoverable display that is PERSISTED). On a cap hit it returns a non-empty error
+// message string the caller surfaces as a 403. The code is generated with crypto/rand;
+// only sha256(canonical tail) + the MASKED display are stored - never the full code.
 func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, string, string) {
 	now := time.Now()
 	active, err := b.db.CountActiveBands(owner.Pubkey, now)
@@ -40,7 +40,7 @@ func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, 
 	if active >= store.BandQuota(owner.Pubkey) {
 		return store.Band{}, "", "private band limit reached (free plan allows 1) - revoke an existing band first"
 	}
-	display, tail := protocol.NewBandCode()
+	code, display, tail := protocol.NewBandCode()
 	band := store.Band{
 		ID: newBandID(), CodeHash: protocol.BandCodeHash(tail), CodeDisplay: display,
 		Owner: owner.Pubkey, NodeID: nodeID, CreatedAt: now.Unix(),
@@ -48,7 +48,7 @@ func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, 
 	if err := b.db.CreateBand(band); err != nil {
 		return store.Band{}, "", "could not create the private band"
 	}
-	return band, display, ""
+	return band, code, ""
 }
 
 // bands handles GET /bands (owner-auth: list the caller-owner's private bands). The
@@ -117,8 +117,10 @@ func (b *broker) bandsByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revoked": true})
 }
 
-// bandView is the public (secret-free) JSON shape of a band. NEVER includes the
-// code hash or the secret code; CodeDisplay is cosmetic and safe to show the owner.
+// bandView is the public (secret-free) JSON shape of a band. NEVER includes the code
+// hash or the secret code. CodeDisplay is the MASKED cosmetic display ("147.520 MHz ·
+// ••••-••••") - non-recoverable, so it cannot reconstruct the band; the secret full code
+// is shown ONLY once at mint and is not retrievable here (lost => revoke + re-mint).
 func bandView(bd store.Band, now time.Time) map[string]any {
 	status := "active"
 	if bd.Revoked {

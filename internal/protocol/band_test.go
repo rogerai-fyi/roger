@@ -7,9 +7,9 @@ import (
 
 // TestNewBandCodeFormat verifies the minted code's shape + entropy: a cosmetic
 // "<n>.<n> MHz" prefix, a middot, and an 8-char Crockford tail grouped 4-4. The
-// canonical tail round-trips out of the display, and codes don't repeat (40 bits).
+// one-time FULL code round-trips to the exact tail; codes don't repeat (40 bits).
 func TestNewBandCodeFormat(t *testing.T) {
-	display, tail := NewBandCode()
+	code, display, tail := NewBandCode()
 	if len(tail) != bandTailLen {
 		t.Fatalf("tail %q len = %d, want %d", tail, len(tail), bandTailLen)
 	}
@@ -18,18 +18,23 @@ func TestNewBandCodeFormat(t *testing.T) {
 			t.Fatalf("tail %q has non-Crockford symbol %q", tail, r)
 		}
 	}
+	if !strings.Contains(code, "MHz") || !strings.Contains(code, "·") {
+		t.Fatalf("code %q missing cosmetic frequency or middot", code)
+	}
+	// The grouped form in the one-time CODE (4-4) must canonicalize back to the exact tail.
+	if got := CanonicalBandTail(code); got != tail {
+		t.Fatalf("canonical(code) = %q, want tail %q", got, tail)
+	}
+	// The persisted DISPLAY is cosmetic but MASKED: it keeps the frequency + middot yet
+	// canonicalizes to "" (no recoverable tail) - see TestBandDisplayNotRecoverable.
 	if !strings.Contains(display, "MHz") || !strings.Contains(display, "·") {
 		t.Fatalf("display %q missing cosmetic frequency or middot", display)
-	}
-	// The grouped form in the display (4-4) must canonicalize back to the exact tail.
-	if got := CanonicalBandTail(display); got != tail {
-		t.Fatalf("canonical(display) = %q, want tail %q", got, tail)
 	}
 	// Unguessable: a batch of mints must be unique (40 bits => collisions vanishingly
 	// rare; a repeat in 1000 draws signals a broken generator).
 	seen := map[string]bool{}
 	for i := 0; i < 1000; i++ {
-		_, tl := NewBandCode()
+		_, _, tl := NewBandCode()
 		if seen[tl] {
 			t.Fatalf("duplicate tail %q within 1000 mints - generator not random", tl)
 		}
@@ -86,5 +91,33 @@ func TestBandCodeHash(t *testing.T) {
 	// still produces a stable, fixed-length hash (constant-work resolve).
 	if h := BandCodeHash("xx"); h == "" || len(h) != 64 {
 		t.Errorf("garbage input hash = %q, want a 64-hex constant-work hash", h)
+	}
+}
+
+// TestBandDisplayNotRecoverable is the SECURITY pin: the PERSISTED cosmetic display must
+// NOT be able to reconstruct/resolve the band. Only the one-time full code (shown once at
+// mint) may resolve it. Previously the display embedded the secret tail, so anyone with
+// read access to persisted state could recover the band code - this pins that it cannot.
+func TestBandDisplayNotRecoverable(t *testing.T) {
+	code, display, tail := NewBandCode()
+
+	// The one-time FULL code DOES resolve the band (it carries the secret tail).
+	if CanonicalBandTail(code) != tail {
+		t.Fatalf("one-time code must resolve: canonical(code=%q) = %q, want tail %q", code, CanonicalBandTail(code), tail)
+	}
+	if BandCodeHash(code) != BandCodeHash(tail) {
+		t.Fatalf("one-time code must hash to the band's lookup key")
+	}
+
+	// The PERSISTED display must NOT reconstruct the tail, and must NOT resolve the band.
+	if got := CanonicalBandTail(display); got != "" {
+		t.Fatalf("persisted display %q reconstructs a tail %q - it must be masked (non-recoverable)", display, got)
+	}
+	if BandCodeHash(display) == BandCodeHash(tail) {
+		t.Fatalf("persisted display %q hashes to the band's lookup key - it can resolve the band", display)
+	}
+	// And the display must differ from the one-time code (it is not just the code re-shown).
+	if display == code {
+		t.Fatalf("persisted display equals the one-time code %q - the secret would be stored", code)
 	}
 }

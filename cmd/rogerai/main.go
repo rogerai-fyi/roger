@@ -939,9 +939,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if line := confidentialFeedback(sess.RequestedConfidential(), sess.Confidential()); line != "" {
 		fmt.Println(line)
 	}
-	if _, code, display := sess.Band(); code != "" {
+	if _, code, _ := sess.Band(); code != "" {
+		// One-time reveal: show the FULL code (with the secret tail). It is shown ONCE and
+		// never retrievable again - the persisted display is masked (lost => revoke + re-mint).
 		fmt.Printf("\n  %s YOUR FREQUENCY CODE (shown once - copy it now)\n", "◉")
-		fmt.Printf("\n      %s\n\n", display)
+		fmt.Printf("\n      %s\n\n", code)
 		fmt.Println("  share this with whoever should reach your station. They tune in with:")
 		fmt.Printf("      roger use %s --freq %q\n", mdl, code)
 		fmt.Println("  the cosmetic \"MHz\" part is optional - the code after it is what matters.")
