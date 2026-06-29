@@ -115,7 +115,7 @@
 				
 				<option value="file29">github.com/rogerai-fyi/roger/cmd/rogerai-broker/recount.go (94.6%)</option>
 				
-				<option value="file30">github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go (93.2%)</option>
+				<option value="file30">github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go (94.5%)</option>
 				
 				<option value="file31">github.com/rogerai-fyi/roger/cmd/rogerai-broker/refprices.go (86.9%)</option>
 				
@@ -1184,7 +1184,7 @@ func (b *broker) requireOwner(r *http.Request) (store.Owner, bool) <span class="
         if pubkey == "" </span><span class="cov2" title="3">{
                 return store.Owner{}, false
         }</span>
-        <span class="cov8" title="89">o, ok, err := b.db.OwnerByPubkey(pubkey)
+        <span class="cov7" title="89">o, ok, err := b.db.OwnerByPubkey(pubkey)
         if err != nil || !ok </span><span class="cov3" title="5">{
                 return store.Owner{}, false
         }</span>
@@ -1253,14 +1253,14 @@ func loginURL() string     <span class="cov3" title="5">{ return envOr("ROGERAI_
 
 // sessionKey is the HMAC key for signing session cookies. Reuse the broker's
 // Ed25519 seed so it is stable across restarts when BROKER_PRIVATE_KEY is set.
-func (b *broker) sessionKey() []byte <span class="cov9" title="249">{
+func (b *broker) sessionKey() []byte <span class="cov9" title="255">{
         h := sha256.Sum256(append([]byte("roger-session|"), b.priv.Seed()...))
         return h[:]
 }</span>
 
 // signSession returns a tamper-evident cookie value "payloadB64.sigB64" where
 // payload is "login|githubID|expiresUnix".
-func (b *broker) signSession(login string, githubID, exp int64) string <span class="cov8" title="120">{
+func (b *broker) signSession(login string, githubID, exp int64) string <span class="cov8" title="123">{
         payload := login + "|" + strconv.FormatInt(githubID, 10) + "|" + strconv.FormatInt(exp, 10)
         mac := hmac.New(sha256.New, b.sessionKey())
         mac.Write([]byte(payload))
@@ -1268,34 +1268,34 @@ func (b *broker) signSession(login string, githubID, exp int64) string <span cla
 }</span>
 
 // verifySession checks a cookie value's HMAC + expiry and returns the login.
-func (b *broker) verifySession(val string) (login string, githubID int64, ok bool) <span class="cov8" title="130">{
+func (b *broker) verifySession(val string) (login string, githubID int64, ok bool) <span class="cov8" title="133">{
         parts := strings.SplitN(val, ".", 2)
         if len(parts) != 2 </span><span class="cov1" title="1">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="129">payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+        <span class="cov8" title="132">payload, err := base64.RawURLEncoding.DecodeString(parts[0])
         if err != nil </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="129">sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+        <span class="cov8" title="132">sig, err := base64.RawURLEncoding.DecodeString(parts[1])
         if err != nil </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="129">mac := hmac.New(sha256.New, b.sessionKey())
+        <span class="cov8" title="132">mac := hmac.New(sha256.New, b.sessionKey())
         mac.Write(payload)
         if !hmac.Equal(sig, mac.Sum(nil)) </span><span class="cov2" title="2">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="127">f := strings.Split(string(payload), "|")
+        <span class="cov8" title="130">f := strings.Split(string(payload), "|")
         if len(f) != 3 </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="127">gid, _ := strconv.ParseInt(f[1], 10, 64)
+        <span class="cov8" title="130">gid, _ := strconv.ParseInt(f[1], 10, 64)
         exp, _ := strconv.ParseInt(f[2], 10, 64)
         if time.Now().Unix() &gt; exp </span><span class="cov1" title="1">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="126">return f[0], gid, true</span>
+        <span class="cov8" title="129">return f[0], gid, true</span>
 }
 
 // authGitHubLogin handles GET /auth/github/login: 302 to GitHub authorize with a
@@ -1427,16 +1427,16 @@ func (b *broker) account(w http.ResponseWriter, r *http.Request) <span class="co
 
 // sessionOwner resolves the logged-in browser identity (login, github id, the
 // github-scoped consumer wallet id). ok=false when there is no valid session.
-func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet string, ok bool) <span class="cov8" title="153">{
+func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet string, ok bool) <span class="cov8" title="156">{
         c, err := r.Cookie(sessionCookie)
         if err != nil || c.Value == "" </span><span class="cov7" title="61">{
                 return "", 0, "", false
         }</span>
-        <span class="cov8" title="92">login, gid, vok := b.verifySession(c.Value)
+        <span class="cov8" title="95">login, gid, vok := b.verifySession(c.Value)
         if !vok </span><span class="cov0" title="0">{
                 return "", 0, "", false
         }</span>
-        <span class="cov8" title="92">return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true</span>
+        <span class="cov8" title="95">return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true</span>
 }
 
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) <span class="cov2" title="2">{
@@ -1511,7 +1511,7 @@ func (b *broker) authLogout(w http.ResponseWriter, r *http.Request) <span class=
 // an explicit origin, never "*"). Only the configured web origin is allowed. The
 // allowed request headers include X-Roger-* so a signed XHR (a logged-in browser
 // that ALSO carries the signing headers) preflights cleanly.
-func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title="316">{
+func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title="324">{
         origin := envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
         // Always vary on Origin: the response differs per origin even when we don't
         // emit the allow header (so a shared cache never serves the wrong one).
@@ -1529,8 +1529,8 @@ func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title=
 // corsCredsPreflight answers a credentialed OPTIONS preflight (204 + the explicit
 // web-origin CORS headers) for the session/dashboard endpoints. Returns true when
 // it handled the request so the caller can stop.
-func corsCredsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov10" title="318">{
-        if r.Method != http.MethodOptions </span><span class="cov9" title="280">{
+func corsCredsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov10" title="326">{
+        if r.Method != http.MethodOptions </span><span class="cov9" title="288">{
                 return false
         }</span>
         <span class="cov6" title="38">corsCreds(w, r)
@@ -1879,11 +1879,11 @@ func loadBilling() billing <span class="cov7" title="241">{
         <span class="cov7" title="241">return b</span>
 }
 
-func envOr(k, def string) string <span class="cov10" title="1568">{
+func envOr(k, def string) string <span class="cov10" title="1590">{
         if v := os.Getenv(k); v != "" </span><span class="cov4" title="17">{
                 return v
         }</span>
-        <span class="cov9" title="1551">return def</span>
+        <span class="cov9" title="1573">return def</span>
 }
 
 // stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
@@ -1894,15 +1894,15 @@ func envOr(k, def string) string <span class="cov10" title="1568">{
 // production disables billing instead of silently accepting fake test cards. Off
 // locally so dev test keys work. The broker holds live values in STRIPE_SECRET_KEY /
 // STRIPE_WEBHOOK_SECRET; the local .env holds test values under the same names.
-func requireLive() bool <span class="cov8" title="635">{
+func requireLive() bool <span class="cov8" title="642">{
         switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_LIVE")) </span>{
         case "1", "true", "yes", "on":<span class="cov4" title="18">
                 return true</span>
         }
-        <span class="cov8" title="617">return false</span>
+        <span class="cov8" title="624">return false</span>
 }
 
-func stripeSecretKey() string <span class="cov8" title="611">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
+func stripeSecretKey() string <span class="cov8" title="618">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
@@ -4563,13 +4563,13 @@ func fmtCostHeader(cost float64) string <span class="cov6" title="40">{
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
-func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="488">{
+func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="496">{
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(code)
         _ = json.NewEncoder(w).Encode(v)
 }</span>
 
-func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="233">{
+func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="235">{
         writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }</span>
 
@@ -4594,13 +4594,13 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
-func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="453">{
+func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="459">{
         if r.Method != method </span><span class="cov4" title="11">{
                 w.Header().Set("Allow", method)
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return false
         }</span>
-        <span class="cov9" title="442">return true</span>
+        <span class="cov9" title="448">return true</span>
 }
 </pre>
 		
@@ -5896,7 +5896,7 @@ func (b *broker) computeMarket() any <span class="cov2" title="12">{
                         <span class="cov2" title="11">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="5">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov2" title="11">if recency &gt; a.bestRecency </span><span class="cov2" title="8">{
+                        <span class="cov2" title="11">if recency &gt; a.bestRecency </span><span class="cov2" title="9">{
                                 a.bestRecency = recency
                         }</span>
                         <span class="cov2" title="11">if staleness &gt; a.bestStaleness </span><span class="cov2" title="8">{
@@ -7477,7 +7477,7 @@ type connect struct {
         reverseTransfer func(transferID string, amountCents int64, idemKey string) (string, error)
 }
 
-func loadConnect() connect <span class="cov10" title="370">{
+func loadConnect() connect <span class="cov10" title="377">{
         c := connect{
                 secretKey:  stripeSecretKey(), // Connect reuses the platform secret key (prod-aware)
                 refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fyi/payouts?onboard=refresh"),
@@ -7493,7 +7493,7 @@ func loadConnect() connect <span class="cov10" title="370">{
                 log.Printf("CONNECT: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - payouts DISABLED (refusing the dev stub / test mode in production)")
                 c.secretKey = ""
         }</span>
-        <span class="cov10" title="370">if c.secretKey == "" </span><span class="cov9" title="369">{
+        <span class="cov10" title="377">if c.secretKey == "" </span><span class="cov9" title="376">{
                 log.Printf("CONNECT: Stripe payouts DISABLED (no usable STRIPE_SECRET_KEY). Onboarding + transfers are STUBBED - safe in dev, NOT a real money rail. Set STRIPE_SECRET_KEY before launch.")
         }</span> else<span class="cov1" title="1"> {
                 mode := "test"
@@ -7503,7 +7503,7 @@ func loadConnect() connect <span class="cov10" title="370">{
                 <span class="cov1" title="1">log.Printf("CONNECT: Stripe Connect enabled [%s mode] (hold=%dd reserve=%.0f%% min=%.0f schedule=%s)",
                         mode, c.policy.HoldDays, c.policy.Reserve*100, c.policy.MinPayout, c.policy.Schedule)</span>
         }
-        <span class="cov10" title="370">return c</span>
+        <span class="cov10" title="377">return c</span>
 }
 
 // stripeForm POSTs an application/x-www-form-urlencoded request to the Stripe API
@@ -7553,10 +7553,10 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 // request (no cookie, no valid signature) returns ok=false -&gt; 401.
 //
 // body is the exact request body the signature is verified over (nil for GET).
-func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) <span class="cov8" title="137">{
+func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) <span class="cov8" title="140">{
         // 1) Web session cookie (browser). Unchanged web path.
-        if l, _, _, sok := b.sessionOwner(r); sok </span><span class="cov7" title="81">{
-                if rec, found, _ := b.db.OwnerByLogin(l); found </span><span class="cov7" title="72">{
+        if l, _, _, sok := b.sessionOwner(r); sok </span><span class="cov7" title="84">{
+                if rec, found, _ := b.db.OwnerByLogin(l); found </span><span class="cov7" title="75">{
                         return l, rec, true
                 }</span>
                 // A valid session whose login is not (yet) a bound operator: still a logged-in
@@ -10326,23 +10326,23 @@ func validAdminKey(h string) string <span class="cov10" title="234">{
 // never be hit anonymously. A request that presents neither a matching key nor a
 // matching admin session is rejected. Returns true once it has written the 403, so the
 // caller just returns.
-func (b *broker) requireAdmin(w http.ResponseWriter, r *http.Request) (denied bool) <span class="cov7" title="38">{
+func (b *broker) requireAdmin(w http.ResponseWriter, r *http.Request) (denied bool) <span class="cov7" title="43">{
         if b.adminKey == "" &amp;&amp; b.adminGitHubID == 0 </span><span class="cov2" title="2">{
                 jsonErr(w, http.StatusForbidden, "admin surface disabled (set BROKER_PRIVATE_KEY and/or ADMIN_GITHUB_ID to enable)")
                 return true
         }</span>
         // Path 1: the broker-key header (CLI/curl).
-        <span class="cov6" title="36">if b.adminKey != "" </span><span class="cov6" title="36">{
+        <span class="cov7" title="41">if b.adminKey != "" </span><span class="cov7" title="41">{
                 got := r.Header.Get("X-Roger-Admin")
-                if got != "" &amp;&amp; subtle.ConstantTimeCompare([]byte(got), []byte(b.adminKey)) == 1 </span><span class="cov6" title="23">{
+                if got != "" &amp;&amp; subtle.ConstantTimeCompare([]byte(got), []byte(b.adminKey)) == 1 </span><span class="cov6" title="26">{
                         return false
                 }</span>
         }
         // Path 2: the configured super-admin GitHub session (browser).
-        <span class="cov5" title="13">if b.isAdminSession(r) </span><span class="cov1" title="1">{
+        <span class="cov5" title="15">if b.isAdminSession(r) </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov5" title="12">jsonErr(w, http.StatusForbidden, "admin auth required")
+        <span class="cov5" title="14">jsonErr(w, http.StatusForbidden, "admin auth required")
         return true</span>
 }
 
@@ -10351,8 +10351,8 @@ func (b *broker) requireAdmin(w http.ResponseWriter, r *http.Request) (denied bo
 // admin id is configured, or when there is no valid session / the id does not match - so
 // an ordinary logged-in owner is NEVER an admin. This is the browser half of requireAdmin
 // and is the ONLY identity check the admin portal page itself needs.
-func (b *broker) isAdminSession(r *http.Request) bool <span class="cov5" title="13">{
-        if b.adminGitHubID == 0 </span><span class="cov4" title="9">{
+func (b *broker) isAdminSession(r *http.Request) bool <span class="cov5" title="15">{
+        if b.adminGitHubID == 0 </span><span class="cov4" title="11">{
                 return false
         }</span>
         <span class="cov3" title="4">_, gid, _, ok := b.sessionOwner(r)
@@ -10366,60 +10366,60 @@ func (b *broker) isAdminSession(r *http.Request) bool <span class="cov5" title="
 // account), so cross-account access is structurally impossible. Returns the strikes
 // (newest first, with evidence), the current hold + ban status, and a count, so an
 // operator can see exactly why their earnings are held and contest it.
-func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) <span class="cov4" title="7">{
+func (b *broker) ownerStrikes(w http.ResponseWriter, r *http.Request) <span class="cov4" title="8">{
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov3" title="6">if !allow(w, r, http.MethodGet) </span><span class="cov0" title="0">{
+        <span class="cov4" title="7">if !allow(w, r, http.MethodGet) </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov3" title="6">corsCreds(w, r)
+        <span class="cov4" title="7">corsCreds(w, r)
         _, o, ok := b.payoutOwner(r, nil)
         if !ok </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
                 return
         }</span>
-        <span class="cov3" title="5">if o.Pubkey == "" </span><span class="cov1" title="1">{
+        <span class="cov3" title="6">if o.Pubkey == "" </span><span class="cov1" title="1">{
                 // Logged in but not (yet) a bound operator: no strikes, well-formed empty body.
                 writeJSON(w, http.StatusOK, map[string]any{"strikes": []store.Strike{}, "count": 0, "held": false, "banned": false})
                 return
         }</span>
-        <span class="cov3" title="4">acct := o.Pubkey
+        <span class="cov3" title="5">acct := o.Pubkey
         strikes, err := b.db.StrikesByOwner(acct, 100)
         if err != nil </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusInternalServerError, "store error")
                 return
         }</span>
-        <span class="cov2" title="3">if strikes == nil </span><span class="cov1" title="1">{
+        <span class="cov3" title="4">if strikes == nil </span><span class="cov1" title="1">{
                 strikes = []store.Strike{}
         }</span>
-        <span class="cov2" title="3">banned, reason, _ := b.db.IsOwnerBanned(acct)
+        <span class="cov3" title="4">banned, reason, _ := b.db.IsOwnerBanned(acct)
         // Surface each owned node's ban status + reason (3.3.1): a banned operator must be able
         // to SEE why, not just silently fall out of routing. banned_nodes was previously
         // invisible to owners. node_bans maps node_id -&gt; reason for every owned node currently
         // ejected.
         nodeBans := map[string]string{}
-        if nodes, err := b.db.NodesOfAccount(acct); err == nil </span><span class="cov2" title="3">{
+        if nodes, err := b.db.NodesOfAccount(acct); err == nil </span><span class="cov3" title="4">{
                 var allBans map[string]string
-                for _, n := range nodes </span><span class="cov2" title="2">{
+                for _, n := range nodes </span><span class="cov2" title="3">{
                         if !b.isBanned(n) </span><span class="cov2" title="2">{
                                 continue</span>
                         }
-                        <span class="cov0" title="0">if allBans == nil </span><span class="cov0" title="0">{
+                        <span class="cov1" title="1">if allBans == nil </span><span class="cov1" title="1">{
                                 allBans, _ = b.db.BannedNodes() // reason lookup, fetched lazily once
                         }</span>
-                        <span class="cov0" title="0">nodeBans[n] = allBans[n]</span>
+                        <span class="cov1" title="1">nodeBans[n] = allBans[n]</span>
                 }
         }
-        <span class="cov2" title="3">appeals, _ := b.db.AppealsByOwner(acct, 20)
-        if appeals == nil </span><span class="cov2" title="3">{
+        <span class="cov3" title="4">appeals, _ := b.db.AppealsByOwner(acct, 20)
+        if appeals == nil </span><span class="cov3" title="4">{
                 appeals = []store.Appeal{}
         }</span>
-        <span class="cov2" title="3">appealNote := "You are in good standing - nothing to appeal."
-        if banned || len(nodeBans) &gt; 0 || len(strikes) &gt; 0 </span><span class="cov2" title="2">{
+        <span class="cov3" title="4">appealNote := "You are in good standing - nothing to appeal."
+        if banned || len(nodeBans) &gt; 0 || len(strikes) &gt; 0 </span><span class="cov2" title="3">{
                 appealNote = "If you believe this is a mistake, file a self-serve appeal: `roger appeal --reason \"...\"` (or POST /owner/appeal). An admin reviews the evidence above; clear false positives can auto-clear."
         }</span>
-        <span class="cov2" title="3">writeJSON(w, http.StatusOK, map[string]any{
+        <span class="cov3" title="4">writeJSON(w, http.StatusOK, map[string]any{
                 "strikes":     strikes,
                 "count":       len(strikes),
                 "banned":      banned,
@@ -10453,58 +10453,58 @@ type ownerAppealRequest struct {
 //             corroboration threshold is auto-exonerated (lifted immediately) - a clear false
 //             positive recovers without waiting for a human - and every appeal is enqueued for
 //             admin review with the evidence trail.
-func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) <span class="cov5" title="15">{
+func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) <span class="cov5" title="17">{
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov5" title="14">corsCreds(w, r)
+        <span class="cov5" title="16">corsCreds(w, r)
         if r.Method != http.MethodGet &amp;&amp; r.Method != http.MethodPost </span><span class="cov1" title="1">{
                 w.Header().Set("Allow", "GET, POST")
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return
         }</span>
-        <span class="cov5" title="13">var body []byte
-        if r.Method == http.MethodPost </span><span class="cov4" title="9">{
+        <span class="cov5" title="15">var body []byte
+        if r.Method == http.MethodPost </span><span class="cov4" title="10">{
                 body, _ = io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;16))
         }</span>
-        <span class="cov5" title="13">_, o, ok := b.payoutOwner(r, body)
+        <span class="cov5" title="15">_, o, ok := b.payoutOwner(r, body)
         if !ok </span><span class="cov2" title="2">{
                 jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
                 return
         }</span>
-        <span class="cov4" title="11">if o.Pubkey == "" </span><span class="cov1" title="1">{
+        <span class="cov5" title="13">if o.Pubkey == "" </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusForbidden, "no operator account for this login (run `roger login` on a node first)")
                 return
         }</span>
-        <span class="cov4" title="10">acct := o.Pubkey
+        <span class="cov5" title="12">acct := o.Pubkey
 
         // GET: the caller's appeal history / status.
-        if r.Method == http.MethodGet </span><span class="cov2" title="2">{
+        if r.Method == http.MethodGet </span><span class="cov2" title="3">{
                 appeals, err := b.db.AppealsByOwner(acct, 50)
                 if err != nil </span><span class="cov1" title="1">{
                         jsonErr(w, http.StatusInternalServerError, "store error")
                         return
                 }</span>
-                <span class="cov1" title="1">if appeals == nil </span><span class="cov0" title="0">{
+                <span class="cov2" title="2">if appeals == nil </span><span class="cov0" title="0">{
                         appeals = []store.Appeal{}
                 }</span>
-                <span class="cov1" title="1">writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})
+                <span class="cov2" title="2">writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})
                 return</span>
         }
 
         // POST: file an appeal.
-        <span class="cov4" title="8">var req ownerAppealRequest
-        if len(body) &gt; 0 </span><span class="cov4" title="8">{
+        <span class="cov4" title="9">var req ownerAppealRequest
+        if len(body) &gt; 0 </span><span class="cov4" title="9">{
                 if err := json.Unmarshal(body, &amp;req); err != nil </span><span class="cov1" title="1">{
                         jsonErr(w, http.StatusBadRequest, "invalid JSON")
                         return
                 }</span>
         }
-        <span class="cov4" title="7">reason := strings.TrimSpace(req.Reason)
+        <span class="cov4" title="8">reason := strings.TrimSpace(req.Reason)
         if len(reason) &gt; 4096 </span><span class="cov0" title="0">{
                 reason = reason[:4096]
         }</span>
-        <span class="cov4" title="7">nodeID := strings.TrimSpace(req.NodeID)
+        <span class="cov4" title="8">nodeID := strings.TrimSpace(req.NodeID)
         // A node_id, when given, MUST belong to the caller. This is the owner-scoping gate:
         // the caller can never appeal (or auto-lift) another account's node.
         if nodeID != "" </span><span class="cov3" title="6">{
@@ -10525,12 +10525,12 @@ func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) <span class
                         return
                 }</span>
         }
-        <span class="cov3" title="4">id, err := b.db.AddAppeal(store.Appeal{AccountID: acct, NodeID: nodeID, Reason: reason})
+        <span class="cov3" title="5">id, err := b.db.AddAppeal(store.Appeal{AccountID: acct, NodeID: nodeID, Reason: reason})
         if err != nil </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusInternalServerError, "could not record appeal")
                 return
         }</span>
-        <span class="cov2" title="3">out := map[string]any{"ok": true, "appeal_id": id, "state": store.AppealOpen}
+        <span class="cov3" title="4">out := map[string]any{"ok": true, "appeal_id": id, "state": store.AppealOpen}
         log.Printf("APPEAL filed id=%d owner=%s node=%q - queued for admin review", id, acct, nodeID)
 
         // Auto-exoneration for a CLEAR false positive: a report-origin node suspension that is
@@ -10572,33 +10572,33 @@ func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) <span class
                         }
                 }
         }
-        <span class="cov2" title="3">writeJSON(w, http.StatusOK, out)</span>
+        <span class="cov3" title="4">writeJSON(w, http.StatusOK, out)</span>
 }
 
 // adminAppeals handles GET /admin/appeals (admin-authed): the OPEN appeal review queue
 // (newest first) - the admin side of the self-serve appeal flow. An admin reviews each
 // appeal's evidence here, then resolves it via /admin/unhold (forgive strikes / lift owner
 // ban) or /admin/unban-node (lift a node ban). Counts/rows only; no secrets.
-func (b *broker) adminAppeals(w http.ResponseWriter, r *http.Request) <span class="cov3" title="6">{
+func (b *broker) adminAppeals(w http.ResponseWriter, r *http.Request) <span class="cov4" title="8">{
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov3" title="5">corsCreds(w, r)
+        <span class="cov4" title="7">corsCreds(w, r)
         if !allow(w, r, http.MethodGet) </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov3" title="5">if b.requireAdmin(w, r) </span><span class="cov2" title="2">{
+        <span class="cov4" title="7">if b.requireAdmin(w, r) </span><span class="cov2" title="3">{
                 return
         }</span>
-        <span class="cov2" title="3">appeals, err := b.db.PendingAppeals(200)
+        <span class="cov3" title="4">appeals, err := b.db.PendingAppeals(200)
         if err != nil </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusInternalServerError, "store error")
                 return
         }</span>
-        <span class="cov2" title="2">if appeals == nil </span><span class="cov0" title="0">{
+        <span class="cov2" title="3">if appeals == nil </span><span class="cov0" title="0">{
                 appeals = []store.Appeal{}
         }</span>
-        <span class="cov2" title="2">writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})</span>
+        <span class="cov2" title="3">writeJSON(w, http.StatusOK, map[string]any{"appeals": appeals, "count": len(appeals)})</span>
 }
 
 // adminUnbanNodeRequest is the POST /admin/unban-node body.
@@ -10653,31 +10653,31 @@ type adminUnholdRequest struct {
 // sweep, and - when forgive=true - forgives the owner's strikes and lifts any durable
 // owner ban (refreshing the in-memory ban cache). This is the recourse for a false
 // positive: an honest operator frozen by a bad recount is unfrozen here after review.
-func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) <span class="cov5" title="13">{
+func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) <span class="cov5" title="16">{
         // Credentialed CORS so the admin web portal (a logged-in super-admin session, OR a
         // pasted broker key) can POST this cross-origin. The preflight is answered before the
         // admin gate; the gate still rejects any non-admin on the real request.
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov5" title="12">corsCreds(w, r)
+        <span class="cov5" title="15">corsCreds(w, r)
         if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov4" title="11">if b.requireAdmin(w, r) </span><span class="cov3" title="4">{
+        <span class="cov5" title="14">if b.requireAdmin(w, r) </span><span class="cov3" title="5">{
                 return
         }</span>
-        <span class="cov4" title="7">body, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;16))
+        <span class="cov4" title="9">body, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;16))
         var req adminUnholdRequest
         if err := json.Unmarshal(body, &amp;req); err != nil </span><span class="cov0" title="0">{
                 jsonErr(w, http.StatusBadRequest, "invalid JSON")
                 return
         }</span>
-        <span class="cov4" title="7">if req.AccountID == "" &amp;&amp; req.Node == "" </span><span class="cov1" title="1">{
+        <span class="cov4" title="9">if req.AccountID == "" &amp;&amp; req.Node == "" </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusBadRequest, "account_id or node required")
                 return
         }</span>
-        <span class="cov3" title="6">out := map[string]any{"ok": true}
+        <span class="cov4" title="8">out := map[string]any{"ok": true}
         if req.Node != "" </span><span class="cov2" title="3">{
                 if err := b.db.SetNodeRecountHold(req.Node, false); err != nil </span><span class="cov1" title="1">{
                         jsonErr(w, http.StatusInternalServerError, "could not clear node hold")
@@ -10686,14 +10686,14 @@ func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) <span class
                 <span class="cov2" title="2">out["node_unheld"] = req.Node
                 log.Printf("ADMIN UNHOLD node=%s - recount hold cleared (lots will promote on the next sweep)", req.Node)</span>
         }
-        <span class="cov3" title="5">if req.AccountID != "" </span><span class="cov2" title="3">{
+        <span class="cov4" title="7">if req.AccountID != "" </span><span class="cov3" title="5">{
                 if err := b.db.SetAccountRecountHold(req.AccountID, false); err != nil </span><span class="cov1" title="1">{
                         jsonErr(w, http.StatusInternalServerError, "could not clear account hold")
                         return
                 }</span>
-                <span class="cov2" title="2">out["account_unheld"] = req.AccountID
+                <span class="cov3" title="4">out["account_unheld"] = req.AccountID
                 log.Printf("ADMIN UNHOLD account=%s - recount hold cleared (lots will promote on the next sweep)", req.AccountID)
-                if req.Forgive </span><span class="cov2" title="2">{
+                if req.Forgive </span><span class="cov2" title="3">{
                         n, err := b.db.ForgiveOwner(req.AccountID)
                         if err != nil </span><span class="cov1" title="1">{
                                 jsonErr(w, http.StatusInternalServerError, "could not forgive owner")
@@ -10701,7 +10701,7 @@ func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) <span class
                         }</span>
                         // Refresh the in-memory owner-ban cache so the lifted ban takes effect on the
                         // hot pick/settle path immediately (ForgiveOwner removed the durable row).
-                        <span class="cov1" title="1">b.metricsMu.Lock()
+                        <span class="cov2" title="2">b.metricsMu.Lock()
                         delete(b.bannedOwners, req.AccountID)
                         b.metricsMu.Unlock()
                         out["strikes_forgiven"] = n
@@ -10709,7 +10709,7 @@ func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) <span class
                         log.Printf("ADMIN FORGIVE account=%s - %d strike(s) forgiven, owner ban lifted (in-memory cache refreshed)", req.AccountID, n)</span>
                 }
         }
-        <span class="cov2" title="3">writeJSON(w, http.StatusOK, out)</span>
+        <span class="cov3" title="5">writeJSON(w, http.StatusOK, out)</span>
 }
 
 // recountHoldSweep auto-expires recount holds past the review window (operator recourse).
@@ -10744,10 +10744,10 @@ func (b *broker) recountHoldSweep(stop &lt;-chan struct{}) <span class="cov2" ti
 
 // recountHoldSweepOnce expires recount holds older than cutoff (one sweep iteration).
 // Split out of the loop so the expiry work is testable without the ticker.
-func (b *broker) recountHoldSweepOnce(cutoff time.Time) <span class="cov2" title="2">{
+func (b *broker) recountHoldSweepOnce(cutoff time.Time) <span class="cov2" title="3">{
         if n, err := b.db.ExpireRecountHolds(cutoff); err != nil </span><span class="cov0" title="0">{
                 log.Printf("recount-hold: expiry sweep failed: %v", err)
-        }</span> else<span class="cov2" title="2"> if n &gt; 0 </span><span class="cov2" title="2">{
+        }</span> else<span class="cov2" title="3"> if n &gt; 0 </span><span class="cov2" title="3">{
                 log.Printf("recount-hold: auto-expired %d hold(s) older than %d day(s) (no further discrepancy) - those earnings can promote again", n, b.recountHoldDays)
         }</span>
 }
@@ -11070,7 +11070,7 @@ func (b *broker) rehydrateBans() <span class="cov10" title="233">{
 }
 
 // isBanned reports whether a node is ejected from routing. Concurrency-safe.
-func (b *broker) isBanned(nodeID string) bool <span class="cov8" title="72">{
+func (b *broker) isBanned(nodeID string) bool <span class="cov8" title="73">{
         b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.banned[nodeID]
@@ -11078,18 +11078,18 @@ func (b *broker) isBanned(nodeID string) bool <span class="cov8" title="72">{
 
 // banNode ejects a node: persists the ban + flips the in-memory set so pick/discover/
 // market stop routing to it (the probe-eject mechanism treats it as not-serving).
-func (b *broker) banNode(nodeID, reason string) <span class="cov5" title="12">{
+func (b *broker) banNode(nodeID, reason string) <span class="cov5" title="13">{
         if nodeID == "" </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov4" title="11">if err := b.db.BanNode(nodeID, reason); err != nil </span><span class="cov1" title="1">{
+        <span class="cov5" title="12">if err := b.db.BanNode(nodeID, reason); err != nil </span><span class="cov1" title="1">{
                 log.Printf("ban: persist failed node=%s: %v", nodeID, err)
         }</span>
-        <span class="cov4" title="11">b.metricsMu.Lock()
+        <span class="cov5" title="12">b.metricsMu.Lock()
         already := b.banned[nodeID]
         b.banned[nodeID] = true
         b.metricsMu.Unlock()
-        if !already </span><span class="cov4" title="11">{
+        if !already </span><span class="cov5" title="12">{
                 log.Printf("ban: node=%s EJECTED from routing (%s)", nodeID, reason)
         }</span>
 }
@@ -11423,10 +11423,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3641">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5300">{
+        <span class="cov8" title="11809">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5314">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5979">{
+        <span class="cov8" title="11809">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5964">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11809">return rangeMin, rangeMax, true</span>
@@ -11582,7 +11582,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13556">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1337">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1373">{
                         best = i
                 }</span>
         }
@@ -11615,7 +11615,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1212">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1248">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -13052,21 +13052,21 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 // owner-ban cache so pick/settle reject it immediately. The ban blocks register + relay
 // pick + settle for every current and future node under that owner, so a banned operator
 // cannot return under a fresh node id / callsign / grant key. Idempotent.
-func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="cov6" title="34">{
+func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="cov6" title="35">{
         if accountID == "" || b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov6" title="33">if err := b.db.BanOwner(accountID, reason, evidenceJSON); err != nil </span><span class="cov1" title="1">{
+        <span class="cov6" title="34">if err := b.db.BanOwner(accountID, reason, evidenceJSON); err != nil </span><span class="cov1" title="1">{
                 log.Printf("banOwner: persist failed acct=%s: %v", accountID, err)
         }</span>
-        <span class="cov6" title="33">b.metricsMu.Lock()
+        <span class="cov6" title="34">b.metricsMu.Lock()
         if b.bannedOwners == nil </span><span class="cov3" title="5">{
                 b.bannedOwners = map[string]bool{}
         }</span>
-        <span class="cov6" title="33">already := b.bannedOwners[accountID]
+        <span class="cov6" title="34">already := b.bannedOwners[accountID]
         b.bannedOwners[accountID] = true
         b.metricsMu.Unlock()
-        if !already </span><span class="cov6" title="32">{
+        if !already </span><span class="cov6" title="33">{
                 log.Printf("BAN owner=%s EJECTED (durable, anti-rotation): %s - blocked at register + relay pick + settle for ALL current/future nodes", accountID, reason)
         }</span>
 }
@@ -13074,11 +13074,11 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="c
 // isOwnerBanned reports whether an owner account is durably banned. Reads the in-memory
 // cache (re-hydrated at startup + refreshed on a ban) so the hot relay/pick path never
 // hits the DB. Concurrency-safe.
-func (b *broker) isOwnerBanned(accountID string) bool <span class="cov8" title="85">{
+func (b *broker) isOwnerBanned(accountID string) bool <span class="cov8" title="86">{
         if accountID == "" </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov7" title="84">b.metricsMu.Lock()
+        <span class="cov8" title="85">b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.bannedOwners[accountID]</span>
 }
@@ -17871,9 +17871,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="484">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="481">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18691,7 +18691,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="855">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="969">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18920,23 +18920,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="839">{
+        for </span><span class="cov9" title="950">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov3" title="5">
+                case &lt;-sess.stop:<span class="cov1" title="2">
                         return</span> // /share went off air
-                default:<span class="cov9" title="834"></span>
+                default:<span class="cov9" title="948"></span>
                 }
-                <span class="cov9" title="834">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="948">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="3">{
+                if err != nil </span><span class="cov3" title="6">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="831">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="824">{
+                <span class="cov9" title="942">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="935">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19396,7 +19396,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov8" title="201">{
+func GenerateStation() string <span class="cov7" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19425,21 +19425,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov6" title="45">{
+func slugify(s string) string <span class="cov5" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -24692,8 +24692,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="23">{
-                if s != nil </span><span class="cov7" title="22">{
+        for _, s := range c.sessions </span><span class="cov7" title="24">{
+                if s != nil </span><span class="cov7" title="23">{
                         n++
                 }</span>
         }
@@ -25095,7 +25095,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="129">{
+        for len(s) &lt; 3 </span><span class="cov6" title="148">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25103,17 +25103,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5893">{
+        for n &gt; 0 </span><span class="cov9" title="5875">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -41626,11 +41626,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="3">
+        case agent.LinkOnAir:<span class="cov1" title="2">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="1">
+        default:<span class="cov1" title="2">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -41650,7 +41650,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="347">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="316">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -41672,7 +41672,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="75">
+                case agent.LinkOnAir:<span class="cov3" title="74">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>

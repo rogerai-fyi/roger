@@ -316,7 +316,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:47:		recountHoldDays
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:61:		validAdminKey			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:85:		requireAdmin			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:110:	isAdminSession			100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:125:	ownerStrikes			88.9%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:125:	ownerStrikes			97.2%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:212:	ownerAppeal			97.4%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:338:	adminAppeals			85.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/recourse.go:368:	adminUnbanNode			85.7%
