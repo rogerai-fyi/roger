@@ -642,9 +642,11 @@ type model struct {
 	// host SaveCompact hook (nil = session-only).
 	compact bool
 	// chat session state (CHANNEL mode)
-	sysPrompt string  // /system prompt prepended to each turn
-	sessCost  float64 // running session cost in dollars (sum of per-reply costs)
-	showStats bool    // /stats: append the verbose per-turn metric line (price in/out) to new replies
+	sysPrompt     string  // /system prompt prepended to each turn
+	sessCost      float64 // running session cost in dollars (sum of per-reply costs)
+	sessTokensIn  int     // running CHANNEL session BILLED prompt (↑) tokens — the broker re-count, for display (mirror of agentTokensIn)
+	sessTokensOut int     // running CHANNEL session BILLED completion (↓) tokens — the broker re-count, for display
+	showStats     bool    // /stats: append the verbose per-turn metric line (price in/out) to new replies
 	// [0] AGENT state (modeAgent): the embedded tool-capable harness. agent holds the
 	// session-only loop (dj.md persona + bounded tools); agentIn is the prompt; the
 	// transcript carries the streamed turn (assistant text, tool calls, results,
@@ -1184,6 +1186,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatMsg:
 		m.relaying = false
 		m.sessCost += msg.cost
+		m.sessTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count), mirrors the AGENT meter
+		m.sessTokensOut += msg.tokensOut
 		reply := msg.reply
 		if strings.TrimSpace(reply) == "" {
 			// The station answered but with no content (an all-reasoning turn, or an
@@ -1197,6 +1201,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.msgInFrom, m.msgInFrame = len(m.transcript), m.frame // mark this block for the settle-in
 		m.transcript = append(m.transcript, reply)
 		m.transcript = append(m.transcript, replyFooter(msg, m.showStats)...)
+		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
+		// via the SHARED sessionFooter so the CHANNEL + AGENT money surfaces never drift.
+		if f := sessionFooter(m.sessTokensIn, m.sessTokensOut, m.sessCost); f != "" {
+			m.transcript = append(m.transcript, "   "+f)
+		}
 		// Refresh the wallet after a billed turn so the header balance stays true.
 		return m, fetchBalance(m.broker, m.user)
 	case chatErrMsg:
@@ -1839,6 +1848,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		m.lastReply = ""                 // cleared transcript -> nothing left to copy
 		m.msgInFrom, m.msgInFrame = 0, 0 // drop any pending message-in reveal
 		m.sessCost = 0
+		m.sessTokensIn, m.sessTokensOut = 0, 0 // a cleared transcript zeroes the running ↑↓ totals too
 		sysLine("transcript cleared")
 		return m, nil
 	case "save":
@@ -3466,6 +3476,7 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 	m.transcript = nil
 	m.lastReply = "" // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
 	m.sessCost = 0
+	m.sessTokensIn, m.sessTokensOut = 0, 0 // a new channel starts fresh: zero the running ↑↓ totals
 	m.sysPrompt = ""
 	m.minimized = false
 	m.chatIn.Blur()
@@ -4421,10 +4432,12 @@ func (m model) walletPanel() string {
 	b.WriteString("    " + stBrand.Render("wallet") + "\n")
 	// account + balance lockup (or the calm anonymous /login prompt; no balance when anon).
 	b.WriteString("    " + m.accountTag(false) + "\n")
-	// running SESSION telemetry — omitted entirely while the session is still empty, so an
-	// untouched session shows no stray "session" row (meterTotals returns "" at zero).
-	if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
-		b.WriteString("    " + stDim.Render("session  "+tot) + "\n")
+	// running SESSION telemetry — the COMBINED spend across BOTH money surfaces (AGENT + the
+	// CHANNEL chat), via the shared sessionFooter so this panel never drifts from the live
+	// meters. Omitted entirely while the session is still empty, so an untouched session shows
+	// no stray "session" row.
+	if f := sessionFooter(m.agentTokensIn+m.sessTokensIn, m.agentTokensOut+m.sessTokensOut, m.agentCost+m.sessCost); f != "" {
+		b.WriteString("    " + f + "\n")
 	}
 	// the determinate monthly-budget bar (its own indentation + the one red AT the cap).
 	b.WriteString(monthlyBudgetLine(m))
@@ -6267,7 +6280,15 @@ func (m model) chatView(w int) string {
 		}
 		// COMPACT freezes the ((•)) working spinner to a static (•) glyph + phrase (no
 		// ring animation), per the reduced-motion contract.
-		b.WriteString("  " + m.transmitLineFor(elapsed) + "\n")
+		line := "  " + m.transmitLineFor(elapsed)
+		// Once the session has billed turns, the running session-so-far rides on the wait via
+		// the SAME shared sessionFooter the AGENT prints after each turn — so a multi-turn
+		// channel reads its running ↑↓ + cost while it holds the channel (the in-flight turn
+		// itself hasn't billed yet, so this is honestly the prior turns' total).
+		if f := sessionFooter(m.sessTokensIn, m.sessTokensOut, m.sessCost); f != "" {
+			line += "   " + f
+		}
+		b.WriteString(line + "\n")
 	}
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.

@@ -15,9 +15,10 @@ func TestWalletPanel(t *testing.T) {
 	m := browseSeed(120) // logs in (balance 42.17), width 120 (not narrow)
 	m.monthlyCap = 10.0
 	m.monthlySpend = 5.0
-	m.agentTokensIn = 1234
-	m.agentTokensOut = 5678
-	m.agentCost = 0.05
+	// split the session across BOTH money surfaces — the panel must show the COMBINED total
+	// (agent + channel), proving the unification: ↑1234 ↓5678 · $0.05.
+	m.agentTokensIn, m.agentTokensOut, m.agentCost = 1000, 4000, 0.03
+	m.sessTokensIn, m.sessTokensOut, m.sessCost = 234, 1678, 0.02
 	full := stripANSI(m.walletPanel())
 
 	// a single dedicated panel, labelled so it reads as "the wallet".
@@ -56,7 +57,7 @@ func TestWalletPanel(t *testing.T) {
 	if !strings.Contains(ap, "/login") {
 		t.Errorf("an anonymous wallet panel should prompt /login, got:\n%s", ap)
 	}
-	if strings.Contains(ap, "42.17") || strings.Contains(ap, "session ↑") {
+	if strings.Contains(ap, "42.17") || strings.Contains(ap, "session") {
 		t.Errorf("an anonymous wallet panel must not show a balance or session total, got:\n%s", ap)
 	}
 

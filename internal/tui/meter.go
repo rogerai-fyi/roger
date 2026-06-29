@@ -85,6 +85,19 @@ func meterTotals(tokensIn, tokensOut int, cost float64) string {
 	return strings.Join(parts, " · ")
 }
 
+// sessionFooter renders the running-session footer line shared by BOTH the AGENT turn-final
+// footer and the CHANNEL per-turn footer + in-flight readout, so the two money-facing surfaces
+// never drift: a dim "session ↑in ↓out · $cost" built on the shared meterTotals, or "" while
+// the session is still empty (no tokens, no cost) so a fresh surface shows no stray row. The
+// caller adds its own indentation.
+func sessionFooter(tokensIn, tokensOut int, cost float64) string {
+	tot := meterTotals(tokensIn, tokensOut, cost)
+	if tot == "" {
+		return ""
+	}
+	return stDim.Render("session " + tot)
+}
+
 // tintSweep applies the mono accent to a meterSweep string: the moving block in the
 // live body tone, the track dim. It styles only — it never adds or drops a glyph.
 func tintSweep(bar string) string {
