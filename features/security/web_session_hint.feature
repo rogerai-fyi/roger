@@ -26,6 +26,15 @@
 #       (or window.ROGER_BROKER_CHECK forces it for local-broker dev).
 #   Go: cmd/rogerai-broker TestSetWebSessionCookies, TestClearWebSessionCookies,
 #       TestWebOriginHost.
+#
+# STATUS (P4 executable-spec pass): kept PROSE-ONLY on purpose. Rule 1 (the cookie
+# behavior) is Go and ALREADY enforced by the cited TestSetWebSessionCookies /
+# TestClearWebSessionCookies / TestWebOriginHost. Rule 2 ("the front-end probes /account
+# only when the hint says a session may exist") is BROWSER/JS behavior in web/src/js/
+# session.js (session.js runs, no /account fetch, no 401 in console, window.ROGER_BROKER_
+# CHECK) - a Go godog suite cannot drive it, and godog Strict needs every scenario bound,
+# so a single executable suite isn't a clean fit. FLAGGED for a JS/jsdom test harness
+# rather than faked under godog.
 
 @security @session
 Feature: Web session hint cookie
