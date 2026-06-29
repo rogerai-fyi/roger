@@ -11,7 +11,6 @@ package store
 // Skipped (like every Postgres path here) when ROGERAI_TEST_DATABASE_URL is unset.
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"os"
@@ -53,7 +52,6 @@ func freshLedgerPG(dsn string) (*Postgres, error) {
 type lgState struct {
 	dsn        string
 	pg         *Postgres
-	feeRate    float64
 	now        time.Time
 	reqN       int
 	wallet     string // the wallet the bare "the request settles via ..." steps spend from
@@ -98,9 +96,10 @@ func (s *lgState) freshPGStore() error {
 	return nil
 }
 
+// feePct validates the Background fee declaration; the 30% fee is already baked into the
+// explicit owner-share inputs each scenario passes to Settle/Finalize, so nothing is stored.
 func (s *lgState) feePct(p string) error {
-	n, err := strconv.Atoi(p)
-	s.feeRate = float64(n) / 100
+	_, err := strconv.Atoi(p)
 	return err
 }
 
@@ -374,10 +373,9 @@ func TestLedgerBDD(t *testing.T) {
 	}
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
-			st := &lgState{dsn: dsn, feeRate: 0.30}
-			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
-				return ctx, st.freshPGStore()
-			})
+			st := &lgState{dsn: dsn}
+			// No Before hook: the Background "a fresh Postgres-backed store" step opens + TRUNCATEs
+			// once per scenario (a Before would double the NewPostgres pool + truncate).
 			sc.Step(`^a fresh Postgres-backed store$`, st.freshPGStore)
 			sc.Step(`^the platform fee rate is (\d+)%$`, st.feePct)
 			sc.Step(`^wallet "([^"]*)" has ([\d.]+) in real credits$`, st.walletReal)
