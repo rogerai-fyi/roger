@@ -734,9 +734,10 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			t = stLive.Render("◂ ") + t
 		}
 		m.agentLines = append(m.agentLines, t)
-		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost.
-		if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
-			m.agentLines = append(m.agentLines, stDim.Render("   session "+tot))
+		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
+		// via the SHARED sessionFooter so the AGENT + CHANNEL money surfaces never drift.
+		if f := sessionFooter(m.agentTokensIn, m.agentTokensOut, m.agentCost); f != "" {
+			m.agentLines = append(m.agentLines, "   "+f)
 		}
 	case harness.EventError:
 		// A failed turn is a dead end unless we say what to do next. Replace the bare
