@@ -376,3 +376,240 @@
 @media (prefers-reduced-motion: reduce) {
   .bx-save__fill, .bx-limit__seg { transition: none; }
 }
+
+/* =====================================================================
+   MONEY-FLOW HELP - the "?" affordance + the explainer modal. Plain
+   founder-language walk-through of how money is tracked end to end. Same
+   plate language as the report-a-station modal: hairline frame, one red
+   rule on top, mono labels; the red is a signal (the "?" glint, the §
+   tick), never a fill. Accessible + reduced-motion-safe (the only motion
+   is a fade gated below). Markup in billing.html, behavior in
+   js/billing-help.js.
+   ===================================================================== */
+
+/* the "?" affordance, riding in the Wallet <h2>. A small hairline disc that
+   lights to the one red on hover/focus. Reset to its own size (the h2 is
+   micro/uppercase/mono - the button opts out of that). */
+.bx-help-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: color var(--d-1) var(--ease-standard),
+              border-color var(--d-1) var(--ease-standard);
+}
+.bx-help-btn:hover,
+.bx-help-btn:focus-visible { color: var(--live); border-color: var(--live); }
+.bx-help-btn:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* the secondary text trigger in the fine print - an inline link-button. */
+.bx-help-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink-500);
+  border-bottom: 1px solid var(--hairline-2);
+  cursor: pointer;
+}
+.bx-help-link:hover { color: var(--live); border-bottom-color: var(--live); }
+.bx-help-link:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; border-radius: var(--r-xs); }
+
+/* ---- modal overlay (top-level fixed; mirrors the report modal) -------- */
+.bx-help[hidden] { display: none; }
+.bx-help {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+}
+.bx-help__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  animation: bx-help-fade var(--d-2) var(--ease-standard);
+}
+.bx-help__dialog {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 2 * var(--s-4));
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--hairline-2);
+  border-top: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  padding: var(--s-6);
+  animation: bx-help-rise var(--d-2) var(--ease-out-quint);
+}
+.bx-help__x {
+  position: absolute;
+  top: var(--s-2);
+  right: var(--s-3);
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--ink-400);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bx-help__x:hover { color: var(--live); }
+.bx-help__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.bx-help__title {
+  margin: 0 0 var(--s-2);
+  font-size: var(--t-lg);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-h3);
+  color: var(--ink-900);
+}
+.bx-help__lede {
+  margin: 0 0 var(--s-5);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  max-width: 60ch;
+}
+
+/* ---- the animated-explainer SLOT (#ledger-demo) + caption frame ------- */
+.bx-demo { margin: 0 0 var(--s-5); }
+.bx-demo__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  color: var(--ink-700);
+  min-height: 96px;
+}
+.bx-demo__svg { display: block; width: 100%; height: auto; max-width: 384px; }
+.bx-demo__chip rect { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.bx-demo__txt text {
+  fill: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.bx-demo__arr path { fill: none; stroke: var(--ink-400); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.bx-demo__ok path { fill: none; stroke: var(--live); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bx-demo__ok text {
+  fill: var(--live);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.bx-demo__cap {
+  margin: var(--s-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+  text-align: center;
+}
+
+/* ---- the flow, as a station-log spec list ----------------------------- */
+.bx-flow { list-style: none; margin: 0 0 var(--s-5); padding: 0; }
+.bx-flow__step {
+  display: grid;
+  grid-template-columns: minmax(78px, 92px) 1fr;
+  gap: var(--s-3);
+  align-items: baseline;
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline);
+}
+.bx-flow__step:first-child { border-top: 0; }
+.bx-flow__k {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-900);
+  font-weight: var(--weight-medium);
+}
+.bx-flow__v { font-size: var(--t-sm); line-height: 1.55; color: var(--ink-700); }
+
+/* ---- the two numbers people mix up ------------------------------------ */
+.bx-help__h {
+  margin: 0 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.bx-help__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+  margin: 0 0 var(--s-5);
+}
+.bx-help__def {
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+  padding: var(--s-3);
+}
+.bx-help__term {
+  display: block;
+  margin: 0 0 var(--s-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  color: var(--ink-900);
+}
+.bx-help__gloss { margin: 0; font-size: var(--t-xs); line-height: 1.55; color: var(--ink-500); }
+
+.bx-help__actions { display: flex; justify-content: flex-end; }
+.bx-help__done {
+  appearance: none;
+  border: 1px solid var(--ink-900);
+  border-radius: var(--r-sm);
+  background: var(--ink-900);
+  color: var(--paper);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  font-weight: var(--weight-medium);
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: opacity var(--d-1) var(--ease-standard);
+}
+.bx-help__done:hover { opacity: 0.88; }
+.bx-help__done:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+
+/* lock background scroll while the modal is open. */
+body.bx-help-open { overflow: hidden; }
+
+@keyframes bx-help-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bx-help-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* narrow: stack the two-number pair. */
+@media (max-width: 420px) {
+  .bx-help__pair { grid-template-columns: 1fr; }
+}
+
+/* reduced motion: no fade / rise (belt - the modal needs no animation). */
+@media (prefers-reduced-motion: reduce) {
+  .bx-help__scrim, .bx-help__dialog { animation: none; }
+}
