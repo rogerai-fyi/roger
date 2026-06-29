@@ -85,3 +85,36 @@ func TestSeedLotsForTest(t *testing.T) {
 		t.Errorf("max lot id after Finalize = %d, want > 42 (counter advanced past the seeded lots)", maxID)
 	}
 }
+
+// TestSeedLedgerForTest covers the Mem.SeedLedgerForTest seam: appended rows feed
+// MonthSpendOf, which sums only POSTED spend rows in the calendar UTC month (a reversed
+// spend row and a prior-month row are excluded; non-spend kinds never count).
+func TestSeedLedgerForTest(t *testing.T) {
+	m := NewMem()
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC).Unix()
+	prevEnd := start - 1 // 23:59:59 UTC on May 31 — excluded from June
+	m.SeedLedgerForTest([]LedgerRow{
+		{Holder: "alice", Kind: KindSpend, Amount: -10, State: StatePosted, TS: now.Unix()},
+		{Holder: "alice", Kind: KindSpend, Amount: -20, State: StatePosted, TS: start},      // boundary: included
+		{Holder: "alice", Kind: KindSpend, Amount: -5, State: StateReversed, TS: now.Unix()}, // reversed: excluded
+		{Holder: "alice", Kind: KindSpend, Amount: -100, State: StatePosted, TS: prevEnd},    // last month: excluded
+		{Holder: "alice", Kind: KindTopup, Amount: 50, State: StatePosted, TS: now.Unix()},   // not spend
+	})
+	got, err := m.MonthSpendOf("alice", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approx(got, 30) { // 10 + 20 only
+		t.Fatalf("month spend = %v, want 30 (posted in-month spend only)", got)
+	}
+	// The seam stamps a non-zero auto id on each appended row (append, not replace).
+	if len(m.ledger) != 5 {
+		t.Fatalf("ledger len = %d, want 5", len(m.ledger))
+	}
+	for _, r := range m.ledger {
+		if r.ID == 0 {
+			t.Errorf("seeded row has zero id: %+v", r)
+		}
+	}
+}

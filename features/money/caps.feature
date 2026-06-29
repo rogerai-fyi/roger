@@ -8,8 +8,6 @@
 #     broker.grantCapCheck (cmd/rogerai-broker/grant.go) and
 #     rateLimiter.allowAt (cmd/rogerai-broker/ratelimit.go).
 #
-# No step definitions or Go yet — approve this spec first.
-#
 # Two distinct semantics, intentionally different — call them out:
 #   - The MONTHLY SPEND CAP is fail-closed on WORST CASE: a request is rejected if
 #     spend + this request's worst-case (hold) cost would EXCEED the cap. A request
@@ -300,11 +298,15 @@ Feature: Spend and usage caps stop spend at the limit and reset on the right bou
       Then usage becomes 5999 tokens today
       And the NEXT request on grant "g1" is denied with 429
 
-    Scenario: A usage-read error fails OPEN (caps are a guardrail, not auth)
+    # SPEC CORRECTION (deployed reality): a usage-read error fails CLOSED, not open. An
+    # earlier fail-OPEN turned a capped grant into free unlimited service on any Postgres
+    # bucket-read hiccup; grantCapCheck now rejects (429) until usage is readable again
+    # (see the regression note in grant.go + TestGrantCapFailsClosedOnUsageError).
+    Scenario: A usage-read error fails CLOSED (a capped grant must not silently uncap on a read hiccup)
       Given grant "g1" has a daily token cap of 1000
       And the grant usage read errors
       When a request on grant "g1" is checked
-      Then the request is allowed
+      Then the request is denied with 429 "grant cap check unavailable - try again shortly"
 
     Scenario: AddGrantUsage increments both the day and month rollups
       Given grant "g1" has used 0 tokens
@@ -360,8 +362,13 @@ Feature: Spend and usage caps stop spend at the limit and reset on the right bou
       When many requests on grant "g1" arrive at once
       Then all are allowed
 
-    Scenario: A burst override of 0 with a positive rpm defaults the bucket depth to the rpm
-      Given grant "g1" has rpm 30 and burst 0
+    # SPEC CORRECTION (deployed reality): a 0 burst override falls back to the LIMITER's
+    # default burst; the depth defaults to the RPM only when that default is also <= 0 (the
+    # `if burst <= 0 { burst = rpm }` branch in allowAt). The precondition (default burst 0)
+    # is made explicit so the rpm-fallback is the active branch.
+    Scenario: A burst override of 0 (with no limiter default burst) defaults the bucket depth to the rpm
+      Given the grant limiter default rpm is 30 and burst 0
+      And grant "g1" has rpm 30 and burst 0
       When a fresh bucket for grant "g1" is sized
       Then the bucket depth is 30
 
