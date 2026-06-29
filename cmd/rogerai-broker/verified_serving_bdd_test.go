@@ -48,8 +48,6 @@ func (s *vsState) reset() {
 	s.b = routeBroker(s.now, map[string]protocol.NodeRegistration{
 		s.node: {NodeID: s.node, Offers: []protocol.ModelOffer{{Model: s.model}}},
 	})
-	s.b.successCount = map[string]int{}
-	s.b.concurrentTPS = map[string]float64{}
 	s.b.probeSched = map[string]*probeState{}
 	s.b.probe = probeConfig{interval: 30 * time.Second, ceiling: 15 * time.Minute}
 	s.view = nil

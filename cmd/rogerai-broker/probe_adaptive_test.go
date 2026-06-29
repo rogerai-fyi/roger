@@ -193,7 +193,12 @@ func TestDemandSchedulesNearTermProbe(t *testing.T) {
 	now := time.Now()
 	b.probeSched[id] = &probeState{nextDue: now.Add(14 * time.Minute), backoff: 6}
 
-	b.demandProbeSoon(id)
+	// Prod (pick/market) calls demandProbeSoonLocked under metricsMu after gating on
+	// b.probe.enabled(); drive that same path here (the standalone demandProbeSoon wrapper
+	// is gone).
+	b.metricsMu.Lock()
+	b.demandProbeSoonLocked(id, now)
+	b.metricsMu.Unlock()
 
 	b.metricsMu.Lock()
 	st := b.probeSched[id]
@@ -218,7 +223,7 @@ func TestPickStaleCandidateSchedulesProbe(t *testing.T) {
 	b.probeSched["n"] = &probeState{nextDue: now.Add(time.Hour), backoff: 6, lastMeasured: now.Add(-10 * ceiling)}
 
 	b.mu.Lock()
-	got, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	got, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || got.NodeID != "n" {
 		t.Fatalf("pick = %q ok=%v, want n", got.NodeID, ok)
@@ -244,7 +249,7 @@ func TestPickFreshCandidateNotRescheduled(t *testing.T) {
 	b.probeSched["n"] = &probeState{nextDue: farOut, backoff: 6, lastMeasured: now} // fresh
 
 	b.mu.Lock()
-	_, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	_, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok {
 		t.Fatal("pick failed")

@@ -241,23 +241,13 @@ func (b *broker) markMeasured(nodeID string) {
 	b.metricsMu.Unlock()
 }
 
-// demandProbeSoon is the just-in-time hook: a consumer is actively interested in a
-// node (a /discover or /market browse, or a pick about to route to it on a STALE
+// demandProbeSoonLocked is the just-in-time hook: a consumer is actively interested in
+// a node (a /discover or /market browse, or a pick about to route to it on a STALE
 // reading), so pull its next performance probe back toward the floor and reset the
-// backoff. The probe is asynchronous - the in-flight browse/route is NOT blocked on
-// it; it just refreshes the data for the next one. A node already due sooner is left
-// alone. No-op when the probe is disabled.
-func (b *broker) demandProbeSoon(nodeID string) {
-	if !b.probe.enabled() {
-		return
-	}
-	b.metricsMu.Lock()
-	b.demandProbeSoonLocked(nodeID, time.Now())
-	b.metricsMu.Unlock()
-}
-
-// demandProbeSoonLocked is demandProbeSoon's body; caller holds metricsMu (pick reads
-// metrics under that lock and schedules in the same critical section).
+// backoff. The probe is asynchronous - the in-flight browse/route is NOT blocked on it;
+// it just refreshes the data for the next one. A node already due sooner is left alone.
+// Caller holds metricsMu and gates on b.probe.enabled() (pick/market read metrics under
+// that lock and schedule in the same critical section).
 func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) {
 	sched := b.probeSchedLocked()
 	st := sched[nodeID]
@@ -771,29 +761,12 @@ func ewma(cur, sample, alpha float64) float64 {
 	return alpha*sample + (1-alpha)*cur
 }
 
-// probeTTFT / probeQuality expose per-node probe results for the market/offer
-// views and for pick. Concurrency-safe.
-func (b *broker) probeTTFT(nodeID string) float64 {
-	b.metricsMu.Lock()
-	defer b.metricsMu.Unlock()
-	return b.trust[nodeID].ttftMs
-}
-
-// probeFailing reports whether a node has failed enough consecutive probes to be
-// deprioritized in pick. The streak rule (not a single failure) avoids penalizing
-// a node that was merely busy on one probe.
-func (b *broker) probeFailing(nodeID string) bool {
-	b.metricsMu.Lock()
-	defer b.metricsMu.Unlock()
-	return b.trust[nodeID].probeFails >= 3
-}
-
 // probeDeadStreak is the SUSTAINED consecutive-probe-failure count past which a node's
 // model is treated as NOT SERVING (its upstream is down/unloaded - it returns fast
 // 5xx/empty). At/above this, the node is EXCLUDED from pick (a relay returns a clean "no
 // station serving" instead of dispatching into a 504) and shown OFFLINE on /discover +
-// /market (so a consumer never tunes into a dead channel). It is well above probeFailing's
-// deprioritize bar (3): a node must keep failing to be declared dead, not merely be slow
+// /market (so a consumer never tunes into a dead channel). It is well above the inline
+// deprioritize bar (probeFails>=3): a node must keep failing to be declared dead, not slow
 // once. It still heartbeats, so the proberLoop keeps probing it; a single OK resets the
 // streak and it becomes serving again automatically.
 // (Callers test probeFails >= probeDeadStreak inline, reusing the trustState they already

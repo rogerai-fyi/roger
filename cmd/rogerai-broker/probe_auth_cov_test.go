@@ -34,25 +34,3 @@ func TestExchangeCode(t *testing.T) {
 		t.Error("exchangeCode with no access_token should fail")
 	}
 }
-
-// TestProbeAccessors covers the probe trust accessors: ttftMs read-through and the
-// consecutive-failure deprioritize threshold.
-func TestProbeAccessors(t *testing.T) {
-	b := &broker{trust: map[string]trustState{
-		"fast":     {ttftMs: 120},
-		"atthresh": {probeFails: 3}, // exactly the >=3 deprioritize boundary
-		"under":    {probeFails: 2}, // just under the boundary
-	}}
-	if got := b.probeTTFT("fast"); got != 120 {
-		t.Errorf("probeTTFT(fast) = %v, want 120", got)
-	}
-	if b.probeTTFT("unknown") != 0 {
-		t.Errorf("probeTTFT(unknown) should be 0")
-	}
-	if !b.probeFailing("atthresh") {
-		t.Error("a node at the >=3 boundary should be probeFailing")
-	}
-	if b.probeFailing("under") {
-		t.Error("a node with 2 fails (under the boundary) should not be probeFailing")
-	}
-}

@@ -349,23 +349,23 @@ func TestPickPinAndExclude(t *testing.T) {
 	}
 
 	// No pin/exclude → cheapest (c).
-	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil); !ok || n.NodeID != "c" {
+	if n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{}); !ok || n.NodeID != "c" {
 		t.Errorf("cheapest pick = %q ok=%v, want c", n.NodeID, ok)
 	}
 	// Exclude the cheapest two → must fall back to a.
-	if n, _, ok := b.pick("m", false, 0, 0, 0, "", map[string]bool{"c": true, "b": true}, nil, nil); !ok || n.NodeID != "a" {
+	if n, _, ok := b.pickFor("m", false, 0, 0, 0, "", map[string]bool{"c": true, "b": true}, nil, nil, pickReq{}); !ok || n.NodeID != "a" {
 		t.Errorf("excluded pick = %q ok=%v, want a", n.NodeID, ok)
 	}
 	// Pin to b → only b, even though c is cheaper.
-	if n, _, ok := b.pick("m", false, 0, 0, 0, "b", nil, nil, nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pickFor("m", false, 0, 0, 0, "b", nil, nil, nil, pickReq{}); !ok || n.NodeID != "b" {
 		t.Errorf("pinned pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Pin to an excluded node → nothing eligible.
-	if _, _, ok := b.pick("m", false, 0, 0, 0, "b", map[string]bool{"b": true}, nil, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, 0, "b", map[string]bool{"b": true}, nil, nil, pickReq{}); ok {
 		t.Error("pin+exclude of the same node should yield nothing")
 	}
 	// Exclude every node → nothing.
-	if _, _, ok := b.pick("m", false, 0, 0, 0, "", map[string]bool{"a": true, "b": true, "c": true}, nil, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, 0, "", map[string]bool{"a": true, "b": true, "c": true}, nil, nil, pickReq{}); ok {
 		t.Error("excluding all nodes should yield nothing")
 	}
 }
@@ -391,23 +391,23 @@ func TestPickPriceCaps(t *testing.T) {
 	}
 
 	// No caps → cheapest-OUT (b: out 0.20, vs a 0.90, c 0.40).
-	if n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{}); !ok || n.NodeID != "b" {
 		t.Errorf("no caps pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Out cap 0.30 excludes a (0.90) and c (0.40); only b survives.
-	if n, _, ok := b.pick("m", false, 0, 0, 0.30, "", nil, nil, nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pickFor("m", false, 0, 0, 0.30, "", nil, nil, nil, pickReq{}); !ok || n.NodeID != "b" {
 		t.Errorf("out-cap pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// In cap 0.30 excludes c (in 0.50); a and b survive, cheapest-OUT is b (0.20 vs 0.90).
-	if n, _, ok := b.pick("m", false, 0, 0.30, 0, "", nil, nil, nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pickFor("m", false, 0, 0.30, 0, "", nil, nil, nil, pickReq{}); !ok || n.NodeID != "b" {
 		t.Errorf("in-cap pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Both caps: in<=0.30 keeps a,b; out<=0.30 then drops a (out 0.90) → b.
-	if n, _, ok := b.pick("m", false, 0, 0.30, 0.30, "", nil, nil, nil); !ok || n.NodeID != "b" {
+	if n, _, ok := b.pickFor("m", false, 0, 0.30, 0.30, "", nil, nil, nil, pickReq{}); !ok || n.NodeID != "b" {
 		t.Errorf("both-caps pick = %q ok=%v, want b", n.NodeID, ok)
 	}
 	// Out cap below every station → nothing.
-	if _, _, ok := b.pick("m", false, 0, 0, 0.10, "", nil, nil, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, 0.10, "", nil, nil, nil, pickReq{}); ok {
 		t.Error("out cap below all stations should yield nothing")
 	}
 }

@@ -114,7 +114,7 @@ func (s *onAirState) assertRoutable(model, nodeID string) error {
 		return fmt.Errorf("/discover: %s for %q found=%v online=%v, want a listed ONLINE station", nodeID, model, found, online)
 	}
 	s.b.mu.Lock()
-	n, _, ok := s.b.pick(model, false, 0, 0, 50, "", nil, nil, nil)
+	n, _, ok := s.b.pickFor(model, false, 0, 0, 50, "", nil, nil, nil, pickReq{})
 	s.b.mu.Unlock()
 	if !ok || n.NodeID != nodeID {
 		return fmt.Errorf("pick(%q) = %+v ok=%v, want it to route to %s", model, n, ok, nodeID)
@@ -125,7 +125,7 @@ func (s *onAirState) assertRoutable(model, nodeID string) error {
 func (s *onAirState) assertNotRoutable(model, nodeID string) error {
 	// routing: pick must not select the stale node.
 	s.b.mu.Lock()
-	n, _, ok := s.b.pick(model, false, 0, 0, 50, "", nil, nil, nil)
+	n, _, ok := s.b.pickFor(model, false, 0, 0, 50, "", nil, nil, nil, pickReq{})
 	s.b.mu.Unlock()
 	if ok && n.NodeID == nodeID {
 		return fmt.Errorf("pick still routes %q to off-air %s", model, nodeID)

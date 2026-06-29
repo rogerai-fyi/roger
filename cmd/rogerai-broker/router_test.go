@@ -63,7 +63,7 @@ func TestReliabilitySpineCannotBeBoughtBack(t *testing.T) {
 	b.trust["b"] = trustState{probed: true, probeOK: false, probeFails: 3, ttftMs: 100}
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "a" {
 		t.Errorf("pick = %q ok=%v, want a (reliable paid beats flaky free)", n.NodeID, ok)
@@ -250,7 +250,7 @@ func TestDeterministicWithoutSeed(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		b := mk()
 		b.mu.Lock()
-		n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+		n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 		b.mu.Unlock()
 		if !ok {
 			t.Fatal("pick found nothing")
@@ -273,7 +273,7 @@ func TestTwoTierHealthGate(t *testing.T) {
 	b.trust["b"] = trustState{probed: true, probeOK: false, probeFails: 2, ttftMs: 100}
 
 	b.mu.Lock()
-	n, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || n.NodeID != "a" {
 		t.Errorf("pick = %q, want a (Tier-A beats Tier-B failing)", n.NodeID)
@@ -281,7 +281,7 @@ func TestTwoTierHealthGate(t *testing.T) {
 	// Remove the healthy node: the failing node is the last resort.
 	b.mu.Lock()
 	delete(b.nodes, "a")
-	n2, _, ok2 := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	n2, _, ok2 := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok2 || n2.NodeID != "b" {
 		t.Errorf("last-resort pick = %q ok=%v, want b", n2.NodeID, ok2)

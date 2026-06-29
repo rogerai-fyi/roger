@@ -50,8 +50,6 @@ func (s *scoreState) reset() {
 	s.b = routeBroker(s.now, map[string]protocol.NodeRegistration{})
 	s.b.db = store.NewMem()
 	s.b.bannedOwners = map[string]bool{}
-	s.b.successCount = map[string]int{}
-	s.b.concurrentTPS = map[string]float64{}
 	s.model = "gpt-oss-20b"
 	s.maxOut, s.rangeMax, s.totalReqs = 0, 0, 0
 	s.counts, s.total = nil, 0

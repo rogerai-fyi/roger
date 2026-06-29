@@ -36,7 +36,7 @@ func TestProbeDeadExcludedFromPickAndOffline(t *testing.T) {
 	b.trust["dead"] = trustState{probed: true, probeFails: probeDeadStreak}
 
 	// Excluded from pick -> no station serving (a clean 503, not a dispatch into a 504).
-	if _, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{}); ok {
 		t.Fatal("a probe-dead node must be EXCLUDED from pick (else relays dispatch into a 504)")
 	}
 	// Shown OFFLINE on the discover/market offer view.
@@ -49,7 +49,7 @@ func TestProbeDeadExcludedFromPickAndOffline(t *testing.T) {
 	b.nodes["good"] = protocol.NodeRegistration{NodeID: "good", PubKey: hexPub, Offers: []protocol.ModelOffer{{Model: "m"}}}
 	b.lastSeen["good"] = now
 	b.trust["good"] = trustState{probed: true, probeOK: true, probeFails: 0}
-	if reg, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil); !ok || reg.NodeID != "good" {
+	if reg, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{}); !ok || reg.NodeID != "good" {
 		t.Fatalf("pick must select the healthy node, got ok=%v node=%q", ok, reg.NodeID)
 	}
 	good := b.enrichOffersForNode(nil, b.nodes["good"], now, nil, false)

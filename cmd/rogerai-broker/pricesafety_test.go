@@ -168,13 +168,13 @@ func TestBrokerBackstopBoundsPick(t *testing.T) {
 
 	// No explicit cap on the request -> the broker applies the default backstop -> reject.
 	noHeaderCap := effectiveRelayMaxOut(0)
-	if _, _, ok := b.pick("m", false, 0, 0, noHeaderCap, "", nil, nil, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, noHeaderCap, "", nil, nil, nil, pickReq{}); ok {
 		t.Error("broker bound to a $25 band with NO max-out header - the default backstop did not apply")
 	}
 
 	// An explicit $50 cap (opt-in to pay more) admits the same $25 station.
 	explicit := effectiveRelayMaxOut(50)
-	if _, _, ok := b.pick("m", false, 0, 0, explicit, "", nil, nil, nil); !ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, explicit, "", nil, nil, nil, pickReq{}); !ok {
 		t.Error("explicit $50 max-out failed to admit a $25 band - the opt-in-to-pay-more path is broken")
 	}
 }
@@ -189,11 +189,11 @@ func TestBrokerBackstopBoundsGrantUse(t *testing.T) {
 	allow := map[string]bool{"n": true}
 
 	noHeaderCap := effectiveRelayMaxOut(0)
-	if _, _, ok := b.pick("m", false, 0, 0, noHeaderCap, "", nil, allow, nil); ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, noHeaderCap, "", nil, allow, nil, pickReq{}); ok {
 		t.Error("grant use bound to a $25 band with NO max-out header - the default backstop did not apply on the grant path")
 	}
 	// An explicit higher cap still lets the grant caller pay more on purpose.
-	if _, _, ok := b.pick("m", false, 0, 0, effectiveRelayMaxOut(50), "", nil, allow, nil); !ok {
+	if _, _, ok := b.pickFor("m", false, 0, 0, effectiveRelayMaxOut(50), "", nil, allow, nil, pickReq{}); !ok {
 		t.Error("grant use with explicit $50 max-out failed to admit a $25 band")
 	}
 }

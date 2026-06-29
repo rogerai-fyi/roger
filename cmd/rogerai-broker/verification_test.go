@@ -64,20 +64,25 @@ func TestObserveRecountTolerance(t *testing.T) {
 	}
 }
 
-// TestRecountAsyncDisabled: with no TOKENIZER_URL the re-count is a no-op and
-// never touches trust state (settlement path stays untouched).
-func TestRecountAsyncDisabled(t *testing.T) {
+// TestSettleRecountDisabled: with no TOKENIZER_URL the settle-path re-count is a no-op -
+// it bills the claim verbatim and never touches trust state. (Replaces the old
+// recountAsync test; prod re-counts via settleRecount, not the dead recountAsync wrapper.)
+func TestSettleRecountDisabled(t *testing.T) {
 	b := newTrustBroker()
 	b.recount = recountConfig{} // disabled (url == "")
-	b.recountAsync("n", "gpt-4o", "some completion text", 100)
+	if got := b.settleRecount("n", "r", "gpt-4o", "some completion text", 100); got != 100 {
+		t.Errorf("disabled settleRecount billed %d, want the claim 100 verbatim", got)
+	}
 	if _, ok := b.trust["n"]; ok {
 		t.Errorf("disabled re-count must not record trust state")
 	}
 }
 
-// TestRecountAsyncViaSidecar: end-to-end against a stub sidecar - the broker
-// posts the completion text, gets an exact count back, and reconciles it.
-func TestRecountAsyncViaSidecar(t *testing.T) {
+// TestSettleRecountViaSidecar: end-to-end against a stub sidecar - the broker posts the
+// completion text, gets a smaller exact count back, and BILLS the smaller broker-verified
+// count (the trust discrepancy is folded asynchronously and pinned by
+// TestObserveRecountTolerance + recount_billing.feature). Drives the real settle path.
+func TestSettleRecountViaSidecar(t *testing.T) {
 	var gotModel, gotText string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/count" {
@@ -94,13 +99,13 @@ func TestRecountAsyncViaSidecar(t *testing.T) {
 
 	b := newTrustBroker()
 	b.recount = loadRecountWith(srv.URL, 0.02)
-	b.recountAsync("n", "gpt-4o", "hello", 200)
+	billed := b.settleRecount("n", "r", "gpt-4o", "hello", 200)
 
 	if gotModel != "gpt-4o" || gotText != "hello" {
 		t.Errorf("sidecar got model=%q text=%q, want gpt-4o/hello", gotModel, gotText)
 	}
-	if d := b.trust["n"].discrepancies; d != 1 {
-		t.Errorf("discrepancies = %d, want 1 (200 claimed vs 100 recount)", d)
+	if billed != 100 {
+		t.Errorf("billed = %d, want 100 (capped to the broker-verified count, 200 claimed)", billed)
 	}
 }
 
@@ -346,17 +351,18 @@ func TestRecordProbeStreakAndPick(t *testing.T) {
 	}
 	b.lastSeen = map[string]time.Time{"good": now, "bad": now}
 
-	// "bad" fails three probes -> a streak that marks it failing.
+	// "bad" fails three probes -> a streak that marks it failing (pick reads probeFails>=3
+	// inline; assert the streak the same way before checking the routing effect).
 	for i := 0; i < 3; i++ {
 		b.recordProbe("bad", probeDead, 0, 0, false)
 	}
-	if !b.probeFailing("bad") {
+	if b.trust["bad"].probeFails < 3 {
 		t.Fatal("bad node should be probe-failing after 3 consecutive fails")
 	}
 
 	// Despite being cheaper, the failing node loses to the healthy one.
 	b.mu.Lock()
-	node, _, ok := b.pick("m", false, 0, 0, 0, "", nil, nil, nil)
+	node, _, ok := b.pickFor("m", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	if !ok || node.NodeID != "good" {
 		t.Errorf("pick = %q (ok=%v), want healthy 'good' over cheaper failing 'bad'", node.NodeID, ok)
@@ -364,7 +370,7 @@ func TestRecordProbeStreakAndPick(t *testing.T) {
 
 	// If only the failing node offers a model, it is still chosen (availability).
 	b.mu.Lock()
-	node2, _, ok2 := b.pick("only-bad", false, 0, 0, 0, "", nil, nil, nil)
+	node2, _, ok2 := b.pickFor("only-bad", false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	b.mu.Unlock()
 	_ = node2
 	if ok2 {

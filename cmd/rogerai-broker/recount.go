@@ -233,21 +233,6 @@ func (b *broker) observeRecountInput(nodeID, requestID string, claimed, recounte
 	}
 }
 
-// recountAsync re-counts the completion off the hot path and reconciles it
-// against the node's claim. Safe to call as `go b.recountAsync(...)`; it is a
-// no-op when re-count is disabled. It never touches the settle path or the
-// already-signed receipt - it only updates per-node trust counters and logs.
-func (b *broker) recountAsync(nodeID, model, completion string, claimed int) {
-	if !b.recount.enabled() || completion == "" {
-		return
-	}
-	tokens, exact, ok := b.recount.sidecarCount(model, completion)
-	if !ok {
-		return // sidecar down/unreachable: fail open, do not penalize the node
-	}
-	b.observeRecount(nodeID, "", claimed, tokens, exact)
-}
-
 // observeRecount folds one re-count into the node's trust state. Only EXACT
 // re-counts can flag a discrepancy (the heuristic is an outlier gate, too coarse
 // to penalize on). A discrepancy is recorded when the node's claimed completion

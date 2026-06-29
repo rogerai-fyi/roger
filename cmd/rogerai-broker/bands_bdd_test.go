@@ -178,14 +178,14 @@ func (s *bandsState) allowSetIsOnlyThatNode() error {
 func (s *bandsState) routingRestrictedToNode() error {
 	// Without the freq allow-set, the private node is invisible on the public market path.
 	s.b.mu.Lock()
-	_, _, okPub := s.b.pick(s.model, false, 0, 0, 0, "", nil, nil, nil)
+	_, _, okPub := s.b.pickFor(s.model, false, 0, 0, 0, "", nil, nil, nil, pickReq{})
 	s.b.mu.Unlock()
 	if okPub {
 		return fmt.Errorf("private node picked on the OPEN MARKET path (no freq) - it must be hidden")
 	}
 	// With the resolved allow-set, pick admits exactly that node.
 	s.b.mu.Lock()
-	node, _, ok := s.b.pick(s.model, false, 0, 0, 0, "", nil, nil, s.allow)
+	node, _, ok := s.b.pickFor(s.model, false, 0, 0, 0, "", nil, nil, s.allow, pickReq{})
 	s.b.mu.Unlock()
 	if !ok || node.NodeID != "priv1" {
 		return fmt.Errorf("freq-admitted pick = %+v ok=%v, want priv1", node, ok)
