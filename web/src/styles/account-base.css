@@ -257,6 +257,10 @@ body.auth {
 }
 .gh:hover { opacity: 0.88; }
 .gh:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+/* Apple sign-in reuses the same ink plate as GitHub (mono + red focus, deliberately not
+   Apple-black). A <button> needs the pointer cursor; stacked sign-in plates get a small gap. */
+button.gh { cursor: pointer; }
+.gh + .gh { margin-top: var(--s-3); }
 
 /* ---- ghost control: an ink hairline outline; red on hover/focus. ---- */
 .ghost {

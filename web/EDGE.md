@@ -82,7 +82,7 @@ If you'd rather click than run the script, both rules live under **Rules -> ...*
   | `Referrer-Policy` | `strict-origin-when-cross-origin` |
   | `Permissions-Policy` | `geolocation=(), microphone=(), camera=(), interest-cohort=()` |
   | `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
-  | `Cross-Origin-Opener-Policy` | `same-origin` |
+  | `Cross-Origin-Opener-Policy` | `same-origin-allow-popups` |
   | `Content-Security-Policy` | *(the full CSP line from `src/_headers`)* |
 
   > **CSP caution.** Start with the header named `Content-Security-Policy-Report-Only`,
@@ -117,8 +117,9 @@ If you'd rather click than run the script, both rules live under **Rules -> ...*
   later want the basic hardening headers (HSTS, `nosniff`, `X-Frame-Options`) on the broker
   too, either widen the expression or set them in the broker's Go handlers (spec-first, per
   `CLAUDE.md`).
-- `COOP: same-origin` is safe for the GitHub OAuth **redirect** flow used here. If the login
-  ever moves to a popup (`window.opener`), re-check it.
+- `COOP: same-origin-allow-popups` is set so the "Sign in with Apple" JS **popup** flow can
+  talk back to its opener (`window.opener`); plain `same-origin` severs that link and breaks
+  the relay. The GitHub OAuth **redirect** flow is unaffected either way.
 - `src/_headers` also has per-path `Content-Type` blocks (for `install.sh` etc.); those are
   advisory on this stack too. The installer is served correctly today because `curl ... | sh`
   ignores content type - revisit only if a browser needs the right type for those paths.
