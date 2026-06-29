@@ -17,7 +17,7 @@
 #     and QUEUE a CyberTipline report (18 USC 2258A), not just reject+discard.
 #   The screen runs BEFORE dispatch, so a blocked prompt never reaches any node.
 #
-# Enforced by: cmd/rogerai-broker/moderation_test.go (+ report.go / safety.go for the CSAM queue).
+# Enforced by: cmd/rogerai-broker/moderation_test.go (+ report.go + concierge.go/tunnel.go for the CSAM queue).
 
 Feature: Moderation — the mandatory pre-dispatch content screen
 
