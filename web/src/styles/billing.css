@@ -476,7 +476,7 @@
 .bx-help__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .bx-help__title {
   margin: 0 0 var(--s-2);
-  font-size: var(--t-lg);
+  font-size: var(--t-h3); /* a defined scale step (there is no --t-lg token) */
   font-weight: var(--weight-semi);
   letter-spacing: var(--tracking-h3);
   color: var(--ink-900);
