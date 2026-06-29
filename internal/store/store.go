@@ -706,6 +706,22 @@ func (m *Mem) SeedLotsForTest(lots []EarningLot) {
 	}
 }
 
+// SeedLedgerForTest APPENDS raw ledger rows. A deliberate test seam (like SeedLotsForTest)
+// for staging month-to-date spend / reversed / exact-boundary rows that the normal append
+// path can't easily produce (e.g. a REVERSED spend row - no production flow reverses a spend
+// row, but MonthSpendOf must still defensively exclude one). Never called in production.
+func (m *Mem) SeedLedgerForTest(rows []LedgerRow) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range rows {
+		m.ledgerID++
+		if r.ID == 0 {
+			r.ID = m.ledgerID
+		}
+		m.ledger = append(m.ledger, r)
+	}
+}
+
 func (m *Mem) SetSeedLimit(limit int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
