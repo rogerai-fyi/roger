@@ -8,7 +8,21 @@
 #   cmd/rogerai/main.go: payoutOnboard wires the operator into the payout/Connect flow.
 #   cmd/rogerai-broker/payouts.go: connectOnboard(...) starts/links Stripe Connect for an account.
 #
-# Enforced by: cmd/rogerai onboard tests + the broker connect tests. (Doc spec; convertible.)
+# STATUS (P4 executable-spec pass): kept PROSE-ONLY on purpose - no faked godog harness.
+# Its executable CORE already runs as REAL specs elsewhere (cross-referenced, not duplicated):
+#   - Free sharing needs no login / earning requires a GitHub-linked owner (scenarios 3-4)
+#     -> features/sharing/on_air.feature (executable) + features/pricing/price_ceiling.feature.
+#   - Payout requires Stripe Connect KYC before money moves (scenario 5)
+#     -> features/money/payouts.feature "KYC gate" (executable; payouts_bdd_test.go), driving
+#        the REAL payoutsRequest Connect gate + connectOnboard.
+# The remaining scenarios are the FIRST-RUN CLI WIZARD (scenario 1 "setup is offered" and
+# scenario 6 "re-run Keep/Modify/Reset"), which are gated on an interactive TTY (onboard.go
+# interactive()=isatty + huh forms). Driving them needs a CLI/PTY harness that does not exist
+# yet; the non-interactive seams (maybeOnboard no-ops off a TTY -> app launches on defaults;
+# cmdOnboard --free/--earn scripting) are unit-tested in cmd/rogerai/onboard_cov_test.go.
+# FLAGGED for a future CLI-harness pass rather than faked here.
+#
+# Enforced by: the cross-referenced executable specs above + cmd/rogerai onboard_cov_test.go.
 
 Feature: Onboarding — first run + the earn-path account hub
 
