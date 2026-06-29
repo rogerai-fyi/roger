@@ -34,13 +34,17 @@
          person checks before topping up.
          ============================================================ -->
     <section class="panel">
-      <h2>Wallet</h2>
+      <h2>Wallet<button type="button" class="bx-help-btn" id="walletHelp" data-help-open
+          aria-haspopup="dialog" aria-controls="ledgerModal" aria-expanded="false"
+          aria-label="How RogerAI tracks your money, end to end">?</button></h2>
       <dl class="stats">
         <div><dt>Balance</dt><dd id="balance">-</dd></div>
         <div><dt>Spent today</dt><dd id="spendToday">-</dd></div>
         <div><dt>Verified</dt><dd id="derived">-</dd></div>
       </dl>
-      <p class="fine">"Verified" re-derives your balance from the append-only ledger - it should always match.</p>
+      <p class="fine">"Verified" re-derives your balance from the append-only ledger - it should always match.
+        <button type="button" class="bx-help-link" data-help-open
+          aria-haspopup="dialog" aria-controls="ledgerModal" aria-expanded="false">How the money works</button></p>
     </section>
 
     <!-- ============================================================
@@ -181,9 +185,105 @@
     <button id="logout" class="ghost">Sign out</button>
   </main>
   </div>
+
+  <!-- ============================================================
+       MONEY-FLOW HELP MODAL: plain-language explainer of how RogerAI
+       tracks money end to end - metered -> priced -> debited -> written
+       to an append-only ledger -> "Verified" re-sums that ledger to
+       re-derive your balance (a drift check) -> operator earnings accrue
+       + pay out. Opened by any [data-help-open] (the Wallet "?" + the
+       fine-print link). Sits OUTSIDE main.card (a top-level fixed overlay)
+       so it is not gated by the card's hidden state. Mirrors the
+       report-a-station modal's accessibility (focus trap, Esc, backdrop
+       click, focus restore, aria-expanded sync) - see js/billing-help.js.
+       Reduced-motion-safe: the only motion is an optional fade, disabled
+       under prefers-reduced-motion. The static diagram is a stand-in; an
+       animated GIF will be dropped into the #ledger-demo slot later by a
+       separate workstream (replace that element's inner content).
+       ============================================================ -->
+  <div class="bx-help" id="ledgerModal" hidden>
+    <div class="bx-help__scrim" id="ledgerScrim" aria-hidden="true"></div>
+    <div class="bx-help__dialog" role="dialog" aria-modal="true"
+         aria-labelledby="ledgerTitle" aria-describedby="ledgerLede">
+      <button type="button" class="bx-help__x" id="ledgerClose" aria-label="Close">&times;</button>
+      <h2 class="bx-help__title" id="ledgerTitle">Where your money goes</h2>
+      <p class="bx-help__lede" id="ledgerLede">Every request is metered, priced, and debited from your
+        wallet - and every change is written to an append-only ledger you can audit.</p>
+
+      <!-- ANIMATED-EXPLAINER SLOT. #ledger-demo is the stable drop-in target:
+           a separate workstream will replace the inner content with an
+           animated GIF. A static, on-brand flow diagram stands in for now. -->
+      <figure class="bx-demo">
+        <div class="bx-demo__stage" id="ledger-demo" role="img"
+             aria-label="Flow diagram: tokens are metered, then priced, then debited from your wallet, then written to the append-only ledger, which is re-summed to verify your balance.">
+          <!-- placeholder diagram - swap this <svg> for the GIF when it lands -->
+          <svg class="bx-demo__svg" viewBox="0 0 384 92" focusable="false" aria-hidden="true">
+            <g class="bx-demo__chip">
+              <rect x="6"   y="22" width="70" height="34" rx="3"/>
+              <rect x="92"  y="22" width="70" height="34" rx="3"/>
+              <rect x="178" y="22" width="70" height="34" rx="3"/>
+              <rect x="264" y="22" width="70" height="34" rx="3"/>
+            </g>
+            <g class="bx-demo__txt">
+              <text x="41"  y="43" text-anchor="middle">METER</text>
+              <text x="127" y="43" text-anchor="middle">PRICE</text>
+              <text x="213" y="43" text-anchor="middle">WALLET</text>
+              <text x="299" y="43" text-anchor="middle">LEDGER</text>
+            </g>
+            <g class="bx-demo__arr">
+              <path d="M78 39 H90"/>  <path d="M86 35 L90 39 L86 43"/>
+              <path d="M164 39 H176"/><path d="M172 35 L176 39 L172 43"/>
+              <path d="M250 39 H262"/><path d="M258 35 L262 39 L258 43"/>
+            </g>
+            <!-- the one red glint: the drift-check tick after the ledger -->
+            <g class="bx-demo__ok">
+              <path d="M344 36 l5 6 l9 -12"/>
+              <text x="351" y="62" text-anchor="middle">VERIFY</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption class="bx-demo__cap">tokens &rarr; price &rarr; wallet &rarr; ledger &rarr; verified</figcaption>
+      </figure>
+
+      <!-- the flow, as a station-log spec list -->
+      <ol class="bx-flow">
+        <li class="bx-flow__step"><span class="bx-flow__k">Metered</span>
+          <span class="bx-flow__v">Each request counts the tokens going in and coming out.</span></li>
+        <li class="bx-flow__step"><span class="bx-flow__k">Priced</span>
+          <span class="bx-flow__v">Those tokens are priced at the model's posted rate ($ per 1M in + out).</span></li>
+        <li class="bx-flow__step"><span class="bx-flow__k">Debited</span>
+          <span class="bx-flow__v">That cost is debited from your wallet balance.</span></li>
+        <li class="bx-flow__step"><span class="bx-flow__k">Ledgered</span>
+          <span class="bx-flow__v">Every top-up and charge is written to an append-only ledger - entries are never edited or deleted.</span></li>
+        <li class="bx-flow__step"><span class="bx-flow__k">Verified</span>
+          <span class="bx-flow__v">"Verified" re-sums that whole ledger to re-derive your balance, as a drift check. It should always match Balance.</span></li>
+        <li class="bx-flow__step"><span class="bx-flow__k">Paid out</span>
+          <span class="bx-flow__v">If you run a node, your operator earnings accrue on the same ledger and pay out to you.</span></li>
+      </ol>
+
+      <!-- the two numbers people mix up -->
+      <p class="bx-help__h">Two numbers people mix up</p>
+      <dl class="bx-help__pair">
+        <div class="bx-help__def">
+          <dt class="bx-help__term">Balance</dt>
+          <dd class="bx-help__gloss">Your spendable total - the money in your wallet right now.</dd>
+        </div>
+        <div class="bx-help__def">
+          <dt class="bx-help__term">You paid</dt>
+          <dd class="bx-help__gloss">The cost of your last request (a per-turn figure). It is not your wallet.</dd>
+        </div>
+      </dl>
+
+      <div class="bx-help__actions">
+        <button type="button" class="bx-help__done" id="ledgerDone">Got it</button>
+      </div>
+    </div>
+  </div>
+
   <!-- include: footer.html anchors=/ -->
   <script src="js/fmt.js"></script>
   <script src="js/billing.js"></script>
+  <script src="js/billing-help.js"></script>
   <script src="js/site.js"></script>
   <script src="js/session.js"></script>
   <script src="js/promo.js"></script>
