@@ -19,8 +19,8 @@ func TestPureHelpers(t *testing.T) {
 	if normalizeUpstream("http://x:1/v1/chat/completions") == "" {
 		t.Error("normalizeUpstream should pass through to node.NormalizeUpstream")
 	}
-	// cornerEyeFor: streaming alternates, default is the dot.
-	if cornerEyeFor(poseStreaming, 0) != "•" || cornerEyeFor(poseStreaming, 1) != "O" {
+	// cornerEyeFor: streaming swells •->O every cornerCadence ticks (a calm, deliberate pulse).
+	if cornerEyeFor(poseStreaming, 0) != "•" || cornerEyeFor(poseStreaming, cornerCadence) != "O" {
 		t.Errorf("cornerEyeFor(streaming) frames wrong")
 	}
 	if cornerEyeFor(poseWaiting, 5) != "•" {

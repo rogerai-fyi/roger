@@ -1027,7 +1027,22 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
-		m.frame++
+		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
+		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
+		// a transient toast clearing). When idle the frame FREEZES, so the rendered screen is
+		// byte-identical tick-to-tick - the terminal's native mouse selection survives (a repaint
+		// would wipe the highlight) and the idle UI reads calm + intentional rather than flickering.
+		// A TRANSIENT toast keeps the clock ticking only until it auto-dismisses (the dismiss
+		// window). Bounding to m.frame-m.statusFrame < toastFrames is what stops the PERSISTENT
+		// browse ambient summary (which also sets a non-empty status) from pinning animating ON
+		// forever - without this bound, browse/command never freeze and native selection is wiped.
+		toastPending := m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame < toastFrames &&
+			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent)
+		animating := m.relaying || m.agentBusy || m.shareLoading ||
+			m.mode == modeConnecting || m.mode == modePingWorld || toastPending
+		if animating {
+			m.frame++
+		}
 		// The in-TUI Ping World owns the beat while it's up: advance its frame and keep the
 		// fast tick (it IS the motion), bypassing the compact/idle slow-tick below. Any key
 		// exits back to prevMode (see onKey's modePingWorld intercept).
@@ -1060,13 +1075,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeConnecting {
 			return m.advanceConnect()
 		}
-		// COMPACT (windowshade): treat compact like prefers-reduced-motion. When nothing
-		// is in flight the fast 160ms animation tick idles - we drop to a slow rescan tick
-		// (a fresh /discover every ~5s, no animation frames) so the view is genuinely calm
-		// yet still updates on real events (offers, balance, chat replies arrive via their
-		// own Cmds). A relay / staged tune-in / SHARE detection still needs the live beat,
-		// so those keep the fast tick even in compact.
-		if m.compact && !m.relaying && m.mode != modeConnecting && !m.shareLoading {
+		// IDLE: when nothing is animating (frame frozen above), drop to the calm 5s tick so the
+		// screen stays static + natively selectable - the user can drag-select + copy like on any
+		// normal terminal screen, and the view reads quiet. Real events (offers, balance, chat /
+		// agent replies) still arrive via their own Cmds and repaint on change. (This used to be
+		// compact-only; now EVERY idle view goes calm, which is also what makes copy work.)
+		if !animating {
 			return m, tea.Batch(slowTick(), fetchOffers(m.broker))
 		}
 		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
@@ -6181,14 +6195,15 @@ var workingPhrases = []string{
 	"Coming in clear…",
 }
 
-// workingPhrase returns the radio phrase for a frame: it advances roughly every
-// ~1.3s (8 frames at the 160ms tick) so the words read, not flicker. Under quiet
-// (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable line.
+// workingPhrase returns the radio phrase for a frame: it advances every cornerCadence ticks
+// (~2.9s) so the words READ at a calm, deliberate pace, not a flicker - matching the corner Ping's
+// cadence. Under quiet (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable
+// line. (And while idle the frame is frozen entirely, so the working line only advances mid-turn.)
 func workingPhrase(frame int) string {
 	if quiet {
 		return workingPhrases[0]
 	}
-	return workingPhrases[(frame/8)%len(workingPhrases)]
+	return workingPhrases[(frame/cornerCadence)%len(workingPhrases)]
 }
 
 // workingSpinner is our answer to Claude Code's ✻ working spinner, in RogerAI's own
