@@ -5885,10 +5885,10 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
                         <span class="cov2" title="5">a.providers++
                         a.inflight += inflight
                         in, _, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="4">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="5">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
-                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="4">{
+                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="3">{
                                 a.bestTPS = tps
                         }</span>
                         <span class="cov2" title="5">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov1" title="1">{
@@ -8844,11 +8844,11 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="4">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -11538,7 +11538,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="121">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="122">{
                         best = i
                 }</span>
         }
@@ -15185,10 +15185,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="685">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="688">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="671">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="669">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -25012,7 +25012,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="95">{
+        for len(s) &lt; 3 </span><span class="cov5" title="115">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25025,7 +25025,7 @@ func itoa3(n int) string <span class="cov8" title="2008">{
         }</span>
         <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5928">{
+        for n &gt; 0 </span><span class="cov9" title="5908">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
