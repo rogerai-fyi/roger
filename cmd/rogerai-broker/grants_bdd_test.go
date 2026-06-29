@@ -6,7 +6,7 @@ package main
 // revoked/expired rejection, owner-node ∩ allow-list, model allow-list) + grantCapCheck
 // (daily/monthly token caps, unlimited=0). Every assertion reads STORE/broker state back
 // (only the secret HASH is persisted; resolution finds it; a revoked/expired key is refused;
-// a patch leaves nil fields untouched). feApprox/feParseFloat live in fee_splits_bdd_test.go.
+// a patch leaves nil fields untouched).
 
 import (
 	"context"
