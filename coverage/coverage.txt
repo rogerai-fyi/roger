@@ -456,7 +456,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:861:		applyOfferOverri
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:883:		heartbeat			93.8%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:910:		agentPoll			68.8%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:972:		agentResult			88.9%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1021:		relay				91.9%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1021:		relay				92.4%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1523:		busDispatchJob			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1548:		relayStream			79.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1773:		estimateMaxCost			100.0%
