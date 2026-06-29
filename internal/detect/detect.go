@@ -125,24 +125,12 @@ var (
 	envKeysFn = envKeys
 )
 
-// Detect gathers candidate endpoints from every source (defaults, env, Ollama
-// native, real listening ports), probes each for GET /v1/models, and returns the
-// reachable OpenAI-compatible servers, de-duplicated by base URL.
-func Detect() []Found {
-	found, _ := detectWith(nil)
-	return found
-}
-
-// DetectWith is Detect plus explicit extra base URLs to probe first (the (e)
-// source: --upstream / a saved config endpoint). Each is normalized to a /v1
-// base. The explicit endpoints win on de-dup so their friendly name is kept.
-func DetectWith(extra ...string) []Found {
-	found, _ := detectWith(priorityCands(extra))
-	return found
-}
-
-// DetectFull is DetectWith that ALSO returns the base URLs of servers that are
-// present but answered 401/403 with no usable key (the needKey list), so the
+// DetectFull gathers candidate endpoints from every source - explicit extra base URLs
+// FIRST (the --upstream / saved-config (e) source, each normalized to a /v1 base and
+// winning de-dup so its friendly name is kept), then defaults, env, Ollama native, and
+// real listening ports - probes each for GET /v1/models, and returns the reachable
+// OpenAI-compatible servers (de-duplicated by base URL) PLUS the base URLs of servers
+// that are present but answered 401/403 with no usable key (the needKey list), so the
 // caller can prompt for an API key instead of reporting "nothing detected".
 func DetectFull(extra ...string) (found []Found, needKey []string) {
 	return detectWith(priorityCands(extra))
@@ -161,17 +149,11 @@ func priorityCands(extra []string) []candidate {
 	return cands
 }
 
-// Probe verifies that a single user-supplied endpoint serves /v1/models, and
-// returns it as a Found (the guided-fallback "paste a URL" path). ok is false
-// when the URL is unreachable or not OpenAI-compatible.
-func Probe(rawURL string) (Found, bool) {
-	f, st := ProbeKey(rawURL, "")
-	return f, st == Reachable
-}
-
-// ProbeKey is Probe with an explicit key tried first (the user pasted one), falling
-// back to keys the environment exports. It returns the tri-state Status so the
-// guided fallback can tell "needs a key" (prompt for one) apart from "unreachable".
+// ProbeKey verifies that a single user-supplied endpoint serves /v1/models and returns
+// it as a Found (the guided-fallback "paste a URL" path), trying an explicit key first
+// (the user pasted one) then falling back to keys the environment exports. It returns the
+// tri-state Status so the guided fallback can tell "needs a key" (prompt for one) apart
+// from "unreachable".
 func ProbeKey(rawURL, key string) (Found, Status) {
 	base := toV1Base(rawURL)
 	if base == "" {

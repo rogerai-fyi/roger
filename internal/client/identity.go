@@ -57,11 +57,6 @@ func UserPubHex() string {
 	return hex.EncodeToString(priv.Public().(ed25519.PublicKey))
 }
 
-// SignedUserID is the stable wallet id the broker derives from the local pubkey.
-func SignedUserID() string {
-	return protocol.UserIDFromPubkey(UserPubHex())
-}
-
 // SignRequest is the exported request signer for callers outside this package
 // (e.g. the TUI) that build their own broker requests. body must be exactly what
 // is sent as the request body (nil for GET).

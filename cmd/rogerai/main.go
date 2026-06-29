@@ -1652,7 +1652,7 @@ func sameEndpoint(a, b string) bool {
 // normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible
 // chat-completions URL the agent POSTs to. It accepts a base URL
 // (http://host:port), a /v1 URL, or the already-full /v1/chat/completions URL,
-// so the natural inputs all work and match what detect.Detect produces.
+// so the natural inputs all work and match what detect.DetectFull produces.
 func normalizeUpstream(u string) string {
 	u = strings.TrimSpace(u)
 	if u == "" {

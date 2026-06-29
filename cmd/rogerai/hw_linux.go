@@ -4,32 +4,11 @@ package main
 
 import (
 	"context"
-	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/detect"
 )
-
-// detectHW returns a human-readable CPU model for advertising a shared node.
-// On Linux it reads the kernel's /proc/cpuinfo.
-//
-// NOTE: this is kept for callers that want the raw CPU string; the node now
-// advertises the privacy-bucketed detectHWClass() instead (it reports a class, not
-// the CPU/GPU rig).
-func detectHW() string {
-	if b, err := os.ReadFile("/proc/cpuinfo"); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, "model name") {
-				if i := strings.Index(line, ":"); i >= 0 {
-					return strings.TrimSpace(line[i+1:])
-				}
-			}
-		}
-	}
-	return "unknown"
-}
 
 // detectHWClass returns the PRIVACY-BUCKETED hardware class a Linux node advertises:
 // multi-gpu / single-gpu / cpu. It probes nvidia-smi first, then rocm-smi, counts

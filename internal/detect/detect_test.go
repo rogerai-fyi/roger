@@ -45,7 +45,7 @@ func TestProbeParsesModels(t *testing.T) {
 	probes = []struct{ name, base string }{{"test", srv.URL + "/v1"}}
 	defer func() { probes = old }()
 
-	found := Detect()
+	found, _ := DetectFull()
 	if len(found) != 1 {
 		t.Fatalf("found %d servers, want 1: %+v", len(found), found)
 	}
@@ -73,7 +73,7 @@ func TestProbeSkipsUnreachable(t *testing.T) {
 	probes = []struct{ name, base string }{{"dead", "http://127.0.0.1:1/v1"}}
 	defer func() { probes = old }()
 
-	if found := Detect(); len(found) != 0 {
+	if found, _ := DetectFull(); len(found) != 0 {
 		t.Errorf("unreachable probe should yield nothing, got %+v", found)
 	}
 }
@@ -90,7 +90,7 @@ func TestProbeSkipsNon200(t *testing.T) {
 	probes = []struct{ name, base string }{{"err", srv.URL + "/v1"}}
 	defer func() { probes = old }()
 
-	if found := Detect(); len(found) != 0 {
+	if found, _ := DetectFull(); len(found) != 0 {
 		t.Errorf("non-200 probe should yield nothing, got %+v", found)
 	}
 }
@@ -122,7 +122,7 @@ func TestDetectFindsCustomPort(t *testing.T) {
 	defer func() { probes = old }()
 	enumPorts = func() []int { return []int{port} }
 
-	found := Detect()
+	found, _ := DetectFull()
 	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "custom-model" {
 		t.Fatalf("custom-port detection failed: %+v", found)
 	}
@@ -144,7 +144,7 @@ func TestDetectEnvVar(t *testing.T) {
 	defer func() { probes = old }()
 	t.Setenv("OPENAI_BASE_URL", srv.URL+"/v1")
 
-	found := Detect()
+	found, _ := DetectFull()
 	if len(found) != 1 || len(found[0].Models) != 1 || found[0].Models[0] != "env-model" {
 		t.Fatalf("env-var detection failed: %+v", found)
 	}
@@ -162,7 +162,7 @@ func TestDetectDedup(t *testing.T) {
 	defer func() { probes = old }()
 	enumPorts = func() []int { return []int{port} }
 
-	if found := Detect(); len(found) != 1 {
+	if found, _ := DetectFull(); len(found) != 1 {
 		t.Fatalf("same server via two sources should de-dup to 1, got %d: %+v", len(found), found)
 	}
 }
@@ -175,17 +175,17 @@ func TestProbeVerifiesEndpoint(t *testing.T) {
 	host, port := hostPort(t, srv.URL)
 	hp := host + ":" + strconv.Itoa(port)
 	for _, in := range []string{srv.URL, srv.URL + "/v1", srv.URL + "/v1/chat/completions", hp} {
-		f, ok := Probe(in)
-		if !ok || len(f.Models) != 1 || f.Models[0] != "pasted-model" {
-			t.Errorf("Probe(%q) failed: ok=%v found=%+v", in, ok, f)
+		f, st := ProbeKey(in, "")
+		if st != Reachable || len(f.Models) != 1 || f.Models[0] != "pasted-model" {
+			t.Errorf("ProbeKey(%q) failed: status=%v found=%+v", in, st, f)
 		}
 		if f.Chat != srv.URL+"/v1/chat/completions" {
-			t.Errorf("Probe(%q) chat url = %q", in, f.Chat)
+			t.Errorf("ProbeKey(%q) chat url = %q", in, f.Chat)
 		}
 	}
 	// A dead endpoint is not verified.
-	if _, ok := Probe("http://127.0.0.1:1/v1"); ok {
-		t.Error("Probe of a dead endpoint should not verify")
+	if _, st := ProbeKey("http://127.0.0.1:1/v1", ""); st == Reachable {
+		t.Error("ProbeKey of a dead endpoint should not verify")
 	}
 }
 
@@ -221,7 +221,7 @@ func TestDetectKeyedUpstreamFromEnv(t *testing.T) {
 	probes = []struct{ name, base string }{{"test", srv.URL + "/v1"}}
 	defer func() { probes = old }()
 
-	found := Detect()
+	found, _ := DetectFull()
 	if len(found) != 1 {
 		t.Fatalf("keyed upstream with env key should be detected, got %+v", found)
 	}
@@ -372,7 +372,7 @@ func TestDetectWithExplicitUpstreamWins(t *testing.T) {
 	probes = []struct{ name, base string }{{"default-name", srv.URL + "/v1"}}
 	defer func() { probes = old }()
 
-	found := DetectWith(srv.URL)
+	found, _ := DetectFull(srv.URL)
 	if len(found) != 1 {
 		t.Fatalf("explicit + default for one server should de-dup to 1, got %d: %+v", len(found), found)
 	}

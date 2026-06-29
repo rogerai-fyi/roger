@@ -148,14 +148,14 @@ func TestChatCarriesDefaultCap(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, _, _, err := Chat(srv.URL, "u", "m", "hello", false, 0); err != nil {
-		t.Fatalf("Chat error: %v", err)
+	if _, err := ChatDetailed(srv.URL, "u", "m", "hello", false, 0); err != nil {
+		t.Fatalf("ChatDetailed error: %v", err)
 	}
 	if gotCap != "10" {
 		t.Errorf("in-channel chat cap header = %q, want the $10 default", gotCap)
 	}
-	if _, _, _, err := Chat(srv.URL, "u", "m", "hello", false, 42); err != nil {
-		t.Fatalf("Chat error: %v", err)
+	if _, err := ChatDetailed(srv.URL, "u", "m", "hello", false, 42); err != nil {
+		t.Fatalf("ChatDetailed error: %v", err)
 	}
 	if gotCap != "42" {
 		t.Errorf("in-channel chat explicit cap header = %q, want 42 (opt-in to pay more)", gotCap)

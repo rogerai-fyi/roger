@@ -31,8 +31,8 @@ func TestChatSendsRaisedMaxTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0); err != nil {
-		t.Fatalf("Chat error: %v", err)
+	if _, err := ChatDetailed(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0); err != nil {
+		t.Fatalf("ChatDetailed error: %v", err)
 	}
 	if !seen {
 		t.Fatalf("chat request did not carry a max_tokens field")
@@ -70,12 +70,12 @@ func TestChatFailsOverPastABadStation(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	reply, _, _, err := Chat(srv.URL, "tester", "gpt-oss-120b", "hi", false, 0)
+	r, err := ChatDetailed(srv.URL, "tester", "gpt-oss-120b", "hi", false, 0)
 	if err != nil {
-		t.Fatalf("Chat should have failed over to the good station, got: %v", err)
+		t.Fatalf("ChatDetailed should have failed over to the good station, got: %v", err)
 	}
-	if reply != "hi back" {
-		t.Fatalf("reply = %q, want the second station's answer", reply)
+	if r.Reply != "hi back" {
+		t.Fatalf("reply = %q, want the second station's answer", r.Reply)
 	}
 	if calls < 2 {
 		t.Fatalf("Chat made %d calls, want >=2 (it must retry past the 504)", calls)
@@ -100,7 +100,7 @@ func TestChatDoesNotRetryA4xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, _, _, err := Chat(srv.URL, "tester", "m", "hi", false, 0); err == nil {
+	if _, err := ChatDetailed(srv.URL, "tester", "m", "hi", false, 0); err == nil {
 		t.Fatal("a 402 should return an error")
 	}
 	if calls != 1 {
@@ -208,9 +208,9 @@ func TestChat402MapsToTopupHint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, _, err := Chat(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0)
+	_, err := ChatDetailed(srv.URL, "tester", "gpt-oss-20b", "hello", false, 0)
 	if err == nil {
-		t.Fatalf("Chat on a 402 returned nil error")
+		t.Fatalf("ChatDetailed on a 402 returned nil error")
 	}
 	if !strings.Contains(err.Error(), TopupHint) {
 		t.Errorf("402 chat error = %q, want it to contain the topup hint %q", err.Error(), TopupHint)

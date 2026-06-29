@@ -763,7 +763,7 @@ type model struct {
 	edErr      string             // inline validation error in the editor (blocks save; "" = none)
 	prices     map[string]Pricing // per-model saved pricing (in/out + schedule)
 	// guided-fallback share setup wizard (modeShareSetup): pick a tool for a
-	// one-liner, or paste a URL we verify with detect.Probe.
+	// one-liner, or paste a URL we verify with detect.ProbeKey.
 	setupCursor int    // selected option in the setup wizard
 	setupPaste  string // the pasted-URL buffer (when the "Other" option is chosen)
 	setupErr    string // last paste-verify error
@@ -2533,7 +2533,7 @@ func (m *model) onStationRenameKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // enterShareSetup opens the in-TUI guided fallback when no local model was
 // detected: a small wizard to pick a tool (for a start one-liner) or paste an
-// endpoint we verify with detect.Probe. Mirrors the CLI guidedUpstream flow.
+// endpoint we verify with detect.ProbeKey. Mirrors the CLI guidedUpstream flow.
 func (m model) enterShareSetup() model {
 	m.mode = modeShareSetup
 	m.setupCursor = 0
@@ -7911,32 +7911,14 @@ func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float6
 	}
 }
 
-// Run launches the TUI with no spend limits (back-compat).
-func Run(broker, user string) error {
-	return RunWith(broker, user, nil)
-}
-
-// RunWith launches the TUI with a spend-limit store (the pricing UX: per-model
-// maxes, connect confirmation, over-limit edit). nil = no caps / no persistence.
-func RunWith(broker, user string, limits *LimitStore) error {
-	return RunWithNotice(broker, user, limits, "")
-}
-
-// RunWithNotice is RunWith plus a subtle, pre-computed "update available" line
-// (empty = none) surfaced in the status area. The host owns the (cached, async,
-// non-blocking) update check so the TUI never does network at startup.
-func RunWithNotice(broker, user string, limits *LimitStore, notice string) error {
-	return RunWithHooks(broker, user, limits, notice, Hooks{})
-}
-
-// RunWithHooks is RunWithNotice plus the host-supplied hooks that make the in-TUI
-// /share, /login, /topup, /grant flows real actions.
-func RunWithHooks(broker, user string, limits *LimitStore, notice string, hooks Hooks) error {
-	return RunWithController(broker, user, limits, notice, hooks, NewController(broker, hooks))
-}
-
-// RunWithController is RunWithHooks over an EXISTING shared controller, so the host can
-// stand up the browser web console over the SAME node before launching the TUI.
+// RunWithController launches the TUI over an EXISTING shared controller (so the host can
+// stand up the browser web console over the SAME node before launching the TUI), with a
+// spend-limit store (nil = no caps / no persistence), a pre-computed "update available"
+// notice line (empty = none; the host owns the cached async check so the TUI never does
+// network at startup), and the host-supplied hooks that make the in-TUI /share, /login,
+// /topup, /grant flows real actions. This is the single entry point (cmd/rogerai wires it
+// as runTUI); the thin Run/RunWith/RunWithNotice/RunWithHooks defaults-only wrappers were
+// removed - a caller passes the explicit values (Hooks{} / "" / nil / NewController).
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
