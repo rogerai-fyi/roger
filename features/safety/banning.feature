@@ -11,7 +11,8 @@
 #     out after strikeDecayDays. banOwner(accountID, reason, evidence) durably bans the owner.
 #   OwnerStrike(account, kind, evidence, idemKey) -> count (store).
 #
-# Enforced by: cmd/rogerai-broker/strikes_test.go + internal/store safety tests.
+# Enforced by: cmd/rogerai-broker/banning_bdd_test.go (godog, drives the REAL broker.strike
+#   ladder + the Mem store) and strike_cov_test.go + internal/store safety tests.
 
 Feature: Banning — strikes graded to a ban
 
@@ -29,15 +30,14 @@ Feature: Banning — strikes graded to a ban
     Given "op-1" reaches strikeWarnAt strikes
     Then the operator is WARNED (not yet banned)
 
-  Scenario: The ban threshold durably bans the owner
-    Given "op-1" reaches strikeBanAt strikes
+  Scenario: The ban threshold durably bans the owner (corroborated)
+    Given "op-1" reaches strikeBanAt strikes across strikeCorroborateKinds distinct signal classes
     Then banOwner records a durable ban with the reason + evidence
     And (per routing eligibility) all of "op-1"'s nodes are excluded from routing
 
   Scenario: Ambiguous strike kinds need corroboration before they count
-    Given a strike kind that requires corroboration
-    When only ONE such signal exists
-    Then it does not yet count toward a ban (needs strikeCorroborateKinds distinct kinds)
+    Given "op-1" reaches strikeBanAt strikes of a SINGLE accumulating signal class
+    Then the owner is HELD (earnings frozen) but NOT banned — a ban needs strikeCorroborateKinds distinct kinds
 
   Scenario: An egregious zero-doubt strike counts immediately
     Given a zero-doubt strike (e.g. a confirmed-abuse signal)
