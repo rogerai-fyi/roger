@@ -2923,11 +2923,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov3" title="6">{
+        for _, n := range b.nodes </span><span class="cov4" title="7">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
+                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -5885,10 +5885,10 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
                         <span class="cov2" title="5">a.providers++
                         a.inflight += inflight
                         in, _, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="5">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="4">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
-                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="3">{
+                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov2" title="4">{
                                 a.bestTPS = tps
                         }</span>
                         <span class="cov2" title="5">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov1" title="1">{
@@ -11538,7 +11538,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="120">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="121">{
                         best = i
                 }</span>
         }
@@ -15185,7 +15185,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="685">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="686">{
                                         rangeMin = out
                                 }</span>
                                 <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="669">{
@@ -17834,9 +17834,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="476">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="473">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="473">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="470">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18615,7 +18615,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -18654,7 +18654,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1035">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="775">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18668,7 +18668,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="10
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18676,12 +18676,12 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 rr.mu.Unlock()
                 return
         }</span>
-        <span class="cov4" title="19">if rr.busy </span><span class="cov3" title="10">{
+        <span class="cov4" title="19">if rr.busy </span><span class="cov4" title="10">{
                 // A re-register is in flight for this generation; wait for it and ride it.
-                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov3" title="10">{
+                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov4" title="10">{
                         rr.cond.Wait()
                 }</span>
-                <span class="cov3" title="10">rr.mu.Unlock()
+                <span class="cov4" title="10">rr.mu.Unlock()
                 return</span>
         }
         <span class="cov3" title="9">rr.busy = true
@@ -18698,9 +18698,9 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 case &lt;-stop:<span class="cov1" title="1">
                         rr.finishBusy()
                         return</span>
-                default:<span class="cov3" title="10"></span>
+                default:<span class="cov4" title="10"></span>
                 }
-                <span class="cov3" title="10">newTok := randHex(16)
+                <span class="cov4" title="10">newTok := randHex(16)
                 reg := rr.reg
                 reg.BridgeToken = newTok
                 // Re-attestation: a confidential node must present a FRESH nonce-bound quote on
@@ -18718,7 +18718,7 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                                 reg.AttestNonce = ""
                         }</span>
                 }
-                <span class="cov3" title="10">reg.TS = time.Now().Unix()
+                <span class="cov4" title="10">reg.TS = time.Now().Unix()
                 reg.SignRegistration(rr.priv)
                 // A re-register of a PRIVATE node returns only band_id (never the code again),
                 // so the result is intentionally ignored here - the secret is shown only at the
@@ -18883,23 +18883,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="1017">{
+        for </span><span class="cov9" title="758">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="3">
+                case &lt;-sess.stop:<span class="cov2" title="4">
                         return</span> // /share went off air
-                default:<span class="cov9" title="1014"></span>
+                default:<span class="cov9" title="754"></span>
                 }
-                <span class="cov9" title="1014">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="754">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="5">{
+                if err != nil </span><span class="cov2" title="4">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="1009">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1002">{
+                <span class="cov9" title="750">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="743">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19011,7 +19011,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
 // operator's OWN upstream key can never leave the machine in a job result. A no-op
 // when no key is configured (and never called with an empty key, which would match
 // everywhere).
-func redactUpstreamKey(b []byte, key string) []byte <span class="cov3" title="10">{
+func redactUpstreamKey(b []byte, key string) []byte <span class="cov4" title="10">{
         if key == "" </span><span class="cov3" title="5">{
                 return b
         }</span>
@@ -19208,7 +19208,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19359,7 +19359,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19367,7 +19367,7 @@ func GenerateStation() string <span class="cov7" title="201">{
 
 // randIndex returns a uniform crypto/rand index in [0,n) (n&gt;0). Falls back to 0 only if
 // the system RNG fails, which never happens in practice.
-func randIndex(n int) int <span class="cov9" title="805">{
+func randIndex(n int) int <span class="cov10" title="805">{
         if n &lt;= 0 </span><span class="cov1" title="2">{
                 return 0
         }</span>
@@ -19388,21 +19388,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -24641,8 +24641,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="24">{
-                if s != nil </span><span class="cov7" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -25044,7 +25044,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="119">{
+        for len(s) &lt; 3 </span><span class="cov5" title="123">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25052,17 +25052,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5903">{
+        for n &gt; 0 </span><span class="cov9" title="5900">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -31718,9 +31718,9 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) <span class="cov6" 
                         return m, m.waitAgentEvent()</span>
                 }
         }
-        // A turn is running: ignore typed keys (the loop owns the conversation) except esc,
-        // which leaves the AGENT view (the turn keeps running in the background and its
-        // result still lands in the transcript when we return).
+        // Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
+        // esc cancels/leaves, the scroll/recall/copy keys below act, and everything else feeds
+        // the prompt input - typable even mid-turn so the next ask can be composed + queued.
         <span class="cov5" title="121">switch k.String() </span>{
         case "esc":<span class="cov2" title="4">
                 // While a turn is in flight, esc CANCELS it; when idle, esc leaves to BROWSE. This is
@@ -32425,45 +32425,52 @@ func (m model) agentView(w int) string <span class="cov5" title="74">{
         <span class="cov5" title="62">return b.String()</span>
 }
 
-// agentStallSec is how long a turn may go with NO streamed event before the working line
-// stops claiming progress and says, plainly, that the station may be stuck. The built-in
-// tools self-bound (web_fetch 20s, run_shell 60s) and a model call is capped at
-// harness.PerCallCap, so a longer silence than this is genuinely suspect - worth flagging
-// with the out (esc) rather than spinning a reassuring lie. Tuned a touch above the tool
-// ceilings so a legitimately slow tool doesn't trip it.
-const agentStallSec = 25
+// agentStallSec is how long the turn may go with NO event from the STATION before the
+// working line stops reassuring and flags that it may be stuck. It is deliberately HIGH:
+// the relay is non-streaming, so within one model call there are no intermediate events,
+// and a CPU-MoE reply legitimately "takes well over a minute" (see harness.brokerTimeout);
+// a run_shell tool is bounded at 60s. So only a silence well past those - genuinely
+// suspect, and still hard-capped at harness.PerCallCap - earns the warning + the esc out.
+// (A tool actually running is exempted in agentWorkingLine: that silence is expected.)
+const agentStallSec = 120
 
-// agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner: it
-// distinguishes STILL-RECEIVING (an event/token streamed within agentStallSec) from
-// STALLED (nothing for longer - the station may be hung) and always surfaces the per-call
-// cap so the wait reads as bounded. esc is offered as the out on the stall line. The
-// spinner itself is compact/quiet-aware (a static glyph when motion is frozen).
+// agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner. It always
+// surfaces the per-call cap so the wait reads as BOUNDED (not a bottomless hang), and:
+//   - while a tool runs (poseTool) it says so and never cries "stuck" — the tool is local
+//     and self-bounded (run_shell &lt;=60s, web_fetch &lt;=20s), so the silence is EXPECTED
+//     (flagging it was a false-alarm source);
+//   - while waiting on / receiving from the station it reads "working…"/"receiving…", and
+//     only a long silence (&gt;= agentStallSec) flips to an honest "may be stuck · esc".
+// The spinner is compact/quiet-aware (a static glyph when motion is frozen).
 //
-// elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last
-// streamed event. Both are passed in (not read off the clock) so the render stays a pure
-// function of state - easy to test deterministically.
-func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string <span class="cov2" title="6">{
+// elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last event.
+// Both are passed in (not read off the clock) so the render is a pure function of state.
+func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string <span class="cov3" title="7">{
         spin := workingSpinner(m.frame)
-        if m.compact || quiet </span><span class="cov2" title="6">{
+        if m.compact || quiet </span><span class="cov3" title="7">{
                 spin = staticSpinner()
         }</span>
-        <span class="cov2" title="6">capSec := int(harness.PerCallCap / time.Second)
-        // STALLED: nothing has streamed for a while. Don't fake progress - say it may be stuck
-        // and point at the out. Ember (not the live green) flags the concern.
-        if sinceLastSec &gt;= agentStallSec </span><span class="cov1" title="1">{
+        <span class="cov3" title="7">capSec := int(harness.PerCallCap / time.Second)
+        withElapsed := func(s string) string </span><span class="cov2" title="6">{
+                line := spin + stLive.Render("  "+s)
+                if elapsedSec &gt;= 2 </span><span class="cov2" title="3">{
+                        line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
+                }</span>
+                <span class="cov2" title="6">return line</span>
+        }
+        // A tool is running locally: the silence is expected + bounded, never a station stall.
+        <span class="cov3" title="7">if m.agentTurnState == poseTool </span><span class="cov1" title="2">{
+                return withElapsed("running the tool…")
+        }</span>
+        // STALLED: no event from the station for a genuinely long time — flag it with the out.
+        <span class="cov2" title="5">if sinceLastSec &gt;= agentStallSec </span><span class="cov1" title="1">{
                 return spin + stEmber.Render(fmt.Sprintf("  no response for %ds — may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
         }</span>
-        // RECEIVING vs WORKING: streaming prose means the answer is arriving; otherwise the
-        // model is thinking or a tool is running. Either way we heard from it recently.
-        <span class="cov2" title="5">state := "working…"
-        if m.agentTurnState == poseStreaming </span><span class="cov1" title="2">{
-                state = "receiving…"
+        // RECEIVING vs WORKING: prose arriving = the answer; otherwise the model is thinking.
+        <span class="cov2" title="4">if m.agentTurnState == poseStreaming </span><span class="cov1" title="2">{
+                return withElapsed("receiving…")
         }</span>
-        <span class="cov2" title="5">line := spin + stLive.Render("  "+state)
-        if elapsedSec &gt;= 2 </span><span class="cov1" title="2">{
-                line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
-        }</span>
-        <span class="cov2" title="5">return line</span>
+        <span class="cov1" title="2">return withElapsed("working…")</span>
 }
 
 // agentRoot is the cwd sandbox root the agent's filesystem tools are confined to. It
@@ -34686,8 +34693,8 @@ var quiet = func() bool <span class="cov1" title="1">{
 
 // anim returns the live frame counter, or a fixed frame when quiet so motion
 // settles into a stable, well-formed snapshot.
-func anim(frame int) int <span class="cov4" title="828">{
-        if quiet </span><span class="cov4" title="800">{
+func anim(frame int) int <span class="cov4" title="829">{
+        if quiet </span><span class="cov4" title="801">{
                 return 1
         }</span>
         <span class="cov2" title="28">return frame</span>
@@ -34796,7 +34803,7 @@ func beaconPulse() string <span class="cov1" title="4">{ return glyphs.Current()
 
 // beaconDot is the compact one-glyph "(•)" beacon, folded to "(*)" on a legacy
 // Windows console (the bullet is the rune that garbles).
-func beaconDot() string <span class="cov3" title="54">{ return glyphs.Fold("(•)") }</span>
+func beaconDot() string <span class="cov3" title="55">{ return glyphs.Fold("(•)") }</span>
 
 // channelGlyph picks the honest mark for a held channel: the confidential ◆ ONLY when
 // the connected node passed real TEE attestation, otherwise the lineage/identity ✓.
@@ -39043,7 +39050,7 @@ func tpsPlain(tps float64, online bool) string <span class="cov3" title="55">{
 // style (the beacon and Ping's eye now share the same one red).
 func onAirPulse(frame int) string <span class="cov4" title="394">{ return pulseWith(frame, stRed) }</span>
 
-func pulseWith(frame int, eyeStyle lipgloss.Style) string <span class="cov4" title="444">{
+func pulseWith(frame int, eyeStyle lipgloss.Style) string <span class="cov4" title="445">{
         // arc widths 1..3..1, on a 9-cell stage; the eye sits dead center. Under quiet
         // (NO_COLOR / pipe) anim() freezes the frame so a pipe sees a stable beacon.
         //
@@ -39055,13 +39062,13 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string <span class="cov4" tit
         // https://github.blog/engineering/from-pixels-to-characters-the-engineering-behind-github-copilot-clis-animated-ascii-banner/
         f := anim(frame)
         arcs := []int{1, 2, 3, 2}[f/2%4]
-        if quiet </span><span class="cov4" title="443">{
+        if quiet </span><span class="cov4" title="444">{
                 // Freeze to the canonical two-arc ((•)) brand beacon (brand-ascii.txt §2)
                 // rather than the collapsed single arc a frozen frame happens to land on,
                 // so a pipe / NO_COLOR sees the recognizable on-air motif.
                 arcs = 2
         }</span>
-        <span class="cov4" title="444">open := strings.Repeat("(", arcs)
+        <span class="cov4" title="445">open := strings.Repeat("(", arcs)
         clos := strings.Repeat(")", arcs)
         // phosphor decay: the eye glows full on the breath peak, fades to a faint dot
         // on the trough. Frozen to the bright eye under quiet (no churn in a pipe).
@@ -39069,7 +39076,7 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string <span class="cov4" tit
         if !quiet &amp;&amp; f%4 == 0 </span><span class="cov1" title="1">{
                 eye = stDim.Render("·")
         }</span>
-        <span class="cov4" title="444">body := stLive.Render(open) + " " + eye + " " + stLive.Render(clos)
+        <span class="cov4" title="445">body := stLive.Render(open) + " " + eye + " " + stLive.Render(clos)
         const stage = 9 // width of "((( • )))"
         return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)</span>
 }
@@ -40839,8 +40846,8 @@ var workingPhrases = []string{
 // (~2.9s) so the words READ at a calm, deliberate pace, not a flicker - matching the corner Ping's
 // cadence. Under quiet (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable
 // line. (And while idle the frame is frozen entirely, so the working line only advances mid-turn.)
-func workingPhrase(frame int) string <span class="cov3" title="68">{
-        if quiet </span><span class="cov3" title="49">{
+func workingPhrase(frame int) string <span class="cov3" title="69">{
+        if quiet </span><span class="cov3" title="50">{
                 return workingPhrases[0]
         }</span>
         <span class="cov2" title="19">return workingPhrases[(frame/cornerCadence)%len(workingPhrases)]</span>
@@ -40850,14 +40857,14 @@ func workingPhrase(frame int) string <span class="cov3" title="68">{
 // radio idiom: the animated on-air beacon ((•)) (pulsing carrier rings, via
 // pulseWith) next to a rotating radio phrase. It is the one coherent "we're on it"
 // motif for any in-flight request/turn. quiet freezes both the rings and the phrase.
-func workingSpinner(frame int) string <span class="cov3" title="50">{
+func workingSpinner(frame int) string <span class="cov3" title="51">{
         return pulseWith(frame, stPingEye) + " " + stLive.Render(workingPhrase(frame))
 }</span>
 
 // staticSpinner is the compact ("windowshade") working spinner: a frozen (•) glyph
 // (no pulsing carrier rings) next to a fixed phrase, so an in-flight request reads as
 // "we're on it" without any motion - the reduced-motion form of workingSpinner.
-func staticSpinner() string <span class="cov2" title="8">{
+func staticSpinner() string <span class="cov2" title="9">{
         return stPingEye.Render(beaconDot()) + " " + stLive.Render(workingPhrases[0])
 }</span>
 
@@ -40940,11 +40947,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40964,7 +40971,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="340">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="327">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40986,7 +40993,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="74">
+                case agent.LinkOnAir:<span class="cov3" title="67">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41094,7 +41101,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="34">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
