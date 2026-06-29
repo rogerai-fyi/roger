@@ -56,6 +56,7 @@ const (
 	toneAuroraV                  // violet: the aurora tail + the day flower + the butterfly's wings
 	toneLeaf                     // grass green: the daytime plants growing from the ground
 	toneWater                    // blue: the still shore pond + its reflection
+	tonePale                     // pale frost: the daytime drifting clouds (cool + soft, never red)
 )
 
 // The screensaver's COOL palette - kept SEPARATE from tui.go's brand mono+red on purpose: this is
@@ -69,6 +70,7 @@ var (
 	cAuroraV = lipgloss.AdaptiveColor{Light: "#8A5CA8", Dark: "#B48EAD"} // violet (aurora/flower/wings)
 	cLeaf    = lipgloss.AdaptiveColor{Light: "#5E8C3A", Dark: "#A3BE8C"} // grass green (plants)
 	cWater   = lipgloss.AdaptiveColor{Light: "#4C6F9C", Dark: "#5E81AC"} // deeper blue (pond)
+	cPale    = lipgloss.AdaptiveColor{Light: "#9AA7B5", Dark: "#D8DEE9"} // pale frost (day clouds)
 )
 
 // toneStyle maps a cool tone to its lipgloss style (bright = a touch bolder, for near elements).
@@ -91,6 +93,8 @@ func toneStyle(t worldTone, bright bool) lipgloss.Style {
 		c = cLeaf
 	case toneWater:
 		c = cWater
+	case tonePale:
+		c = cPale
 	default:
 		return stDim
 	}
@@ -548,6 +552,13 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		}
 	}
 
+	// LAYER 0.7 — daytime DRIFTING CLOUDS: a few seeded puffs glide across the day sky with
+	// parallax (nearer clouds drift faster), in a pale frost tone. Gentle + calm; gone at night,
+	// behind the sun. Never red.
+	if day {
+		paintClouds(buf, w, skyRows, frame, seed)
+	}
+
 	// LAYER 1.5 — the celestial body, swapping with the day: by NIGHT a slowly ROTATING teal 3D
 	// globe (the moon Ping gazes at); by DAY a gold SUN arcing across the sky. Never red; the
 	// on-air ◉ is still painted LAST, on top.
@@ -567,6 +578,9 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	// STRONGEST band's tower top. towers is empty in the seeded (d==nil) world, so the ◉ keeps
 	// its seeded sky position there.
 	towers := worldTowers(w, horizon, d)
+	if d == nil { // OFFLINE/seeded world: generative towers whose signal+height VARY over time, so
+		towers = seededTowers(w, horizon, frame, seed) // the offline screensaver "breathes" too.
+	}
 	if len(towers) > 0 {
 		onAirX, onAirY = towers[0].x, towers[0].tipY // the flagship (strongest) tower top
 	}
@@ -637,7 +651,8 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 
 	// LAYER 4.5 — daytime life: a BIRD flock crosses the sky (comes + goes on seeded windows, like
 	// the night wanderer) and the BUTTERFLY (the new character) flutters low by the plants on a
-	// gentle bob. Both gone at night. Dim silhouette birds; violet butterfly. Never red.
+	// gentle bob. Both gone at night. Dim silhouette birds; violet butterfly. Never red. GENERATIVE:
+	// the flock SIZE varies (with a rare big migration) and a 2nd butterfly occasionally joins.
 	if day {
 		if skyRows >= 4 && worldHash(frame/90, 17, seed)%3 != 0 { // ~2/3 of windows have a flock
 			by := 2 + int(worldHash(frame/90, 18, seed)%uint32(maxI(1, skyRows/3)))
@@ -646,22 +661,25 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 			if frame%6 < 3 {
 				wing = "^" // flap
 			}
-			for k := 0; k < 3; k++ { // a little V of three
+			for k := 0; k < flockSize(frame/90, seed); k++ { // a seeded V (rarely a big migration)
 				blit(buf, bx-k*3, by-(k%2), []string{wing}, 0)
 			}
 		}
 		if horizon >= 4 {
-			bob := []int{0, 1, 1, 2, 1, 1, 0, 0}[(frame/4)%8]
-			bx := 4 + (frame/3)%maxI(1, w-8)
-			by := horizon - 3 - bob
-			if by < 1 {
-				by = 1
+			for bi := 0; bi < butterflyCount(frame/120, seed); bi++ { // usually one, sometimes a pair
+				ph := bi * 5 // a phase offset so a pair never overlaps
+				bob := []int{0, 1, 1, 2, 1, 1, 0, 0}[((frame+ph*4)/4)%8]
+				bx := 4 + ((frame+ph*7)/3)%maxI(1, w-8)
+				by := horizon - 3 - bob - bi // the 2nd flutters a touch higher
+				if by < 1 {
+					by = 1
+				}
+				wings := "<o>"
+				if (frame+ph)%4 < 2 {
+					wings = ">o<" // wings open / closed
+				}
+				blitT(buf, bx, by, []string{wings}, 0, toneAuroraV)
 			}
-			wings := "<o>"
-			if frame%4 < 2 {
-				wings = ">o<" // wings open / closed
-			}
-			blitT(buf, bx, by, []string{wings}, 0, toneAuroraV)
 		}
 	}
 
@@ -684,21 +702,29 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		blit(buf, px+pingWalkW/2, zRow, []string{z}, 0)
 	}
 
-	// a wandering Ping drifts the other way - but it COMES AND GOES (v2 P1-8): a hash-gated
-	// window decides whether one is currently crossing, so the cast varies run-to-run instead
-	// of an always-present drifter (sometimes Ping ambles alone with the ducklings).
-	if worldHash(frame/80, 13, seed)%3 != 0 { // ~2/3 of windows have a wanderer crossing
-		span := w + pingWalkW
-		wx := w - 1 - (frame/5)%span + pingWalkW
-		blit(buf, wx, horizon-len(cornerWanderer)+1, cornerWanderer, '•')
+	// wandering Pings amble by, tied to a full edge-to-edge TRAVERSAL (not a separate visibility
+	// window): on a present traversal a wanderer ENTERS fully off one edge and EXITS off the other,
+	// so it never pops/vanishes mid-screen (the old frame/80-window bug). Lane 0 crosses ~2/3 of
+	// traversals; lane 1 occasionally adds a 2nd wanderer ambling the opposite way (they pass). The
+	// wanderer keeps its red '•' eye, but the always-on-screen lead duckling carries the one-red law.
+	for lane := 0; lane < 2; lane++ {
+		if draw, lines, wx, wy := wandererAt(frame, seed, w, horizon, lane); draw {
+			blit(buf, wx, wy, lines, '•')
+		}
 	}
 
-	// LAYER 6 — an occasional shooting star streak (transient, calm), upper sky, NIGHT only.
+	// LAYER 6 — occasional shooting stars (transient, calm), upper sky, NIGHT only. GENERATIVE: a
+	// window is usually a single streak, but RARELY a meteor SHOWER of 2-3 staggered streaks. Dim
+	// ink; painted BEFORE the lead duckling so a streak can never clobber its red-eye backstop.
 	if !day && worldHash(frame/40, 7, seed)%4 == 0 {
-		k := frame % 40
-		if k < 6 {
-			sx := int(worldHash(frame/40, 8, seed)%uint32(maxI(1, w-8))) + k*2
-			sy := 1 + k
+		win, k := frame/40, frame%40
+		for s := 0; s < meteorCount(win, seed); s++ {
+			ks := k - s*2 // each extra streak starts a beat later (a staggered shower)
+			if ks < 0 || ks >= 6 {
+				continue
+			}
+			sx := int(worldHash(win, 8+s, seed)%uint32(maxI(1, w-8))) + ks*2
+			sy := 1 + ks + s
 			blit(buf, sx, sy, []string{"╲."}, 0)
 		}
 	}
@@ -740,8 +766,144 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	return buf
 }
 
-// cornerWanderer is a small 3-line "other Ping" (reuses the corner-head silhouette).
-var cornerWanderer = []string{"(( • ))", " \\(   )/", "  ╰───╯"}
+// cornerWandererFrames is "another Ping" ambling by - a small 3-line silhouette with a 2-frame
+// WALK (the feet alternate ╿/╽, like Ping's own walk) so it shuffles rather than slides. The eye
+// is the red '•' (multiple Ping eyes are fine; the one-red law needs only >=1).
+var cornerWandererFrames = [][]string{
+	{"(( • ))", " \\(   )/", "  ╿   ╿"},
+	{"(( • ))", " \\(   )/", "  ╽   ╽"},
+}
+
+const (
+	wandererW      = 8 // widest wanderer line (the arms row) - the off-screen margin each side
+	wandererStride = 5 // frames per column step (a calm amble, matching the old wanderer pace)
+)
+
+// wandererAt decides whether "another Ping" is crossing on the given lane this frame, and if so
+// returns its walk sprite, left column, and top row. Presence + motion are tied to ONE full
+// edge-to-edge TRAVERSAL (period = (w+wandererW+1)*stride frames): at a traversal's first and last
+// frame the wanderer is fully OFF-SCREEN, so it always enters from one edge and exits the other and
+// never pops/vanishes mid-screen (the old frame/80-window bug). Lane 0 crosses ~2/3 of traversals;
+// lane 1 occasionally adds a 2nd wanderer ambling the OPPOSITE way. Pure + seeded.
+func wandererAt(frame, seed, w, horizon, lane int) (draw bool, lines []string, wx, y int) {
+	if w <= 0 || frame < 0 {
+		return false, nil, 0, 0
+	}
+	travel := w + wandererW // columns from fully-off-left to fully-off-right
+	period := (travel + 1) * wandererStride
+	cyc := frame / period
+	if lane == 0 {
+		if worldHash(cyc, 13, seed)%3 == 0 { // ~1/3 of traversals: lane 0 rests (Ping ambles alone)
+			return false, nil, 0, 0
+		}
+	} else if worldHash(cyc, 14, seed)%4 != 0 { // ~1/4 of traversals: a 2nd wanderer joins
+		return false, nil, 0, 0
+	}
+	off := (frame % period) / wandererStride // 0..travel
+	dir := int(worldHash(cyc, 13, seed)>>2) % 2
+	if lane != 0 {
+		dir = 1 - dir // the 2nd wanderer ambles the opposite way, so the pair pass each other
+	}
+	if dir == 0 {
+		wx = off - wandererW // enter off-left, exit off-right
+	} else {
+		wx = w - off // enter off-right, exit off-left
+	}
+	lines = cornerWandererFrames[(frame/3)%len(cornerWandererFrames)] // a calm 2-frame leg shuffle
+	return true, lines, wx, horizon - len(lines) + 1
+}
+
+// paintClouds drifts a few seeded daytime clouds across the upper sky with PARALLAX (nearer clouds
+// drift faster) in a pale frost tone. Gentle + calm; the puff is a fluffy (~~~) of seeded width.
+// Spaces aren't used so there are no holes; cool ink, NEVER red.
+func paintClouds(buf [][]worldCell, w, skyRows, frame, seed int) {
+	if w <= 0 || skyRows < 2 {
+		return
+	}
+	n := maxI(2, w/40) // a few clouds, scaled to width
+	for i := 0; i < n; i++ {
+		size := 2 + int(worldHash(i, 31, seed)%3)                       // 2..4 tildes
+		row := int(worldHash(i, 32, seed) % uint32(maxI(1, skyRows/2))) // upper half of the sky
+		div := 16 + int(worldHash(i, 33, seed)%24)                      // drift speed (parallax)
+		x0 := int(worldHash(i, 34, seed) % uint32(w))
+		cx := ((x0+frame/div)%w + w) % w
+		puff := "(" + strings.Repeat("~", size) + ")"
+		blitT(buf, cx, row, []string{puff}, 0, tonePale)
+	}
+}
+
+// flockSize is the seeded size of the daytime bird flock for window win: a small V of 2..5 most of
+// the time, with a RARE big MIGRATION of 6..8 (a "special moment"). Pure + seeded.
+func flockSize(win, seed int) int {
+	if worldHash(win, 20, seed)%7 == 0 {
+		return 6 + int(worldHash(win, 22, seed)%3) // 6..8: a rare migration
+	}
+	return 2 + int(worldHash(win, 19, seed)%4) // 2..5
+}
+
+// butterflyCount is the seeded number of daytime butterflies for window win: usually 1, occasionally
+// a pair. Pure + seeded.
+func butterflyCount(win, seed int) int {
+	if worldHash(win, 23, seed)%3 == 0 {
+		return 2
+	}
+	return 1
+}
+
+// meteorCount is the seeded number of streaks in a night shooting-star burst for window win: usually
+// a single streak, but RARELY a meteor SHOWER of 2..3 (a "special moment"). Pure + seeded.
+func meteorCount(win, seed int) int {
+	if worldHash(win, 50, seed)%5 == 0 {
+		return 2 + int(worldHash(win, 51, seed)%2) // 2..3
+	}
+	return 1
+}
+
+// triWave is a slow 0..100 triangle wave over a 0..199 input (rise then fall). Pure - drives the
+// seeded towers' breathing signal.
+func triWave(p int) int {
+	p = ((p % 200) + 200) % 200
+	if p < 100 {
+		return p
+	}
+	return 200 - p
+}
+
+// seededTowers builds a few GENERATIVE signal towers for the OFFLINE/seeded world (d==nil) so the
+// screensaver "breathes" even with no live bands: each tower's signal rises + falls on its own slow
+// frame-driven cycle (a fake on-air pulse), so its mast HEIGHT changes over time. Dim ink only (no
+// bright serving-scan - that stays a LIVE-data cue); the flagship (index 0) leaves its tip for the
+// red ◉ (painted last). Empty for a too-small world (so the seeded ◉ keeps its sky position there).
+// Pure + seeded - never touches the live (d!=nil) path.
+func seededTowers(w, horizon, frame, seed int) []tower {
+	if horizon < 3 || w < 6 {
+		return nil
+	}
+	n := 2 + int(worldHash(0, 41, seed)%3) // 2..4 towers
+	maxH := horizon - 1
+	if maxH > 6 {
+		maxH = 6
+	}
+	out := make([]tower, 0, n)
+	for i := 0; i < n; i++ {
+		phase := int(worldHash(i, 42, seed) % 200)
+		speed := 6 + int(worldHash(i, 43, seed)%6) // frames per signal step (slow, calm)
+		sig := triWave(frame/speed + phase)        // 0..100, breathing over time
+		h := 1 + sig*(maxH-1)/100
+		if h < 1 {
+			h = 1
+		}
+		if h > maxH {
+			h = maxH
+		}
+		out = append(out, tower{
+			x:    (i + 1) * w / (n + 1),
+			tipY: horizon - h,
+			st:   worldStation{signal: sig}, // dim only: no inFlight scan in the seeded world
+		})
+	}
+	return out
+}
 
 // tower is one laid-out LIVE signal tower: column x, tipY (top row), + its station.
 type tower struct {
