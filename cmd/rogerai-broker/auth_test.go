@@ -193,26 +193,26 @@ func TestSessionRoundTrip(t *testing.T) {
 
 	exp := time.Now().Add(time.Hour).Unix()
 	cookie := b.signSession("octocat", 42, exp)
-	login, gid, ok := b.verifySession(cookie)
-	if !ok || login != "octocat" || gid != 42 {
-		t.Fatalf("verify = (%q,%d,%v), want (octocat,42,true)", login, gid, ok)
+	login, gid, wallet, ok := b.verifySession(cookie)
+	if !ok || login != "octocat" || gid != 42 || wallet != "u_gh_42" {
+		t.Fatalf("verify = (%q,%d,%q,%v), want (octocat,42,u_gh_42,true)", login, gid, wallet, ok)
 	}
 	// Tamper: flip a char in the signature half.
-	if _, _, ok := b.verifySession(cookie + "x"); ok {
+	if _, _, _, ok := b.verifySession(cookie + "x"); ok {
 		t.Error("tampered cookie should not verify")
 	}
-	if _, _, ok := b.verifySession("garbage"); ok {
+	if _, _, _, ok := b.verifySession("garbage"); ok {
 		t.Error("garbage cookie should not verify")
 	}
 	// Expired.
 	old := b.signSession("octocat", 42, time.Now().Add(-time.Minute).Unix())
-	if _, _, ok := b.verifySession(old); ok {
+	if _, _, _, ok := b.verifySession(old); ok {
 		t.Error("expired cookie should not verify")
 	}
 	// A different broker key must not validate this broker's cookie.
 	_, priv2, _ := ed25519.GenerateKey(nil)
 	b2 := &broker{priv: priv2}
-	if _, _, ok := b2.verifySession(cookie); ok {
+	if _, _, _, ok := b2.verifySession(cookie); ok {
 		t.Error("cookie from another broker key should not verify")
 	}
 }

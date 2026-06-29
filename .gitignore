@@ -22,3 +22,7 @@ CLAUDE.md
 # coverage artifacts (local; CI publishes to Pages)
 cover.out
 coverage.html
+
+# Apple Sign in with Apple private keys — never commit
+*.p8
+AuthKey_*.p8

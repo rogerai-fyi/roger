@@ -538,8 +538,12 @@ const (
 // pubkey. Consumers never need one; it gates earning (priced node registration,
 // future withdraws). Additive - the consume/wallet paths ignore it.
 type Owner struct {
-	GitHubID  int64  `json:"github_id"`
-	Login     string `json:"login"`
+	GitHubID int64  `json:"github_id"`
+	Login    string `json:"login"`
+	// AppleSub is the stable, app-scoped Apple user id (Sign in with Apple's `sub`), the
+	// binding key for an Apple-linked account. A pubkey may carry a github_id, an apple_sub,
+	// or both (one device that linked both providers). Empty for GitHub-only owners.
+	AppleSub  string `json:"apple_sub,omitempty"`
 	Pubkey    string `json:"pubkey"` // hex ed25519 user pubkey (the binding key)
 	CreatedAt int64  `json:"created_at"`
 	// Name is the GitHub display name captured at bind (may be empty if the user has
@@ -1082,6 +1086,19 @@ func (m *Mem) BindOwner(o Owner) error {
 	if existing, ok := m.owners[o.Pubkey]; ok {
 		if existing.CreatedAt != 0 {
 			o.CreatedAt = existing.CreatedAt // preserve the original bind time on refresh
+		}
+		// Cross-provider preserve: binding ONE provider must never drop the OTHER's link on
+		// the same pubkey (a device can link both GitHub and Apple). A GitHub bind carries a
+		// non-zero GitHubID/Login and empty AppleSub; an Apple bind the reverse - so fill each
+		// provider id from the existing row only when the incoming bind doesn't set it.
+		if o.GitHubID == 0 {
+			o.GitHubID = existing.GitHubID
+			if o.Login == "" {
+				o.Login = existing.Login
+			}
+		}
+		if o.AppleSub == "" {
+			o.AppleSub = existing.AppleSub
 		}
 		// Email: NEVER clobber a user-set email on re-login. GitHub only fills it when
 		// the account has none on file yet (existing empty); a value the user set via
