@@ -5,8 +5,6 @@
 #   the Stripe Connect transfer + reversal + retry sweep
 #   (cmd/rogerai-broker/payouts.go), and refreshConnectStatus / the KYC gate.
 #
-# No step definitions or Go yet — approve this spec first.
-#
 # Money/lot model recap:
 #   - A request's owner share becomes an earning lot in state `held`. After the
 #     120-day hold (policy default) it promotes to `payable`; a payout marks it
