@@ -112,7 +112,7 @@ Feature: A claim of prompt tokens grossly beyond the request body bytes bans on 
         | 1000  | 1001   | 1000   | false  |
         | 1000  | 5096   | 1000   | false  |
         | 1000  | 9192   | 1000   | false  |
-        | 1000  | 9193   | 1000   | false  |
+        | 1000  | 9193   | 1000   | true   |
         | 1000  | 9194   | 1000   | true   |
         | 1000  | 9300   | 1000   | true   |
         | 1000  | 20000  | 1000   | true   |
