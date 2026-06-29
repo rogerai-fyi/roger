@@ -2063,15 +2063,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			// Running min/max of the eligible OUTPUT price - the user's effective range
 			// for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
 			// the market input-price min). Free (out<=0) offers don't move the min/max.
-			if out > 0 {
-				if !haveRange || out < rangeMin {
-					rangeMin = out
-				}
-				if !haveRange || out > rangeMax {
-					rangeMax = out
-				}
-				haveRange = true
-			}
+			rangeMin, rangeMax, haveRange = extendOutRange(out, rangeMin, rangeMax, haveRange)
 			// Capacity-aware load is THIS instance's exact local inflight PLUS the merged
 			// peer-instance load (Stage 2). peerInflight is the in-memory cross-instance
 			// snapshot refreshed on the background loop; it is empty (adds 0) when
