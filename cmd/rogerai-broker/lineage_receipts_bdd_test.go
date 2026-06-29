@@ -623,20 +623,20 @@ func (s *lrState) ownerFlagged() error {
 }
 
 func (s *lrState) zeroReceiptRecorded() error {
-	// The void path still SignBroker's + records a $0 metering receipt for the lineage trail.
-	if s.hdrReceipt == "" {
-		return nil // some void shapes return the node body without the receipt header; the
-		// $0 metering receipt is recorded in the ledger regardless. The charge-0 + owner-strike
-		// assertions above already prove the void path ran + recorded; accept either transport.
-	}
-	rec, err := protocol.DecodeReceipt(s.hdrReceipt)
+	// The void path SignBroker's a $0 receipt and records a $0 metering Entry for the lineage
+	// trail (tunnel.go: rec.SignBroker(b.priv); Settle(payer,node,0,0,rec)); it sets NO
+	// X-RogerAI-Receipt header on the void response, so assert the recorded $0 metering entry
+	// directly from the ledger rather than the (absent) transport header.
+	entries, err := s.b.db.RecentByNode("n1", 50)
 	if err != nil {
 		return err
 	}
-	if rec.BrokerSig == "" {
-		return fmt.Errorf("the $0 metering receipt must be broker-co-signed for the lineage trail")
+	for _, e := range entries {
+		if e.Cost == 0 {
+			return nil // a $0 metering entry was recorded for the lineage trail
+		}
 	}
-	return nil
+	return fmt.Errorf("the void path must record a $0 metering entry for the lineage trail; none found")
 }
 
 // --- idempotent settle ------------------------------------------------------
