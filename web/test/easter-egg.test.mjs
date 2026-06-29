@@ -31,13 +31,9 @@ test("makeMultiClick: slow clicks (gaps > window) never accumulate", () => {
   assert.equal(fired, 0);
 });
 
-test("easeOutCubic / easeInCubic: pinned at 0 and 1, eased between", () => {
-  assert.equal(R.easeOutCubic(0), 0);
-  assert.equal(R.easeOutCubic(1), 1);
-  assert.equal(R.easeInCubic(0), 0);
-  assert.equal(R.easeInCubic(1), 1);
-  // out-cubic is fast-then-slow (ahead of linear at the midpoint); in-cubic is the mirror.
-  assert.ok(R.easeOutCubic(0.5) > 0.5);
-  assert.ok(R.easeInCubic(0.5) < 0.5);
-  assert.ok(Math.abs(R.easeOutCubic(0.5) + R.easeInCubic(0.5) - 1) < 1e-9);
+test("easeInOutCubic: pinned at 0, 0.5, 1 (smooth, symmetric)", () => {
+  assert.equal(R.easeInOutCubic(0), 0);
+  assert.equal(R.easeInOutCubic(1), 1);
+  assert.ok(Math.abs(R.easeInOutCubic(0.5) - 0.5) < 1e-9);
+  assert.ok(R.easeInOutCubic(0.25) < 0.25 && R.easeInOutCubic(0.75) > 0.75); // ease-in then ease-out
 });

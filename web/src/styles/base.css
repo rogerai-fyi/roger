@@ -726,33 +726,3 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   background: var(--ink-900); color: var(--paper); white-space: nowrap;
   box-shadow: var(--e-2);
 }
-
-/* ---- footer easter egg: "Ping breaks loose" (5 fast clicks on the .orange3d) --------------
-   The animation is driven frame-by-frame in js/easter-egg.js; this is the static scaffold. The
-   orange's cursor:pointer + :hover/:active affordance already live with its base rules above, so
-   here we add only the per-click pulse. All motion stays on transform/opacity/filter. */
-.orange3d.is-pinged { animation: orangePing .42s ease; }   /* per-click "feel the egg building" */
-@keyframes orangePing { 0% { transform: scale(1); } 42% { transform: scale(1.22); } 100% { transform: scale(1); } }
-
-.ping-stage {                 /* full-viewport, click-through; clips Ping below the edge */
-  position: fixed; inset: 0; z-index: 9000; pointer-events: none; overflow: hidden;
-}
-.ping-stage__glow {           /* soft brand-red bloom behind Ping - also lifts it off dark theme */
-  position: absolute; left: 0; top: 0; width: 240px; height: 240px; margin: -120px 0 0 -120px;
-  background: radial-gradient(circle, var(--live-glow), transparent 66%);
-  opacity: 0; will-change: transform, opacity;
-}
-.ping-dancer {
-  position: absolute; left: 0; top: 0; width: 84px; height: 84px;
-  will-change: transform, opacity;
-}
-/* the soft shadow grounds Ping on the light theme; the faint light ring keeps the
-   near-black tile readable on the dark theme. */
-.ping-dancer img {
-  width: 100%; height: 100%; display: block; border-radius: 18px;
-  box-shadow: 0 12px 26px rgba(0, 0, 0, .28), 0 0 0 1px rgba(150, 150, 150, .16);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .orange3d.is-pinged { animation: none; }   /* JS also swaps the big glide for a gentle centre fade */
-}
