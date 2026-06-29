@@ -903,15 +903,19 @@ func (m model) agentView(w int) string {
 	} else {
 		mdlCell = stDim.Render(" on ") + stKey.Render(mdl)
 	}
+	// MODE CLARITY: AGENT (tool-calling) keeps the RED accent bar + a "· tools" tag, so it
+	// reads as visibly distinct from the mono-barred TUNE-IN (basic chat) view that shares
+	// this shape - red bar + "tools" = "this mode can run tools (read/list auto, write/run
+	// confirm)", at a glance.
 	if m.compact {
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") +
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
 			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		if mdl != "" && !m.narrow() {
 			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
 		}
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") +
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
 			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")

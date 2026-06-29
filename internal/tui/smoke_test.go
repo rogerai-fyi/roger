@@ -78,12 +78,13 @@ func TestConnectConfirmAndHelp(t *testing.T) {
 		t.Error("endpoint should NOT bind before the user accepts")
 	}
 
-	// accept (enter) -> endpoint binds AND we auto-switch to CHANNEL mode with a
-	// compact header (compact-on-connect). The endpoint is revealed via /endpoint.
+	// accept (enter) -> endpoint binds AND we auto-switch to the tuned-in chat view. The
+	// header reads "TUNE-IN" (basic chat, mode-clarity rename from "CHANNEL"); the endpoint
+	// is revealed via /endpoint.
 	om, _ := cm.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	ov := om.View()
-	if !strings.Contains(ov, "CHANNEL") || !strings.Contains(ov, "on channel nyx-home") {
-		t.Errorf("expected compact CHANNEL view after accept:\n%s", ov)
+	if !strings.Contains(ov, "TUNE-IN") || !strings.Contains(ov, "on channel nyx-home") {
+		t.Errorf("expected the TUNE-IN chat view after accept:\n%s", ov)
 	}
 	// /endpoint in-session surfaces the bound 127.0.0.1 endpoint.
 	em := om
