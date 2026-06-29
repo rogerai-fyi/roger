@@ -6,8 +6,12 @@
 # GROUND TRUTH (cmd/rogerai-broker/market.go):
 #   discover()  -> the live public offers (on-air, not private, within nodeTTL).
 #   market() -> serveCachedJSON("market:"+query, publicMarketTTL, computeMarket).
-#   computeMarket() -> per-model aggregate (offers, price range, signal).
+#   computeMarket() -> per-model aggregate (offers, price range, signal, neutral $-tier).
 #   private nodes (broker.private[id], main.go:53) are EXCLUDED from /discover + /market.
+#   The per-model price_tier mirrors assignPriceTiers: priceTier(cheapest active OUT-price,
+#   external reference preferred else the live per-model median of online OUT-prices) -> 0..4,
+#   so the /market row carries the SAME $-reading the cheapest provider's offer shows on
+#   /discover (single source of truth; the homepage marketplace teaser renders it).
 #
 # Enforced by: cmd/rogerai-broker market/discover tests. (Doc spec; convertible to godog.)
 
@@ -45,3 +49,19 @@ Feature: Discovery — the public marketplace
     Given two nodes for "gpt-oss-20b": one freshly probed, one going stale
     When /market is computed
     Then the fresher node contributes a stronger signal than the staling one
+
+  # The per-model aggregate carries a NEUTRAL buyer-facing $-tier for the model's BEST
+  # (cheapest) active out-price, graded vs the live per-model median (external reference
+  # preferred) — the SAME priceTier the cheapest provider's offer shows on /discover, so
+  # every surface agrees. A thin market (no reference, fewer than 3 online providers) WITHHOLDS
+  # the tier (0). Earlier the /market aggregate carried no tier at all.
+  Scenario Outline: /market carries a per-model neutral $-tier for the model's best price
+    Given several nodes on air for "<model>" at out-prices "<prices>"
+    When a consumer GETs /market
+    Then "<model>" carries price_tier <tier>
+
+    Examples:
+      | model       | prices              | tier |
+      | gpt-oss-20b  | 0.04,0.10,0.10,0.12 | 1    |
+      | qwen3-4b     | 0.10,0.10,0.10,0.12 | 2    |
+      | niche-model  | 0.10,0.50           | 0    |

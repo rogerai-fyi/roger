@@ -16,6 +16,8 @@ import (
 	"context"
 	"fmt"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,6 +239,37 @@ func (s *dmState) fresherContributesStronger() error {
 	return nil
 }
 
+// --- Scenario 7: /market carries a per-model neutral $-tier ----------------
+
+// nodesAtOutPrices puts one online node per listed out-price on air for `model` (PriceIn ==
+// PriceOut == the listed price), so computeMarket's per-model price_tier sees a real spread.
+func (s *dmState) nodesAtOutPrices(model, prices string) error {
+	for i, p := range strings.Split(prices, ",") {
+		v, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		if err != nil {
+			return err
+		}
+		s.addNode(fmt.Sprintf("n-%s-%d", model, i), model, v, 0)
+	}
+	return nil
+}
+
+func (s *dmState) marketTierIs(model, tier string) error {
+	want, err := strconv.Atoi(tier)
+	if err != nil {
+		return err
+	}
+	s.getMarket()
+	m, ok := s.marketFor(model)
+	if !ok {
+		return fmt.Errorf("%q must appear in the /market aggregate", model)
+	}
+	if m.PriceTier != want {
+		return fmt.Errorf("%q /market price_tier = %d, want %d (cheapest active out-price vs the live median)", model, m.PriceTier, want)
+	}
+	return nil
+}
+
 func TestDiscoveryMarketBDD(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -262,6 +295,8 @@ func TestDiscoveryMarketBDD(t *testing.T) {
 			sc.Step(`^two nodes for "([^"]*)": one freshly probed, one going stale$`, st.twoNodesFreshAndStaling)
 			sc.Step(`^/market is computed$`, st.marketComputed)
 			sc.Step(`^the fresher node contributes a stronger signal than the staling one$`, st.fresherContributesStronger)
+			sc.Step(`^several nodes on air for "([^"]*)" at out-prices "([^"]*)"$`, st.nodesAtOutPrices)
+			sc.Step(`^"([^"]*)" carries price_tier (\d+)$`, st.marketTierIs)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
