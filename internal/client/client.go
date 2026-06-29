@@ -72,6 +72,7 @@ func Search(broker string) error {
 			Model        string  `json:"model"`
 			PriceIn      float64 `json:"price_in"`
 			PriceOut     float64 `json:"price_out"`
+			PriceTier    int     `json:"price_tier"` // broker's neutral 0..4 $-tier (0 = FREE/unknown)
 			Ctx          int     `json:"ctx"`
 			Online       bool    `json:"online"`
 			Confidential bool    `json:"confidential"`
@@ -89,10 +90,11 @@ func Search(broker string) error {
 	}
 	// Station rows mirror the TUI band table's instrument language so the piped CLI
 	// reads as a terminal twin of the on-screen one: a ◉ on-air / ○ off-air glyph in
-	// the STATUS cell, a ▁▂▃▄▅▆▇ SIGNAL tower driven by tok/s, and the verified ◆ in
-	// FLAGS. Plain text (no color), so it degrades cleanly under NO_COLOR / a pipe.
-	fmt.Printf("%-8s %-12s %-22s %-9s %-9s %-7s %-7s %-7s %-7s %s\n",
-		"STATUS", "SIGNAL", "MODEL", "$/1M in", "$/1M out", "TOK/S", "CTX", "REGION", "NODE", "FLAGS")
+	// the STATUS cell, a ▁▂▃▄▅▆▇ SIGNAL tower driven by tok/s, the broker's neutral
+	// $-TIER right beside the out-price, and the verified ◆ in FLAGS. Plain text (no
+	// color), so it degrades cleanly under NO_COLOR / a pipe.
+	fmt.Printf("%-8s %-12s %-22s %-9s %-9s %-13s %-7s %-7s %-7s %-7s %s\n",
+		"STATUS", "SIGNAL", "MODEL", "$/1M in", "$/1M out", "TIER", "TOK/S", "CTX", "REGION", "NODE", "FLAGS")
 	for _, o := range d.Offers {
 		status := glyphOnAir
 		if !o.Online {
@@ -109,10 +111,32 @@ func Search(broker string) error {
 		if o.FreeNow {
 			flags += "FREE-now"
 		}
-		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-7s %-7d %-7s %-7s %s\n",
-			status, signalTower(o.Signal, o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut, tps, o.Ctx, o.Region, o.NodeID, flags)
+		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-13s %-7s %-7d %-7s %-7s %s\n",
+			status, signalTower(o.Signal, o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut,
+			priceTierLabel(o.PriceTier, o.PriceOut), tps, o.Ctx, o.Region, o.NodeID, flags)
 	}
 	return nil
+}
+
+// priceTierLabel renders the broker's neutral price-tier (0..4) + the active OUT-price as
+// a compact, plain-text cell for the CLI band table - the SAME contract as the broker's
+// renderPriceTier and the TUI's priceTierBadge so every surface reads alike: a FREE band
+// shows "FREE"; a priced band shows "$".."$$$$"; and ONLY the cheapest tier is
+// editorialized (" good price") - $$..$$$$ are neutral, never negative. Tier 0 / unknown
+// (a thin market we can't honestly classify) shows nothing - the raw price already carries
+// it. No color: the glyphs + the one favorable word carry the read under NO_COLOR / a pipe.
+func priceTierLabel(tier int, priceOut float64) string {
+	if priceOut <= 0 {
+		return "FREE"
+	}
+	if tier < 1 || tier > 4 {
+		return ""
+	}
+	label := strings.Repeat("$", tier)
+	if tier == 1 {
+		label += " good price"
+	}
+	return label
 }
 
 // Shared CLI iconography, kept in lock-step with the TUI's glyphs - BOTH route through

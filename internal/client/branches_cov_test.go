@@ -95,12 +95,13 @@ func TestFailoverErrorBranches(t *testing.T) {
 }
 
 // TestSearchRendersEveryFlag covers Search's offer-row loop across the online/offline,
-// confidential, free-now, and measured/unmeasured-tps combinations.
+// confidential, free-now, measured/unmeasured-tps, and price-tier (good-price / neutral
+// bars) combinations, plus the TIER column header.
 func TestSearchRendersEveryFlag(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	b := jsonServer(t, 0, `{"offers":[
-		{"node_id":"n1","model":"m","price_in":0.1,"price_out":0.2,"online":true,"confidential":true,"free_now":true,"tps":120,"signal":80},
-		{"node_id":"n2","model":"m","price_in":0.3,"price_out":0.4,"online":false,"tps":0}
+		{"node_id":"n1","model":"m","price_in":0.1,"price_out":0.2,"price_tier":1,"online":true,"confidential":true,"free_now":true,"tps":120,"signal":80},
+		{"node_id":"n2","model":"m","price_in":0.3,"price_out":0.4,"price_tier":3,"online":false,"tps":0}
 	]}`, nil)
 
 	orig := os.Stdout
@@ -127,6 +128,48 @@ func TestSearchRendersEveryFlag(t *testing.T) {
 	}
 	if !strings.Contains(out, "FREE-now") {
 		t.Errorf("the free_now offer (n1) should be flagged FREE-now; got:\n%s", out)
+	}
+	// The neutral $-tier renders beside the price: the TIER column header, n1's
+	// editorialized cheapest tier ("$ good price"), and n2's neutral "$$$".
+	if !strings.Contains(out, "TIER") {
+		t.Errorf("Search should print the TIER column header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "good price") {
+		t.Errorf("the tier-1 offer (n1) should render the \"good price\" tag; got:\n%s", out)
+	}
+	if !strings.Contains(out, "$$$") {
+		t.Errorf("the tier-3 offer (n2) should render \"$$$\"; got:\n%s", out)
+	}
+}
+
+// TestPriceTierLabel locks the CLI band table's $-tier cell to the broker's renderPriceTier
+// contract (and the TUI's priceTierBadge), so every surface reads the price alike: FREE wins
+// on a zero/negative price; a priced band shows "$".."$$$$"; ONLY the cheapest tier is
+// editorialized (" good price"); and an out-of-range / tier-0 (thin, unclassifiable) band
+// shows nothing - the raw price already carries it.
+func TestPriceTierLabel(t *testing.T) {
+	cases := []struct {
+		name     string
+		tier     int
+		priceOut float64
+		want     string
+	}{
+		{"free wins over any tier", 4, 0, "FREE"},
+		{"negative price is free", 2, -0.5, "FREE"},
+		{"tier 1 is editorialized", 1, 0.05, "$ good price"},
+		{"tier 2 neutral", 2, 0.20, "$$"},
+		{"tier 3 neutral", 3, 1.50, "$$$"},
+		{"tier 4 neutral", 4, 9.00, "$$$$"},
+		{"tier 0 unknown shows nothing", 0, 0.20, ""},
+		{"tier above range shows nothing", 5, 0.20, ""},
+		{"tier below range shows nothing", -1, 0.20, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := priceTierLabel(tc.tier, tc.priceOut); got != tc.want {
+				t.Errorf("priceTierLabel(%d, %v) = %q, want %q", tc.tier, tc.priceOut, got, tc.want)
+			}
+		})
 	}
 }
 
