@@ -728,11 +728,10 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 
 /* ---- footer easter egg: "Ping breaks loose" (5 fast clicks on the .orange3d) --------------
-   The animation itself is driven frame-by-frame in js/easter-egg.js; this is the static
-   scaffold + the subtle per-click affordance. All motion stays on transform/opacity/filter. */
-.orange3d { cursor: pointer; transition: transform .18s ease; }
-.orange3d:hover { transform: translateY(-1px) scale(1.06); }
-.orange3d.is-pinged { animation: orangePing .42s ease; }
+   The animation is driven frame-by-frame in js/easter-egg.js; this is the static scaffold. The
+   orange's cursor:pointer + :hover/:active affordance already live with its base rules above, so
+   here we add only the per-click pulse. All motion stays on transform/opacity/filter. */
+.orange3d.is-pinged { animation: orangePing .42s ease; }   /* per-click "feel the egg building" */
 @keyframes orangePing { 0% { transform: scale(1); } 42% { transform: scale(1.22); } 100% { transform: scale(1); } }
 
 .ping-stage {                 /* full-viewport, click-through, 3D context */
@@ -751,5 +750,5 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .ping-dancer img { width: 100%; height: 100%; display: block; border-radius: 19px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .orange3d:hover { transform: none; }   /* JS also swaps the big glide for a gentle centre fade */
+  .orange3d.is-pinged { animation: none; }   /* JS also swaps the big glide for a gentle centre fade */
 }
