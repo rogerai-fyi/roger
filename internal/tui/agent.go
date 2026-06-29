@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -51,6 +52,15 @@ type agentRuntime struct {
 	// harness loop's model call, so a hung/slow station call is dropped at once, no
 	// further steps fire (no more billing), and input is handed back. nil between turns.
 	cancel context.CancelFunc
+	// running is true from the instant a turn's goroutine is launched until it returns
+	// (after Send + close). It is SEPARATE from the UI's agentBusy: a force-stop (a second
+	// esc) clears agentBusy to free the prompt immediately, but the goroutine may still be
+	// unwinding (e.g. a run_shell that ignores ctx self-terminates at its own timeout).
+	// Because that goroutine still owns the single shared loop, a new turn must NOT start
+	// until running clears - submitAgentPrompt checks this and queues instead, so we never
+	// race two turns on one loop. Written by the goroutine, read on the UI goroutine, so it
+	// is atomic.
+	running atomic.Bool
 }
 
 // agentConfirm is one pending confirm for a side-effecting tool, surfaced as a y/N
@@ -79,7 +89,8 @@ type (
 	agentEventMsg harness.Event
 	// agentConfirmMsg pauses the turn for a y/N on a mutating tool.
 	agentConfirmMsg agentConfirm
-	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input.
+	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input
+	// and auto-sending the next queued prompt (if any).
 	agentDoneMsg struct{}
 	// agentCostMsg adds a per-turn relay cost to the running AGENT session total.
 	agentCostMsg float64
@@ -329,15 +340,31 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// result still lands in the transcript when we return).
 	switch k.String() {
 	case "esc":
-		// While a turn is in flight, esc CANCELS it (abort the model call, stop further
-		// steps + billing) and hands the prompt back - staying in the AGENT view so the
-		// user can immediately ask again. When idle, esc leaves to BROWSE. This is the fix
-		// for "the agent hung on a slow station and I couldn't get out or stop the spend".
+		// While a turn is in flight, esc CANCELS it; when idle, esc leaves to BROWSE. This is
+		// the fix for "the agent hung on a slow station and I couldn't get out or stop the
+		// spend", in two presses so a lagging/wedged turn can NEVER trap the user:
+		//   1st esc - graceful: abort the model call + stop further steps/billing, and wait a
+		//             beat for the loop to unwind cleanly (the EventError + agentDoneMsg that
+		//             follow re-enable the prompt on their own).
+		//   2nd esc - force: hand the prompt back NOW even if the goroutine's HTTP abort lags
+		//             or a tool ignores ctx; the loop unwinds in the background (rt.running
+		//             keeps the next turn from racing the shared loop). No more "cancelling…"
+		//             dead end.
 		if m.agentBusy {
 			if m.agent != nil && m.agent.cancel != nil {
-				m.agent.cancel()
+				m.agent.cancel() // idempotent; make sure the abort is in flight on either press
 			}
-			m.status = stDim.Render("cancelling the turn… (esc again to leave AGENT)")
+			if !m.agentCanceling {
+				m.agentCanceling = true
+				m.status = stDim.Render("cancelling the turn… (esc again to force-stop)")
+				return m, nil
+			}
+			// Second esc: force the UI back to a usable prompt immediately.
+			m.agentBusy = false
+			m.agentCanceling = false
+			m.agentTurnState = poseWaiting
+			m.agentLines = append(m.agentLines, stRed.Render("✕ ")+stEmber.Render("turn stopped"))
+			m.status = stDim.Render("turn stopped · ask again, or esc to leave AGENT")
 			return m, nil
 		}
 		m.agentIn.Blur()
@@ -386,9 +413,6 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.ScrollDown(1)
 		return m, nil
 	case "enter":
-		if m.agentBusy {
-			return m, nil
-		}
 		p := strings.TrimSpace(m.agentIn.Value())
 		if p == "" {
 			return m, nil
@@ -397,25 +421,92 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Record the sent prompt in the AGENT recall history (collapses a repeat of the
 		// previous entry, resets the Up/Down cursor). Both chat turns and /commands count.
 		m.agentHist.add(p)
+		// QUEUE-WHILE-BUSY (founder: "queue like Claude"): a turn is already running, so this
+		// prompt is parked and auto-sent (FIFO) when the current turn finishes. The input
+		// stays typable throughout, so the next ask can be written without waiting.
+		if m.agentBusy {
+			m.agentQueued = append(m.agentQueued, p)
+			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
+			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
+			return m, nil
+		}
 		if strings.HasPrefix(p, "/") {
 			return m.runAgentCommand(p)
 		}
-		m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
-		// Re-resolve to the currently open channel so a model tuned in mid-session is
-		// used; if still nothing is tuned in, the turn fails into the same actionable
-		// hint rather than 504-ing on a phantom model.
-		m.refreshAgentModel()
-		m.agentBusy = true
-		m.agentTurnState = poseThinking // turn sent, no tokens yet
-		m.agentStart = time.Now()
-		return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
+		nm, cmd := m.submitAgentPrompt(p)
+		return nm, cmd
 	}
-	if m.agentBusy {
-		return m, nil // don't edit the prompt while a turn streams
-	}
+	// Input stays typable even while a turn runs, so the user can compose + queue the next
+	// ask (the enter handler above parks it). Only the modal sub-states (picker / confirm,
+	// handled earlier) own the keys.
 	var c tea.Cmd
 	m.agentIn, c = m.agentIn.Update(k)
 	return m, c
+}
+
+// submitAgentPrompt starts ONE agent turn for prompt p: it echoes the ask, re-resolves
+// the model, flips the busy/streaming state, and launches the loop goroutine + the drain.
+// It assumes p is a chat turn (not a slash command - those are handled by the caller / by
+// startQueuedPrompt). If a previous (force-stopped) turn's goroutine is still unwinding it
+// CANNOT start safely on the shared loop, so the prompt is re-queued to run when that
+// goroutine finally exits (agentDoneMsg) - this is what makes force-stop race-free.
+func (m model) submitAgentPrompt(p string) (model, tea.Cmd) {
+	if m.agent != nil && m.agent.running.Load() {
+		m.agentQueued = append([]string{p}, m.agentQueued...) // jump the queue: it was next
+		m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
+		return m, nil
+	}
+	m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+	// Re-resolve to the currently open channel so a model tuned in mid-session is used; if
+	// still nothing is tuned in, the turn fails into the same actionable hint rather than
+	// 504-ing on a phantom model.
+	m.refreshAgentModel()
+	m.agentBusy = true
+	m.agentCanceling = false
+	m.agentTurnState = poseThinking // turn sent, no tokens yet
+	now := time.Now()
+	m.agentStart = now
+	m.agentLastEvent = now // reset the stall clock; the first event re-stamps it
+	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
+}
+
+// startQueuedPrompt sends one dequeued item: a slash-command runs inline (it starts no
+// turn), anything else starts a turn. Used by dequeueAgentPrompts so a queued /clear or
+// /model behaves the same as if typed when idle.
+func (m model) startQueuedPrompt(p string) (model, tea.Cmd) {
+	if strings.HasPrefix(p, "/") {
+		nm, c := m.runAgentCommand(p)
+		if mm, ok := nm.(model); ok { // runAgentCommand always returns a model value
+			return mm, c
+		}
+		return m, c
+	}
+	return m.submitAgentPrompt(p)
+}
+
+// dequeueAgentPrompts drains queued prompts FIFO when a turn finishes: it runs leading
+// slash-commands inline and starts the first chat turn it finds (the rest then wait for
+// THAT turn's done). It stops early if a force-stopped turn's goroutine is still alive
+// (rt.running) so it never races the shared loop - those items run when that goroutine
+// exits (its agentDoneMsg re-enters here).
+func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
+	var cmds []tea.Cmd
+	for len(m.agentQueued) > 0 {
+		if m.agent != nil && m.agent.running.Load() {
+			break
+		}
+		next := m.agentQueued[0]
+		m.agentQueued = m.agentQueued[1:]
+		var c tea.Cmd
+		m, c = m.startQueuedPrompt(next)
+		if c != nil {
+			cmds = append(cmds, c)
+		}
+		if m.agentBusy {
+			break // a turn started; the remaining queue waits for its done
+		}
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // runAgentCommand handles the small set of in-AGENT slash commands (no chat turn):
@@ -434,6 +525,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		m.agentLines = nil
 		m.agentCost = 0
+		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
 		note("session cleared - the agent starts fresh (still no long-term memory)")
 		return m, nil
 	case "persona", "dj":
@@ -511,12 +603,19 @@ func (m model) startAgentTurn(prompt string) tea.Cmd {
 	// handler can reach it.
 	ctx, cancel := context.WithCancel(context.Background())
 	rt.cancel = cancel
+	// Mark the goroutine alive synchronously (on the UI goroutine, before the Cmd runs) so a
+	// next prompt processed before the goroutine even starts still sees running==true and
+	// queues rather than racing the shared loop.
+	rt.running.Store(true)
 	return func() tea.Msg {
 		go func() {
 			_, _ = rt.loop.Send(ctx, prompt, func(e harness.Event) {
 				rt.events <- e
 			})
 			cancel() // release the context's resources on any exit path
+			// Clear running BEFORE closing events so that by the time the drain observes the
+			// close (agentDoneMsg) and tries to dequeue, the next turn can start cleanly.
+			rt.running.Store(false)
 			close(rt.events)
 		}()
 		return nil
@@ -557,6 +656,10 @@ func (m model) waitAgentEvent() tea.Cmd {
 // drain so the next step flows. The tool-call / result lines use the shared
 // iconography (◉ a tool firing, with a clear ok / error / denied outcome).
 func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
+	// Every streamed step is proof of life: stamp it so the working line can tell
+	// STILL-RECEIVING from STALLED (agentWorkingLine) - the founder's "be smarter about
+	// detecting working vs hung".
+	m.agentLastEvent = time.Now()
 	// Drive the reactive corner Ping off the same event stream: interim/final prose is
 	// the answer coming over the wire (transmitting); a tool call is "working the dial";
 	// a tool result hands back to the model to reason on (thinking again).
@@ -821,7 +924,9 @@ func (m model) agentView(w int) string {
 	// the animation; quiet (NO_COLOR / non-TTY / reduced-motion) freezes it to one pose.
 	cornerRows := 0
 	if mdl != "" {
-		corner := agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact)
+		// live = the animation clock is advancing (a turn is in flight); when idle the frame
+		// is frozen, so the corner shows the open-eye standing-by frame, never a stuck blink.
+		corner := agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact, m.agentBusy)
 		for _, l := range corner {
 			b.WriteString(truncVisible("  "+l, w) + "\n")
 		}
@@ -881,13 +986,17 @@ func (m model) agentView(w int) string {
 		b.WriteString(truncVisible("  "+stDim.Render(prompt)+stEmber.Render("[y/N]")+stDim.Render("  deny=default"), w) + "\n")
 		return b.String()
 	}
-	// While a turn runs, a one-line working readout (radio voice), with elapsed secs.
+	// While a turn runs, a one-line working readout (radio voice): elapsed secs + an honest
+	// receiving-vs-stalled state and the per-call cap (see agentWorkingLine).
 	if m.agentBusy {
-		elapsed := 0
+		elapsed, sinceLast := 0, 0
 		if !m.agentStart.IsZero() {
 			elapsed = int(time.Since(m.agentStart).Seconds())
 		}
-		b.WriteString("  " + m.transmitLineFor(elapsed) + "\n")
+		if !m.agentLastEvent.IsZero() {
+			sinceLast = int(time.Since(m.agentLastEvent).Seconds())
+		}
+		b.WriteString("  " + m.agentWorkingLine(elapsed, sinceLast) + "\n")
 	}
 	// The always-live prompt: `ask ›` + the input view (cursor + echoed text). Clipped
 	// to width so a long placeholder / echoed line never overflows.
@@ -898,15 +1007,56 @@ func (m model) agentView(w int) string {
 		help := "enter asks  ·  /model switches  ·  esc exits AGENT  ·  /clear  ·  /persona  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
-			help = "esc cancels turn · ⌃c quits"
+			help = "type queues · esc cancels (2× force)"
 		case m.agentBusy:
-			help = "esc cancels the turn (stops the spend)  ·  ⌃c quits the app"
+			help = "type + enter queues the next ask  ·  esc cancels (esc again force-stops)  ·  ⌃c quits"
 		case m.narrow():
 			help = "enter ask · /model · esc exit · /clear"
 		}
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}
 	return b.String()
+}
+
+// agentStallSec is how long a turn may go with NO streamed event before the working line
+// stops claiming progress and says, plainly, that the station may be stuck. The built-in
+// tools self-bound (web_fetch 20s, run_shell 60s) and a model call is capped at
+// harness.PerCallCap, so a longer silence than this is genuinely suspect - worth flagging
+// with the out (esc) rather than spinning a reassuring lie. Tuned a touch above the tool
+// ceilings so a legitimately slow tool doesn't trip it.
+const agentStallSec = 25
+
+// agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner: it
+// distinguishes STILL-RECEIVING (an event/token streamed within agentStallSec) from
+// STALLED (nothing for longer - the station may be hung) and always surfaces the per-call
+// cap so the wait reads as bounded. esc is offered as the out on the stall line. The
+// spinner itself is compact/quiet-aware (a static glyph when motion is frozen).
+//
+// elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last
+// streamed event. Both are passed in (not read off the clock) so the render stays a pure
+// function of state - easy to test deterministically.
+func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
+	spin := workingSpinner(m.frame)
+	if m.compact || quiet {
+		spin = staticSpinner()
+	}
+	capSec := int(harness.PerCallCap / time.Second)
+	// STALLED: nothing has streamed for a while. Don't fake progress - say it may be stuck
+	// and point at the out. Ember (not the live green) flags the concern.
+	if sinceLastSec >= agentStallSec {
+		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds — may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
+	}
+	// RECEIVING vs WORKING: streaming prose means the answer is arriving; otherwise the
+	// model is thinking or a tool is running. Either way we heard from it recently.
+	state := "working…"
+	if m.agentTurnState == poseStreaming {
+		state = "receiving…"
+	}
+	line := spin + stLive.Render("  "+state)
+	if elapsedSec >= 2 {
+		line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
+	}
+	return line
 }
 
 // agentRoot is the cwd sandbox root the agent's filesystem tools are confined to. It

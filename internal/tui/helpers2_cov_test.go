@@ -52,7 +52,7 @@ func TestElide(t *testing.T) {
 func TestCornerFrameFor(t *testing.T) {
 	for _, p := range []agentPose{poseWaiting, poseThinking, poseStreaming, poseTool} {
 		for f := 0; f < 40; f++ {
-			head, eye := cornerFrameFor(p, f)
+			head, eye := cornerFrameFor(p, f, true)
 			if head == (cornerHead{}) && eye == "" {
 				t.Fatalf("cornerFrameFor(%v,%d) returned an empty frame", p, f)
 			}

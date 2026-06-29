@@ -22,6 +22,12 @@ type CostFunc func(credits float64)
 // over a minute, and a tool-use turn is a normal completion under the hood.
 const brokerTimeout = 300 * time.Second
 
+// PerCallCap is the hard per-model-call timeout the agent relay enforces (the
+// BrokerCompleter HTTP timeout). It is exported so the TUI's working line can surface
+// the ceiling ("cap 300s") - so a slow turn reads as bounded, not bottomless, and the
+// "is it stuck?" question has a concrete deadline. Mirrors brokerTimeout exactly.
+const PerCallCap = brokerTimeout
+
 // agentMaxTokens is the per-turn completion budget for the agent. It is the SAME shared
 // ceiling the in-channel chat uses (client.MaxAnswerTokens) so the two surfaces never
 // drift: deliberately generous (not the old 1024) because the channel's model is often a
