@@ -161,6 +161,25 @@ func priceMod(out, rangeMin, rangeMax, kPrice, priceExp float64) float64 {
 	return clamp01(1 - kPrice*math.Pow(norm, priceExp))
 }
 
+// extendOutRange folds an eligible offer's OUTPUT price into the running [min,max] range
+// pick feeds to priceMod, IGNORING free (out<=0) offers so a giveaway never moves the
+// eligible price window (rangeMin stays the cheapest PAID price, not 0). Returns the
+// updated range and whether any paid price has been seen yet. This is the exact derivation
+// pickFor uses; extracted so the "free never moves the range" invariant is directly
+// testable (a free out=0 leaves the window and haveRange untouched).
+func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, float64, bool) {
+	if !(out > 0) { // exact negation of the original `if out > 0` guard (NaN-safe: NaN is ignored)
+		return rangeMin, rangeMax, haveRange
+	}
+	if !haveRange || out < rangeMin {
+		rangeMin = out
+	}
+	if !haveRange || out > rangeMax {
+		rangeMax = out
+	}
+	return rangeMin, rangeMax, true
+}
+
 // hwConcurrencyClass is the conservative cold-start capacity prior from the node's
 // self-asserted hw string (spec 1.1d): multi-GPU => 4, single discrete GPU => 2,
 // else 1. DISPLAY/prior only - never score-trusted; washed out by the first real
