@@ -97,3 +97,86 @@ func TestAgentWorkingLineMeter(t *testing.T) {
 		t.Errorf("compact should not show the sweep bar, got %q", cm)
 	}
 }
+
+// TestFmtTokens pins the meter's token formatter: exact below 1000, a one-decimal "k"
+// above (so an accumulating session readout stays compact yet keeps moving), and a
+// clamp to 0 for the impossible-negative input.
+func TestFmtTokens(t *testing.T) {
+	for _, c := range []struct {
+		n    int
+		want string
+	}{
+		{0, "0"}, {1, "1"}, {42, "42"}, {999, "999"},
+		{1000, "1.0k"}, {1234, "1.2k"}, {5678, "5.7k"}, {47650, "47.6k"},
+		{-5, "0"},
+	} {
+		if got := fmtTokens(c.n); got != c.want {
+			t.Errorf("fmtTokens(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+// TestMeterTotals pins the shared session-telemetry renderer "↑<in> ↓<out> · $<cost>":
+// the token half is omitted until there are tokens, the cost while it is still zero, and
+// the whole string is empty when there is nothing yet (so an idle meter shows no stray
+// separators). Reused by the live working line, the per-turn summary, and the wallet panel.
+func TestMeterTotals(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		in, out int
+		cost    float64
+		want    string
+	}{
+		{"empty", 0, 0, 0, ""},
+		{"cost only", 0, 0, 0.05, "$0.05"},
+		{"tokens only", 100, 250, 0, "↑100 ↓250"},
+		{"both", 1200, 3400, 0.05, "↑1.2k ↓3.4k · $0.05"},
+		{"one axis zero", 100, 0, 0.01, "↑100 ↓0 · $0.01"},
+	} {
+		if got := meterTotals(c.in, c.out, c.cost); got != c.want {
+			t.Errorf("%s: meterTotals(%d,%d,%g) = %q, want %q", c.name, c.in, c.out, c.cost, got, c.want)
+		}
+	}
+}
+
+// TestAgentWorkingLineTokens pins the HONEST ↑↓ token readout in the live meter: with no
+// tokens yet the working line shows no arrows; once the session has accrued billed tokens
+// the status line surfaces "↑<in> ↓<out>" beside the running cost (the broker's billed
+// re-count, exposed for display only).
+func TestAgentWorkingLineTokens(t *testing.T) {
+	defer func(q bool) { quiet = q }(quiet)
+	quiet = false
+
+	m := browseSeed(120)
+	m.agentTurnState = poseThinking
+
+	// No tokens yet: no arrows in the readout.
+	if got := stripANSI(m.agentWorkingLine(5, 1)); strings.Contains(got, "↑") || strings.Contains(got, "↓") {
+		t.Errorf("with no tokens the meter must not show ↑↓ arrows, got %q", got)
+	}
+
+	// After accruing billed tokens, the readout shows them.
+	m.agentTokensIn = 1234
+	m.agentTokensOut = 5678
+	got := stripANSI(m.agentWorkingLine(5, 1))
+	if !strings.Contains(got, "↑1.2k") || !strings.Contains(got, "↓5.7k") {
+		t.Errorf("the meter should surface ↑1.2k ↓5.7k, got %q", got)
+	}
+}
+
+// TestAgentCostMsgAccumulatesTokens pins the model side of the cost side-channel: each
+// agentCostMsg (one model call's billed result) ADDS its cost + token counts to the
+// running session totals, so a multi-call turn accrues an honest cumulative ↑↓ + cost.
+func TestAgentCostMsgAccumulatesTokens(t *testing.T) {
+	m := browseSeed(120)
+	nm, _ := m.Update(agentCostMsg{cost: 0.01, tokensIn: 100, tokensOut: 250})
+	m = asModel(nm)
+	nm, _ = m.Update(agentCostMsg{cost: 0.02, tokensIn: 50, tokensOut: 75})
+	m = asModel(nm)
+	if m.agentTokensIn != 150 || m.agentTokensOut != 325 {
+		t.Errorf("accumulated tokens = ↑%d ↓%d, want ↑150 ↓325", m.agentTokensIn, m.agentTokensOut)
+	}
+	if d := m.agentCost - 0.03; d > 1e-9 || d < -1e-9 {
+		t.Errorf("accumulated cost = %v, want 0.03", m.agentCost)
+	}
+}

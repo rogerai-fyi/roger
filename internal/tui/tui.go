@@ -667,6 +667,8 @@ type model struct {
 	agentStart          time.Time      // when the in-flight turn began (elapsed readout)
 	agentPendingConfirm *agentConfirm  // non-nil while a mutating tool awaits y/N
 	agentCost           float64        // running AGENT session cost in dollars
+	agentTokensIn       int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
+	agentTokensOut      int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
 	// /model selection state. agentPicked marks that the user chose the model
 	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
@@ -1304,7 +1306,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = stEmber.Render("! " + c.tool + " - y/n")
 		return m, nil
 	case agentCostMsg:
-		m.agentCost += float64(msg)
+		m.agentCost += msg.cost
+		m.agentTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count)
+		m.agentTokensOut += msg.tokensOut
 		m.agentLastEvent = time.Now() // a cost tick is activity too (proof of life)
 		// CRITICAL: a cost tick must NOT stop the stream. The drain (waitAgentEvent) is the
 		// single reader of the events channel; if this handler returns without re-arming it,

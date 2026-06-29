@@ -1457,6 +1457,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				// shows the truth, never a bare $0.00 for a paid turn. See fmtCostHeader; the
 				// LEDGER still settles `cost` at full precision (settleRequest above).
 				w.Header().Set("X-RogerAI-Cost", fmtCostHeader(cost))
+				// The BILLED token counts (the very prompt/completion counts the cost above was
+				// computed from — min(claim, broker re-count) per axis, with the input byte
+				// floor). Emitted as DISPLAY headers so a non-streaming consumer (the [0] AGENT
+				// harness meter) can show an honest ↑in ↓out beside the cost. This exposes the
+				// already-settled value; it does NOT touch billing (the ledger settled `cost`).
+				w.Header().Set("X-RogerAI-Tokens-In", strconv.Itoa(billedPrompt))
+				w.Header().Set("X-RogerAI-Tokens-Out", strconv.Itoa(billedCompletion))
 				w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
 				lockedUntil := int64(0)
 				if !until.IsZero() {
