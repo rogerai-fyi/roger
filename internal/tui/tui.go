@@ -4410,13 +4410,35 @@ func monthlyBudgetLine(m model) string {
 	return label + used + stDim.Render(" this month") + bar + tail
 }
 
+// walletPanel groups the money-facing readout into ONE dedicated block on the spend-limits
+// surface: the account/balance lockup, the running SESSION telemetry (↑in ↓out · $cost — the
+// broker's BILLED re-count, via the shared meterTotals so it never drifts from the AGENT /
+// CHANNEL live meters), and the determinate monthly-budget bar (monthlyBudgetLine, which owns
+// the one-red-AT-the-cap discipline). Pure function of model state; reduced-motion/narrow safe
+// (no animation; the budget bar already drops itself on a narrow terminal via monthlyBudgetLine).
+func (m model) walletPanel() string {
+	var b strings.Builder
+	b.WriteString("    " + stBrand.Render("wallet") + "\n")
+	// account + balance lockup (or the calm anonymous /login prompt; no balance when anon).
+	b.WriteString("    " + m.accountTag(false) + "\n")
+	// running SESSION telemetry — omitted entirely while the session is still empty, so an
+	// untouched session shows no stray "session" row (meterTotals returns "" at zero).
+	if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
+		b.WriteString("    " + stDim.Render("session  "+tot) + "\n")
+	}
+	// the determinate monthly-budget bar (its own indentation + the one red AT the cap).
+	b.WriteString(monthlyBudgetLine(m))
+	return b.String()
+}
+
 // limitsView is the per-model spend-limits editor (3.4).
 func (m model) limitsView(w int) string {
 	var b strings.Builder
 	b.WriteString("\n" + stBrand.Render("  spend limits") + stDim.Render("    what you are willing to pay, per band") + "\n\n")
-	// Monthly budget (a per-account spend cap, enforced server-side at every paid
-	// path). Read-only here; set it with `roger limit --monthly $X`.
-	b.WriteString(monthlyBudgetLine(m) + "\n\n")
+	// The dedicated WALLET panel: balance + running session totals + the monthly-budget bar
+	// (a per-account spend cap, enforced server-side at every paid path). Read-only here; set
+	// the cap with `roger limit --monthly $X`.
+	b.WriteString(m.walletPanel() + "\n\n")
 	b.WriteString(stDim.Render(fmt.Sprintf("    %-22s %-13s %-10s %-15s %s", "band", "max $/1M out", "min t/s", "live now", "status")) + "\n")
 	if len(m.limModels) == 0 {
 		b.WriteString(stDim.Render("    (none yet - press a / set one in `roger config set-limit`)") + "\n")
