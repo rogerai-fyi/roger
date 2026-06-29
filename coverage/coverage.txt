@@ -287,8 +287,8 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/provider_models.go:85:	providerM
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/provider_models.go:148:	providerModelsSet		86.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/provider_models.go:218:	applyOverrideLive		92.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/provider_models.go:261:	scheduleOrEmpty			100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/prune.go:29:		pruneStaleNodes			97.3%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/prune.go:97:		pruneStaleNodesSweep		100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/prune.go:29:		pruneStaleNodes			94.6%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/prune.go:97:		pruneStaleNodesSweep		92.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/ratelimit.go:40:	envFloat			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/ratelimit.go:50:	envStr				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/ratelimit.go:57:	loadRateLimiter			100.0%
