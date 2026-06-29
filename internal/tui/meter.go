@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ── live telemetry meter ──────────────────────────────────────────────────────
@@ -90,6 +92,49 @@ func tintSweep(bar string) string {
 	for _, r := range bar {
 		if r == '▰' {
 			b.WriteString(stLive.Render(string(r)))
+		} else {
+			b.WriteString(stDim.Render(string(r)))
+		}
+	}
+	return b.String()
+}
+
+// budgetBarWidth is the determinate monthly-budget bar's width in glyphs (dropped on
+// narrow terminals so the budget line never wraps).
+const budgetBarWidth = 16
+
+// meterBar renders a DETERMINATE fill bar — used where there IS a real total (e.g. the
+// monthly budget: spend ÷ cap), unlike the in-turn sweep which has none. round(frac*
+// width) filled ▰, the rest ▱, frac clamped to [0,1]. A real but sub-pip fraction (>0)
+// still shows ONE ▰ so "some used" never reads empty. Pure + rune-accurate; tintBar
+// adds color.
+func meterBar(frac float64, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	fill := int(frac*float64(width) + 0.5)
+	if fill > width {
+		fill = width
+	}
+	if fill == 0 && frac > 0 {
+		fill = 1
+	}
+	return strings.Repeat("▰", fill) + strings.Repeat("▱", width-fill)
+}
+
+// tintBar styles a meterBar: filled glyphs in fillStyle, the empty track dim. It only
+// styles — it never adds or drops a glyph.
+func tintBar(bar string, fillStyle lipgloss.Style) string {
+	var b strings.Builder
+	for _, r := range bar {
+		if r == '▰' {
+			b.WriteString(fillStyle.Render(string(r)))
 		} else {
 			b.WriteString(stDim.Render(string(r)))
 		}

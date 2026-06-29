@@ -180,3 +180,68 @@ func TestAgentCostMsgAccumulatesTokens(t *testing.T) {
 		t.Errorf("accumulated cost = %v, want 0.03", m.agentCost)
 	}
 }
+
+// TestMeterBar pins the DETERMINATE fill bar (a real fraction has a real total,
+// unlike the in-turn sweep): exact fill, clamping, the honest one-pip floor, and that
+// tintBar only styles.
+func TestMeterBar(t *testing.T) {
+	if got := meterBar(0, 10); got != strings.Repeat("▱", 10) {
+		t.Errorf("meterBar(0,10) = %q, want all empty", got)
+	}
+	if got := meterBar(1, 10); got != strings.Repeat("▰", 10) {
+		t.Errorf("meterBar(1,10) = %q, want all full", got)
+	}
+	if got := meterBar(0.5, 10); got != strings.Repeat("▰", 5)+strings.Repeat("▱", 5) {
+		t.Errorf("meterBar(0.5,10) = %q, want 5 full + 5 empty", got)
+	}
+	if meterBar(-1, 8) != strings.Repeat("▱", 8) {
+		t.Error("frac<0 should clamp to empty")
+	}
+	if meterBar(2, 8) != strings.Repeat("▰", 8) {
+		t.Error("frac>1 should clamp to full")
+	}
+	// a real but sub-pip fraction (>0) still shows ONE pip - "some used" never reads empty.
+	if first := []rune(meterBar(0.001, 20))[0]; first != '▰' {
+		t.Errorf("a tiny >0 fraction should fill at least one pip, got %q", string(first))
+	}
+	if n := len([]rune(meterBar(0.3, 24))); n != 24 {
+		t.Errorf("meterBar width = %d runes, want 24", n)
+	}
+	// tintBar styles only - it must not add or drop a glyph.
+	plain := meterBar(0.4, 20)
+	cnt := func(s, g string) int { return strings.Count(s, g) }
+	tinted := tintBar(plain, stLive)
+	if cnt(tinted, "▰") != cnt(plain, "▰") || cnt(tinted, "▱") != cnt(plain, "▱") {
+		t.Errorf("tintBar changed glyph counts: tinted ▰%d ▱%d vs plain ▰%d ▱%d",
+			cnt(tinted, "▰"), cnt(tinted, "▱"), cnt(plain, "▰"), cnt(plain, "▱"))
+	}
+}
+
+// TestMonthlyBudgetBar pins the budget bar wired into monthlyBudgetLine: it appears
+// only when logged in AND a cap is set, scales with spend/cap, and is absent for the
+// no-cap and logged-out cases (no denominator -> no determinate bar).
+func TestMonthlyBudgetBar(t *testing.T) {
+	m := browseSeed(120)
+	m.ghLogin = "octocat" // loggedInState() true
+	m.monthlyCap = 10.0
+
+	m.monthlySpend = 5.0 // 50%
+	half := stripANSI(monthlyBudgetLine(m))
+	full := strings.Count(half, "▰")
+	empty := strings.Count(half, "▱")
+	if full == 0 || empty == 0 {
+		t.Fatalf("a logged-in capped budget should render a partial bar, got %q", half)
+	}
+
+	m.monthlySpend = 9.5 // 95% -> more filled than at 50%
+	near := stripANSI(monthlyBudgetLine(m))
+	if strings.Count(near, "▰") <= full {
+		t.Errorf("95%% should fill more than 50%%: %d vs %d", strings.Count(near, "▰"), full)
+	}
+
+	// no cap -> no determinate bar (indeterminate "no cap" text instead).
+	m.monthlyCap = 0
+	if nocap := stripANSI(monthlyBudgetLine(m)); strings.ContainsAny(nocap, "▰▱") {
+		t.Errorf("no-cap budget must not show a determinate bar, got %q", nocap)
+	}
+}

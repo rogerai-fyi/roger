@@ -4389,13 +4389,21 @@ func monthlyBudgetLine(m model) string {
 	}
 	used := dollars(m.monthlySpend) + stDim.Render(" of ") + stEmber.Render(dollars(m.monthlyCap))
 	tail := ""
+	fillStyle := stLive
 	switch {
 	case m.monthlySpend >= m.monthlyCap:
 		tail = stEmber.Render("   ⚠ limit reached")
+		fillStyle = stPingEye // a red bar at the hard limit - the one deliberate red: you are stopped
 	case m.monthlySpend >= m.monthlyCap*0.80:
 		tail = stEmber.Render(fmt.Sprintf("   ⚠ %.0f%% used", m.monthlySpend/m.monthlyCap*100))
 	}
-	return label + used + stDim.Render(" this month") + tail
+	// A determinate spend ÷ cap bar (a real fraction, unlike the in-turn sweep). Dropped
+	// on narrow terminals so this single line never wraps.
+	bar := ""
+	if !m.narrow() {
+		bar = "   " + tintBar(meterBar(m.monthlySpend/m.monthlyCap, budgetBarWidth), fillStyle)
+	}
+	return label + used + stDim.Render(" this month") + bar + tail
 }
 
 // limitsView is the per-model spend-limits editor (3.4).
