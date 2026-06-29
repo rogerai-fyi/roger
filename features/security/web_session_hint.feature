@@ -27,14 +27,18 @@
 #   Go: cmd/rogerai-broker TestSetWebSessionCookies, TestClearWebSessionCookies,
 #       TestWebOriginHost.
 #
-# STATUS (P4 executable-spec pass): kept PROSE-ONLY on purpose. Rule 1 (the cookie
-# behavior) is Go and ALREADY enforced by the cited TestSetWebSessionCookies /
-# TestClearWebSessionCookies / TestWebOriginHost. Rule 2 ("the front-end probes /account
-# only when the hint says a session may exist") is BROWSER/JS behavior in web/src/js/
-# session.js (session.js runs, no /account fetch, no 401 in console, window.ROGER_BROKER_
-# CHECK) - a Go godog suite cannot drive it, and godog Strict needs every scenario bound,
-# so a single executable suite isn't a clean fit. FLAGGED for a JS/jsdom test harness
-# rather than faked under godog.
+# STATUS (P6): BOTH rules are now EXECUTABLE, across two suites (the feature stays prose
+# under godog because it spans Go + browser JS - no single godog suite fits, and godog
+# Strict needs every scenario bound). Rule 1 (the cookie behavior) is Go, enforced by the
+# cited TestSetWebSessionCookies / TestClearWebSessionCookies / TestWebOriginHost. Rule 2
+# ("the front-end probes /account only when the hint says a session may exist") is BROWSER
+# JS, now pinned by web/test/session.test.mjs (runs under `npm test`): it executes the REAL
+# web/src/js/session.js IIFE in a dependency-free mini-DOM + fetch spy (no jsdom - the web
+# tree is dependency-free on purpose) and asserts the three Rule-2 scenarios + the exact-
+# token matcher: logged-out (no hint) makes ZERO /account request (hence no 401); a present
+# roger_signed_in=1 triggers exactly one credentialed probe and, on a 200, swaps the nav to
+# the @handle account control; window.ROGER_BROKER_CHECK forces the probe with no cookie;
+# and only an exact roger_signed_in=1 cookie token (not =0/=10/x-prefixed) counts as the hint.
 
 @security @session
 Feature: Web session hint cookie
