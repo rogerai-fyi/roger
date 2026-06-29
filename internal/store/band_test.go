@@ -3,6 +3,8 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // TestBandStoreCRUD covers the band store on BOTH backends: create, the three
@@ -65,6 +67,78 @@ func TestBandStoreCRUD(t *testing.T) {
 			// ... but is still revoked when looked up (resolve treats it as a uniform miss).
 			if got, _, _ := m.BandByCodeHash("h1"); !got.Revoked {
 				t.Errorf("revoked band not marked revoked on lookup")
+			}
+		})
+	}
+}
+
+// TestRemaskBandDisplays is the SECURITY MIGRATION pin (Mem + Postgres): a band persisted
+// with the OLD recoverable display ("freq · TAIL", which CanonicalBandTail/BandCodeHash
+// resolve straight out of stored state) is re-masked so its stored display can no longer
+// reconstruct or resolve the band - while the code_hash (the owner's saved-code lookup
+// key) is left UNCHANGED, so the one-time full code still resolves. IDEMPOTENT: a second
+// run re-masks nothing. An already-masked band is never touched.
+func TestRemaskBandDisplays(t *testing.T) {
+	for name, m := range parityStores(t) {
+		t.Run(name, func(t *testing.T) {
+			const tail = "8F3K9M2Q"
+			const legacy = "147.520 MHz · 8F3K-9M2Q" // pre-fix the display WAS the resolvable code
+			hash := protocol.BandCodeHash(tail)
+			// Premise: the legacy display resolves the band (the vulnerability being fixed).
+			if protocol.BandCodeHash(legacy) != hash {
+				t.Fatalf("legacy display %q must hash to the band - test premise wrong", legacy)
+			}
+			if err := m.CreateBand(Band{ID: "band_legacy", CodeHash: hash,
+				CodeDisplay: legacy, Owner: "o", NodeID: "n1"}); err != nil {
+				t.Fatalf("CreateBand(legacy): %v", err)
+			}
+			// A band already in the masked form must be LEFT UNTOUCHED (so the count is honest
+			// and a re-run is a no-op).
+			_, freshDisplay, freshTail := protocol.NewBandCode()
+			if err := m.CreateBand(Band{ID: "band_fresh", CodeHash: protocol.BandCodeHash(freshTail),
+				CodeDisplay: freshDisplay, Owner: "o", NodeID: "n2"}); err != nil {
+				t.Fatalf("CreateBand(fresh): %v", err)
+			}
+
+			n, err := m.RemaskBandDisplays()
+			if err != nil {
+				t.Fatalf("RemaskBandDisplays: %v", err)
+			}
+			if n != 1 { // only the legacy row changes; the already-masked one is skipped
+				t.Errorf("re-masked %d bands, want 1 (only the legacy display)", n)
+			}
+
+			got, ok, _ := m.BandByCodeHash(hash)
+			if !ok {
+				t.Fatalf("band lost after migration - the code_hash must be unchanged")
+			}
+			if got.CodeHash != hash {
+				t.Errorf("code_hash changed by migration: %q != %q", got.CodeHash, hash)
+			}
+			if got.CodeDisplay == legacy {
+				t.Errorf("legacy display not re-masked: still %q", got.CodeDisplay)
+			}
+			if td := protocol.CanonicalBandTail(got.CodeDisplay); td != "" {
+				t.Errorf("re-masked display %q still recoverable (tail %q)", got.CodeDisplay, td)
+			}
+			if protocol.BandCodeHash(got.CodeDisplay) == hash {
+				t.Errorf("re-masked display %q still resolves the band", got.CodeDisplay)
+			}
+			// The owner's saved FULL code still resolves (hash intact).
+			if protocol.BandCodeHash(legacy) != got.CodeHash {
+				t.Errorf("owner's saved full code no longer resolves after migration")
+			}
+
+			// Idempotent: a second run re-masks nothing and disturbs neither row.
+			n2, err := m.RemaskBandDisplays()
+			if err != nil {
+				t.Fatalf("RemaskBandDisplays (2nd): %v", err)
+			}
+			if n2 != 0 {
+				t.Errorf("second migration re-masked %d, want 0 (idempotent)", n2)
+			}
+			if again, _, _ := m.BandByCodeHash(protocol.BandCodeHash(freshTail)); again.CodeDisplay != freshDisplay {
+				t.Errorf("already-masked band was disturbed: %q != %q", again.CodeDisplay, freshDisplay)
 			}
 		})
 	}

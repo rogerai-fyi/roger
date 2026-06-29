@@ -42,6 +42,50 @@ func TestNewBandCodeFormat(t *testing.T) {
 	}
 }
 
+// TestMaskBandDisplay is the MIGRATION pin: MaskBandDisplay rewrites a LEGACY (pre-fix)
+// persisted display - which embedded the secret tail verbatim ("freq · TAIL"), so it
+// resolved the band straight out of stored state - into the MASKED, NON-RECOVERABLE
+// cosmetic form, keeping the cosmetic frequency but dropping the tail. It is IDEMPOTENT
+// (an already-masked display is returned unchanged) and its output can never resolve a
+// band. This is the per-row transform the one-time store re-mask migration applies.
+func TestMaskBandDisplay(t *testing.T) {
+	// A legacy display IS the resolvable code (pre-fix the display == the full code).
+	legacy := "147.520 MHz · 8F3K-9M2Q"
+	if CanonicalBandTail(legacy) == "" {
+		t.Fatalf("legacy display %q should be recoverable (it embeds the tail) - test premise wrong", legacy)
+	}
+	masked := MaskBandDisplay(legacy)
+
+	// The cosmetic frequency is preserved; only the tail is replaced by the mask token.
+	if !strings.HasPrefix(masked, "147.520 MHz · ") {
+		t.Errorf("masked %q dropped the cosmetic frequency", masked)
+	}
+	if !strings.Contains(masked, maskedTail) {
+		t.Errorf("masked %q is missing the %q mask token", masked, maskedTail)
+	}
+	// NON-RECOVERABLE: it canonicalizes to no tail and hashes away from the band's key.
+	if got := CanonicalBandTail(masked); got != "" {
+		t.Errorf("masked display %q still canonicalizes to a recoverable tail %q", masked, got)
+	}
+	if BandCodeHash(masked) == BandCodeHash(legacy) {
+		t.Errorf("masked display %q still hashes to the band's lookup key - it can resolve the band", masked)
+	}
+	// IDEMPOTENT: re-masking an already-masked display is a no-op (so a re-run changes
+	// nothing) and equals a fresh mint's masked shape.
+	if again := MaskBandDisplay(masked); again != masked {
+		t.Errorf("MaskBandDisplay not idempotent: %q -> %q", masked, again)
+	}
+	if _, fresh, _ := NewBandCode(); MaskBandDisplay(fresh) != fresh {
+		t.Errorf("a freshly-minted display %q is changed by re-masking - it should already be masked", fresh)
+	}
+	// DEFENSIVE: an unrecognized display with no " · " separator (never produced by any
+	// mint) must STILL yield a non-recoverable result - even when it ends in a full run of
+	// Crockford symbols that would otherwise canonicalize to a tail.
+	if got := MaskBandDisplay("garbage-no-separator-ABCDEFGH"); CanonicalBandTail(got) != "" {
+		t.Errorf("no-separator mask %q is still recoverable (tail %q)", got, CanonicalBandTail(got))
+	}
+}
+
 // TestCanonicalBandTail verifies normalization: the cosmetic prefix, spaces, dashes,
 // dots, the "MHz" unit and the middot are stripped; Crockford confusables (I/L->1,
 // O->0) are mapped; case is normalized; and the tail is taken from the END so the

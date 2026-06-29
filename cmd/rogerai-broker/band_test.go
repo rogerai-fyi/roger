@@ -115,6 +115,35 @@ func TestPrivateRegisterLoginGated(t *testing.T) {
 	}
 }
 
+// TestRemaskExistingBandsStoreErrorIsNonFatal: a RemaskBandDisplays failure at startup is
+// logged but must NOT crash the broker (it still boots; existing displays are left as-is).
+func TestRemaskExistingBandsStoreErrorIsNonFatal(t *testing.T) {
+	b, fs, _ := failBroker(t)
+	fs.failRemaskBands = true
+	b.remaskExistingBands() // must not panic
+}
+
+// TestRemaskExistingBandsScrubsLegacy: the startup migration re-masks a legacy band whose
+// persisted display is the resolvable code, leaving the code_hash (and thus the owner's
+// saved full code) intact.
+func TestRemaskExistingBandsScrubsLegacy(t *testing.T) {
+	b, _, _, _ := newBandBroker(t)
+	const legacy = "147.520 MHz · 8F3K-9M2Q"
+	hash := protocol.BandCodeHash(legacy)
+	if err := b.db.CreateBand(store.Band{ID: "band_legacy", CodeHash: hash,
+		CodeDisplay: legacy, Owner: "o", NodeID: "n1"}); err != nil {
+		t.Fatalf("CreateBand: %v", err)
+	}
+	b.remaskExistingBands()
+	got, ok, _ := b.db.BandByCodeHash(hash)
+	if !ok || got.CodeHash != hash {
+		t.Fatalf("legacy band lost or hash changed: ok=%v hash=%q", ok, got.CodeHash)
+	}
+	if got.CodeDisplay == legacy || protocol.CanonicalBandTail(got.CodeDisplay) != "" {
+		t.Errorf("display not scrubbed: %q (tail %q)", got.CodeDisplay, protocol.CanonicalBandTail(got.CodeDisplay))
+	}
+}
+
 // TestPrivateHiddenFromMarket: a private node never appears in /discover or /market.
 func TestPrivateHiddenFromMarket(t *testing.T) {
 	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)

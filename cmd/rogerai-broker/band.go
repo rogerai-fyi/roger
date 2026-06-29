@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -49,6 +50,31 @@ func (b *broker) mintBandForNode(owner store.Owner, nodeID string) (store.Band, 
 		return store.Band{}, "", "could not create the private band"
 	}
 	return band, code, ""
+}
+
+// remaskExistingBands runs the one-time, IDEMPOTENT band-display re-mask migration at
+// startup. FIX #2 stopped NEW mints from persisting the secret in CodeDisplay, but bands
+// minted BEFORE it still hold a recoverable "freq · TAIL" display on disk - so
+// CanonicalBandTail(CodeDisplay)/BandCodeHash(CodeDisplay) resolve the band straight out of
+// stored state. This rewrites every existing band's CodeDisplay to the masked,
+// non-recoverable cosmetic form in place. The CodeHash (the resolve lookup key) is left
+// UNCHANGED, so the owner's one-time full code still tunes in; ONLY the display changes.
+// Idempotent (an already-masked row is skipped), so it is safe to run on every boot.
+// Failure is non-fatal (logged): the broker still boots; the migration retries next start.
+//
+// NOTE: after this runs, an owner can NO LONGER re-view the code via bandView - that is
+// intended (shown-once model). The full code is shown only at mint; if lost, the owner
+// revokes the band and re-mints. CodeDisplay is purely cosmetic and deliberately
+// non-recoverable.
+func (b *broker) remaskExistingBands() {
+	n, err := b.db.RemaskBandDisplays()
+	if err != nil {
+		log.Printf("band re-mask migration failed: %v (existing band displays left as-is; will retry next start)", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("band re-mask migration: scrubbed the recoverable tail from %d existing band display(s)", n)
+	}
 }
 
 // bands handles GET /bands (owner-auth: list the caller-owner's private bands). The

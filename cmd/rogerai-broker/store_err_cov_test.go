@@ -18,21 +18,22 @@ var errBoom = errors.New("store backend down")
 // non-overridden method delegates to the embedded store (so auth/owner lookups still work).
 type failStore struct {
 	store.Store
-	failGrants    bool
-	failBands     bool
-	failSetCap    bool
-	failStrikes   bool
-	failPending   bool
-	failAppeals   bool
-	failNodes     bool
-	failAddAppeal bool
-	failDelete    bool
-	failSettlePay bool
-	failNodeHold  bool
-	failAcctHold  bool
-	failForgive   bool
-	failWalletCh  bool
-	failCreditOn  bool
+	failGrants      bool
+	failBands       bool
+	failRemaskBands bool
+	failSetCap      bool
+	failStrikes     bool
+	failPending     bool
+	failAppeals     bool
+	failNodes       bool
+	failAddAppeal   bool
+	failDelete      bool
+	failSettlePay   bool
+	failNodeHold    bool
+	failAcctHold    bool
+	failForgive     bool
+	failWalletCh    bool
+	failCreditOn    bool
 
 	// safety / strike surfaces (report.go + strikes.go error branches)
 	failAddReport    bool
@@ -157,6 +158,12 @@ func (f *failStore) BandsByOwner(o string) ([]store.Band, error) {
 		return nil, errBoom
 	}
 	return f.Store.BandsByOwner(o)
+}
+func (f *failStore) RemaskBandDisplays() (int, error) {
+	if f.failRemaskBands {
+		return 0, errBoom
+	}
+	return f.Store.RemaskBandDisplays()
 }
 func (f *failStore) SetMonthlyCap(h string, c float64) error {
 	if f.failSetCap {

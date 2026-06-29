@@ -3,6 +3,8 @@ package store
 import (
 	"sync"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Band is an owner-issued PRIVATE channel: a "frequency code" that makes a node
@@ -150,6 +152,29 @@ func (m *Mem) CountActiveBands(owner string, now time.Time) (int, error) {
 		if b.Owner == owner && b.Active(now) {
 			n++
 		}
+	}
+	return n, nil
+}
+
+// RemaskBandDisplays re-masks every persisted band's CodeDisplay into the
+// NON-RECOVERABLE cosmetic form (protocol.MaskBandDisplay), so a band minted before the
+// display was masked at the source can no longer reconstruct/resolve from stored state.
+// The CodeHash (the resolve lookup key) and the byHash index are left UNTOUCHED, so the
+// owner's one-time full code still resolves; ONLY the display changes. Returns how many
+// rows it actually changed; IDEMPOTENT (an already-masked display is skipped, so a re-run
+// changes 0).
+func (m *Mem) RemaskBandDisplays() (int, error) {
+	m.bs.mu.Lock()
+	defer m.bs.mu.Unlock()
+	n := 0
+	for id, b := range m.bs.bands {
+		masked := protocol.MaskBandDisplay(b.CodeDisplay)
+		if masked == b.CodeDisplay {
+			continue
+		}
+		b.CodeDisplay = masked
+		m.bs.bands[id] = b
+		n++
 	}
 	return n, nil
 }
