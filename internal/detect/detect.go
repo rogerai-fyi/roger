@@ -32,7 +32,7 @@ import (
 	"time"
 )
 
-// Found is a reachable local OpenAI-compatible server discovered by Detect.
+// Found is a reachable local OpenAI-compatible server discovered by DetectFull.
 type Found struct {
 	Name    string         // friendly server name (e.g. "ollama")
 	BaseURL string         // .../v1

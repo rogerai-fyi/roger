@@ -136,7 +136,7 @@ func TestPrivateBandTypeThePriceConfirm(t *testing.T) {
 	// which is exactly the type-the-price guard doing its job on the private band.)
 }
 
-// TestChatCarriesDefaultCap: the in-channel chat relay (client.Chat) carries the
+// TestChatCarriesDefaultCap: the in-channel chat relay (client.ChatDetailed) carries the
 // consumer out-cap header so the TUI channel is bounded against overpay like `use`. A 0
 // maxOut applies the default; an explicit cap is honored (opt-in to pay more).
 func TestChatCarriesDefaultCap(t *testing.T) {
