@@ -8844,11 +8844,11 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="7">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov3" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -17834,9 +17834,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="486">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="472">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="483">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="469">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18654,7 +18654,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="989">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="830">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18668,7 +18668,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="98
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18883,13 +18883,13 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="971">{
+        for </span><span class="cov9" title="812">{
                 select </span>{
                 case &lt;-sess.stop:<span class="cov2" title="3">
                         return</span> // /share went off air
-                default:<span class="cov9" title="968"></span>
+                default:<span class="cov9" title="809"></span>
                 }
-                <span class="cov9" title="968">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="809">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
@@ -18899,7 +18899,7 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="963">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="956">{
+                <span class="cov9" title="804">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="797">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19208,7 +19208,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19359,7 +19359,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19388,21 +19388,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -24611,8 +24611,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="22">{
-                if s != nil </span><span class="cov7" title="21">{
+        for _, s := range c.sessions </span><span class="cov7" title="24">{
+                if s != nil </span><span class="cov7" title="23">{
                         n++
                 }</span>
         }
@@ -25014,7 +25014,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="127">{
+        for len(s) &lt; 3 </span><span class="cov5" title="114">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25027,7 +25027,7 @@ func itoa3(n int) string <span class="cov8" title="2008">{
         }</span>
         <span class="cov8" title="2005">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5895">{
+        for n &gt; 0 </span><span class="cov9" title="5908">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -33714,8 +33714,8 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int) <span class=
 }
 
 // paintSpaceship sends a RARE spaceship across the upper sky (~1/4 of 130-frame windows) with a dim
-// fading ion trail and a single red '•' running light at the nose. Gold hull (toneSun) for a warm
-// pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
+// fading ion trail and a single red '•' running light at the nose. Amber hull (toneShip) for a
+// warm pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
 func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) <span class="cov6" title="31450">{
         if skyRows &lt; 3 || w &lt; 12 </span><span class="cov5" title="4881">{
                 return
@@ -40643,7 +40643,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="340">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="352">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40665,7 +40665,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="71">
+                case agent.LinkOnAir:<span class="cov3" title="75">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -40722,7 +40722,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="9">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -40773,7 +40773,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="41">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
