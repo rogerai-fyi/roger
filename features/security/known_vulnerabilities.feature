@@ -4,7 +4,9 @@
 # operator, or consumer trying to get free service, inflate earnings, dodge a ban, or
 # double-credit.
 #
-# Ground truth per regression is cited inline. NO step definitions and NO Go. Spec only.
+# Ground truth per regression is cited inline. EXECUTABLE under godog via
+# cmd/rogerai-broker/known_vulnerabilities_bdd_test.go - every scenario drives the REAL,
+# now-fixed code (no mocks) so each bug stays a permanent, always-green regression guard.
 
 @security @regression
 Feature: Known-vulnerability regression guards
@@ -39,7 +41,7 @@ Feature: Known-vulnerability regression guards
       When carol sends a paid public request that produces 1000 completion tokens
       Then the hold placed was sized at the offer's active price, not ~1e-6
       And the captured cost is 0.000500 credits
-      And operator "op1" earns the owner share of 0.000500 credits
+      And operator "op1" earns the 0.000350 owner share (70% of the 0.000500 cost)
 
     @c1
     Scenario Outline: The hold is the offer's true upper bound across prices
@@ -58,7 +60,7 @@ Feature: Known-vulnerability regression guards
     Scenario: A genuinely FREE model still places no hold (the floor is not abused either way)
       Given a public-market offer "free-m" priced at 0 on both axes
       When a consumer sends a request to "free-m"
-      Then no hold is placed
+      Then no priced hold is placed (a $0 active price yields a $0 worst-case; only the bare 1e-6 floor remains, and it is released uncaptured)
       And the captured cost is 0.000000 credits
 
   # ===========================================================================
@@ -89,7 +91,7 @@ Feature: Known-vulnerability regression guards
       And the broker exactly re-counts 300 completion tokens from the reasoning text
       When the request settles
       Then the billed completion tokens are 300
-      And operator "op1" earns the owner share of 0.000300 credits
+      And operator "op1" earns the 0.000210 owner share (70% of the 0.000300 cost)
 
     @reasoning
     Scenario: A genuinely empty reply (no content, no reasoning) is still voided and flagged
@@ -163,35 +165,35 @@ Feature: Known-vulnerability regression guards
       And the lot is not clawed twice
 
   # ===========================================================================
-  # GRANT-CAP FAIL-OPEN ON POSTGRES (the bucket/window column)
-  # Ground: cmd/rogerai-broker/grant.go grantCapCheck; internal/store/grant_postgres.go
-  #         GrantUsageOf (day/month bucket columns).
-  # FLAGGED: the CURRENT code fails OPEN on a usage-read error (grant.go:116 returns 0,"")
-  #          - these scenarios assert the FIXED fail-CLOSED contract.
+  # GRANT-CAP FAIL-OPEN ON POSTGRES (the bucket/window column)  [FIXED]
+  # Ground: cmd/rogerai-broker/grant.go grantCapCheck - now FAILS CLOSED: a GrantUsageOf
+  #         error on a CAPPED grant returns 429 (grant.go:115-122), mirroring the monthly
+  #         SPEND cap's posture; an UNCAPPED grant short-circuits before any read.
+  #         internal/store/grant_postgres.go GrantUsageOf (day/month bucket columns).
+  #         Regression test: cmd/rogerai-broker/grant_test.go TestGrantCapFailsClosedOnUsageError.
   # ===========================================================================
 
   Rule: A grant token cap fails CLOSED - a usage-read error must reject, never wave through
 
-    @grant-cap @suspected-not-yet-fixed
+    @grant-cap
     Scenario: A grant over its monthly token cap is rejected
       Given a grant "g1" with a monthly cap of 1000 tokens and 1000 tokens already used this month
       When a request is dispatched under grant "g1"
       Then the request is rejected with 429 Too Many Requests
       And the message names the grant monthly token cap
 
-    @grant-cap @suspected-not-yet-fixed
+    @grant-cap
     Scenario: A grant over its daily token cap is rejected
       Given a grant "g1" with a daily cap of 500 tokens and 500 tokens already used today
       When a request is dispatched under grant "g1"
       Then the request is rejected with 429 Too Many Requests
       And the message names the grant daily token cap
 
-    @grant-cap @suspected-not-yet-fixed
+    @grant-cap
     Scenario: A failed usage read (Postgres bucket/window column unavailable) must FAIL CLOSED
-      # FLAG: today grantCapCheck swallows a GrantUsageOf error and returns within-cap (fail-open),
-      # so a capped grant becomes UNCAPPED whenever the usage read errors. The contract is the
-      # opposite: an unreadable cap must reject, exactly like the cache-eviction path in
-      # cacheaccel.go fails closed for the monthly SPEND cap.
+      # FIXED: grantCapCheck now FAILS CLOSED - a GrantUsageOf error on a capped grant returns
+      # 429 (grant.go:115-122), so an unreadable cap rejects instead of silently uncapping,
+      # exactly like the monthly SPEND cap's fail-closed posture.
       Given a grant "g1" with a monthly cap of 1000 tokens
       And the grant-usage read errors (bucket/window column unavailable)
       When a request is dispatched under grant "g1"
@@ -205,7 +207,7 @@ Feature: Known-vulnerability regression guards
       Then no usage read is performed
       And the request is allowed
 
-    @grant-cap @suspected-not-yet-fixed
+    @grant-cap
     Scenario Outline: Cap enforcement boundary (>= cap rejects)
       Given a grant with daily cap <daily> and monthly cap <monthly>
       And <dayUsed> tokens used today and <monthUsed> used this month
