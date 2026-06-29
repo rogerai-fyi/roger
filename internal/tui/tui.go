@@ -1493,7 +1493,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = stDim.Render("nothing to copy yet · shift+drag to select text")
 				return m, nil
 			}
-			m.status = stLive.Render("✓ copied the last reply  ·  /copy all for the whole session")
+			m.status = copiedToast("the last reply") + stDim.Render("  ·  /copy all for the whole session")
 			return m, clipboardWrite(m.lastReply)
 		case "ctrl+o":
 			// Toggle mouse reporting: OFF lets the terminal do native click-drag select+copy
@@ -1902,6 +1902,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		sysLine("✓ copied " + label + " to the clipboard")
+		m.status = copiedToast(label) // the same prominent toast as ctrl+y
 		return m, clipboardWrite(target)
 	case "mouse":
 		m.mouseOff = !m.mouseOff
@@ -2256,7 +2257,7 @@ func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "c":
 		if copyToClipboard(m.bandCardCode) {
-			m.status = stLive.Render("copied the frequency code to your clipboard")
+			m.status = copiedToast("frequency code")
 		} else {
 			m.status = stDim.Render("no clipboard tool found - select the code above to copy it")
 		}
@@ -2276,6 +2277,30 @@ func (m *model) onBandCardKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // draw, so emitting it under the alt-screen renderer is safe.
 func osc52(s string) string {
 	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(s)) + "\a"
+}
+
+// copiedToast is the shared, PROMINENT clipboard confirmation (opencode #927 style): a
+// clear "✓ Copied to clipboard" the user can't miss, used by every copy path (ctrl+y,
+// /copy, /copy all, freq code) so the feedback is consistent and obvious. It rides the
+// transient status toast (auto-dismissed after toastFrames). detail names what was copied
+// when it adds signal ("the transcript"), else "" for the bare confirmation. Bold ink so
+// it stands out in the mono palette (the ✓ keeps the live accent).
+func copiedToast(detail string) string {
+	t := stLive.Render("✓ ") + stKey.Render("Copied to clipboard")
+	if detail != "" {
+		t += stDim.Render(" · " + detail)
+	}
+	return t
+}
+
+// agentTranscriptText is the AGENT transcript as clean, unstyled text (ANSI stripped), for
+// ctrl+y / the agent's /copy - mirrors transcriptText for the channel.
+func (m model) agentTranscriptText() string {
+	lines := make([]string, 0, len(m.agentLines))
+	for _, l := range m.agentLines {
+		lines = append(lines, ansi.Strip(l))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // clipboardWrite returns a tea.Cmd that copies s to the clipboard BOTH ways - the OSC 52
@@ -7101,6 +7126,8 @@ func (m model) compactFooter(w int) string {
 	switch m.mode {
 	case modeChat:
 		keys = "talk · esc disconnect · tab peek · ⇧⇥ agent · ⌃y copy"
+	case modeAgent:
+		keys = "ask · ⌃y copy · /model · esc exit · write/run confirm"
 	case modeShare:
 		keys = "↑↓ · ⏎/a air · p price · r"
 	case modeLimits:

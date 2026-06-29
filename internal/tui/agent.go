@@ -371,6 +371,17 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
 		return m, nil
+	case "ctrl+y":
+		// Yank the agent transcript to the clipboard (OSC 52 + local tool), with the same
+		// prominent "✓ Copied to clipboard" toast as the channel. Plain `y` types into the
+		// prompt, so copy is ctrl+y (and /copy). Works mid-turn too.
+		txt := m.agentTranscriptText()
+		if strings.TrimSpace(txt) == "" {
+			m.status = stDim.Render("nothing to copy yet · drag to select text")
+			return m, nil
+		}
+		m.status = copiedToast("the agent transcript")
+		return m, clipboardWrite(txt)
 	case "pgup":
 		// Scroll the transcript - works even while a turn streams, so a long answer or
 		// tool dump can be read back without losing the live turn.
@@ -549,8 +560,17 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.openAgentModelPicker()
+	case "copy", "y":
+		txt := m.agentTranscriptText()
+		if strings.TrimSpace(txt) == "" {
+			note("nothing to copy yet")
+			return m, nil
+		}
+		note("✓ copied the agent transcript to the clipboard")
+		m.status = copiedToast("the agent transcript")
+		return m, clipboardWrite(txt)
 	case "help", "h":
-		note("/model switches model · /clear resets the session · /persona shows dj.md · esc exits AGENT")
+		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
 		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
 		return m, nil
 	default:
@@ -1008,14 +1028,14 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  esc exits AGENT  ·  /clear  ·  /persona  ·  read/list auto · write/run confirm"
+		help := "enter asks  ·  /model switches  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"
 		case m.agentBusy:
 			help = "type + enter queues the next ask  ·  esc cancels (esc again force-stops)  ·  ⌃c quits"
 		case m.narrow():
-			help = "enter ask · /model · esc exit · /clear"
+			help = "enter ask · /model · ⌃y copy · esc exit"
 		}
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}

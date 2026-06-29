@@ -320,7 +320,7 @@ func TestPrivateBandMintsCodeCard(t *testing.T) {
 	// status reflects exactly one of the two real outcomes (never silence).
 	cm, _ := m.onBandCardKey(keyMsg("c"))
 	st := stripANSI(asModel(cm).status)
-	if !strings.Contains(st, "copied the frequency code") && !strings.Contains(st, "no clipboard tool") {
+	if !strings.Contains(st, "Copied to clipboard") && !strings.Contains(st, "no clipboard tool") {
 		t.Errorf("c on the card should report copy success or a missing tool, got %q", st)
 	}
 

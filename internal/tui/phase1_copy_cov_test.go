@@ -116,7 +116,7 @@ func TestCtrlYYanksLastReply(t *testing.T) {
 	m := chatModelForCopy()
 	m.lastReply = "the answer"
 	out, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
-	if cmd == nil || !strings.Contains(stripANSI(asModel(out).status), "copied the last reply") {
+	if cmd == nil || !strings.Contains(stripANSI(asModel(out).status), "Copied to clipboard") {
 		t.Errorf("ctrl+y should copy + toast; status=%q cmd=%v", stripANSI(asModel(out).status), cmd != nil)
 	}
 	out2, _ := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlY})
