@@ -63,6 +63,34 @@ func TestAgentCtrlYCopyToast(t *testing.T) {
 	}
 }
 
+// TestAgentSlashCopy: the AGENT /copy command yanks the transcript with the prominent
+// toast; an empty transcript says nothing to copy (no clipboard cmd).
+func TestAgentSlashCopy(t *testing.T) {
+	base := browseSeed(120)
+	base.connected = &offer{NodeID: "n", Model: "gpt-oss-20b", Online: true}
+	nm, _ := base.enterAgent()
+	am := asModel(nm)
+	am.agentLines = append(am.agentLines, "◂ the answer")
+
+	cm, cmd := am.runAgentCommand("/copy")
+	if cmd == nil {
+		t.Error("/copy with a transcript should return a clipboard write cmd")
+	}
+	if !strings.Contains(stripANSI(asModel(cm).status), "Copied to clipboard") {
+		t.Errorf("/copy should show the prominent toast, got %q", stripANSI(asModel(cm).status))
+	}
+
+	empty := asModel(nm)
+	empty.agentLines = nil
+	em, ecmd := empty.runAgentCommand("/copy")
+	if ecmd != nil {
+		t.Error("/copy with nothing to copy should not write the clipboard")
+	}
+	if !strings.Contains(stripANSI(strings.Join(asModel(em).agentLines, "\n")), "nothing to copy") {
+		t.Error("/copy with an empty transcript should note nothing to copy")
+	}
+}
+
 // TestAgentFooterAdvertisesCopy: copy is discoverable in the AGENT footer (idle), narrow
 // and compact alike - the founder's "discoverable in both chat footers".
 func TestAgentFooterAdvertisesCopy(t *testing.T) {
