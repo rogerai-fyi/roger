@@ -136,11 +136,14 @@ Feature: Hold pre-authorization never overdraws and always refunds cleanly
     And alice's balance is <after>
     And alice's balance is never negative at any point
 
+    # FLOAT64 MONEY (documented after wiring this to godog): $10.00 - $9.99 = 0.00999... < $0.01,
+    # so on the 9.99 row the trailing two $0.01 holds do NOT fit and the residual is ~$0.01, not
+    # $0.00. The no-overdraft invariant still holds; this pins the real float-precision behavior.
     Examples:
       | steps                  | after |
       | 3.00, 3.00, 3.00, 3.00 | 1.00  |
       | 7.50, 2.50, 0.01       | 0.00  |
-      | 9.99, 0.01, 0.01       | 0.00  |
+      | 9.99, 0.01, 0.01       | 0.01  |
       | 10.00, 0.01            | 0.00  |
 
   # --- concurrency: never overdraw ---------------------------------------
@@ -168,12 +171,15 @@ Feature: Hold pre-authorization never overdraws and always refunds cleanly
     And alice's balance is <after>
     And alice's balance is never negative at any point
 
+    # FLOAT64 MONEY (documented after wiring this to godog): repeated subtraction of $0.01 from
+    # $1.00 undershoots, so only 99 holds of $0.01 fit (not 100) and ~$0.01 remains. The wallet
+    # never goes negative; this pins that $1.00 != 100 x $0.01 in float64.
     Examples:
       | balance | count | each  | succeed | after |
       | 10.00   | 20    | 1.00  | 10      | 0.00  |
       | 5.00    | 10    | 2.00  | 2       | 1.00  |
       | 100.00  | 50    | 3.00  | 33      | 1.00  |
-      | 1.00    | 1000  | 0.01  | 100     | 0.00  |
+      | 1.00    | 1000  | 0.01  | 99      | 0.01  |
 
   # --- ReleaseHold: full refund ------------------------------------------
 

@@ -38,6 +38,7 @@ type settleState struct {
 	lastSeedUsed    float64
 	lastRealPortion float64
 	lastEarned      float64 // EarningsOf(node) delta across the last settle
+	lastBalanceDrop float64 // BalanceOf(wallet) drop across the last settle (store-verified)
 }
 
 func (s *settleState) freshStore() error {
@@ -114,6 +115,7 @@ func (s *settleState) doSettle(cost, share float64) error {
 		}
 		s.seedRemain[s.wallet] = rem - seedUsed
 	}
+	balBefore, _ := s.store.BalanceOf(s.wallet, 0)
 	before, _ := s.store.EarningsOf(s.node)
 	s.settleN++
 	rec := protocol.UsageReceipt{RequestID: fmt.Sprintf("req-%s-%d", s.wallet, s.settleN), TS: time.Now().Unix()}
@@ -121,6 +123,8 @@ func (s *settleState) doSettle(cost, share float64) error {
 		return err
 	}
 	after, _ := s.store.EarningsOf(s.node)
+	balAfter, _ := s.store.BalanceOf(s.wallet, 0)
+	s.lastBalanceDrop = balBefore - balAfter
 	s.lastCost, s.lastOwnerShare = cost, share
 	s.lastSeedUsed = seedUsed
 	s.lastRealPortion = cost - seedUsed
@@ -235,16 +239,30 @@ func (s *settleState) shareSumEqualsCost(v string) error {
 	if err != nil {
 		return err
 	}
-	platformTake := s.lastCost - s.lastOwnerShare
-	return feApprox(s.lastOwnerShare+platformTake, cost)
+	// Store-verified conservation (NOT the tautology ownerShare+(cost-ownerShare)==cost): the
+	// consumer's ACTUAL debit equals the stated cost and the operator's ACTUAL earning equals the
+	// stated owner share (these scenarios are real-funded), so cost splits into earning + a
+	// non-negative platform take, no credits created/destroyed.
+	if err := feApprox(s.lastBalanceDrop, cost); err != nil {
+		return fmt.Errorf("store consumer debit != cost: %w", err)
+	}
+	if err := feApprox(s.lastEarned, s.lastOwnerShare); err != nil {
+		return fmt.Errorf("store operator earning != owner share: %w", err)
+	}
+	platformTake := cost - s.lastEarned
+	if platformTake < -1e-9 {
+		return fmt.Errorf("platform take negative: %g", platformTake)
+	}
+	return feApprox(s.lastEarned+platformTake, cost)
 }
 
 func (s *settleState) noCreditsCreated() error {
-	if s.lastOwnerShare < 0 || s.lastOwnerShare > s.lastCost+1e-9 {
-		return fmt.Errorf("owner share %g outside [0, cost=%g]", s.lastOwnerShare, s.lastCost)
+	// The consumer's STORE debit is fully accounted as operator earning + platform take.
+	platformTake := s.lastCost - s.lastEarned
+	if platformTake < -1e-9 {
+		return fmt.Errorf("platform take negative: %g", platformTake)
 	}
-	platformTake := s.lastCost - s.lastOwnerShare
-	return feApprox(s.lastOwnerShare+platformTake, s.lastCost)
+	return feApprox(s.lastBalanceDrop, s.lastEarned+platformTake)
 }
 
 func (s *settleState) meteringReceiptRecorded() error {
