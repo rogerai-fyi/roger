@@ -1847,14 +1847,14 @@ type billing struct {
         creditUSD     float64 // USD per credit
 }
 
-func loadBilling() billing <span class="cov6" title="40">{
+func loadBilling() billing <span class="cov6" title="42">{
         cu := 1.0
-        if v := os.Getenv("ROGERAI_CREDIT_USD"); v != "" </span><span class="cov2" title="3">{
-                if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt; 0 </span><span class="cov2" title="3">{
+        if v := os.Getenv("ROGERAI_CREDIT_USD"); v != "" </span><span class="cov3" title="5">{
+                if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt; 0 </span><span class="cov3" title="5">{
                         cu = f
                 }</span>
         }
-        <span class="cov6" title="40">b := billing{
+        <span class="cov6" title="42">b := billing{
                 secretKey:     stripeSecretKey(),
                 webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
                 successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fyi/topup/success"),
@@ -1865,23 +1865,23 @@ func loadBilling() billing <span class="cov6" title="40">{
                 log.Printf("billing: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - billing DISABLED (refusing test mode in production)")
                 b.secretKey, b.webhookSecret = "", ""
         }</span>
-        <span class="cov6" title="40">if b.secretKey == "" </span><span class="cov5" title="33">{
+        <span class="cov6" title="42">if b.secretKey == "" </span><span class="cov5" title="33">{
                 log.Printf("billing: disabled (set STRIPE_SECRET_KEY)")
-        }</span> else<span class="cov3" title="7"> {
+        }</span> else<span class="cov4" title="9"> {
                 mode := "test"
                 if strings.HasPrefix(b.secretKey, "sk_live") </span><span class="cov1" title="2">{
                         mode = "LIVE"
                 }</span>
-                <span class="cov3" title="7">log.Printf("billing: Stripe enabled [%s mode] (1 credit = $%.2f)", mode, b.creditUSD)</span>
+                <span class="cov4" title="9">log.Printf("billing: Stripe enabled [%s mode] (1 credit = $%.2f)", mode, b.creditUSD)</span>
         }
-        <span class="cov6" title="40">return b</span>
+        <span class="cov6" title="42">return b</span>
 }
 
-func envOr(k, def string) string <span class="cov10" title="597">{
+func envOr(k, def string) string <span class="cov10" title="601">{
         if v := os.Getenv(k); v != "" </span><span class="cov4" title="17">{
                 return v
         }</span>
-        <span class="cov9" title="580">return def</span>
+        <span class="cov9" title="584">return def</span>
 }
 
 // stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
@@ -1892,15 +1892,15 @@ func envOr(k, def string) string <span class="cov10" title="597">{
 // production disables billing instead of silently accepting fake test cards. Off
 // locally so dev test keys work. The broker holds live values in STRIPE_SECRET_KEY /
 // STRIPE_WEBHOOK_SECRET; the local .env holds test values under the same names.
-func requireLive() bool <span class="cov8" title="152">{
+func requireLive() bool <span class="cov8" title="154">{
         switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_LIVE")) </span>{
         case "1", "true", "yes", "on":<span class="cov4" title="13">
                 return true</span>
         }
-        <span class="cov7" title="139">return false</span>
+        <span class="cov7" title="141">return false</span>
 }
 
-func stripeSecretKey() string <span class="cov7" title="131">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
+func stripeSecretKey() string <span class="cov7" title="133">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
@@ -1987,20 +1987,20 @@ func (b *broker) checkoutWallet(r *http.Request, body []byte) (string, bool) <sp
 
 // webhook handles POST /billing/webhook: Stripe's payment callback. The signature
 // is HMAC-verified and crediting is idempotent (each session credited once).
-func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="cov5" title="19">{
+func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="cov5" title="21">{
         if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov5" title="18">if b.bill.secretKey == "" </span><span class="cov1" title="2">{
+        <span class="cov5" title="20">if b.bill.secretKey == "" </span><span class="cov1" title="2">{
                 jsonErr(w, http.StatusServiceUnavailable, "billing not configured")
                 return
         }</span>
-        <span class="cov4" title="16">payload, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;20))
+        <span class="cov5" title="18">payload, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;20))
         if !verifyStripeSig(r.Header.Get("Stripe-Signature"), payload, b.bill.webhookSecret) </span><span class="cov1" title="2">{
                 jsonErr(w, http.StatusBadRequest, "bad signature")
                 return
         }</span>
-        <span class="cov4" title="14">var evt struct {
+        <span class="cov4" title="16">var evt struct {
                 Type string `json:"type"`
                 Data struct {
                         Object struct {
@@ -2026,7 +2026,7 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="co
         // payment_intent + charge id, so we resolve the wallet via the mapping persisted at
         // checkout.session.completed time. The clawback is then attributed by wallet+recency
         // (no request id is available) up to the disputed amount.
-        if evt.Type == "charge.dispute.created" </span><span class="cov3" title="6">{
+        if evt.Type == "charge.dispute.created" </span><span class="cov3" title="8">{
                 o := evt.Data.Object
                 amount := float64(o.Amount) / 100 / b.bill.creditUSD
                 // Resolve the consumer wallet from the stored charge mapping (payment_intent or
@@ -2037,22 +2037,22 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="co
                         jsonErr(w, http.StatusInternalServerError, "store error")
                         return
                 }</span>
-                <span class="cov3" title="5">if !ok </span><span class="cov1" title="2">{
+                <span class="cov3" title="7">if !ok </span><span class="cov2" title="4">{
                         if user, _, ok, err = b.db.WalletByCharge(o.Charge); err != nil </span><span class="cov0" title="0">{
                                 jsonErr(w, http.StatusInternalServerError, "store error")
                                 return
                         }</span>
                 }
-                <span class="cov3" title="5">if !ok </span><span class="cov1" title="2">{
+                <span class="cov3" title="7">if !ok </span><span class="cov2" title="4">{
                         user = o.Metadata.User
-                        if user == "" </span><span class="cov1" title="1">{
+                        if user == "" </span><span class="cov1" title="2">{
                                 user = o.ClientReferenceID
                         }</span>
-                        <span class="cov1" title="2">if user != "" </span><span class="cov1" title="1">{
+                        <span class="cov2" title="4">if user != "" </span><span class="cov1" title="2">{
                                 log.Printf("stripe: dispute %s has no stored charge mapping (pi=%s ch=%s), falling back to metadata wallet %s", o.ID, o.PaymentIntent, o.Charge, user)
                         }</span>
                 }
-                <span class="cov3" title="5">if user != "" &amp;&amp; amount &gt; 0 </span><span class="cov2" title="4">{
+                <span class="cov3" title="7">if user != "" &amp;&amp; amount &gt; 0 </span><span class="cov2" title="4">{
                         // Lineage-attributed clawback (P0-3 + P0-4): claw THIS consumer's OWN lots only
                         // (never unrelated operators'); held/payable are clawed in the store, ALREADY-PAID
                         // lots come back as Reversals we must pull from the operator's connected account
@@ -2069,10 +2069,10 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="co
                         b.emailDisputeOpened(b.emailOf(user), amount, o.ID)
                         log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from held/payable, %d paid-lot reversal(s), platform loss %.4f)",
                                 o.ID, user, amount, res.Clawed, len(res.Reversals), res.PlatformLoss)</span>
-                } else<span class="cov1" title="1"> {
+                } else<span class="cov2" title="3"> {
                         log.Printf("stripe: dispute %s could not resolve a wallet (pi=%s ch=%s amount=%.4f) - no clawback", o.ID, o.PaymentIntent, o.Charge, amount)
                 }</span>
-                <span class="cov3" title="5">writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+                <span class="cov3" title="7">writeJSON(w, http.StatusOK, map[string]bool{"received": true})
                 return</span>
         }
         <span class="cov3" title="8">if evt.Type == "checkout.session.completed" </span><span class="cov3" title="8">{
@@ -2114,35 +2114,35 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) <span class="co
 }
 
 // verifyStripeSig validates the Stripe-Signature header (t=…,v1=…) via HMAC-SHA256.
-func verifyStripeSig(header string, payload []byte, secret string) bool <span class="cov5" title="23">{
+func verifyStripeSig(header string, payload []byte, secret string) bool <span class="cov5" title="25">{
         if secret == "" </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov5" title="22">var ts, v1 string
-        for _, part := range strings.Split(header, ",") </span><span class="cov6" title="43">{
+        <span class="cov5" title="24">var ts, v1 string
+        for _, part := range strings.Split(header, ",") </span><span class="cov6" title="47">{
                 kv := strings.SplitN(part, "=", 2)
                 if len(kv) != 2 </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov6" title="42">switch kv[0] </span>{
-                case "t":<span class="cov5" title="21">
+                <span class="cov6" title="46">switch kv[0] </span>{
+                case "t":<span class="cov5" title="23">
                         ts = kv[1]</span>
-                case "v1":<span class="cov5" title="21">
+                case "v1":<span class="cov5" title="23">
                         v1 = kv[1]</span>
                 }
         }
-        <span class="cov5" title="22">if ts == "" || v1 == "" </span><span class="cov1" title="2">{
+        <span class="cov5" title="24">if ts == "" || v1 == "" </span><span class="cov1" title="2">{
                 return false
         }</span>
         // Reject stale signatures to prevent replay (Stripe default tolerance: 5 min).
-        <span class="cov5" title="20">tsi, err := strconv.ParseInt(ts, 10, 64)
+        <span class="cov5" title="22">tsi, err := strconv.ParseInt(ts, 10, 64)
         if err != nil </span><span class="cov0" title="0">{
                 return false
         }</span>
-        <span class="cov5" title="20">if d := time.Now().Unix() - tsi; d &gt; 300 || d &lt; -300 </span><span class="cov2" title="4">{
+        <span class="cov5" title="22">if d := time.Now().Unix() - tsi; d &gt; 300 || d &lt; -300 </span><span class="cov2" title="4">{
                 return false
         }</span>
-        <span class="cov4" title="16">mac := hmac.New(sha256.New, []byte(secret))
+        <span class="cov5" title="18">mac := hmac.New(sha256.New, []byte(secret))
         fmt.Fprintf(mac, "%s.%s", ts, payload)
         expected := hex.EncodeToString(mac.Sum(nil))
         return hmac.Equal([]byte(expected), []byte(v1))</span>
@@ -2923,11 +2923,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov4" title="7">{
+        for _, n := range b.nodes </span><span class="cov3" title="6">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
+                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -4561,7 +4561,7 @@ func fmtCostHeader(cost float64) string <span class="cov6" title="36">{
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
-func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="471">{
+func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="473">{
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(code)
         _ = json.NewEncoder(w).Encode(v)
@@ -4592,13 +4592,13 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
-func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="430">{
+func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="432">{
         if r.Method != method </span><span class="cov4" title="11">{
                 w.Header().Set("Allow", method)
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return false
         }</span>
-        <span class="cov9" title="419">return true</span>
+        <span class="cov9" title="421">return true</span>
 }
 </pre>
 		
@@ -8844,11 +8844,11 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="7">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov3" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -11538,7 +11538,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="123">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="121">{
                         best = i
                 }</span>
         }
@@ -15185,10 +15185,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="690">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="687">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="665">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="668">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -15313,15 +15313,15 @@ func (b *broker) writeThroughInflight(node string, count int) <span class="cov5"
 func (b *broker) syncInflight(stop &lt;-chan struct{}) <span class="cov2" title="3">{
         t := time.NewTicker(syncTickInterval)
         defer t.Stop()
-        for </span><span class="cov3" title="13">{
+        for </span><span class="cov3" title="14">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         return</span>
-                case &lt;-t.C:<span class="cov3" title="11">
+                case &lt;-t.C:<span class="cov3" title="12">
                         if b.shared == nil || !b.multiInstance </span><span class="cov1" title="1">{
                                 return
                         }</span>
-                        <span class="cov3" title="10">b.mergeSharedInflight()</span>
+                        <span class="cov3" title="11">b.mergeSharedInflight()</span>
                 }
         }
 }
@@ -15329,15 +15329,15 @@ func (b *broker) syncInflight(stop &lt;-chan struct{}) <span class="cov2" title=
 // mergeSharedInflight refreshes b.peerInflight from the shared store (one round). Split
 // out so a test can drive it deterministically. On a snapshot error it leaves the prior
 // peerInflight intact (graceful degrade).
-func (b *broker) mergeSharedInflight() <span class="cov3" title="14">{
+func (b *broker) mergeSharedInflight() <span class="cov3" title="15">{
         if b.shared == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov3" title="13">snap, err := b.shared.inflightByNode(b.instanceID)
+        <span class="cov3" title="14">snap, err := b.shared.inflightByNode(b.instanceID)
         if err != nil </span><span class="cov3" title="9">{
                 return
         }</span>
-        <span class="cov2" title="4">b.metricsMu.Lock()
+        <span class="cov2" title="5">b.metricsMu.Lock()
         b.peerInflight = snap
         b.metricsMu.Unlock()</span>
 }
@@ -17834,9 +17834,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="480">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="477">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18654,7 +18654,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="985">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="981">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18883,13 +18883,13 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="969">{
+        for </span><span class="cov9" title="965">{
                 select </span>{
                 case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="964"></span>
+                default:<span class="cov9" title="960"></span>
                 }
-                <span class="cov9" title="964">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="960">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
@@ -18899,7 +18899,7 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="961">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="954">{
+                <span class="cov9" title="957">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="950">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -25038,7 +25038,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="107">{
+        for len(s) &lt; 3 </span><span class="cov5" title="128">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25046,17 +25046,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5915">{
+        for n &gt; 0 </span><span class="cov9" title="5895">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2006">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -39015,10 +39015,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="781">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="643">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="642">{
                 return s
         }</span>
-        <span class="cov3" title="138">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="139">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -40688,7 +40688,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="312">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="334">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40710,7 +40710,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="73">
+                case agent.LinkOnAir:<span class="cov3" title="72">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -40818,7 +40818,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
