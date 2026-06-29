@@ -514,8 +514,8 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int) {
 }
 
 // paintSpaceship sends a RARE spaceship across the upper sky (~1/4 of 130-frame windows) with a dim
-// fading ion trail and a single red '•' running light at the nose. Gold hull (toneSun) for a warm
-// pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
+// fading ion trail and a single red '•' running light at the nose. Amber hull (toneShip) for a
+// warm pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
 func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) {
 	if skyRows < 3 || w < 12 {
 		return
