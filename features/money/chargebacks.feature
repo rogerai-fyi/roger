@@ -430,11 +430,14 @@ Feature: A chargeback claws the operator's share of the disputed money and nothi
     When the dispute webhook receives "dp_neg" with amount -100.00 for alice
     Then no clawback is performed for "dp_neg"
 
-  # --- LATENT-BUG WITNESS (flagged): a partial dispute SMALLER than a single
-  #     lot's consumer cost over-claws the whole lot. This scenario states the
-  #     INTENDED behavior (clawed must never exceed the disputed amount). The
-  #     current implementation claws the entire lot and books NO platform loss,
-  #     violating conservation (clawed > disputed). See the engineer's note.
+  # --- REGRESSION GUARD (was a LATENT-BUG WITNESS): a partial dispute SMALLER
+  #     than a single lot's consumer cost must recover only the operator's PRO-RATA
+  #     share (gross * disputed/cost), never the whole lot. The old code clawed the
+  #     entire lot and booked NO platform loss, violating conservation (clawed >
+  #     disputed). That is now FIXED in store.ChargebackLineage (pro-rata frac on the
+  #     overshoot lot; the lot is kept with its gross reduced) and locked here + in
+  #     internal/store/chargeback_parity_test.go (TestChargebackPartialProRataParity):
+  #     a 100 dispute on a 200-cost / 140-gross lot claws 70, books 30 platform loss.
   Scenario: Dispute smaller than a single lot's cost must not over-claw the operator
     Given wallet "alice" has 1000.00 in real credits
     And node "n1" is owned by account "op1"
