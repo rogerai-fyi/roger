@@ -5,8 +5,6 @@
 #   reversePaidLots / reversalRetrySweep / payoutTransferReversal
 #   (cmd/rogerai-broker/payouts.go).
 #
-# No step definitions or Go yet — approve this spec first.
-#
 # Why this exists: when a dispute claws an ALREADY-PAID lot, the ledger clawback is
 # recorded synchronously, but the actual money pull-back is a Stripe Transfer
 # Reversal that can transiently fail. Without a durable intent that failure silently
