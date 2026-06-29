@@ -257,6 +257,7 @@ body.auth {
 }
 .gh:hover { opacity: 0.88; }
 .gh:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
+.gh + .gh { margin-top: var(--s-3); } /* stacked providers (GitHub + Apple) get a gap */
 
 /* ---- ghost control: an ink hairline outline; red on hover/focus. ---- */
 .ghost {
