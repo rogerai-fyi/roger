@@ -180,6 +180,29 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
 	return rangeMin, rangeMax, true
 }
 
+// priceCeiling is the upper bound of the priceMod reward range (spec 1.1c): the dearest
+// ELIGIBLE out-price, WIDENED to the caller's max-out cap when they set one ("I'll pay up
+// to X but reward me below it"). A zero/absent cap (maxPriceOut<=0) leaves the eligible max
+// as the ceiling. This is the exact rmax pickFor computes; extracted so the cap-widening is
+// directly testable.
+func priceCeiling(rangeMax, maxPriceOut float64) float64 {
+	if maxPriceOut > 0 && maxPriceOut > rangeMax {
+		return maxPriceOut
+	}
+	return rangeMax
+}
+
+// explorationRadius is the canary-GATED UCB exploration lift (spec 1.1e): a node earns a
+// non-zero radius ONLY once it has been probed AND passed the canary (probed && probeOK) -
+// we explore honest-capable capacity, never unproven-flaky nodes (which get a flat 0). This
+// is the exact gate pickFor applies; extracted so the gating is directly testable.
+func explorationRadius(tq trustState, c float64, totalReqs int64, successCount int) float64 {
+	if tq.probed && tq.probeOK {
+		return ucbRadius(c, totalReqs, tq.recounts, tq.probes, successCount)
+	}
+	return 0
+}
+
 // hwConcurrencyClass is the conservative cold-start capacity prior from the node's
 // self-asserted hw string (spec 1.1d): multi-GPU => 4, single discrete GPU => 2,
 // else 1. DISPLAY/prior only - never score-trusted; washed out by the first real

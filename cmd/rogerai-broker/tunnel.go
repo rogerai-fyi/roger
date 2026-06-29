@@ -2043,10 +2043,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 		fit := speedFit(tps, tq.ttftMs, req.promptTokens, w.speedMul)
 		// UCB radius is GATED to canary-passed nodes (spec 1.1e): we explore honest-
 		// capable nodes, never unproven-flaky ones.
-		radius := 0.0
-		if tq.probed && tq.probeOK {
-			radius = ucbRadius(w.c, totalReqs, tq.recounts, tq.probes, b.successCount[n.NodeID])
-		}
+		radius := explorationRadius(tq, w.c, totalReqs, b.successCount[n.NodeID])
 		cap := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
 
 		for _, o := range n.Offers {
@@ -2082,10 +2079,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 	}
 	// User price cap (when given) widens the range ceiling so "I'll pay up to X but
 	// reward me below it" is expressible; else the eligible max is the ceiling.
-	rmax := rangeMax
-	if maxPriceOut > 0 && maxPriceOut > rmax {
-		rmax = maxPriceOut
-	}
+	rmax := priceCeiling(rangeMax, maxPriceOut)
 
 	// Score each candidate; partition into Tier A (eligible) and Tier B (probation).
 	var tierA, tierB []scoredCand
