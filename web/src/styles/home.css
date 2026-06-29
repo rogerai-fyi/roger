@@ -840,3 +840,12 @@
   .teaser__tick, .teaser__pip, .teaser__lbl, .teaser__locked { transition: none; }
   .teaser__needle { box-shadow: none; }
 }
+
+/* Per-model $-tier on the market teaser price cell: a NEUTRAL "$".."$$$$" read of the
+   model's BEST price vs the going rate, + a "good price" chip on the cheapest tier ONLY.
+   Mirrors the Models page (.price-tier / .band-tag--deal) so every surface reads alike;
+   the homepage doesn't load models.css, so the essentials live here too. Never negative. */
+.price-tier { font-family: var(--font-mono); font-weight: 600; color: var(--ink-500); margin-left: 4px; }
+.band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
+  padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
+.band-tag--deal { color: var(--live); border-color: var(--live); }

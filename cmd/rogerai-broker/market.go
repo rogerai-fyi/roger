@@ -213,6 +213,7 @@ type marketView struct {
 	Providers   int     `json:"providers"`    // online nodes offering this model
 	InFlight    int     `json:"in_flight"`    // active requests across those nodes
 	MinPrice    float64 `json:"min_price"`    // cheapest active input price (credits/1M)
+	PriceTier   int     `json:"price_tier"`   // 0..4 neutral $-tier for the model's BEST (cheapest) active out-price (0 = FREE/unknown); mirrors the cheapest offer's /discover tier
 	BestTPS     float64 `json:"best_tps"`     // fastest measured output tok/s
 	BestTTFTMs  float64 `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
 	Quality     float64 `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
@@ -255,6 +256,9 @@ func (b *broker) computeMarket() any {
 		inflight      int
 		minPrice      float64
 		havePrice     bool
+		minOut        float64   // cheapest active OUT-price (incl. 0 = a free provider) - the model's BEST price
+		haveOut       bool      // whether any provider's active out-price was seen
+		outPrices     []float64 // online active OUT-prices > 0, for the per-model median baseline (mirrors assignPriceTiers' peers)
 		bestTPS       float64
 		bestTTFT      float64 // lowest non-zero probe TTFT (ms)
 		haveTTFT      bool
@@ -311,9 +315,18 @@ func (b *broker) computeMarket() any {
 			}
 			a.providers++
 			a.inflight += inflight
-			in, _, _, _ := o.ActivePrice(now)
+			in, out, _, _ := o.ActivePrice(now)
 			if !a.havePrice || in < a.minPrice {
 				a.minPrice, a.havePrice = in, true
+			}
+			// Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
+			// and the spread of priced OUT-offers (the internal-median baseline, online only,
+			// > 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
+			if !a.haveOut || out < a.minOut {
+				a.minOut, a.haveOut = out, true
+			}
+			if out > 0 {
+				a.outPrices = append(a.outPrices, out)
 			}
 			if tps > a.bestTPS {
 				a.bestTPS = tps
@@ -353,9 +366,16 @@ func (b *broker) computeMarket() any {
 			successRate: successRate, trust: quality, recency: a.bestRecency, verified: a.anyVerified,
 			staleness: a.bestStaleness,
 		})
+		// Per-model neutral $-tier: priceTier over the model's BEST (cheapest) active out-price
+		// vs the external reference (preferred) else the live per-model median of online out-
+		// prices - the SAME priceTier the cheapest provider's offer carries on /discover, so the
+		// aggregate row agrees with the per-offer feed. b.refOut locks b.refMu (independent of
+		// b.mu/b.metricsMu, both released above). A FREE/thin model yields tier 0.
+		ref, _ := b.refOut(model)
+		tier := priceTier(a.minOut, ref, a.outPrices)
 		out = append(out, marketView{
 			Model: model, Providers: a.providers, InFlight: a.inflight,
-			MinPrice: a.minPrice, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
+			MinPrice: a.minPrice, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),
 			SuccessRate: round6(successRate),
 			Verified:    a.anyVerified,

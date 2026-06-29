@@ -113,7 +113,8 @@
       var m = byModel[k] || (byModel[k] = {
         model: k, providers: 0, online: 0, tpsSum: 0, tpsN: 0,
         minPriceOut: Infinity, verified: false, hw: o.hw || "",
-        bestSignal: 0, bestTTFT: 0, succSum: 0, succN: 0, anyVerified: false
+        bestSignal: 0, bestTTFT: 0, succSum: 0, succN: 0, anyVerified: false,
+        priceTier: 0
       });
       m.providers++;
       var on = o.online !== false;
@@ -121,7 +122,9 @@
       var tps = +o.tps || 0;
       if (tps > 0) { m.tpsSum += tps; m.tpsN++; }
       var po = (o.price_out != null ? +o.price_out : +o.price_in);
-      if (po != null && !isNaN(po) && po < m.minPriceOut) m.minPriceOut = po;
+      // The model's $-tier follows its CHEAPEST out-priced offer (the best deal), matching
+      // the broker's per-model /market price_tier - so both data paths agree.
+      if (po != null && !isNaN(po) && po < m.minPriceOut) { m.minPriceOut = po; m.priceTier = (+o.price_tier || 0); }
       // broker's per-offer signal is authoritative; take the band's strongest.
       if (on && +o.signal > m.bestSignal) m.bestSignal = +o.signal;
       var tt = +o.ttft_ms || 0;
@@ -143,6 +146,7 @@
         total: m.providers,
         tps: tps,
         price: price,
+        priceTier: m.priceTier || 0,
         // prefer the broker's per-offer composite; only fall back to local math if no
         // offer carried a signal (older broker).
         signal: online > 0 ? (m.bestSignal > 0 ? m.bestSignal / 100 : computeSignal(online, tps || 30)) : 0,
@@ -174,6 +178,7 @@
       return {
         model: m.model || m.band || "unknown",
         providers: providers, total: providers, tps: tps, price: price,
+        priceTier: (+m.price_tier || 0),
         // broker signal is authoritative; the local computeSignal is only used if the
         // broker somehow omitted it (older broker), never to OVERRIDE it.
         signal: live ? (m.signal != null ? sig : computeSignal(providers, tps || 30)) : 0,
@@ -209,6 +214,18 @@
     if (!p) return "free";
     return "$" + (p < 1 ? p.toFixed(2) : p.toFixed(2));
   }
+  // fmtTier renders the broker's per-MODEL neutral $-tier (0..4) for the model's BEST price:
+  // "$".."$$$$" + a "good price" chip on tier 1 ONLY. Mirrors the bands.js / TUI / broker
+  // contract so every surface reads alike. The broker already folds FREE/unknown into tier 0
+  // (-> ""), so the per-model row keys on the tier itself; never any negative wording.
+  function fmtTier(tier) {
+    tier = +tier || 0;
+    if (tier < 1 || tier > 4) return "";
+    var bars = '<span class="price-tier" title="our read of this model’s best price vs the going rate">' +
+      "$".repeat(tier) + "</span>";
+    var chip = tier === 1 ? ' <span class="band-tag band-tag--deal">good price</span>' : "";
+    return " " + bars + chip;
+  }
   function rowHTML(c, animate) {
     var dot = c.live
       ? '<span class="mkt-dot mkt-dot--on" aria-hidden="true">●</span>'
@@ -227,7 +244,7 @@
       : '<span class="mkt-unit mkt-unit--idle">-</span>';
 
     var price = c.live
-      ? '<b class="mono ember">' + fmtPrice(c.price) + '</b><span class="mkt-unit"> /1M</span>'
+      ? '<b class="mono ember">' + fmtPrice(c.price) + '</b><span class="mkt-unit"> /1M</span>' + fmtTier(c.priceTier)
       : '<span class="mkt-unit mkt-unit--idle">' + fmtPrice(c.price) + ' /1M</span>';
 
     // explain the meter: a hover tooltip with the broker's per-term breakdown, and a
