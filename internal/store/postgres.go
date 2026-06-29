@@ -52,6 +52,12 @@ ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS anonymized BOOLEAN DEFAULT f
 -- exactly once across first-bind and a later email-set.
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS welcomed_at TIMESTAMPTZ;
+-- Sign in with Apple: the stable per-app Apple user id (the binding key for an Apple-linked
+-- account). Additive + NULLable so GitHub-only owners are unaffected (github_id/login stay
+-- NOT NULL, satisfied by 0/'' for an Apple-only owner). Deliberately NOT unique: like
+-- github_id, multiple device pubkeys may bind the SAME apple_sub and all resolve to one
+-- u_apple_ wallet (multi-device wallet sharing) - a unique index would reject the 2nd device.
+ALTER TABLE rogerai.owners ADD COLUMN IF NOT EXISTS apple_sub TEXT;
 -- node -> operator account (owner pubkey) binding, so a node's earnings attribute
 -- to an account at payout/Connect time. TOFU: first account to bind a node wins.
 CREATE TABLE IF NOT EXISTS rogerai.node_owner (
@@ -898,21 +904,29 @@ func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
 // it keeps a user-set email (or an already-captured name) and NEVER lets a later GitHub
 // login clobber it - it only fills a column that is currently empty/NULL.
 func (p *Postgres) BindOwner(o Owner) error {
-	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login,name,email) VALUES($1,$2,$3,$4,$5)
-		ON CONFLICT (pubkey) DO UPDATE SET github_id=$2, login=$3,
-			name=COALESCE(NULLIF(rogerai.owners.name,''), $4),
-			email=COALESCE(NULLIF(rogerai.owners.email,''), $5)`,
-		o.Pubkey, o.GitHubID, o.Login, o.Name, o.Email)
+	// Cross-provider preserve (mirrors Mem.BindOwner): a GitHub bind carries a non-zero
+	// github_id/login and empty apple_sub; an Apple bind the reverse. COALESCE(NULLIF(new,
+	// zero), existing) on each provider id fills only what the incoming bind sets, so binding
+	// one provider never drops the other's link on the same pubkey (dual-link). A GitHub
+	// re-login still updates login (its EXCLUDED.login is non-empty), matching prior behavior.
+	_, err := p.db.Exec(`INSERT INTO rogerai.owners(pubkey,github_id,login,apple_sub,name,email) VALUES($1,$2,$3,NULLIF($4,''),$5,$6)
+		ON CONFLICT (pubkey) DO UPDATE SET
+			github_id=COALESCE(NULLIF(EXCLUDED.github_id,0), rogerai.owners.github_id),
+			login=COALESCE(NULLIF(EXCLUDED.login,''), rogerai.owners.login),
+			apple_sub=COALESCE(EXCLUDED.apple_sub, rogerai.owners.apple_sub),
+			name=COALESCE(NULLIF(rogerai.owners.name,''), $5),
+			email=COALESCE(NULLIF(rogerai.owners.email,''), $6)`,
+		o.Pubkey, o.GitHubID, o.Login, o.AppleSub, o.Name, o.Email)
 	return err
 }
 
 func (p *Postgres) OwnerByPubkey(pubkey string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub
 		FROM rogerai.owners WHERE pubkey=$1`, pubkey)
 }
 
 func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
-	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at
+	return p.scanOwner(`SELECT pubkey,github_id,login,created_at,email,stripe_connect_id,connect_status,deleted_at,anonymized,name,welcomed_at,apple_sub
 		FROM rogerai.owners WHERE login=$1 AND NOT COALESCE(anonymized,false)`, login)
 }
 
@@ -920,10 +934,10 @@ func (p *Postgres) OwnerByLogin(login string) (Owner, bool, error) {
 func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	var o Owner
 	var created, deleted, welcomed sql.NullTime
-	var email, connectID, connectStatus, name sql.NullString
+	var email, connectID, connectStatus, name, appleSub sql.NullString
 	var anon sql.NullBool
 	err := p.db.QueryRow(query, arg).Scan(
-		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed)
+		&o.Pubkey, &o.GitHubID, &o.Login, &created, &email, &connectID, &connectStatus, &deleted, &anon, &name, &welcomed, &appleSub)
 	if err == sql.ErrNoRows {
 		return Owner{}, false, nil
 	}
@@ -941,6 +955,7 @@ func (p *Postgres) scanOwner(query string, arg string) (Owner, bool, error) {
 	}
 	o.Email = email.String
 	o.Name = name.String
+	o.AppleSub = appleSub.String
 	o.ConnectID = connectID.String
 	o.ConnectStatus = connectStatus.String
 	o.Anonymized = anon.Bool

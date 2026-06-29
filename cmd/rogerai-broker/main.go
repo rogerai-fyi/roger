@@ -520,6 +520,9 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/market", b.market)                           // per-model market metrics + signal
 	mux.HandleFunc("/promo", b.promo)                             // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
 	mux.HandleFunc("/auth/github", b.authGitHub)                  // bind a GitHub owner to the signing pubkey (CLI device flow)
+	mux.HandleFunc("/auth/apple", b.authApple)                    // bind an Apple owner to the signing pubkey (Sign in with Apple, native)
+	mux.HandleFunc("/auth/apple/web/login", b.authAppleWebLogin)         // web: 302 to Apple authorize (Services ID)
+	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback)   // web: form_post id_token -> Apple-wallet session
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)       // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
 	mux.HandleFunc("/auth/logout", b.authLogout)                  // web: clear the session cookie
@@ -842,8 +845,8 @@ func (b *broker) walletOf(r *http.Request, id string) string {
 	// write (auth.go) invalidates the entry so a re-login is reflected at once. A non-
 	// logged-in/anon pubkey is cached as a negative result so it doesn't re-hit Postgres.
 	if w, ok := b.cachedOwnerWallet(pub, func() (string, bool) {
-		if o, ok, err := b.db.OwnerByPubkey(pub); err == nil && ok && !o.Anonymized && o.GitHubID != 0 {
-			return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
+		if o, ok, err := b.db.OwnerByPubkey(pub); err == nil && ok {
+			return accountWalletForOwner(o)
 		}
 		return "", false
 	}); ok {
@@ -861,7 +864,10 @@ func (b *broker) walletOf(r *http.Request, id string) string {
 // caller's balance/spend/recent, or lets someone claim a grant without its secret.
 // See identityOf.
 func reservedID(s string) bool {
-	return looksLikeDerivedID(s) || strings.HasPrefix(s, "u_gh_") || strings.HasPrefix(s, "g_")
+	return looksLikeDerivedID(s) ||
+		strings.HasPrefix(s, "u_gh_") ||
+		strings.HasPrefix(s, "u_apple_") || // an Apple account wallet is guessable from a sub - same leak guard as u_gh_
+		strings.HasPrefix(s, "g_")
 }
 
 // looksLikeDerivedID reports whether s is shaped like a pubkey-derived wallet id
@@ -878,6 +884,31 @@ func looksLikeDerivedID(s string) bool {
 		}
 	}
 	return true
+}
+
+// accountWalletForOwner resolves a bound owner to its unified ACCOUNT wallet: GitHub wins
+// (keeps existing users on their current u_gh_ wallet), then Apple (u_apple_). ok=false for
+// an anonymous/unbound/anonymized owner - those have no account wallet (anon, no seed) by
+// design. The single source of truth for the pubkey->account-wallet mapping, shared by
+// walletOf and ownerSponsorWallet so the GitHub/Apple precedence can never diverge.
+func accountWalletForOwner(o store.Owner) (string, bool) {
+	if o.Anonymized {
+		return "", false
+	}
+	if o.GitHubID != 0 {
+		return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
+	}
+	if o.AppleSub != "" {
+		return walletForAppleSub(o.AppleSub), true
+	}
+	return "", false
+}
+
+// isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub
+// or Apple), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
+// path (loggedInWallet) and the dashboard balance (walletLoggedIn).
+func isAccountWallet(w string) bool {
+	return strings.HasPrefix(w, "u_gh_") || strings.HasPrefix(w, "u_apple_")
 }
 
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because

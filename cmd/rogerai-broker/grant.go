@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -220,8 +219,8 @@ func (b *broker) ownerSponsorWallet(ownerPubkey string) string {
 		return ""
 	}
 	if w, ok := b.cachedOwnerWallet(ownerPubkey, func() (string, bool) {
-		if o, ok, err := b.db.OwnerByPubkey(ownerPubkey); err == nil && ok && !o.Anonymized && o.GitHubID != 0 {
-			return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
+		if o, ok, err := b.db.OwnerByPubkey(ownerPubkey); err == nil && ok {
+			return accountWalletForOwner(o)
 		}
 		return "", false
 	}); ok {

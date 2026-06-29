@@ -163,8 +163,15 @@ func webOriginHost() string {
 // the readable signed-in hint, both expiring at exp. Used by the OAuth callback so the two
 // are always set together.
 func (b *broker) setWebSessionCookies(w http.ResponseWriter, login string, id, exp int64) {
+	b.setWebSessionWallet(w, login, id, "u_gh_"+strconv.FormatInt(id, 10), exp)
+}
+
+// setWebSessionWallet is setWebSessionCookies for a session carrying an EXPLICIT wallet, so a
+// non-GitHub login (Sign in with Apple: githubID=0, wallet=u_apple_<…>) gets the same signed
+// session credential + readable signed-in hint the GitHub callback issues.
+func (b *broker) setWebSessionWallet(w http.ResponseWriter, login string, githubID int64, wallet string, exp int64) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: b.signSession(login, id, exp), Path: "/",
+		Name: sessionCookie, Value: b.signSessionWallet(login, githubID, wallet, exp), Path: "/",
 		Expires: time.Unix(exp, 0), HttpOnly: true, Secure: true, SameSite: http.SameSiteNoneMode,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -196,44 +203,55 @@ func (b *broker) sessionKey() []byte {
 	return h[:]
 }
 
-// signSession returns a tamper-evident cookie value "payloadB64.sigB64" where
-// payload is "login|githubID|expiresUnix".
+// signSession signs a GitHub web session (wallet = u_gh_<githubID>). Thin wrapper over
+// signSessionWallet for the GitHub callback, which only knows the github id.
 func (b *broker) signSession(login string, githubID, exp int64) string {
-	payload := login + "|" + strconv.FormatInt(githubID, 10) + "|" + strconv.FormatInt(exp, 10)
+	return b.signSessionWallet(login, githubID, "u_gh_"+strconv.FormatInt(githubID, 10), exp)
+}
+
+// signSessionWallet returns a tamper-evident cookie value "payloadB64.sigB64" where payload
+// is "login|githubID|wallet|expiresUnix". Carrying the wallet EXPLICITLY lets a session
+// represent a non-GitHub account - Sign in with Apple sets githubID=0 and wallet=u_apple_<…>
+// - without the cookie reader having to know how to derive it. GitHub sessions keep
+// wallet=u_gh_<githubID>, so their behavior is unchanged.
+func (b *broker) signSessionWallet(login string, githubID int64, wallet string, exp int64) string {
+	payload := login + "|" + strconv.FormatInt(githubID, 10) + "|" + wallet + "|" + strconv.FormatInt(exp, 10)
 	mac := hmac.New(sha256.New, b.sessionKey())
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// verifySession checks a cookie value's HMAC + expiry and returns the login.
-func (b *broker) verifySession(val string) (login string, githubID int64, ok bool) {
+// verifySession checks a cookie value's HMAC + expiry and returns the login, github id, and
+// the session's wallet id. (A pre-wallet cookie - 3 fields - fails the len check and is
+// treated as invalid, so old sessions simply re-login; no security impact.)
+func (b *broker) verifySession(val string) (login string, githubID int64, wallet string, ok bool) {
 	parts := strings.SplitN(val, ".", 2)
 	if len(parts) != 2 {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	mac := hmac.New(sha256.New, b.sessionKey())
 	mac.Write(payload)
 	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	f := strings.Split(string(payload), "|")
-	if len(f) != 3 {
-		return "", 0, false
+	if len(f) != 4 {
+		return "", 0, "", false
 	}
 	gid, _ := strconv.ParseInt(f[1], 10, 64)
-	exp, _ := strconv.ParseInt(f[2], 10, 64)
+	exp, _ := strconv.ParseInt(f[3], 10, 64)
 	if time.Now().Unix() > exp {
-		return "", 0, false
+		return "", 0, "", false
 	}
-	return f[0], gid, true
+	return f[0], gid, f[2], true
 }
 
 // authGitHubLogin handles GET /auth/github/login: 302 to GitHub authorize with a
@@ -370,11 +388,11 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 	if err != nil || c.Value == "" {
 		return "", 0, "", false
 	}
-	login, gid, vok := b.verifySession(c.Value)
+	login, gid, wallet, vok := b.verifySession(c.Value)
 	if !vok {
 		return "", 0, "", false
 	}
-	return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true
+	return login, gid, wallet, true
 }
 
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
@@ -486,11 +504,11 @@ func (b *broker) webSession(r *http.Request) (login, wallet string, ok bool) {
 	if err != nil || c.Value == "" {
 		return "", "", false
 	}
-	login, gid, vok := b.verifySession(c.Value)
+	login, _, wallet, vok := b.verifySession(c.Value)
 	if !vok {
 		return "", "", false
 	}
-	return login, "u_gh_" + strconv.FormatInt(gid, 10), true
+	return login, wallet, true
 }
 
 // dashIdentity resolves the wallet identity for a credentialed dashboard read
