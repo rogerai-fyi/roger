@@ -196,6 +196,28 @@ func TestAgentSubmitWaitsForLingeringGoroutine(t *testing.T) {
 	}
 }
 
+// TestStartQueuedPromptRoutesCommands: a dequeued slash-command runs inline (no turn); a
+// dequeued chat prompt starts a turn. Covers both branches of startQueuedPrompt.
+func TestStartQueuedPromptRoutesCommands(t *testing.T) {
+	am := agentSeed(t, "")
+	am.agentLines = []string{"old line"}
+
+	// A slash command runs inline and starts NO turn (/clear wipes the transcript).
+	cm, _ := am.startQueuedPrompt("/clear")
+	if cm.agentBusy {
+		t.Error("a queued slash command must not start a turn")
+	}
+	if strings.Contains(stripANSI(strings.Join(cm.agentLines, "\n")), "old line") {
+		t.Errorf("queued /clear should reset the transcript, got %v", cm.agentLines)
+	}
+
+	// A plain prompt starts a turn.
+	pm, _ := am.startQueuedPrompt("do a thing")
+	if !pm.agentBusy {
+		t.Error("a queued chat prompt should start a turn")
+	}
+}
+
 // TestAgentWorkingLineReceivingVsStalled covers the hung-detection readout: a recent event
 // reads as receiving/working with the per-call cap surfaced; a long silence reads as "may
 // be stuck" with the esc out + cap.
