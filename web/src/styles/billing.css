@@ -549,6 +549,19 @@
 }
 .bx-flow__v { font-size: var(--t-sm); line-height: 1.55; color: var(--ink-700); }
 
+/* ---- fair billing: what you're charged for. Hairline rows like the flow,
+   but full-width sentences led by a mono-weight bold phrase. ------------- */
+.bx-fair { list-style: none; margin: 0 0 var(--s-5); padding: 0; }
+.bx-fair li {
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--ink-700);
+}
+.bx-fair li:first-child { border-top: 0; }
+.bx-fair b { color: var(--ink-900); font-weight: var(--weight-medium); }
+
 /* ---- the two numbers people mix up ------------------------------------ */
 .bx-help__h {
   margin: 0 0 var(--s-2);

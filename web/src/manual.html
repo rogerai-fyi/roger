@@ -717,6 +717,17 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               a station's price out from under you. If a band drifts above your limit the
               broker simply routes you to another station within your criteria (or declines)
               rather than overcharging you.</p>
+
+            <h3>Fair billing - you only pay for quality tokens</h3>
+            <p>You are charged only for a successful, usable response, and the rule is
+              enforced <b>server-side at the broker relay</b> - so it holds for any client,
+              the <code>roger</code> CLI, opencode, or any OpenAI-compatible tool.</p>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">no output = $0</span><span class="man-plate__v">a request that returns nothing usable is <b>voided</b>: the pre-auth hold is refunded, you pay nothing, and the operator earns nothing (and takes a strike). A model that can't actually respond never costs you.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">no inflation</span><span class="man-plate__v">tokens are billed on the broker's <b>own independent re-count</b>, not the node's claim - settled on the smaller of the two, so a provider can't pad token counts to over-bill you.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">earn on quality</span><span class="man-plate__v">an operator is paid only for quality tokens that actually served you - a matching, usable response is the condition for payment.</span></div>
+            </div>
+
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">/account</span><span class="man-plate__v">profile, linked GitHub, payout status, export / delete</span></div>
               <div class="man-plate__row"><span class="man-plate__k">/billing</span><span class="man-plate__v">top-ups and the credit ledger</span></div>

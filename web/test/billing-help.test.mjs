@@ -18,6 +18,7 @@ const read = (p) => readFileSync(path.join(SRC, p), "utf8");
 const account = read("account.html");
 const billing = read("billing.html");
 const helpJs = read("js/billing-help.js");
+const manual = read("manual.html");
 
 test("account: the wallet balance is a prominent hero, with a single #balance", () => {
   assert.match(account, /class="ac-wallet"/, "wallet hero plate present");
@@ -63,6 +64,26 @@ test("billing: the modal explains the flow and the two confused numbers", () => 
   assert.match(billing, /Balance/);
   assert.match(billing, /You paid/);
   assert.match(billing, /per-turn/i, "frames 'You paid' as a per-turn figure");
+});
+
+test("fair billing: 'you only pay for quality tokens' in BOTH the modal and the manual", () => {
+  // The founder ask: surface token-quality -> fair-billing in the billing
+  // money-flow modal AND the manual. These assertions pin the four claims,
+  // each grounded in the broker relay (tunnel.go VOID-on-no-output, settle on
+  // min(claim, re-count), server-side /v1/chat/completions for any client).
+  for (const [name, html] of [["modal", billing], ["manual", manual]]) {
+    assert.match(html, /What you're charged for|Fair billing/, `${name}: has the fair-billing section`);
+    // 1) no usable output is $0: hold refunded, you pay nothing, operator strike.
+    assert.match(html, /refund/i, `${name}: hold is refunded`);
+    assert.match(html, /strike/i, `${name}: an empty-output node takes a strike`);
+    // 2) billed on the broker's independent re-count, not the node's claim.
+    assert.match(html, /re-count/i, `${name}: independent re-count`);
+    assert.match(html, /not the node's claim/i, `${name}: not the node's claim`);
+    // 3 + 4) earn only on quality + enforced server-side for any client.
+    assert.match(html, /condition for payment/i, `${name}: usable response is the condition for payment`);
+    assert.match(html, /server-side/i, `${name}: enforced server-side`);
+    assert.match(html, /OpenAI-compatible/i, `${name}: holds for any OpenAI-compatible client`);
+  }
 });
 
 test("billing-help.js: focus trap, Esc, backdrop and aria-expanded sync", () => {
