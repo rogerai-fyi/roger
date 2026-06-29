@@ -124,7 +124,14 @@ func (s *poState) reset() {
 func (s *poState) freshStore() error { s.reset(); return nil }
 func (s *poState) feePct(string) error { return nil }
 
-func (s *poState) policyBackground(string, string, string) error { s.minPayout = 25; return nil }
+func (s *poState) policyBackground(_, _, minimum string) error {
+	m, err := feParseFloat(minimum)
+	if err != nil {
+		return err
+	}
+	s.minPayout = m
+	return nil
+}
 
 func (s *poState) nodeOwned(node, owner string) error {
 	s.op = owner
