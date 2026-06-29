@@ -503,6 +503,10 @@
   min-height: 96px;
 }
 .bx-demo__svg { display: block; width: 100%; height: auto; max-width: 384px; }
+/* the animated explainer video (and its no-<video> gif fallback) size like the
+   diagram did: full width of the stage, capped, centered. */
+.bx-demo__vid { display: block; width: 100%; height: auto; max-width: 384px; margin-inline: auto; }
+.bx-demo__gif { display: block; width: 100%; height: auto; }
 .bx-demo__chip rect { fill: none; stroke: currentColor; stroke-width: 1.2; }
 .bx-demo__txt text {
   fill: var(--ink-900);
