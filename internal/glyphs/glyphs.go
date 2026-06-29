@@ -122,6 +122,8 @@ var asciiFold = map[rune]rune{
 	'≈': '~', '∼': '~', '∽': '~', '≋': '~',
 	// Ping World day scene (the sun disc + the day flower).
 	'☀': 'O', '❀': '*',
+	// Ping World orbital traffic (the satellite bus + the spaceship cockpit).
+	'▢': '#', '◊': 'o',
 }
 
 // Fold replaces non-ASCII art/signal runes with ASCII stand-ins WHEN ASCII() is in

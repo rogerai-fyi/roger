@@ -57,6 +57,8 @@ const (
 	toneLeaf                     // grass green: the daytime plants growing from the ground
 	toneWater                    // blue: the still shore pond + its reflection
 	tonePale                     // pale frost: the daytime drifting clouds (cool + soft, never red)
+	toneSat                      // bright aqua: the orbiting satellite (kept distinct from the teal moon)
+	toneShip                     // warm amber: the rare spaceship hull (distinct from the gold sun)
 )
 
 // The screensaver's COOL palette - kept SEPARATE from tui.go's brand mono+red on purpose: this is
@@ -71,6 +73,8 @@ var (
 	cLeaf    = lipgloss.AdaptiveColor{Light: "#5E8C3A", Dark: "#A3BE8C"} // grass green (plants)
 	cWater   = lipgloss.AdaptiveColor{Light: "#4C6F9C", Dark: "#5E81AC"} // deeper blue (pond)
 	cPale    = lipgloss.AdaptiveColor{Light: "#9AA7B5", Dark: "#D8DEE9"} // pale frost (day clouds)
+	cSat     = lipgloss.AdaptiveColor{Light: "#2B8AA0", Dark: "#7FE0E8"} // bright aqua (satellite)
+	cShip    = lipgloss.AdaptiveColor{Light: "#B5651D", Dark: "#E8A55C"} // warm amber (spaceship hull)
 )
 
 // toneStyle maps a cool tone to its lipgloss style (bright = a touch bolder, for near elements).
@@ -95,6 +99,10 @@ func toneStyle(t worldTone, bright bool) lipgloss.Style {
 		c = cWater
 	case tonePale:
 		c = cPale
+	case toneSat:
+		c = cSat
+	case toneShip:
+		c = cShip
 	default:
 		return stDim
 	}
@@ -478,6 +486,84 @@ func renderWorldData(w, h, frame, seed int, d *worldData) string {
 // worldBuffer builds the pure SEEDED cell buffer (no live data); nil for a degenerate size.
 func worldBuffer(w, h, frame, seed int) [][]worldCell { return worldBufferData(w, h, frame, seed, nil) }
 
+// paintSatellite glides a small satellite across the sky on seeded ~70-frame windows (day OR
+// night): a teal bus with solar-panel arms, trailing a periodic red '•' DOWNLINK blip - a
+// deliberate EXTRA place for the live on-air dot ("transmitting to the ground"). Generative: only
+// ~half the windows carry one, and it crosses either direction at a seeded altitude. Pure + seeded;
+// the tone goes through blitT so it's NO_COLOR-safe, and the lone red dot keeps the one-red law.
+func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int) {
+	if skyRows < 3 || w < 10 {
+		return
+	}
+	win := frame / 70
+	if worldHash(win, 31, seed)%2 != 0 {
+		return // only ~half the windows carry a satellite (don't overdo it)
+	}
+	k := frame % 70
+	span := w + 12
+	prog := k * span / 70
+	x := prog - 6
+	if worldHash(win, 32, seed)%2 == 0 {
+		x = w + 5 - prog // sometimes it crosses the other way
+	}
+	y := 1 + int(worldHash(win, 33, seed)%uint32(maxI(1, skyRows/2)))
+	blitT(buf, x, y, []string{"-=▢=-"}, 0, toneSat) // aqua bus + solar-panel arms
+	if k%9 < 2 {                                       // a brief downlink every ~9 frames
+		blit(buf, x+2, y+1, []string{"•"}, '•') // the on-air red dot, beamed groundward
+	}
+}
+
+// paintSpaceship sends a RARE spaceship across the upper sky (~1/4 of 130-frame windows) with a dim
+// fading ion trail and a single red '•' running light at the nose. Gold hull (toneSun) for a warm
+// pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
+func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) {
+	if skyRows < 3 || w < 12 {
+		return
+	}
+	win := frame / 130
+	if worldHash(win, 41, seed)%4 != 0 {
+		return // rare
+	}
+	k := frame % 130
+	span := w + 14
+	x := k*span/130 - 7
+	y := 1 + int(worldHash(win, 42, seed)%uint32(maxI(1, skyRows/2)))
+	for t := 1; t <= 3; t++ {
+		blit(buf, x-t, y, []string{"·"}, 0) // a fading ion trail behind
+	}
+	blitT(buf, x, y, []string{"<◊=>"}, 0, toneShip) // warm amber hull
+	if k%6 < 3 {
+		blit(buf, x+4, y, []string{"•"}, '•') // a red running light at the nose
+	}
+}
+
+// paintRadioDish stands a ground-station dish on the rim that sweeps a widening frost transmission
+// cone up into the sky, with a red '•' at the feed while it transmits (another deliberate place for
+// the live on-air dot). One seeded dish, a calm 24-frame sweep. Painted after the towers, before
+// Ping (Ping walks in front). Pure + seeded; the cone tone is NO_COLOR-safe via blitT.
+func paintRadioDish(buf [][]worldCell, w, horizon, frame, seed int) {
+	if horizon < 4 || w < 14 {
+		return
+	}
+	dx := 5 + int(worldHash(0, 51, seed)%uint32(maxI(1, w-10)))
+	dy := horizon - 1
+	blit(buf, dx, dy, []string{"Y"}, 0) // the dish mast/feed on the rim
+	b := frame % 24
+	if b >= 12 {
+		return // a quiet beat between sweeps
+	}
+	rad := 1 + b/4 // the cone widens 1->3 then resets
+	for i := 1; i <= rad; i++ {
+		if ay := dy - i; ay >= 0 {
+			blitT(buf, dx-i, ay, []string{"/"}, 0, toneSky)
+			blitT(buf, dx+i, ay, []string{"\\"}, 0, toneSky)
+		}
+	}
+	if b < 3 {
+		blit(buf, dx, dy-1, []string{"•"}, '•') // the feed transmits: the on-air red dot
+	}
+}
+
 // worldBufferData builds the back->front composited cell buffer. d is an optional LIVE snapshot
 // (on-air bands -> signal towers on the horizon + the ◉ riding the strongest); nil => the pure
 // seeded world. Split out so tests assert the ONE-RED invariant on the cells directly.
@@ -571,6 +657,12 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		blitT(buf, mx, my, globeLines(frame), 0, toneEarth)
 	}
 
+	// LAYER 1.6 — orbital traffic crossing the sky (day OR night): a satellite with a periodic red
+	// DOWNLINK blip, and RARELY a spaceship with an ion trail + a red running light. Generative
+	// (seeded windows, direction, altitude). The on-air ◉ is still painted LAST, on top of all.
+	paintSatellite(buf, w, skyRows, frame, seed)
+	paintSpaceship(buf, w, skyRows, frame, seed)
+
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
 	onAirX := int(worldHash(0, 1, seed) % uint32(w))
 	onAirY := int(worldHash(0, 2, seed) % uint32(skyRows))
@@ -628,6 +720,10 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	for ti, t := range towers {
 		paintTower(buf, t, horizon, ti == 0, frame)
 	}
+
+	// LAYER 3.6 — a ground-station dish sweeps a widening frost transmission cone up into the sky,
+	// with a red '•' at the feed while it transmits (another deliberate place for the live on-air dot).
+	paintRadioDish(buf, w, horizon, frame, seed)
 
 	// LAYER 4 — a still pond at the shore: the banded surface above is the beach, and the
 	// bottom rows give back a dim, rippled reflection of the moon (water for a duck). Dim ink,
