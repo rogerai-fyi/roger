@@ -5350,12 +5350,12 @@ func requireBrokerKey() bool <span class="cov4" title="10">{
 // cross-instance rendezvous bus. It is the SECOND gate (after a wired shared backend):
 // main only sets b.multiInstance when this is true AND b.shared != nil. Off by default
 // (the in-memory single-instance fast-path). Accepts 1/true/yes/on.
-func multiInstanceEnabled() bool <span class="cov9" title="239">{
+func multiInstanceEnabled() bool <span class="cov8" title="239">{
         switch strings.ToLower(os.Getenv("ROGERAI_MULTI_INSTANCE")) </span>{
         case "1", "true", "yes", "on":<span class="cov3" title="7">
                 return true</span>
         }
-        <span class="cov9" title="232">return false</span>
+        <span class="cov8" title="232">return false</span>
 }
 
 // newInstanceID returns a random per-process id used as this instance's field in the
@@ -5491,11 +5491,11 @@ func (b *broker) walletOf(r *http.Request, id string) string <span class="cov7" 
                 if o, ok, err := b.db.OwnerByPubkey(pub); err == nil &amp;&amp; ok &amp;&amp; !o.Anonymized &amp;&amp; o.GitHubID != 0 </span><span class="cov6" title="33">{
                         return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
                 }</span>
-                <span class="cov6" title="30">return "", false</span>
+                <span class="cov5" title="30">return "", false</span>
         }); ok <span class="cov6" title="33">{
                 return w
         }</span>
-        <span class="cov6" title="30">return id</span>
+        <span class="cov5" title="30">return id</span>
 }
 
 // loggedInWallet resolves the GitHub-scoped wallet for a request that proves it owns
@@ -5558,7 +5558,7 @@ func (b *broker) bindUserPub(id, pub string) <span class="cov8" title="155">{
         <span class="cov8" title="155">b.authMu.Unlock()</span>
 }
 
-func round6(f float64) float64 <span class="cov10" title="454">{
+func round6(f float64) float64 <span class="cov10" title="474">{
         return float64(int64(f*1e6+0.5)) / 1e6
 }</span>
 
@@ -5658,7 +5658,7 @@ type offerView struct {
 // node is scheduled for a near-term demand probe (async; this read uses current data)
 // - the public path opts in; the band resolve/relay liveness probe opts out so it
 // stays a cheap read. The returned slice is appended to `out`.
-func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView <span class="cov3" title="36">{
+func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView <span class="cov3" title="40">{
         age := time.Since(b.lastSeen[n.NodeID])
         live := age &lt; nodeTTL // heartbeat-fresh (drives recovery probing below)
         b.metricsMu.Lock()
@@ -5678,30 +5678,30 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
         staleness := b.measurementStalenessLocked(n.NodeID, now)
         capacity := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
         radius := 0.0
-        if tq.probed &amp;&amp; tq.probeOK </span><span class="cov2" title="9">{
+        if tq.probed &amp;&amp; tq.probeOK </span><span class="cov2" title="13">{
                 radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
         }</span>
-        <span class="cov3" title="36">if probeOnBrowse &amp;&amp; live &amp;&amp; b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov1" title="1">{
+        <span class="cov3" title="40">if probeOnBrowse &amp;&amp; live &amp;&amp; b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov1" title="1">{
                 b.demandProbeSoonLocked(n.NodeID, now) // probe even a probe-dead node so it can recover
         }</span>
-        <span class="cov3" title="36">b.metricsMu.Unlock()
+        <span class="cov3" title="40">b.metricsMu.Unlock()
 
         recency := recencyOf(age)
         successRate := successFor(sr, srSeen, verified)
         terms := signalTerms{}
-        if online </span><span class="cov3" title="29">{
+        if online </span><span class="cov3" title="31">{
                 terms = computeSignal(signalInput{
                         providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttft,
                         successRate: successRate, trust: quality, recency: recency, verified: verified,
                         staleness: staleness,
                 })
         }</span>
-        <span class="cov3" title="36">successSeen := srSeen || verified
-        for _, o := range n.Offers </span><span class="cov3" title="37">{
+        <span class="cov3" title="40">successSeen := srSeen || verified
+        for _, o := range n.Offers </span><span class="cov3" title="41">{
                 if deny != nil &amp;&amp; deny(o.Model) </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="36">pin, pout, free, _ := o.ActivePrice(now)
+                <span class="cov3" title="40">pin, pout, free, _ := o.ActivePrice(now)
                 out = append(out, offerView{
                         NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
                         In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
@@ -5714,7 +5714,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
                         InFlight: inflight, Capacity: capacity, Radius: round6(radius),
                 })</span>
         }
-        <span class="cov3" title="36">return out</span>
+        <span class="cov3" title="40">return out</span>
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -5753,11 +5753,11 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) <span class="c
 // state (no money/ledger mutation), so its serialized result is safe to cache for a
 // short window. The only side effect is demand-probe scheduling, which is a best-effort
 // hint and still fires on every cache miss.
-func (b *broker) computeDiscover() any <span class="cov2" title="14">{
+func (b *broker) computeDiscover() any <span class="cov3" title="18">{
         b.mu.Lock()
         now := time.Now()
         var out []offerView
-        for _, n := range b.nodes </span><span class="cov3" title="23">{
+        for _, n := range b.nodes </span><span class="cov3" title="28">{
                 // Ejected/banned nodes are removed from the public market view too (not just
                 // pick), so a reported node disappears from /discover.
                 if b.isBanned(n.NodeID) </span><span class="cov1" title="1">{
@@ -5765,21 +5765,21 @@ func (b *broker) computeDiscover() any <span class="cov2" title="14">{
                 }
                 // Private bands are HIDDEN from the public market: a freq-code node is only
                 // reachable via /bands/resolve, never enumerable here.
-                <span class="cov3" title="22">if b.private[n.NodeID] </span><span class="cov1" title="1">{
+                <span class="cov3" title="27">if b.private[n.NodeID] </span><span class="cov1" title="2">{
                         continue</span>
                 }
                 // Per-offer enrichment (signal/terms/success/verified/ctx/in-flight + the
                 // smart-router selection fields) is the SAME machinery a private band uses; it
                 // lives in the shared enrichOffersForNode (b.mu held here, deny=nil for the public
                 // path, demand-probe scheduling on while browsing).
-                <span class="cov3" title="21">out = b.enrichOffersForNode(out, n, now, nil, true)</span>
+                <span class="cov3" title="25">out = b.enrichOffersForNode(out, n, now, nil, true)</span>
         }
-        <span class="cov2" title="14">b.mu.Unlock()
+        <span class="cov3" title="18">b.mu.Unlock()
         // Classify each offer's neutral $-tier (external reference preferred, else the live
         // per-model median over this set) before returning, so /discover carries it.
         b.assignPriceTiers(out)
-        sort.Slice(out, func(i, j int) bool </span><span class="cov2" title="12">{ return out[i].In &lt; out[j].In }</span>)
-        <span class="cov2" title="14">return map[string]any{"offers": out}</span>
+        sort.Slice(out, func(i, j int) bool </span><span class="cov2" title="13">{ return out[i].In &lt; out[j].In }</span>)
+        <span class="cov3" title="18">return map[string]any{"offers": out}</span>
 }
 
 // marketView is the per-model market summary surfaced by GET /market.
@@ -5824,7 +5824,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) <span class="cov
 // from live node state (online providers, in-flight load, cheapest active price, best
 // measured throughput, mean success, and a 0..100 signal). Pure read of broker state,
 // so its serialized result is safe to cache briefly.
-func (b *broker) computeMarket() any <span class="cov2" title="6">{
+func (b *broker) computeMarket() any <span class="cov2" title="12">{
         type acc struct {
                 providers     int
                 inflight      int
@@ -5845,21 +5845,21 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
 
         b.mu.Lock()
         b.metricsMu.Lock()
-        for _, n := range b.nodes </span><span class="cov2" title="7">{
-                if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
+        for _, n := range b.nodes </span><span class="cov3" title="15">{
+                if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="2">{
                         continue</span>
                 }
                 // Banned/ejected nodes drop out of the aggregated market signal too. metricsMu
                 // is already held here, so read b.banned directly (no re-lock via isBanned).
-                <span class="cov2" title="6">if b.banned[n.NodeID] </span><span class="cov1" title="1">{
+                <span class="cov2" title="13">if b.banned[n.NodeID] </span><span class="cov1" title="1">{
                         continue</span>
                 }
                 // Private bands are hidden from the aggregated market signal too (b.mu is held
                 // here, so b.private is safe to read directly).
-                <span class="cov2" title="5">if b.private[n.NodeID] </span><span class="cov1" title="1">{
+                <span class="cov2" title="12">if b.private[n.NodeID] </span><span class="cov1" title="2">{
                         continue</span>
                 }
-                <span class="cov2" title="4">recency := recencyOf(time.Since(b.lastSeen[n.NodeID]))
+                <span class="cov2" title="10">recency := recencyOf(time.Since(b.lastSeen[n.NodeID]))
                 tps := b.tps[n.NodeID]
                 inflight := b.inflight[n.NodeID]
                 sr, srSeen := b.success[n.NodeID]
@@ -5878,52 +5878,52 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
                 if b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov0" title="0">{
                         b.demandProbeSoonLocked(n.NodeID, now)
                 }</span>
-                <span class="cov2" title="4">for _, o := range n.Offers </span><span class="cov2" title="5">{
+                <span class="cov2" title="10">for _, o := range n.Offers </span><span class="cov2" title="11">{
                         a := agg[o.Model]
-                        if a == nil </span><span class="cov2" title="4">{
+                        if a == nil </span><span class="cov2" title="8">{
                                 a = &amp;acc{}
                                 agg[o.Model] = a
                         }</span>
-                        <span class="cov2" title="5">a.providers++
+                        <span class="cov2" title="11">a.providers++
                         a.inflight += inflight
                         in, _, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="5">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov2" title="9">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
-                        <span class="cov2" title="5">if tps &gt; a.bestTPS </span><span class="cov1" title="3">{
+                        <span class="cov2" title="11">if tps &gt; a.bestTPS </span><span class="cov2" title="7">{
                                 a.bestTPS = tps
                         }</span>
-                        <span class="cov2" title="5">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov1" title="1">{
+                        <span class="cov2" title="11">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="5">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov2" title="5">if recency &gt; a.bestRecency </span><span class="cov2" title="4">{
+                        <span class="cov2" title="11">if recency &gt; a.bestRecency </span><span class="cov2" title="8">{
                                 a.bestRecency = recency
                         }</span>
-                        <span class="cov2" title="5">if staleness &gt; a.bestStaleness </span><span class="cov2" title="4">{
+                        <span class="cov2" title="11">if staleness &gt; a.bestStaleness </span><span class="cov2" title="8">{
                                 a.bestStaleness = staleness // freshest measurement across providers
                         }</span>
-                        <span class="cov2" title="5">if verified </span><span class="cov1" title="1">{
+                        <span class="cov2" title="11">if verified </span><span class="cov2" title="7">{
                                 a.anyVerified = true
                         }</span>
-                        <span class="cov2" title="5">a.qualitySum += quality
+                        <span class="cov2" title="11">a.qualitySum += quality
                         a.successSum += nodeSuccess
                         a.successSeen++</span>
                 }
         }
-        <span class="cov2" title="6">b.metricsMu.Unlock()
+        <span class="cov2" title="12">b.metricsMu.Unlock()
         b.mu.Unlock()
 
         out := make([]marketView, 0, len(agg))
-        for model, a := range agg </span><span class="cov2" title="4">{
+        for model, a := range agg </span><span class="cov2" title="8">{
                 successRate := 0.6 // neutral when somehow no provider contributed
-                if a.successSeen &gt; 0 </span><span class="cov2" title="4">{
+                if a.successSeen &gt; 0 </span><span class="cov2" title="8">{
                         successRate = a.successSum / float64(a.successSeen)
                 }</span>
-                <span class="cov2" title="4">quality := 1.0 // optimistic until measured
-                if a.providers &gt; 0 </span><span class="cov2" title="4">{
+                <span class="cov2" title="8">quality := 1.0 // optimistic until measured
+                if a.providers &gt; 0 </span><span class="cov2" title="8">{
                         quality = a.qualitySum / float64(a.providers)
                 }</span>
-                <span class="cov2" title="4">terms := computeSignal(signalInput{
+                <span class="cov2" title="8">terms := computeSignal(signalInput{
                         providers: a.providers, inflight: a.inflight, bestTPS: a.bestTPS, ttftMs: a.bestTTFT,
                         successRate: successRate, trust: quality, recency: a.bestRecency, verified: a.anyVerified,
                         staleness: a.bestStaleness,
@@ -5938,8 +5938,8 @@ func (b *broker) computeMarket() any <span class="cov2" title="6">{
                         Terms:       terms,
                 })</span>
         }
-        <span class="cov2" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov1" title="1">{ return out[i].Signal &gt; out[j].Signal }</span>)
-        <span class="cov2" title="6">return map[string]any{"market": out}</span>
+        <span class="cov2" title="12">sort.Slice(out, func(i, j int) bool </span><span class="cov1" title="1">{ return out[i].Signal &gt; out[j].Signal }</span>)
+        <span class="cov2" title="12">return map[string]any{"market": out}</span>
 }
 
 // signalInput is the full per-channel evidence the multi-factor signal scores. It
@@ -6004,7 +6004,7 @@ const (
 // 1 - clamp(age/nodeTTL). 1 = just heartbeat'd, 0 = at the TTL edge (about to age
 // out). Continuous so the meter sags smoothly instead of staying pinned until it
 // snaps to 0 at TTL.
-func recencyOf(age time.Duration) float64 <span class="cov3" title="40">{
+func recencyOf(age time.Duration) float64 <span class="cov3" title="50">{
         return clamp01(1 - float64(age)/float64(nodeTTL))
 }</span>
 
@@ -6013,24 +6013,24 @@ func recencyOf(age time.Duration) float64 <span class="cov3" title="40">{
 //   - otherwise, NOT the old constant 1.0: a node with a recent PASSED canary counts
 //     as positive (probed-OK-no-traffic = good evidence, verifiedOK), while a node
 //     with NO evidence at all sits at a NEUTRAL 0.6 (unproven, not assumed perfect).
-func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15520">{
+func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15530">{
         if srSeen </span><span class="cov6" title="1804">{
                 return clamp01(sr)
         }</span>
-        <span class="cov8" title="13716">if verifiedOK </span><span class="cov8" title="13579">{
+        <span class="cov8" title="13726">if verifiedOK </span><span class="cov8" title="13589">{
                 return 0.9 // probed OK, no organic traffic yet: strong positive, just shy of proven
         }</span>
         <span class="cov4" title="137">return 0.6</span> // no evidence either way: neutral, not optimistic-1.0
 }
 
-func clamp01(x float64) float64 <span class="cov10" title="145086">{
-        if x &lt; 0 </span><span class="cov2" title="4">{
+func clamp01(x float64) float64 <span class="cov10" title="145144">{
+        if x &lt; 0 </span><span class="cov2" title="6">{
                 return 0
         }</span>
-        <span class="cov9" title="145082">if x &gt; 1 </span><span class="cov6" title="2761">{
+        <span class="cov9" title="145138">if x &gt; 1 </span><span class="cov6" title="2761">{
                 return 1
         }</span>
-        <span class="cov9" title="142321">return x</span>
+        <span class="cov9" title="142377">return x</span>
 }
 
 // computeSignal scores a channel 0..100 from full multi-factor evidence and returns
@@ -6038,30 +6038,30 @@ func clamp01(x float64) float64 <span class="cov10" title="145086">{
 // in supply, speed, success, trust, verified, recency, and latency (lower TTFT is
 // better), and discounted by congestion - so it stays a glanceable health bar, not
 // a price.
-func computeSignal(in signalInput) signalTerms <span class="cov4" title="62">{
+func computeSignal(in signalInput) signalTerms <span class="cov4" title="68">{
         if in.providers == 0 </span><span class="cov1" title="1">{
                 return signalTerms{}
         }</span>
         // Supply: saturates around ~5 providers.
-        <span class="cov4" title="61">supply := clamp01(float64(in.providers) / 5.0)
+        <span class="cov4" title="67">supply := clamp01(float64(in.providers) / 5.0)
         // Speed: measured tok/s, saturating around 300 t/s.
         speed := clamp01(in.bestTPS / 300.0)
         // Latency: 1 - clamp(ttftMs/2000). Unmeasured TTFT (0) is treated as NEUTRAL
         // (0.5), not as instant - we have no evidence either way until a probe lands.
         latency := 0.5
-        if in.ttftMs &gt; 0 </span><span class="cov3" title="23">{
+        if in.ttftMs &gt; 0 </span><span class="cov3" title="29">{
                 latency = 1 - clamp01(in.ttftMs/ttftCap)
         }</span>
         // Verified-serving: a recent PASSED canary is hard positive evidence the node is
         // actually answering correctly right now. Heartbeat-only nodes get 0 here, so a
         // probed-OK node scores materially above an unverified one at equal everything.
-        <span class="cov4" title="61">verified := 0.0
-        if in.verified </span><span class="cov3" title="25">{
+        <span class="cov4" title="67">verified := 0.0
+        if in.verified </span><span class="cov3" title="31">{
                 verified = 1.0
         }</span>
         // Time-decayed success: caller already decays toward neutral with age (see
         // successFor); clamp here.
-        <span class="cov4" title="61">success := clamp01(in.successRate)
+        <span class="cov4" title="67">success := clamp01(in.successRate)
         trust := clamp01(in.trust)
         // Recency multiplies the whole blend: a channel whose newest heartbeat is aging
         // toward the TTL is a weaker signal than one that just checked in. Continuous, so
@@ -6074,13 +6074,13 @@ func computeSignal(in signalInput) signalTerms <span class="cov4" title="62">{
         // touches ONLY speed/latency/verified (the probe-measured terms); supply, success,
         // trust, recency are unaffected. A fresh measurement restores it to 1.0 at once.
         staleness := 1.0
-        if in.staleness &gt; 0 </span><span class="cov3" title="37">{
+        if in.staleness &gt; 0 </span><span class="cov3" title="43">{
                 staleness = clamp01(in.staleness)
         }</span>
 
         // Per-term point contributions (post-weight, pre-congestion, scaled to 100). The
         // measured terms (speed/latency/verified) carry the staleness confidence factor.
-        <span class="cov4" title="61">t := signalTerms{
+        <span class="cov4" title="67">t := signalTerms{
                 Supply:   100 * wSupply * supply,
                 Speed:    100 * wSpeed * speed * staleness,
                 Latency:  100 * wLatency * latency * staleness,
@@ -6110,10 +6110,10 @@ func computeSignal(in signalInput) signalTerms <span class="cov4" title="62">{
         if s &lt; 0 </span><span class="cov0" title="0">{
                 s = 0
         }</span>
-        <span class="cov4" title="61">if s &gt; 100 </span><span class="cov0" title="0">{
+        <span class="cov4" title="67">if s &gt; 100 </span><span class="cov0" title="0">{
                 s = 100
         }</span>
-        <span class="cov4" title="61">t.Total = s
+        <span class="cov4" title="67">t.Total = s
         return t</span>
 }
 
@@ -8395,19 +8395,19 @@ func medianOut(prices []float64) (float64, bool) <span class="cov6" title="12">{
 // onlinePeersOut is the model's ONLINE out-prices (the band itself included); it is used
 // only for the internal fallback. The external reference takes precedence so a band
 // cannot dodge the signal by flooding cheap peers.
-func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int <span class="cov10" title="44">{
+func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int <span class="cov10" title="48">{
         if priceOut &lt;= 0 </span><span class="cov6" title="10">{
                 return 0 // FREE
         }</span>
-        <span class="cov9" title="34">if refOut &gt; 0 </span><span class="cov7" title="16">{
+        <span class="cov9" title="38">if refOut &gt; 0 </span><span class="cov7" title="16">{
                 return tierExternal(priceOut / refOut)
         }</span>
-        <span class="cov7" title="18">if len(onlinePeersOut) &gt;= minMarketDepth </span><span class="cov5" title="7">{
+        <span class="cov8" title="22">if len(onlinePeersOut) &gt;= minMarketDepth </span><span class="cov5" title="7">{
                 if med, ok := medianOut(onlinePeersOut); ok &amp;&amp; med &gt; 0 </span><span class="cov5" title="7">{
                         return tierInternal(priceOut / med)
                 }</span>
         }
-        <span class="cov6" title="11">return 0</span> // UNKNOWN
+        <span class="cov7" title="15">return 0</span> // UNKNOWN
 }
 
 // renderPriceTier maps a tier + active price to display glyphs + an optional FAVORABLE
@@ -8433,14 +8433,14 @@ func renderPriceTier(tier int, priceOut float64) (bars, chip string) <span class
 // Mutates in place: offline offers are still classified (against the live median / ref);
 // FREE (price 0) and thin/no-data offers get tier 0. Concurrency-safe (b.refOut locks
 // b.refMu, which is independent of the b.mu the callers hold).
-func (b *broker) assignPriceTiers(offers []offerView) <span class="cov8" title="19">{
+func (b *broker) assignPriceTiers(offers []offerView) <span class="cov8" title="23">{
         peers := map[string][]float64{}
-        for _, o := range offers </span><span class="cov8" title="26">{
-                if o.Online &amp;&amp; o.Out &gt; 0 </span><span class="cov7" title="15">{
+        for _, o := range offers </span><span class="cov8" title="30">{
+                if o.Online &amp;&amp; o.Out &gt; 0 </span><span class="cov7" title="17">{
                         peers[o.Model] = append(peers[o.Model], o.Out)
                 }</span>
         }
-        <span class="cov8" title="19">for i := range offers </span><span class="cov8" title="26">{
+        <span class="cov8" title="23">for i := range offers </span><span class="cov8" title="30">{
                 ref, _ := b.refOut(offers[i].Model)
                 offers[i].PriceTier = priceTier(offers[i].Out, ref, peers[offers[i].Model])
         }</span>
@@ -8585,7 +8585,7 @@ func loadProbe() probeConfig <span class="cov6" title="235">{
         <span class="cov6" title="235">return c</span>
 }
 
-func (c probeConfig) enabled() bool <span class="cov10" title="7330">{ return c.interval &gt; 0 }</span>
+func (c probeConfig) enabled() bool <span class="cov10" title="7348">{ return c.interval &gt; 0 }</span>
 
 // measurementStale reports whether a node's last measurement (probe or real traffic)
 // is old enough to count as "not recently verified": older than the ceiling, the
@@ -8727,8 +8727,8 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) <span class
 // probe) reads at full confidence here - it has no probe evidence to discount; the
 // signal's neutral handling of unmeasured speed/latency already covers that case.
 // Caller holds metricsMu.
-func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float64 <span class="cov4" title="43">{
-        if !b.probe.enabled() </span><span class="cov3" title="17">{
+func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float64 <span class="cov5" title="53">{
+        if !b.probe.enabled() </span><span class="cov4" title="27">{
                 return 1.0
         }</span>
         <span class="cov4" title="26">st := b.probeSched[nodeID]
@@ -10117,30 +10117,30 @@ func (b *broker) trustScore(nodeID string) float64 <span class="cov3" title="15"
 // verifiedServing reports whether the node has a recent PASSED canary - hard
 // evidence it is actually answering correctly (not just heartbeat-alive). Feeds the
 // signal's verified-serving term and pick's reliability.
-func (t trustState) verifiedServing() bool <span class="cov4" title="51">{
+func (t trustState) verifiedServing() bool <span class="cov4" title="61">{
         return t.probed &amp;&amp; t.probeOK &amp;&amp; t.probeFails == 0
 }</span>
 
-func (t trustState) score() float64 <span class="cov10" title="15525">{
+func (t trustState) score() float64 <span class="cov10" title="15535">{
         s := 1.0
         // L1: each discrepancy as a fraction of re-counts pulls the score down.
         if t.recounts &gt; 0 &amp;&amp; t.discrepancies &gt; 0 </span><span class="cov2" title="3">{
                 s -= float64(t.discrepancies) / float64(t.recounts)
         }</span>
         // Probe: a failing canary, or a recent failure streak, pulls it down hard.
-        <span class="cov10" title="15525">if t.probed &amp;&amp; !t.probeOK </span><span class="cov2" title="8">{
+        <span class="cov10" title="15535">if t.probed &amp;&amp; !t.probeOK </span><span class="cov2" title="8">{
                 s -= 0.5
         }</span>
-        <span class="cov10" title="15525">if t.probeFails &gt; 0 </span><span class="cov3" title="12">{
+        <span class="cov10" title="15535">if t.probeFails &gt; 0 </span><span class="cov3" title="12">{
                 s -= 0.2 * float64(t.probeFails)
         }</span>
-        <span class="cov10" title="15525">if s &lt; 0 </span><span class="cov2" title="8">{
+        <span class="cov10" title="15535">if s &lt; 0 </span><span class="cov2" title="8">{
                 s = 0
         }</span>
-        <span class="cov10" title="15525">if s &gt; 1 </span><span class="cov0" title="0">{
+        <span class="cov10" title="15535">if s &gt; 1 </span><span class="cov0" title="0">{
                 s = 1
         }</span>
-        <span class="cov10" title="15525">return s</span>
+        <span class="cov10" title="15535">return s</span>
 }
 
 // completionText extracts the assistant completion text from an OpenAI
@@ -10806,15 +10806,15 @@ var refPriceSyncInterval = 12 * time.Hour
 // normalizeModelName collapses an OpenRouter "vendor/model" id and an operator's
 // free-text model name to one lookup key: lowercased, the vendor prefix before the last
 // "/" dropped, any ":variant" suffix (":free", ":nitro") dropped, trimmed.
-func normalizeModelName(s string) string <span class="cov10" title="344">{
+func normalizeModelName(s string) string <span class="cov10" title="348">{
         s = strings.ToLower(strings.TrimSpace(s))
         if i := strings.LastIndex(s, "/"); i &gt;= 0 </span><span class="cov9" title="314">{
                 s = s[i+1:]
         }</span>
-        <span class="cov10" title="344">if i := strings.IndexByte(s, ':'); i &gt;= 0 </span><span class="cov2" title="2">{
+        <span class="cov10" title="348">if i := strings.IndexByte(s, ':'); i &gt;= 0 </span><span class="cov2" title="2">{
                 s = s[:i]
         }</span>
-        <span class="cov10" title="344">return strings.TrimSpace(s)</span>
+        <span class="cov10" title="348">return strings.TrimSpace(s)</span>
 }
 
 // parseOpenRouterModels parses the public GET /api/v1/models payload into a normalized
@@ -10867,7 +10867,7 @@ var openRouterFetch = func(ctx context.Context) ([]byte, error) <span class="cov
 
 // refOut returns the same-model external reference OUT-price ($/1M) and whether one is
 // known: the freshest synced value, else the static seed. Concurrency-safe.
-func (b *broker) refOut(model string) (float64, bool) <span class="cov6" title="28">{
+func (b *broker) refOut(model string) (float64, bool) <span class="cov6" title="32">{
         key := normalizeModelName(model)
         b.refMu.RLock()
         v, ok := b.refPrices[key]
@@ -10875,10 +10875,10 @@ func (b *broker) refOut(model string) (float64, bool) <span class="cov6" title="
         if ok &amp;&amp; v &gt; 0 </span><span class="cov2" title="2">{
                 return v, true
         }</span>
-        <span class="cov6" title="26">if s, ok := refPriceSeed[key]; ok &amp;&amp; s &gt; 0 </span><span class="cov3" title="7">{
+        <span class="cov6" title="30">if s, ok := refPriceSeed[key]; ok &amp;&amp; s &gt; 0 </span><span class="cov3" title="7">{
                 return s, true
         }</span>
-        <span class="cov5" title="19">return 0, false</span>
+        <span class="cov5" title="23">return 0, false</span>
 }
 
 // syncRefPricesOnce fetches + parses the external model prices and MERGES them into the
@@ -11070,7 +11070,7 @@ func (b *broker) rehydrateBans() <span class="cov10" title="233">{
 }
 
 // isBanned reports whether a node is ejected from routing. Concurrency-safe.
-func (b *broker) isBanned(nodeID string) bool <span class="cov7" title="67">{
+func (b *broker) isBanned(nodeID string) bool <span class="cov8" title="72">{
         b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.banned[nodeID]
@@ -11325,7 +11325,7 @@ type prefWeights struct {
         beta     float64 // P2C sampling concentration (score^beta)
 }
 
-func (p pref) weights() prefWeights <span class="cov8" title="7063">{
+func (p pref) weights() prefWeights <span class="cov8" title="7067">{
         switch p </span>{
         case prefCheap:<span class="cov1" title="2">
                 return prefWeights{kPrice: 0.45, priceExp: 0.5, c: 0.25, speedMul: 1.0, beta: 1.5}</span>
@@ -11333,7 +11333,7 @@ func (p pref) weights() prefWeights <span class="cov8" title="7063">{
                 return prefWeights{kPrice: 0.10, priceExp: 1.5, c: 0.20, speedMul: 1.3, beta: 3.0}</span>
         case prefReliable:<span class="cov1" title="1">
                 return prefWeights{kPrice: 0.20, priceExp: 0.8, c: 0.20, speedMul: 1.0, beta: 3.0}</span>
-        default:<span class="cov8" title="7058"> // balanced
+        default:<span class="cov8" title="7062"> // balanced
                 return prefWeights{kPrice: 0.25, priceExp: 1.0, c: 0.35, speedMul: 1.0, beta: 2.0}</span>
         }
 }
@@ -11423,10 +11423,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3641">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5321">{
+        <span class="cov8" title="11809">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5300">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5957">{
+        <span class="cov8" title="11809">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5979">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11809">return rangeMin, rangeMax, true</span>
@@ -11460,7 +11460,7 @@ func explorationRadius(tq trustState, c float64, totalReqs int64, successCount i
 // else 1. DISPLAY/prior only - never score-trusted; washed out by the first real
 // observedConcurrentTPS measurement. Coarse substring match; an unparseable string
 // is the safe default of 1.
-func hwConcurrencyClass(hw string) int <span class="cov8" title="15514">{
+func hwConcurrencyClass(hw string) int <span class="cov8" title="15518">{
         h := strings.ToLower(hw)
         // Nodes now advertise a PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple /
         // cpu) instead of a raw rig string; map those directly. Legacy raw strings still
@@ -11472,7 +11472,7 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15514">{
                 return 2</span>
         case "apple":<span class="cov1" title="1">
                 return 2</span> // Apple Silicon unified memory: between a CPU and a discrete GPU
-        case "cpu", "unknown", "":<span class="cov8" title="15505">
+        case "cpu", "unknown", "":<span class="cov8" title="15509">
                 return 1</span>
         }
         // A discrete GPU is present if ANY accelerator marker matches (synonyms for the
@@ -11505,12 +11505,12 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15514">{
 // observedConcurrentTPS UNDER LOAD when we have it (incentive-compatible - a node
 // can't win a bigger allotment from an idle canary), else a conservative hw-class
 // prior. Clamped to [1, maxSlots].
-func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15508">{
+func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15512">{
         if concurrentTPS &gt; 0 </span><span class="cov1" title="1">{
                 c := int(math.Round(concurrentTPS / tpsPerSlot))
                 return clampInt(c, 1, maxSlots)
         }</span>
-        <span class="cov8" title="15507">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
+        <span class="cov8" title="15511">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
 }
 
 // loadFactor is the capacity-normalized congestion discount (spec 1.1d):
@@ -11527,19 +11527,19 @@ func loadFactor(inflight, capacity int) float64 <span class="cov8" title="15447"
 // N = recounts + probes + 3*successCount (successCount weighted 3x - it is the
 // evidence for the reward dimension real traffic exercises), clamped by ucbCap for
 // non-stationarity. Wide for a fresh node, self-extinguishing as N grows.
-func ucbRadius(c float64, totalReqs int64, recounts, probes, successCount int) float64 <span class="cov8" title="15382">{
+func ucbRadius(c float64, totalReqs int64, recounts, probes, successCount int) float64 <span class="cov8" title="15386">{
         if c &lt;= 0 </span><span class="cov1" title="2">{
                 return 0 // C=0 short-circuits to deterministic merit ranking (legacy/tests)
         }</span>
-        <span class="cov8" title="15380">n := float64(recounts + probes + 3*successCount)
+        <span class="cov8" title="15384">n := float64(recounts + probes + 3*successCount)
         if n &gt; ucbCap </span><span class="cov0" title="0">{
                 n = ucbCap
         }</span>
-        <span class="cov8" title="15380">tr := float64(totalReqs)
+        <span class="cov8" title="15384">tr := float64(totalReqs)
         if tr &lt; 0 </span><span class="cov0" title="0">{
                 tr = 0
         }</span>
-        <span class="cov8" title="15380">return c * math.Sqrt(math.Log(1+tr)/(1+n))</span>
+        <span class="cov8" title="15384">return c * math.Sqrt(math.Log(1+tr)/(1+n))</span>
 }
 
 // ucb applies the (gated) exploration lift, clamped to a valid score.
@@ -11548,14 +11548,14 @@ func ucb(v, radius float64) float64 <span class="cov8" title="15443">{
 }</span>
 
 // clampInt clamps n to [lo, hi].
-func clampInt(n, lo, hi int) int <span class="cov8" title="15511">{
+func clampInt(n, lo, hi int) int <span class="cov8" title="15515">{
         if n &lt; lo </span><span class="cov1" title="1">{
                 return lo
         }</span>
-        <span class="cov8" title="15510">if n &gt; hi </span><span class="cov1" title="1">{
+        <span class="cov8" title="15514">if n &gt; hi </span><span class="cov1" title="1">{
                 return hi
         }</span>
-        <span class="cov8" title="15509">return n</span>
+        <span class="cov8" title="15513">return n</span>
 }
 
 // scoredCand is a fully scored Tier-A candidate ready for band selection. score is
@@ -11582,7 +11582,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13556">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1370">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1337">{
                         best = i
                 }</span>
         }
@@ -11615,7 +11615,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1245">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1212">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -12756,35 +12756,35 @@ const localCacheCap = 256
 // is set: it returns the cached JSON bytes for key if still fresh, else computes + marshals +
 // stores them under ttl. compute() is run OUTSIDE localCacheMu (it takes b.mu/metricsMu), so a
 // rare concurrent miss may double-compute - acceptable for this fallback. nil on a marshal error.
-func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() any) []byte <span class="cov10" title="801">{
+func (b *broker) localCachedJSON(key string, ttl time.Duration, compute func() any) []byte <span class="cov10" title="803">{
         now := time.Now()
         b.localCacheMu.Lock()
-        if e, ok := b.localCache[key]; ok &amp;&amp; now.Before(e.expiry) </span><span class="cov3" title="7">{
+        if e, ok := b.localCache[key]; ok &amp;&amp; now.Before(e.expiry) </span><span class="cov3" title="8">{
                 body := e.body
                 b.localCacheMu.Unlock()
                 return body
         }</span>
-        <span class="cov9" title="794">b.localCacheMu.Unlock()
+        <span class="cov9" title="795">b.localCacheMu.Unlock()
 
         body, err := json.Marshal(compute())
         if err != nil </span><span class="cov0" title="0">{
                 return nil
         }</span>
-        <span class="cov9" title="794">b.localCacheMu.Lock()
+        <span class="cov9" title="795">b.localCacheMu.Lock()
         if b.localCache == nil || len(b.localCache) &gt; localCacheCap </span><span class="cov5" title="21">{
                 b.localCache = make(map[string]localCacheEntry)
         }</span>
-        <span class="cov9" title="794">b.localCache[key] = localCacheEntry{body: body, expiry: now.Add(ttl)}
+        <span class="cov9" title="795">b.localCache[key] = localCacheEntry{body: body, expiry: now.Add(ttl)}
         b.localCacheMu.Unlock()
         return body</span>
 }
 
-func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) <span class="cov6" title="67">{
+func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Duration, compute func() any) <span class="cov6" title="69">{
         // No shared (Redis) backend: still amortize via the IN-PROCESS TTL cache so a single
         // instance doesn't recompute the full market on every hit. Safe - same key scoping as the
         // shared path. On a marshal error, fall back to the direct encoder so the request still serves.
-        if b.shared == nil </span><span class="cov5" title="28">{
-                if body := b.localCachedJSON(key, ttl, compute); body != nil </span><span class="cov5" title="28">{
+        if b.shared == nil </span><span class="cov5" title="30">{
+                if body := b.localCachedJSON(key, ttl, compute); body != nil </span><span class="cov5" title="30">{
                         w.Header().Set("Content-Type", "application/json")
                         w.WriteHeader(http.StatusOK)
                         _, _ = w.Write(body)
@@ -17871,9 +17871,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="482">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="484">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="479">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="481">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18652,7 +18652,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -18691,7 +18691,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="767">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="855">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18705,7 +18705,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="767
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18920,23 +18920,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="749">{
+        for </span><span class="cov9" title="839">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="3">
+                case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="746"></span>
+                default:<span class="cov9" title="834"></span>
                 }
-                <span class="cov9" title="746">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="834">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="5">{
+                if err != nil </span><span class="cov2" title="3">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="741">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="734">{
+                <span class="cov9" title="831">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="824">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19245,7 +19245,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19404,7 +19404,7 @@ func GenerateStation() string <span class="cov8" title="201">{
 
 // randIndex returns a uniform crypto/rand index in [0,n) (n&gt;0). Falls back to 0 only if
 // the system RNG fails, which never happens in practice.
-func randIndex(n int) int <span class="cov10" title="805">{
+func randIndex(n int) int <span class="cov9" title="805">{
         if n &lt;= 0 </span><span class="cov1" title="2">{
                 return 0
         }</span>
@@ -24692,8 +24692,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="25">{
-                if s != nil </span><span class="cov7" title="24">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -24774,9 +24774,9 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov4" title="3">
+        case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
@@ -24809,7 +24809,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="7">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -25095,7 +25095,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="117">{
+        for len(s) &lt; 3 </span><span class="cov5" title="129">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25108,7 +25108,7 @@ func itoa3(n int) string <span class="cov8" title="2008">{
         }</span>
         <span class="cov8" title="2005">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5905">{
+        for n &gt; 0 </span><span class="cov9" title="5893">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -41626,11 +41626,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -41650,7 +41650,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="310">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="347">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -41672,7 +41672,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="69">
+                case agent.LinkOnAir:<span class="cov3" title="75">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41729,7 +41729,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="9">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
