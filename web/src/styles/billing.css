@@ -502,26 +502,10 @@
   color: var(--ink-700);
   min-height: 96px;
 }
-.bx-demo__svg { display: block; width: 100%; height: auto; max-width: 384px; }
 /* the animated explainer video (and its no-<video> gif fallback) size like the
-   diagram did: full width of the stage, capped, centered. */
+   prior flow diagram did: full width of the stage, capped, centered. */
 .bx-demo__vid { display: block; width: 100%; height: auto; max-width: 384px; margin-inline: auto; }
 .bx-demo__gif { display: block; width: 100%; height: auto; }
-.bx-demo__chip rect { fill: none; stroke: currentColor; stroke-width: 1.2; }
-.bx-demo__txt text {
-  fill: var(--ink-900);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.bx-demo__arr path { fill: none; stroke: var(--ink-400); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.bx-demo__ok path { fill: none; stroke: var(--live); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.bx-demo__ok text {
-  fill: var(--live);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-}
 .bx-demo__cap {
   margin: var(--s-2) 0 0;
   font-family: var(--font-mono);
