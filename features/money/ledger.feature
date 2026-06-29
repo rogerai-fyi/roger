@@ -1,7 +1,8 @@
-# FIRST spec-first target: the production Postgres ledger (today 0% covered).
-# These scenarios run against a REAL ephemeral Postgres (testcontainers) — no mocks —
-# and must hold IDENTICALLY to the in-memory reference store. Approve this spec before
-# any step definitions or implementation are written.
+# The production Postgres ledger. These scenarios run against a REAL Postgres — no mocks —
+# via ROGERAI_TEST_DATABASE_URL (the cover-gate provisions one; the suite SKIPS when it is
+# unset). Executable under godog in internal/store/ledger_bdd_test.go (package store, so it
+# runs serially with the parity tests that TRUNCATE the shared DB). The guarantees here hold
+# IDENTICALLY to the in-memory reference store.
 Feature: Postgres ledger holds, settles, and never loses or invents money
 
   Background:
