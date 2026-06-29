@@ -261,6 +261,14 @@
           <span class="bx-flow__v">If you run a node, your operator earnings accrue on the same ledger and pay out to you.</span></li>
       </ol>
 
+      <!-- fair billing: you only pay for successful, quality tokens -->
+      <p class="bx-help__h">What you're charged for</p>
+      <ul class="bx-fair">
+        <li><b>No usable output is $0.</b> If a request returns nothing usable, the hold is refunded - you pay nothing, and the operator earns nothing (and takes a strike). A model that can't actually respond never costs you.</li>
+        <li><b>Counts can't be inflated.</b> Tokens are billed on the broker's own independent re-count, not the node's claim, so a provider can't pad counts to over-bill you.</li>
+        <li><b>You pay only for quality.</b> An operator earns only on tokens that actually served you - a matching, usable response is the condition for payment. This is enforced server-side at the broker, so it holds for any client (the roger CLI, opencode, or any OpenAI-compatible tool).</li>
+      </ul>
+
       <!-- the two numbers people mix up -->
       <p class="bx-help__h">Two numbers people mix up</p>
       <dl class="bx-help__pair">
