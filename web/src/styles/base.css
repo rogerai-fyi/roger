@@ -726,3 +726,30 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   background: var(--ink-900); color: var(--paper); white-space: nowrap;
   box-shadow: var(--e-2);
 }
+
+/* ---- footer easter egg: "Ping breaks loose" (5 fast clicks on the .orange3d) --------------
+   The animation itself is driven frame-by-frame in js/easter-egg.js; this is the static
+   scaffold + the subtle per-click affordance. All motion stays on transform/opacity/filter. */
+.orange3d { cursor: pointer; transition: transform .18s ease; }
+.orange3d:hover { transform: translateY(-1px) scale(1.06); }
+.orange3d.is-pinged { animation: orangePing .42s ease; }
+@keyframes orangePing { 0% { transform: scale(1); } 42% { transform: scale(1.22); } 100% { transform: scale(1); } }
+
+.ping-stage {                 /* full-viewport, click-through, 3D context */
+  position: fixed; inset: 0; z-index: 9000; pointer-events: none;
+  overflow: hidden; perspective: 1200px;
+}
+.ping-stage__glow {           /* the one bit of colour: a soft brand-red bloom that trails Ping */
+  position: absolute; left: 0; top: 0; width: 300px; height: 300px; margin: -150px 0 0 -150px;
+  background: radial-gradient(circle, var(--live-glow), transparent 66%);
+  opacity: 0; will-change: transform, opacity;
+}
+.ping-dancer {                /* Ping (and the two parallax echoes) */
+  position: absolute; left: 0; top: 0; width: 88px; height: 88px;
+  transform-style: preserve-3d; will-change: transform, filter, opacity;
+}
+.ping-dancer img { width: 100%; height: 100%; display: block; border-radius: 19px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .orange3d:hover { transform: none; }   /* JS also swaps the big glide for a gentle centre fade */
+}
