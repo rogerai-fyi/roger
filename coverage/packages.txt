@@ -1,5 +1,5 @@
   90.4%  github.com/rogerai-fyi/roger/cmd/rogerai
-  91.4%  github.com/rogerai-fyi/roger/cmd/rogerai-broker
+  91.5%  github.com/rogerai-fyi/roger/cmd/rogerai-broker
   94.7%  github.com/rogerai-fyi/roger/cmd/tokenizer-sidecar
   92.5%  github.com/rogerai-fyi/roger/internal/agent
   95.0%  github.com/rogerai-fyi/roger/internal/client

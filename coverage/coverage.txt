@@ -131,7 +131,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/emailtemplates.go:453:	emailCapN
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:31:		modelDenied			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:45:		grantTokenFromHeader		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:65:		resolveGrant			100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:79:		resolveGrantToken		88.2%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:79:		resolveGrantToken		94.1%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:110:		grantCapCheck			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:172:		resolvePricing			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/grant.go:203:		ownsNode			100.0%
