@@ -44,7 +44,7 @@ func TestWorldHasCoolTones(t *testing.T) {
 // TestToneStyleNeverRed: NO cool tone may resolve to the on-air RED. The one-red law lives at
 // the PALETTE level, not just in the buffer's eye bit — red is the single hot accent, reserved.
 func TestToneStyleNeverRed(t *testing.T) {
-	for tn := toneNone; tn <= tonePale; tn++ {
+	for tn := toneNone; tn <= toneShip; tn++ {
 		if got := toneStyle(tn, false).GetForeground(); got == cRed {
 			t.Errorf("tone %d resolves to the reserved on-air RED — breaks one-red", tn)
 		}
