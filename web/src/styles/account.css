@@ -3,6 +3,46 @@
    The destructive delete control. Consumes tokens.css + base.css +
    account-base.css. Rules MOVED verbatim from auth.css.
    ===================================================================== */
+
+/* ---- WALLET HERO: the available balance, front and center. The one figure
+   this page leads with, so it reads at a glance. A flat plate with the single
+   red §-rule on the left, the balance set big in mono ink (money is weight,
+   not hue), the caption fine. Mirrors the Dashboard hero language without
+   pulling in dashboard.css (account pages do not load it). ---- */
+.ac-wallet {
+  margin: 0 0 var(--s-6);
+  padding: var(--s-6);
+  border: 1px solid var(--hairline-2);
+  border-left: 2px solid var(--live);
+  border-radius: var(--r-sm);
+  background: var(--paper-2);
+}
+.ac-wallet__eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.ac-wallet__amt {
+  margin: var(--s-2) 0;
+  font-family: var(--font-mono);
+  font-size: clamp(2.4rem, 1.6rem + 3.4vw, 3.4rem);
+  font-weight: var(--weight-semi);
+  line-height: 1;
+  color: var(--ink-900);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.02em;
+}
+.ac-wallet__sub {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  max-width: 60ch;
+}
+
 /* ---- secondary profile facts: a quiet key/value grid under the big stats,
    on the printed-spec register (mono uppercase keys, mono readings). ---- */
 .ac-meta {

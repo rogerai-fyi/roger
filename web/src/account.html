@@ -10,11 +10,24 @@
     <h1>Account</h1>
     <p class="sub">Signed in as <b id="who">-</b></p>
 
+    <!-- ============================================================
+         WALLET: the available balance, front and center - the one number
+         a person opens this page to check. Set big in mono ink (money is
+         weight, not hue; the red is only the §-rule glint). Links to
+         Billing to top up or read the full ledger. #balance is filled by
+         account.js exactly as before - only its placement changed.
+         ============================================================ -->
+    <section class="ac-wallet">
+      <p class="ac-wallet__eyebrow">Wallet balance</p>
+      <p class="ac-wallet__amt" id="balance">-</p>
+      <p class="ac-wallet__sub">Available to spend across every model and grant key.
+        <a href="/billing.html">Add money or read the ledger</a>.</p>
+    </section>
+
     <section class="panel">
       <h2>Profile</h2>
       <dl class="stats">
         <div><dt>Handle</dt><dd id="handle">-</dd></div>
-        <div><dt>Balance</dt><dd id="balance">-</dd></div>
       </dl>
       <dl class="ac-meta">
         <div><dt>GitHub id</dt><dd id="ghid">-</dd></div>
