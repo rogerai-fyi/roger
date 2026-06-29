@@ -20,7 +20,7 @@ import (
 // very counts that cost was computed from (min(claim, broker re-count) per axis). The
 // TUI keeps running session totals from these to show an honest ↑in ↓out beside the
 // cost. nil = ignore. This is DISPLAY of an already-settled value; it changes no billing.
-type CostFunc func(credits float64, tokensIn, tokensOut int)
+type CostFunc func(credits float64, tokensIn, tokensOut int, tps float64)
 
 // brokerTimeout matches the client's chat timeout: CPU MoE inference can take well
 // over a minute, and a tool-use turn is a normal completion under the hood.
@@ -105,14 +105,16 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 
 		if onCost != nil {
-			// The cost + the BILLED token counts settle together on the relay and ride back as
-			// sibling headers; forward all three when any is present (a missing/blank header
-			// parses to 0). A VOID turn emits cost=0 with no token headers and so reports nothing.
+			// The cost, the BILLED token counts, and throughput settle together on the relay
+			// and ride back as sibling headers; forward all four when any is present (a missing/
+			// blank header parses to 0). A VOID turn emits cost=0 with no token headers and so
+			// reports nothing. TPS is the LATEST call's throughput (not summed).
 			c, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
 			in, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-In"))
 			out, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-Out"))
-			if c > 0 || in > 0 || out > 0 {
-				onCost(c, in, out)
+			tps, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
+			if c > 0 || in > 0 || out > 0 || tps > 0 {
+				onCost(c, in, out, tps)
 			}
 		}
 		return parseCompletion(raw, resp.StatusCode)

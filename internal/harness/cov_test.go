@@ -241,14 +241,15 @@ func TestBrokerCompleter(t *testing.T) {
 		// an honest ↑in ↓out; the completer must parse + forward them.
 		w.Header().Set("X-RogerAI-Tokens-In", "12")
 		w.Header().Set("X-RogerAI-Tokens-Out", "34")
+		w.Header().Set("X-RogerAI-TPS", "47.5") // latest-call throughput, forwarded to the meter
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"relayed reply"}}]}`))
 	}))
 	defer srv.Close()
 
-	var billed float64
+	var billed, gotTPS float64
 	var gotIn, gotOut int
-	comp := BrokerCompleter(srv.URL, "u_gh_1", "qwen", false, 0, func(c float64, in, out int) {
-		billed, gotIn, gotOut = c, in, out
+	comp := BrokerCompleter(srv.URL, "u_gh_1", "qwen", false, 0, func(c float64, in, out int, tps float64) {
+		billed, gotIn, gotOut, gotTPS = c, in, out, tps
 	})
 	msg, err := comp(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
 	if err != nil || msg.Content != "relayed reply" {
@@ -259,5 +260,8 @@ func TestBrokerCompleter(t *testing.T) {
 	}
 	if gotIn != 12 || gotOut != 34 {
 		t.Errorf("CostFunc tokens = ↑%d ↓%d, want ↑12 ↓34 (the broker's billed counts)", gotIn, gotOut)
+	}
+	if gotTPS != 47.5 {
+		t.Errorf("CostFunc tps = %v, want 47.5 (the latest-call throughput)", gotTPS)
 	}
 }
