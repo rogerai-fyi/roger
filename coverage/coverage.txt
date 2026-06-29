@@ -179,7 +179,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/main.go:900:		bindUserPub			100.
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/main.go:911:		round6				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/main.go:917:		root				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:21:		normalizedMarketQuery		100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:86:		enrichOffersForNode		96.8%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:86:		enrichOffersForNode		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:147:		discover			90.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:181:		computeDiscover			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/market.go:231:		market				83.3%
@@ -265,7 +265,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:144:		measurementStale	
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:158:		stalenessFactor			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:175:		backoffInterval			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:210:		probeSchedLocked		100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:222:		markMeasured			85.7%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:222:		markMeasured			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:250:		demandProbeSoon			80.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:261:		demandProbeSoonLocked		75.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:281:		measurementStalenessLocked	100.0%
@@ -278,7 +278,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:606:		evalCanary			100.
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:651:		canaryWrongFamily		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:672:		probeReasoningText		87.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:695:		distinctiveCanaryToken		83.3%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:713:		recordProbe			93.9%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:713:		recordProbe			97.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:767:		ewma				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:776:		probeTTFT			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:785:		probeFailing			100.0%
