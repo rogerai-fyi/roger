@@ -227,11 +227,11 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:40:	capStateFrom		
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:56:	monthlyCapCheck			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:92:	setCapHeaders			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:47:		loadConnect			90.9%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:82:		stripeForm			94.1%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:82:		stripeForm			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:123:		payoutOwner			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:149:		connectOnboard			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:221:		connectStatus			100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:266:		refreshConnectStatus		77.8%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:266:		refreshConnectStatus		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:293:		payoutsRequest			86.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:387:		lockPayout			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go:398:		payoutTransfer			87.1%

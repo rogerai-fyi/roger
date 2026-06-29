@@ -99,7 +99,7 @@
 				
 				<option value="file21">github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go (100.0%)</option>
 				
-				<option value="file22">github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go (89.0%)</option>
+				<option value="file22">github.com/rogerai-fyi/roger/cmd/rogerai-broker/payouts.go (89.9%)</option>
 				
 				<option value="file23">github.com/rogerai-fyi/roger/cmd/rogerai-broker/pricesafety.go (100.0%)</option>
 				
@@ -1251,14 +1251,14 @@ func loginURL() string     <span class="cov3" title="5">{ return envOr("ROGERAI_
 
 // sessionKey is the HMAC key for signing session cookies. Reuse the broker's
 // Ed25519 seed so it is stable across restarts when BROKER_PRIVATE_KEY is set.
-func (b *broker) sessionKey() []byte <span class="cov9" title="233">{
+func (b *broker) sessionKey() []byte <span class="cov9" title="249">{
         h := sha256.Sum256(append([]byte("roger-session|"), b.priv.Seed()...))
         return h[:]
 }</span>
 
 // signSession returns a tamper-evident cookie value "payloadB64.sigB64" where
 // payload is "login|githubID|expiresUnix".
-func (b *broker) signSession(login string, githubID, exp int64) string <span class="cov8" title="112">{
+func (b *broker) signSession(login string, githubID, exp int64) string <span class="cov8" title="120">{
         payload := login + "|" + strconv.FormatInt(githubID, 10) + "|" + strconv.FormatInt(exp, 10)
         mac := hmac.New(sha256.New, b.sessionKey())
         mac.Write([]byte(payload))
@@ -1266,34 +1266,34 @@ func (b *broker) signSession(login string, githubID, exp int64) string <span cla
 }</span>
 
 // verifySession checks a cookie value's HMAC + expiry and returns the login.
-func (b *broker) verifySession(val string) (login string, githubID int64, ok bool) <span class="cov8" title="122">{
+func (b *broker) verifySession(val string) (login string, githubID int64, ok bool) <span class="cov8" title="130">{
         parts := strings.SplitN(val, ".", 2)
         if len(parts) != 2 </span><span class="cov1" title="1">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="121">payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+        <span class="cov8" title="129">payload, err := base64.RawURLEncoding.DecodeString(parts[0])
         if err != nil </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="121">sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+        <span class="cov8" title="129">sig, err := base64.RawURLEncoding.DecodeString(parts[1])
         if err != nil </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="121">mac := hmac.New(sha256.New, b.sessionKey())
+        <span class="cov8" title="129">mac := hmac.New(sha256.New, b.sessionKey())
         mac.Write(payload)
         if !hmac.Equal(sig, mac.Sum(nil)) </span><span class="cov2" title="2">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="119">f := strings.Split(string(payload), "|")
+        <span class="cov8" title="127">f := strings.Split(string(payload), "|")
         if len(f) != 3 </span><span class="cov0" title="0">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="119">gid, _ := strconv.ParseInt(f[1], 10, 64)
+        <span class="cov8" title="127">gid, _ := strconv.ParseInt(f[1], 10, 64)
         exp, _ := strconv.ParseInt(f[2], 10, 64)
         if time.Now().Unix() &gt; exp </span><span class="cov1" title="1">{
                 return "", 0, false
         }</span>
-        <span class="cov8" title="118">return f[0], gid, true</span>
+        <span class="cov8" title="126">return f[0], gid, true</span>
 }
 
 // authGitHubLogin handles GET /auth/github/login: 302 to GitHub authorize with a
@@ -1425,16 +1425,16 @@ func (b *broker) account(w http.ResponseWriter, r *http.Request) <span class="co
 
 // sessionOwner resolves the logged-in browser identity (login, github id, the
 // github-scoped consumer wallet id). ok=false when there is no valid session.
-func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet string, ok bool) <span class="cov8" title="145">{
+func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet string, ok bool) <span class="cov8" title="153">{
         c, err := r.Cookie(sessionCookie)
         if err != nil || c.Value == "" </span><span class="cov7" title="61">{
                 return "", 0, "", false
         }</span>
-        <span class="cov7" title="84">login, gid, vok := b.verifySession(c.Value)
+        <span class="cov8" title="92">login, gid, vok := b.verifySession(c.Value)
         if !vok </span><span class="cov0" title="0">{
                 return "", 0, "", false
         }</span>
-        <span class="cov7" title="84">return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true</span>
+        <span class="cov8" title="92">return login, gid, "u_gh_" + strconv.FormatInt(gid, 10), true</span>
 }
 
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) <span class="cov2" title="2">{
@@ -1509,7 +1509,7 @@ func (b *broker) authLogout(w http.ResponseWriter, r *http.Request) <span class=
 // an explicit origin, never "*"). Only the configured web origin is allowed. The
 // allowed request headers include X-Roger-* so a signed XHR (a logged-in browser
 // that ALSO carries the signing headers) preflights cleanly.
-func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title="305">{
+func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title="313">{
         origin := envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
         // Always vary on Origin: the response differs per origin even when we don't
         // emit the allow header (so a shared cache never serves the wrong one).
@@ -1527,8 +1527,8 @@ func corsCreds(w http.ResponseWriter, r *http.Request) <span class="cov9" title=
 // corsCredsPreflight answers a credentialed OPTIONS preflight (204 + the explicit
 // web-origin CORS headers) for the session/dashboard endpoints. Returns true when
 // it handled the request so the caller can stop.
-func corsCredsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov10" title="307">{
-        if r.Method != http.MethodOptions </span><span class="cov9" title="269">{
+func corsCredsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov10" title="315">{
+        if r.Method != http.MethodOptions </span><span class="cov9" title="277">{
                 return false
         }</span>
         <span class="cov6" title="38">corsCreds(w, r)
@@ -1877,11 +1877,11 @@ func loadBilling() billing <span class="cov6" title="42">{
         <span class="cov6" title="42">return b</span>
 }
 
-func envOr(k, def string) string <span class="cov10" title="601">{
+func envOr(k, def string) string <span class="cov10" title="653">{
         if v := os.Getenv(k); v != "" </span><span class="cov4" title="17">{
                 return v
         }</span>
-        <span class="cov9" title="584">return def</span>
+        <span class="cov9" title="636">return def</span>
 }
 
 // stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
@@ -1892,15 +1892,15 @@ func envOr(k, def string) string <span class="cov10" title="601">{
 // production disables billing instead of silently accepting fake test cards. Off
 // locally so dev test keys work. The broker holds live values in STRIPE_SECRET_KEY /
 // STRIPE_WEBHOOK_SECRET; the local .env holds test values under the same names.
-func requireLive() bool <span class="cov8" title="154">{
+func requireLive() bool <span class="cov8" title="179">{
         switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_LIVE")) </span>{
-        case "1", "true", "yes", "on":<span class="cov4" title="13">
+        case "1", "true", "yes", "on":<span class="cov5" title="18">
                 return true</span>
         }
-        <span class="cov7" title="141">return false</span>
+        <span class="cov8" title="161">return false</span>
 }
 
-func stripeSecretKey() string <span class="cov7" title="133">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
+func stripeSecretKey() string <span class="cov8" title="155">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
@@ -3361,7 +3361,7 @@ func loadMailer() *mailer <span class="cov7" title="32">{
 
 // enabled reports whether the mailer is live (RESEND_API_KEY is set). When false the
 // whole layer is inert.
-func (m *mailer) enabled() bool <span class="cov10" title="121">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
+func (m *mailer) enabled() bool <span class="cov10" title="123">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
 
 // sendEmail fires a transactional email ASYNCHRONOUSLY. It is a no-op (logged once)
 // when the mailer is disabled, and skips silently when the recipient is empty. It
@@ -3747,8 +3747,8 @@ func (b *broker) emailWelcome(email, displayName string) <span class="cov2" titl
 
 // emailPayoutSent notifies the operator that a payout transfer completed. No-op when
 // the mailer is disabled or the owner has no email on file.
-func (b *broker) emailPayoutSent(email string, amountCredits float64, transferID string) <span class="cov4" title="10">{
-        if !b.mail.enabled() || email == "" </span><span class="cov4" title="7">{
+func (b *broker) emailPayoutSent(email string, amountCredits float64, transferID string) <span class="cov5" title="12">{
+        if !b.mail.enabled() || email == "" </span><span class="cov4" title="9">{
                 return
         }</span>
         <span class="cov2" title="3">usd := round6(amountCredits * b.bill.creditUSD)
@@ -4561,13 +4561,13 @@ func fmtCostHeader(cost float64) string <span class="cov6" title="36">{
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
-func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="473">{
+func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="481">{
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(code)
         _ = json.NewEncoder(w).Encode(v)
 }</span>
 
-func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="225">{
+func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="231">{
         writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }</span>
 
@@ -4592,13 +4592,13 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
-func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="432">{
+func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="440">{
         if r.Method != method </span><span class="cov4" title="11">{
                 w.Header().Set("Allow", method)
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return false
         }</span>
-        <span class="cov9" title="421">return true</span>
+        <span class="cov9" title="429">return true</span>
 }
 </pre>
 		
@@ -7475,7 +7475,7 @@ type connect struct {
         reverseTransfer func(transferID string, amountCents int64, idemKey string) (string, error)
 }
 
-func loadConnect() connect <span class="cov9" title="91">{
+func loadConnect() connect <span class="cov9" title="113">{
         c := connect{
                 secretKey:  stripeSecretKey(), // Connect reuses the platform secret key (prod-aware)
                 refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fyi/payouts?onboard=refresh"),
@@ -7487,11 +7487,11 @@ func loadConnect() connect <span class="cov9" title="91">{
         // so onboarding/transfers are disabled (never the dev stub, never a test-mode
         // transfer) rather than silently moving fake money in production. The
         // fail-closed transfer guard in payoutTransfer enforces the same at call time.
-        if requireLive() &amp;&amp; !strings.HasPrefix(c.secretKey, "sk_live") </span><span class="cov1" title="1">{
+        if requireLive() &amp;&amp; !strings.HasPrefix(c.secretKey, "sk_live") </span><span class="cov3" title="4">{
                 log.Printf("CONNECT: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - payouts DISABLED (refusing the dev stub / test mode in production)")
                 c.secretKey = ""
         }</span>
-        <span class="cov9" title="91">if c.secretKey == "" </span><span class="cov9" title="90">{
+        <span class="cov9" title="113">if c.secretKey == "" </span><span class="cov9" title="112">{
                 log.Printf("CONNECT: Stripe payouts DISABLED (no usable STRIPE_SECRET_KEY). Onboarding + transfers are STUBBED - safe in dev, NOT a real money rail. Set STRIPE_SECRET_KEY before launch.")
         }</span> else<span class="cov1" title="1"> {
                 mode := "test"
@@ -7501,7 +7501,7 @@ func loadConnect() connect <span class="cov9" title="91">{
                 <span class="cov1" title="1">log.Printf("CONNECT: Stripe Connect enabled [%s mode] (hold=%dd reserve=%.0f%% min=%.0f schedule=%s)",
                         mode, c.policy.HoldDays, c.policy.Reserve*100, c.policy.MinPayout, c.policy.Schedule)</span>
         }
-        <span class="cov9" title="91">return c</span>
+        <span class="cov9" title="113">return c</span>
 }
 
 // stripeForm POSTs an application/x-www-form-urlencoded request to the Stripe API
@@ -7510,29 +7510,29 @@ func loadConnect() connect <span class="cov9" title="91">{
 // point the Stripe calls at a local httptest server instead of reaching api.stripe.com.
 var stripeAPIBase = "https://api.stripe.com"
 
-func (c connect) stripeForm(method, path string, form url.Values, out any) (int, error) <span class="cov4" title="7">{
+func (c connect) stripeForm(method, path string, form url.Values, out any) (int, error) <span class="cov5" title="13">{
         var body io.Reader
         if form != nil </span><span class="cov3" title="5">{
                 body = strings.NewReader(form.Encode())
         }</span>
-        <span class="cov4" title="7">req, _ := http.NewRequest(method, stripeAPIBase+path, body)
+        <span class="cov5" title="13">req, _ := http.NewRequest(method, stripeAPIBase+path, body)
         req.Header.Set("Authorization", "Bearer "+c.secretKey)
         if form != nil </span><span class="cov3" title="5">{
                 req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
         }</span>
-        <span class="cov4" title="7">resp, err := (&amp;http.Client{Timeout: 20 * time.Second}).Do(req)
-        if err != nil </span><span class="cov0" title="0">{
+        <span class="cov5" title="13">resp, err := (&amp;http.Client{Timeout: 20 * time.Second}).Do(req)
+        if err != nil </span><span class="cov1" title="1">{
                 return 0, err
         }</span>
-        <span class="cov4" title="7">defer resp.Body.Close()
+        <span class="cov5" title="12">defer resp.Body.Close()
         rb, _ := io.ReadAll(resp.Body)
         if resp.StatusCode &gt;= 300 </span><span class="cov2" title="2">{
                 log.Printf("stripe %s %s -&gt; %d: %s", method, path, resp.StatusCode, rb)
         }</span>
-        <span class="cov4" title="7">if out != nil </span><span class="cov4" title="7">{
+        <span class="cov5" title="12">if out != nil </span><span class="cov5" title="12">{
                 _ = json.Unmarshal(rb, out)
         }</span>
-        <span class="cov4" title="7">return resp.StatusCode, nil</span>
+        <span class="cov5" title="12">return resp.StatusCode, nil</span>
 }
 
 // payoutOwner resolves the GitHub-linked operator behind a connect/payout request,
@@ -7551,10 +7551,10 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 // request (no cookie, no valid signature) returns ok=false -&gt; 401.
 //
 // body is the exact request body the signature is verified over (nil for GET).
-func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) <span class="cov10" title="129">{
+func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) <span class="cov10" title="137">{
         // 1) Web session cookie (browser). Unchanged web path.
-        if l, _, _, sok := b.sessionOwner(r); sok </span><span class="cov8" title="73">{
-                if rec, found, _ := b.db.OwnerByLogin(l); found </span><span class="cov8" title="64">{
+        if l, _, _, sok := b.sessionOwner(r); sok </span><span class="cov9" title="81">{
+                if rec, found, _ := b.db.OwnerByLogin(l); found </span><span class="cov8" title="72">{
                         return l, rec, true
                 }</span>
                 // A valid session whose login is not (yet) a bound operator: still a logged-in
@@ -7694,7 +7694,7 @@ func (b *broker) connectStatus(w http.ResponseWriter, r *http.Request) <span cla
 
 // refreshConnectStatus reads the connected account and maps the transfers capability
 // to our status vocabulary, persisting it. Returns "" on transport error.
-func (b *broker) refreshConnectStatus(login, acctID string) string <span class="cov2" title="2">{
+func (b *broker) refreshConnectStatus(login, acctID string) string <span class="cov4" title="8">{
         var acct struct {
                 Capabilities struct {
                         Transfers string `json:"transfers"`
@@ -7703,17 +7703,17 @@ func (b *broker) refreshConnectStatus(login, acctID string) string <span class="
                         DisabledReason string `json:"disabled_reason"`
                 } `json:"requirements"`
         }
-        if _, err := b.conn.stripeForm(http.MethodGet, "/v1/accounts/"+acctID, nil, &amp;acct); err != nil </span><span class="cov0" title="0">{
+        if _, err := b.conn.stripeForm(http.MethodGet, "/v1/accounts/"+acctID, nil, &amp;acct); err != nil </span><span class="cov1" title="1">{
                 return ""
         }</span>
-        <span class="cov2" title="2">status := "onboarding"
+        <span class="cov4" title="7">status := "onboarding"
         switch </span>{
-        case acct.Capabilities.Transfers == "active":<span class="cov2" title="2">
+        case acct.Capabilities.Transfers == "active":<span class="cov3" title="4">
                 status = "active"</span>
-        case acct.Requirements.DisabledReason != "":<span class="cov0" title="0">
+        case acct.Requirements.DisabledReason != "":<span class="cov1" title="1">
                 status = "restricted"</span>
         }
-        <span class="cov2" title="2">_ = b.db.SetConnect(login, acctID, status)
+        <span class="cov4" title="7">_ = b.db.SetConnect(login, acctID, status)
         return status</span>
 }
 
@@ -7721,46 +7721,46 @@ func (b *broker) refreshConnectStatus(login, acctID string) string <span class="
 // minimum-gated (&gt;= policy minimum), payable-only payout. Promotes held-&gt;payable,
 // debits payable lots, creates a Stripe Transfer (or a stub one in dev), and writes
 // the payout + ledger rows in the store transaction.
-func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span class="cov6" title="20">{
+func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span class="cov7" title="28">{
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov6" title="19">if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
+        <span class="cov7" title="27">if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov6" title="18">corsCreds(w, r)
+        <span class="cov6" title="26">corsCreds(w, r)
         body, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;16))
         login, o, ok := b.payoutOwner(r, body)
         if !ok </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusUnauthorized, "not logged in - run `roger login` to link GitHub")
                 return
         }</span>
-        <span class="cov6" title="17">if o.GitHubID == 0 </span><span class="cov1" title="1">{
+        <span class="cov6" title="25">if o.GitHubID == 0 </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusForbidden, "no operator account for this login")
                 return
         }</span>
 
         // KYC gate: Connect transfers capability must be active before any money out.
-        <span class="cov6" title="16">status := o.ConnectStatus
+        <span class="cov6" title="24">status := o.ConnectStatus
         if b.conn.secretKey != "" &amp;&amp; o.ConnectID != "" &amp;&amp; o.ConnectID != "acct_dev_stub" </span><span class="cov0" title="0">{
                 if live := b.refreshConnectStatus(login, o.ConnectID); live != "" </span><span class="cov0" title="0">{
                         status = live
                 }</span>
         }
-        <span class="cov6" title="16">if status != "active" </span><span class="cov2" title="2">{
+        <span class="cov6" title="24">if status != "active" </span><span class="cov3" title="3">{
                 jsonErr(w, http.StatusForbidden, "complete Stripe Connect onboarding (KYC) before requesting a payout")
                 return
         }</span>
 
         // Single-flight per account: serialize concurrent payout requests for the same
         // operator so two in-flight requests can never both debit the payable lots.
-        <span class="cov5" title="14">unlock := b.lockPayout(o.Pubkey)
+        <span class="cov6" title="21">unlock := b.lockPayout(o.Pubkey)
         defer unlock()
 
         // Pre-check the payable amount against the minimum before debiting, to return a
         // clean 400 (no transfer, no payout row) when below minimum.
         split, _ := b.db.EarningSplitOf(o.Pubkey, time.Now())
-        if split.Payable &lt; b.conn.policy.MinPayout </span><span class="cov3" title="3">{
+        if split.Payable &lt; b.conn.policy.MinPayout </span><span class="cov3" title="5">{
                 jsonErr(w, http.StatusBadRequest, "below minimum payout ($"+strconv.FormatFloat(b.conn.policy.MinPayout, 'f', -1, 64)+")")
                 return
         }</span>
@@ -7769,12 +7769,12 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span cl
         // lots paid and returns the EXACT debited amount). The transfer is created for that
         // returned amount, then the payout is settled or rolled back - so a transfer is
         // never issued for a different amount than was debited, nor without a payout row.
-        <span class="cov5" title="11">pay, okp, reason, err := b.db.RequestPayout(o.Pubkey, time.Now(), b.conn.policy.MinPayout)
+        <span class="cov6" title="16">pay, okp, reason, err := b.db.RequestPayout(o.Pubkey, time.Now(), b.conn.policy.MinPayout)
         if err != nil </span><span class="cov0" title="0">{
                 jsonErr(w, http.StatusInternalServerError, "store error")
                 return
         }</span>
-        <span class="cov5" title="11">if !okp </span><span class="cov0" title="0">{
+        <span class="cov6" title="16">if !okp </span><span class="cov0" title="0">{
                 jsonErr(w, http.StatusBadRequest, reason)
                 return
         }</span>
@@ -7782,22 +7782,22 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span cl
         // Create the Stripe Transfer for EXACTLY the debited amount. Idempotency-Key is the
         // store payout id (stable per payout - a retry of the same payout never double-pays;
         // distinct payouts never collide).
-        <span class="cov5" title="11">idemKey := "payout:" + strconv.FormatInt(pay.ID, 10)
+        <span class="cov6" title="16">idemKey := "payout:" + strconv.FormatInt(pay.ID, 10)
         transferID, terr := b.payoutTransfer(o.ConnectID, login, pay.Amount, idemKey)
-        if terr != nil </span><span class="cov3" title="4">{
+        if terr != nil </span><span class="cov4" title="6">{
                 // Transfer failed AFTER the debit: roll the lots back to payable + mark the
                 // payout failed, so no completed transfer is ever left with payable lots and no
                 // orphan debit remains.
                 if ferr := b.db.FailPayout(pay.ID); ferr != nil </span><span class="cov0" title="0">{
                         log.Printf("payout %s: transfer failed AND rollback failed (payout %d): transfer=%v rollback=%v", login, pay.ID, terr, ferr)
-                }</span> else<span class="cov3" title="4"> {
+                }</span> else<span class="cov4" title="6"> {
                         log.Printf("payout %s: transfer failed, rolled back payout %d: %v", login, pay.ID, terr)
                 }</span>
-                <span class="cov3" title="4">jsonErr(w, http.StatusBadGateway, "stripe transfer failed")
+                <span class="cov4" title="6">jsonErr(w, http.StatusBadGateway, "stripe transfer failed")
                 return</span>
         }
 
-        <span class="cov4" title="7">if err := b.db.SettlePayout(pay.ID, transferID); err != nil </span><span class="cov1" title="1">{
+        <span class="cov5" title="10">if err := b.db.SettlePayout(pay.ID, transferID); err != nil </span><span class="cov2" title="2">{
                 // The money MOVED but we couldn't flip the record to paid. Do NOT roll back the
                 // lots (that would imply the transfer didn't happen). Surface a 500 with the
                 // transfer id so the operator state is reconcilable.
@@ -7805,7 +7805,7 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span cl
                 jsonErr(w, http.StatusInternalServerError, "transfer completed but payout record update failed; contact support with transfer "+transferID)
                 return
         }</span>
-        <span class="cov4" title="6">pay.State = store.PayoutPaid
+        <span class="cov4" title="8">pay.State = store.PayoutPaid
         pay.StripeTransferID = transferID
         log.Printf("payout %s: %.4f credits -&gt; transfer %s (state=%s)", login, pay.Amount, transferID, pay.State)
         // Flag-gated transactional notice (async, best-effort): tell the operator their
@@ -7815,7 +7815,7 @@ func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span cl
 }
 
 // lockPayout acquires the per-account single-flight lock, returning the unlock func.
-func (b *broker) lockPayout(accountID string) func() <span class="cov5" title="14">{
+func (b *broker) lockPayout(accountID string) func() <span class="cov6" title="21">{
         mu, _ := b.payoutLocks.LoadOrStore(accountID, &amp;sync.Mutex{})
         m := mu.(*sync.Mutex)
         m.Lock()
@@ -7826,21 +7826,21 @@ func (b *broker) lockPayout(accountID string) func() <span class="cov5" title="1
 // idempotent on idemKey, returning the Stripe transfer id. It uses the injectable
 // conn.transfer when set (tests), then a dev stub when Stripe is unconfigured, else
 // the real Stripe Transfers API.
-func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey string) (string, error) <span class="cov6" title="15">{
+func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey string) (string, error) <span class="cov7" title="28">{
         // 1 credit == creditUSD dollars; Stripe wants the smallest unit (cents).
         cents := int64(amount*b.bill.creditUSD*100 + 0.5)
-        if b.conn.transfer != nil </span><span class="cov5" title="10">{
+        if b.conn.transfer != nil </span><span class="cov6" title="20">{
                 return b.conn.transfer(connectID, cents, idemKey)
         }</span>
         // Fail-closed in production: under ROGERAI_REQUIRE_LIVE, never run the dev stub and
         // never issue a transfer without a real sk_live key + a real connected account. A
         // missing/test key or a stub account aborts with an error so SettlePayout is NEVER
         // reached with a fake tr_dev_stub_... id (the payout rolls back via FailPayout).
-        <span class="cov3" title="5">if requireLive() &amp;&amp; (!strings.HasPrefix(b.conn.secretKey, "sk_live") || connectID == "" || connectID == "acct_dev_stub") </span><span class="cov2" title="2">{
+        <span class="cov4" title="8">if requireLive() &amp;&amp; (!strings.HasPrefix(b.conn.secretKey, "sk_live") || connectID == "" || connectID == "acct_dev_stub") </span><span class="cov3" title="4">{
                 log.Printf("CONNECT: REFUSING payout transfer for %s - REQUIRE_LIVE set but key/connect account is not live (key live=%v connect=%q)", login, strings.HasPrefix(b.conn.secretKey, "sk_live"), connectID)
                 return "", errStripeTransfer
         }</span>
-        <span class="cov3" title="3">if b.conn.secretKey == "" || connectID == "" || connectID == "acct_dev_stub" </span><span class="cov2" title="2">{
+        <span class="cov3" title="4">if b.conn.secretKey == "" || connectID == "" || connectID == "acct_dev_stub" </span><span class="cov3" title="3">{
                 id := "tr_dev_stub_" + strconv.FormatInt(time.Now().UnixNano(), 36)
                 log.Printf("CONNECT(STUB): transfer %.4f credits to %s -&gt; %s (no real money moved)", amount, login, id)
                 return id, nil
@@ -8844,11 +8844,11 @@ func (b *broker) probeOnce() <span class="cov3" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="7">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="4">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov3" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -15188,7 +15188,7 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                                 if !haveRange || out &lt; rangeMin </span><span class="cov7" title="687">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="668">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="669">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -15313,15 +15313,15 @@ func (b *broker) writeThroughInflight(node string, count int) <span class="cov5"
 func (b *broker) syncInflight(stop &lt;-chan struct{}) <span class="cov2" title="3">{
         t := time.NewTicker(syncTickInterval)
         defer t.Stop()
-        for </span><span class="cov3" title="14">{
+        for </span><span class="cov3" title="13">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         return</span>
-                case &lt;-t.C:<span class="cov3" title="12">
+                case &lt;-t.C:<span class="cov3" title="11">
                         if b.shared == nil || !b.multiInstance </span><span class="cov1" title="1">{
                                 return
                         }</span>
-                        <span class="cov3" title="11">b.mergeSharedInflight()</span>
+                        <span class="cov3" title="10">b.mergeSharedInflight()</span>
                 }
         }
 }
@@ -15329,15 +15329,15 @@ func (b *broker) syncInflight(stop &lt;-chan struct{}) <span class="cov2" title=
 // mergeSharedInflight refreshes b.peerInflight from the shared store (one round). Split
 // out so a test can drive it deterministically. On a snapshot error it leaves the prior
 // peerInflight intact (graceful degrade).
-func (b *broker) mergeSharedInflight() <span class="cov3" title="15">{
+func (b *broker) mergeSharedInflight() <span class="cov3" title="14">{
         if b.shared == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov3" title="14">snap, err := b.shared.inflightByNode(b.instanceID)
+        <span class="cov3" title="13">snap, err := b.shared.inflightByNode(b.instanceID)
         if err != nil </span><span class="cov3" title="9">{
                 return
         }</span>
-        <span class="cov2" title="5">b.metricsMu.Lock()
+        <span class="cov2" title="4">b.metricsMu.Lock()
         b.peerInflight = snap
         b.metricsMu.Unlock()</span>
 }
@@ -17834,9 +17834,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="475">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="472">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18654,7 +18654,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="981">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="822">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18668,7 +18668,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="98
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18883,23 +18883,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="965">{
+        for </span><span class="cov9" title="804">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov3" title="5">
+                case &lt;-sess.stop:<span class="cov2" title="3">
                         return</span> // /share went off air
-                default:<span class="cov9" title="960"></span>
+                default:<span class="cov9" title="801"></span>
                 }
-                <span class="cov9" title="960">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="801">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="3">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="957">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="950">{
+                <span class="cov9" title="796">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="789">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19208,7 +19208,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19359,7 +19359,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19388,21 +19388,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -25038,7 +25038,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="128">{
+        for len(s) &lt; 3 </span><span class="cov5" title="124">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25051,7 +25051,7 @@ func itoa3(n int) string <span class="cov8" title="2008">{
         }</span>
         <span class="cov8" title="2006">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5895">{
+        for n &gt; 0 </span><span class="cov9" title="5899">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -39015,10 +39015,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="781">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="642">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="643">{
                 return s
         }</span>
-        <span class="cov3" title="139">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="138">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -40664,11 +40664,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="3">
+        case agent.LinkOnAir:<span class="cov1" title="2">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="1">
+        default:<span class="cov1" title="2">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40688,7 +40688,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="334">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="336">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40710,7 +40710,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="72">
+                case agent.LinkOnAir:<span class="cov3" title="68">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -40767,7 +40767,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="10">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -40818,7 +40818,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="35">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
