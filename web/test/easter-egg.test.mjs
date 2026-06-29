@@ -31,15 +31,13 @@ test("makeMultiClick: slow clicks (gaps > window) never accumulate", () => {
   assert.equal(fired, 0);
 });
 
-test("easeInOutCubic: pinned at 0, 0.5, 1 (smooth, symmetric)", () => {
-  assert.equal(R.easeInOutCubic(0), 0);
-  assert.equal(R.easeInOutCubic(1), 1);
-  assert.equal(Math.abs(R.easeInOutCubic(0.5) - 0.5) < 1e-9, true);
-});
-
-test("spline: passes through its endpoints", () => {
-  const pts = [{ x: 0, y: 5 }, { x: 10, y: 0 }, { x: 20, y: 5 }, { x: 30, y: 0 }];
-  const a = R.spline(pts, 0), b = R.spline(pts, 1);
-  assert.ok(Math.abs(a.x - 0) < 1e-6 && Math.abs(a.y - 5) < 1e-6);
-  assert.ok(Math.abs(b.x - 30) < 1e-6 && Math.abs(b.y - 0) < 1e-6);
+test("easeOutCubic / easeInCubic: pinned at 0 and 1, eased between", () => {
+  assert.equal(R.easeOutCubic(0), 0);
+  assert.equal(R.easeOutCubic(1), 1);
+  assert.equal(R.easeInCubic(0), 0);
+  assert.equal(R.easeInCubic(1), 1);
+  // out-cubic is fast-then-slow (ahead of linear at the midpoint); in-cubic is the mirror.
+  assert.ok(R.easeOutCubic(0.5) > 0.5);
+  assert.ok(R.easeInCubic(0.5) < 0.5);
+  assert.ok(Math.abs(R.easeOutCubic(0.5) + R.easeInCubic(0.5) - 1) < 1e-9);
 });
