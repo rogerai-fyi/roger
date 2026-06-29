@@ -129,19 +129,13 @@ func TestStationConfig(t *testing.T) {
 	}
 }
 
-// TestFreePortReachable covers freePort (binds a free port) and reachable (health probe).
-func TestFreePortReachable(t *testing.T) {
+// TestFreePort covers freePort (binds a free port in the scan range). The former
+// reachable() health-probe helper was removed (unused; prod preflights via the broker
+// client), so this no longer exercises it.
+func TestFreePort(t *testing.T) {
 	p, err := freePort(40000)
 	if err != nil || p < 40000 {
 		t.Fatalf("freePort = %d/%v", p, err)
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer srv.Close()
-	if !reachable(srv.URL) {
-		t.Error("reachable should be true for a live server")
-	}
-	if reachable("http://127.0.0.1:0") {
-		t.Error("reachable should be false for a dead address")
 	}
 }
 
@@ -201,12 +195,9 @@ func TestDispatchRouting(t *testing.T) {
 }
 
 // TestHWDetection covers the Linux hardware probe (returns whatever the host has; the
-// point is to exercise the detection code paths, GPU-less or not).
+// point is to exercise the detection code paths, GPU-less or not). The raw-CPU detectHW()
+// helper was removed (superseded by the privacy-bucketed detectHWClass the node advertises).
 func TestHWDetection(t *testing.T) {
-	hw := detectHW()
-	if hw == "" {
-		t.Error("detectHW should return a non-empty descriptor")
-	}
 	if detectHWClass() == "" {
 		t.Error("detectHWClass should return a class label")
 	}

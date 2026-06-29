@@ -17,51 +17,20 @@ import (
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
-// TestRunReturnsRegisterError: Run surfaces a failed initial registration (it does NOT
-// fall through to the block-forever serve loop). Covers Run's error branch.
-func TestRunReturnsRegisterError(t *testing.T) {
+// TestStartReturnsRegisterError: Start surfaces a failed initial registration (the prod
+// share path returns this error to the caller instead of going on to serve). Replaces the
+// old Run error-branch test - prod uses Start; the Run+serveForever block-forever wrapper
+// was removed (cmd/rogerai blocks via its own shareBlock seam after Start succeeds). The
+// Start SUCCESS path is covered by TestStartCarriesBandID.
+func TestStartReturnsRegisterError(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "rejected", http.StatusForbidden)
 	}))
 	defer broker.Close()
-	if err := Run(Config{Broker: broker.URL, NodeID: "n", Model: "m"}); err == nil {
-		t.Fatal("Run should return the broker's registration rejection")
-	}
-}
-
-// TestRunStartsThenBlocks: after a successful Start, Run calls the block-forever seam.
-// We substitute the seam with a returning stub so Run's success path is observable
-// without hanging; the seam being invoked proves Run reached the serve loop.
-func TestRunStartsThenBlocks(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmp)
-	t.Setenv("HOME", tmp)
-
-	var blocked atomic.Bool
-	prev := serveForever
-	serveForever = func() { blocked.Store(true) }
-	defer func() { serveForever = prev }()
-	defer swapHeartbeatInterval(time.Hour)() // keep background beats quiet during the test
-
-	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasPrefix(r.URL.Path, "/nodes/register"):
-			_ = json.NewEncoder(w).Encode(registerResult{})
-		case strings.HasPrefix(r.URL.Path, "/agent/poll"):
-			w.WriteHeader(http.StatusNoContent) // idle: no work to serve
-		default:
-			_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-		}
-	}))
-	defer broker.Close()
-
-	if err := Run(Config{Broker: broker.URL, NodeID: "n-run", Model: "m", Parallel: 1}); err != nil {
-		t.Fatalf("Run with a healthy broker should return nil (stubbed serve loop): %v", err)
-	}
-	if !blocked.Load() {
-		t.Error("Run must invoke the block-forever serve loop after a successful Start")
+	if _, err := Start(Config{Broker: broker.URL, NodeID: "n", Model: "m"}); err == nil {
+		t.Fatal("Start should return the broker's registration rejection")
 	}
 }
 

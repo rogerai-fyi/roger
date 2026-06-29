@@ -4,11 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
@@ -322,17 +320,6 @@ func freePort(start int) (int, error) {
 		}
 	}
 	return 0, fmt.Errorf("no free TCP port in %d-%d (close some listeners or pass --port)", start, start+199)
-}
-
-// reachable does a fast GET /health on the broker for preflight.
-func reachable(broker string) bool {
-	c := &http.Client{Timeout: 2 * time.Second}
-	resp, err := c.Get(broker + "/health")
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode < 500
 }
 
 // parsePrice parses a price input, clamping to 0 on a bad value.

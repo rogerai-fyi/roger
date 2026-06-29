@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // TestPayoutAndMarketFuncs covers the payout client calls, the market/band helpers, the
@@ -201,8 +203,10 @@ func TestIdentitySigning(t *testing.T) {
 	if len(UserPubHex()) != 64 { // 32-byte ed25519 pubkey hex
 		t.Errorf("UserPubHex len = %d, want 64", len(UserPubHex()))
 	}
-	if SignedUserID() == "" {
-		t.Error("SignedUserID should be non-empty")
+	// The broker derives the wallet id from the verified pubkey via UserIDFromPubkey
+	// (the standalone client SignedUserID wrapper is gone); assert that derivation is stable.
+	if protocol.UserIDFromPubkey(UserPubHex()) == "" {
+		t.Error("wallet id derived from the local pubkey should be non-empty")
 	}
 	req, _ := http.NewRequest(http.MethodGet, "http://b/x", nil)
 	SignRequest(req, nil)

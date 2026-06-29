@@ -345,7 +345,7 @@ func (t trustState) score() float64 {
 //
 // REASONING MODELS: gpt-oss (and other reasoning models) return the answer in the
 // `reasoning` field with EMPTY `content`. That text is real generated output - the
-// node spent tokens on it and the client renders it (client.Chat falls back to
+// node spent tokens on it and the client renders it (client.ChatDetailed falls back to
 // reasoning). It MUST count here too, or the broker mis-sees an honest reasoning
 // reply as "no output": that falsely fired the empty-output strike AND the
 // recount-over-report strike (claimed N completion tokens vs ~0 recounted), which

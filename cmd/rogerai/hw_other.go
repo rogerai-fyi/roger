@@ -12,16 +12,6 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 )
 
-// detectHW returns a human-readable CPU model for advertising a shared node.
-// On platforms without a cheap, dependency-free CPU-name source (e.g. macOS,
-// the BSDs), we keep it simple and report "unknown" rather than shelling out.
-//
-// NOTE: kept for callers that want the raw string; the node advertises the
-// privacy-bucketed detectHWClass() instead.
-func detectHW() string {
-	return "unknown"
-}
-
 // detectHWClass returns the PRIVACY-BUCKETED hardware class for macOS/BSD. On Apple
 // Silicon the GPU is the integrated Metal device on unified memory - reported as the
 // "apple" class (never the chip model or memory size). On an Intel Mac / BSD with an

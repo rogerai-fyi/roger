@@ -124,7 +124,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 // parseCompletion turns a broker /v1/chat/completions response body into the next
 // assistant Message (content + any tool_calls). It surfaces the broker/provider's own
 // error text on an empty/error response so the agent names the real cause (no station,
-// timeout, insufficient credits) instead of a blank turn - mirroring client.Chat.
+// timeout, insufficient credits) instead of a blank turn - mirroring client.ChatDetailed.
 func parseCompletion(raw []byte, status int) (Message, error) {
 	var d struct {
 		Choices []struct {
@@ -143,7 +143,7 @@ func parseCompletion(raw []byte, status int) (Message, error) {
 	if len(d.Choices) == 0 {
 		if d.Error.Message != "" {
 			// A 402 (insufficient balance) gets the shared actionable topup hint appended,
-			// mirroring client.Chat, so the agent surfaces a next step, not a dead end.
+			// mirroring client.ChatDetailed, so the agent surfaces a next step, not a dead end.
 			return Message{}, fmt.Errorf("%s", client.WithTopupHint(status, d.Error.Message))
 		}
 		if status >= 400 {

@@ -922,7 +922,7 @@ func isYes(s string) bool {
 }
 
 // MaxAnswerTokens is the per-turn completion budget shared by the in-channel chat
-// (client.Chat) AND the [0] AGENT harness (harness.agentMaxTokens). It is deliberately
+// (client.ChatDetailed) AND the [0] AGENT harness (harness.agentMaxTokens). It is deliberately
 // generous because the channel's model is often a REASONING model (e.g. gpt-oss) whose
 // hidden reasoning is billed into this same budget: at a low ceiling (256/1024) the
 // reasoning ate nearly all of it and the visible answer truncated mid-word or came back
@@ -980,18 +980,12 @@ type ChatResult struct {
 	Latency   time.Duration // wall-clock time of the served request (how long you waited)
 }
 
-// Chat is the back-compat 4-tuple wrapper around ChatDetailed (reply, status, cost, err).
-func Chat(broker, user, model, prompt string, confidential bool, maxOut float64) (reply, status string, costCr float64, err error) {
-	r, e := ChatDetailed(broker, user, model, prompt, confidential, maxOut)
-	return r.Reply, r.Status, r.Cost, e
-}
-
 // FormatUSD is the ONE canonical money renderer for every consumer surface, so a cost or
 // balance reads identically in the TUI and the CLI: the TUI's dollars() delegates here, and
 // the in-channel reply footer's legacy Status line uses it. The rule:
 //   - 0            -> "$0.00"
 //   - 0 < v < 0.01 -> ~3 significant figures as a PLAIN decimal (e.g. $0.00000036), so a real
-//                     sub-cent charge never reads as free
+//     sub-cent charge never reads as free
 //   - v >= 0.01    -> two decimals (e.g. $0.12)
 //   - v < 0        -> "-" (never real money here)
 func FormatUSD(v float64) string {

@@ -30,54 +30,69 @@ func withStubRunProgram(ret error, sink func(tea.Model, []tea.ProgramOption)) fu
 	return func() { runProgram = orig }
 }
 
-// TestRunSeamEntryPoints drives every public Run* entry point through the stubbed
-// runProgram seam (so no real terminal program launches) and asserts each one builds
-// the model the way it documents - the notice line, the hooks, and the shared
-// controller all flow into the launched model, and the program error propagates.
+// TestRunSeamEntryPoints drives the public RunWithController entry point (prod's TUI
+// launcher, runTUI in cmd/rogerai) through the stubbed runProgram seam (so no real
+// terminal program launches) and asserts it builds the model the way it documents - the
+// identity, the notice line, the hooks, and the shared controller all flow into the
+// launched model, and the program error propagates. The thin Run / RunWith /
+// RunWithNotice / RunWithHooks back-compat wrappers were removed (each only supplied
+// defaults + a fresh controller to this same call), so every scenario drives it directly.
 func TestRunSeamEntryPoints(t *testing.T) {
 	sentinel := errMsgSentinel("boom")
 
-	t.Run("Run defaults to no notice/limits", func(t *testing.T) {
+	t.Run("propagates the program error, no notice/limits", func(t *testing.T) {
 		var got model
 		restore := withStubRunProgram(sentinel, func(m tea.Model, _ []tea.ProgramOption) { got = m.(model) })
 		defer restore()
-		if err := Run("http://b1", "alice"); err != sentinel {
-			t.Fatalf("Run should propagate the program error, got %v", err)
+		if err := RunWithController("http://b1", "alice", nil, "", Hooks{}, NewController("http://b1", Hooks{})); err != sentinel {
+			t.Fatalf("RunWithController should propagate the program error, got %v", err)
 		}
 		if got.broker != "http://b1" || got.user != "alice" {
-			t.Errorf("Run launched the wrong identity: broker=%q user=%q", got.broker, got.user)
+			t.Errorf("launched the wrong identity: broker=%q user=%q", got.broker, got.user)
 		}
 		if got.updateLine != "" {
-			t.Errorf("Run should carry no update notice, got %q", got.updateLine)
+			t.Errorf("empty notice should carry no update line, got %q", got.updateLine)
 		}
 	})
 
-	t.Run("RunWithNotice carries the update line", func(t *testing.T) {
+	t.Run("carries the update line", func(t *testing.T) {
 		var got model
 		restore := withStubRunProgram(nil, func(m tea.Model, _ []tea.ProgramOption) { got = m.(model) })
 		defer restore()
-		if err := RunWithNotice("http://b2", "bob", nil, "v9.9.9 available"); err != nil {
-			t.Fatalf("RunWithNotice returned %v", err)
+		if err := RunWithController("http://b2", "bob", nil, "v9.9.9 available", Hooks{}, NewController("http://b2", Hooks{})); err != nil {
+			t.Fatalf("RunWithController returned %v", err)
 		}
 		if got.updateLine != "v9.9.9 available" {
-			t.Errorf("RunWithNotice should set the notice, got %q", got.updateLine)
+			t.Errorf("should set the notice, got %q", got.updateLine)
 		}
 	})
 
-	t.Run("RunWithHooks carries the hooks", func(t *testing.T) {
+	t.Run("threads the hooks", func(t *testing.T) {
 		var got model
 		restore := withStubRunProgram(nil, func(m tea.Model, _ []tea.ProgramOption) { got = m.(model) })
 		defer restore()
 		hooks := Hooks{Station: "brave-otter"}
-		if err := RunWithHooks("http://b3", "carol", nil, "", hooks); err != nil {
-			t.Fatalf("RunWithHooks returned %v", err)
+		if err := RunWithController("http://b3", "carol", nil, "", hooks, NewController("http://b3", hooks)); err != nil {
+			t.Fatalf("RunWithController returned %v", err)
 		}
 		if got.hooks.Station != "brave-otter" {
-			t.Errorf("RunWithHooks should thread the hooks through, station=%q", got.hooks.Station)
+			t.Errorf("should thread the hooks through, station=%q", got.hooks.Station)
 		}
 	})
 
-	t.Run("RunWithController reuses the shared controller + altscreen (no mouse capture)", func(t *testing.T) {
+	t.Run("launches with no notice (success path)", func(t *testing.T) {
+		var got model
+		restore := withStubRunProgram(nil, func(m tea.Model, _ []tea.ProgramOption) { got = m.(model) })
+		defer restore()
+		if err := RunWithController("http://b5", "erin", nil, "", Hooks{}, NewController("http://b5", Hooks{})); err != nil {
+			t.Fatalf("RunWithController returned %v", err)
+		}
+		if got.broker != "http://b5" || got.updateLine != "" {
+			t.Errorf("built the wrong model: %+v", got)
+		}
+	})
+
+	t.Run("reuses the shared controller + altscreen (no mouse capture)", func(t *testing.T) {
 		var got model
 		var opts []tea.ProgramOption
 		restore := withStubRunProgram(nil, func(m tea.Model, o []tea.ProgramOption) { got = m.(model); opts = o })
@@ -99,18 +114,6 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		}
 		if !got.mouseOff {
 			t.Errorf("RunWithController model should start mouseOff=true (native copy default)")
-		}
-	})
-
-	t.Run("RunWith delegates with no notice", func(t *testing.T) {
-		var got model
-		restore := withStubRunProgram(nil, func(m tea.Model, _ []tea.ProgramOption) { got = m.(model) })
-		defer restore()
-		if err := RunWith("http://b5", "erin", nil); err != nil {
-			t.Fatalf("RunWith returned %v", err)
-		}
-		if got.broker != "http://b5" || got.updateLine != "" {
-			t.Errorf("RunWith built the wrong model: %+v", got)
 		}
 	})
 }
