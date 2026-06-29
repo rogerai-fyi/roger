@@ -5893,13 +5893,13 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="17">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="18">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="16">{
+                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="17">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
@@ -5911,7 +5911,7 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov2" title="14">{
+                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov3" title="15">{
                                 a.bestRecency = recency
                         }</span>
                         <span class="cov3" title="31">if staleness &gt; a.bestStaleness </span><span class="cov2" title="14">{
@@ -8868,11 +8868,11 @@ func (b *broker) probeOnce() <span class="cov2" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="4">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -9191,7 +9191,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
         tq.probeOK = alive
         if alive </span><span class="cov2" title="6">{
                 tq.probeFails = 0
-                if ttftMs &gt; 0 </span><span class="cov2" title="4">{
+                if ttftMs &gt; 0 </span><span class="cov2" title="5">{
                         tq.ttftMs = ewma(tq.ttftMs, ttftMs, 0.3)
                 }</span>
                 <span class="cov2" title="6">if tps &gt; 0 </span><span class="cov2" title="6">{
@@ -9235,8 +9235,8 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 }
 
 // ewma updates an EWMA, seeding it on the first sample (cur == 0).
-func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="12">{
-        if cur &lt;= 0 </span><span class="cov3" title="11">{
+func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="13">{
+        if cur &lt;= 0 </span><span class="cov3" title="12">{
                 return sample
         }</span>
         <span class="cov1" title="1">return alpha*sample + (1-alpha)*cur</span>
@@ -11446,10 +11446,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3647">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5310">{
+        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5328">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5993">{
+        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5977">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11822">return rangeMin, rangeMax, true</span>
@@ -11605,7 +11605,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13575">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1360">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1385">{
                         best = i
                 }</span>
         }
@@ -11638,7 +11638,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1237">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1261">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -17901,9 +17901,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="489">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="486">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18682,7 +18682,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -18721,7 +18721,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1265">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="860">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18743,12 +18743,12 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 rr.mu.Unlock()
                 return
         }</span>
-        <span class="cov4" title="19">if rr.busy </span><span class="cov3" title="10">{
+        <span class="cov4" title="19">if rr.busy </span><span class="cov4" title="10">{
                 // A re-register is in flight for this generation; wait for it and ride it.
-                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov3" title="10">{
+                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov4" title="10">{
                         rr.cond.Wait()
                 }</span>
-                <span class="cov3" title="10">rr.mu.Unlock()
+                <span class="cov4" title="10">rr.mu.Unlock()
                 return</span>
         }
         <span class="cov3" title="9">rr.busy = true
@@ -18765,9 +18765,9 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 case &lt;-stop:<span class="cov1" title="1">
                         rr.finishBusy()
                         return</span>
-                default:<span class="cov3" title="10"></span>
+                default:<span class="cov4" title="10"></span>
                 }
-                <span class="cov3" title="10">newTok := randHex(16)
+                <span class="cov4" title="10">newTok := randHex(16)
                 reg := rr.reg
                 reg.BridgeToken = newTok
                 // Re-attestation: a confidential node must present a FRESH nonce-bound quote on
@@ -18785,7 +18785,7 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                                 reg.AttestNonce = ""
                         }</span>
                 }
-                <span class="cov3" title="10">reg.TS = time.Now().Unix()
+                <span class="cov4" title="10">reg.TS = time.Now().Unix()
                 reg.SignRegistration(rr.priv)
                 // A re-register of a PRIVATE node returns only band_id (never the code again),
                 // so the result is intentionally ignored here - the secret is shown only at the
@@ -18950,23 +18950,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="1250">{
+        for </span><span class="cov9" title="841">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov3" title="6">
+                case &lt;-sess.stop:<span class="cov1" title="2">
                         return</span> // /share went off air
-                default:<span class="cov9" title="1244"></span>
+                default:<span class="cov9" title="839"></span>
                 }
-                <span class="cov9" title="1244">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="839">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov1" title="2">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="1242">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1235">{
+                <span class="cov9" title="833">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="826">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19078,7 +19078,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
 // operator's OWN upstream key can never leave the machine in a job result. A no-op
 // when no key is configured (and never called with an empty key, which would match
 // everywhere).
-func redactUpstreamKey(b []byte, key string) []byte <span class="cov3" title="10">{
+func redactUpstreamKey(b []byte, key string) []byte <span class="cov4" title="10">{
         if key == "" </span><span class="cov3" title="5">{
                 return b
         }</span>
@@ -19426,7 +19426,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19455,21 +19455,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
-        for _, r := range strings.ToLower(s) </span><span class="cov8" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+        for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -23424,9 +23424,9 @@ var brokerHTTPTimeout = brokerTimeout
 // "use the default consumer cap" (client.EffectiveMaxOut), a positive value is the
 // user's explicit opt-in. Without this an agent turn could silently bind to an
 // exorbitant band (the harness relay previously sent no max-out at all).
-func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer <span class="cov7" title="8">{
+func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer <span class="cov8" title="11">{
         httpClient := &amp;http.Client{Timeout: brokerHTTPTimeout}
-        return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) </span><span class="cov7" title="8">{
+        return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) </span><span class="cov8" title="11">{
                 reqBody, _ := json.Marshal(map[string]any{
                         "model":    model,
                         "messages": messages,
@@ -23449,7 +23449,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
                 // Always carry an out-price cap (the caller's, or the default consumer ceiling
                 // when none was set) so an agent turn is bounded against overpay exactly like
                 // `roger use` and the in-channel chat - the harness is just another consume path.
-                <span class="cov7" title="8">req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
+                <span class="cov8" title="11">req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
                 resp, err := httpClient.Do(req)
                 if err != nil </span><span class="cov4" title="3">{
                         // User aborted the turn (esc): a clean cancellation, not a network failure.
@@ -23461,10 +23461,10 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
                         }</span>
                         <span class="cov1" title="1">return Message{}, fmt.Errorf("could not reach the broker: %v", err)</span>
                 }
-                <span class="cov6" title="5">defer resp.Body.Close()
+                <span class="cov7" title="8">defer resp.Body.Close()
                 raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4&lt;&lt;20))
 
-                if onCost != nil </span><span class="cov1" title="1">{
+                if onCost != nil </span><span class="cov3" title="2">{
                         // The cost, the BILLED token counts, and throughput settle together on the relay
                         // and ride back as sibling headers; forward all four when any is present (a missing/
                         // blank header parses to 0). A VOID turn emits cost=0 with no token headers and so
@@ -23473,11 +23473,11 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
                         in, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-In"))
                         out, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-Out"))
                         tps, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-TPS"), 64)
-                        if c &gt; 0 || in &gt; 0 || out &gt; 0 || tps &gt; 0 </span><span class="cov1" title="1">{
+                        if c &gt; 0 || in &gt; 0 || out &gt; 0 || tps &gt; 0 </span><span class="cov3" title="2">{
                                 onCost(c, in, out, tps)
                         }</span>
                 }
-                <span class="cov6" title="5">return parseCompletion(raw, resp.StatusCode)</span>
+                <span class="cov7" title="8">return parseCompletion(raw, resp.StatusCode)</span>
         }
 }
 
@@ -23485,7 +23485,7 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 // assistant Message (content + any tool_calls). It surfaces the broker/provider's own
 // error text on an empty/error response so the agent names the real cause (no station,
 // timeout, insufficient credits) instead of a blank turn - mirroring client.Chat.
-func parseCompletion(raw []byte, status int) (Message, error) <span class="cov10" title="15">{
+func parseCompletion(raw []byte, status int) (Message, error) <span class="cov10" title="18">{
         var d struct {
                 Choices []struct {
                         Message struct {
@@ -23500,8 +23500,8 @@ func parseCompletion(raw []byte, status int) (Message, error) <span class="cov10
                 } `json:"error"`
         }
         _ = json.Unmarshal(raw, &amp;d)
-        if len(d.Choices) == 0 </span><span class="cov6" title="6">{
-                if d.Error.Message != "" </span><span class="cov3" title="2">{
+        if len(d.Choices) == 0 </span><span class="cov7" title="7">{
+                if d.Error.Message != "" </span><span class="cov4" title="3">{
                         // A 402 (insufficient balance) gets the shared actionable topup hint appended,
                         // mirroring client.Chat, so the agent surfaces a next step, not a dead end.
                         return Message{}, fmt.Errorf("%s", client.WithTopupHint(status, d.Error.Message))
@@ -23517,12 +23517,12 @@ func parseCompletion(raw []byte, status int) (Message, error) <span class="cov10
                 }
                 <span class="cov1" title="1">return Message{}, fmt.Errorf("the station sent an empty response (status %d)", status)</span>
         }
-        <span class="cov8" title="9">c := d.Choices[0].Message
+        <span class="cov8" title="11">c := d.Choices[0].Message
         content := c.Content
         if content == "" &amp;&amp; len(c.ToolCalls) == 0 </span><span class="cov1" title="1">{
                 content = c.Reasoning
         }</span>
-        <span class="cov8" title="9">return Message{Role: "assistant", Content: content, ToolCalls: c.ToolCalls}, nil</span>
+        <span class="cov8" title="11">return Message{Role: "assistant", Content: content, ToolCalls: c.ToolCalls}, nil</span>
 }
 
 // bytesTrim trims ASCII whitespace from a byte slice (small local helper to avoid an
@@ -23633,13 +23633,13 @@ type Loop struct {
 // NewLoop builds an agent loop rooted at root, with the given persona, completer,
 // and confirm gate. The persona seeds the system message; the conversation is
 // otherwise empty (session-only - no history is loaded from disk).
-func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop <span class="cov6" title="12">{
+func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop <span class="cov6" title="18">{
         tools := BuiltinTools()
         byName := make(map[string]Tool, len(tools))
-        for _, t := range tools </span><span class="cov10" title="60">{
+        for _, t := range tools </span><span class="cov10" title="90">{
                 byName[t.Name] = t
         }</span>
-        <span class="cov6" title="12">l := &amp;Loop{
+        <span class="cov6" title="18">l := &amp;Loop{
                 Root:       root,
                 Persona:    persona,
                 tools:      tools,
@@ -23648,10 +23648,10 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
                 confirm:    confirm,
                 MaxSteps:   8,
         }
-        if persona != "" </span><span class="cov6" title="11">{
+        if persona != "" </span><span class="cov6" title="17">{
                 l.messages = append(l.messages, Message{Role: "system", Content: persona})
         }</span>
-        <span class="cov6" title="12">return l</span>
+        <span class="cov6" title="18">return l</span>
 }
 
 // Tools exposes the toolset (for the UI to describe the available capabilities).
@@ -23667,35 +23667,35 @@ func (l *Loop) Tools() []Tool <span class="cov1" title="1">{ return l.tools }</s
 // not tool-capable, or the relay strips tools), this is exactly the terminal case -
 // the assistant text is the final answer. So the loop is a strict superset of plain
 // chat and works on any model.
-func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (string, error) <span class="cov6" title="11">{
-        if emit == nil </span><span class="cov4" title="5">{
-                emit = func(Event) </span>{<span class="cov6" title="10">}</span>
+func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (string, error) <span class="cov6" title="18">{
+        if emit == nil </span><span class="cov5" title="9">{
+                emit = func(Event) </span>{<span class="cov6" title="14">}</span>
         }
-        <span class="cov6" title="11">if ctx == nil </span><span class="cov1" title="1">{
+        <span class="cov6" title="18">if ctx == nil </span><span class="cov1" title="1">{
                 ctx = context.Background()
         }</span>
-        <span class="cov6" title="11">l.messages = append(l.messages, Message{Role: "user", Content: userText})
+        <span class="cov6" title="18">l.messages = append(l.messages, Message{Role: "user", Content: userText})
 
-        for step := 0; step &lt; l.MaxSteps; step++ </span><span class="cov7" title="16">{
+        for step := 0; step &lt; l.MaxSteps; step++ </span><span class="cov7" title="25">{
                 // Stop promptly if the turn was cancelled between steps (e.g. after a tool round)
                 // so an aborted turn never fires another billed model call.
                 if ctx.Err() != nil </span><span class="cov1" title="1">{
                         emit(Event{Kind: EventError, Text: "turn cancelled"})
                         return "", ctx.Err()
                 }</span>
-                <span class="cov6" title="15">msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
-                if err != nil </span><span class="cov2" title="2">{
+                <span class="cov7" title="24">msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
+                if err != nil </span><span class="cov3" title="4">{
                         // A cancelled context surfaces as a clean "cancelled", not a scary network error.
-                        if ctx.Err() != nil </span><span class="cov1" title="1">{
+                        if ctx.Err() != nil </span><span class="cov2" title="2">{
                                 emit(Event{Kind: EventError, Text: "turn cancelled"})
                                 return "", ctx.Err()
                         }</span>
-                        <span class="cov1" title="1">emit(Event{Kind: EventError, Text: err.Error()})
+                        <span class="cov2" title="2">emit(Event{Kind: EventError, Text: err.Error()})
                         return "", err</span>
                 }
-                <span class="cov6" title="13">l.messages = append(l.messages, msg)
+                <span class="cov6" title="20">l.messages = append(l.messages, msg)
 
-                if len(msg.ToolCalls) == 0 </span><span class="cov5" title="7">{
+                if len(msg.ToolCalls) == 0 </span><span class="cov5" title="12">{
                         // Final answer (or a plain-chat model that ignored the tools).
                         final := strings.TrimSpace(msg.Content)
                         emit(Event{Kind: EventFinal, Text: final})
@@ -23703,10 +23703,10 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
                 }</span>
 
                 // The model wants tools. Any interim prose rides along first.
-                <span class="cov4" title="6">if t := strings.TrimSpace(msg.Content); t != "" </span><span class="cov1" title="1">{
+                <span class="cov5" title="8">if t := strings.TrimSpace(msg.Content); t != "" </span><span class="cov1" title="1">{
                         emit(Event{Kind: EventAssistant, Text: t})
                 }</span>
-                <span class="cov4" title="6">for _, call := range msg.ToolCalls </span><span class="cov4" title="6">{
+                <span class="cov5" title="8">for _, call := range msg.ToolCalls </span><span class="cov5" title="8">{
                         l.runOne(call, emit)
                 }</span>
                 // Loop: feed the tool results (appended below in runOne) back to the model.
@@ -23721,7 +23721,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 // runOne executes a single tool call: it parses the args, confirm-gates a mutating
 // tool, runs it (or records a denial), emits the call + result events, and appends a
 // tool-role result message so the next model turn sees the outcome.
-func (l *Loop) runOne(call ToolCall, emit func(Event)) <span class="cov4" title="6">{
+func (l *Loop) runOne(call ToolCall, emit func(Event)) <span class="cov5" title="8">{
         name := call.Function.Name
         args := parseArgs(call.Function.Arguments)
         emit(Event{Kind: EventToolCall, Tool: name, Args: args})
@@ -23737,7 +23737,7 @@ func (l *Loop) runOne(call ToolCall, emit func(Event)) <span class="cov4" title=
         // SAFETY MODEL: read-only tools auto-run; mutating tools (write_file, run_shell)
         // REQUIRE an explicit y/N confirm (default DENY). A denied confirm never runs the
         // tool - it feeds a clear "user denied" result back so the model can adapt.
-        <span class="cov4" title="5">if tool.Mutating </span><span class="cov2" title="2">{
+        <span class="cov4" title="7">if tool.Mutating </span><span class="cov2" title="2">{
                 approved := l.confirm != nil &amp;&amp; l.confirm(name, args)
                 if !approved </span><span class="cov1" title="1">{
                         res := "user denied this " + name + " call - it was not run"
@@ -23747,20 +23747,20 @@ func (l *Loop) runOne(call ToolCall, emit func(Event)) <span class="cov4" title=
                 }</span>
         }
 
-        <span class="cov4" title="4">out, err := tool.Run(l.Root, args)
+        <span class="cov4" title="6">out, err := tool.Run(l.Root, args)
         if err != nil </span><span class="cov1" title="1">{
                 res := "error: " + err.Error()
                 emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
                 l.appendToolResult(call, res)
                 return
         }</span>
-        <span class="cov3" title="3">emit(Event{Kind: EventToolResult, Tool: name, Result: out})
+        <span class="cov4" title="5">emit(Event{Kind: EventToolResult, Tool: name, Result: out})
         l.appendToolResult(call, out)</span>
 }
 
 // appendToolResult records a tool-role message tying result back to the originating
 // call id, the OpenAI contract for feeding a tool outcome to the next turn.
-func (l *Loop) appendToolResult(call ToolCall, result string) <span class="cov4" title="6">{
+func (l *Loop) appendToolResult(call ToolCall, result string) <span class="cov5" title="8">{
         l.messages = append(l.messages, Message{
                 Role:       "tool",
                 ToolCallID: call.ID,
@@ -23772,7 +23772,7 @@ func (l *Loop) appendToolResult(call ToolCall, result string) <span class="cov4"
 // lastAssistantText returns the most recent assistant message's text (used when the
 // step cap is hit without a clean final answer).
 func (l *Loop) lastAssistantText() string <span class="cov2" title="2">{
-        for i := len(l.messages) - 1; i &gt;= 0; i-- </span><span class="cov4" title="4">{
+        for i := len(l.messages) - 1; i &gt;= 0; i-- </span><span class="cov3" title="4">{
                 if l.messages[i].Role == "assistant" </span><span class="cov1" title="1">{
                         return strings.TrimSpace(l.messages[i].Content)
                 }</span>
@@ -23792,16 +23792,16 @@ func (l *Loop) Reset() <span class="cov1" title="1">{
 // parseArgs decodes a tool_call's JSON-string arguments into a map. A malformed or
 // empty arguments string yields an empty map (the tool's own validation then reports
 // the missing field back to the model) rather than crashing the loop.
-func parseArgs(raw string) map[string]any <span class="cov5" title="9">{
+func parseArgs(raw string) map[string]any <span class="cov5" title="11">{
         raw = strings.TrimSpace(raw)
         if raw == "" </span><span class="cov1" title="1">{
                 return map[string]any{}
         }</span>
-        <span class="cov5" title="8">var m map[string]any
+        <span class="cov5" title="10">var m map[string]any
         if err := json.Unmarshal([]byte(raw), &amp;m); err != nil || m == nil </span><span class="cov1" title="1">{
                 return map[string]any{}
         }</span>
-        <span class="cov5" title="7">return m</span>
+        <span class="cov5" title="9">return m</span>
 }
 </pre>
 		
@@ -23985,7 +23985,7 @@ var shellTimeout = 60 * time.Second
 // tools (read_file, list_dir, web_fetch) auto-run; mutating tools (write_file,
 // run_shell) are confirm-gated by the loop. The filesystem tools are sandboxed to
 // root via resolveInRoot; web_fetch reaches the network (read-only, text only).
-func BuiltinTools() []Tool <span class="cov7" title="21">{
+func BuiltinTools() []Tool <span class="cov7" title="27">{
         return []Tool{
                 {
                         Name:        "read_file",
@@ -23998,16 +23998,16 @@ func BuiltinTools() []Tool <span class="cov7" title="21">{
                                 },
                                 "required": []any{"path"},
                         },
-                        Run: func(root string, args map[string]any) (string, error) </span><span class="cov4" title="5">{
+                        Run: func(root string, args map[string]any) (string, error) </span><span class="cov4" title="6">{
                                 p, err := resolveInRoot(root, str(args["path"]))
                                 if err != nil </span><span class="cov1" title="1">{
                                         return "", err
                                 }</span>
-                                <span class="cov3" title="4">b, err := os.ReadFile(p)
+                                <span class="cov4" title="5">b, err := os.ReadFile(p)
                                 if err != nil </span><span class="cov1" title="1">{
                                         return "", err
                                 }</span>
-                                <span class="cov3" title="3">return clip(string(b)), nil</span>
+                                <span class="cov3" title="4">return clip(string(b)), nil</span>
                         },
                 },
                 {
@@ -24020,32 +24020,32 @@ func BuiltinTools() []Tool <span class="cov7" title="21">{
                                         "path": map[string]any{"type": "string", "description": "Directory path relative to the working directory. Defaults to '.'."},
                                 },
                         },
-                        Run: func(root string, args map[string]any) (string, error) <span class="cov4" title="5">{
+                        Run: func(root string, args map[string]any) (string, error) <span class="cov4" title="6">{
                                 rel := str(args["path"])
                                 if strings.TrimSpace(rel) == "" </span><span class="cov1" title="1">{
                                         rel = "."
                                 }</span>
-                                <span class="cov4" title="5">p, err := resolveInRoot(root, rel)
+                                <span class="cov4" title="6">p, err := resolveInRoot(root, rel)
                                 if err != nil </span><span class="cov1" title="1">{
                                         return "", err
                                 }</span>
-                                <span class="cov3" title="4">ents, err := os.ReadDir(p)
+                                <span class="cov4" title="5">ents, err := os.ReadDir(p)
                                 if err != nil </span><span class="cov1" title="1">{
                                         return "", err
                                 }</span>
-                                <span class="cov3" title="3">var b strings.Builder
-                                for _, e := range ents </span><span class="cov2" title="2">{
+                                <span class="cov3" title="4">var b strings.Builder
+                                for _, e := range ents </span><span class="cov3" title="3">{
                                         name := e.Name()
                                         if e.IsDir() </span><span class="cov1" title="1">{
                                                 name += "/"
                                         }</span>
-                                        <span class="cov2" title="2">b.WriteString(name)
+                                        <span class="cov3" title="3">b.WriteString(name)
                                         b.WriteByte('\n')</span>
                                 }
-                                <span class="cov3" title="3">if b.Len() == 0 </span><span class="cov1" title="1">{
+                                <span class="cov3" title="4">if b.Len() == 0 </span><span class="cov1" title="1">{
                                         return "(empty directory)", nil
                                 }</span>
-                                <span class="cov2" title="2">return clip(b.String()), nil</span>
+                                <span class="cov3" title="3">return clip(b.String()), nil</span>
                         },
                 },
                 {
@@ -24110,9 +24110,9 @@ func BuiltinTools() []Tool <span class="cov7" title="21">{
 
 // ToolSchemas renders the toolset as the OpenAI `tools` array sent in the request
 // body (each entry is {"type":"function","function":{name,description,parameters}}).
-func ToolSchemas(tools []Tool) []map[string]any <span class="cov6" title="16">{
+func ToolSchemas(tools []Tool) []map[string]any <span class="cov7" title="25">{
         out := make([]map[string]any, 0, len(tools))
-        for _, t := range tools </span><span class="cov10" title="80">{
+        for _, t := range tools </span><span class="cov10" title="125">{
                 out = append(out, map[string]any{
                         "type": "function",
                         "function": map[string]any{
@@ -24122,26 +24122,26 @@ func ToolSchemas(tools []Tool) []map[string]any <span class="cov6" title="16">{
                         },
                 })
         }</span>
-        <span class="cov6" title="16">return out</span>
+        <span class="cov7" title="25">return out</span>
 }
 
 // resolveInRoot joins rel onto root and verifies the result stays INSIDE root - the
 // cwd sandbox. It rejects absolute paths and any "../" escape so a tool call can
 // never read or write outside the directory the agent was opened in. root is
 // cleaned/abs'd by the caller (the loop) once at startup.
-func resolveInRoot(root, rel string) (string, error) <span class="cov7" title="22">{
+func resolveInRoot(root, rel string) (string, error) <span class="cov6" title="24">{
         if strings.TrimSpace(rel) == "" </span><span class="cov2" title="2">{
                 return "", errors.New("empty path")
         }</span>
-        <span class="cov7" title="20">if filepath.IsAbs(rel) </span><span class="cov1" title="1">{
+        <span class="cov6" title="22">if filepath.IsAbs(rel) </span><span class="cov1" title="1">{
                 return "", fmt.Errorf("absolute paths are not allowed (sandboxed to the working directory): %s", rel)
         }</span>
-        <span class="cov7" title="19">p := filepath.Clean(filepath.Join(root, rel))
+        <span class="cov6" title="21">p := filepath.Clean(filepath.Join(root, rel))
         // Guard against "../" escapes: the cleaned path must be root or a descendant.
         if p != root &amp;&amp; !strings.HasPrefix(p, root+string(os.PathSeparator)) </span><span class="cov3" title="4">{
                 return "", fmt.Errorf("path escapes the working directory sandbox: %s", rel)
         }</span>
-        <span class="cov6" title="15">return p, nil</span>
+        <span class="cov6" title="17">return p, nil</span>
 }
 
 // runShell runs cmd via the platform shell in root (c.Dir = root sets only the working
@@ -24202,8 +24202,8 @@ func webFetch(url string) (string, error) <span class="cov4" title="5">{
 
 // clip truncates s to maxToolOutput, marking a truncation so the model knows the
 // result was cut (and doesn't treat a partial file as complete).
-func clip(s string) string <span class="cov6" title="14">{
-        if len(s) &lt;= maxToolOutput </span><span class="cov6" title="13">{
+func clip(s string) string <span class="cov6" title="16">{
+        if len(s) &lt;= maxToolOutput </span><span class="cov6" title="15">{
                 return s
         }</span>
         <span class="cov1" title="1">return s[:maxToolOutput] + "\n... (truncated)"</span>
@@ -24211,11 +24211,11 @@ func clip(s string) string <span class="cov6" title="14">{
 
 // str coerces an arbitrary JSON-decoded arg to a string (the model sometimes sends a
 // number or bool where a string is expected). nil -&gt; "".
-func str(v any) string <span class="cov7" title="29">{
+func str(v any) string <span class="cov7" title="31">{
         switch t := v.(type) </span>{
         case nil:<span class="cov2" title="2">
                 return ""</span>
-        case string:<span class="cov7" title="25">
+        case string:<span class="cov7" title="27">
                 return t</span>
         default:<span class="cov2" title="2">
                 return fmt.Sprintf("%v", t)</span>
@@ -24722,8 +24722,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="22">{
-                if s != nil </span><span class="cov7" title="21">{
+        for _, s := range c.sessions </span><span class="cov7" title="24">{
+                if s != nil </span><span class="cov7" title="23">{
                         n++
                 }</span>
         }
@@ -24804,13 +24804,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="9">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
         case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov5" title="6">
+        default:<span class="cov6" title="7">
                 return "connecting"</span>
         }
 }
@@ -24839,7 +24839,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="5">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -25142,7 +25142,7 @@ func pad3(n int) string <span class="cov7" title="1008">{
                 n = 0
         }</span>
         <span class="cov7" title="1008">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="122">{
+        for len(s) &lt; 3 </span><span class="cov5" title="117">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1008">return s</span>
@@ -25150,17 +25150,17 @@ func pad3(n int) string <span class="cov7" title="1008">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2010">{
-        if n == 0 </span><span class="cov1" title="2">{
+        if n == 0 </span><span class="cov2" title="3">{
                 return "0"
         }</span>
-        <span class="cov8" title="2008">var buf [12]byte
+        <span class="cov8" title="2007">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5907">{
+        for n &gt; 0 </span><span class="cov9" title="5911">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2008">return string(buf[i:])</span>
+        <span class="cov8" title="2007">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -41686,7 +41686,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="326">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="307">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -41708,7 +41708,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="75">
+                case agent.LinkOnAir:<span class="cov3" title="69">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41765,7 +41765,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -41816,7 +41816,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="37">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="35">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
