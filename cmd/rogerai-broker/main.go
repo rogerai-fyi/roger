@@ -437,6 +437,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// does NOT wipe registrations: a still-running provider reappears once its next
 	// heartbeat re-confirms liveness, instead of being gone until a manual restart.
 	b.rehydrateNodes()
+	// One-time SECURITY migration: re-mask any band minted before the display was masked
+	// at the source, so an existing band's persisted display can no longer reconstruct or
+	// resolve the secret code. Idempotent (a re-run is a no-op) + non-fatal on error.
+	b.remaskExistingBands()
 	b.bill = loadBilling()
 	b.conn = loadConnect()
 	b.mod = loadModeration()

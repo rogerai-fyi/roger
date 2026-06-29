@@ -38,6 +38,12 @@ const bandTailLen = 8
 // (< bandTailLen) and can therefore NEVER yield a resolvable tail.
 const maskedTail = "••••-••••"
 
+// bandSep separates the cosmetic frequency from the tail in BOTH the one-time code and
+// the persisted display ("147.520 MHz · <tail>"). Defined once so NewBandCode (mint),
+// MaskBandDisplay (the re-mask migration), and any split agree on the exact delimiter
+// (a space + middot + space - the middot is dropped by CanonicalBandTail).
+const bandSep = " · "
+
 // NewBandCode mints a fresh frequency code. It returns THREE strings, separating the
 // one-time SECRET from what is safe to persist:
 //
@@ -69,9 +75,32 @@ func NewBandCode() (code, display, tail string) {
 		sb.WriteByte(crockfordAlphabet[int(raw[i])&0x1f])
 	}
 	t := sb.String()
-	code = freq + " · " + t[:4] + "-" + t[4:] // the SECRET full code, shown ONCE at mint
-	display = freq + " · " + maskedTail        // cosmetic, non-recoverable, safe to persist
+	code = freq + bandSep + t[:4] + "-" + t[4:] // the SECRET full code, shown ONCE at mint
+	display = freq + bandSep + maskedTail       // cosmetic, non-recoverable, safe to persist
 	return code, display, t
+}
+
+// MaskBandDisplay rewrites a band's PERSISTED cosmetic display into the masked,
+// NON-RECOVERABLE form, keeping the cosmetic frequency but replacing the tail with
+// maskedTail, e.g. "147.520 MHz · 8F3K-9M2Q" -> "147.520 MHz · ••••-••••". It is the
+// per-row transform of the one-time store re-mask migration that scrubs bands minted
+// BEFORE the display was masked at the source: pre-fix the persisted display WAS the
+// resolvable code ("freq · TAIL"), so CanonicalBandTail/BandCodeHash recovered the secret
+// straight out of stored state. The result always canonicalizes to "" (no tail), so it can
+// NEVER reconstruct or resolve a band. IDEMPOTENT: an already-masked display is returned
+// unchanged (so a re-run of the migration changes nothing). Only the DISPLAY is touched;
+// the migration leaves the band's CodeHash intact, so the owner's one-time full code still
+// resolves.
+func MaskBandDisplay(display string) string {
+	// A real minted display is "<cosmetic freq>·<tail>": keep the cosmetic part and replace
+	// the tail (everything after the separator) with the non-recoverable mask.
+	if freq, _, ok := strings.Cut(display, bandSep); ok {
+		return freq + bandSep + maskedTail
+	}
+	// Defensive: an unrecognized display with no separator (never produced by a mint). The
+	// bare mask carries no Crockford symbols, so the result is guaranteed non-recoverable
+	// even if the input ended in a full tail's worth of symbols.
+	return maskedTail
 }
 
 // CanonicalBandTail extracts the secret tail from anything the user might type and

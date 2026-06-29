@@ -349,6 +349,15 @@ type Store interface {
 	// CountActiveBands counts an owner's live (non-revoked, non-expired) bands as of
 	// now - the free-cap enforcement point (compared against BandQuota at register).
 	CountActiveBands(owner string, now time.Time) (int, error)
+	// RemaskBandDisplays is the one-time SECURITY migration that re-masks every persisted
+	// band's CodeDisplay into the masked, NON-RECOVERABLE cosmetic form
+	// (protocol.MaskBandDisplay). Bands minted before the display was masked at the source
+	// persisted "freq · TAIL" - the cleartext tail - so CanonicalBandTail/BandCodeHash
+	// resolved them straight out of stored state; this scrubs that. The CodeHash (the
+	// owner's saved-code lookup key) is left UNCHANGED, so the one-time full code still
+	// resolves - ONLY the display changes. Returns how many rows it changed; IDEMPOTENT
+	// (an already-masked display is left untouched, so a re-run changes 0). Run at startup.
+	RemaskBandDisplays() (int, error)
 
 	// --- safety: CSAM preservation + abuse reports + node bans (safety.go) ----
 
