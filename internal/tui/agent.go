@@ -1058,36 +1058,58 @@ const agentStallSec = 120
 //     (flagging it was a false-alarm source);
 //   - while waiting on / receiving from the station it reads "working…"/"receiving…", and
 //     only a long silence (>= agentStallSec) flips to an honest "may be stuck · esc".
+//
 // The spinner is compact/quiet-aware (a static glyph when motion is frozen).
 //
 // elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last event.
 // Both are passed in (not read off the clock) so the render is a pure function of state.
 func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	spin := workingSpinner(m.frame)
-	if m.compact || quiet {
+	// The signal-sweep meter rides beneath the status line under full motion; narrow /
+	// compact / quiet collapse to the single status line (the reduced-motion form).
+	withBar := !m.compact && !quiet && !m.narrow()
+	if !withBar {
 		spin = staticSpinner()
 	}
 	capSec := int(harness.PerCallCap / time.Second)
-	withElapsed := func(s string) string {
+	// status line: spinner + state, then a dim meta tail — elapsed within the per-call
+	// cap, and the running session cost once there is any (dust-safe via dollars()).
+	withMeta := func(s string) string {
 		line := spin + stLive.Render("  "+s)
+		meta := ""
 		if elapsedSec >= 2 {
-			line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
+			meta += fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec)
+		}
+		if m.agentCost > 0 {
+			meta += "  · " + dollars(m.agentCost)
+		}
+		if meta != "" {
+			line += stDim.Render(meta)
 		}
 		return line
 	}
-	// A tool is running locally: the silence is expected + bounded, never a station stall.
-	if m.agentTurnState == poseTool {
-		return withElapsed("running the tool…")
-	}
-	// STALLED: no event from the station for a genuinely long time — flag it with the out.
-	if sinceLastSec >= agentStallSec {
+	// STALLED: no event from the station for a genuinely long time — flag it with the out
+	// and DROP the sweep (a moving bar must never imply liveness that isn't there). A tool
+	// running locally is exempt: its silence is expected + bounded, never a station stall.
+	if sinceLastSec >= agentStallSec && m.agentTurnState != poseTool {
 		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds — may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
 	}
-	// RECEIVING vs WORKING: prose arriving = the answer; otherwise the model is thinking.
-	if m.agentTurnState == poseStreaming {
-		return withElapsed("receiving…")
+	// RECEIVING vs WORKING vs TOOL: prose arriving = the answer; a tool = local work;
+	// otherwise the model is thinking.
+	var label string
+	switch m.agentTurnState {
+	case poseTool:
+		label = "running the tool…"
+	case poseStreaming:
+		label = "receiving…"
+	default:
+		label = "working…"
 	}
-	return withElapsed("working…")
+	line := withMeta(label)
+	if withBar {
+		line += "\n  " + tintSweep(meterSweep(m.frame, meterWidth))
+	}
+	return line
 }
 
 // agentRoot is the cwd sandbox root the agent's filesystem tools are confined to. It
