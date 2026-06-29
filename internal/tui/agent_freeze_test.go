@@ -242,7 +242,7 @@ func TestAgentWorkingLineReceivingVsStalled(t *testing.T) {
 	}
 
 	// Long silence (>= agentStallSec) -> honest "may be stuck", esc out, cap.
-	stalled := stripANSI(m.agentWorkingLine(60, agentStallSec+5))
+	stalled := stripANSI(m.agentWorkingLine(agentStallSec+10, agentStallSec+5))
 	if !strings.Contains(stalled, "may be stuck") {
 		t.Errorf("a long silence should warn it may be stuck, got %q", stalled)
 	}
@@ -251,6 +251,17 @@ func TestAgentWorkingLineReceivingVsStalled(t *testing.T) {
 	}
 	if !strings.Contains(stalled, "cap 300s") {
 		t.Errorf("the stall line should surface the cap, got %q", stalled)
+	}
+
+	// A TOOL running is exempt from the stall warning even after a long silence (the tool is
+	// local + self-bounded; flagging it was a false alarm). It says what's happening instead.
+	m.agentTurnState = poseTool
+	tool := stripANSI(m.agentWorkingLine(70, agentStallSec+5))
+	if strings.Contains(tool, "may be stuck") {
+		t.Errorf("a running tool must not be flagged 'may be stuck', got %q", tool)
+	}
+	if !strings.Contains(tool, "running the tool") {
+		t.Errorf("the tool-running line should say so, got %q", tool)
 	}
 }
 

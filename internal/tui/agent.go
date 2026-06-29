@@ -335,9 +335,9 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.waitAgentEvent()
 		}
 	}
-	// A turn is running: ignore typed keys (the loop owns the conversation) except esc,
-	// which leaves the AGENT view (the turn keeps running in the background and its
-	// result still lands in the transcript when we return).
+	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
+	// esc cancels/leaves, the scroll/recall/copy keys below act, and everything else feeds
+	// the prompt input - typable even mid-turn so the next ask can be composed + queued.
 	switch k.String() {
 	case "esc":
 		// While a turn is in flight, esc CANCELS it; when idle, esc leaves to BROWSE. This is
@@ -1042,45 +1042,52 @@ func (m model) agentView(w int) string {
 	return b.String()
 }
 
-// agentStallSec is how long a turn may go with NO streamed event before the working line
-// stops claiming progress and says, plainly, that the station may be stuck. The built-in
-// tools self-bound (web_fetch 20s, run_shell 60s) and a model call is capped at
-// harness.PerCallCap, so a longer silence than this is genuinely suspect - worth flagging
-// with the out (esc) rather than spinning a reassuring lie. Tuned a touch above the tool
-// ceilings so a legitimately slow tool doesn't trip it.
-const agentStallSec = 25
+// agentStallSec is how long the turn may go with NO event from the STATION before the
+// working line stops reassuring and flags that it may be stuck. It is deliberately HIGH:
+// the relay is non-streaming, so within one model call there are no intermediate events,
+// and a CPU-MoE reply legitimately "takes well over a minute" (see harness.brokerTimeout);
+// a run_shell tool is bounded at 60s. So only a silence well past those - genuinely
+// suspect, and still hard-capped at harness.PerCallCap - earns the warning + the esc out.
+// (A tool actually running is exempted in agentWorkingLine: that silence is expected.)
+const agentStallSec = 120
 
-// agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner: it
-// distinguishes STILL-RECEIVING (an event/token streamed within agentStallSec) from
-// STALLED (nothing for longer - the station may be hung) and always surfaces the per-call
-// cap so the wait reads as bounded. esc is offered as the out on the stall line. The
-// spinner itself is compact/quiet-aware (a static glyph when motion is frozen).
+// agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner. It always
+// surfaces the per-call cap so the wait reads as BOUNDED (not a bottomless hang), and:
+//   - while a tool runs (poseTool) it says so and never cries "stuck" — the tool is local
+//     and self-bounded (run_shell <=60s, web_fetch <=20s), so the silence is EXPECTED
+//     (flagging it was a false-alarm source);
+//   - while waiting on / receiving from the station it reads "working…"/"receiving…", and
+//     only a long silence (>= agentStallSec) flips to an honest "may be stuck · esc".
+// The spinner is compact/quiet-aware (a static glyph when motion is frozen).
 //
-// elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last
-// streamed event. Both are passed in (not read off the clock) so the render stays a pure
-// function of state - easy to test deterministically.
+// elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last event.
+// Both are passed in (not read off the clock) so the render is a pure function of state.
 func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	spin := workingSpinner(m.frame)
 	if m.compact || quiet {
 		spin = staticSpinner()
 	}
 	capSec := int(harness.PerCallCap / time.Second)
-	// STALLED: nothing has streamed for a while. Don't fake progress - say it may be stuck
-	// and point at the out. Ember (not the live green) flags the concern.
+	withElapsed := func(s string) string {
+		line := spin + stLive.Render("  "+s)
+		if elapsedSec >= 2 {
+			line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
+		}
+		return line
+	}
+	// A tool is running locally: the silence is expected + bounded, never a station stall.
+	if m.agentTurnState == poseTool {
+		return withElapsed("running the tool…")
+	}
+	// STALLED: no event from the station for a genuinely long time — flag it with the out.
 	if sinceLastSec >= agentStallSec {
 		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds — may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
 	}
-	// RECEIVING vs WORKING: streaming prose means the answer is arriving; otherwise the
-	// model is thinking or a tool is running. Either way we heard from it recently.
-	state := "working…"
+	// RECEIVING vs WORKING: prose arriving = the answer; otherwise the model is thinking.
 	if m.agentTurnState == poseStreaming {
-		state = "receiving…"
+		return withElapsed("receiving…")
 	}
-	line := spin + stLive.Render("  "+state)
-	if elapsedSec >= 2 {
-		line += stDim.Render(fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec))
-	}
-	return line
+	return withElapsed("working…")
 }
 
 // agentRoot is the cwd sandbox root the agent's filesystem tools are confined to. It
