@@ -14,9 +14,13 @@ import (
 	"github.com/rogerai-fyi/roger/internal/client"
 )
 
-// CostFunc receives the per-turn cost in credits (1 cr = $1) parsed from the relay's
-// X-RogerAI-Cost header, so the TUI can keep a running session total. nil = ignore.
-type CostFunc func(credits float64)
+// CostFunc receives one model-call's BILLED result parsed from the relay's response
+// headers: the cost in credits (1 cr = $1, X-RogerAI-Cost) plus the broker's BILLED
+// prompt/completion token counts (X-RogerAI-Tokens-In / X-RogerAI-Tokens-Out) — the
+// very counts that cost was computed from (min(claim, broker re-count) per axis). The
+// TUI keeps running session totals from these to show an honest ↑in ↓out beside the
+// cost. nil = ignore. This is DISPLAY of an already-settled value; it changes no billing.
+type CostFunc func(credits float64, tokensIn, tokensOut int)
 
 // brokerTimeout matches the client's chat timeout: CPU MoE inference can take well
 // over a minute, and a tool-use turn is a normal completion under the hood.
@@ -101,8 +105,14 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 
 		if onCost != nil {
-			if c, perr := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64); perr == nil && c > 0 {
-				onCost(c)
+			// The cost + the BILLED token counts settle together on the relay and ride back as
+			// sibling headers; forward all three when any is present (a missing/blank header
+			// parses to 0). A VOID turn emits cost=0 with no token headers and so reports nothing.
+			c, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
+			in, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-In"))
+			out, _ := strconv.Atoi(resp.Header.Get("X-RogerAI-Tokens-Out"))
+			if c > 0 || in > 0 || out > 0 {
+				onCost(c, in, out)
 			}
 		}
 		return parseCompletion(raw, resp.StatusCode)

@@ -92,8 +92,14 @@ type (
 	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input
 	// and auto-sending the next queued prompt (if any).
 	agentDoneMsg struct{}
-	// agentCostMsg adds a per-turn relay cost to the running AGENT session total.
-	agentCostMsg float64
+	// agentCostMsg adds one model-call's BILLED result — cost + the broker's billed
+	// prompt/completion token counts — to the running AGENT session totals (the cost
+	// side-channel; see newAgentRuntime.costFn and waitAgentEvent).
+	agentCostMsg struct {
+		cost      float64
+		tokensIn  int
+		tokensOut int
+	}
 )
 
 // resolveAgentModel picks the model the agent should run on, in priority order:
@@ -252,10 +258,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 		confirmReq:  make(chan agentConfirm),
 		confirmResp: make(chan bool),
 	}
-	// Cost is surfaced through the events channel as a sentinel so the single drain Cmd
-	// stays the only reader (no second goroutine racing the model).
-	costFn := func(credits float64) {
-		rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g", credits)}
+	// Cost + the broker's BILLED token counts are surfaced through the events channel as a
+	// single sentinel ("<credits> <in> <out>") so the lone drain Cmd stays the only reader
+	// (no second goroutine racing the model). waitAgentEvent parses the triple back out.
+	costFn := func(credits float64, in, out int) {
+		rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d", credits, in, out)}
 	}
 	// The completer reads rt.model LIVE (not a captured value) so re-tuning a channel
 	// after the runtime is built takes effect on the next turn without a rebuild.
@@ -536,6 +543,8 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		m.agentLines = nil
 		m.agentCost = 0
+		m.agentTokensIn = 0 // a fresh session zeroes the running ↑↓ token totals too
+		m.agentTokensOut = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
 		note("session cleared - the agent starts fresh (still no long-term memory)")
 		return m, nil
@@ -664,8 +673,9 @@ func (m model) waitAgentEvent() tea.Cmd {
 			}
 			if e.Kind == eventCost {
 				var c float64
-				fmt.Sscanf(e.Text, "%g", &c)
-				return agentCostMsg(c)
+				var in, out int
+				fmt.Sscanf(e.Text, "%g %d %d", &c, &in, &out)
+				return agentCostMsg{cost: c, tokensIn: in, tokensOut: out}
 			}
 			return agentEventMsg(e)
 		}
@@ -722,8 +732,9 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			t = stLive.Render("◂ ") + t
 		}
 		m.agentLines = append(m.agentLines, t)
-		if m.agentCost > 0 {
-			m.agentLines = append(m.agentLines, stDim.Render("   session "+dollars(m.agentCost)))
+		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost.
+		if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
+			m.agentLines = append(m.agentLines, stDim.Render("   session "+tot))
 		}
 	case harness.EventError:
 		// A failed turn is a dead end unless we say what to do next. Replace the bare
@@ -1073,15 +1084,18 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	}
 	capSec := int(harness.PerCallCap / time.Second)
 	// status line: spinner + state, then a dim meta tail — elapsed within the per-call
-	// cap, and the running session cost once there is any (dust-safe via dollars()).
+	// cap, and the honest running session telemetry once there is any: ↑in ↓out (the
+	// broker's BILLED token re-count) + cost (dust-safe via dollars()). The token half is
+	// part of the always-shown status line, so reduced-motion (quiet/compact/narrow) drops
+	// only the animated sweep, never the readout.
 	withMeta := func(s string) string {
 		line := spin + stLive.Render("  "+s)
 		meta := ""
 		if elapsedSec >= 2 {
 			meta += fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec)
 		}
-		if m.agentCost > 0 {
-			meta += "  · " + dollars(m.agentCost)
+		if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
+			meta += "  · " + tot
 		}
 		if meta != "" {
 			line += stDim.Render(meta)

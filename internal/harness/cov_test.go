@@ -237,17 +237,27 @@ func TestBrokerCompleter(t *testing.T) {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("X-RogerAI-Cost", "0.0021")
+		// The broker's BILLED token counts ride alongside the cost so the meter can show
+		// an honest ↑in ↓out; the completer must parse + forward them.
+		w.Header().Set("X-RogerAI-Tokens-In", "12")
+		w.Header().Set("X-RogerAI-Tokens-Out", "34")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"relayed reply"}}]}`))
 	}))
 	defer srv.Close()
 
 	var billed float64
-	comp := BrokerCompleter(srv.URL, "u_gh_1", "qwen", false, 0, func(c float64) { billed = c })
+	var gotIn, gotOut int
+	comp := BrokerCompleter(srv.URL, "u_gh_1", "qwen", false, 0, func(c float64, in, out int) {
+		billed, gotIn, gotOut = c, in, out
+	})
 	msg, err := comp(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
 	if err != nil || msg.Content != "relayed reply" {
 		t.Fatalf("BrokerCompleter = %+v/%v, want relayed reply", msg, err)
 	}
 	if billed < 0.002 || billed > 0.0022 {
 		t.Errorf("CostFunc billed = %v, want ~0.0021", billed)
+	}
+	if gotIn != 12 || gotOut != 34 {
+		t.Errorf("CostFunc tokens = ↑%d ↓%d, want ↑12 ↓34 (the broker's billed counts)", gotIn, gotOut)
 	}
 }
