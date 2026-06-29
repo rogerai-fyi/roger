@@ -11538,7 +11538,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="123">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="122">{
                         best = i
                 }</span>
         }
@@ -15185,10 +15185,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="689">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="687">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="667">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="669">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -17834,9 +17834,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="472">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="468">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="469">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="465">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18654,7 +18654,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="830">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="826">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18883,23 +18883,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="812">{
+        for </span><span class="cov9" title="810">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="3">
+                case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="809"></span>
+                default:<span class="cov9" title="805"></span>
                 }
-                <span class="cov9" title="809">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="805">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="5">{
+                if err != nil </span><span class="cov2" title="3">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="804">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="797">{
+                <span class="cov9" title="802">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="795">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -25014,7 +25014,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="114">{
+        for len(s) &lt; 3 </span><span class="cov5" title="120">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25022,17 +25022,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov2" title="5">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2003">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5908">{
+        for n &gt; 0 </span><span class="cov9" title="5900">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2003">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -32973,6 +32973,12 @@ type cornerHead struct {
         lines [3]string
 }
 
+// cornerCadence is how many shared 160ms ticks each corner-Ping pose frame + status word holds
+// before advancing (~2.9s), so the mascot moves smoothly every few seconds - calm, with intention -
+// instead of flickering. (When the agent is idle the frame is frozen entirely; see the tickMsg
+// handler, which keeps the screen static + natively selectable.)
+const cornerCadence = 18
+
 // cornerWaiting bobs gently (the head rises a touch and settles) with an occasional
 // blink, so an idle agent reads as "standing by", not frozen.
 var cornerWaitFrames = []cornerHead{
@@ -32984,21 +32990,21 @@ var cornerWaitFrames = []cornerHead{
 // cornerBlink: the eye closes to a dash, spliced into the waiting bob now and then.
 var cornerBlinkFrame = cornerHead{[3]string{"(( - ))", " \\( )/ ", "  ╰─╯  "}}
 
-// cornerThink: the eye darts (scanning the band for an answer) - it slides left/right
-// inside the head. A "reading the band" glance while the model thinks.
+// cornerThink: a calm, CENTERED "scanning the band" breath while the model thinks - the carrier
+// rings gently open and close around a STILL, centered eye. The old version darted the eye
+// left/right inside an uneven-width head, which read as lopsided / off-center; this keeps the eye
+// dead-center at a constant 7-wide head (no sideways lurch) and advances only every few seconds.
 var cornerThinkFrames = []cornerHead{
-        {[3]string{"((• ))", " \\( )/ ", "  ╰─╯  "}},  // eye left
-        {[3]string{"(( •))", " \\( )/ ", "  ╰─╯  "}},  // eye right
-        {[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // center
+        {[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // carrier rings closed
+        {[3]string{"(  •  )", " \\( )/ ", "  ╰─╯  "}}, // rings open - a slow scanning pulse
 }
 
-// cornerStream: the carrier arcs grow and the eye swells - receiving / on air. The
-// answer is coming over the wire, so the signal animates outward.
+// cornerStream: the eye SWELLS in place (•-&gt;O) as the answer rides in - a centered "receiving"
+// pulse at a constant 7-wide head, so the mascot never lurches sideways; only the eye breathes.
 var cornerStreamFrames = []cornerHead{
-        {[3]string{" ( • )  ", " \\( )/ ", "  ╰─╯   "}},
-        {[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
-        {[3]string{"((( O )))", "  \\( )/  ", "   ╰─╯   "}},
-        {[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
+        {[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // carrier locked
+        {[3]string{"(( O ))", " \\( )/ ", "  ╰─╯  "}}, // eye swells - on air
+        {[3]string{"(( O ))", " \\( )/ ", "  ╰─╯  "}}, // holding the signal
 }
 
 // cornerTool: "working the dial" - an arm reaches across to the tuner (∩) and back,
@@ -33012,10 +33018,10 @@ var cornerToolFrames = []cornerHead{
 func cornerEyeFor(state agentPose, f int) string <span class="cov3" title="64">{
         switch state </span>{
         case poseStreaming:<span class="cov3" title="63">
-                if f%len(cornerStreamFrames) == 0 </span><span class="cov2" title="16">{
+                if (f/cornerCadence)%len(cornerStreamFrames) == 0 </span><span class="cov2" title="26">{
                         return "•"
                 }</span>
-                <span class="cov3" title="47">return "O"</span>
+                <span class="cov3" title="37">return "O"</span>
         default:<span class="cov1" title="1">
                 return "•"</span>
         }
@@ -33041,7 +33047,7 @@ func cornerWord(state agentPose, frame int) string <span class="cov3" title="111
         <span class="cov3" title="111">if quiet </span><span class="cov3" title="108">{
                 return ws[0]
         }</span>
-        <span class="cov1" title="3">return ws[(frame/8)%len(ws)]</span>
+        <span class="cov1" title="3">return ws[(frame/cornerCadence)%len(ws)]</span>
 }
 
 // cornerFrameFor selects the corner-Ping head + eye for a state on a given frame. It
@@ -33055,17 +33061,17 @@ func cornerFrameFor(state agentPose, frame int) (cornerHead, string) <span class
         <span class="cov4" title="241">f := frame
         switch state </span>{
         case poseThinking:<span class="cov3" title="60">
-                return cornerThinkFrames[(f/2)%len(cornerThinkFrames)], "•"</span>
+                return cornerThinkFrames[(f/cornerCadence)%len(cornerThinkFrames)], "•"</span>
         case poseStreaming:<span class="cov3" title="61">
-                i := f % len(cornerStreamFrames)
+                i := (f / cornerCadence) % len(cornerStreamFrames)
                 return cornerStreamFrames[i], cornerEyeFor(state, f)</span>
         case poseTool:<span class="cov3" title="60">
-                return cornerToolFrames[(f/3)%len(cornerToolFrames)], "•"</span>
+                return cornerToolFrames[(f/cornerCadence)%len(cornerToolFrames)], "•"</span>
         default:<span class="cov3" title="60"> // poseWaiting: gentle bob + a desynchronized blink
                 if f%17 == int(pingHash(f/17)%14) </span><span class="cov1" title="3">{
                         return cornerBlinkFrame, "-"
                 }</span>
-                <span class="cov3" title="57">return cornerWaitFrames[(f/4)%len(cornerWaitFrames)], "•"</span>
+                <span class="cov3" title="57">return cornerWaitFrames[(f/cornerCadence)%len(cornerWaitFrames)], "•"</span>
         }
 }
 
@@ -34608,10 +34614,10 @@ const toastFrames = 20     // ticks (~3s) a transient status lingers before auto
 // then settles to "&gt; ". Always exactly 2 columns (no row jiggle) and NO_COLOR-safe (the carat
 // glyph itself moves). 0 caratFrame (fresh model / no move yet) = the settled "&gt; ".
 func (m model) caratGutter() string <span class="cov3" title="77">{
-        if m.mode == modeBrowse &amp;&amp; m.caratFrame &gt; 0 &amp;&amp; m.frame-m.caratFrame &gt;= 0 &amp;&amp; m.frame-m.caratFrame &lt; caratSlideFrames </span><span class="cov2" title="8">{
+        if m.mode == modeBrowse &amp;&amp; m.caratFrame &gt; 0 &amp;&amp; m.frame-m.caratFrame &gt;= 0 &amp;&amp; m.frame-m.caratFrame &lt; caratSlideFrames </span><span class="cov1" title="1">{
                 return " " + stSelText.Render("&gt;")
         }</span>
-        <span class="cov3" title="69">return stSelText.Render("&gt;") + " "</span>
+        <span class="cov3" title="76">return stSelText.Render("&gt;") + " "</span>
 }
 
 // ambientStatus is the PERSISTENT browse footer summary (bands · stations on air). It is what
@@ -35367,11 +35373,26 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 }
                 <span class="cov3" title="60">return m, nil</span>
         case tickMsg:<span class="cov4" title="339">
-                m.frame++
+                // FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
+                // actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
+                // a transient toast clearing). When idle the frame FREEZES, so the rendered screen is
+                // byte-identical tick-to-tick - the terminal's native mouse selection survives (a repaint
+                // would wipe the highlight) and the idle UI reads calm + intentional rather than flickering.
+                // A TRANSIENT toast keeps the clock ticking only until it auto-dismisses (the dismiss
+                // window). Bounding to m.frame-m.statusFrame &lt; toastFrames is what stops the PERSISTENT
+                // browse ambient summary (which also sets a non-empty status) from pinning animating ON
+                // forever - without this bound, browse/command never freeze and native selection is wiped.
+                toastPending := m.status != "" &amp;&amp; m.statusFrame &gt; 0 &amp;&amp; m.frame-m.statusFrame &lt; toastFrames &amp;&amp;
+                        (m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent)
+                animating := m.relaying || m.agentBusy || m.shareLoading ||
+                        m.mode == modeConnecting || m.mode == modePingWorld || toastPending
+                if animating </span><span class="cov2" title="7">{
+                        m.frame++
+                }</span>
                 // The in-TUI Ping World owns the beat while it's up: advance its frame and keep the
                 // fast tick (it IS the motion), bypassing the compact/idle slow-tick below. Any key
                 // exits back to prevMode (see onKey's modePingWorld intercept).
-                if m.mode == modePingWorld </span><span class="cov1" title="1">{
+                <span class="cov4" title="339">if m.mode == modePingWorld </span><span class="cov1" title="1">{
                         m.world.frame++
                         // keep the LIVE signal towers fresh: a calm re-scan every worldRescanFrames (the
                         // normal browse rescan is skipped while the world owns the tick). offersMsg rebuilds
@@ -35400,23 +35421,22 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) <span class="cov5" title
                 <span class="cov4" title="338">if m.mode == modeConnecting </span><span class="cov1" title="5">{
                         return m.advanceConnect()
                 }</span>
-                // COMPACT (windowshade): treat compact like prefers-reduced-motion. When nothing
-                // is in flight the fast 160ms animation tick idles - we drop to a slow rescan tick
-                // (a fresh /discover every ~5s, no animation frames) so the view is genuinely calm
-                // yet still updates on real events (offers, balance, chat replies arrive via their
-                // own Cmds). A relay / staged tune-in / SHARE detection still needs the live beat,
-                // so those keep the fast tick even in compact.
-                <span class="cov4" title="333">if m.compact &amp;&amp; !m.relaying &amp;&amp; m.mode != modeConnecting &amp;&amp; !m.shareLoading </span><span class="cov0" title="0">{
+                // IDLE: when nothing is animating (frame frozen above), drop to the calm 5s tick so the
+                // screen stays static + natively selectable - the user can drag-select + copy like on any
+                // normal terminal screen, and the view reads quiet. Real events (offers, balance, chat /
+                // agent replies) still arrive via their own Cmds and repaint on change. (This used to be
+                // compact-only; now EVERY idle view goes calm, which is also what makes copy work.)
+                <span class="cov4" title="333">if !animating </span><span class="cov4" title="332">{
                         return m, tea.Batch(slowTick(), fetchOffers(m.broker))
                 }</span>
                 // Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
                 // pull a fresh /discover so the band table + the "is a station on air" check
                 // stay live without the user pressing r. This keeps the consumer + share views
                 // honest about who is actually on air (the broker ages a node out at ~35s).
-                <span class="cov4" title="333">if m.frame%rescanEveryFrames == 0 </span><span class="cov1" title="1">{
+                <span class="cov1" title="1">if m.frame%rescanEveryFrames == 0 </span><span class="cov0" title="0">{
                         return m, tea.Batch(tick(), fetchOffers(m.broker))
                 }</span>
-                <span class="cov4" title="332">return m, tick()</span>
+                <span class="cov1" title="1">return m, tick()</span>
         case freqResolvedMsg:<span class="cov2" title="9">
                 if !msg.ok </span><span class="cov1" title="3">{
                         // Uniform negative (wrong / revoked / expired / off air - indistinguishable).
@@ -40521,14 +40541,15 @@ var workingPhrases = []string{
         "Coming in clear…",
 }
 
-// workingPhrase returns the radio phrase for a frame: it advances roughly every
-// ~1.3s (8 frames at the 160ms tick) so the words read, not flicker. Under quiet
-// (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable line.
+// workingPhrase returns the radio phrase for a frame: it advances every cornerCadence ticks
+// (~2.9s) so the words READ at a calm, deliberate pace, not a flicker - matching the corner Ping's
+// cadence. Under quiet (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable
+// line. (And while idle the frame is frozen entirely, so the working line only advances mid-turn.)
 func workingPhrase(frame int) string <span class="cov3" title="65">{
         if quiet </span><span class="cov3" title="46">{
                 return workingPhrases[0]
         }</span>
-        <span class="cov2" title="19">return workingPhrases[(frame/8)%len(workingPhrases)]</span>
+        <span class="cov2" title="19">return workingPhrases[(frame/cornerCadence)%len(workingPhrases)]</span>
 }
 
 // workingSpinner is our answer to Claude Code's ✻ working spinner, in RogerAI's own
@@ -40619,11 +40640,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="3">
+        case agent.LinkOnAir:<span class="cov1" title="2">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="1">
+        default:<span class="cov1" title="2">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -40643,7 +40664,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="352">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="314">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -40665,7 +40686,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="75">
+                case agent.LinkOnAir:<span class="cov3" title="72">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -40722,7 +40743,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="9">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -40773,7 +40794,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="41">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -41942,7 +41963,7 @@ const emptyScansToBlank = 3
 // ~60 frames (~10s) - slower than the browse rescan, because a screensaver should breathe.
 const worldRescanFrames = 60
 
-func tick() tea.Cmd <span class="cov4" title="353">{
+func tick() tea.Cmd <span class="cov2" title="21">{
         return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg </span><span class="cov1" title="1">{ return tickMsg{} }</span>)
 }
 
@@ -41951,7 +41972,7 @@ func tick() tea.Cmd <span class="cov4" title="353">{
 // without the rapid 160ms churn, so compact + idle is genuinely quiet. The instant
 // the user un-compacts, relays, or starts a staged tune-in, the tickMsg handler
 // switches back to the fast tick().
-func slowTick() tea.Cmd <span class="cov1" title="1">{
+func slowTick() tea.Cmd <span class="cov4" title="333">{
         return tea.Tick(5*time.Second, func(time.Time) tea.Msg </span><span class="cov1" title="1">{ return tickMsg{} }</span>)
 }
 
@@ -41962,7 +41983,7 @@ func slowTick() tea.Cmd <span class="cov1" title="1">{
 // counts ever exceed a few hundred: add broker-side pagination + load-on-scroll
 // here (a cursor/offset on /discover, fetching the next page as the window nears the
 // bottom) so the client never holds the whole list in memory.
-func fetchOffers(broker string) tea.Cmd <span class="cov2" title="9">{
+func fetchOffers(broker string) tea.Cmd <span class="cov4" title="340">{
         return func() tea.Msg </span><span class="cov1" title="2">{
                 resp, err := http.Get(broker + "/discover")
                 if err != nil </span><span class="cov1" title="1">{
