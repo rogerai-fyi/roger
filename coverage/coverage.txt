@@ -1161,9 +1161,8 @@ github.com/rogerai-fyi/roger/internal/tui/meter.go:34:			meterSweep			100.0%
 github.com/rogerai-fyi/roger/internal/tui/meter.go:63:			fmtTokens			100.0%
 github.com/rogerai-fyi/roger/internal/tui/meter.go:77:			meterTotals			100.0%
 github.com/rogerai-fyi/roger/internal/tui/meter.go:93:			sessionFooter			100.0%
-github.com/rogerai-fyi/roger/internal/tui/meter.go:103:			tintSweep			100.0%
-github.com/rogerai-fyi/roger/internal/tui/meter.go:124:			meterBar			83.3%
-github.com/rogerai-fyi/roger/internal/tui/meter.go:146:			tintBar				100.0%
+github.com/rogerai-fyi/roger/internal/tui/meter.go:110:			meterBar			83.3%
+github.com/rogerai-fyi/roger/internal/tui/meter.go:132:			tintBar				100.0%
 github.com/rogerai-fyi/roger/internal/tui/openurl.go:24:		isCharDevice			100.0%
 github.com/rogerai-fyi/roger/internal/tui/openurl.go:40:		interactive			100.0%
 github.com/rogerai-fyi/roger/internal/tui/openurl.go:54:		openURLCommand			100.0%
