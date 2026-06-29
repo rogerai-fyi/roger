@@ -363,7 +363,7 @@ func TestParseCompletionToolCalls(t *testing.T) {
 }
 
 // TestParseCompletion402MapsToTopupHint: a broker 402 (insufficient balance) surfaces to
-// the agent with the actionable topup next step appended (shared with client.Chat).
+// the agent with the actionable topup next step appended (shared with client.ChatDetailed).
 func TestParseCompletion402MapsToTopupHint(t *testing.T) {
 	body := `{"error":{"message":"insufficient balance - add funds"}}`
 	_, err := parseCompletion([]byte(body), http.StatusPaymentRequired)
