@@ -374,6 +374,15 @@
               typical bands run roughly $0.18-$0.55 / 1M. A typical chat reply costs a
               fraction of a cent. Your wallet balance is shown in the app header and via
               <code>roger balance</code>, and it ticks down live as you generate.</p>
+            <p>In the app, an in-flight turn shows a live <b>meter</b>: an on-air beacon
+              and a scanning signal bar - honest motion, since a turn has no true "percent
+              done" - with the running figures beside it: <code>elapsed</code> against the
+              per-call cap, the session's <b>↑ in / ↓ out</b> tokens, the <b>$ cost</b>, and
+              the latest call's <b>throughput</b> in tokens/sec. Those token counts are the
+              broker's own <b>billed re-count</b> (see <i>Fair billing</i>, below), not the
+              station's claim - so what you watch tick is exactly what you pay. The wallet
+              view collects your balance, this session's spend, and a monthly-budget bar
+              (spend ÷ your cap, turning red only at the hard limit).</p>
           </section>
 
             <h3>Resilient by design: transparent re-routing</h3>
