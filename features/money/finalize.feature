@@ -14,8 +14,10 @@
 #   THE COST<=HELD CLAMP LIVES IN THE CALLER (tunnel.go): cost = min(cost, maxCost)
 #     BEFORE Finalize is called. The Finalize primitive itself does NOT clamp; if handed
 #     cost > held it will subtract the excess from the wallet (held-cost goes negative).
-#   Finalize is NOT idempotent: the wallet/earnings/entry caches mutate every call; only
-#     the "spend:<requestID>" / "earn:<requestID>" ledger rows are idem-deduped. See FINDINGS.
+#   Finalize IS idempotent on rec.RequestID: the settled-map guard makes a repeat capture of the
+#     SAME request a no-op (no double refund / lot drift). With an EMPTY request id the primitive
+#     does not dedupe (it trusts the caller to pass a request id). [Corrected after godog wiring
+#     showed the deployed settled-map guard; the spec had documented the pre-guard behavior.]
 #
 # 1 credit = $1. Default fee 30% -> owner share = cost * 0.70.
 Feature: Finalize captures a held reservation and conserves money exactly
@@ -134,9 +136,10 @@ Feature: Finalize captures a held reservation and conserves money exactly
     Then alice's balance is 5.00
     And the 2.00 over-capture is only prevented by the broker's min(cost, hold) clamp
 
-  # --- double finalize (NOT idempotent at the primitive) -----------------
-  # The production caller guarantees exactly one capture per request via the `settled`
-  # flag. The primitive is NOT idempotent; these scenarios document the real exposure.
+  # --- double finalize (idempotent on the request id) --------------------
+  # The settled-map guard makes Finalize idempotent on rec.RequestID: a repeat capture of the
+  # SAME request is a no-op (no double refund / lot drift). The production caller also guarantees
+  # one capture per request via its own `settled` flag. [Section corrected after godog wiring.]
 
   Scenario: A single Finalize is the supported path - the broker captures each request once
     Given wallet "alice" has 10.00 in real credits
@@ -148,17 +151,17 @@ Feature: Finalize captures a held reservation and conserves money exactly
     And alice's balance is 8.00
     And operator "op1" has earned 1.40
 
-  Scenario: Calling Finalize twice for the same request double-counts caches (latent non-idempotency)
+  Scenario: REGRESSION - Finalize is idempotent on the request id; a second capture is a no-op
     Given wallet "alice" has 10.00 in real credits
     And node "n1" is owned by account "op1"
     When alice places a hold of 5.00
     And Finalize is called with hold 5.00, cost 2.00, owner share 1.40
     Then alice's balance is 8.00
     When Finalize is called a second time with hold 5.00, cost 2.00, owner share 1.40
-    Then alice's balance is 11.00
+    Then alice's balance is still 8.00
+    And the second capture was a no-op (the settled-map guard prevents double-refund / lot drift)
     And the spend ledger row is recorded only once (idem key "spend:<request>")
-    And the cached wallet, earnings, and receipt entries were applied twice
-    And this divergence is a money invariant violation that the caller must prevent
+    And operator "op1" has earned 1.40
 
   # --- no credits created or destroyed across a fleet of captures ---------
 
