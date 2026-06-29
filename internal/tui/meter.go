@@ -52,8 +52,8 @@ func meterSweep(frame, width int) string {
 // of the node's claim and its own count per axis; it returns those BILLED counts in the
 // response headers (X-RogerAI-Tokens-In/Out) next to the billed cost. The harness sums
 // them into running session totals, and these two pure helpers render them — shared by the
-// live working-line meter, the per-turn session summary, and the wallet panel so the
-// surfaces never drift. This is DISPLAY of an already-settled value; it changes no billing.
+// live working-line meter and the per-turn session summary so the two never drift. This is
+// DISPLAY of an already-settled value; it changes no billing.
 
 // fmtTokens renders a token count for the meter: exact below 1000, then a one-decimal "k"
 // (1234 -> "1.2k") so an accumulating session stays compact yet keeps visibly moving. A
