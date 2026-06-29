@@ -282,6 +282,12 @@ type cornerHead struct {
 	lines [3]string
 }
 
+// cornerCadence is how many shared 160ms ticks each corner-Ping pose frame + status word holds
+// before advancing (~2.9s), so the mascot moves smoothly every few seconds - calm, with intention -
+// instead of flickering. (When the agent is idle the frame is frozen entirely; see the tickMsg
+// handler, which keeps the screen static + natively selectable.)
+const cornerCadence = 18
+
 // cornerWaiting bobs gently (the head rises a touch and settles) with an occasional
 // blink, so an idle agent reads as "standing by", not frozen.
 var cornerWaitFrames = []cornerHead{
@@ -293,21 +299,21 @@ var cornerWaitFrames = []cornerHead{
 // cornerBlink: the eye closes to a dash, spliced into the waiting bob now and then.
 var cornerBlinkFrame = cornerHead{[3]string{"(( - ))", " \\( )/ ", "  ╰─╯  "}}
 
-// cornerThink: the eye darts (scanning the band for an answer) - it slides left/right
-// inside the head. A "reading the band" glance while the model thinks.
+// cornerThink: a calm, CENTERED "scanning the band" breath while the model thinks - the carrier
+// rings gently open and close around a STILL, centered eye. The old version darted the eye
+// left/right inside an uneven-width head, which read as lopsided / off-center; this keeps the eye
+// dead-center at a constant 7-wide head (no sideways lurch) and advances only every few seconds.
 var cornerThinkFrames = []cornerHead{
-	{[3]string{"((• ))", " \\( )/ ", "  ╰─╯  "}},  // eye left
-	{[3]string{"(( •))", " \\( )/ ", "  ╰─╯  "}},  // eye right
-	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // center
+	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // carrier rings closed
+	{[3]string{"(  •  )", " \\( )/ ", "  ╰─╯  "}}, // rings open - a slow scanning pulse
 }
 
-// cornerStream: the carrier arcs grow and the eye swells - receiving / on air. The
-// answer is coming over the wire, so the signal animates outward.
+// cornerStream: the eye SWELLS in place (•->O) as the answer rides in - a centered "receiving"
+// pulse at a constant 7-wide head, so the mascot never lurches sideways; only the eye breathes.
 var cornerStreamFrames = []cornerHead{
-	{[3]string{" ( • )  ", " \\( )/ ", "  ╰─╯   "}},
-	{[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
-	{[3]string{"((( O )))", "  \\( )/  ", "   ╰─╯   "}},
-	{[3]string{"(( O )) ", " \\( )/ ", "  ╰─╯   "}},
+	{[3]string{"(( • ))", " \\( )/ ", "  ╰─╯  "}}, // carrier locked
+	{[3]string{"(( O ))", " \\( )/ ", "  ╰─╯  "}}, // eye swells - on air
+	{[3]string{"(( O ))", " \\( )/ ", "  ╰─╯  "}}, // holding the signal
 }
 
 // cornerTool: "working the dial" - an arm reaches across to the tuner (∩) and back,
@@ -321,7 +327,7 @@ var cornerToolFrames = []cornerHead{
 func cornerEyeFor(state agentPose, f int) string {
 	switch state {
 	case poseStreaming:
-		if f%len(cornerStreamFrames) == 0 {
+		if (f/cornerCadence)%len(cornerStreamFrames) == 0 {
 			return "•"
 		}
 		return "O"
@@ -350,7 +356,7 @@ func cornerWord(state agentPose, frame int) string {
 	if quiet {
 		return ws[0]
 	}
-	return ws[(frame/8)%len(ws)]
+	return ws[(frame/cornerCadence)%len(ws)]
 }
 
 // cornerFrameFor selects the corner-Ping head + eye for a state on a given frame. It
@@ -364,17 +370,17 @@ func cornerFrameFor(state agentPose, frame int) (cornerHead, string) {
 	f := frame
 	switch state {
 	case poseThinking:
-		return cornerThinkFrames[(f/2)%len(cornerThinkFrames)], "•"
+		return cornerThinkFrames[(f/cornerCadence)%len(cornerThinkFrames)], "•"
 	case poseStreaming:
-		i := f % len(cornerStreamFrames)
+		i := (f / cornerCadence) % len(cornerStreamFrames)
 		return cornerStreamFrames[i], cornerEyeFor(state, f)
 	case poseTool:
-		return cornerToolFrames[(f/3)%len(cornerToolFrames)], "•"
+		return cornerToolFrames[(f/cornerCadence)%len(cornerToolFrames)], "•"
 	default: // poseWaiting: gentle bob + a desynchronized blink
 		if f%17 == int(pingHash(f/17)%14) {
 			return cornerBlinkFrame, "-"
 		}
-		return cornerWaitFrames[(f/4)%len(cornerWaitFrames)], "•"
+		return cornerWaitFrames[(f/cornerCadence)%len(cornerWaitFrames)], "•"
 	}
 }
 
