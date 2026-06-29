@@ -16,8 +16,6 @@
 #   * Empty / no-usable-output VOIDS the charge ($0, hold refunded in full, $0 metering receipt).
 #   * An over-report past the BILLING tolerance holds the node's earnings from promotion.
 #   * An over-report past the (wider) STRIKE tolerance also accrues an owner strike.
-#
-# NO step definitions and NO Go are part of this change. This is the approved-behavior contract.
 
 @money @recount @billing
 Feature: The broker re-counts tokens and bills the lesser of claim and re-count on both axes
