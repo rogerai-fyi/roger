@@ -12,9 +12,10 @@
    Accessibility: focus moves into the dialog on open and restores to the
    opener on close; Esc and a backdrop click close it; Tab is trapped
    inside the dialog; every trigger's aria-expanded is kept in sync.
-   Reduced-motion-safe: the only motion is a CSS fade gated on
-   prefers-reduced-motion. The page stays fully usable with this script
-   absent (the modal simply never opens).
+   Reduced-motion-safe: the CSS fade is gated on prefers-reduced-motion, and the
+   #ledger-demo explainer video plays only while open + rests paused on its poster
+   frame under reduced-motion. The page stays fully usable with this script absent
+   (the modal simply never opens; the gif <img> still shows).
    ===================================================================== */
 (function () {
   "use strict";
@@ -26,6 +27,21 @@
   var closeBtn = document.getElementById("ledgerClose");
   var doneBtn  = document.getElementById("ledgerDone");
   var lastFocus = null;
+  // The animated explainer plays only while the modal is open, and never under
+  // reduced-motion (it rests on its poster frame). The gif <img> covers browsers
+  // without <video>; querySelector returns null there, so every use is guarded.
+  var demoVid = modal.querySelector("#ledger-demo video");
+  var reduceMotion = window.matchMedia
+    ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  function playDemo() {
+    if (!demoVid) return;
+    if (reduceMotion && reduceMotion.matches) {
+      try { demoVid.pause(); demoVid.currentTime = 0; } catch (e) {}
+      return;
+    }
+    if (demoVid.play) { var p = demoVid.play(); if (p && p.catch) p.catch(function () {}); }
+  }
+  function pauseDemo() { if (demoVid && demoVid.pause) { try { demoVid.pause(); } catch (e) {} } }
 
   function triggers() { return document.querySelectorAll("[data-help-open]"); }
   function setExpanded(open) {
@@ -40,6 +56,7 @@
     modal.hidden = false;
     document.body.classList.add("bx-help-open");
     setExpanded(true);
+    playDemo();
     if (closeBtn && closeBtn.focus) closeBtn.focus();
   }
 
@@ -48,6 +65,7 @@
     modal.hidden = true;
     document.body.classList.remove("bx-help-open");
     setExpanded(false);
+    pauseDemo();
     if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
   }
 

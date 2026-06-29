@@ -57,6 +57,18 @@ test("billing: the #ledger-demo slot is the stable animated-explainer target", (
   assert.match(billing, /class="bx-demo__cap"/, "captioned frame around the slot");
 });
 
+test("billing: the #ledger-demo slot hosts the animated explainer video + gif fallback", () => {
+  // the ComfyUI-generated explainer (web/src/assets/ledger-demo.*) is wired into the
+  // slot: a muted, looping, inline <video> with a gif <img> fallback for browsers
+  // without <video>. Paths are relative (build.mjs mirrors src/assets/ -> dist/assets/).
+  assert.match(billing, /<video[^>]*\bloop\b/i, "a looping <video> in the modal");
+  assert.match(billing, /<video[^>]*\bmuted\b/i, "muted (no surprise audio)");
+  assert.match(billing, /<video[^>]*\bplaysinline\b/i, "plays inline (no mobile fullscreen takeover)");
+  assert.match(billing, /<source[^>]+assets\/ledger-demo\.mp4/, "mp4 source, relative path");
+  assert.match(billing, /type="video\/mp4"/, "typed as video/mp4");
+  assert.match(billing, /<img[^>]+assets\/ledger-demo\.gif/, "gif fallback for no-<video>");
+});
+
 test("billing: the modal explains the flow and the two confused numbers", () => {
   assert.match(billing, /append-only ledger/i, "names the append-only ledger");
   assert.match(billing, /re-sums.+ledger.+re-derive/is, "explains Verified as a re-sum drift check");
@@ -92,4 +104,12 @@ test("billing-help.js: focus trap, Esc, backdrop and aria-expanded sync", () => 
   assert.match(helpJs, /aria-expanded/, "syncs aria-expanded on triggers");
   assert.match(helpJs, /lastFocus/, "restores focus to the opener on close");
   assert.match(helpJs, /data-help-open/, "delegated open on any trigger");
+});
+
+test("billing-help.js: the explainer video plays on open, pauses on close, reduced-motion-safe", () => {
+  // motion only while the modal is open; never under reduced-motion (poster frame).
+  assert.match(helpJs, /#ledger-demo video|getElementById\(["']ledger-demo["']\)/, "grabs the demo video");
+  assert.match(helpJs, /\.play\(/, "plays it on open");
+  assert.match(helpJs, /\.pause\(/, "pauses it on close");
+  assert.match(helpJs, /prefers-reduced-motion/, "gated on prefers-reduced-motion");
 });

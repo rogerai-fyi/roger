@@ -487,7 +487,7 @@
 }
 .reportmodal__x:hover { color: var(--live); }
 .reportmodal__x:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
-.reportmodal__title { margin: 0 0 var(--s-1); font-size: var(--t-lg); color: var(--ink-900); }
+.reportmodal__title { margin: 0 0 var(--s-1); font-size: var(--t-h3); color: var(--ink-900); }
 .reportmodal__sub { margin: 0 0 var(--s-4); color: var(--ink-500); font-size: var(--t-xs); }
 
 .reportform__field { display: block; margin: 0 0 var(--s-3); }
