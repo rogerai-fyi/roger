@@ -3361,7 +3361,7 @@ func loadMailer() *mailer <span class="cov7" title="32">{
 
 // enabled reports whether the mailer is live (RESEND_API_KEY is set). When false the
 // whole layer is inert.
-func (m *mailer) enabled() bool <span class="cov10" title="109">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
+func (m *mailer) enabled() bool <span class="cov10" title="121">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
 
 // sendEmail fires a transactional email ASYNCHRONOUSLY. It is a no-op (logged once)
 // when the mailer is disabled, and skips silently when the recipient is empty. It
@@ -3379,12 +3379,12 @@ func (m *mailer) sendEmail(to, subject, htmlBody, textBody string) <span class="
         <span class="cov7" title="25">if to == "" </span><span class="cov1" title="1">{
                 return // no recipient on file - nothing to send
         }</span>
-        <span class="cov7" title="24">go m.deliver(to, subject, htmlBody, textBody)</span>
+        <span class="cov6" title="24">go m.deliver(to, subject, htmlBody, textBody)</span>
 }
 
 // deliver performs the actual POST to Resend. Runs in its own goroutine; all errors
 // are logged and swallowed so a send failure can never fail the triggering operation.
-func (m *mailer) deliver(to, subject, htmlBody, textBody string) <span class="cov7" title="24">{
+func (m *mailer) deliver(to, subject, htmlBody, textBody string) <span class="cov6" title="24">{
         payload := map[string]any{
                 "from":    m.from,
                 "to":      []string{to},
@@ -3398,23 +3398,23 @@ func (m *mailer) deliver(to, subject, htmlBody, textBody string) <span class="co
                 return
         }</span>
 
-        <span class="cov7" title="24">timeout := m.timeout
+        <span class="cov6" title="24">timeout := m.timeout
         if timeout &lt;= 0 </span><span class="cov0" title="0">{
                 timeout = 15 * time.Second
         }</span>
-        <span class="cov7" title="24">req, err := http.NewRequest(http.MethodPost, m.endpoint, bytes.NewReader(body))
+        <span class="cov6" title="24">req, err := http.NewRequest(http.MethodPost, m.endpoint, bytes.NewReader(body))
         if err != nil </span><span class="cov0" title="0">{
                 log.Printf("email: build request failed (to=%s): %v", to, err)
                 return
         }</span>
-        <span class="cov7" title="24">req.Header.Set("Authorization", "Bearer "+m.apiKey)
+        <span class="cov6" title="24">req.Header.Set("Authorization", "Bearer "+m.apiKey)
         req.Header.Set("Content-Type", "application/json")
 
         do := m.httpDo
         if do == nil </span><span class="cov1" title="1">{
                 do = (&amp;http.Client{Timeout: timeout}).Do
         }</span>
-        <span class="cov7" title="24">resp, err := do(req)
+        <span class="cov6" title="24">resp, err := do(req)
         if err != nil </span><span class="cov4" title="8">{
                 log.Printf("email: send failed (to=%s subj=%q): %v", to, subject, err)
                 return
@@ -3661,14 +3661,14 @@ func p(s string) string <span class="cov6" title="33">{ return `&lt;p style="mar
 // emailOf resolves the GitHub email for an account/wallet pubkey. Returns "" when
 // there is no owner binding, no email on file, or the store is unavailable - the
 // caller then skips the send.
-func (b *broker) emailOf(pubkey string) string <span class="cov6" title="34">{
+func (b *broker) emailOf(pubkey string) string <span class="cov7" title="46">{
         if b.db == nil || pubkey == "" </span><span class="cov0" title="0">{
                 return ""
         }</span>
-        <span class="cov6" title="34">if o, ok, _ := b.db.OwnerByPubkey(pubkey); ok </span><span class="cov6" title="21">{
+        <span class="cov7" title="46">if o, ok, _ := b.db.OwnerByPubkey(pubkey); ok </span><span class="cov6" title="21">{
                 return o.Email
         }</span>
-        <span class="cov5" title="13">return ""</span>
+        <span class="cov6" title="25">return ""</span>
 }
 
 // ---- Touchpoint: welcome (first owner bind / first email on file) -------------
@@ -3853,8 +3853,8 @@ func (b *broker) emailAccountWarning(email, kind, evidence string, count, banAt 
 
 // emailAccountBanned notifies the owner that the account was suspended, with the
 // evidence summary that tripped it.
-func (b *broker) emailAccountBanned(email, reason, evidence string) <span class="cov5" title="12">{
-        if !b.mail.enabled() || email == "" </span><span class="cov4" title="10">{
+func (b *broker) emailAccountBanned(email, reason, evidence string) <span class="cov6" title="24">{
+        if !b.mail.enabled() || email == "" </span><span class="cov6" title="22">{
                 return
         }</span>
         <span class="cov2" title="2">subj := "Account suspended"
@@ -9677,13 +9677,13 @@ type tokenBucket struct {
         last   time.Time
 }
 
-func envFloat(key string, def float64) float64 <span class="cov10" title="780">{
+func envFloat(key string, def float64) float64 <span class="cov10" title="836">{
         if v := os.Getenv(key); v != "" </span><span class="cov4" title="12">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil </span><span class="cov4" title="12">{
                         return f
                 }</span>
         }
-        <span class="cov9" title="768">return def</span>
+        <span class="cov9" title="824">return def</span>
 }
 
 // envStr returns the env var or def when unset/empty.
@@ -9694,7 +9694,7 @@ func envStr(key, def string) string <span class="cov7" title="103">{
         <span class="cov7" title="98">return def</span>
 }
 
-func loadRateLimiter() *rateLimiter <span class="cov8" title="185">{
+func loadRateLimiter() *rateLimiter <span class="cov8" title="213">{
         return &amp;rateLimiter{
                 buckets: map[string]*tokenBucket{},
                 rpm:     envFloat("ROGERAI_RATE_RPM", 120),
@@ -9871,7 +9871,7 @@ func loadRecount() recountConfig <span class="cov5" title="33">{
         <span class="cov5" title="33">return c</span>
 }
 
-func (c recountConfig) enabled() bool <span class="cov5" title="46">{ return c.url != "" }</span>
+func (c recountConfig) enabled() bool <span class="cov6" title="75">{ return c.url != "" }</span>
 
 // strikeNote renders the trailing log clause for a recount discrepancy: whether the
 // over-report was gross enough (past the wide strike tolerance) to also strike the owner,
@@ -9946,7 +9946,7 @@ func (b *broker) settleRecount(nodeID, requestID, model, completion string, clai
 //
 // It never inflates a claim (we only ever bill the lesser count), and it returns the
 // claim unchanged when re-count is off and the byte floor was not breached.
-func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, claimed, bodyLen int) int <span class="cov4" title="21">{
+func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, claimed, bodyLen int) int <span class="cov5" title="50">{
         // Defense 1: the zero-doubt byte floor (no sidecar needed). Clamp billing to the only
         // physically-possible upper bound ALWAYS (safe for the consumer, makes input inflation
         // unprofitable), but only PERMABAN when the claim exceeds the body by more than any
@@ -9954,14 +9954,14 @@ func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, cl
         // scaffolding legitimately tokenizes to MORE prompt tokens than the request-body bytes
         // (the preamble is not in the body), so a small overage must NOT zero-doubt-ban an honest
         // node. Billing is clamped either way, so the ban only ejects implausible abuse.
-        if bodyLen &gt; 0 &amp;&amp; claimed &gt; bodyLen </span><span class="cov2" title="5">{
-                if claimed &gt; bodyLen+impossibleInputBanMargin </span><span class="cov2" title="3">{
+        if bodyLen &gt; 0 &amp;&amp; claimed &gt; bodyLen </span><span class="cov4" title="27">{
+                if claimed &gt; bodyLen+impossibleInputBanMargin </span><span class="cov4" title="15">{
                         b.flagImpossibleInput(nodeID, requestID, claimed, bodyLen)
                 }</span>
-                <span class="cov2" title="5">claimed = bodyLen</span> // clamp to the only physically-possible upper bound
+                <span class="cov4" title="27">claimed = bodyLen</span> // clamp to the only physically-possible upper bound
         }
         // Defense 2: the sidecar input re-count (when configured).
-        <span class="cov4" title="21">if !b.recount.enabled() || prompt == "" || claimed &lt;= 0 </span><span class="cov4" title="20">{
+        <span class="cov5" title="50">if !b.recount.enabled() || prompt == "" || claimed &lt;= 0 </span><span class="cov5" title="49">{
                 return claimed
         }</span>
         <span class="cov1" title="1">recounted, exact, ok := b.recount.sidecarCount(model, prompt)
@@ -11538,7 +11538,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="1227">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="3980">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="120">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov5" title="124">{
                         best = i
                 }</span>
         }
@@ -12880,59 +12880,59 @@ const (
         defaultStrikeCorroborateKinds = 2
 )
 
-func strikeWarnAt() int <span class="cov10" title="73">{
+func strikeWarnAt() int <span class="cov10" title="101">{
         if v := os.Getenv("ROGERAI_STRIKE_WARN_AT"); v != "" </span><span class="cov1" title="1">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="72">return defaultStrikeWarnAt</span>
+        <span class="cov9" title="100">return defaultStrikeWarnAt</span>
 }
 
-func strikeBanAt() int <span class="cov9" title="72">{
+func strikeBanAt() int <span class="cov9" title="100">{
         if v := os.Getenv("ROGERAI_STRIKE_BAN_AT"); v != "" </span><span class="cov1" title="1">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="71">return defaultStrikeBanAt</span>
+        <span class="cov9" title="99">return defaultStrikeBanAt</span>
 }
 
 // strikeDecayDays is the trailing-window (in days) the ban decision counts strikes over.
 // &lt;=0 disables decay. ROGERAI_STRIKE_DECAY_DAYS overrides (a 0 there explicitly disables).
-func strikeDecayDays() int <span class="cov8" title="33">{
+func strikeDecayDays() int <span class="cov7" title="33">{
         if v := os.Getenv("ROGERAI_STRIKE_DECAY_DAYS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov8" title="32">return defaultStrikeDecayDays</span>
+        <span class="cov7" title="32">return defaultStrikeDecayDays</span>
 }
 
 // strikeCorroborateKinds is the minimum number of DISTINCT signal classes required before
 // an accumulating-signal ban. &lt;=1 disables corroboration. ROGERAI_STRIKE_CORROBORATE_KINDS
 // overrides.
-func strikeCorroborateKinds() int <span class="cov8" title="33">{
+func strikeCorroborateKinds() int <span class="cov7" title="33">{
         if v := os.Getenv("ROGERAI_STRIKE_CORROBORATE_KINDS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov8" title="32">return defaultStrikeCorroborateKinds</span>
+        <span class="cov7" title="32">return defaultStrikeCorroborateKinds</span>
 }
 
 // ownerOf resolves the DURABLE owner account (owner pubkey) for a node. A public /
 // unowned node has no binding; we fall back to the node id so the signal is still
 // recorded against the best identity available (a public node has nothing to rotate to
 // anyway). ok reports whether a real owner binding was found.
-func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="cov8" title="29">{
+func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="cov8" title="41">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return nodeID, false
         }</span>
-        <span class="cov7" title="28">if acct, found, _ := b.db.AccountOfNode(nodeID); found &amp;&amp; acct != "" </span><span class="cov7" title="22">{
+        <span class="cov8" title="40">if acct, found, _ := b.db.AccountOfNode(nodeID); found &amp;&amp; acct != "" </span><span class="cov7" title="33">{
                 return acct, true
         }</span>
-        <span class="cov4" title="6">return nodeID, false</span>
+        <span class="cov4" title="7">return nodeID, false</span>
 }
 
 // strike records ONE evidence-bound strike against the node's owner account, holds the
@@ -12942,11 +12942,11 @@ func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="c
 // in-memory owner-ban cache so pick/settle reject every current+future node under that
 // owner. idemKey makes a retried request non-double-striking. zeroDoubt forces an
 // immediate ban on the first strike (used for the impossible-input arithmetic proof).
-func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence map[string]any) <span class="cov7" title="26">{
+func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence map[string]any) <span class="cov8" title="38">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov7" title="25">acct, _ := b.ownerOf(nodeID)
+        <span class="cov8" title="37">acct, _ := b.ownerOf(nodeID)
         ev, _ := json.Marshal(evidence)
         if _, err := b.db.OwnerStrike(acct, kind, string(ev), idemKey); err != nil </span><span class="cov1" title="1">{
                 log.Printf("strike: OwnerStrike(acct=%s kind=%s) failed: %v", acct, kind, err)
@@ -12956,7 +12956,7 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
         // owner-level twin of the node recount hold; survives a node-id rotation). This is the
         // conservative, REVERSIBLE freeze (auto-expires via recountHoldSweep, cleared by admin
         // unhold) - distinct from the durable ban below, which we gate far more tightly.
-        <span class="cov7" title="24">if err := b.db.SetAccountRecountHold(acct, true); err != nil </span><span class="cov0" title="0">{
+        <span class="cov7" title="36">if err := b.db.SetAccountRecountHold(acct, true); err != nil </span><span class="cov0" title="0">{
                 log.Printf("strike: SetAccountRecountHold(%s) failed: %v", acct, err)
         }</span>
         // Ban decision inputs. zeroDoubt (the impossible-input arithmetic proof) bans on the
@@ -12965,20 +12965,20 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
         // (CORROBORATION) before a durable ban, so a single noisy signal class can never ban an
         // account on its own. The append-only evidence is always kept; only its weight in the
         // live ban decision ages out.
-        <span class="cov7" title="24">var since int64
+        <span class="cov7" title="36">var since int64
         if b.strikeDecayDays &gt; 0 </span><span class="cov2" title="2">{
                 since = time.Now().Add(-time.Duration(b.strikeDecayDays) * 24 * time.Hour).Unix()
         }</span>
-        <span class="cov7" title="24">windowed, distinctKinds, statErr := b.db.OwnerStrikeStats(acct, since)
+        <span class="cov7" title="36">windowed, distinctKinds, statErr := b.db.OwnerStrikeStats(acct, since)
         if statErr != nil </span><span class="cov1" title="1">{
                 log.Printf("strike: OwnerStrikeStats(%s) failed: %v - using conservative single-class count", acct, statErr)
                 windowed, distinctKinds = 1, 1 // fail SOFT: never escalate to a ban on a read error
         }</span>
-        <span class="cov7" title="24">corroborated := distinctKinds &gt;= b.strikeCorroborateKinds
+        <span class="cov7" title="36">corroborated := distinctKinds &gt;= b.strikeCorroborateKinds
         log.Printf("STRIKE owner=%s node=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
                 acct, nodeID, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
         switch </span>{
-        case zeroDoubt:<span class="cov4" title="5">
+        case zeroDoubt:<span class="cov6" title="17">
                 // Zero-doubt (impossible-input): arithmetic proof, immediate durable ban.
                 b.banOwner(acct, kind, string(ev))
                 b.emailAccountBanned(b.emailOf(acct), kind, string(ev))</span>
@@ -13008,21 +13008,21 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
 // owner-ban cache so pick/settle reject it immediately. The ban blocks register + relay
 // pick + settle for every current and future node under that owner, so a banned operator
 // cannot return under a fresh node id / callsign / grant key. Idempotent.
-func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="cov6" title="16">{
+func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="cov7" title="28">{
         if accountID == "" || b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov6" title="15">if err := b.db.BanOwner(accountID, reason, evidenceJSON); err != nil </span><span class="cov1" title="1">{
+        <span class="cov7" title="27">if err := b.db.BanOwner(accountID, reason, evidenceJSON); err != nil </span><span class="cov1" title="1">{
                 log.Printf("banOwner: persist failed acct=%s: %v", accountID, err)
         }</span>
-        <span class="cov6" title="15">b.metricsMu.Lock()
+        <span class="cov7" title="27">b.metricsMu.Lock()
         if b.bannedOwners == nil </span><span class="cov4" title="5">{
                 b.bannedOwners = map[string]bool{}
         }</span>
-        <span class="cov6" title="15">already := b.bannedOwners[accountID]
+        <span class="cov7" title="27">already := b.bannedOwners[accountID]
         b.bannedOwners[accountID] = true
         b.metricsMu.Unlock()
-        if !already </span><span class="cov6" title="15">{
+        if !already </span><span class="cov7" title="27">{
                 log.Printf("BAN owner=%s EJECTED (durable, anti-rotation): %s - blocked at register + relay pick + settle for ALL current/future nodes", accountID, reason)
         }</span>
 }
@@ -13030,18 +13030,18 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="c
 // isOwnerBanned reports whether an owner account is durably banned. Reads the in-memory
 // cache (re-hydrated at startup + refreshed on a ban) so the hot relay/pick path never
 // hits the DB. Concurrency-safe.
-func (b *broker) isOwnerBanned(accountID string) bool <span class="cov9" title="56">{
+func (b *broker) isOwnerBanned(accountID string) bool <span class="cov9" title="80">{
         if accountID == "" </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov9" title="55">b.metricsMu.Lock()
+        <span class="cov9" title="79">b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.bannedOwners[accountID]</span>
 }
 
 // nodeOwnerBanned reports whether the node's resolved owner account is banned. Used by
 // pickFor (a banned owner's nodes are dropped from routing) and settle.
-func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov6" title="12">{
+func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov5" title="12">{
         // Fast path: no owners are banned -&gt; skip the owner resolution entirely (zero DB
         // hits in the common case). Only pay the AccountOfNode lookup when the ban set is
         // non-empty.
@@ -13060,23 +13060,23 @@ func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov6" title="1
 
 // rehydrateOwnerBans loads the durable owner-ban set into the in-memory cache at startup
 // so an owner ban survives a restart/redeploy. Non-fatal on error.
-func (b *broker) rehydrateOwnerBans() <span class="cov8" title="35">{
+func (b *broker) rehydrateOwnerBans() <span class="cov7" title="35">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov8" title="34">bans, err := b.db.BannedOwners()
+        <span class="cov7" title="34">bans, err := b.db.BannedOwners()
         if err != nil </span><span class="cov1" title="1">{
                 log.Printf("owner-ban: rehydrate failed: %v", err)
                 return
         }</span>
-        <span class="cov8" title="33">b.metricsMu.Lock()
+        <span class="cov7" title="33">b.metricsMu.Lock()
         if b.bannedOwners == nil </span><span class="cov1" title="1">{
                 b.bannedOwners = map[string]bool{}
         }</span>
-        <span class="cov8" title="33">for acct := range bans </span><span class="cov2" title="2">{
+        <span class="cov7" title="33">for acct := range bans </span><span class="cov2" title="2">{
                 b.bannedOwners[acct] = true
         }</span>
-        <span class="cov8" title="33">n := len(b.bannedOwners)
+        <span class="cov7" title="33">n := len(b.bannedOwners)
         b.metricsMu.Unlock()
         if n &gt; 0 </span><span class="cov2" title="2">{
                 log.Printf("owner-ban: re-hydrated %d banned owner account(s) from the store", n)
@@ -13089,7 +13089,7 @@ func (b *broker) rehydrateOwnerBans() <span class="cov8" title="35">{
 // produce. It bans the owner on the first strike (arithmetic proof, no false positives).
 // The caller (settleRecountPrompt) applies the margin gate; billing is clamped to body
 // bytes for ANY overage, so this fires only for abuse beyond doubt.
-func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen int) <span class="cov3" title="3">{
+func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen int) <span class="cov6" title="15">{
         b.strike(nodeID, store.StrikeImpossibleInput, "imposs:"+requestID, true, map[string]any{
                 "request_id":     requestID,
                 "axis":           "input",
@@ -15185,10 +15185,10 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
                         <span class="cov8" title="1911">if out &gt; 0 </span><span class="cov8" title="1896">{
-                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="686">{
+                                if !haveRange || out &lt; rangeMin </span><span class="cov7" title="690">{
                                         rangeMin = out
                                 }</span>
-                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="670">{
+                                <span class="cov8" title="1896">if !haveRange || out &gt; rangeMax </span><span class="cov7" title="667">{
                                         rangeMax = out
                                 }</span>
                                 <span class="cov8" title="1896">haveRange = true</span>
@@ -25012,7 +25012,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="129">{
+        for len(s) &lt; 3 </span><span class="cov5" title="135">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25020,17 +25020,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov2" title="4">{
                 return "0"
         }</span>
-        <span class="cov8" title="2005">var buf [12]byte
+        <span class="cov8" title="2004">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5893">{
+        for n &gt; 0 </span><span class="cov9" title="5886">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2005">return string(buf[i:])</span>
+        <span class="cov8" title="2004">return string(buf[i:])</span>
 }
 </pre>
 		
