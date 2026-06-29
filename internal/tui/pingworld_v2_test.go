@@ -219,37 +219,58 @@ func TestWorldShowsPlanetNeverRed(t *testing.T) {
 	}
 }
 
-// TestWorldGlobeRotates: the planet is a rotating 3D sphere - its surface evolves across frames
-// (rotation), stays 5x8 with the ( ) rim curve, deterministic, and shaded only with the globe
-// ramp (no red).
+// TestWorldGlobeRotates: the night MOON is now a big ROUND 3D sphere (founder: bigger + rounder).
+// moonDisc is 2*ry+1 rows x 4*ry+1 cols, its surface evolves across frames (craters rotate),
+// it's deterministic per (ry,frame), reads ROUND (the middle rows are wider than the poles), and
+// is shaded/outlined ONLY with the moon's curve+ramp glyph set (no red).
 func TestWorldGlobeRotates(t *testing.T) {
-	g0, g1 := globeLines(0), globeLines(30)
-	if len(g0) != 5 {
-		t.Fatalf("globe should be 5 rows, got %d", len(g0))
+	const ry = 5
+	g0, g1 := moonDisc(ry, 0), moonDisc(ry, 30)
+	if len(g0) != 2*ry+1 {
+		t.Fatalf("moon should be %d rows, got %d", 2*ry+1, len(g0))
 	}
+	wantW := 4*ry + 1
 	same := true
 	for i := range g0 {
-		if len([]rune(g0[i])) != 8 {
-			t.Errorf("globe row %d width %d, want 8", i, len([]rune(g0[i])))
+		if w := len([]rune(g0[i])); w != wantW {
+			t.Errorf("moon row %d width %d, want %d", i, w, wantW)
 		}
 		if g0[i] != g1[i] {
 			same = false
 		}
 	}
 	if same {
-		t.Error("the globe must rotate (surface evolves across frames)")
+		t.Error("the moon must rotate (surface evolves across frames)")
 	}
-	if globeLines(7)[2] != globeLines(7)[2] { // determinism sanity (same frame -> same)
-		t.Error("globe must be deterministic per frame")
+	// determinism: same (ry,frame) -> identical art.
+	for i, ln := range moonDisc(ry, 7) {
+		if ln != moonDisc(ry, 7)[i] {
+			t.Error("moon must be deterministic per (ry,frame)")
+		}
 	}
-	ramp := map[rune]bool{'(': true, ')': true, ' ': true, '.': true, '-': true, '\'': true, '`': true}
-	for _, r := range globeRamp {
-		ramp[r] = true
+	// ROUND: a horizontal middle row is strictly wider (more painted cells) than a pole row.
+	width := func(s string) int {
+		n := 0
+		for _, r := range s {
+			if r != ' ' {
+				n++
+			}
+		}
+		return n
 	}
-	for _, line := range globeLines(11) {
+	if !(width(g0[ry]) > width(g0[0]) && width(g0[ry]) > width(g0[2*ry])) {
+		t.Errorf("moon should read round: mid=%d top=%d bottom=%d", width(g0[ry]), width(g0[0]), width(g0[2*ry]))
+	}
+	// glyph set: only the curve outline + shade ramp + crater dot + spaces. Never red.
+	ok := map[rune]bool{' ': true, '(': true, ')': true, '◜': true, '◝': true, '◟': true, '◞': true,
+		'▔': true, '▁': true, '·': true}
+	for _, r := range moonShades {
+		ok[r] = true
+	}
+	for _, line := range moonDisc(ry, 11) {
 		for _, r := range line {
-			if !ramp[r] {
-				t.Errorf("globe glyph %q is outside the rim/ramp set", string(r))
+			if !ok[r] {
+				t.Errorf("moon glyph %q is outside the outline/ramp set", string(r))
 			}
 		}
 	}
@@ -325,8 +346,9 @@ func TestPingWorldQuietSeam(t *testing.T) {
 // only ASCII - the signature non-ASCII glyphs are folded to stand-ins (◉->@, ✦->*, ░->.).
 func TestWorldFoldsUnderASCII(t *testing.T) {
 	t.Setenv("ROGERAI_ASCII", "1")
-	out := stripANSI(renderWorld(90, 22, 0, 7))
-	for _, bad := range []rune{'◉', '✦', '✧', '░', '▒', '▓', '•'} {
+	out := stripANSI(renderWorld(90, 22, 0, 7)) // frame 0 = night, so the big round moon (◜◝◞◟ arcs) is up
+	// incl the new big-moon/sun outline arcs ◜◝◞◟ -> they must fold to ASCII (/ \), no mojibake.
+	for _, bad := range []rune{'◉', '✦', '✧', '░', '▒', '▓', '•', '◜', '◝', '◟', '◞'} {
 		if strings.ContainsRune(out, bad) {
 			t.Errorf("ASCII mode still rendered the non-ASCII glyph %q", string(bad))
 		}

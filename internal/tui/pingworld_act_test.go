@@ -22,7 +22,9 @@ func TestWorldActPeriodicAndVaried(t *testing.T) {
 
 // TestWorldPingXMovesAndHolds: Ping's column stays in-bounds, genuinely travels over a cycle
 // (it's not stuck), AND has hold frames (a pause/look/transmit act where x doesn't change) -
-// the difference between a mechanical slide and a life with pauses.
+// the difference between a mechanical slide and a life with pauses. The ping-pong fold can land
+// exactly on the far edge (x==span, still fully on-screen since span=w-pingWalkW), so x is in
+// the INCLUSIVE [0,span].
 func TestWorldPingXMovesAndHolds(t *testing.T) {
 	seed, span := 7, 70
 	moved, held := false, false
@@ -30,7 +32,7 @@ func TestWorldPingXMovesAndHolds(t *testing.T) {
 	minX, maxX := prev, prev
 	for f := 1; f < waCycle*waWindow; f++ {
 		x := worldPingX(f, seed, span)
-		if x < 0 || x >= span {
+		if x < 0 || x > span {
 			t.Fatalf("worldPingX out of bounds at f=%d: %d (span %d)", f, x, span)
 		}
 		if x != prev {
