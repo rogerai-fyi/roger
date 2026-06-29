@@ -119,7 +119,7 @@ func TestFmtTokens(t *testing.T) {
 // TestMeterTotals pins the shared session-telemetry renderer "↑<in> ↓<out> · $<cost>":
 // the token half is omitted until there are tokens, the cost while it is still zero, and
 // the whole string is empty when there is nothing yet (so an idle meter shows no stray
-// separators). Reused by the live working line, the per-turn summary, and the wallet panel.
+// separators). Reused by the live working line and the per-turn session summary.
 func TestMeterTotals(t *testing.T) {
 	for _, c := range []struct {
 		name    string
