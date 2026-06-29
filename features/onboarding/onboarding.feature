@@ -8,21 +8,31 @@
 #   cmd/rogerai/main.go: payoutOnboard wires the operator into the payout/Connect flow.
 #   cmd/rogerai-broker/payouts.go: connectOnboard(...) starts/links Stripe Connect for an account.
 #
-# STATUS (P4 executable-spec pass): kept PROSE-ONLY on purpose - no faked godog harness.
-# Its executable CORE already runs as REAL specs elsewhere (cross-referenced, not duplicated):
+# STATUS (P6): the feature stays PROSE under godog (no faked harness), but its behavior is
+# now EXECUTABLE - the money/trust CORE as REAL specs elsewhere, and the wizard's DECISIONS
+# via extracted pure funcs (below); only the literal huh-form rendering awaits a PTY pass.
+# The executable CORE runs elsewhere (cross-referenced, not duplicated):
 #   - Free sharing needs no login / earning requires a GitHub-linked owner (scenarios 3-4)
 #     -> features/sharing/on_air.feature (executable) + features/pricing/price_ceiling.feature.
 #   - Payout requires Stripe Connect KYC before money moves (scenario 5)
 #     -> features/money/payouts.feature "KYC gate" (executable; payouts_bdd_test.go), driving
 #        the REAL payoutsRequest Connect gate + connectOnboard.
-# The remaining scenarios are the FIRST-RUN CLI WIZARD (scenario 1 "setup is offered" and
-# scenario 6 "re-run Keep/Modify/Reset"), which are gated on an interactive TTY (onboard.go
-# interactive()=isatty + huh forms). Driving them needs a CLI/PTY harness that does not exist
-# yet; the non-interactive seams (maybeOnboard no-ops off a TTY -> app launches on defaults;
-# cmdOnboard --free/--earn scripting) are unit-tested in cmd/rogerai/onboard_cov_test.go.
-# FLAGGED for a future CLI-harness pass rather than faked here.
+# Scenarios 1 ("first-run setup is offered") and 6 ("re-run Keep/Modify/Reset") are the
+# FIRST-RUN CLI WIZARD, rendered with interactive huh forms behind a TTY gate (onboard.go
+# interactive()=isatty). The huh-form RENDERING still needs a PTY, but the DECISIONS those
+# forms drive are extracted into pure funcs and table-tested (no PTY) in
+# cmd/rogerai/onboard_decision_test.go:
+#   - applyRerunChoice  <- scenario 6: Keep / Modify / Reset, plus the INVARIANT that a
+#     re-run touches ONLY the local share config - the linked GitHub identity (cfg.User),
+#     saved prices, and station survive, and earnings (broker-side, never in cfg) can't move.
+#   - applyIntent       <- scenario 1's consume-vs-share decision; consume marks onboarded
+#     and launches on defaults (the "declining still leaves a working app" half).
+# The non-interactive seams (maybeOnboard no-ops off a TTY -> app launches on defaults;
+# cmdOnboard --free/--earn scripting; finishShare free/earn) are covered in
+# cmd/rogerai onboard_cov_test.go + seams_cov_test.go.
 #
-# Enforced by: the cross-referenced executable specs above + cmd/rogerai onboard_cov_test.go.
+# Enforced by: the cross-referenced executable specs above + the extracted-decision tests
+# (onboard_decision_test.go) + cmd/rogerai onboard_cov_test.go / seams_cov_test.go.
 
 Feature: Onboarding — first run + the earn-path account hub
 

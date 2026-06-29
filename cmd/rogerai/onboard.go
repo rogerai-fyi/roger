@@ -91,11 +91,9 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 			).Value(&choice).Run(); err != nil {
 			return cfg, false, err
 		}
-		switch choice {
-		case "keep":
+		var done bool
+		if cfg, done = applyRerunChoice(cfg, choice); done {
 			return cfg, false, nil
-		case "reset":
-			cfg.Share = nil
 		}
 	}
 
@@ -111,6 +109,31 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 		).Value(&intent).Run(); err != nil {
 		return cfg, false, err
 	}
+	return applyIntent(cfg, intent, opts)
+}
+
+// applyRerunChoice maps the re-run menu choice to its config effect, touching ONLY the
+// local share config - never the linked GitHub identity, the saved prices, or the station
+// (and earnings live broker-side, not in cfg, so re-running setup can never move money).
+// "keep" ends the wizard with the config untouched (done=true); "reset" forgets the local
+// share so the next step reconfigures from scratch; "modify" (or anything else) keeps the
+// existing share and proceeds. Pure: the huh select that produces `choice` is the only
+// interactive part and stays in runWizard.
+func applyRerunChoice(cfg config, choice string) (config, bool) {
+	switch choice {
+	case "keep":
+		return cfg, true // keep as-is: nothing to save
+	case "reset":
+		cfg.Share = nil // forget only the local share; reconfigure next
+	}
+	return cfg, false // modify / unknown: proceed, keeping the share
+}
+
+// applyIntent maps the welcome menu's consume/share intent to its outcome. "free"/"earn"
+// hand off to finishShare (detect the model, pick a port, and for earn collect a price);
+// "consume" (or any unknown intent) just marks the user onboarded and launches the app on
+// defaults. Pure decision over the string the huh select produced.
+func applyIntent(cfg config, intent string, opts wizardOpts) (config, bool, error) {
 	switch intent {
 	case "free":
 		return finishShare(cfg, false, opts)
