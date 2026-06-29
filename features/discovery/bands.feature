@@ -1,15 +1,17 @@
 # PRIVATE BANDS (frequency codes): a node can share on a HIDDEN band instead of the public
 # market — reachable ONLY by whoever knows its secret frequency code. The secret is shown ONCE
-# at mint and never stored (only sha256(code) is), the band is invisible to /discover + /market,
-# and sharing privately BYPASSES the public price ceiling (you set your own price behind a code).
+# at mint and never stored (only sha256(code) is), the band is invisible to /discover + /market.
+# --private is a DISCOVERY choice, NOT a price-bypass: a private band is held to the SAME global
+# price ceiling as a public one (see features/pricing/price_ceiling.feature).
 #
 # GROUND TRUTH:
 #   internal/store/band.go: CreateBand stores code_hash = sha256(canonical secret tail); the
 #     code itself is NEVER persisted. code_display is the cosmetic (non-secret) "147.520 MHz · …".
 #   cmd/rogerai-broker/band.go: bandResolve()/resolveFreqAllow(freq) -> the allow set (the
 #     hidden node) for a presented code; bandView() returns non-secret metadata only.
-#   cmd/rogerai-broker/pricesafety.go: the public out/in price CEILING is bypassed with --private
-#     (share on a hidden band instead of lowering the price).
+#   cmd/rogerai-broker/pricesafety.go + tunnel.go(register): registerPriceCeiling runs
+#     UNCONDITIONALLY, so the out/in price CEILING binds private + confidential bands too -
+#     --private does NOT lift it (only hides the station from the public market).
 #
 # Enforced by: cmd/rogerai-broker/band_test.go + internal/store band tests. (Doc spec; convertible.)
 
@@ -42,7 +44,10 @@ Feature: Private bands — hidden frequency codes
     Then it returns the cosmetic display + non-secret fields only
     And never the frequency code or its hash in a usable form
 
-  Scenario: Private sharing bypasses the public price ceiling
-    Given the public output-price ceiling would reject a high price
+  # CORRECTED (was "Private sharing bypasses the public price ceiling" - false; the broker
+  # rejects an over-ceiling private registration with 400). The global ceiling is pinned
+  # executably in features/pricing/price_ceiling.feature (public + private + confidential).
+  Scenario: Private sharing is ALSO subject to the global price ceiling
+    Given the global price ceiling would reject a high price
     When the operator shares with --private instead
-    Then the high price is allowed on the hidden band (you price your own private frequency)
+    Then the registration is still rejected by the ceiling (--private is not a price-bypass)

@@ -201,11 +201,16 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
 	}
-	// Price-safety, operator side: a HARD ceiling on what a public station may charge,
-	// so a fat-fingered or deterrent price can never land on the open market and burn a
-	// consumer. Checked against EVERY offer's base AND scheduled-window prices. A station
-	// that genuinely wants to be unreachable to the public should go --private (a hidden
-	// freq-code band), not post an absurd public price - the copy steers there.
+	// Price-safety, operator side: a HARD, GLOBAL ceiling on what ANY station may charge -
+	// public, --private, AND confidential ALIKE. It runs UNCONDITIONALLY here (before
+	// owner-binding, attestation, and the private-band mint below), so NO flag exempts it.
+	// --private hides a station from the public market but is NOT a price-bypass: a private
+	// (and a confidential) band is held to the SAME ceiling as a public one. This is a
+	// deliberate safety max so a fat-fingered, deterrent, or abusive price can never land on
+	// ANY band and burn a consumer. Checked against EVERY offer's base AND scheduled-window
+	// prices. The rejection copy steers a "be unreachable to the public" case toward
+	// --private (hide at a SANE price), not toward an absurd price. (Pinned by
+	// TestRegisterCeilingGlobalAllBands + features/pricing/price_ceiling.feature.)
 	if msg := registerPriceCeiling(reg.Offers); msg != "" {
 		jsonErr(w, http.StatusBadRequest, msg)
 		return

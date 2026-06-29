@@ -29,8 +29,9 @@ import (
 // re-applied on every node re-register, so it survives re-registration and a broker
 // restart - see store.OfferOverride + applyOfferOverrides). It NEVER rewrites a past
 // UsageReceipt or any ledger row: those were settled at the price quoted at serve time
-// and are immutable. The public price CEILING (registerPriceCeiling) is enforced on the
-// override exactly as it is at CLI registration.
+// and are immutable. The GLOBAL price CEILING (registerPriceCeiling - the same hard max
+// for public, private, and confidential bands) is enforced on the override exactly as it
+// is at CLI registration.
 func (b *broker) providerModels(w http.ResponseWriter, r *http.Request) {
 	if corsCredsPreflight(w, r) {
 		return
@@ -173,8 +174,8 @@ func (b *broker) providerModelsSet(w http.ResponseWriter, o store.Owner, body []
 		return
 	}
 
-	// Validate shape (non-negative, well-formed windows) then the public hard ceiling -
-	// the SAME ceiling a CLI registration is held to.
+	// Validate shape (non-negative, well-formed windows) then the GLOBAL hard ceiling -
+	// the SAME ceiling every registration is held to (public, private, and confidential).
 	if msg := validateOfferInput(req.PriceIn, req.PriceOut, req.Schedule); msg != "" {
 		jsonErr(w, http.StatusBadRequest, msg)
 		return
