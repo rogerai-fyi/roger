@@ -99,6 +99,7 @@ type (
 		cost      float64
 		tokensIn  int
 		tokensOut int
+		tps       float64 // the LATEST call's throughput (tokens/sec); not summed
 	}
 )
 
@@ -261,8 +262,8 @@ func (m model) newAgentRuntime() *agentRuntime {
 	// Cost + the broker's BILLED token counts are surfaced through the events channel as a
 	// single sentinel ("<credits> <in> <out>") so the lone drain Cmd stays the only reader
 	// (no second goroutine racing the model). waitAgentEvent parses the triple back out.
-	costFn := func(credits float64, in, out int) {
-		rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d", credits, in, out)}
+	costFn := func(credits float64, in, out int, tps float64) {
+		rt.events <- harness.Event{Kind: eventCost, Text: fmt.Sprintf("%g %d %d %g", credits, in, out, tps)}
 	}
 	// The completer reads rt.model LIVE (not a captured value) so re-tuning a channel
 	// after the runtime is built takes effect on the next turn without a rebuild.
@@ -545,6 +546,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentCost = 0
 		m.agentTokensIn = 0 // a fresh session zeroes the running ↑↓ token totals too
 		m.agentTokensOut = 0
+		m.agentTPS = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
 		note("session cleared - the agent starts fresh (still no long-term memory)")
 		return m, nil
@@ -672,10 +674,10 @@ func (m model) waitAgentEvent() tea.Cmd {
 				return agentDoneMsg{}
 			}
 			if e.Kind == eventCost {
-				var c float64
+				var c, tps float64
 				var in, out int
-				fmt.Sscanf(e.Text, "%g %d %d", &c, &in, &out)
-				return agentCostMsg{cost: c, tokensIn: in, tokensOut: out}
+				fmt.Sscanf(e.Text, "%g %d %d %g", &c, &in, &out, &tps)
+				return agentCostMsg{cost: c, tokensIn: in, tokensOut: out, tps: tps}
 			}
 			return agentEventMsg(e)
 		}
@@ -1075,12 +1077,16 @@ const agentStallSec = 120
 // elapsedSec is seconds since the turn began; sinceLastSec is seconds since the last event.
 // Both are passed in (not read off the clock) so the render is a pure function of state.
 func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
-	spin := workingSpinner(m.frame)
 	// The signal-sweep meter rides beneath the status line under full motion; narrow /
 	// compact / quiet collapse to the single status line (the reduced-motion form).
 	withBar := !m.compact && !quiet && !m.narrow()
+	// Beacon-only spinner (the pulsing on-air dot, NO rotating phrase): the precise static
+	// state label below is the SINGLE source of "what's happening" text, so the old
+	// phrase+label stutter (e.g. "Receiving… receiving…") is gone. Reduced-motion freezes
+	// the beacon to a static dot.
+	spin := pulseWith(m.frame, stPingEye)
 	if !withBar {
-		spin = staticSpinner()
+		spin = stPingEye.Render(beaconDot())
 	}
 	capSec := int(harness.PerCallCap / time.Second)
 	// status line: spinner + state, then a dim meta tail — elapsed within the per-call
@@ -1096,6 +1102,9 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 		}
 		if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
 			meta += "  · " + tot
+		}
+		if m.agentTPS > 0 {
+			meta += "  · " + fmt.Sprintf("%.0f t/s", m.agentTPS) // latest call's throughput
 		}
 		if meta != "" {
 			line += stDim.Render(meta)

@@ -245,3 +245,37 @@ func TestMonthlyBudgetBar(t *testing.T) {
 		t.Errorf("no-cap budget must not show a determinate bar, got %q", nocap)
 	}
 }
+
+// TestAgentWorkingLineNoStutter pins the de-dup (P0): the working line uses a beacon-only
+// spinner (no rotating DJ phrase), so the precise state label is the SINGLE source of
+// "what's happening" text — the old phrase+label stutter ("Receiving… receiving…") is gone.
+func TestAgentWorkingLineNoStutter(t *testing.T) {
+	defer func(q bool) { quiet = q }(quiet)
+	quiet = false
+	m := browseSeed(120)
+	m.frame = 0 // workingPhrase(0) == workingPhrases[0] — the phrase the old line echoed
+	m.agentTurnState = poseStreaming
+	line := stripANSI(m.agentWorkingLine(5, 1))
+	if !strings.Contains(line, "receiving…") {
+		t.Errorf("expected the precise state label, got %q", line)
+	}
+	if strings.Contains(line, workingPhrases[0]) {
+		t.Errorf("the working line must not echo the rotating phrase %q (the stutter), got %q", workingPhrases[0], line)
+	}
+}
+
+// TestAgentWorkingLineTPS pins the latest-call throughput (P0) in the live meter: shown
+// as "N t/s" once a call reports it, absent before.
+func TestAgentWorkingLineTPS(t *testing.T) {
+	defer func(q bool) { quiet = q }(quiet)
+	quiet = false
+	m := browseSeed(120)
+	m.agentTurnState = poseThinking
+	if got := stripANSI(m.agentWorkingLine(5, 1)); strings.Contains(got, "t/s") {
+		t.Errorf("with no throughput yet the meter must not show t/s, got %q", got)
+	}
+	m.agentTPS = 45.0
+	if got := stripANSI(m.agentWorkingLine(5, 1)); !strings.Contains(got, "45 t/s") {
+		t.Errorf("the meter should surface the latest throughput as 45 t/s, got %q", got)
+	}
+}
