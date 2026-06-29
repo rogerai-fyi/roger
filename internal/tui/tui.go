@@ -1445,6 +1445,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatIn.Blur()
 			m.status = stDim.Render("peeking at the band - the channel stays open · tab/c to return · esc here disconnects")
 			return m, nil
+		case "shift+tab":
+			// shift+tab opens THIS tuned-in model in the [0] AGENT (tool-calling) - the easy,
+			// discoverable bridge from TUNE-IN (basic chat) to AGENT the founder asked for, so
+			// you don't have to know `/agent`/[0]. The channel stays open underneath.
+			m.chatIn.Blur()
+			return m.enterAgent()
 		case "pgup":
 			m.chatVP.PageUp()
 			return m, nil
@@ -6133,16 +6139,18 @@ func (m model) chatView(w int) string {
 	if m.sysPrompt != "" {
 		sys = stDim.Render(" · system set")
 	}
-	// Section-tab heading, matching the SHARE table's "▌ SECTION  context" look so
-	// the channel reads as part of the same designed system. COMPACT collapses it to a
-	// single terse status (callsign · model · cost), dropping the prose label.
+	// Section-tab heading. MODE CLARITY: TUNE-IN (basic chat, NO tools) must read as
+	// visibly distinct from the AGENT (tool-calling) view, which shares the same shape - so
+	// here the accent bar is MONO (vs the AGENT's red bar) and the label spells out
+	// "TUNE-IN · chat (no tools)". Matches the [1] TUNE IN preset naming. COMPACT keeps the
+	// identity but trims the parenthetical.
 	if m.compact {
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("CHAN") +
-			stDim.Render("  ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
+		head := "  " + stDim.Render("▌") + " " + stBrand.Render("TUNE-IN") + stDim.Render(" · chat  ") +
+			stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render(" · ") + stEmber.Render(dollars(m.sessCost)) + sys
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
-		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("CHANNEL") +
+		b.WriteString("  " + stDim.Render("▌") + " " + stBrand.Render("TUNE-IN") + stDim.Render(" · chat (no tools)") +
 			stDim.Render("   ") + stGold.Render(channelGlyph(m.connected)) + stDim.Render(" "+m.connected.NodeID+" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.sessCost)) + sys + "\n")
 	}
@@ -7092,7 +7100,7 @@ func (m model) compactFooter(w int) string {
 	var keys string
 	switch m.mode {
 	case modeChat:
-		keys = "talk · esc disconnect · tab peek · drag to copy · ctrl+o scroll"
+		keys = "talk · esc disconnect · tab peek · ⇧⇥ agent · ⌃y copy"
 	case modeShare:
 		keys = "↑↓ · ⏎/a air · p price · r"
 	case modeLimits:
@@ -7217,9 +7225,9 @@ func (m model) footer(w int) string {
 		// One contextual hint (Zone 4): the keys live NOW, including the copy + connect
 		// affordances; the full set (/quit, ⌃c, etc.) lives in /help.
 		if m.narrow() {
-			left = stDim.Render("talk · esc leave · ") + stKey.Render("⌃y") + stDim.Render(" copy · /help")
+			left = stDim.Render("talk · esc leave · ") + stKey.Render("⇧⇥") + stDim.Render(" agent · ") + stKey.Render("⌃y") + stDim.Render(" copy")
 		} else {
-			left = stDim.Render("talk  ·  ") + stKey.Render("⏎") + stDim.Render(" send  ·  ") + stKey.Render("esc") + stDim.Render(" leave  ·  ") + stKey.Render("tab") + stDim.Render(" peek  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  /connect  ·  / commands")
+			left = stDim.Render("talk  ·  ") + stKey.Render("⏎") + stDim.Render(" send  ·  ") + stKey.Render("esc") + stDim.Render(" leave  ·  ") + stKey.Render("tab") + stDim.Render(" peek  ·  ") + stKey.Render("⇧⇥") + stDim.Render(" agent (tools)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  /connect")
 		}
 	} else if m.filterMode {
 		// FILTER ENTRY: teach the live-filter keys (type / esc / enter), not the browse keys.
