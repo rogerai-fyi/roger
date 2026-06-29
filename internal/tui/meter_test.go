@@ -44,7 +44,7 @@ func TestMeterSweep(t *testing.T) {
 	if got := meterSweep(5, 1); len([]rune(got)) < sweepBlock+2 {
 		t.Errorf("tiny width should clamp up, got %q (len %d)", got, len([]rune(got)))
 	}
-	// tintSweep only styles - it must not add or drop any sweep glyphs.
+	// tintBar only styles - it must not add or drop any sweep glyphs (the sweep reuses it).
 	countOn := func(s string) (n int) {
 		for _, r := range s {
 			if r == '▰' {
@@ -54,8 +54,8 @@ func TestMeterSweep(t *testing.T) {
 		return
 	}
 	plain := meterSweep(9, meterWidth)
-	if countOn(tintSweep(plain)) != countOn(plain) {
-		t.Errorf("tintSweep changed the block glyph count: %d vs %d", countOn(tintSweep(plain)), countOn(plain))
+	if countOn(tintBar(plain, stLive)) != countOn(plain) {
+		t.Errorf("tintBar changed the block glyph count: %d vs %d", countOn(tintBar(plain, stLive)), countOn(plain))
 	}
 }
 

@@ -1131,7 +1131,7 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	}
 	line := withMeta(label)
 	if withBar {
-		line += "\n  " + tintSweep(meterSweep(m.frame, meterWidth))
+		line += "\n  " + tintBar(meterSweep(m.frame, meterWidth), stLive)
 	}
 	return line
 }

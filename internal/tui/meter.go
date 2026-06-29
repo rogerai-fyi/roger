@@ -18,7 +18,7 @@ import (
 // genuine stall DROPS the sweep (see agentWorkingLine) so motion never implies
 // progress that isn't happening.
 //
-// meterSweep is pure + rune-accurate + NO_COLOR-safe (glyphs only); tintSweep adds
+// meterSweep is pure + rune-accurate + NO_COLOR-safe (glyphs only); tintBar adds
 // the mono accent (the one red stays on the eye pulse in the status line above).
 
 const (
@@ -98,20 +98,6 @@ func sessionFooter(tokensIn, tokensOut int, cost float64) string {
 	return stDim.Render("session " + tot)
 }
 
-// tintSweep applies the mono accent to a meterSweep string: the moving block in the
-// live body tone, the track dim. It styles only — it never adds or drops a glyph.
-func tintSweep(bar string) string {
-	var b strings.Builder
-	for _, r := range bar {
-		if r == '▰' {
-			b.WriteString(stLive.Render(string(r)))
-		} else {
-			b.WriteString(stDim.Render(string(r)))
-		}
-	}
-	return b.String()
-}
-
 // budgetBarWidth is the determinate monthly-budget bar's width in glyphs (dropped on
 // narrow terminals so the budget line never wraps).
 const budgetBarWidth = 16
@@ -141,8 +127,8 @@ func meterBar(frac float64, width int) string {
 	return strings.Repeat("▰", fill) + strings.Repeat("▱", width-fill)
 }
 
-// tintBar styles a meterBar: filled glyphs in fillStyle, the empty track dim. It only
-// styles — it never adds or drops a glyph.
+// tintBar styles a meterBar OR a meterSweep string: filled (▰) glyphs in fillStyle, the
+// empty track (▱ or ◌) dim. It only styles — it never adds or drops a glyph.
 func tintBar(bar string, fillStyle lipgloss.Style) string {
 	var b strings.Builder
 	for _, r := range bar {
