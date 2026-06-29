@@ -711,6 +711,13 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               <div class="man-plate__row"><span class="man-plate__k">type-the-price</span><span class="man-plate__v">to accept a station above <code>$20 / 1M</code> out you must <b>type the price back</b>, not just press <kbd>y</kbd> - a deliberate speed bump on genuinely expensive bands</span></div>
               <div class="man-plate__row"><span class="man-plate__k">operator ceiling</span><span class="man-plate__v">the broker refuses to list a public node priced above <code>$100 / 1M</code> out or <code>$50 / 1M</code> in (base price <i>and</i> every scheduled window) - only a typo or a deterrent price trips it; if an operator truly wants an unreachable price they share <code>--private</code> instead (§5)</span></div>
             </div>
+            <p>No price-hike, ever: your ceiling is not a one-time check at connect - your
+              max out-price rides <b>every</b> request as the
+              <code>X-Roger-Max-Price-Out</code> header, so an operator cannot quietly raise
+              a station's price out from under you. If a band drifts above your limit the
+              broker simply routes you to another station within your criteria (or declines)
+              rather than overcharging, and over-ceiling bands are flagged on the
+              <a href="models.html">Models page</a>.</p>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">/account</span><span class="man-plate__v">profile, linked GitHub, payout status, export / delete</span></div>
               <div class="man-plate__row"><span class="man-plate__k">/billing</span><span class="man-plate__v">top-ups and the credit ledger</span></div>
