@@ -5447,11 +5447,11 @@ func (m model) browseView(w int) string {
 			// whole row (a colored cell inside an accent bg reads as noise).
 			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
-				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOut(bd), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
+				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
-		rng := stEmber.Render(pad(priceInOut(bd), 17))
+		rng := stEmber.Render(pad(priceInOutTier(bd, 17), 17))
 		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8), sigSignal, sigTPS, online)
 		nameCell := stDim.Render(pad(bd.model, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
@@ -5800,6 +5800,34 @@ func priceInOut(b band) string {
 		return "free"
 	}
 	return money(b.minIn) + "·" + money(b.minOut)
+}
+
+// bandTierTag returns the compact $-tier glyphs for a band's cheapest active price
+// ("$".."$$$$", where more $ = pricier vs the live market reference), or "" when the band
+// is free / offline / has no tier yet. It is the band-LIST twin of the tier shown in the
+// [i] DETAIL view (bandTierSuffix), so the wide table can be price-judged at a glance.
+func bandTierTag(b band) string {
+	if !b.online || b.cheapest == nil {
+		return ""
+	}
+	bars, _ := priceTierBadge(b.cheapest.PriceTier, b.minOut)
+	if bars == "" || bars == "FREE" { // free has its own FREE tag; unknown shows nothing
+		return ""
+	}
+	return bars
+}
+
+// priceInOutTier is priceInOut plus the compact $-tier tag when it fits the price column,
+// so the wide band table reads "0.20·0.30 $$" - the actual price AND its cheap/fair/dear
+// level at a glance - WITHOUT breaking the fixed-width grid. The tag is dropped if it would
+// overflow colW (a pricey band already reads expensive on its number), and pad() does the
+// final clamp. colW is measured in runes (the "·" is one column).
+func priceInOutTier(b band, colW int) string {
+	s := priceInOut(b)
+	if tag := bandTierTag(b); tag != "" && len([]rune(s))+1+len(tag) <= colW {
+		s += " " + tag
+	}
+	return s
 }
 
 // bandBestTPS returns the band's fastest measured output throughput across its
