@@ -5893,13 +5893,13 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="18">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="16">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="17">{
+                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="15">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
@@ -5911,7 +5911,7 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov3" title="15">{
+                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov2" title="14">{
                                 a.bestRecency = recency
                         }</span>
                         <span class="cov3" title="31">if staleness &gt; a.bestStaleness </span><span class="cov2" title="14">{
@@ -8270,17 +8270,19 @@ func effectiveRelayMaxOut(reqMaxOut float64) float64 <span class="cov9" title="6
 }
 
 // registerPriceCeiling returns a non-empty rejection message if any offer (base price
-// or any scheduled window) exceeds the public hard ceiling. The copy steers a genuine
-// "I want to be unreachable to the public" case to --private rather than an absurd
-// price. Returns "" when every price is within bounds.
+// or any scheduled window) exceeds the public hard ceiling. The copy states the REAL
+// remedy - lower the price below the ceiling - and deliberately does NOT suggest
+// --private as an escape: the ceiling is GLOBAL (it binds private + confidential bands
+// too; --private only hides a station from the public market, it is not a price bypass).
+// Returns "" when every price is within bounds.
 func registerPriceCeiling(offers []protocol.ModelOffer) string <span class="cov9" title="96">{
         outCap, inCap := maxPriceOutCeiling(), maxPriceInCeiling()
         check := func(in, out float64) string </span><span class="cov9" title="98">{
                 if out &gt; outCap </span><span class="cov5" title="12">{
-                        return fmt.Sprintf("output price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower it, or use `--private` to share on a hidden frequency band instead", out, outCap)
+                        return fmt.Sprintf("output price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", out, outCap)
                 }</span>
                 <span class="cov9" title="86">if in &gt; inCap </span><span class="cov1" title="1">{
-                        return fmt.Sprintf("input price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower it, or use `--private` to share on a hidden frequency band instead", in, inCap)
+                        return fmt.Sprintf("input price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", in, inCap)
                 }</span>
                 <span class="cov9" title="85">return ""</span>
         }
@@ -11446,10 +11448,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3647">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5328">{
+        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5321">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5977">{
+        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5983">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11822">return rangeMin, rangeMax, true</span>
@@ -11605,7 +11607,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13575">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1385">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1325">{
                         best = i
                 }</span>
         }
@@ -11638,7 +11640,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1261">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1201">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -13403,8 +13405,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // (and a confidential) band is held to the SAME ceiling as a public one. This is a
         // deliberate safety max so a fat-fingered, deterrent, or abusive price can never land on
         // ANY band and burn a consumer. Checked against EVERY offer's base AND scheduled-window
-        // prices. The rejection copy steers a "be unreachable to the public" case toward
-        // --private (hide at a SANE price), not toward an absurd price. (Pinned by
+        // prices. The rejection copy states the real remedy - lower the price below the ceiling -
+        // and does NOT suggest --private as an escape (the ceiling is global; --private only hides
+        // a station from the public market, it is not a price bypass). (Pinned by
         // TestRegisterCeilingGlobalAllBands + features/pricing/price_ceiling.feature.)
         <span class="cov5" title="86">if msg := registerPriceCeiling(reg.Offers); msg != "" </span><span class="cov2" title="8">{
                 jsonErr(w, http.StatusBadRequest, msg)
@@ -17901,9 +17904,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="476">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="473">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18682,7 +18685,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -18721,7 +18724,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="860">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1157">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18743,12 +18746,12 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 rr.mu.Unlock()
                 return
         }</span>
-        <span class="cov4" title="19">if rr.busy </span><span class="cov4" title="10">{
+        <span class="cov4" title="19">if rr.busy </span><span class="cov3" title="10">{
                 // A re-register is in flight for this generation; wait for it and ride it.
-                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov4" title="10">{
+                for rr.busy &amp;&amp; rr.gen == seenGen </span><span class="cov3" title="10">{
                         rr.cond.Wait()
                 }</span>
-                <span class="cov4" title="10">rr.mu.Unlock()
+                <span class="cov3" title="10">rr.mu.Unlock()
                 return</span>
         }
         <span class="cov3" title="9">rr.busy = true
@@ -18765,9 +18768,9 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                 case &lt;-stop:<span class="cov1" title="1">
                         rr.finishBusy()
                         return</span>
-                default:<span class="cov4" title="10"></span>
+                default:<span class="cov3" title="10"></span>
                 }
-                <span class="cov4" title="10">newTok := randHex(16)
+                <span class="cov3" title="10">newTok := randHex(16)
                 reg := rr.reg
                 reg.BridgeToken = newTok
                 // Re-attestation: a confidential node must present a FRESH nonce-bound quote on
@@ -18785,7 +18788,7 @@ func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span cl
                                 reg.AttestNonce = ""
                         }</span>
                 }
-                <span class="cov4" title="10">reg.TS = time.Now().Unix()
+                <span class="cov3" title="10">reg.TS = time.Now().Unix()
                 reg.SignRegistration(rr.priv)
                 // A re-register of a PRIVATE node returns only band_id (never the code again),
                 // so the result is intentionally ignored here - the secret is shown only at the
@@ -18950,23 +18953,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="841">{
+        for </span><span class="cov9" title="1141">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov1" title="2">
+                case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="839"></span>
+                default:<span class="cov9" title="1136"></span>
                 }
-                <span class="cov9" title="839">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="1136">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov3" title="5">{
+                if err != nil </span><span class="cov2" title="3">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="833">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="826">{
+                <span class="cov9" title="1133">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1126">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19078,7 +19081,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
 // operator's OWN upstream key can never leave the machine in a job result. A no-op
 // when no key is configured (and never called with an empty key, which would match
 // everywhere).
-func redactUpstreamKey(b []byte, key string) []byte <span class="cov4" title="10">{
+func redactUpstreamKey(b []byte, key string) []byte <span class="cov3" title="10">{
         if key == "" </span><span class="cov3" title="5">{
                 return b
         }</span>
@@ -19426,7 +19429,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov8" title="201">{
+func GenerateStation() string <span class="cov7" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19455,21 +19458,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov6" title="45">{
+func slugify(s string) string <span class="cov5" title="45">{
         var b strings.Builder
         prevDash := false
-        for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
+        for _, r := range strings.ToLower(s) </span><span class="cov8" title="500">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -25142,7 +25145,7 @@ func pad3(n int) string <span class="cov7" title="1008">{
                 n = 0
         }</span>
         <span class="cov7" title="1008">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="117">{
+        for len(s) &lt; 3 </span><span class="cov5" title="116">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1008">return s</span>
@@ -25155,7 +25158,7 @@ func itoa3(n int) string <span class="cov8" title="2010">{
         }</span>
         <span class="cov8" title="2007">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5911">{
+        for n &gt; 0 </span><span class="cov9" title="5912">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -41686,7 +41689,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="307">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="352">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -41708,7 +41711,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="69">
+                case agent.LinkOnAir:<span class="cov3" title="76">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41816,7 +41819,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="35">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="41">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
