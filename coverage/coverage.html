@@ -127,7 +127,7 @@
 				
 				<option value="file35">github.com/rogerai-fyi/roger/cmd/rogerai-broker/strikes.go (98.9%)</option>
 				
-				<option value="file36">github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go (88.0%)</option>
+				<option value="file36">github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go (88.1%)</option>
 				
 				<option value="file37">github.com/rogerai-fyi/roger/cmd/rogerai/drphil.go (100.0%)</option>
 				
@@ -513,13 +513,13 @@ import (
 
 // adminGitHubID reads the single super-admin GitHub numeric id from ADMIN_GITHUB_ID.
 // Unset / unparseable =&gt; 0 (the browser admin path is OFF; only the broker key works).
-func adminGitHubID() int64 <span class="cov10" title="233">{
+func adminGitHubID() int64 <span class="cov10" title="274">{
         if v := strings.TrimSpace(os.Getenv("ADMIN_GITHUB_ID")); v != "" </span><span class="cov2" title="3">{
                 if n, err := strconv.ParseInt(v, 10, 64); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="232">return 0</span>
+        <span class="cov9" title="273">return 0</span>
 }
 
 // stripeMode reports the billing/payout money-rail mode: "live" (an sk_live key), "test" (a test
@@ -729,7 +729,7 @@ type cacheEntry struct {
         at   time.Time
 }
 
-func newCachingGetter(ttl time.Duration) *cachingGetter <span class="cov7" title="232">{
+func newCachingGetter(ttl time.Duration) *cachingGetter <span class="cov7" title="273">{
         return &amp;cachingGetter{inner: trust.DefaultHTTPSGetter(), ttl: ttl, cache: map[string]cacheEntry{}}
 }</span>
 
@@ -768,7 +768,7 @@ type sevSNPVerifier struct {
         testProduct *spb.SevProduct
 }
 
-func (v *sevSNPVerifier) Kind() string <span class="cov7" title="232">{ return attestSEVSNP }</span>
+func (v *sevSNPVerifier) Kind() string <span class="cov7" title="273">{ return attestSEVSNP }</span>
 
 func (v *sevSNPVerifier) Verify(ctx context.Context, p attestParams) ([]byte, error) <span class="cov3" title="6">{
         if len(p.quote) == 0 </span><span class="cov0" title="0">{
@@ -870,7 +870,7 @@ type nonceEntry struct {
 //
 // With NO measurements configured the allowlist is empty: no node is ever granted the
 // tier (fail-closed). The tier is simply unavailable until measurements are pinned.
-func loadAttestRegistry() *attestRegistry <span class="cov7" title="232">{
+func loadAttestRegistry() *attestRegistry <span class="cov7" title="273">{
         ms := parseMeasurements(os.Getenv("ROGERAI_TEE_MEASUREMENTS"))
         if f := os.Getenv("ROGERAI_TEE_MEASUREMENTS_FILE"); f != "" </span><span class="cov0" title="0">{
                 if data, err := os.ReadFile(f); err == nil </span><span class="cov0" title="0">{
@@ -879,7 +879,7 @@ func loadAttestRegistry() *attestRegistry <span class="cov7" title="232">{
                         logf("TEE: could not read ROGERAI_TEE_MEASUREMENTS_FILE %q: %v", f, err)
                 }</span>
         }
-        <span class="cov7" title="232">reattest := envDuration("ROGERAI_TEE_REATTEST", time.Hour)
+        <span class="cov7" title="273">reattest := envDuration("ROGERAI_TEE_REATTEST", time.Hour)
         nonceTTL := envDuration("ROGERAI_TEE_NONCE_TTL", 5*time.Minute)
 
         sev := &amp;sevSNPVerifier{
@@ -895,21 +895,21 @@ func loadAttestRegistry() *attestRegistry <span class="cov7" title="232">{
                 nonceTTL:     nonceTTL,
                 nonces:       map[string]nonceEntry{},
         }
-        if len(ms) == 0 </span><span class="cov7" title="232">{
+        if len(ms) == 0 </span><span class="cov7" title="273">{
                 logf("TEE: confidential tier UNAVAILABLE - no approved measurements (set ROGERAI_TEE_MEASUREMENTS to enable)")
         }</span> else<span class="cov0" title="0"> {
                 logf("TEE: confidential tier ON - %d approved measurement(s), re-attest every %s, require=%v", len(ms), reattest, r.required)
         }</span>
-        <span class="cov7" title="232">return r</span>
+        <span class="cov7" title="273">return r</span>
 }
 
 // setVerifier installs/replaces a backend (used by tests to inject a deterministic
 // verifier, and the extension point for adding TDX / NVIDIA-CC backends).
-func (a *attestRegistry) setVerifier(v attestationVerifier) <span class="cov4" title="11">{
+func (a *attestRegistry) setVerifier(v attestationVerifier) <span class="cov3" title="11">{
         if a.verifiers == nil </span><span class="cov0" title="0">{
                 a.verifiers = map[string]attestationVerifier{}
         }</span>
-        <span class="cov4" title="11">a.verifiers[v.Kind()] = v</span>
+        <span class="cov3" title="11">a.verifiers[v.Kind()] = v</span>
 }
 
 // issueNonce mints a single-use challenge nonce and records its expiry.
@@ -960,7 +960,7 @@ func (a *attestRegistry) pruneLocked() <span class="cov3" title="8">{
 //   - require=false -&gt; (false, nil): NO badge, registration still succeeds as standard.
 //   - require=true  -&gt; (false, err): registration REJECTED.
 func (a *attestRegistry) verifyRegistration(ctx context.Context, reg protocol.NodeRegistration) (bool, error) <span class="cov6" title="62">{
-        if a == nil || !reg.Confidential </span><span class="cov6" title="55">{
+        if a == nil || !reg.Confidential </span><span class="cov5" title="55">{
                 return false, nil // no policy, or no claim -&gt; no badge (honest)
         }</span>
         <span class="cov3" title="7">measurement, err := a.verifyQuote(ctx, reg)
@@ -1009,7 +1009,7 @@ func (a *attestRegistry) verifyQuote(ctx context.Context, reg protocol.NodeRegis
 
 // parseMeasurements parses a comma/newline-separated list of hex launch measurements,
 // skipping blanks and #-comments.
-func parseMeasurements(s string) [][]byte <span class="cov7" title="234">{
+func parseMeasurements(s string) [][]byte <span class="cov7" title="275">{
         var out [][]byte
         for _, f := range strings.FieldsFunc(s, func(r rune) bool </span><span class="cov5" title="40">{ return r == ',' || r == '\n' || r == '\r' }</span>) <span class="cov3" title="5">{
                 f = strings.TrimSpace(f)
@@ -1023,10 +1023,10 @@ func parseMeasurements(s string) [][]byte <span class="cov7" title="234">{
                 }
                 <span class="cov1" title="2">out = append(out, b)</span>
         }
-        <span class="cov7" title="234">return out</span>
+        <span class="cov7" title="275">return out</span>
 }
 
-func tcbFloorFromEnv() kds.TCBParts <span class="cov7" title="233">{
+func tcbFloorFromEnv() kds.TCBParts <span class="cov7" title="274">{
         return kds.TCBParts{
                 BlSpl:    uint8(envInt("ROGERAI_TEE_MIN_BL_SPL", 0)),
                 TeeSpl:   uint8(envInt("ROGERAI_TEE_MIN_TEE_SPL", 0)),
@@ -1039,24 +1039,24 @@ func tcbFloorFromEnv() kds.TCBParts <span class="cov7" title="233">{
 // verifier consumes *spb.Attestation via abi.ReportCertsToProto.
 var _ = (*spb.Attestation)(nil)
 
-func logf(format string, args ...any) <span class="cov7" title="238">{ log.Printf(format, args...) }</span>
+func logf(format string, args ...any) <span class="cov8" title="279">{ log.Printf(format, args...) }</span>
 
-func envInt(key string, def int) int <span class="cov10" title="1170">{
+func envInt(key string, def int) int <span class="cov10" title="1375">{
         if v := os.Getenv(key); v != "" </span><span class="cov3" title="6">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov3" title="5">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="1165">return def</span>
+        <span class="cov9" title="1370">return def</span>
 }
 
-func envDuration(key string, def time.Duration) time.Duration <span class="cov8" title="467">{
+func envDuration(key string, def time.Duration) time.Duration <span class="cov8" title="549">{
         if v := os.Getenv(key); v != "" </span><span class="cov1" title="2">{
                 if d, err := time.ParseDuration(v); err == nil </span><span class="cov1" title="1">{
                         return d
                 }</span>
         }
-        <span class="cov8" title="466">return def</span>
+        <span class="cov8" title="548">return def</span>
 }
 </pre>
 		
@@ -1849,14 +1849,14 @@ type billing struct {
         creditUSD     float64 // USD per credit
 }
 
-func loadBilling() billing <span class="cov7" title="241">{
+func loadBilling() billing <span class="cov7" title="282">{
         cu := 1.0
         if v := os.Getenv("ROGERAI_CREDIT_USD"); v != "" </span><span class="cov2" title="5">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt; 0 </span><span class="cov2" title="5">{
                         cu = f
                 }</span>
         }
-        <span class="cov7" title="241">b := billing{
+        <span class="cov7" title="282">b := billing{
                 secretKey:     stripeSecretKey(),
                 webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
                 successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fyi/topup/success"),
@@ -1867,7 +1867,7 @@ func loadBilling() billing <span class="cov7" title="241">{
                 log.Printf("billing: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - billing DISABLED (refusing test mode in production)")
                 b.secretKey, b.webhookSecret = "", ""
         }</span>
-        <span class="cov7" title="241">if b.secretKey == "" </span><span class="cov7" title="232">{
+        <span class="cov7" title="282">if b.secretKey == "" </span><span class="cov7" title="273">{
                 log.Printf("billing: disabled (set STRIPE_SECRET_KEY)")
         }</span> else<span class="cov3" title="9"> {
                 mode := "test"
@@ -1876,14 +1876,14 @@ func loadBilling() billing <span class="cov7" title="241">{
                 }</span>
                 <span class="cov3" title="9">log.Printf("billing: Stripe enabled [%s mode] (1 credit = $%.2f)", mode, b.creditUSD)</span>
         }
-        <span class="cov7" title="241">return b</span>
+        <span class="cov7" title="282">return b</span>
 }
 
-func envOr(k, def string) string <span class="cov10" title="1590">{
+func envOr(k, def string) string <span class="cov10" title="1754">{
         if v := os.Getenv(k); v != "" </span><span class="cov4" title="17">{
                 return v
         }</span>
-        <span class="cov9" title="1573">return def</span>
+        <span class="cov9" title="1737">return def</span>
 }
 
 // stripeLive reports whether the broker is EXPLICITLY in production mode. Going live
@@ -1894,15 +1894,15 @@ func envOr(k, def string) string <span class="cov10" title="1590">{
 // production disables billing instead of silently accepting fake test cards. Off
 // locally so dev test keys work. The broker holds live values in STRIPE_SECRET_KEY /
 // STRIPE_WEBHOOK_SECRET; the local .env holds test values under the same names.
-func requireLive() bool <span class="cov8" title="642">{
+func requireLive() bool <span class="cov8" title="724">{
         switch strings.ToLower(os.Getenv("ROGERAI_REQUIRE_LIVE")) </span>{
         case "1", "true", "yes", "on":<span class="cov4" title="18">
                 return true</span>
         }
-        <span class="cov8" title="624">return false</span>
+        <span class="cov8" title="706">return false</span>
 }
 
-func stripeSecretKey() string <span class="cov8" title="618">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
+func stripeSecretKey() string <span class="cov8" title="700">{ return os.Getenv("STRIPE_SECRET_KEY") }</span>
 
 // checkout handles POST /billing/checkout {"usd": 10}: creates a Stripe Checkout
 // session for the caller to buy credits and returns the {url, credits}.
@@ -2194,8 +2194,8 @@ func accountKeyForNode(node string) string <span class="cov8" title="29">{ retur
 // populates the cache. resolve returns ("", false) when the pubkey is not bound to a
 // non-anonymized logged-in owner; we cache that NEGATIVE result too (as "-") so an
 // anonymous caller does not re-hit Postgres every request. Empty pub never caches.
-func (b *broker) cachedOwnerWallet(pub string, resolve func() (string, bool)) (string, bool) <span class="cov10" title="73">{
-        if b.shared == nil || pub == "" </span><span class="cov9" title="58">{
+func (b *broker) cachedOwnerWallet(pub string, resolve func() (string, bool)) (string, bool) <span class="cov10" title="74">{
+        if b.shared == nil || pub == "" </span><span class="cov9" title="59">{
                 return resolve()
         }</span>
         <span class="cov6" title="15">if v, found, err := b.shared.cacheGet(walletKeyForPubkey(pub)); err == nil &amp;&amp; found </span><span class="cov2" title="2">{
@@ -2227,8 +2227,8 @@ func (b *broker) invalidateOwnerWallet(pub string) <span class="cov5" title="10"
 // read-through (immutable TOFU binding). Miss/flag-off falls back to the authoritative
 // Postgres AccountOfNode via resolve and populates the cache (negative result cached as
 // "-"). The bind write invalidates the entry.
-func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool)) (string, bool) <span class="cov8" title="37">{
-        if b.shared == nil || node == "" </span><span class="cov7" title="22">{
+func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool)) (string, bool) <span class="cov8" title="38">{
+        if b.shared == nil || node == "" </span><span class="cov7" title="23">{
                 return resolve()
         }</span>
         <span class="cov6" title="15">if v, found, err := b.shared.cacheGet(accountKeyForNode(node)); err == nil &amp;&amp; found </span><span class="cov2" title="2">{
@@ -2282,12 +2282,12 @@ const capCounterTTL = 40 * 24 * time.Hour
 // truth. Flag OFF, or any Redis trouble, is exactly the original ledger SUM. This is the
 // fail-closed contract: a Redis miss NEVER yields $0 - it yields the ledger truth, so the
 // cap stays enforced.
-func (b *broker) monthSpend(holder string, now time.Time) float64 <span class="cov8" title="44">{
-        authoritative := func() float64 </span><span class="cov8" title="42">{
+func (b *broker) monthSpend(holder string, now time.Time) float64 <span class="cov8" title="45">{
+        authoritative := func() float64 </span><span class="cov8" title="43">{
                 s, _ := b.db.MonthSpendOf(holder, now)
                 return s
         }</span>
-        <span class="cov8" title="44">if b.shared == nil </span><span class="cov8" title="40">{
+        <span class="cov8" title="45">if b.shared == nil </span><span class="cov8" title="41">{
                 return authoritative()
         }</span>
         <span class="cov3" title="4">if val, found, err := b.shared.counterGet(capSpendKey(holder, now)); err == nil &amp;&amp; found </span><span class="cov2" title="2">{
@@ -2306,8 +2306,8 @@ func (b *broker) monthSpend(holder string, now time.Time) float64 <span class="c
 // increment only means the next monthSpend read reconciles the true SUM from the ledger
 // (fail-closed), so the cap is never under-enforced for long. cost&lt;=0 (free/self) and
 // flag-off are no-ops. The ledger row written by Finalize remains the source of truth.
-func (b *broker) recordMonthSpend(holder string, cost float64, now time.Time) <span class="cov5" title="9">{
-        if b.shared == nil || cost &lt;= 0 || holder == "" </span><span class="cov5" title="7">{
+func (b *broker) recordMonthSpend(holder string, cost float64, now time.Time) <span class="cov6" title="11">{
+        if b.shared == nil || cost &lt;= 0 || holder == "" </span><span class="cov5" title="9">{
                 return
         }</span>
         <span class="cov2" title="2">_, _ = b.shared.counterIncr(capSpendKey(holder, now), cost)</span>
@@ -2537,7 +2537,7 @@ var unsafeTerms = []string{
         "how to make meth", "synthesize meth", "nerve agent", "sarin",
 }
 
-func loadConcierge() *concierge <span class="cov9" title="236">{
+func loadConcierge() *concierge <span class="cov9" title="277">{
         c := &amp;concierge{
                 groqKey:   os.Getenv("GROQ_API_KEY"),
                 groqURL:   "https://api.groq.com/openai/v1/chat/completions",
@@ -2556,16 +2556,16 @@ func loadConcierge() *concierge <span class="cov9" title="236">{
                 // is configured. CONCIERGE_RELAY_TIMEOUT_SEC overrides the default.
                 relayTimeout: clampRelayTimeout(envInt("CONCIERGE_RELAY_TIMEOUT_SEC", 30)),
         }
-        if c.groqKey == "" </span><span class="cov9" title="236">{
+        if c.groqKey == "" </span><span class="cov9" title="277">{
                 log.Printf("CONCIERGE: GROQ_API_KEY unset - Ping falls back to a free on-air station, else a canned 'off air' reply (no Groq).")
         }</span> else<span class="cov0" title="0"> {
                 log.Printf("CONCIERGE: enabled (dogfood free station -&gt; Groq %s -&gt; canned).", c.groqModel)
         }</span>
         // Log only that grant-dogfood is ON and which model - NEVER the secret.
-        <span class="cov9" title="236">if c.grantKey != "" </span><span class="cov1" title="1">{
+        <span class="cov9" title="277">if c.grantKey != "" </span><span class="cov1" title="1">{
                 log.Printf("CONCIERGE: grant-dogfood enabled - Ping pins to model %q via CONCIERGE_GRANT_KEY (falls through to free station -&gt; Groq -&gt; canned when its node is off air).", c.grantModel)
         }</span>
-        <span class="cov9" title="236">return c</span>
+        <span class="cov9" title="277">return c</span>
 }
 
 // conciergeHandler (POST /concierge) is the public Ping endpoint. JSON in
@@ -2783,7 +2783,7 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
         if c.grantKey == "" </span><span class="cov1" title="1">{
                 return "", false
         }</span>
-        <span class="cov5" title="12">gc, ok, gerr := b.resolveGrantToken(c.grantKey)
+        <span class="cov4" title="12">gc, ok, gerr := b.resolveGrantToken(c.grantKey)
         if !ok || gerr != "" </span><span class="cov1" title="1">{
                 log.Printf("CONCIERGE grant-dogfood miss: grant-unresolved (key sha not found / revoked / expired) model=%q", c.grantModel)
                 return "", false // invalid/revoked/expired grant - fall through, never break Ping
@@ -2925,11 +2925,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov4" title="7">{
+        for _, n := range b.nodes </span><span class="cov3" title="6">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
+                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -2983,14 +2983,14 @@ const defaultRelayTimeout = 30 * time.Second
 // result-wait duration. It floors at 5s (never starve a fast model) and CAPS at 90s
 // so the wait stays comfortably UNDER Cloudflare's ~100s edge timeout and the broker's
 // own non-stream limits no matter what is set in the environment.
-func clampRelayTimeout(sec int) time.Duration <span class="cov9" title="238">{
+func clampRelayTimeout(sec int) time.Duration <span class="cov10" title="279">{
         if sec &lt; 5 </span><span class="cov2" title="2">{
                 sec = 5
         }</span>
-        <span class="cov9" title="238">if sec &gt; 90 </span><span class="cov1" title="1">{
+        <span class="cov10" title="279">if sec &gt; 90 </span><span class="cov1" title="1">{
                 sec = 90
         }</span>
-        <span class="cov9" title="238">return time.Duration(sec) * time.Second</span>
+        <span class="cov10" title="279">return time.Duration(sec) * time.Second</span>
 }
 
 // relayWait is the effective relay result-wait: the configured relayTimeout, or the
@@ -3060,7 +3060,7 @@ func lastUserText(msgs []chatMsg) string <span class="cov6" title="41">{
 // isUnsafe is the blatant-keyword precheck (stopgap; see concierge doc comment).
 func isUnsafe(text string) bool <span class="cov5" title="21">{
         t := strings.ToLower(text)
-        for _, term := range unsafeTerms </span><span class="cov10" title="266">{
+        for _, term := range unsafeTerms </span><span class="cov9" title="266">{
                 if strings.Contains(t, term) </span><span class="cov1" title="1">{
                         return true
                 }</span>
@@ -3148,7 +3148,7 @@ func (b *broker) accountLimit(w http.ResponseWriter, r *http.Request) <span clas
                 jsonErr(w, http.StatusUnauthorized, "log in to set a monthly spend limit - run `roger login` (the cap is per account)")
                 return
         }</span>
-        <span class="cov6" title="11">if r.Method == http.MethodPatch </span><span class="cov4" title="6">{
+        <span class="cov5" title="11">if r.Method == http.MethodPatch </span><span class="cov4" title="6">{
                 var req struct {
                         MonthlyCap *float64 `json:"monthly_cap"`
                 }
@@ -3178,7 +3178,7 @@ func (b *broker) accountLimit(w http.ResponseWriter, r *http.Request) <span clas
 // anonymous pubkey-derived id (no wallet by design). This gates the unsigned
 // dashboard balance path, which only ever resolves a github-scoped wallet; grant
 // keys authenticate on the relay path, not this browser-session dashboard.
-func walletLoggedIn(wallet string) bool <span class="cov10" title="74">{
+func walletLoggedIn(wallet string) bool <span class="cov10" title="75">{
         return strings.HasPrefix(wallet, "u_gh_")
 }</span>
 
@@ -3351,7 +3351,7 @@ type mailer struct {
 
 // loadMailer builds the mailer from the environment. UNSET RESEND_API_KEY =&gt; the
 // mailer is disabled (enabled()==false) and every send is a logged-once no-op.
-func loadMailer() *mailer <span class="cov10" title="231">{
+func loadMailer() *mailer <span class="cov10" title="272">{
         return &amp;mailer{
                 apiKey:   os.Getenv("RESEND_API_KEY"),
                 from:     envStr("RESEND_FROM", "RogerAI &lt;noreply@rogerai.fyi&gt;"),
@@ -3363,7 +3363,7 @@ func loadMailer() *mailer <span class="cov10" title="231">{
 
 // enabled reports whether the mailer is live (RESEND_API_KEY is set). When false the
 // whole layer is inert.
-func (m *mailer) enabled() bool <span class="cov9" title="149">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
+func (m *mailer) enabled() bool <span class="cov9" title="150">{ return m != nil &amp;&amp; m.apiKey != "" }</span>
 
 // sendEmail fires a transactional email ASYNCHRONOUSLY. It is a no-op (logged once)
 // when the mailer is disabled, and skips silently when the recipient is empty. It
@@ -3902,8 +3902,8 @@ func evidenceText(evidence string) string <span class="cov3" title="4">{
 // ("80" near, "100" at limit). De-duped per (holder, threshold, month) so the hot
 // relay path emits at most one email per threshold per month. No-op when disabled or
 // no email.
-func (b *broker) emailCapNotice(holder string, threshold string, spend, cap float64, now time.Time) <span class="cov6" title="24">{
-        if !b.mail.enabled() </span><span class="cov5" title="16">{
+func (b *broker) emailCapNotice(holder string, threshold string, spend, cap float64, now time.Time) <span class="cov6" title="25">{
+        if !b.mail.enabled() </span><span class="cov5" title="17">{
                 return
         }</span>
         <span class="cov4" title="8">email := b.emailOf(holder)
@@ -4001,7 +4001,7 @@ func (gc grantContext) modelDenied(model string) bool <span class="cov7" title="
 
 // grantTokenFromHeader extracts a `Bearer rog-grant_...` secret, or "" if the
 // Authorization header is absent or not a grant token.
-func grantTokenFromHeader(r *http.Request) string <span class="cov10" title="58">{
+func grantTokenFromHeader(r *http.Request) string <span class="cov10" title="59">{
         a := r.Header.Get("Authorization")
         if len(a) &gt; 7 &amp;&amp; a[:7] == "Bearer " </span><span class="cov6" title="13">{
                 tok := a[7:]
@@ -4009,7 +4009,7 @@ func grantTokenFromHeader(r *http.Request) string <span class="cov10" title="58"
                         return tok
                 }</span>
         }
-        <span class="cov9" title="45">return ""</span>
+        <span class="cov9" title="46">return ""</span>
 }
 
 // resolveGrant detects + validates a grant bearer token on r. It returns:
@@ -4021,9 +4021,9 @@ func grantTokenFromHeader(r *http.Request) string <span class="cov10" title="58"
 //
 // A request with no grant token returns (zero, false, "") so the caller falls
 // through to the normal signed path.
-func (b *broker) resolveGrant(r *http.Request) (gc grantContext, ok bool, err string) <span class="cov10" title="58">{
+func (b *broker) resolveGrant(r *http.Request) (gc grantContext, ok bool, err string) <span class="cov10" title="59">{
         tok := grantTokenFromHeader(r)
-        if tok == "" </span><span class="cov9" title="45">{
+        if tok == "" </span><span class="cov9" title="46">{
                 return grantContext{}, false, ""
         }</span>
         <span class="cov6" title="13">return b.resolveGrantToken(tok)</span>
@@ -4066,12 +4066,12 @@ func (b *broker) resolveGrantToken(tok string) (gc grantContext, ok bool, err st
 
 // grantCapCheck enforces the grant's daily/monthly token caps before dispatch.
 // Returns (0, "") when within caps, else a 429 status + message.
-func (b *broker) grantCapCheck(g store.Grant) (int, string) <span class="cov8" title="33">{
-        if g.DailyCap == 0 &amp;&amp; g.MonthlyCap == 0 </span><span class="cov6" title="12">{
+func (b *broker) grantCapCheck(g store.Grant) (int, string) <span class="cov9" title="42">{
+        if g.DailyCap == 0 &amp;&amp; g.MonthlyCap == 0 </span><span class="cov6" title="13">{
                 return 0, ""
         }</span>
-        <span class="cov7" title="21">u, err := b.db.GrantUsageOf(g.ID, time.Now())
-        if err != nil </span><span class="cov3" title="3">{
+        <span class="cov8" title="29">u, err := b.db.GrantUsageOf(g.ID, time.Now())
+        if err != nil </span><span class="cov4" title="4">{
                 // FAIL CLOSED: a usage-read error must NOT silently uncap a capped grant - that
                 // turned a capped grant into free unlimited service on any Postgres bucket-read
                 // hiccup. Mirror the monthly spend cap's fail-closed posture: reject until usage is
@@ -4079,13 +4079,13 @@ func (b *broker) grantCapCheck(g store.Grant) (int, string) <span class="cov8" t
                 // above without a read.)
                 return http.StatusTooManyRequests, "grant cap check unavailable - try again shortly"
         }</span>
-        <span class="cov7" title="18">if g.DailyCap &gt; 0 &amp;&amp; u.DayTokens &gt;= g.DailyCap </span><span class="cov5" title="9">{
+        <span class="cov8" title="25">if g.DailyCap &gt; 0 &amp;&amp; u.DayTokens &gt;= g.DailyCap </span><span class="cov6" title="12">{
                 return http.StatusTooManyRequests, "grant daily token cap reached"
         }</span>
-        <span class="cov5" title="9">if g.MonthlyCap &gt; 0 &amp;&amp; u.MonthTokens &gt;= g.MonthlyCap </span><span class="cov2" title="2">{
+        <span class="cov6" title="13">if g.MonthlyCap &gt; 0 &amp;&amp; u.MonthTokens &gt;= g.MonthlyCap </span><span class="cov4" title="4">{
                 return http.StatusTooManyRequests, "grant monthly token cap reached"
         }</span>
-        <span class="cov5" title="7">return 0, ""</span>
+        <span class="cov5" title="9">return 0, ""</span>
 }
 
 // pricingPlan is the resolved billing decision for a request.
@@ -4128,7 +4128,7 @@ type streamBill struct {
 // caller is logged in, else the same pubkey-derived id). They differ only for a
 // logged-in user, so self-use still keys on the pubkey while public spend bills the
 // unified account wallet.
-func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, node protocol.NodeRegistration, offer protocol.ModelOffer) pricingPlan <span class="cov9" title="39">{
+func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, node protocol.NodeRegistration, offer protocol.ModelOffer) pricingPlan <span class="cov9" title="40">{
         if gok </span><span class="cov4" title="6">{
                 in, out := gc.grant.GrantPrice()
                 if in == 0 &amp;&amp; out == 0 </span><span class="cov3" title="3">{
@@ -4143,7 +4143,7 @@ func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, 
         // the node-&gt;owner-account binding is an immutable TOFU mapping, so cache it behind the
         // flag to drop the per-request point read; Postgres stays authoritative on a miss/flag-
         // off, and BindNode invalidates the entry.
-        <span class="cov8" title="33">if acct, ok := b.cachedAccountOfNode(node.NodeID, func() (string, bool) </span><span class="cov8" title="33">{
+        <span class="cov8" title="34">if acct, ok := b.cachedAccountOfNode(node.NodeID, func() (string, bool) </span><span class="cov8" title="34">{
                 a, ok, _ := b.db.AccountOfNode(node.NodeID)
                 return a, ok
         }</span>); ok &amp;&amp; b.ownsNode(user, acct) <span class="cov3" title="3">{
@@ -4151,7 +4151,7 @@ func (b *broker) resolvePricing(gc grantContext, gok bool, user, wallet string, 
         }</span>
         // Public market: the relay applies the active price + price-lock window itself
         // (fixed=false), so we only need to name the payer (the unified account wallet).
-        <span class="cov8" title="30">_ = offer
+        <span class="cov8" title="31">_ = offer
         return pricingPlan{payer: wallet}</span>
 }
 
@@ -4200,12 +4200,12 @@ func ownerWallet(ownerPubkey string) string <span class="cov2" title="2">{
 // no ledger money rows (the "never pay yourself" / "free grant costs nobody" rule).
 // Priced requests run the normal Hold/Finalize capture. It always increments the
 // grant usage rollup (when grantID is set) so caps + the dashboard stay accurate.
-func (b *broker) settleRequest(payer, node string, held, cost float64, rec protocol.UsageReceipt, grantID string, free bool) (float64, error) <span class="cov7" title="18">{
+func (b *broker) settleRequest(payer, node string, held, cost float64, rec protocol.UsageReceipt, grantID string, free bool) (float64, error) <span class="cov7" title="20">{
         now := time.Now()
         if grantID != "" </span><span class="cov2" title="2">{
                 _ = b.db.AddGrantUsage(grantID, int64(rec.PromptTokens+rec.CompletionTokens), now)
         }</span>
-        <span class="cov7" title="18">if free </span><span class="cov3" title="3">{
+        <span class="cov7" title="20">if free </span><span class="cov3" title="3">{
                 // Metering only: record the receipt (Settle at cost 0, ownerShare 0 writes no
                 // earning lot and a $0 spend row) so the owner still sees usage.
                 return b.db.Settle(payer, node, 0, 0, rec)
@@ -4215,20 +4215,20 @@ func (b *broker) settleRequest(payer, node string, held, cost float64, rec proto
         // but the banned operator mints NO earning (ownerShare 0 -&gt; no lot). The pick filter
         // is the primary gate; this closes the in-flight race so a banned owner can't earn on
         // a request already in progress.
-        <span class="cov7" title="15">ownerShare := cost * (1 - b.feeRate)
+        <span class="cov7" title="17">ownerShare := cost * (1 - b.feeRate)
         if b.nodeOwnerBanned(node) </span><span class="cov1" title="1">{
                 log.Printf("settle: node=%s owner BANNED - billing consumer but minting NO earning", node)
                 ownerShare = 0
         }</span>
-        <span class="cov7" title="15">bal, ferr := b.db.Finalize(payer, node, held, cost, ownerShare, rec)
-        if ferr == nil &amp;&amp; cost &gt; 0 </span><span class="cov5" title="7">{
+        <span class="cov7" title="17">bal, ferr := b.db.Finalize(payer, node, held, cost, ownerShare, rec)
+        if ferr == nil &amp;&amp; cost &gt; 0 </span><span class="cov5" title="9">{
                 // W2b: keep the monthly-spend fast-path counter current with the captured spend.
                 // The ledger row Finalize just wrote is the source of truth; this is a best-effort
                 // accelerator (a failed/absent increment is reconciled from the ledger SUM on the
                 // next cap read, fail-closed). Off when the flag is off / cost is $0.
                 b.recordMonthSpend(payer, cost, now)
         }</span>
-        <span class="cov7" title="15">return bal, ferr</span>
+        <span class="cov7" title="17">return bal, ferr</span>
 }
 </pre>
 		
@@ -4537,7 +4537,7 @@ import (
 
 // ftoa renders a float as its compact JSON number form (used for X-RogerAI-*
 // numeric headers so they parse cleanly client-side).
-func ftoa(f float64) string <span class="cov7" title="84">{
+func ftoa(f float64) string <span class="cov7" title="86">{
         b, _ := json.Marshal(f)
         return string(b)
 }</span>
@@ -4563,13 +4563,13 @@ func fmtCostHeader(cost float64) string <span class="cov6" title="40">{
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
-func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="496">{
+func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov10" title="497">{
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(code)
         _ = json.NewEncoder(w).Encode(v)
 }</span>
 
-func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="235">{
+func jsonErr(w http.ResponseWriter, code int, msg string) <span class="cov8" title="236">{
         writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }</span>
 
@@ -4594,13 +4594,13 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
-func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="459">{
+func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov9" title="460">{
         if r.Method != method </span><span class="cov4" title="11">{
                 w.Header().Set("Allow", method)
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return false
         }</span>
-        <span class="cov9" title="448">return true</span>
+        <span class="cov9" title="449">return true</span>
 }
 </pre>
 		
@@ -5045,7 +5045,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop &lt;-
 // environment (rehydrate, config loaders, optional shared-state layer). It does NOT
 // start the background goroutines that need a wired shared store - those are gated on
 // b.shared (nil in tests) - nor does it serve, so a test can construct + drive it.
-func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, lock time.Duration) *broker <span class="cov8" title="230">{
+func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, lock time.Duration) *broker <span class="cov9" title="271">{
         b := &amp;broker{
                 nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
                 lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
@@ -5129,7 +5129,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
                         go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
                         log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
                 }</span>
-        } else<span class="cov8" title="228"> if multiInstanceEnabled() </span><span class="cov1" title="1">{
+        } else<span class="cov9" title="269"> if multiInstanceEnabled() </span><span class="cov1" title="1">{
                 // Fail SAFE, not closed: the flag was set but there is no shared backend to
                 // rendezvous over, so we CANNOT do cross-instance handoff. Stay single-instance
                 // in-memory (the correct behavior for one instance) and warn loudly rather than
@@ -5140,10 +5140,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
         // station, then Groq). Stored as fields so tests can stub each branch
         // independently. grantDogfoodFn stays nil (path disabled) unless CONCIERGE_GRANT_KEY
         // is set, so the handler skips it cleanly when there is no grant key.
-        <span class="cov8" title="230">if b.concierge.grantKey != "" </span><span class="cov0" title="0">{
+        <span class="cov9" title="271">if b.concierge.grantKey != "" </span><span class="cov0" title="0">{
                 b.concierge.grantDogfoodFn = b.dogfoodGrantRelay
         }</span>
-        <span class="cov8" title="230">b.concierge.dogfoodFn = b.dogfoodRelay
+        <span class="cov9" title="271">b.concierge.dogfoodFn = b.dogfoodRelay
         b.concierge.groqFn = b.groqCall
         log.Printf("price-lock: quoted prices honored for %s per user+node+model", lock)
         return b</span>
@@ -5350,12 +5350,12 @@ func requireBrokerKey() bool <span class="cov4" title="10">{
 // cross-instance rendezvous bus. It is the SECOND gate (after a wired shared backend):
 // main only sets b.multiInstance when this is true AND b.shared != nil. Off by default
 // (the in-memory single-instance fast-path). Accepts 1/true/yes/on.
-func multiInstanceEnabled() bool <span class="cov8" title="239">{
+func multiInstanceEnabled() bool <span class="cov9" title="280">{
         switch strings.ToLower(os.Getenv("ROGERAI_MULTI_INSTANCE")) </span>{
         case "1", "true", "yes", "on":<span class="cov3" title="7">
                 return true</span>
         }
-        <span class="cov8" title="232">return false</span>
+        <span class="cov9" title="273">return false</span>
 }
 
 // newInstanceID returns a random per-process id used as this instance's field in the
@@ -5428,21 +5428,21 @@ func (b *broker) pseudonym(user, node string) string <span class="cov6" title="3
 //     pubkey can't be turned into a spendable impersonation; and
 //  2. spend handlers additionally require authed==true (see relay), so even a
 //     non-derived legacy id can never spend.
-func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) <span class="cov8" title="216">{
+func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) <span class="cov8" title="217">{
         pub := r.Header.Get(protocol.HeaderPubkey)
         sig := r.Header.Get(protocol.HeaderSig)
         tsStr := r.Header.Get(protocol.HeaderTS)
-        if pub != "" || sig != "" || tsStr != "" </span><span class="cov8" title="165">{
+        if pub != "" || sig != "" || tsStr != "" </span><span class="cov8" title="166">{
                 // A signature was offered - it MUST verify, or the request is rejected.
                 ts, err := strconv.ParseInt(tsStr, 10, 64)
                 if err != nil </span><span class="cov1" title="1">{
                         return "", false, false
                 }</span>
-                <span class="cov8" title="164">uid, vok := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
+                <span class="cov8" title="165">uid, vok := protocol.VerifyRequest(pub, sig, ts, r.Method, r.URL.Path, body)
                 if !vok </span><span class="cov4" title="9">{
                         return "", false, false
                 }</span>
-                <span class="cov8" title="155">b.bindUserPub(uid, pub)
+                <span class="cov8" title="156">b.bindUserPub(uid, pub)
                 return uid, true, true</span>
         }
         // Unsigned: legacy, unauthenticated. Used for reads + backward compatibility;
@@ -5477,7 +5477,7 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
 // The signed `id` is still used directly for self-use ownership checks (ownsNode
 // compares the pubkey-derived id to the node's owner pubkey); only the MONEY key is
 // remapped here. Requires the pubkey header (a verified request always carries it).
-func (b *broker) walletOf(r *http.Request, id string) string <span class="cov7" title="71">{
+func (b *broker) walletOf(r *http.Request, id string) string <span class="cov7" title="72">{
         pub := r.Header.Get(protocol.HeaderPubkey)
         if pub == "" </span><span class="cov4" title="8">{
                 return id
@@ -5487,12 +5487,12 @@ func (b *broker) walletOf(r *http.Request, id string) string <span class="cov7" 
         // hit. Postgres stays authoritative on a miss/flag-off (resolve below); the bind
         // write (auth.go) invalidates the entry so a re-login is reflected at once. A non-
         // logged-in/anon pubkey is cached as a negative result so it doesn't re-hit Postgres.
-        <span class="cov7" title="63">if w, ok := b.cachedOwnerWallet(pub, func() (string, bool) </span><span class="cov7" title="63">{
-                if o, ok, err := b.db.OwnerByPubkey(pub); err == nil &amp;&amp; ok &amp;&amp; !o.Anonymized &amp;&amp; o.GitHubID != 0 </span><span class="cov6" title="33">{
+        <span class="cov7" title="64">if w, ok := b.cachedOwnerWallet(pub, func() (string, bool) </span><span class="cov7" title="64">{
+                if o, ok, err := b.db.OwnerByPubkey(pub); err == nil &amp;&amp; ok &amp;&amp; !o.Anonymized &amp;&amp; o.GitHubID != 0 </span><span class="cov6" title="34">{
                         return "u_gh_" + strconv.FormatInt(o.GitHubID, 10), true
                 }</span>
                 <span class="cov5" title="30">return "", false</span>
-        }); ok <span class="cov6" title="33">{
+        }); ok <span class="cov6" title="34">{
                 return w
         }</span>
         <span class="cov5" title="30">return id</span>
@@ -5547,18 +5547,18 @@ func looksLikeDerivedID(s string) bool <span class="cov5" title="22">{
 // bindUserPub records the first pubkey seen for a verified user id (TOFU). Because
 // the id is derived from the pubkey this is effectively a no-op for honest callers,
 // but it makes the id&lt;-&gt;key relationship explicit and auditable.
-func (b *broker) bindUserPub(id, pub string) <span class="cov8" title="155">{
+func (b *broker) bindUserPub(id, pub string) <span class="cov8" title="156">{
         b.authMu.Lock()
         if b.pubOfUser == nil </span><span class="cov3" title="5">{
                 b.pubOfUser = map[string]string{}
         }</span>
-        <span class="cov8" title="155">if _, ok := b.pubOfUser[id]; !ok </span><span class="cov7" title="94">{
+        <span class="cov8" title="156">if _, ok := b.pubOfUser[id]; !ok </span><span class="cov7" title="95">{
                 b.pubOfUser[id] = pub
         }</span>
-        <span class="cov8" title="155">b.authMu.Unlock()</span>
+        <span class="cov8" title="156">b.authMu.Unlock()</span>
 }
 
-func round6(f float64) float64 <span class="cov10" title="474">{
+func round6(f float64) float64 <span class="cov10" title="480">{
         return float64(int64(f*1e6+0.5)) / 1e6
 }</span>
 
@@ -5896,7 +5896,7 @@ func (b *broker) computeMarket() any <span class="cov2" title="12">{
                         <span class="cov2" title="11">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="5">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov2" title="11">if recency &gt; a.bestRecency </span><span class="cov2" title="9">{
+                        <span class="cov2" title="11">if recency &gt; a.bestRecency </span><span class="cov2" title="8">{
                                 a.bestRecency = recency
                         }</span>
                         <span class="cov2" title="11">if staleness &gt; a.bestStaleness </span><span class="cov2" title="8">{
@@ -6013,24 +6013,24 @@ func recencyOf(age time.Duration) float64 <span class="cov3" title="50">{
 //   - otherwise, NOT the old constant 1.0: a node with a recent PASSED canary counts
 //     as positive (probed-OK-no-traffic = good evidence, verifiedOK), while a node
 //     with NO evidence at all sits at a NEUTRAL 0.6 (unproven, not assumed perfect).
-func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15530">{
+func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15532">{
         if srSeen </span><span class="cov6" title="1804">{
                 return clamp01(sr)
         }</span>
-        <span class="cov8" title="13726">if verifiedOK </span><span class="cov8" title="13589">{
+        <span class="cov8" title="13728">if verifiedOK </span><span class="cov8" title="13589">{
                 return 0.9 // probed OK, no organic traffic yet: strong positive, just shy of proven
         }</span>
-        <span class="cov4" title="137">return 0.6</span> // no evidence either way: neutral, not optimistic-1.0
+        <span class="cov4" title="139">return 0.6</span> // no evidence either way: neutral, not optimistic-1.0
 }
 
-func clamp01(x float64) float64 <span class="cov10" title="145144">{
+func clamp01(x float64) float64 <span class="cov10" title="145161">{
         if x &lt; 0 </span><span class="cov2" title="6">{
                 return 0
         }</span>
-        <span class="cov9" title="145138">if x &gt; 1 </span><span class="cov6" title="2761">{
+        <span class="cov9" title="145155">if x &gt; 1 </span><span class="cov6" title="2761">{
                 return 1
         }</span>
-        <span class="cov9" title="142377">return x</span>
+        <span class="cov9" title="142394">return x</span>
 }
 
 // computeSignal scores a channel 0..100 from full multi-factor evidence and returns
@@ -6910,7 +6910,7 @@ type modResult struct {
 }
 
 // allow reports whether the screen passed (nothing to reject).
-func (r modResult) allow() bool <span class="cov7" title="79">{ return r.status == 0 }</span>
+func (r modResult) allow() bool <span class="cov7" title="80">{ return r.status == 0 }</span>
 
 // defaultModerationModel is the current Groq content-safety model. Groq decommissioned
 // the Llama Guard family (meta-llama/llama-guard-4-12b now 404s), so we use OpenAI's
@@ -6944,7 +6944,7 @@ Do not explain in the answer. Output only that one line.`
 // Override (replace) with ROGERAI_CSAM_CATEGORIES.
 var defaultCSAMCategories = []string{"s4", "sexual/minors"}
 
-func loadModeration() moderation <span class="cov8" title="243">{
+func loadModeration() moderation <span class="cov8" title="284">{
         m := moderation{
                 provider: strings.ToLower(strings.TrimSpace(os.Getenv("MODERATION_PROVIDER"))),
                 url:      os.Getenv("MODERATION_URL"),
@@ -6964,81 +6964,81 @@ func loadModeration() moderation <span class="cov8" title="243">{
         if v := strings.TrimSpace(os.Getenv("MODERATION_MODEL")); v != "" </span><span class="cov0" title="0">{
                 m.groqModel = v
         }</span>
-        <span class="cov8" title="243">m.csamCats = loadCSAMCategories(os.Getenv("ROGERAI_CSAM_CATEGORIES"))
+        <span class="cov8" title="284">m.csamCats = loadCSAMCategories(os.Getenv("ROGERAI_CSAM_CATEGORIES"))
         // Resolve the backend. An explicit MODERATION_PROVIDER wins; otherwise infer it
         // from what is configured (a MODERATION_URL implies "url"; else a GROQ_API_KEY
         // implies "groq"). The result is one of "", "url", "groq".
         switch m.provider </span>{
         case "url", "groq":<span class="cov0" title="0"></span>
                 // explicit; keep as-is
-        default:<span class="cov8" title="243">
+        default:<span class="cov8" title="284">
                 switch </span>{
                 case m.url != "":<span class="cov3" title="7">
                         m.provider = "url"</span>
-                case m.groqKey != "":<span class="cov2" title="2">
+                case m.groqKey != "":<span class="cov1" title="2">
                         m.provider = "groq"</span>
-                default:<span class="cov8" title="234">
+                default:<span class="cov8" title="275">
                         m.provider = ""</span>
                 }
         }
 
-        <span class="cov8" title="243">switch </span>{
-        case m.provider == "" &amp;&amp; m.require:<span class="cov2" title="2">
+        <span class="cov8" title="284">switch </span>{
+        case m.provider == "" &amp;&amp; m.require:<span class="cov1" title="2">
                 log.Printf("MODERATION: REQUIRED but no backend configured - all requests will be blocked (fail-closed). Set MODERATION_URL, or MODERATION_PROVIDER=groq + GROQ_API_KEY.")</span>
-        case m.provider == "":<span class="cov8" title="232">
+        case m.provider == "":<span class="cov8" title="273">
                 log.Printf("MODERATION: DISABLED (no backend). NOT SAFE FOR PUBLIC TRAFFIC - set MODERATION_URL (or MODERATION_PROVIDER=groq + GROQ_API_KEY) + ROGERAI_REQUIRE_MODERATION=1 before launch.")</span>
         case m.provider == "groq" &amp;&amp; m.groqKey == "":<span class="cov0" title="0">
                 log.Printf("MODERATION: provider=groq but no key set - requests fail %s. Set MODERATION_GROQ_KEY (or GROQ_API_KEY).", failMode(m.require))</span>
         case m.provider == "url" &amp;&amp; m.url == "":<span class="cov0" title="0">
                 log.Printf("MODERATION: provider=url but MODERATION_URL is unset - requests fail %s.", failMode(m.require))</span>
-        case m.provider == "groq":<span class="cov2" title="2">
+        case m.provider == "groq":<span class="cov1" title="2">
                 keySrc := "GROQ_API_KEY"
-                if strings.TrimSpace(os.Getenv("MODERATION_GROQ_KEY")) != "" </span><span class="cov2" title="2">{
+                if strings.TrimSpace(os.Getenv("MODERATION_GROQ_KEY")) != "" </span><span class="cov1" title="2">{
                         keySrc = "MODERATION_GROQ_KEY"
                 }</span>
-                <span class="cov2" title="2">log.Printf("MODERATION: enabled via Groq safeguard model %s (key=%s, require=%v)", m.groqModel, keySrc, m.require)</span>
+                <span class="cov1" title="2">log.Printf("MODERATION: enabled via Groq safeguard model %s (key=%s, require=%v)", m.groqModel, keySrc, m.require)</span>
         default:<span class="cov3" title="7">
                 log.Printf("MODERATION: enabled via %s (require=%v)", m.url, m.require)</span>
         }
         // Surface the legal preserve+report obligation at startup whenever the screen is
         // on: a CSAM (child-exploitation) hit is PRESERVED to rogerai.csam_incidents and a
         // CyberTipline report is QUEUED (US 18 USC 2258A), not silently discarded.
-        <span class="cov8" title="243">if m.provider != "" </span><span class="cov4" title="9">{
+        <span class="cov8" title="284">if m.provider != "" </span><span class="cov4" title="9">{
                 log.Printf("MODERATION: CSAM categories %v -&gt; hits are PRESERVED + a CyberTipline report is QUEUED (18 USC 2258A); other unsafe categories are 451-rejected only", sortedKeys(m.csamCats))
         }</span>
-        <span class="cov8" title="243">return m</span>
+        <span class="cov8" title="284">return m</span>
 }
 
 // firstNonEmpty returns the first value that is non-empty after trimming, TRIMMED, or "".
 // Trimming the returned value matters: it becomes a Bearer credential, so a whitespace-only
 // or padded env value must not yield a malformed "Bearer   " header.
-func firstNonEmpty(vals ...string) string <span class="cov8" title="245">{
-        for _, v := range vals </span><span class="cov9" title="489">{
+func firstNonEmpty(vals ...string) string <span class="cov8" title="286">{
+        for _, v := range vals </span><span class="cov9" title="571">{
                 if t := strings.TrimSpace(v); t != "" </span><span class="cov2" title="3">{
                         return t
                 }</span>
         }
-        <span class="cov8" title="242">return ""</span>
+        <span class="cov8" title="283">return ""</span>
 }
 
 // loadCSAMCategories parses the configurable child-exploitation category set from a
 // comma-separated env value (case-folded), falling back to the built-in default.
-func loadCSAMCategories(env string) map[string]bool <span class="cov8" title="254">{
+func loadCSAMCategories(env string) map[string]bool <span class="cov9" title="295">{
         out := map[string]bool{}
-        add := func(list []string) </span><span class="cov8" title="254">{
-                for _, c := range list </span><span class="cov10" title="509">{
-                        if c = strings.ToLower(strings.TrimSpace(c)); c != "" </span><span class="cov9" title="507">{
+        add := func(list []string) </span><span class="cov9" title="295">{
+                for _, c := range list </span><span class="cov10" title="591">{
+                        if c = strings.ToLower(strings.TrimSpace(c)); c != "" </span><span class="cov9" title="589">{
                                 out[c] = true
                         }</span>
                 }
         }
-        <span class="cov8" title="254">if strings.TrimSpace(env) != "" </span><span class="cov2" title="3">{
+        <span class="cov9" title="295">if strings.TrimSpace(env) != "" </span><span class="cov2" title="3">{
                 add(strings.Split(env, ","))
         }</span>
-        <span class="cov8" title="254">if len(out) == 0 </span><span class="cov8" title="251">{
+        <span class="cov9" title="295">if len(out) == 0 </span><span class="cov9" title="292">{
                 add(defaultCSAMCategories)
         }</span>
-        <span class="cov8" title="254">return out</span>
+        <span class="cov9" title="295">return out</span>
 }
 
 // sortedKeys returns a set's keys sorted, for a stable startup log line.
@@ -7065,7 +7065,7 @@ func (m moderation) isCSAM(cats []string) (bool, string) <span class="cov5" titl
 }
 
 // failMode renders the fail posture for a startup log line.
-func failMode(require bool) string <span class="cov2" title="2">{
+func failMode(require bool) string <span class="cov1" title="2">{
         if require </span><span class="cov1" title="1">{
                 return "CLOSED (rejected)"
         }</span>
@@ -7077,16 +7077,16 @@ func failMode(require bool) string <span class="cov2" title="2">{
 // policy, 503 when the screen is required but unavailable (fail-closed). When not
 // required, a configuration or transport problem fails open (logged) so a screen
 // outage does not take the marketplace down in non-launch posture.
-func (m moderation) screen(text string) modResult <span class="cov7" title="120">{
+func (m moderation) screen(text string) modResult <span class="cov7" title="121">{
         // Backend not configured (or configured but missing its credential).
         switch </span>{
         case m.provider == "",
                 m.provider == "url" &amp;&amp; m.url == "",
-                m.provider == "groq" &amp;&amp; m.groqKey == "":<span class="cov7" title="72">
+                m.provider == "groq" &amp;&amp; m.groqKey == "":<span class="cov7" title="73">
                 if m.require </span><span class="cov2" title="3">{
                         return modResult{status: http.StatusServiceUnavailable, msg: "content screening required but not configured"}
                 }</span>
-                <span class="cov7" title="69">return modResult{}</span>
+                <span class="cov6" title="70">return modResult{}</span>
         }
         // Empty input has nothing to screen - short-circuit ALLOW and skip the network
         // round-trip (this is on the hot dispatch path). A no-text request is handled by
@@ -7099,15 +7099,15 @@ func (m moderation) screen(text string) modResult <span class="cov7" title="120"
         }</span>
         <span class="cov5" title="21">body, _ := json.Marshal(map[string]string{"input": text})
         resp, err := m.client.Post(m.url, "application/json", bytes.NewReader(body))
-        if err != nil </span><span class="cov3" title="4">{
+        if err != nil </span><span class="cov2" title="4">{
                 if m.require </span><span class="cov2" title="3">{
                         return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
                 }</span>
                 <span class="cov1" title="1">log.Printf("MODERATION: screen unreachable (%v), failing open (require=false)", err)
                 return modResult{}</span>
         }
-        <span class="cov5" title="17">defer resp.Body.Close()
-        if resp.StatusCode != http.StatusOK </span><span class="cov2" title="2">{
+        <span class="cov4" title="17">defer resp.Body.Close()
+        if resp.StatusCode != http.StatusOK </span><span class="cov1" title="2">{
                 if m.require </span><span class="cov1" title="1">{
                         return modResult{status: http.StatusServiceUnavailable, msg: "content screening error"}
                 }</span>
@@ -7135,7 +7135,7 @@ func (m moderation) screen(text string) modResult <span class="cov7" title="120"
         for _, r := range out.Results </span><span class="cov4" title="11">{
                 if r.Flagged </span><span class="cov4" title="9">{
                         flagged = true
-                        if r.Categories != nil </span><span class="cov3" title="4">{
+                        if r.Categories != nil </span><span class="cov2" title="4">{
                                 cats = r.Categories
                         }</span>
                 }
@@ -7184,7 +7184,7 @@ func (m moderation) screenGroq(text string) modResult <span class="cov5" title="
         <span class="cov5" title="20">req.Header.Set("Content-Type", "application/json")
         req.Header.Set("Authorization", "Bearer "+m.groqKey)
         resp, err := m.client.Do(req)
-        if err != nil </span><span class="cov2" title="2">{
+        if err != nil </span><span class="cov1" title="2">{
                 return m.groqFailMode("transport", err)
         }</span>
         <span class="cov5" title="18">defer resp.Body.Close()
@@ -7212,7 +7212,7 @@ func (m moderation) screenGroq(text string) modResult <span class="cov5" title="
         if i := strings.IndexFunc(low, func(r rune) bool </span><span class="cov7" title="99">{ return r &lt; 'a' || r &gt; 'z' }</span>); i &gt;= 0 <span class="cov4" title="12">{
                 firstWord = low[:i]
         }</span>
-        <span class="cov5" title="18">if firstWord == "safe" </span><span class="cov4" title="8">{
+        <span class="cov5" title="18">if firstWord == "safe" </span><span class="cov3" title="8">{
                 return modResult{}
         }</span>
         // Collect category-looking tokens (S1, S4, ...) from the whole verdict, dropping the
@@ -7256,7 +7256,7 @@ func contentText(rb []byte) string <span class="cov5" title="18">{
 
 // groqFailMode applies the require posture to a Groq-backend error: fail-closed (503)
 // when required, else fail-open (allow, logged).
-func (m moderation) groqFailMode(what string, err error) modResult <span class="cov2" title="2">{
+func (m moderation) groqFailMode(what string, err error) modResult <span class="cov1" title="2">{
         if m.require </span><span class="cov1" title="1">{
                 return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
         }</span>
@@ -7268,7 +7268,7 @@ func (m moderation) groqFailMode(what string, err error) modResult <span class="
 // OpenAI-shape category map as a sorted slice (for the block log + CSAM detection).
 func matchedCategoryList(cats map[string]bool) []string <span class="cov4" title="12">{
         var hit []string
-        for name, matched := range cats </span><span class="cov4" title="8">{
+        for name, matched := range cats </span><span class="cov3" title="8">{
                 if matched </span><span class="cov3" title="7">{
                         hit = append(hit, name)
                 }</span>
@@ -7292,7 +7292,7 @@ func splitCategories(s string) []string <span class="cov4" title="10">{
 // promptText pulls the user-visible text from an OpenAI chat-completions body for
 // screening: the concatenated string content of the messages. Tolerates the array
 // (multimodal) content form by collecting its text parts; the launch is text-only.
-func promptText(body []byte) string <span class="cov7" title="74">{
+func promptText(body []byte) string <span class="cov7" title="75">{
         var req struct {
                 Messages []struct {
                         Content json.RawMessage `json:"content"`
@@ -7301,10 +7301,10 @@ func promptText(body []byte) string <span class="cov7" title="74">{
         if json.Unmarshal(body, &amp;req) != nil </span><span class="cov0" title="0">{
                 return ""
         }</span>
-        <span class="cov7" title="74">var b bytes.Buffer
+        <span class="cov7" title="75">var b bytes.Buffer
         for _, msg := range req.Messages </span><span class="cov5" title="18">{
                 var s string
-                if json.Unmarshal(msg.Content, &amp;s) == nil </span><span class="cov5" title="17">{
+                if json.Unmarshal(msg.Content, &amp;s) == nil </span><span class="cov4" title="17">{
                         b.WriteString(s)
                         b.WriteByte('\n')
                         continue</span>
@@ -7319,7 +7319,7 @@ func promptText(body []byte) string <span class="cov7" title="74">{
                         }</span>
                 }
         }
-        <span class="cov7" title="74">return b.String()</span>
+        <span class="cov7" title="75">return b.String()</span>
 }
 </pre>
 		
@@ -7378,16 +7378,16 @@ func capStateFrom(cap, spend float64) capState <span class="cov8" title="30">{
 // the near/at-cap notice headers so a client can warn "you've used $X of your $Y
 // monthly limit" without a second round-trip. Caller only invokes this on a paid
 // (maxCost&gt;0) request, so free/self spend is never blocked.
-func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost float64, now time.Time) (int, string) <span class="cov10" title="54">{
+func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost float64, now time.Time) (int, string) <span class="cov10" title="55">{
         cap, _ := b.db.MonthlyCapOf(holder)
         if cap &lt;= 0 </span><span class="cov8" title="28">{
                 return 0, "" // unlimited (opt-in feature; default off)
         }</span>
-        <span class="cov8" title="26">spend := b.monthSpend(holder, now)
+        <span class="cov8" title="27">spend := b.monthSpend(holder, now)
         // Reject when even this request's worst-case (the hold amount) would exceed the cap.
         // Using the upper-bound cost mirrors the hold: we never authorize spend we couldn't
         // also have to capture. A request that exactly fits is allowed.
-        if spend+maxCost &gt; cap </span><span class="cov6" title="11">{
+        if spend+maxCost &gt; cap </span><span class="cov6" title="12">{
                 // Surface the at-limit headers on the rejection too, so a client shows the same
                 // "$X of $Y" line whether it was warned or hard-stopped.
                 setCapHeaders(w, capState{cap: cap, spend: spend, pct: spend / cap, atLimit: true})
@@ -7414,16 +7414,16 @@ func (b *broker) monthlyCapCheck(w http.ResponseWriter, holder string, maxCost f
 // setCapHeaders writes the monthly-budget notice headers. They are always safe to send
 // (no secrets) and let the CLI/TUI print "you've used $X of your $Y monthly limit"
 // inline. Omitted entirely when the cap is unlimited (no budget to report).
-func setCapHeaders(w http.ResponseWriter, s capState) <span class="cov8" title="28">{
+func setCapHeaders(w http.ResponseWriter, s capState) <span class="cov8" title="29">{
         if s.cap &lt;= 0 </span><span class="cov2" title="2">{
                 return
         }</span>
-        <span class="cov8" title="26">h := w.Header()
+        <span class="cov8" title="27">h := w.Header()
         h.Set("X-RogerAI-Monthly-Cap", ftoa(round6(s.cap)))
         h.Set("X-RogerAI-Monthly-Spend", ftoa(round6(s.spend)))
         h.Set("X-RogerAI-Monthly-Pct", fmt.Sprintf("%.0f", s.pct*100))
         switch </span>{
-        case s.atLimit:<span class="cov6" title="12">
+        case s.atLimit:<span class="cov6" title="13">
                 h.Set("X-RogerAI-Monthly-Notice", fmt.Sprintf("monthly limit reached - $%.2f of $%.2f this month", round6(s.spend), round6(s.cap)))</span>
         case s.near:<span class="cov4" title="5">
                 h.Set("X-RogerAI-Monthly-Notice", fmt.Sprintf("you've used $%.2f of your $%.2f monthly limit (%.0f%%)", round6(s.spend), round6(s.cap), s.pct*100))</span>
@@ -7477,7 +7477,7 @@ type connect struct {
         reverseTransfer func(transferID string, amountCents int64, idemKey string) (string, error)
 }
 
-func loadConnect() connect <span class="cov10" title="377">{
+func loadConnect() connect <span class="cov10" title="418">{
         c := connect{
                 secretKey:  stripeSecretKey(), // Connect reuses the platform secret key (prod-aware)
                 refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fyi/payouts?onboard=refresh"),
@@ -7493,7 +7493,7 @@ func loadConnect() connect <span class="cov10" title="377">{
                 log.Printf("CONNECT: ROGERAI_REQUIRE_LIVE set but STRIPE_SECRET_KEY is not an sk_live key - payouts DISABLED (refusing the dev stub / test mode in production)")
                 c.secretKey = ""
         }</span>
-        <span class="cov10" title="377">if c.secretKey == "" </span><span class="cov9" title="376">{
+        <span class="cov10" title="418">if c.secretKey == "" </span><span class="cov9" title="417">{
                 log.Printf("CONNECT: Stripe payouts DISABLED (no usable STRIPE_SECRET_KEY). Onboarding + transfers are STUBBED - safe in dev, NOT a real money rail. Set STRIPE_SECRET_KEY before launch.")
         }</span> else<span class="cov1" title="1"> {
                 mode := "test"
@@ -7503,7 +7503,7 @@ func loadConnect() connect <span class="cov10" title="377">{
                 <span class="cov1" title="1">log.Printf("CONNECT: Stripe Connect enabled [%s mode] (hold=%dd reserve=%.0f%% min=%.0f schedule=%s)",
                         mode, c.policy.HoldDays, c.policy.Reserve*100, c.policy.MinPayout, c.policy.Schedule)</span>
         }
-        <span class="cov10" title="377">return c</span>
+        <span class="cov10" title="418">return c</span>
 }
 
 // stripeForm POSTs an application/x-www-form-urlencoded request to the Stripe API
@@ -7723,11 +7723,11 @@ func (b *broker) refreshConnectStatus(login, acctID string) string <span class="
 // minimum-gated (&gt;= policy minimum), payable-only payout. Promotes held-&gt;payable,
 // debits payable lots, creates a Stripe Transfer (or a stub one in dev), and writes
 // the payout + ledger rows in the store transaction.
-func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span class="cov6" title="28">{
+func (b *broker) payoutsRequest(w http.ResponseWriter, r *http.Request) <span class="cov5" title="28">{
         if corsCredsPreflight(w, r) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov6" title="27">if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
+        <span class="cov5" title="27">if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
                 return
         }</span>
         <span class="cov5" title="26">corsCreds(w, r)
@@ -7828,7 +7828,7 @@ func (b *broker) lockPayout(accountID string) func() <span class="cov5" title="2
 // idempotent on idemKey, returning the Stripe transfer id. It uses the injectable
 // conn.transfer when set (tests), then a dev stub when Stripe is unconfigured, else
 // the real Stripe Transfers API.
-func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey string) (string, error) <span class="cov6" title="28">{
+func (b *broker) payoutTransfer(connectID, login string, amount float64, idemKey string) (string, error) <span class="cov5" title="28">{
         // 1 credit == creditUSD dollars; Stripe wants the smallest unit (cents).
         cents := int64(amount*b.bill.creditUSD*100 + 0.5)
         if b.conn.transfer != nil </span><span class="cov5" title="20">{
@@ -8232,7 +8232,7 @@ func maxPriceInCeiling() float64  <span class="cov10" title="79">{ return envFlo
 // not silently bind to an exorbitant band. A consumer that DOES send a (higher) cap on
 // purpose is honored as-is - this only fills the silent-default case. Env-overridable;
 // &lt;=0 disables the backstop (the operator ceiling still bounds the absolute max).
-func consumerDefaultMaxOut() float64 <span class="cov8" title="45">{
+func consumerDefaultMaxOut() float64 <span class="cov8" title="46">{
         return envFloat("ROGERAI_CONSUMER_DEFAULT_MAX_PRICE_OUT", 10)
 }</span>
 
@@ -8240,11 +8240,11 @@ func consumerDefaultMaxOut() float64 <span class="cov8" title="45">{
 // relay request: the consumer's explicit cap when set (&gt;0), else the server-side default
 // backstop (consumerDefaultMaxOut). Returns 0 only when the caller sent no cap AND the
 // backstop is disabled, which means "no cap" (the operator ceiling is the sole bound).
-func effectiveRelayMaxOut(reqMaxOut float64) float64 <span class="cov8" title="48">{
+func effectiveRelayMaxOut(reqMaxOut float64) float64 <span class="cov9" title="49">{
         if reqMaxOut &gt; 0 </span><span class="cov3" title="3">{
                 return reqMaxOut
         }</span>
-        <span class="cov8" title="45">return consumerDefaultMaxOut()</span>
+        <span class="cov8" title="46">return consumerDefaultMaxOut()</span>
 }
 
 // registerPriceCeiling returns a non-empty rejection message if any offer (base price
@@ -8554,38 +8554,38 @@ type probeConfig struct {
 
 // loadProbe reads the active-probe config. ON by default (30s floor -&gt; 15m ceiling);
 // set ROGERAI_PROBE_INTERVAL=0 to disable.
-func loadProbe() probeConfig <span class="cov6" title="235">{
+func loadProbe() probeConfig <span class="cov6" title="276">{
         interval := defaultProbeInterval
         if v := os.Getenv("ROGERAI_PROBE_INTERVAL"); v != "" </span><span class="cov2" title="5">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov2" title="5">{
                         interval = time.Duration(n) * time.Second // 0 = explicitly OFF
                 }</span>
         }
-        <span class="cov6" title="235">ceiling := defaultProbeCeiling
+        <span class="cov6" title="276">ceiling := defaultProbeCeiling
         if v := os.Getenv("ROGERAI_PROBE_CEILING"); v != "" </span><span class="cov1" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="2">{
                         ceiling = time.Duration(n) * time.Second
                 }</span>
         }
-        <span class="cov6" title="235">if ceiling &lt; interval </span><span class="cov1" title="1">{
+        <span class="cov6" title="276">if ceiling &lt; interval </span><span class="cov1" title="1">{
                 ceiling = interval // a ceiling below the floor is meaningless: no backoff room
         }</span>
-        <span class="cov6" title="235">perOwner := defaultProbePerOwner
+        <span class="cov6" title="276">perOwner := defaultProbePerOwner
         if v := os.Getenv("ROGERAI_PROBE_PER_OWNER"); v != "" </span><span class="cov0" title="0">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov0" title="0">{
                         perOwner = n
                 }</span>
         }
-        <span class="cov6" title="235">c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner}
-        if c.enabled() </span><span class="cov6" title="233">{
+        <span class="cov6" title="276">c := probeConfig{interval: interval, ceiling: ceiling, perOwner: perOwner}
+        if c.enabled() </span><span class="cov6" title="274">{
                 log.Printf("active probe: ENABLED (adaptive %s floor -&gt; %s ceiling, doubling while idle; canary + TTFT + clean tok/s, unbilled; per-owner cap %d/round)", c.interval, c.ceiling, c.perOwner)
         }</span> else<span class="cov1" title="2"> {
                 log.Printf("active probe: DISABLED (ROGERAI_PROBE_INTERVAL=0)")
         }</span>
-        <span class="cov6" title="235">return c</span>
+        <span class="cov6" title="276">return c</span>
 }
 
-func (c probeConfig) enabled() bool <span class="cov10" title="7348">{ return c.interval &gt; 0 }</span>
+func (c probeConfig) enabled() bool <span class="cov10" title="7390">{ return c.interval &gt; 0 }</span>
 
 // measurementStale reports whether a node's last measurement (probe or real traffic)
 // is old enough to count as "not recently verified": older than the ceiling, the
@@ -9679,24 +9679,24 @@ type tokenBucket struct {
         last   time.Time
 }
 
-func envFloat(key string, def float64) float64 <span class="cov10" title="2850">{
+func envFloat(key string, def float64) float64 <span class="cov10" title="3265">{
         if v := os.Getenv(key); v != "" </span><span class="cov3" title="12">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil </span><span class="cov3" title="12">{
                         return f
                 }</span>
         }
-        <span class="cov9" title="2838">return def</span>
+        <span class="cov9" title="3253">return def</span>
 }
 
 // envStr returns the env var or def when unset/empty.
-func envStr(key, def string) string <span class="cov8" title="700">{
+func envStr(key, def string) string <span class="cov8" title="823">{
         if v := os.Getenv(key); v != "" </span><span class="cov2" title="5">{
                 return v
         }</span>
-        <span class="cov8" title="695">return def</span>
+        <span class="cov8" title="818">return def</span>
 }
 
-func loadRateLimiter() *rateLimiter <span class="cov8" title="620">{
+func loadRateLimiter() *rateLimiter <span class="cov8" title="704">{
         return &amp;rateLimiter{
                 buckets: map[string]*tokenBucket{},
                 rpm:     envFloat("ROGERAI_RATE_RPM", 120),
@@ -9710,7 +9710,7 @@ func loadRateLimiter() *rateLimiter <span class="cov8" title="620">{
 // IP gets a smaller sustained rate + burst than a signed wallet, since the anon surface
 // is the abuse-prone one and a logged-in caller has its own per-identity bucket.
 // Tunable via ROGERAI_ANON_RATE_RPM / ROGERAI_ANON_RATE_BURST; RPM &lt;= 0 disables it.
-func loadAnonRateLimiter() *rateLimiter <span class="cov7" title="231">{
+func loadAnonRateLimiter() *rateLimiter <span class="cov7" title="272">{
         return &amp;rateLimiter{
                 buckets: map[string]*tokenBucket{},
                 rpm:     envFloat("ROGERAI_ANON_RATE_RPM", 30),
@@ -9720,7 +9720,7 @@ func loadAnonRateLimiter() *rateLimiter <span class="cov7" title="231">{
 
 // allow consumes one token for key and reports whether it may proceed. When denied,
 // retryAfter is a seconds hint. RPM &lt;= 0 disables limiting (always allow).
-func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) <span class="cov6" title="126">{
+func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) <span class="cov6" title="127">{
         return rl.allowAt(key, 0, 0)
 }</span>
 
@@ -9728,24 +9728,24 @@ func (rl *rateLimiter) allow(key string) (ok bool, retryAfter int) <span class="
 // falls back to the limiter's configured default - this is what lets a grant carry
 // its own caps while sharing one limiter instance keyed by grant id. rpmOverride
 // &lt;= 0 AND the limiter default &lt;= 0 means "no limit" (always allow).
-func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (ok bool, retryAfter int) <span class="cov7" title="422">{
+func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (ok bool, retryAfter int) <span class="cov7" title="423">{
         if rl == nil </span><span class="cov4" title="15">{
                 return true, 0
         }</span>
-        <span class="cov7" title="407">rpm, burst := rl.rpm, rl.burst
+        <span class="cov7" title="408">rpm, burst := rl.rpm, rl.burst
         if rpmOverride &gt; 0 </span><span class="cov5" title="44">{
                 rpm = rpmOverride
         }</span>
-        <span class="cov7" title="407">if burstOverride &gt; 0 </span><span class="cov3" title="13">{
+        <span class="cov7" title="408">if burstOverride &gt; 0 </span><span class="cov3" title="13">{
                 burst = burstOverride
         }</span>
-        <span class="cov7" title="407">if rpm &lt;= 0 </span><span class="cov6" title="201">{
+        <span class="cov7" title="408">if rpm &lt;= 0 </span><span class="cov6" title="201">{
                 return true, 0
         }</span>
-        <span class="cov7" title="206">if burst &lt;= 0 </span><span class="cov4" title="33">{
+        <span class="cov6" title="207">if burst &lt;= 0 </span><span class="cov4" title="33">{
                 burst = rpm // a sane default depth when none is set
         }</span>
-        <span class="cov7" title="206">now := time.Now()
+        <span class="cov6" title="207">now := time.Now()
         // Shared (multi-instance) path: when a Valkey backend is wired in, consume the
         // token from the SHARED bucket so one limit is enforced across broker instances.
         // On ANY backend error we fall through to the local in-memory bucket below, so a
@@ -9755,7 +9755,7 @@ func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (
                         return ok, retry
                 }</span>
         }
-        <span class="cov7" title="203">rl.mu.Lock()
+        <span class="cov6" title="204">rl.mu.Lock()
         defer rl.mu.Unlock()
         // Opportunistic prune so the map cannot grow without bound under churn.
         if len(rl.buckets) &gt; 20000 </span><span class="cov0" title="0">{
@@ -9765,24 +9765,24 @@ func (rl *rateLimiter) allowAt(key string, rpmOverride, burstOverride float64) (
                         }</span>
                 }
         }
-        <span class="cov7" title="203">b := rl.buckets[key]
-        if b == nil </span><span class="cov6" title="93">{
+        <span class="cov6" title="204">b := rl.buckets[key]
+        if b == nil </span><span class="cov6" title="94">{
                 b = &amp;tokenBucket{tokens: burst, last: now}
                 rl.buckets[key] = b
         }</span>
-        <span class="cov7" title="203">b.tokens += now.Sub(b.last).Seconds() * (rpm / 60.0)
+        <span class="cov6" title="204">b.tokens += now.Sub(b.last).Seconds() * (rpm / 60.0)
         b.last = now
         if b.tokens &gt; burst </span><span class="cov1" title="1">{
                 b.tokens = burst
         }</span>
-        <span class="cov7" title="203">if b.tokens &lt; 1 </span><span class="cov4" title="17">{
+        <span class="cov6" title="204">if b.tokens &lt; 1 </span><span class="cov4" title="17">{
                 retry := int((1 - b.tokens) / (rpm / 60.0))
                 if retry &lt; 1 </span><span class="cov3" title="11">{
                         retry = 1
                 }</span>
                 <span class="cov4" title="17">return false, retry</span>
         }
-        <span class="cov6" title="186">b.tokens -= 1
+        <span class="cov6" title="187">b.tokens -= 1
         return true, 0</span>
 }
 </pre>
@@ -9843,7 +9843,7 @@ const impossibleInputBanMargin = 8192
 
 // loadRecount reads the L1 re-count config. Disabled (no-op) when TOKENIZER_URL
 // is unset, so the broker runs fine with no sidecar.
-func loadRecount() recountConfig <span class="cov6" title="233">{
+func loadRecount() recountConfig <span class="cov6" title="274">{
         c := recountConfig{
                 url:             os.Getenv("TOKENIZER_URL"),
                 tolerance:       0.02,
@@ -9855,22 +9855,22 @@ func loadRecount() recountConfig <span class="cov6" title="233">{
                         c.tolerance = f
                 }</span>
         }
-        <span class="cov6" title="233">if v := os.Getenv("ROGERAI_RECOUNT_STRIKE_TOLERANCE"); v != "" </span><span class="cov1" title="2">{
+        <span class="cov6" title="274">if v := os.Getenv("ROGERAI_RECOUNT_STRIKE_TOLERANCE"); v != "" </span><span class="cov1" title="2">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil &amp;&amp; f &gt;= 0 </span><span class="cov1" title="2">{
                         c.strikeTolerance = f
                 }</span>
         }
         // The strike band can never be tighter than the billing band (that would strike on a
         // discrepancy we did not even cap billing on). Clamp up to the billing tolerance.
-        <span class="cov6" title="233">if c.strikeTolerance &lt; c.tolerance </span><span class="cov1" title="2">{
+        <span class="cov6" title="274">if c.strikeTolerance &lt; c.tolerance </span><span class="cov1" title="2">{
                 c.strikeTolerance = c.tolerance
         }</span>
-        <span class="cov6" title="233">if c.url == "" </span><span class="cov5" title="150">{
+        <span class="cov6" title="274">if c.url == "" </span><span class="cov5" title="191">{
                 log.Printf("L1 re-count: DISABLED (set TOKENIZER_URL to the tokenizer-sidecar, e.g. http://127.0.0.1:9099)")
         }</span> else<span class="cov5" title="83"> {
                 log.Printf("L1 re-count: enabled via %s (billing tolerance=%.0f%%, strike tolerance=%.0f%%)", c.url, c.tolerance*100, c.strikeTolerance*100)
         }</span>
-        <span class="cov6" title="233">return c</span>
+        <span class="cov6" title="274">return c</span>
 }
 
 func (c recountConfig) enabled() bool <span class="cov5" title="182">{ return c.url != "" }</span>
@@ -10121,26 +10121,26 @@ func (t trustState) verifiedServing() bool <span class="cov4" title="61">{
         return t.probed &amp;&amp; t.probeOK &amp;&amp; t.probeFails == 0
 }</span>
 
-func (t trustState) score() float64 <span class="cov10" title="15535">{
+func (t trustState) score() float64 <span class="cov10" title="15537">{
         s := 1.0
         // L1: each discrepancy as a fraction of re-counts pulls the score down.
         if t.recounts &gt; 0 &amp;&amp; t.discrepancies &gt; 0 </span><span class="cov2" title="3">{
                 s -= float64(t.discrepancies) / float64(t.recounts)
         }</span>
         // Probe: a failing canary, or a recent failure streak, pulls it down hard.
-        <span class="cov10" title="15535">if t.probed &amp;&amp; !t.probeOK </span><span class="cov2" title="8">{
+        <span class="cov10" title="15537">if t.probed &amp;&amp; !t.probeOK </span><span class="cov2" title="8">{
                 s -= 0.5
         }</span>
-        <span class="cov10" title="15535">if t.probeFails &gt; 0 </span><span class="cov3" title="12">{
+        <span class="cov10" title="15537">if t.probeFails &gt; 0 </span><span class="cov3" title="12">{
                 s -= 0.2 * float64(t.probeFails)
         }</span>
-        <span class="cov10" title="15535">if s &lt; 0 </span><span class="cov2" title="8">{
+        <span class="cov10" title="15537">if s &lt; 0 </span><span class="cov2" title="8">{
                 s = 0
         }</span>
-        <span class="cov10" title="15535">if s &gt; 1 </span><span class="cov0" title="0">{
+        <span class="cov10" title="15537">if s &gt; 1 </span><span class="cov0" title="0">{
                 s = 1
         }</span>
-        <span class="cov10" title="15535">return s</span>
+        <span class="cov10" title="15537">return s</span>
 }
 
 // completionText extracts the assistant completion text from an OpenAI
@@ -10156,7 +10156,7 @@ func (t trustState) score() float64 <span class="cov10" title="15535">{
 // stacked to 5 strikes and AUTO-BANNED honest reasoning-model nodes (the founder's
 // own gpt-oss/qwen nodes). Counting content + reasoning makes the void/recount/quality
 // checks match what the node actually produced.
-func completionText(body []byte) string <span class="cov4" title="67">{
+func completionText(body []byte) string <span class="cov5" title="73">{
         var resp struct {
                 Choices []struct {
                         Message struct {
@@ -10169,20 +10169,20 @@ func completionText(body []byte) string <span class="cov4" title="67">{
         if json.Unmarshal(body, &amp;resp) != nil </span><span class="cov1" title="1">{
                 return ""
         }</span>
-        <span class="cov4" title="66">var out bytes.Buffer
-        for _, c := range resp.Choices </span><span class="cov4" title="65">{
-                if c.Message.Content != "" </span><span class="cov4" title="53">{
+        <span class="cov4" title="72">var out bytes.Buffer
+        for _, c := range resp.Choices </span><span class="cov4" title="71">{
+                if c.Message.Content != "" </span><span class="cov4" title="55">{
                         out.WriteString(c.Message.Content)
-                }</span> else<span class="cov3" title="12"> if c.Text != "" </span><span class="cov1" title="1">{
+                }</span> else<span class="cov3" title="16"> if c.Text != "" </span><span class="cov1" title="1">{
                         out.WriteString(c.Text)
                 }</span>
                 // Reasoning is real output (reasoning models put the answer here with empty
                 // content); count it so the no-output / over-report checks don't false-strike.
-                <span class="cov4" title="65">if c.Message.Reasoning != "" </span><span class="cov2" title="7">{
+                <span class="cov4" title="71">if c.Message.Reasoning != "" </span><span class="cov3" title="10">{
                         out.WriteString(c.Message.Reasoning)
                 }</span>
         }
-        <span class="cov4" title="66">return out.String()</span>
+        <span class="cov4" title="72">return out.String()</span>
 }
 
 // qualityOK is the lightweight output-quality validation for the smart-router v2
@@ -10219,17 +10219,17 @@ func qualityOKText(s string) bool <span class="cov3" title="15">{
 //
 // claimedCompletion is the node's self-reported completion_tokens; completion is the
 // extracted assistant text (relay: completionText(body); stream: the captured text).
-func producedUsableOutput(status int, completion string, claimedCompletion int) bool <span class="cov5" title="87">{
+func producedUsableOutput(status int, completion string, claimedCompletion int) bool <span class="cov5" title="93">{
         if status &gt;= 400 </span><span class="cov2" title="7">{
                 return false
         }</span>
-        <span class="cov5" title="80">if strings.TrimSpace(completion) == "" </span><span class="cov3" title="13">{
+        <span class="cov5" title="86">if strings.TrimSpace(completion) == "" </span><span class="cov3" title="16">{
                 return false
         }</span>
-        <span class="cov4" title="67">if completion == "" &amp;&amp; claimedCompletion &gt; 0 </span><span class="cov0" title="0">{
+        <span class="cov4" title="70">if completion == "" &amp;&amp; claimedCompletion &gt; 0 </span><span class="cov0" title="0">{
                 return false
         }</span>
-        <span class="cov4" title="67">return true</span>
+        <span class="cov4" title="70">return true</span>
 }
 
 // recountModel is the model id to tokenize under: prefer the receipt's claimed
@@ -10288,13 +10288,13 @@ import (
 // auto-expiry (holds then clear only via the admin-reviewed unhold).
 const defaultRecountHoldDays = 7
 
-func recountHoldDays() int <span class="cov9" title="232">{
+func recountHoldDays() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_RECOUNT_HOLD_DAYS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultRecountHoldDays</span>
+        <span class="cov9" title="272">return defaultRecountHoldDays</span>
 }
 
 // validAdminKey returns the hex broker seed to gate the admin surface on, but ONLY when
@@ -10302,8 +10302,8 @@ func recountHoldDays() int <span class="cov9" title="232">{
 // admin surface stays CLOSED (requireAdmin 403s everything) rather than accidentally
 // gating on an ephemeral key that an attacker could never present anyway but which would
 // also lock the legitimate operator out silently.
-func validAdminKey(h string) string <span class="cov10" title="234">{
-        if h == "" </span><span class="cov9" title="231">{
+func validAdminKey(h string) string <span class="cov10" title="275">{
+        if h == "" </span><span class="cov9" title="272">{
                 return ""
         }</span>
         <span class="cov2" title="3">if seed, err := hex.DecodeString(h); err == nil &amp;&amp; len(seed) == ed25519.SeedSize </span><span class="cov1" title="1">{
@@ -10332,7 +10332,7 @@ func (b *broker) requireAdmin(w http.ResponseWriter, r *http.Request) (denied bo
                 return true
         }</span>
         // Path 1: the broker-key header (CLI/curl).
-        <span class="cov7" title="41">if b.adminKey != "" </span><span class="cov7" title="41">{
+        <span class="cov6" title="41">if b.adminKey != "" </span><span class="cov6" title="41">{
                 got := r.Header.Get("X-Roger-Admin")
                 if got != "" &amp;&amp; subtle.ConstantTimeCompare([]byte(got), []byte(b.adminKey)) == 1 </span><span class="cov6" title="26">{
                         return false
@@ -10476,7 +10476,7 @@ func (b *broker) ownerAppeal(w http.ResponseWriter, r *http.Request) <span class
                 jsonErr(w, http.StatusForbidden, "no operator account for this login (run `roger login` on a node first)")
                 return
         }</span>
-        <span class="cov5" title="12">acct := o.Pubkey
+        <span class="cov4" title="12">acct := o.Pubkey
 
         // GET: the caller's appeal history / status.
         if r.Method == http.MethodGet </span><span class="cov2" title="3">{
@@ -10976,31 +10976,31 @@ const defaultNodeBanDays = 3
 // auto-lifted. Keep in sync with the store's ExpireNodeBans filter.
 const reportBanReasonPrefix = "report threshold"
 
-func reportEjectThreshold() int <span class="cov9" title="232">{
+func reportEjectThreshold() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_REPORT_EJECT_AT"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultReportEjectAt</span>
+        <span class="cov9" title="272">return defaultReportEjectAt</span>
 }
 
-func reportDecayDays() int <span class="cov9" title="232">{
+func reportDecayDays() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_REPORT_DECAY_DAYS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultReportDecayDays</span>
+        <span class="cov9" title="272">return defaultReportDecayDays</span>
 }
 
-func nodeBanDays() int <span class="cov9" title="232">{
+func nodeBanDays() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_NODE_BAN_DAYS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultNodeBanDays</span>
+        <span class="cov9" title="272">return defaultNodeBanDays</span>
 }
 
 // csamKey derives the AES-256 key for encrypting preserved CSAM content from the
@@ -11052,17 +11052,17 @@ func (b *broker) preserveCSAM(pseudonym, ip, category string, content []byte) <s
 // rehydrateBans loads the persisted banned-node set into the in-memory cache at startup
 // so a ban survives a restart/redeploy. Failure is non-fatal (logged): the broker still
 // boots; bans re-apply when reports cross the threshold again.
-func (b *broker) rehydrateBans() <span class="cov10" title="233">{
+func (b *broker) rehydrateBans() <span class="cov10" title="274">{
         bans, err := b.db.BannedNodes()
         if err != nil </span><span class="cov1" title="1">{
                 log.Printf("ban: rehydrate failed: %v", err)
                 return
         }</span>
-        <span class="cov9" title="232">b.metricsMu.Lock()
+        <span class="cov9" title="273">b.metricsMu.Lock()
         for id := range bans </span><span class="cov2" title="2">{
                 b.banned[id] = true
         }</span>
-        <span class="cov9" title="232">n := len(b.banned)
+        <span class="cov9" title="273">n := len(b.banned)
         b.metricsMu.Unlock()
         if n &gt; 0 </span><span class="cov2" title="2">{
                 log.Printf("ban: re-hydrated %d ejected node(s) from the store", n)
@@ -11070,7 +11070,7 @@ func (b *broker) rehydrateBans() <span class="cov10" title="233">{
 }
 
 // isBanned reports whether a node is ejected from routing. Concurrency-safe.
-func (b *broker) isBanned(nodeID string) bool <span class="cov8" title="73">{
+func (b *broker) isBanned(nodeID string) bool <span class="cov7" title="73">{
         b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.banned[nodeID]
@@ -11082,14 +11082,14 @@ func (b *broker) banNode(nodeID, reason string) <span class="cov5" title="13">{
         if nodeID == "" </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov5" title="12">if err := b.db.BanNode(nodeID, reason); err != nil </span><span class="cov1" title="1">{
+        <span class="cov4" title="12">if err := b.db.BanNode(nodeID, reason); err != nil </span><span class="cov1" title="1">{
                 log.Printf("ban: persist failed node=%s: %v", nodeID, err)
         }</span>
-        <span class="cov5" title="12">b.metricsMu.Lock()
+        <span class="cov4" title="12">b.metricsMu.Lock()
         already := b.banned[nodeID]
         b.banned[nodeID] = true
         b.metricsMu.Unlock()
-        if !already </span><span class="cov5" title="12">{
+        if !already </span><span class="cov4" title="12">{
                 log.Printf("ban: node=%s EJECTED from routing (%s)", nodeID, reason)
         }</span>
 }
@@ -11301,7 +11301,7 @@ const (
 )
 
 // parsePref maps the X-Roger-Pref header to a profile. Unknown/empty =&gt; balanced.
-func parsePref(s string) pref <span class="cov4" title="48">{
+func parsePref(s string) pref <span class="cov4" title="49">{
         switch strings.ToLower(strings.TrimSpace(s)) </span>{
         case "cheap":<span class="cov1" title="1">
                 return prefCheap</span>
@@ -11309,7 +11309,7 @@ func parsePref(s string) pref <span class="cov4" title="48">{
                 return prefFast</span>
         case "reliable":<span class="cov1" title="1">
                 return prefReliable</span>
-        default:<span class="cov4" title="44">
+        default:<span class="cov4" title="45">
                 return prefBalanced</span>
         }
 }
@@ -11325,7 +11325,7 @@ type prefWeights struct {
         beta     float64 // P2C sampling concentration (score^beta)
 }
 
-func (p pref) weights() prefWeights <span class="cov8" title="7067">{
+func (p pref) weights() prefWeights <span class="cov8" title="7068">{
         switch p </span>{
         case prefCheap:<span class="cov1" title="2">
                 return prefWeights{kPrice: 0.45, priceExp: 0.5, c: 0.25, speedMul: 1.0, beta: 1.5}</span>
@@ -11333,7 +11333,7 @@ func (p pref) weights() prefWeights <span class="cov8" title="7067">{
                 return prefWeights{kPrice: 0.10, priceExp: 1.5, c: 0.20, speedMul: 1.3, beta: 3.0}</span>
         case prefReliable:<span class="cov1" title="1">
                 return prefWeights{kPrice: 0.20, priceExp: 0.8, c: 0.20, speedMul: 1.0, beta: 3.0}</span>
-        default:<span class="cov8" title="7062"> // balanced
+        default:<span class="cov8" title="7063"> // balanced
                 return prefWeights{kPrice: 0.25, priceExp: 1.0, c: 0.35, speedMul: 1.0, beta: 2.0}</span>
         }
 }
@@ -11343,7 +11343,7 @@ func (p pref) weights() prefWeights <span class="cov8" title="7067">{
 // It is a PICK-LOCAL graded mapping of probe + organic evidence; it does not change
 // verifiedServing()'s global meaning. A single transient probe miss costs ~40%
 // (verifiedFactor 0.6), not 100% - the smoothness fix.
-func reliabilityFactor(probed, probeOK bool, probeFails int, success float64, sseen bool, trust float64) float64 <span class="cov8" title="15470">{
+func reliabilityFactor(probed, probeOK bool, probeFails int, success float64, sseen bool, trust float64) float64 <span class="cov8" title="15472">{
         ver := verifiedFactorOf(probed, probeOK, probeFails)
         // successFactor: floored at 0.5 so a node is never zeroed on success evidence;
         // reuses the channel's organic-or-verified success reading.
@@ -11358,7 +11358,7 @@ func reliabilityFactor(probed, probeOK bool, probeFails int, success float64, ss
 // canary =&gt; 1.0; ONE transient probe miss =&gt; 0.6 (40% cost, NOT a hard zero - the
 // smoothness fix); two or more misses =&gt; 0.15 (heavy but nonzero, last-resort
 // availability); stale/never-probed =&gt; 0.7 (no positive proof, no failure either).
-func verifiedFactorOf(probed, probeOK bool, probeFails int) float64 <span class="cov8" title="15472">{
+func verifiedFactorOf(probed, probeOK bool, probeFails int) float64 <span class="cov8" title="15474">{
         switch </span>{
         case probed &amp;&amp; probeOK &amp;&amp; probeFails == 0:<span class="cov8" title="15365">
                 return 1.0</span>
@@ -11366,7 +11366,7 @@ func verifiedFactorOf(probed, probeOK bool, probeFails int) float64 <span class=
                 return 0.6</span>
         case probeFails &gt;= 2:<span class="cov2" title="10">
                 return 0.15</span>
-        default:<span class="cov4" title="95">
+        default:<span class="cov4" title="97">
                 return 0.7</span>
         }
 }
@@ -11376,7 +11376,7 @@ func verifiedFactorOf(probed, probeOK bool, probeFails int) float64 <span class=
 // itself - this is the heterogeneity router. tps==0 / ttft==0 read as neutral so a
 // brand-new node still competes. speedMul (from pref) lifts the throughput half for
 // the "fast" profile.
-func speedFit(tps, ttftMs float64, promptTokens int, speedMul float64) float64 <span class="cov8" title="15470">{
+func speedFit(tps, ttftMs float64, promptTokens int, speedMul float64) float64 <span class="cov8" title="15472">{
         // throughput half: 0.5..1.0, saturating at tpsTarget.
         tp := 0.75 // tps unmeasured: neutral-positive
         if tps &gt; 0 </span><span class="cov8" title="15372">{
@@ -11384,16 +11384,16 @@ func speedFit(tps, ttftMs float64, promptTokens int, speedMul float64) float64 <
         }</span>
         // effective TTFT: probe/organic first-byte + the prefill cost of THIS prompt, so a
         // long prompt penalises weak hardware (prefillRate scales with the node's tps).
-        <span class="cov8" title="15470">ttftEff := ttftMs
-        if promptTokens &gt; 0 </span><span class="cov7" title="1845">{
+        <span class="cov8" title="15472">ttftEff := ttftMs
+        if promptTokens &gt; 0 </span><span class="cov7" title="1847">{
                 prefillRate := math.Max(tps, 1) * prefillRatio
                 ttftEff += float64(promptTokens) / prefillRate
         }</span>
-        <span class="cov8" title="15470">lat := 0.8 // ttft unmeasured AND no prompt cost: neutral-positive
-        if ttftEff &gt; 0 </span><span class="cov8" title="15407">{
+        <span class="cov8" title="15472">lat := 0.8 // ttft unmeasured AND no prompt cost: neutral-positive
+        if ttftEff &gt; 0 </span><span class="cov8" title="15409">{
                 lat = 0.6 + 0.4*(1-clamp01(ttftEff/ttftCapMs))
         }</span>
-        <span class="cov8" title="15470">return clamp01(tp) * clamp01(lat)</span>
+        <span class="cov8" title="15472">return clamp01(tp) * clamp01(lat)</span>
 }
 
 // priceMod is a BOUNDED soft modifier within the user's range (spec 1.1c) - NOT a
@@ -11401,15 +11401,15 @@ func speedFit(tps, ttftMs float64, promptTokens int, speedMul float64) float64 <
 // distortion. rangeMin is the cheapest ELIGIBLE out-price (computed in pick's own
 // pass); rangeMax is the user's cap, else the eligible max. The modifier swings the
 // score at most kPrice inside the user's own window.
-func priceMod(out, rangeMin, rangeMax, kPrice, priceExp float64) float64 <span class="cov8" title="15446">{
+func priceMod(out, rangeMin, rangeMax, kPrice, priceExp float64) float64 <span class="cov8" title="15447">{
         if out &lt;= 0 </span><span class="cov7" title="3638">{
                 return 1.0 // free: neutral, not a magnet
         }</span>
-        <span class="cov8" title="11808">span := rangeMax - rangeMin
+        <span class="cov8" title="11809">span := rangeMax - rangeMin
         if span &lt;= 0 </span><span class="cov8" title="9921">{
                 return 1.0 // single price point (or degenerate range): no spread to reward
         }</span>
-        <span class="cov7" title="1887">norm := clamp01((out - rangeMin) / span)
+        <span class="cov7" title="1888">norm := clamp01((out - rangeMin) / span)
         return clamp01(1 - kPrice*math.Pow(norm, priceExp))</span>
 }
 
@@ -11419,17 +11419,17 @@ func priceMod(out, rangeMin, rangeMax, kPrice, priceExp float64) float64 <span c
 // updated range and whether any paid price has been seen yet. This is the exact derivation
 // pickFor uses; extracted so the "free never moves the range" invariant is directly
 // testable (a free out=0 leaves the window and haveRange untouched).
-func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, float64, bool) <span class="cov8" title="15450">{
+func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, float64, bool) <span class="cov8" title="15451">{
         if !(out &gt; 0) </span><span class="cov7" title="3641">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5314">{
+        <span class="cov8" title="11810">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5307">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11809">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5964">{
+        <span class="cov8" title="11810">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5974">{
                 rangeMax = out
         }</span>
-        <span class="cov8" title="11809">return rangeMin, rangeMax, true</span>
+        <span class="cov8" title="11810">return rangeMin, rangeMax, true</span>
 }
 
 // priceCeiling is the upper bound of the priceMod reward range (spec 1.1c): the dearest
@@ -11437,8 +11437,8 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
 // to X but reward me below it"). A zero/absent cap (maxPriceOut&lt;=0) leaves the eligible max
 // as the ceiling. This is the exact rmax pickFor computes; extracted so the cap-widening is
 // directly testable.
-func priceCeiling(rangeMax, maxPriceOut float64) float64 <span class="cov8" title="7007">{
-        if maxPriceOut &gt; 0 &amp;&amp; maxPriceOut &gt; rangeMax </span><span class="cov3" title="37">{
+func priceCeiling(rangeMax, maxPriceOut float64) float64 <span class="cov8" title="7008">{
+        if maxPriceOut &gt; 0 &amp;&amp; maxPriceOut &gt; rangeMax </span><span class="cov3" title="38">{
                 return maxPriceOut
         }</span>
         <span class="cov8" title="6970">return rangeMax</span>
@@ -11448,11 +11448,11 @@ func priceCeiling(rangeMax, maxPriceOut float64) float64 <span class="cov8" titl
 // non-zero radius ONLY once it has been probed AND passed the canary (probed &amp;&amp; probeOK) -
 // we explore honest-capable capacity, never unproven-flaky nodes (which get a flat 0). This
 // is the exact gate pickFor applies; extracted so the gating is directly testable.
-func explorationRadius(tq trustState, c float64, totalReqs int64, successCount int) float64 <span class="cov8" title="15469">{
+func explorationRadius(tq trustState, c float64, totalReqs int64, successCount int) float64 <span class="cov8" title="15471">{
         if tq.probed &amp;&amp; tq.probeOK </span><span class="cov8" title="15366">{
                 return ucbRadius(c, totalReqs, tq.recounts, tq.probes, successCount)
         }</span>
-        <span class="cov4" title="103">return 0</span>
+        <span class="cov4" title="105">return 0</span>
 }
 
 // hwConcurrencyClass is the conservative cold-start capacity prior from the node's
@@ -11460,7 +11460,7 @@ func explorationRadius(tq trustState, c float64, totalReqs int64, successCount i
 // else 1. DISPLAY/prior only - never score-trusted; washed out by the first real
 // observedConcurrentTPS measurement. Coarse substring match; an unparseable string
 // is the safe default of 1.
-func hwConcurrencyClass(hw string) int <span class="cov8" title="15518">{
+func hwConcurrencyClass(hw string) int <span class="cov8" title="15520">{
         h := strings.ToLower(hw)
         // Nodes now advertise a PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple /
         // cpu) instead of a raw rig string; map those directly. Legacy raw strings still
@@ -11472,7 +11472,7 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15518">{
                 return 2</span>
         case "apple":<span class="cov1" title="1">
                 return 2</span> // Apple Silicon unified memory: between a CPU and a discrete GPU
-        case "cpu", "unknown", "":<span class="cov8" title="15509">
+        case "cpu", "unknown", "":<span class="cov8" title="15511">
                 return 1</span>
         }
         // A discrete GPU is present if ANY accelerator marker matches (synonyms for the
@@ -11505,22 +11505,22 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15518">{
 // observedConcurrentTPS UNDER LOAD when we have it (incentive-compatible - a node
 // can't win a bigger allotment from an idle canary), else a conservative hw-class
 // prior. Clamped to [1, maxSlots].
-func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15512">{
+func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15514">{
         if concurrentTPS &gt; 0 </span><span class="cov1" title="1">{
                 c := int(math.Round(concurrentTPS / tpsPerSlot))
                 return clampInt(c, 1, maxSlots)
         }</span>
-        <span class="cov8" title="15511">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
+        <span class="cov8" title="15513">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
 }
 
 // loadFactor is the capacity-normalized congestion discount (spec 1.1d):
 // 1/(1+inflight/capacity). A node absorbs ~capacity concurrent requests before its
 // score sags, so a rig is not a magnet and a laptop is not starved.
-func loadFactor(inflight, capacity int) float64 <span class="cov8" title="15447">{
+func loadFactor(inflight, capacity int) float64 <span class="cov8" title="15448">{
         if capacity &lt; 1 </span><span class="cov1" title="1">{
                 capacity = 1
         }</span>
-        <span class="cov8" title="15447">return 1.0 / (1.0 + float64(inflight)/float64(capacity))</span>
+        <span class="cov8" title="15448">return 1.0 / (1.0 + float64(inflight)/float64(capacity))</span>
 }
 
 // ucbRadius is the exploration lift (spec 1.1e): C*sqrt(ln(1+totalReqs)/(1+N)) with
@@ -11543,19 +11543,19 @@ func ucbRadius(c float64, totalReqs int64, recounts, probes, successCount int) f
 }
 
 // ucb applies the (gated) exploration lift, clamped to a valid score.
-func ucb(v, radius float64) float64 <span class="cov8" title="15443">{
+func ucb(v, radius float64) float64 <span class="cov8" title="15444">{
         return clamp01(v + radius)
 }</span>
 
 // clampInt clamps n to [lo, hi].
-func clampInt(n, lo, hi int) int <span class="cov8" title="15515">{
+func clampInt(n, lo, hi int) int <span class="cov8" title="15517">{
         if n &lt; lo </span><span class="cov1" title="1">{
                 return lo
         }</span>
-        <span class="cov8" title="15514">if n &gt; hi </span><span class="cov1" title="1">{
+        <span class="cov8" title="15516">if n &gt; hi </span><span class="cov1" title="1">{
                 return hi
         }</span>
-        <span class="cov8" title="15513">return n</span>
+        <span class="cov8" title="15515">return n</span>
 }
 
 // scoredCand is a fully scored Tier-A candidate ready for band selection. score is
@@ -11573,22 +11573,22 @@ type scoredCand struct {
 // live load (inflight/capacity). Deterministic when rng is nil or one candidate
 // (the old top-1 special case, protecting every existing test). cands MUST be
 // non-empty; it returns the chosen index into the caller's parallel slice.
-func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class="cov8" title="13558">{
+func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class="cov8" title="13559">{
         if len(cands) == 0 </span><span class="cov1" title="2">{
                 return -1
         }</span>
         // Best-first by score; stable on the original index so a nil-rng tie is
         // deterministic and reproduces the legacy "first best wins" ordering.
-        <span class="cov8" title="13556">best := 0
+        <span class="cov8" title="13557">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1373">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1360">{
                         best = i
                 }</span>
         }
         // Deterministic short-circuit: no PRNG (tests / C=0 / single-candidate) routes to
         // the single best, exactly as the pre-v2 running-best pick did.
-        <span class="cov8" title="13556">if rng == nil || len(cands) == 1 </span><span class="cov4" title="106">{
+        <span class="cov8" title="13557">if rng == nil || len(cands) == 1 </span><span class="cov4" title="107">{
                 return cands[best].idx
         }</span>
         <span class="cov8" title="13450">topScore := cands[best].score
@@ -11615,7 +11615,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1248">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1237">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -11671,11 +11671,11 @@ func weightedPick(band []scoredCand, beta float64, rng *rand.Rand) int <span cla
 // seededRand derives a deterministic *rand.Rand from a request id, so a routing
 // decision is reproducible in tests (seed the PRNG from hash(requestID)). An empty
 // id yields a nil rng -&gt; deterministic top-1 (the legacy path).
-func seededRand(requestID string) *rand.Rand <span class="cov3" title="39">{
+func seededRand(requestID string) *rand.Rand <span class="cov3" title="40">{
         if requestID == "" </span><span class="cov0" title="0">{
                 return nil
         }</span>
-        <span class="cov3" title="39">h := fnv.New64a()
+        <span class="cov3" title="40">h := fnv.New64a()
         _, _ = h.Write([]byte(requestID))
         return rand.New(rand.NewSource(int64(h.Sum64())))</span>
 }
@@ -12695,9 +12695,9 @@ func (v *valkeyStore) busSubscribeStream(ctx context.Context, jobID string) (&lt
 // DEGRADES GRACEFULLY - it logs a warning and returns nil so the broker boots on the
 // in-memory path and NEVER crashes. (The returned store is closed on a connect
 // failure so we leak no client.)
-func openSharedStore() sharedStore <span class="cov8" title="233">{
+func openSharedStore() sharedStore <span class="cov8" title="274">{
         url := envStr("ROGERAI_REDIS_URL", "")
-        if url == "" </span><span class="cov8" title="229">{
+        if url == "" </span><span class="cov8" title="270">{
                 return nil // flag OFF: in-memory, byte-for-byte today's behavior.
         }</span>
         <span class="cov2" title="4">vs, err := newValkeyStore(url)
@@ -12924,56 +12924,56 @@ const (
         defaultStrikeCorroborateKinds = 2
 )
 
-func strikeWarnAt() int <span class="cov10" title="302">{
+func strikeWarnAt() int <span class="cov10" title="343">{
         if v := os.Getenv("ROGERAI_STRIKE_WARN_AT"); v != "" </span><span class="cov1" title="1">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="301">return defaultStrikeWarnAt</span>
+        <span class="cov9" title="342">return defaultStrikeWarnAt</span>
 }
 
-func strikeBanAt() int <span class="cov9" title="301">{
+func strikeBanAt() int <span class="cov9" title="342">{
         if v := os.Getenv("ROGERAI_STRIKE_BAN_AT"); v != "" </span><span class="cov1" title="1">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="300">return defaultStrikeBanAt</span>
+        <span class="cov9" title="341">return defaultStrikeBanAt</span>
 }
 
 // strikeDecayDays is the trailing-window (in days) the ban decision counts strikes over.
 // &lt;=0 disables decay. ROGERAI_STRIKE_DECAY_DAYS overrides (a 0 there explicitly disables).
-func strikeDecayDays() int <span class="cov9" title="232">{
+func strikeDecayDays() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_STRIKE_DECAY_DAYS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultStrikeDecayDays</span>
+        <span class="cov9" title="272">return defaultStrikeDecayDays</span>
 }
 
 // strikeCorroborateKinds is the minimum number of DISTINCT signal classes required before
 // an accumulating-signal ban. &lt;=1 disables corroboration. ROGERAI_STRIKE_CORROBORATE_KINDS
 // overrides.
-func strikeCorroborateKinds() int <span class="cov9" title="232">{
+func strikeCorroborateKinds() int <span class="cov9" title="273">{
         if v := os.Getenv("ROGERAI_STRIKE_CORROBORATE_KINDS"); v != "" </span><span class="cov2" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov9" title="231">return defaultStrikeCorroborateKinds</span>
+        <span class="cov9" title="272">return defaultStrikeCorroborateKinds</span>
 }
 
 // ownerOf resolves the DURABLE owner account (owner pubkey) for a node. A public /
 // unowned node has no binding; we fall back to the node id so the signal is still
 // recorded against the best identity available (a public node has nothing to rotate to
 // anyway). ok reports whether a real owner binding was found.
-func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="cov8" title="107">{
+func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="cov8" title="108">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return nodeID, false
         }</span>
-        <span class="cov8" title="106">if acct, found, _ := b.db.AccountOfNode(nodeID); found &amp;&amp; acct != "" </span><span class="cov8" title="99">{
+        <span class="cov8" title="107">if acct, found, _ := b.db.AccountOfNode(nodeID); found &amp;&amp; acct != "" </span><span class="cov8" title="100">{
                 return acct, true
         }</span>
         <span class="cov4" title="7">return nodeID, false</span>
@@ -12986,11 +12986,11 @@ func (b *broker) ownerOf(nodeID string) (account string, ok bool) <span class="c
 // in-memory owner-ban cache so pick/settle reject every current+future node under that
 // owner. idemKey makes a retried request non-double-striking. zeroDoubt forces an
 // immediate ban on the first strike (used for the impossible-input arithmetic proof).
-func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence map[string]any) <span class="cov8" title="101">{
+func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence map[string]any) <span class="cov8" title="102">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov8" title="100">acct, _ := b.ownerOf(nodeID)
+        <span class="cov8" title="101">acct, _ := b.ownerOf(nodeID)
         ev, _ := json.Marshal(evidence)
         if _, err := b.db.OwnerStrike(acct, kind, string(ev), idemKey); err != nil </span><span class="cov1" title="1">{
                 log.Printf("strike: OwnerStrike(acct=%s kind=%s) failed: %v", acct, kind, err)
@@ -13000,7 +13000,7 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
         // owner-level twin of the node recount hold; survives a node-id rotation). This is the
         // conservative, REVERSIBLE freeze (auto-expires via recountHoldSweep, cleared by admin
         // unhold) - distinct from the durable ban below, which we gate far more tightly.
-        <span class="cov8" title="99">if err := b.db.SetAccountRecountHold(acct, true); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="100">if err := b.db.SetAccountRecountHold(acct, true); err != nil </span><span class="cov0" title="0">{
                 log.Printf("strike: SetAccountRecountHold(%s) failed: %v", acct, err)
         }</span>
         // Ban decision inputs. zeroDoubt (the impossible-input arithmetic proof) bans on the
@@ -13009,16 +13009,16 @@ func (b *broker) strike(nodeID, kind, idemKey string, zeroDoubt bool, evidence m
         // (CORROBORATION) before a durable ban, so a single noisy signal class can never ban an
         // account on its own. The append-only evidence is always kept; only its weight in the
         // live ban decision ages out.
-        <span class="cov8" title="99">var since int64
-        if b.strikeDecayDays &gt; 0 </span><span class="cov7" title="65">{
+        <span class="cov8" title="100">var since int64
+        if b.strikeDecayDays &gt; 0 </span><span class="cov7" title="66">{
                 since = time.Now().Add(-time.Duration(b.strikeDecayDays) * 24 * time.Hour).Unix()
         }</span>
-        <span class="cov8" title="99">windowed, distinctKinds, statErr := b.db.OwnerStrikeStats(acct, since)
+        <span class="cov8" title="100">windowed, distinctKinds, statErr := b.db.OwnerStrikeStats(acct, since)
         if statErr != nil </span><span class="cov1" title="1">{
                 log.Printf("strike: OwnerStrikeStats(%s) failed: %v - using conservative single-class count", acct, statErr)
                 windowed, distinctKinds = 1, 1 // fail SOFT: never escalate to a ban on a read error
         }</span>
-        <span class="cov8" title="99">corroborated := distinctKinds &gt;= b.strikeCorroborateKinds
+        <span class="cov8" title="100">corroborated := distinctKinds &gt;= b.strikeCorroborateKinds
         log.Printf("STRIKE owner=%s node=%s kind=%s windowed=%d kinds=%d (warn=%d ban=%d corroborate=%d decayDays=%d zeroDoubt=%v)",
                 acct, nodeID, kind, windowed, distinctKinds, b.strikeWarnAt, b.strikeBanAt, b.strikeCorroborateKinds, b.strikeDecayDays, zeroDoubt)
         switch </span>{
@@ -13074,25 +13074,25 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="c
 // isOwnerBanned reports whether an owner account is durably banned. Reads the in-memory
 // cache (re-hydrated at startup + refreshed on a ban) so the hot relay/pick path never
 // hits the DB. Concurrency-safe.
-func (b *broker) isOwnerBanned(accountID string) bool <span class="cov8" title="86">{
+func (b *broker) isOwnerBanned(accountID string) bool <span class="cov7" title="87">{
         if accountID == "" </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov8" title="85">b.metricsMu.Lock()
+        <span class="cov7" title="86">b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.bannedOwners[accountID]</span>
 }
 
 // nodeOwnerBanned reports whether the node's resolved owner account is banned. Used by
 // pickFor (a banned owner's nodes are dropped from routing) and settle.
-func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov5" title="18">{
+func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov5" title="20">{
         // Fast path: no owners are banned -&gt; skip the owner resolution entirely (zero DB
         // hits in the common case). Only pay the AccountOfNode lookup when the ban set is
         // non-empty.
         b.metricsMu.Lock()
         anyBanned := len(b.bannedOwners) &gt; 0
         b.metricsMu.Unlock()
-        if !anyBanned </span><span class="cov5" title="14">{
+        if !anyBanned </span><span class="cov5" title="16">{
                 return false
         }</span>
         <span class="cov3" title="4">acct, ok := b.ownerOf(nodeID)
@@ -13104,23 +13104,23 @@ func (b *broker) nodeOwnerBanned(nodeID string) bool <span class="cov5" title="1
 
 // rehydrateOwnerBans loads the durable owner-ban set into the in-memory cache at startup
 // so an owner ban survives a restart/redeploy. Non-fatal on error.
-func (b *broker) rehydrateOwnerBans() <span class="cov9" title="234">{
+func (b *broker) rehydrateOwnerBans() <span class="cov9" title="275">{
         if b.db == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov9" title="233">bans, err := b.db.BannedOwners()
+        <span class="cov9" title="274">bans, err := b.db.BannedOwners()
         if err != nil </span><span class="cov1" title="1">{
                 log.Printf("owner-ban: rehydrate failed: %v", err)
                 return
         }</span>
-        <span class="cov9" title="232">b.metricsMu.Lock()
+        <span class="cov9" title="273">b.metricsMu.Lock()
         if b.bannedOwners == nil </span><span class="cov1" title="1">{
                 b.bannedOwners = map[string]bool{}
         }</span>
-        <span class="cov9" title="232">for acct := range bans </span><span class="cov2" title="2">{
+        <span class="cov9" title="273">for acct := range bans </span><span class="cov2" title="2">{
                 b.bannedOwners[acct] = true
         }</span>
-        <span class="cov9" title="232">n := len(b.bannedOwners)
+        <span class="cov9" title="273">n := len(b.bannedOwners)
         b.metricsMu.Unlock()
         if n &gt; 0 </span><span class="cov2" title="2">{
                 log.Printf("owner-ban: re-hydrated %d banned owner account(s) from the store", n)
@@ -13146,7 +13146,7 @@ func (b *broker) flagImpossibleInput(nodeID, requestID string, claimed, bodyLen 
 // flagEmptyOutput is the no-usable-output signal: the node billed input but produced no
 // usable completion (errored, empty, or claimed-without-text). Accumulates toward the
 // warn/ban thresholds (tolerant of one-off noise).
-func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int) <span class="cov5" title="14">{
+func (b *broker) flagEmptyOutput(nodeID string, rec protocol.UsageReceipt, status int) <span class="cov5" title="15">{
         b.strike(nodeID, store.StrikeEmptyOutput, "empty:"+rec.RequestID, false, map[string]any{
                 "request_id":         rec.RequestID,
                 "axis":               "output",
@@ -13208,13 +13208,13 @@ const defaultMaxNodesPerOwner = 20
 
 // maxNodesPerOwnerLimit reads the per-owner on-air cap from the environment, falling
 // back to the default. A negative value is ignored (keeps the default); 0 disables it.
-func maxNodesPerOwnerLimit() int <span class="cov6" title="232">{
+func maxNodesPerOwnerLimit() int <span class="cov6" title="273">{
         if v := os.Getenv("ROGERAI_MAX_NODES_PER_OWNER"); v != "" </span><span class="cov1" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov6" title="231">return defaultMaxNodesPerOwner</span>
+        <span class="cov6" title="272">return defaultMaxNodesPerOwner</span>
 }
 
 // ownerOnAirCount counts how many of the owner's nodes are currently ON AIR (live
@@ -13255,24 +13255,24 @@ const (
 
 // freeRegPerIPLimit reads the per-CF-IP free-registration cap from the environment,
 // falling back to the default. &lt;0 is ignored (keeps default); 0 disables the ceiling.
-func freeRegPerIPLimit() int <span class="cov6" title="232">{
+func freeRegPerIPLimit() int <span class="cov6" title="273">{
         if v := os.Getenv("ROGERAI_FREE_REG_PER_IP"); v != "" </span><span class="cov1" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt;= 0 </span><span class="cov1" title="1">{
                         return n
                 }</span>
         }
-        <span class="cov6" title="231">return defaultFreeRegPerIP</span>
+        <span class="cov6" title="272">return defaultFreeRegPerIP</span>
 }
 
 // freeRegWindowDur reads the sliding window for the per-IP free-registration cap from
 // the environment (seconds), falling back to the default. &lt;=0 is ignored.
-func freeRegWindowDur() time.Duration <span class="cov6" title="232">{
+func freeRegWindowDur() time.Duration <span class="cov6" title="273">{
         if v := os.Getenv("ROGERAI_FREE_REG_WINDOW_SEC"); v != "" </span><span class="cov1" title="2">{
                 if n, err := strconv.Atoi(v); err == nil &amp;&amp; n &gt; 0 </span><span class="cov1" title="1">{
                         return time.Duration(n) * time.Second
                 }</span>
         }
-        <span class="cov6" title="231">return defaultFreeRegWindow</span>
+        <span class="cov6" title="272">return defaultFreeRegWindow</span>
 }
 
 // allowFreeReg records a NEW free (anon, no-owner) node registration from ip and
@@ -13922,17 +13922,17 @@ func (b *broker) tunnelFor(node string) *nodeTunnel <span class="cov4" title="34
 // still-running provider keeps heartbeating (~10s), so it re-confirms liveness within
 // seconds via markSeen WITHOUT re-registering. The tunnel is rebuilt with the stored
 // bridge token so the node's ongoing heartbeat/poll still authenticates.
-func (b *broker) rehydrateNodes() <span class="cov6" title="235">{
+func (b *broker) rehydrateNodes() <span class="cov6" title="276">{
         recs, err := b.db.AllNodes()
         if err != nil </span><span class="cov0" title="0">{
                 log.Printf("re-hydrate node registry failed: %v (starting with an empty registry)", err)
                 return
         }</span>
-        <span class="cov6" title="235">b.mu.Lock()
+        <span class="cov6" title="276">b.mu.Lock()
         if b.private == nil </span><span class="cov2" title="4">{
                 b.private = map[string]bool{}
         }</span>
-        <span class="cov6" title="235">if b.bandOf == nil </span><span class="cov2" title="4">{
+        <span class="cov6" title="276">if b.bandOf == nil </span><span class="cov2" title="4">{
                 b.bandOf = map[string]string{}
         }</span>
         // Re-publish public registrations to the SHARED registry after a restart/redeploy, so
@@ -13942,7 +13942,7 @@ func (b *broker) rehydrateNodes() <span class="cov6" title="235">{
         // cross-instance until it happened to re-register. Mirrors register()'s publish; the
         // 10m key self-expires for nodes that never come back, and peers gate picking on
         // liveness regardless. Collected here, published after the lock is dropped.
-        <span class="cov6" title="235">type pubReg struct {
+        <span class="cov6" title="276">type pubReg struct {
                 id  string
                 raw []byte
         }
@@ -13987,10 +13987,10 @@ func (b *broker) rehydrateNodes() <span class="cov6" title="235">{
                 }
                 <span class="cov2" title="6">n++</span>
         }
-        <span class="cov6" title="235">if n &gt; 0 </span><span class="cov2" title="5">{
+        <span class="cov6" title="276">if n &gt; 0 </span><span class="cov2" title="5">{
                 log.Printf("re-hydrated %d node registration(s) from the store (liveness re-confirmed on next heartbeat)", n)
         }</span>
-        <span class="cov6" title="235">b.mu.Unlock()
+        <span class="cov6" title="276">b.mu.Unlock()
         // Publish OUTSIDE the lock: putNode is a Valkey round-trip and rehydrate runs at
         // startup; no need to hold b.mu across the network calls.
         for _, p := range toPublish </span><span class="cov1" title="1">{
@@ -14190,11 +14190,11 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) <span class
 // relay handles POST /v1/chat/completions - the OpenAI-compatible entry point. It
 // matches a node (price + constraint headers), relays via the job tunnel, verifies
 // and co-signs the lineage receipt, meters throughput, and settles the wallet.
-func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4" title="54">{
+func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4" title="55">{
         if !allow(w, r, http.MethodPost) </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov4" title="53">body, _ := io.ReadAll(io.LimitReader(r.Body, 4&lt;&lt;20))
+        <span class="cov4" title="54">body, _ := io.ReadAll(io.LimitReader(r.Body, 4&lt;&lt;20))
 
         // Grant path FIRST: a `Bearer rog-grant_...` is its own authentication (the
         // owner-minted secret), so it skips the signed-identity requirement entirely and
@@ -14205,13 +14205,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
                 return
         }</span>
 
-        <span class="cov4" title="52">var user string   // the signed identity (pubkey-derived; drives self-use + price-lock)
+        <span class="cov4" title="53">var user string   // the signed identity (pubkey-derived; drives self-use + price-lock)
         var wallet string // the MONEY key: github-scoped when logged in, else == user
         var authed bool
         if gok </span><span class="cov2" title="8">{
                 user = gc.wallet // "g_&lt;id&gt;" grant-scoped wallet (reservedID-protected)
                 wallet = user
-        }</span> else<span class="cov4" title="44"> {
+        }</span> else<span class="cov4" title="45"> {
                 var iok bool
                 user, authed, iok = b.identityOf(r, body)
                 if !iok </span><span class="cov1" title="1">{
@@ -14221,7 +14221,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
                 // One wallet per account: a logged-in keypair resolves to the SAME
                 // "u_gh_&lt;githubID&gt;" wallet the web session uses; an unbound keypair keeps its
                 // anonymous pubkey-derived id (no balance - see the paid-request gate below).
-                <span class="cov4" title="43">wallet = b.walletOf(r, user)
+                <span class="cov4" title="44">wallet = b.walletOf(r, user)
                 // Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
                 // never spend a wallet. This enforces the core P0 invariant directly on the spend
                 // path (not just via the reserved-id guard in identityOf).
@@ -14233,13 +14233,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
         // flood the broker or a provider. Checked before the costly moderation/pick. A
         // grant uses its own bucket map keyed by grant id, with the grant's rpm/burst.
-        <span class="cov4" title="49">if gok </span><span class="cov2" title="8">{
+        <span class="cov4" title="50">if gok </span><span class="cov2" title="8">{
                 if ok, retry := b.grantRL.allowAt(gc.grant.ID, gc.grant.RPM, gc.grant.Burst); !ok </span><span class="cov1" title="1">{
                         w.Header().Set("Retry-After", strconv.Itoa(retry))
                         jsonErr(w, http.StatusTooManyRequests, "grant rate limit exceeded - slow down")
                         return
                 }</span>
-        } else<span class="cov4" title="41"> {
+        } else<span class="cov4" title="42"> {
                 // Any UNAUTHENTICATED caller that resolves to the shared "anon" identity (no
                 // signed/grant identity) would otherwise share ONE relay bucket for the whole
                 // public surface, so enforce a SEPARATE per-IP limit first (keyed on the
@@ -14255,13 +14255,13 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
                                 return
                         }</span>
                 }
-                <span class="cov4" title="41">if ok, retry := b.rl.allow(user); !ok </span><span class="cov0" title="0">{
+                <span class="cov4" title="42">if ok, retry := b.rl.allow(user); !ok </span><span class="cov0" title="0">{
                         w.Header().Set("Retry-After", strconv.Itoa(retry))
                         jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
                         return
                 }</span>
         }
-        <span class="cov4" title="48">var req struct {
+        <span class="cov4" title="49">var req struct {
                 Model  string `json:"model"`
                 Stream bool   `json:"stream"`
         }
@@ -14279,7 +14279,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // before it reaches any provider. Off by default in dev; required + fail-closed
         // for launch (see moderation.go). Grants do NOT bypass it (owner's legal
         // exposure on shared access). Covers streaming too (this is before the branch).
-        <span class="cov4" title="47">if res := b.mod.screen(promptText(body)); !res.allow() </span><span class="cov2" title="4">{
+        <span class="cov4" title="48">if res := b.mod.screen(promptText(body)); !res.allow() </span><span class="cov2" title="4">{
                 log.Printf("moderation reject model=%s status=%d: %s", req.Model, res.status, res.msg)
                 // CSAM (child-exploitation) hit: do NOT discard. PRESERVE the offending request
                 // (access-controlled, retention-limited) and QUEUE a CyberTipline report
@@ -14293,7 +14293,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
                 return</span>
         }
 
-        <span class="cov4" title="43">confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
+        <span class="cov4" title="44">confidentialOnly := r.Header.Get("X-Roger-Confidential") != ""
         // Private band tune-in: X-Roger-Freq carries the frequency code. Resolve it with
         // the SAME constant-work lookup as POST /bands/resolve (always hash, uniform on
         // any miss - no enumeration oracle). A valid live band yields privateAllow={node},
@@ -14317,7 +14317,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
                         return
                 }</span>
         }
-        <span class="cov4" title="41">minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
+        <span class="cov4" title="42">minTPS := parseFloat(r.Header.Get("X-Roger-Min-TPS"))
         maxPrice := parseFloat(r.Header.Get("X-Roger-Max-Price"))
         // Smart-router v2 request shape: the user-preference knob (cheap/balanced/fast/
         // reliable; default balanced), and a prompt-size estimate that makes speedFit
@@ -14357,7 +14357,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // deterministically (the same id keys the relayed job below). Power-of-two-choices
         // spread is reproducible per request; a fixed pin / single candidate / cheap profile
         // still resolves to the deterministic best.
-        <span class="cov4" title="39">requestID := protocol.NewRequestID()
+        <span class="cov4" title="40">requestID := protocol.NewRequestID()
         b.mu.Lock()
         node, offer, ok := b.pickFor(req.Model, confidentialOnly, minTPS, maxPrice, maxPriceOut, pinNode, exclude, allow, privateAllow,
                 pickReq{pref: routePref, promptTokens: promptTokens, rng: seededRand(requestID)})
@@ -14378,7 +14378,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // = 0/0, owner-sponsored otherwise). Signed self-use: $0 when the caller-owner
         // owns the picked node. Public: the offer's active market price billed to the
         // resolved account wallet.
-        <span class="cov4" title="33">pricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
+        <span class="cov4" title="34">pricing := b.resolvePricing(gc, gok, user, wallet, node, offer)
         payer := pricing.payer
         grantID := ""
         if gok </span><span class="cov2" title="3">{
@@ -14389,7 +14389,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // hitting a PAID public model is rejected here with a clear login prompt (we never
         // silently seed an anon wallet to spend). Free models, self-use, and grants are
         // unaffected: this fires only for a public, priced offer billed to an anon wallet.
-        <span class="cov4" title="33">if !gok &amp;&amp; !pricing.free &amp;&amp; !walletLoggedIn(payer) </span><span class="cov3" title="13">{
+        <span class="cov4" title="34">if !gok &amp;&amp; !pricing.free &amp;&amp; !walletLoggedIn(payer) </span><span class="cov3" title="13">{
                 ain, aout, afree, _ := offer.ActivePrice(time.Now())
                 if !afree &amp;&amp; (ain &gt; 0 || aout &gt; 0) </span><span class="cov1" title="2">{
                         jsonErr(w, http.StatusUnauthorized, "log in to spend on paid models - run `roger login` (free models and grant keys work without an account)")
@@ -14409,25 +14409,25 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) <span class="cov4
         // public request holds ~$0, monthlyCapCheck never trips, and the clamp caps the real
         // cost down to ~$0: paid public inference would be effectively FREE and providers
         // would earn nothing. (C1.)
-        <span class="cov4" title="31">holdIn, holdOut := pricing.in, pricing.out
-        if !pricing.fixed </span><span class="cov4" title="27">{
+        <span class="cov4" title="32">holdIn, holdOut := pricing.in, pricing.out
+        if !pricing.fixed </span><span class="cov4" title="28">{
                 ain, aout, afree, _ := offer.ActivePrice(time.Now())
                 holdIn, holdOut = ain, aout
                 if afree </span><span class="cov0" title="0">{
                         holdIn, holdOut = 0, 0
                 }</span>
         }
-        <span class="cov4" title="31">maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
+        <span class="cov4" title="32">maxCost := estimateMaxCost(body, holdIn, holdOut, offer.Ctx)
         if pricing.free </span><span class="cov2" title="3">{
                 maxCost = 0
         }</span>
-        <span class="cov4" title="31">if maxCost &gt; 0 </span><span class="cov4" title="28">{
+        <span class="cov4" title="32">if maxCost &gt; 0 </span><span class="cov4" title="29">{
                 // MONTHLY SPEND CAP (per-account budget limit): reject BEFORE dispatch if this
                 // request's worst-case cost would push the month-to-date captured spend past the
                 // account's cap. Global across every PAID path (this hold gate is the one all of
                 // public use / --freq / grant / agent / chat funnel through). Free/self ($0) skip
                 // the whole block, so they are never blocked. Sets near/at-cap notice headers.
-                if st, msg := b.monthlyCapCheck(w, payer, maxCost, time.Now()); st != 0 </span><span class="cov1" title="2">{
+                if st, msg := b.monthlyCapCheck(w, payer, maxCost, time.Now()); st != 0 </span><span class="cov2" title="3">{
                         jsonErr(w, st, msg)
                         return
                 }</span>
@@ -14942,7 +14942,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 // pre-auth hold before dispatch. Output is bounded by max_tokens (capped to the
 // model's ctx); the prompt is over-estimated from the body size. At the offer's
 // active price, so the actual capture on settle is always &lt;= this.
-func estimateMaxCost(body []byte, in, out float64, ctx int) float64 <span class="cov4" title="31">{
+func estimateMaxCost(body []byte, in, out float64, ctx int) float64 <span class="cov4" title="38">{
         var req struct {
                 MaxTokens int `json:"max_tokens"`
         }
@@ -14951,16 +14951,16 @@ func estimateMaxCost(body []byte, in, out float64, ctx int) float64 <span class=
         if capTok &lt;= 0 </span><span class="cov3" title="17">{
                 capTok = 8192
         }</span>
-        <span class="cov4" title="31">maxOut := req.MaxTokens
-        if maxOut &lt;= 0 || maxOut &gt; capTok </span><span class="cov0" title="0">{
+        <span class="cov4" title="38">maxOut := req.MaxTokens
+        if maxOut &lt;= 0 || maxOut &gt; capTok </span><span class="cov1" title="2">{
                 maxOut = capTok
         }</span>
-        <span class="cov4" title="31">promptEst := len(body)/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
+        <span class="cov4" title="38">promptEst := len(body)/4 + 1 // ~chars/4 → tokens; body JSON over-estimates (safe)
         c := (float64(promptEst)*in + float64(maxOut)*out) / 1e6
-        if c &lt; 1e-6 </span><span class="cov3" title="14">{
+        if c &lt; 1e-6 </span><span class="cov3" title="15">{
                 c = 1e-6 // floor so a hold is always placed
         }</span>
-        <span class="cov4" title="31">return c</span>
+        <span class="cov4" title="38">return c</span>
 }
 
 // agentStream handles POST /agent/stream?node=&amp;job= - the node pipes a job's SSE
@@ -15127,7 +15127,7 @@ func (b *broker) pick(model string, confidentialOnly bool, minTPS, maxPriceIn, m
 // All hard filters (price caps, min-tps, confidential, private/freq, banned, grant
 // allow-list, pin/exclude) and the adaptive-probe refresh are PRESERVED unchanged.
 // Caller holds b.mu.
-func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (protocol.NodeRegistration, protocol.ModelOffer, bool) <span class="cov9" title="7046">{
+func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (protocol.NodeRegistration, protocol.ModelOffer, bool) <span class="cov9" title="7047">{
         now := time.Now()
         w := req.pref.weights()
 
@@ -15156,13 +15156,13 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
         rangeMin, rangeMax := 0.0, 0.0
         haveRange := false
 
-        for _, n := range b.nodes </span><span class="cov10" title="15511">{
+        for _, n := range b.nodes </span><span class="cov10" title="15513">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov2" title="4">{
                         continue</span>
                 }
                 // --- HARD FILTERS (unchanged): banned, private/freq, pin, exclude, allow,
                 // confidential, min-tps. None of these are score-able; they gate eligibility. ---
-                <span class="cov9" title="15507">if b.banned[n.NodeID] </span><span class="cov2" title="5">{
+                <span class="cov9" title="15509">if b.banned[n.NodeID] </span><span class="cov2" title="5">{
                         continue</span>
                 }
                 // DURABLE OWNER BAN (anti-rotation): drop nodes whose resolved owner account is
@@ -15172,27 +15172,27 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                 // banned (the common case = zero overhead); only pay the lookup when the ban set
                 // is non-empty. (For Mem, AccountOfNode is a map read; for Postgres a small
                 // indexed query, bounded to the rare banned-owner case.)
-                <span class="cov9" title="15502">if len(b.bannedOwners) &gt; 0 </span><span class="cov2" title="5">{
+                <span class="cov9" title="15504">if len(b.bannedOwners) &gt; 0 </span><span class="cov2" title="5">{
                         if acct, found, _ := b.db.AccountOfNode(n.NodeID); found &amp;&amp; b.bannedOwners[acct] </span><span class="cov2" title="4">{
                                 continue</span>
                         }
                 }
-                <span class="cov9" title="15498">if b.private[n.NodeID] &amp;&amp; !privateAllow[n.NodeID] </span><span class="cov2" title="3">{
+                <span class="cov9" title="15500">if b.private[n.NodeID] &amp;&amp; !privateAllow[n.NodeID] </span><span class="cov2" title="3">{
                         continue</span>
                 }
-                <span class="cov9" title="15495">if pin != "" &amp;&amp; n.NodeID != pin </span><span class="cov2" title="6">{
+                <span class="cov9" title="15497">if pin != "" &amp;&amp; n.NodeID != pin </span><span class="cov2" title="6">{
                         continue</span>
                 }
-                <span class="cov9" title="15489">if exclude[n.NodeID] </span><span class="cov2" title="8">{
+                <span class="cov9" title="15491">if exclude[n.NodeID] </span><span class="cov2" title="8">{
                         continue</span>
                 }
-                <span class="cov9" title="15481">if allow != nil &amp;&amp; !allow[n.NodeID] </span><span class="cov1" title="2">{
+                <span class="cov9" title="15483">if allow != nil &amp;&amp; !allow[n.NodeID] </span><span class="cov1" title="2">{
                         continue</span>
                 }
-                <span class="cov9" title="15479">if confidentialOnly &amp;&amp; !b.confidential[n.NodeID] </span><span class="cov2" title="6">{
+                <span class="cov9" title="15481">if confidentialOnly &amp;&amp; !b.confidential[n.NodeID] </span><span class="cov2" title="6">{
                         continue</span>
                 }
-                <span class="cov9" title="15473">tq := b.trust[n.NodeID]
+                <span class="cov9" title="15475">tq := b.trust[n.NodeID]
                 // NOT-SERVING gate: a node that has failed a sustained streak of liveness probes has
                 // a dead/unloaded model upstream (it returns fast 5xx/empty). Exclude it entirely -
                 // not even Tier-B probation - so a relay returns a clean "no station serving" rather
@@ -15201,11 +15201,11 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                 if tq.probeFails &gt;= probeDeadStreak </span><span class="cov2" title="4">{
                         continue</span>
                 }
-                <span class="cov9" title="15469">tps := b.tps[n.NodeID]
+                <span class="cov9" title="15471">tps := b.tps[n.NodeID]
                 if minTPS &gt; 0 &amp;&amp; tps &gt; 0 &amp;&amp; tps &lt; minTPS </span><span class="cov1" title="2">{
                         continue</span>
                 }
-                <span class="cov9" title="15467">sr, sseen := b.success[n.NodeID]
+                <span class="cov9" title="15469">sr, sseen := b.success[n.NodeID]
                 // Two-tier health gate (spec 1.4): Tier A = probeFails&lt;2 AND (success unmeasured
                 // OR &gt;=0.55). Everything else still on-air is Tier B (probation), used only when
                 // Tier A is empty. probeFails&gt;=2 is the raised bar (was 3-strikes) but graded, not
@@ -15218,21 +15218,21 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                 radius := explorationRadius(tq, w.c, totalReqs, b.successCount[n.NodeID])
                 cap := capacityOf(b.concurrentTPS[n.NodeID], n.HW)
 
-                for _, o := range n.Offers </span><span class="cov9" title="15467">{
-                        if o.Model != model </span><span class="cov3" title="10">{
+                for _, o := range n.Offers </span><span class="cov9" title="15469">{
+                        if o.Model != model </span><span class="cov3" title="11">{
                                 continue</span>
                         }
-                        <span class="cov9" title="15457">in, out, _, _ := o.ActivePrice(now)
+                        <span class="cov9" title="15458">in, out, _, _ := o.ActivePrice(now)
                         if maxPriceIn &gt; 0 &amp;&amp; in &gt; maxPriceIn </span><span class="cov1" title="2">{
                                 continue</span>
                         }
-                        <span class="cov9" title="15455">if maxPriceOut &gt; 0 &amp;&amp; out &gt; maxPriceOut </span><span class="cov3" title="12">{
+                        <span class="cov9" title="15456">if maxPriceOut &gt; 0 &amp;&amp; out &gt; maxPriceOut </span><span class="cov3" title="12">{
                                 continue</span>
                         }
                         // Running min/max of the eligible OUTPUT price - the user's effective range
                         // for priceMod (spec 1.1c: rangeMin is the cheapest eligible out-price, not
                         // the market input-price min). Free (out&lt;=0) offers don't move the min/max.
-                        <span class="cov9" title="15443">rangeMin, rangeMax, haveRange = extendOutRange(out, rangeMin, rangeMax, haveRange)
+                        <span class="cov9" title="15444">rangeMin, rangeMax, haveRange = extendOutRange(out, rangeMin, rangeMax, haveRange)
                         // Capacity-aware load is THIS instance's exact local inflight PLUS the merged
                         // peer-instance load (Stage 2). peerInflight is the in-memory cross-instance
                         // snapshot refreshed on the background loop; it is empty (adds 0) when
@@ -15245,22 +15245,22 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                 }
         }
 
-        <span class="cov9" title="7046">if len(cands) == 0 </span><span class="cov4" title="40">{
+        <span class="cov9" title="7047">if len(cands) == 0 </span><span class="cov4" title="40">{
                 b.metricsMu.Unlock()
                 return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
         }</span>
         // User price cap (when given) widens the range ceiling so "I'll pay up to X but
         // reward me below it" is expressible; else the eligible max is the ceiling.
-        <span class="cov9" title="7006">rmax := priceCeiling(rangeMax, maxPriceOut)
+        <span class="cov9" title="7007">rmax := priceCeiling(rangeMax, maxPriceOut)
 
         // Score each candidate; partition into Tier A (eligible) and Tier B (probation).
         var tierA, tierB []scoredCand
-        for i, c := range cands </span><span class="cov9" title="15443">{
+        for i, c := range cands </span><span class="cov9" title="15444">{
                 pm := priceMod(c.out, rangeMin, rmax, w.kPrice, w.priceExp)
                 s := ucb(c.rel*c.fit*pm, c.radius) * loadFactor(c.inflight, c.capacity)
                 load := float64(c.inflight) / float64(maxInt(c.capacity, 1))
                 sc := scoredCand{idx: i, score: s, load: load}
-                if c.tierA </span><span class="cov9" title="15435">{
+                if c.tierA </span><span class="cov9" title="15436">{
                         tierA = append(tierA, sc)
                 }</span> else<span class="cov2" title="8"> {
                         tierB = append(tierB, sc)
@@ -15268,16 +15268,16 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
         }
         // Healthy-beats-failing as an absolute gate: select from Tier A; fall back to Tier
         // B ONLY when Tier A is empty (availability - a transient blip never blanks a model).
-        <span class="cov9" title="7006">pool := tierA
+        <span class="cov9" title="7007">pool := tierA
         if len(pool) == 0 </span><span class="cov2" title="3">{
                 pool = tierB
         }</span>
-        <span class="cov9" title="7006">chosen := selectP2C(pool, w.beta, req.rng)
+        <span class="cov9" title="7007">chosen := selectP2C(pool, w.beta, req.rng)
         if chosen &lt; 0 </span><span class="cov0" title="0">{
                 b.metricsMu.Unlock()
                 return protocol.NodeRegistration{}, protocol.ModelOffer{}, false
         }</span>
-        <span class="cov9" title="7006">best := cands[chosen]
+        <span class="cov9" title="7007">best := cands[chosen]
 
         // Demand-driven / just-in-time staleness refresh (PRESERVED unchanged): if the
         // routed node's reading is stale, schedule a near-term async probe so the NEXT
@@ -15287,15 +15287,15 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
                         b.demandProbeSoonLocked(best.node.NodeID, now)
                 }</span>
         }
-        <span class="cov9" title="7006">b.metricsMu.Unlock()
+        <span class="cov9" title="7007">b.metricsMu.Unlock()
         return best.node, best.offer, true</span>
 }
 
-func maxInt(a, b int) int <span class="cov9" title="15443">{
+func maxInt(a, b int) int <span class="cov9" title="15444">{
         if a &gt; b </span><span class="cov0" title="0">{
                 return a
         }</span>
-        <span class="cov9" title="15443">return b</span>
+        <span class="cov9" title="15444">return b</span>
 }
 
 // enterInflight / exitInflight track active requests per node (concurrency-safe).
@@ -15442,7 +15442,7 @@ func authNode(r *http.Request, token string) bool <span class="cov4" title="31">
         return token != "" &amp;&amp; r.Header.Get("Authorization") == "Bearer "+token
 }</span>
 
-func parseFloat(s string) float64 <span class="cov5" title="123">{
+func parseFloat(s string) float64 <span class="cov5" title="126">{
         f, _ := strconv.ParseFloat(s, 64)
         return f
 }</span>
@@ -15502,8 +15502,8 @@ func sseDelta(line []byte) string <span class="cov6" title="309">{
 
 // parseNodeSet parses a comma-separated node-id list (X-Roger-Exclude-Nodes) into
 // a set, ignoring empty entries. Returns nil for an empty header (no exclusions).
-func parseNodeSet(s string) map[string]bool <span class="cov4" title="43">{
-        if s == "" </span><span class="cov4" title="42">{
+func parseNodeSet(s string) map[string]bool <span class="cov4" title="44">{
+        if s == "" </span><span class="cov4" title="43">{
                 return nil
         }</span>
         <span class="cov1" title="1">set := map[string]bool{}
@@ -17871,9 +17871,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="479">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="476">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -18652,7 +18652,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -18691,7 +18691,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="969">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="780">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -18705,7 +18705,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="96
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -18920,13 +18920,13 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="950">{
+        for </span><span class="cov9" title="761">{
                 select </span>{
                 case &lt;-sess.stop:<span class="cov1" title="2">
                         return</span> // /share went off air
-                default:<span class="cov9" title="948"></span>
+                default:<span class="cov9" title="759"></span>
                 }
-                <span class="cov9" title="948">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="759">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
@@ -18936,7 +18936,7 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="942">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="935">{
+                <span class="cov9" title="753">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="746">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19245,7 +19245,7 @@ func effectivePriceFor(rr registerResult, model string, reqIn, reqOut float64) (
         <span class="cov3" title="6">return in, out, override</span>
 }
 
-func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov4" title="20">{
+func register(broker string, reg protocol.NodeRegistration) (registerResult, error) <span class="cov5" title="20">{
         b, _ := json.Marshal(reg)
         req, _ := http.NewRequest(http.MethodPost, broker+"/nodes/register", bytes.NewReader(b))
         req.Header.Set("Content-Type", "application/json")
@@ -19396,7 +19396,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19404,7 +19404,7 @@ func GenerateStation() string <span class="cov7" title="201">{
 
 // randIndex returns a uniform crypto/rand index in [0,n) (n&gt;0). Falls back to 0 only if
 // the system RNG fails, which never happens in practice.
-func randIndex(n int) int <span class="cov9" title="805">{
+func randIndex(n int) int <span class="cov10" title="805">{
         if n &lt;= 0 </span><span class="cov1" title="2">{
                 return 0
         }</span>
@@ -19425,21 +19425,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -24692,8 +24692,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="24">{
-                if s != nil </span><span class="cov7" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="23">{
+                if s != nil </span><span class="cov7" title="22">{
                         n++
                 }</span>
         }
@@ -25095,7 +25095,7 @@ func pad3(n int) string <span class="cov7" title="1007">{
                 n = 0
         }</span>
         <span class="cov7" title="1007">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov6" title="148">{
+        for len(s) &lt; 3 </span><span class="cov5" title="111">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1007">return s</span>
@@ -25103,17 +25103,17 @@ func pad3(n int) string <span class="cov7" title="1007">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2008">{
-        if n == 0 </span><span class="cov1" title="2">{
+        if n == 0 </span><span class="cov2" title="4">{
                 return "0"
         }</span>
-        <span class="cov8" title="2006">var buf [12]byte
+        <span class="cov8" title="2004">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5875">{
+        for n &gt; 0 </span><span class="cov9" title="5910">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2006">return string(buf[i:])</span>
+        <span class="cov8" title="2004">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -41626,11 +41626,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="3">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="2">
+        default:<span class="cov1" title="1">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -41650,7 +41650,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="316">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="372">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -41672,7 +41672,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="74">
+                case agent.LinkOnAir:<span class="cov3" title="70">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -41729,7 +41729,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -41780,7 +41780,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="37">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()

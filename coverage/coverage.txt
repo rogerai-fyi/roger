@@ -459,7 +459,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:972:		agentResult			88
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1021:		relay				91.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1523:		busDispatchJob			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1548:		relayStream			79.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1773:		estimateMaxCost			92.3%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1773:		estimateMaxCost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1796:		agentStream			87.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1893:		meaningfulChars			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1908:		observeOrganicTTFT		77.8%
