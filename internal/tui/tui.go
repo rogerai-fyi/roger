@@ -6887,9 +6887,9 @@ func (m model) shareView(w int) string {
 }
 
 // bandCardView is the one-time PRIVATE-band code card (modeBandCard), shown right
-// after a row goes private. It presents the cosmetic frequency display BIG and mono,
-// states it is shown once, and offers c=copy. Any other key returns to SHARE (which
-// clears the secret). Width/NO_COLOR-safe: no animation, plain glyphs.
+// after a row goes private. It presents the full one-time CODE BIG and mono, states it
+// is shown once, and offers c=copy. Any other key returns to SHARE (which clears the
+// secret). Width/NO_COLOR-safe: no animation, plain glyphs.
 func (m model) bandCardView(w int) string {
 	var b strings.Builder
 	line := func(s string) { b.WriteString("  " + truncVisible(s, w-2) + "\n") }
@@ -6899,14 +6899,16 @@ func (m model) bandCardView(w int) string {
 	if m.bandCardModel != "" {
 		line(stDim.Render("model ") + stKey.Render(m.bandCardModel))
 	}
-	// The big mono code line. We surface the cosmetic display ("147.520 MHz · 8F3K-9M2Q")
-	// - it carries the secret tail; the broker stores only its hash.
-	disp := m.bandCardDisp
-	if disp == "" {
-		disp = m.bandCardCode
+	// The big mono code line. This is the ONE-TIME reveal, so it surfaces the FULL code
+	// ("147.520 MHz · 8F3K-9M2Q") with the secret tail - the thing the owner must save now.
+	// The broker persists only sha256(tail) + a MASKED display, so this card is the only
+	// place the code is ever shown (modeBandCard is entered only with a freshly-minted code).
+	code := m.bandCardCode
+	if code == "" {
+		code = m.bandCardDisp
 	}
 	b.WriteString("\n")
-	line(stRed.Render(glyphOnAir) + "  " + stKey.Render(disp))
+	line(stRed.Render(glyphOnAir) + "  " + stKey.Render(code))
 	b.WriteString("\n")
 	line(stDim.Render("tune in: ") + stKey.Render("roger use <model> --freq \""+m.bandCardCode+"\""))
 	line(stDim.Render("the MHz part is cosmetic; the code is the secret."))

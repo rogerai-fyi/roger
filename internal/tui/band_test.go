@@ -9,8 +9,9 @@ import (
 )
 
 // TestBandCardWidthSafe: the one-time private-band code card renders without
-// overflowing the terminal at narrow widths, shows the code + "shown once" + the
-// c-copy affordance, and is plain-text (NO_COLOR) safe.
+// overflowing the terminal at narrow widths, reveals the FULL code (with the secret
+// tail - this is the shown-once card, NOT the masked persisted display), shows the
+// "shown once" notice + the c-copy affordance, and is plain-text (NO_COLOR) safe.
 func TestBandCardWidthSafe(t *testing.T) {
 	for _, w := range []int{40, 64, 80, 120} {
 		m := New("http://broker.local", "tester")
@@ -18,8 +19,8 @@ func TestBandCardWidthSafe(t *testing.T) {
 		m = mm.(model)
 		m.mode = modeBandCard
 		m.bandCardModel = "gpt-oss-20b"
-		m.bandCardCode = "8F3K9M2Q"
-		m.bandCardDisp = "147.520 MHz · 8F3K-9M2Q"
+		m.bandCardCode = "147.520 MHz · 8F3K-9M2Q" // the one-time FULL code (with the tail)
+		m.bandCardDisp = "147.520 MHz · ••••-••••"  // the MASKED persisted display
 		out := m.View()
 		for _, line := range strings.Split(out, "\n") {
 			if vis := utf8.RuneCountInString(stripANSI(line)); vis > w {
@@ -27,7 +28,15 @@ func TestBandCardWidthSafe(t *testing.T) {
 			}
 		}
 		if !strings.Contains(out, "147.520 MHz") {
-			t.Errorf("width %d: band card missing the cosmetic code:\n%s", w, out)
+			t.Errorf("width %d: band card missing the cosmetic frequency:\n%s", w, out)
+		}
+		// The one-time card at a readable width MUST reveal the secret tail (the owner saves
+		// it now), and must NOT substitute the masked placeholder for it.
+		if w >= 64 && !strings.Contains(out, "8F3K-9M2Q") {
+			t.Errorf("width %d: one-time band card must reveal the secret tail:\n%s", w, out)
+		}
+		if strings.Contains(out, "••••") {
+			t.Errorf("width %d: one-time band card must show the FULL code, not the mask:\n%s", w, out)
 		}
 		if !strings.Contains(stripANSI(out), "shown") {
 			t.Errorf("width %d: band card missing the 'shown once' notice", w)

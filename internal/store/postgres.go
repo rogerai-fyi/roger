@@ -138,12 +138,13 @@ CREATE INDEX IF NOT EXISTS receipts_grant ON rogerai.receipts (grant_id);
 -- public /discover + /market views. code_hash UNIQUE is the resolve lookup key
 -- (sha256 of the canonical Crockford tail only - the cosmetic "147.520 MHz" part is
 -- NEVER folded into the key); the secret code itself is shown ONCE at mint and never
--- stored. code_display is the cosmetic full string for the owner's own re-display
--- (NOT secret). One band per node (node_id index = idempotent re-register lookup).
+-- stored. code_display is the MASKED cosmetic display for the owner's own re-display
+-- (NOT secret, NON-RECOVERABLE - the tail cannot be extracted from it). One band per
+-- node (node_id index = idempotent re-register lookup).
 CREATE TABLE IF NOT EXISTS rogerai.private_bands (
     id           TEXT PRIMARY KEY,            -- band_<rand>
     code_hash    TEXT NOT NULL UNIQUE,        -- sha256(canonical secret tail); never the code
-    code_display TEXT NOT NULL,               -- cosmetic "147.520 MHz · 8F3K-9M2Q" (not secret)
+    code_display TEXT NOT NULL,               -- MASKED cosmetic "147.520 MHz · ••••-••••" (not secret)
     owner        TEXT NOT NULL,               -- owner pubkey (rogerai.owners.pubkey)
     label        TEXT NOT NULL DEFAULT '',
     node_id      TEXT NOT NULL,               -- the private node this band routes to

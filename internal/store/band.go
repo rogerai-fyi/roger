@@ -13,13 +13,15 @@ import (
 // The user-facing code is a cosmetic dotted-decimal frequency plus a secret tail,
 // e.g. "147.520 MHz · 8F3K-9M2Q". ONLY the 8-char Crockford-base32 tail is the
 // secret: it is stored as sha256(canonical tail) in CodeHash and is NEVER stored
-// or logged in the clear (shown ONCE at mint). CodeDisplay is the cosmetic full
-// string for re-display on the owner's own dashboard; it is NOT secret and is NEVER
-// folded into the lookup key (resolve hashes the tail alone).
+// or logged in the clear (the full code is shown ONCE at mint and is not retrievable
+// again - lost => revoke + re-mint). CodeDisplay is the MASKED cosmetic display
+// ("147.520 MHz · ••••-••••") for re-display on the owner's dashboard; it is NOT secret
+// and is NON-RECOVERABLE (CanonicalBandTail can never extract a tail from it), so the
+// band cannot be reconstructed from persisted state.
 type Band struct {
 	ID          string   `json:"id"`           // "band_<rand>" - the DB id (NOT the secret)
 	CodeHash    string   `json:"-"`            // sha256(canonical secret tail); the code is shown once at mint
-	CodeDisplay string   `json:"code_display"` // cosmetic "147.520 MHz · 8F3K-9M2Q" (NOT secret; safe to log/show owner)
+	CodeDisplay string   `json:"code_display"` // MASKED cosmetic "147.520 MHz · ••••-••••" (NOT secret; non-recoverable)
 	Owner       string   `json:"owner"`        // issuing owner pubkey (store.Owner.Pubkey)
 	Label       string   `json:"label"`        // optional human label ("friends", "self:hermes-box")
 	NodeID      string   `json:"node_id"`      // the private node this band routes to

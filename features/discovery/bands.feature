@@ -6,22 +6,24 @@
 #
 # GROUND TRUTH:
 #   internal/store/band.go: CreateBand stores code_hash = sha256(canonical secret tail); the
-#     code itself is NEVER persisted. code_display is the cosmetic (non-secret) "147.520 MHz · …".
+#     full code is NEVER persisted. code_display is a MASKED cosmetic string
+#     ("147.520 MHz · ••••-••••") - non-recoverable, so it cannot reconstruct/resolve the band.
 #   cmd/rogerai-broker/band.go: bandResolve()/resolveFreqAllow(freq) -> the allow set (the
-#     hidden node) for a presented code; bandView() returns non-secret metadata only.
+#     hidden node) for a presented code; bandView() returns non-secret (masked) metadata only.
 #   cmd/rogerai-broker/pricesafety.go + tunnel.go(register): registerPriceCeiling runs
 #     UNCONDITIONALLY, so the out/in price CEILING binds private + confidential bands too -
 #     --private does NOT lift it (only hides the station from the public market).
 #
-# Enforced by: cmd/rogerai-broker/band_test.go + internal/store band tests. (Doc spec; convertible.)
+# Enforced by: features/pricing/price_ceiling.feature + features/security/band_code_secrecy.feature
+#   (both executable) + cmd/rogerai-broker/band_test.go + internal/protocol/band_test.go. (Doc spec.)
 
 Feature: Private bands — hidden frequency codes
 
   Scenario: Minting a band shows the secret code ONCE and stores only its hash
     When an operator shares "gpt-oss-20b" with --private
-    Then a frequency code is generated and shown ONCE
-    And only sha256(code) (code_hash) is persisted, never the code itself
-    And a cosmetic non-secret display string is stored for the owner's re-display
+    Then a frequency code is generated and shown ONCE (never retrievable again)
+    And only sha256(code) (code_hash) is persisted, never the full code itself
+    And a MASKED, non-recoverable cosmetic display is stored for the owner's re-display
 
   Scenario: Resolving the correct code reaches the hidden node
     Given a node is on a private band with a known frequency code
@@ -39,9 +41,11 @@ Feature: Private bands — hidden frequency codes
     When anyone GETs /discover or /market
     Then the band's node never appears (privacy: code-holders only)
 
+  # The persisted display is MASKED + non-recoverable, so re-displaying it leaks nothing usable.
+  # Pinned executably in features/security/band_code_secrecy.feature.
   Scenario: bandView never leaks the secret
     When the band's metadata is fetched
-    Then it returns the cosmetic display + non-secret fields only
+    Then it returns the masked cosmetic display + non-secret fields only
     And never the frequency code or its hash in a usable form
 
   # CORRECTED (was "Private sharing bypasses the public price ceiling" - false; the broker
