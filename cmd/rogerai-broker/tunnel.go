@@ -208,8 +208,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// (and a confidential) band is held to the SAME ceiling as a public one. This is a
 	// deliberate safety max so a fat-fingered, deterrent, or abusive price can never land on
 	// ANY band and burn a consumer. Checked against EVERY offer's base AND scheduled-window
-	// prices. The rejection copy steers a "be unreachable to the public" case toward
-	// --private (hide at a SANE price), not toward an absurd price. (Pinned by
+	// prices. The rejection copy states the real remedy - lower the price below the ceiling -
+	// and does NOT suggest --private as an escape (the ceiling is global; --private only hides
+	// a station from the public market, it is not a price bypass). (Pinned by
 	// TestRegisterCeilingGlobalAllBands + features/pricing/price_ceiling.feature.)
 	if msg := registerPriceCeiling(reg.Offers); msg != "" {
 		jsonErr(w, http.StatusBadRequest, msg)
