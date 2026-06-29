@@ -914,7 +914,7 @@ github.com/rogerai-fyi/roger/internal/store/postgres.go:352:		addLot				77.8%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:390:		realEarnShareTx			100.0%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:417:		SetSeedLimit			100.0%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:422:		SeedStatus			100.0%
-github.com/rogerai-fyi/roger/internal/store/postgres.go:451:		grantSeedTx			76.9%
+github.com/rogerai-fyi/roger/internal/store/postgres.go:451:		grantSeedTx			84.6%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:490:		BalanceOf			75.0%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:515:		SeedOnce			76.9%
 github.com/rogerai-fyi/roger/internal/store/postgres.go:541:		PeekBalance			100.0%
