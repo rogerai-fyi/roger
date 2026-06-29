@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -237,39 +238,260 @@ func dayNightDarkness(frame int) int {
 	return (p - half) * 100 / half // day -> night
 }
 
-// globeRamp is the limb-darkened shading band for the rotating planet (faint rim -> bright
-// centre -> faint rim); scrolling it fakes a 3D rotation.
-var globeRamp = []rune("░▒▓▓▒░")
+// --- big ROUND celestial discs (the moon + the sun) ---------------------------------------
+//
+// The founder wanted both bodies MUCH bigger + properly round. We draw an on-screen circle:
+// a terminal cell is ~twice as tall as wide, so a disc with horizontal radius rx ≈ 2*ry reads
+// round, not egg-shaped. discHalfWidth gives the circle's half-width per row; discRim/
+// discRimGlyph trace a clean curved outline (◜◝◞◟ corners, ( ) sides, ▔ ▁ caps). The MOON is
+// a limb-darkened teal sphere with craters that rotate across its face; the SUN is a bright
+// gold disc ringed by shimmering rays. Both are pure+seeded and tinted via blitT (NO_COLOR-safe).
 
-// globeLines renders the planet Ping gazes at as a small ROTATING 3D sphere: the surface band
-// sweeps diagonally to fake rotation and the ( ) rims + limb-darkened ░▒▓ give the round, lit
-// curve. Pure in frame (slow, calm); dim ink, NEVER red. 5 rows x 8 cols.
-func globeLines(frame int) []string {
-	surf := func(n, row int) string {
-		b := make([]rune, n)
-		for i := range b {
-			// diagonal scroll = rotation (frame) + per-latitude tilt (row).
-			b[i] = globeRamp[((i+2*row+frame/3)%len(globeRamp)+len(globeRamp))%len(globeRamp)]
-		}
-		return string(b)
+// discHalfWidth is the horizontal half-width (columns) of a round disc at vertical offset dy
+// from centre, for vertical radius ry and horizontal radius rx (~2*ry, so the ~1:2 cell aspect
+// reads round). Rows past the poles (|dy|>ry) return -1 (empty). Pure.
+func discHalfWidth(dy, ry, rx int) int {
+	if ry <= 0 || dy < -ry || dy > ry {
+		return -1
 	}
-	return []string{
-		"  .--.  ",
-		" (" + surf(4, 0) + ") ",
-		" (" + surf(4, 1) + ") ",
-		" (" + surf(4, 2) + ") ",
-		"  `--'  ",
+	frac := 1 - float64(dy*dy)/float64(ry*ry) // 1 - (dy/ry)^2
+	if frac < 0 {
+		frac = 0
+	}
+	return int(float64(rx)*math.Sqrt(frac) + 0.5)
+}
+
+// discRim reports whether cell (dx,dy) sits on the disc's outline: a horizontal end of its row,
+// or a cell the row above/below doesn't reach (a top/bottom curve). Pure.
+func discRim(dx, dy, ry, rx int) bool {
+	xw := discHalfWidth(dy, ry, rx)
+	if xw < 0 {
+		return false
+	}
+	a := absI(dx)
+	return a == xw || discHalfWidth(dy-1, ry, rx) < a || discHalfWidth(dy+1, ry, rx) < a
+}
+
+// discRimGlyph picks a curved outline rune for a rim cell by where it sits: ◜◝◞◟ at the four
+// quarter-arcs, ( ) on the near-vertical sides, ▔ ▁ across the flatter top/bottom caps. Shared
+// by the moon + sun so both read as the same clean circle. Pure.
+func discRimGlyph(dx, dy, ry, rx int) rune {
+	xw := discHalfWidth(dy, ry, rx)
+	a := absI(dx)
+	leftEnd, rightEnd := dx == -xw, dx == xw
+	topCap := discHalfWidth(dy-1, ry, rx) < a // nothing directly above -> a top edge
+	botCap := discHalfWidth(dy+1, ry, rx) < a // nothing directly below -> a bottom edge
+	switch {
+	case leftEnd && rightEnd: // a single-cell pole row -> a flat little cap, not a lone arc
+		if topCap {
+			return '▔'
+		}
+		return '▁'
+	case topCap && leftEnd:
+		return '◜'
+	case topCap && rightEnd:
+		return '◝'
+	case botCap && leftEnd:
+		return '◟'
+	case botCap && rightEnd:
+		return '◞'
+	case topCap:
+		return '▔'
+	case botCap:
+		return '▁'
+	case leftEnd:
+		return '('
+	default: // rightEnd
+		return ')'
 	}
 }
 
-// sunLines is the daytime sun: a bright gold disc ringed by rays. toneSun is warm GOLD, distinct
-// from the reserved on-air RED. 3x3, small + calm - the arc across the sky supplies the motion.
-func sunLines() []string {
-	return []string{
-		"\\|/",
-		"-☀-",
-		"/|\\",
+// celestialRadius sizes the moon/sun vertical radius to the sky: big + round on a normal
+// terminal (capped at ry=7 -> a 15-row disc) yet shrinking to fit short skies / narrow widths,
+// and 0 (too small for a real disc -> a tiny fallback) on a degenerate size. Pure.
+func celestialRadius(skyRows, w int) int {
+	if skyRows < 3 || w < 8 {
+		return 0
 	}
+	ry := (skyRows - 1) / 3
+	if ry > 7 {
+		ry = 7
+	}
+	for ry >= 1 && 2*(2*ry)+1 > w-2 { // keep the disc width within the screen
+		ry--
+	}
+	if ry < 1 {
+		return 0
+	}
+	return ry
+}
+
+// moonShades ramps the moon's limb darkening: faint rim (░) -> bright centre (▓), so the teal
+// disc reads as a lit 3D sphere.
+var moonShades = []rune("░▒▓")
+
+// moonShadeIdx is the limb-darkening level for an interior moon cell: bright at the centre,
+// fading to the rim (normalized elliptical distance). Pure.
+func moonShadeIdx(dx, dy, ry, rx int) int {
+	nd := float64(dx*dx)/float64(rx*rx) + float64(dy*dy)/float64(ry*ry) // 0 centre .. 1 rim
+	switch {
+	case nd < 0.45:
+		return 2 // ▓ bright centre
+	case nd < 0.80:
+		return 1 // ▒
+	default:
+		return 0 // ░ faint rim
+	}
+}
+
+// moonCraters are fixed surface features (longitude, latitude in radians) that rotate across
+// the moon's face with the frame, vanishing round the limb — a calm 3D spin.
+var moonCraters = []struct{ lon, lat float64 }{
+	{0.6, -0.5}, {2.3, 0.2}, {4.0, 0.6}, {5.2, -0.35},
+}
+
+// stampCraters dimples the moon grid with its craters at their current rotation. A crater on the
+// far side (cos<0) or at the very limb is hidden; a visible one marks one interior shade cell as
+// a small · dimple. Pure in frame (the spin is frame/spinDiv). Never touches the rim/sky.
+func stampCraters(g [][]rune, ry, rx, frame int) {
+	h := len(g)
+	if h == 0 {
+		return
+	}
+	w := len(g[0])
+	spin := float64(frame) / 48.0 // a slow turn
+	for _, cr := range moonCraters {
+		a := cr.lon + spin
+		if math.Cos(a) <= 0.2 { // far side / limb: hidden
+			continue
+		}
+		cdx := int(float64(rx)*math.Sin(a)*math.Cos(cr.lat) + 0.5)
+		cdy := int(float64(ry)*math.Sin(cr.lat) + 0.5)
+		cx, cy := rx+cdx, ry+cdy
+		if cy < 0 || cy >= h || cx < 0 || cx >= w {
+			continue
+		}
+		if !isMoonShade(g[cy][cx]) { // only on the lit surface, never on the rim or empty sky
+			continue
+		}
+		g[cy][cx] = '·'
+	}
+}
+
+func isMoonShade(r rune) bool { return r == '░' || r == '▒' || r == '▓' }
+
+// moonDisc renders the night moon: a big ROUND teal sphere, limb-darkened (░▒▓) with a curved
+// ◜◝◞◟ ( ) outline and a few craters that rotate across its face as the frame advances (so it
+// gently spins). 2*ry+1 rows tall, 4*ry+1 wide. Pure in (ry,frame); tinted toneEarth by the
+// caller, NEVER red.
+func moonDisc(ry, frame int) []string {
+	rx := 2 * ry
+	h, w := 2*ry+1, 2*rx+1
+	g := newRuneGrid(h, w)
+	for i := 0; i < h; i++ {
+		dy := i - ry
+		xw := discHalfWidth(dy, ry, rx)
+		if xw < 0 {
+			continue
+		}
+		for c := -xw; c <= xw; c++ {
+			if discRim(c, dy, ry, rx) {
+				g[i][rx+c] = discRimGlyph(c, dy, ry, rx)
+			} else {
+				g[i][rx+c] = moonShades[moonShadeIdx(c, dy, ry, rx)]
+			}
+		}
+	}
+	stampCraters(g, ry, rx, frame)
+	return gridLines(g)
+}
+
+// sunPad is the clear margin sunDisc leaves around the disc for its rays to stick out into.
+const sunPad = 2
+
+// sunDisc renders the daytime sun: a big bright gold disc (▓ core, ▒ toward the rim) with the
+// same round ◜◝◞◟ ( ) outline, ringed by shimmering rays (\ | / -) that twinkle with the frame.
+// The grid is padded by sunPad so the rays have room. Pure in (ry,frame); tinted toneSun by the
+// caller, never the reserved RED. The disc itself is 2*ry+1 x 4*ry+1; the grid adds the margin.
+func sunDisc(ry, frame int) []string {
+	rx := 2 * ry
+	h, w := 2*ry+1+2*sunPad, 2*rx+1+2*sunPad
+	cx, cy := rx+sunPad, ry+sunPad
+	g := newRuneGrid(h, w)
+	for dy := -ry; dy <= ry; dy++ {
+		xw := discHalfWidth(dy, ry, rx)
+		if xw < 0 {
+			continue
+		}
+		for c := -xw; c <= xw; c++ {
+			if discRim(c, dy, ry, rx) {
+				g[cy+dy][cx+c] = discRimGlyph(c, dy, ry, rx)
+			} else if dy*dy*4+c*c < rx*rx*2/3 { // a brighter core
+				g[cy+dy][cx+c] = '▓'
+			} else {
+				g[cy+dy][cx+c] = '▒'
+			}
+		}
+	}
+	stampSunRays(g, cx, cy, ry, rx, frame)
+	return gridLines(g)
+}
+
+// sunRays are the eight ray directions + their glyph; stampSunRays draws each just outside the
+// rim, twinkling on/off with the frame so the sun shimmers. Pure.
+var sunRays = []struct {
+	ddx, ddy int
+	gl       rune
+}{
+	{-1, 0, '-'}, {1, 0, '-'}, {0, -1, '|'}, {0, 1, '|'},
+	{-1, -1, '\\'}, {1, 1, '\\'}, {1, -1, '/'}, {-1, 1, '/'},
+}
+
+func stampSunRays(g [][]rune, cx, cy, ry, rx, frame int) {
+	h := len(g)
+	if h == 0 {
+		return
+	}
+	w := len(g[0])
+	for ri, r := range sunRays {
+		if (frame/4+ri)%2 == 0 {
+			continue // twinkle: each ray winks out on alternating beats
+		}
+		ox, oy := 0, 0
+		switch {
+		case r.ddx != 0 && r.ddy == 0:
+			ox = rx + 1
+		case r.ddy != 0 && r.ddx == 0:
+			oy = ry + 1
+		default: // diagonal: just past the rim along both axes
+			ox, oy = rx*7/10+1, ry*7/10+1
+		}
+		x, y := cx+r.ddx*ox, cy+r.ddy*oy
+		if x >= 0 && x < w && y >= 0 && y < h && g[y][x] == ' ' {
+			g[y][x] = r.gl
+		}
+	}
+}
+
+// newRuneGrid is an h x w grid of spaces; gridLines flattens a rune grid to strings. Helpers
+// for the disc painters (spaces stay transparent in blitT).
+func newRuneGrid(h, w int) [][]rune {
+	g := make([][]rune, h)
+	for i := range g {
+		g[i] = make([]rune, w)
+		for j := range g[i] {
+			g[i][j] = ' '
+		}
+	}
+	return g
+}
+
+func gridLines(g [][]rune) []string {
+	out := make([]string, len(g))
+	for i := range g {
+		out[i] = string(g[i])
+	}
+	return out
 }
 
 // sunArc is the sun's position over the day: up ONLY while it's day (darkness<50), rising from the
@@ -436,10 +658,11 @@ func worldActSpeed(a worldAct) int {
 	}
 }
 
-// worldPingX integrates the act speeds into Ping's column, wrapped into [0,span). Bounded to
-// O(waCycle) by summing one loop cycle (the schedule is periodic in waCycle). 0 for span<=0.
-func worldPingX(frame, seed, span int) int {
-	if span <= 0 || frame < 0 {
+// worldPingDist integrates the act speeds into Ping's TOTAL path length walked so far (monotonic,
+// never wrapped). Bounded to O(waCycle) by summing one loop cycle (the schedule is periodic in
+// waCycle). 0 for frame<0. The walk's left/right folding is done by worldPingMotion.
+func worldPingDist(frame, seed int) int {
+	if frame < 0 {
 		return 0
 	}
 	wi, prog := frame/waWindow, frame%waWindow
@@ -452,7 +675,35 @@ func worldPingX(frame, seed, span int) int {
 		pos += worldActSpeed(worldActAt(k, seed)) * waWindow
 	}
 	pos += worldActSpeed(worldActAt(wi, seed)) * prog
-	return ((pos % span) + span) % span
+	return pos
+}
+
+// worldPingMotion folds Ping's path length into a PING-PONG walk across [0,span]: he ambles to one
+// edge, then turns and ambles back — no teleport (the old wrap snapped him from the right edge back
+// to the left). It also reports his facing dir (+1 right / -1 left), whether he's in a brief edge
+// TURNAROUND beat (a "73, signing off → tuning back in" wave near each edge), and the wave frame.
+// Pure + seeded. span<=0 -> the degenerate (0,+1,false,0).
+func worldPingMotion(frame, seed, span int) (x, dir int, turning bool, beat int) {
+	if span <= 0 || frame < 0 {
+		return 0, 1, false, 0
+	}
+	period := 2 * span
+	p := ((worldPingDist(frame, seed) % period) + period) % period
+	if p <= span {
+		x, dir = p, 1 // outward leg: ambling right
+	} else {
+		x, dir = 2*span-p, -1 // return leg: ambling back left
+	}
+	band := maxI(1, span/10) // a small zone around each turn where he signs off + waves
+	turning = span > 1 && (p <= band || p >= period-band || absI(p-span) <= band)
+	return x, dir, turning, (frame / 2) % len(pingWaveFrames)
+}
+
+// worldPingX is Ping's column in [0,span] (the ping-pong fold of his path). Kept as a thin helper
+// for callers/tests that only need the position. 0 for span<=0.
+func worldPingX(frame, seed, span int) int {
+	x, _, _, _ := worldPingMotion(frame, seed, span)
+	return x
 }
 
 // worldPingPose returns Ping's sprite lines + the red eye for the act at this frame. The eye is
@@ -486,18 +737,61 @@ func renderWorldData(w, h, frame, seed int, d *worldData) string {
 // worldBuffer builds the pure SEEDED cell buffer (no live data); nil for a degenerate size.
 func worldBuffer(w, h, frame, seed int) [][]worldCell { return worldBufferData(w, h, frame, seed, nil) }
 
+// tickerWidth is the visible window (cols) of the satellite's live on-air ticker tape.
+const tickerWidth = 14
+
+// shortModel trims a model id to a compact ticker tag (keep it glanceable, not a paragraph).
+func shortModel(m string) string {
+	r := []rune(m)
+	if len(r) > 12 {
+		return string(r[:11]) + "…"
+	}
+	return m
+}
+
+// tickerText builds the looping marquee of currently-on-air bands for the satellite ticker:
+// the model tags joined by · (a continuous tape that scrolls), with a trailing separator so it
+// loops cleanly. "" when there's no live data (the seeded/offline world shows no ticker).
+func tickerText(d *worldData) string {
+	if d == nil || len(d.stations) == 0 {
+		return ""
+	}
+	tags := make([]string, 0, len(d.stations))
+	for _, s := range d.stations {
+		tags = append(tags, shortModel(s.model))
+	}
+	return strings.Join(tags, " · ") + " · "
+}
+
+// marqueeWindow returns the width-rune window of s starting at start, wrapping around so it
+// scrolls forever. "" for an empty string / non-positive width. Pure.
+func marqueeWindow(s string, start, width int) string {
+	r := []rune(s)
+	if len(r) == 0 || width <= 0 {
+		return ""
+	}
+	out := make([]rune, width)
+	for i := 0; i < width; i++ {
+		out[i] = r[((start+i)%len(r)+len(r))%len(r)]
+	}
+	return string(out)
+}
+
 // paintSatellite glides a small satellite across the sky on seeded ~70-frame windows (day OR
-// night): a teal bus with solar-panel arms, trailing a periodic red '•' DOWNLINK blip - a
-// deliberate EXTRA place for the live on-air dot ("transmitting to the ground"). Generative: only
-// ~half the windows carry one, and it crosses either direction at a seeded altitude. Pure + seeded;
-// the tone goes through blitT so it's NO_COLOR-safe, and the lone red dot keeps the one-red law.
-func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int) {
+// night): a teal bus with solar-panel arms. In the SEEDED world (d==nil) only ~half the windows
+// carry one and it trails a periodic red '•' DOWNLINK blip. With LIVE data it is always up and
+// downlinks a tiny, SUBTLE scrolling on-air TICKER (a red '•' on-air pip + the aqua names of the
+// bands currently on the air) so you can glance at what's live without leaving the screensaver.
+// It crosses either direction at a seeded altitude. Pure + seeded; tones go through blitT so it's
+// NO_COLOR-safe, and the lone red pip keeps the one-red law (• is on-air-semantic, never a 2nd ◉).
+func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData) {
 	if skyRows < 3 || w < 10 {
 		return
 	}
+	live := d != nil && len(d.stations) > 0
 	win := frame / 70
-	if worldHash(win, 31, seed)%2 != 0 {
-		return // only ~half the windows carry a satellite (don't overdo it)
+	if !live && worldHash(win, 31, seed)%2 != 0 {
+		return // seeded world: only ~half the windows carry a satellite (don't overdo it)
 	}
 	k := frame % 70
 	span := w + 12
@@ -508,7 +802,12 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int) {
 	}
 	y := 1 + int(worldHash(win, 33, seed)%uint32(maxI(1, skyRows/2)))
 	blitT(buf, x, y, []string{"-=▢=-"}, 0, toneSat) // aqua bus + solar-panel arms
-	if k%9 < 2 {                                       // a brief downlink every ~9 frames
+	if live {
+		// a faint scrolling ticker of the on-air bands, downlinked under the bus.
+		tape := marqueeWindow(tickerText(d), frame/3, tickerWidth)
+		blit(buf, x, y+1, []string{"•"}, '•')            // the on-air pip (red, on-air-semantic)
+		blitT(buf, x+1, y+1, []string{tape}, 0, toneSat) // the band names, faint aqua, scrolling
+	} else if k%9 < 2 { // a brief downlink every ~9 frames
 		blit(buf, x+2, y+1, []string{"•"}, '•') // the on-air red dot, beamed groundward
 	}
 }
@@ -645,22 +944,44 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		paintClouds(buf, w, skyRows, frame, seed)
 	}
 
-	// LAYER 1.5 — the celestial body, swapping with the day: by NIGHT a slowly ROTATING teal 3D
-	// globe (the moon Ping gazes at); by DAY a gold SUN arcing across the sky. Never red; the
-	// on-air ◉ is still painted LAST, on top.
+	// LAYER 1.5 — the celestial body, swapping with the day: by NIGHT a big ROUND teal MOON
+	// (limb-darkened, craters rotating across its face); by DAY a big gold SUN with shimmering
+	// rays arcing across the sky. Both sized to the sky (celestialRadius) so they read large +
+	// round without overwhelming Ping/the horizon. Never red; the on-air ◉ is still painted LAST.
 	mx, my := moonPos(w, skyRows, frame, seed)
+	cry := celestialRadius(skyRows, w)
 	if day {
 		if upSun, sx, sy := sunArc(w, skyRows, frame); upSun {
-			blitT(buf, sx, sy, sunLines(), 0, toneSun)
+			if cry == 0 { // degenerate sky: a tiny fallback sun
+				blitT(buf, sx, sy, []string{"\\|/", "-☀-", "/|\\"}, 0, toneSun)
+			} else {
+				disc := sunDisc(cry, frame)
+				dw := len(disc[0])
+				// the arc's y is the disc TOP: high (fully visible) at noon, sinking toward the
+				// horizon at dawn/dusk where it sets behind it (blitT clips the lower rows). Centred
+				// on the arc's x and kept on-screen horizontally.
+				topx := clampI(sx-dw/2, 0, maxI(0, w-dw))
+				topy := clampI(sy, 0, maxI(0, skyRows-1))
+				blitT(buf, topx, topy, disc, 0, toneSun)
+			}
 		}
 	} else {
-		blitT(buf, mx, my, globeLines(frame), 0, toneEarth)
+		if cry == 0 { // degenerate sky: a tiny fallback moon
+			blitT(buf, mx, my, []string{" .--. ", "(░▒▓.)", " `--' "}, 0, toneEarth)
+		} else {
+			disc := moonDisc(cry, frame)
+			mw, mh := len(disc[0]), len(disc)
+			topx := clampI(mx-2*cry, 0, maxI(0, w-mw)) // centre on moonPos x, stay on-screen
+			topy := clampI(my, 0, maxI(0, skyRows-mh)) // hang fully in the (upper) sky
+			blitT(buf, topx, topy, disc, 0, toneEarth)
+		}
 	}
 
-	// LAYER 1.6 — orbital traffic crossing the sky (day OR night): a satellite with a periodic red
-	// DOWNLINK blip, and RARELY a spaceship with an ion trail + a red running light. Generative
-	// (seeded windows, direction, altitude). The on-air ◉ is still painted LAST, on top of all.
-	paintSatellite(buf, w, skyRows, frame, seed)
+	// LAYER 1.6 — orbital traffic crossing the sky (day OR night): a satellite (carrying a tiny
+	// live on-air ticker when there's data) with a periodic red DOWNLINK blip, and RARELY a
+	// spaceship with an ion trail + a red running light. Generative (seeded windows, direction,
+	// altitude). The on-air ◉ is still painted LAST, on top of all.
+	paintSatellite(buf, w, skyRows, frame, seed, d)
 	paintSpaceship(buf, w, skyRows, frame, seed)
 
 	// (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
@@ -780,11 +1101,19 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	}
 
 	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
-	// transmit). The eye is the red '•' in every act EXCEPT the brief transmit swell, where the
-	// tx pose's own broadcasting 'O' shows (dim) - so the "at least one red eye" law is carried
-	// by the always-on-screen baby duckling below (and the on-air ◉), never assumed of Ping.
-	pingLines, pingEye := worldPingPose(frame, seed)
-	px := worldPingX(frame, seed, maxI(1, w-pingWalkW)) // always fully on-screen
+	// transmit), now ping-ponging edge-to-edge instead of teleporting back. When he reaches an
+	// edge he plays a brief "73, signing off → tuning back in" WAVE, then turns and ambles back
+	// (worldPingMotion). The eye stays the red '•' through the wave; the always-on-screen baby
+	// duckling below (and the on-air ◉) still carry the "at least one red eye" law regardless.
+	pingSpan := maxI(1, w-pingWalkW)
+	px, pdir, pingTurning, pingBeat := worldPingMotion(frame, seed, pingSpan) // always fully on-screen
+	var pingLines []string
+	var pingEye rune
+	if pingTurning {
+		pingLines, pingEye = pingWaveFrames[pingBeat].lines[:], '•' // the edge sign-off wave
+	} else {
+		pingLines, pingEye = worldPingPose(frame, seed)
+	}
 	blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
 
 	// Ping naps at deep night while he pauses: a soft Zzz drifts up over his head (his eye stays
@@ -825,14 +1154,16 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		}
 	}
 
-	// A duckling trail follows Ping (v2 P1-4): two dim followers lag behind, and the LEAD
-	// duckling - clamped on-screen, painted AFTER the shooting star - keeps the red '•' so it
-	// survives at every reasonable size, even mid-transmit, even at h=8. (The single ◉ below is
-	// the UNIVERSAL red-eye backstop at degenerate sizes like w=1 where the lead clips off.)
-	wad := (frame / 5) % 2                                  // the ducklings waddle: followers bob out of phase
-	blit(buf, px-12, horizon-wad, []string{"(·)"}, 0)       // far follower (dim)
-	blit(buf, px-8, horizon-(1-wad), []string{"(·)"}, 0)    // near follower (dim)
-	blit(buf, maxI(0, px-4), horizon, []string{"(•)"}, '•') // lead - steady red-eye backstop
+	// A duckling trail follows Ping (v2 P1-4): two dim followers lag BEHIND his direction of
+	// travel (so they don't lead on the ping-pong return leg), and the LEAD duckling - clamped
+	// on-screen, painted AFTER the shooting star - keeps the red '•' so it survives at every
+	// reasonable size, even mid-transmit, even at h=8. (The single ◉ below is the UNIVERSAL
+	// red-eye backstop at degenerate sizes like w=1 where the lead clips off.)
+	wad := (frame / 5) % 2 // the ducklings waddle: followers bob out of phase
+	duckX := func(n int) int { return clampI(px-n*pdir, 0, maxI(0, w-3)) }
+	blit(buf, duckX(12), horizon-wad, []string{"(·)"}, 0)    // far follower (dim)
+	blit(buf, duckX(8), horizon-(1-wad), []string{"(·)"}, 0) // near follower (dim)
+	blit(buf, duckX(4), horizon, []string{"(•)"}, '•')       // lead - steady red-eye backstop
 
 	// transmit-to-star (v2 P1-5): while Ping is broadcasting, the on-air ◉ "breathes back" - a
 	// faint dim halo pulses around it (the ◉ itself stays the SINGLE red glint, painted last).
@@ -1119,6 +1450,24 @@ func maxI(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func absI(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
+// clampI pins v into [lo,hi] (assumes lo<=hi).
+func clampI(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // PingWorld runs the `roger --ping` screensaver: the live animated Ping world until any key.
