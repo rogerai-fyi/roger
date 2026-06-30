@@ -30,13 +30,13 @@ type finalizeState struct {
 	reqN       int
 	curReqID   string
 
-	initialBalance  float64
-	balBeforeHold   float64
-	heldAmt         float64
-	lastCost        float64
-	lastOwnerShare  float64
-	lastRefund      float64
-	lastEarned      float64
+	initialBalance   float64
+	balBeforeHold    float64
+	heldAmt          float64
+	lastCost         float64
+	lastOwnerShare   float64
+	lastRefund       float64
+	lastEarned       float64
 	totalRealPortion float64
 }
 

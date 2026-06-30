@@ -163,8 +163,8 @@ func (s *modState) status503() error {
 	}
 	return nil
 }
-func (s *modState) neverServedUnscreened() error  { return s.status503() }
-func (s *modState) neverFallsOpen() error         { return s.status503() }
+func (s *modState) neverServedUnscreened() error { return s.status503() }
+func (s *modState) neverFallsOpen() error        { return s.status503() }
 func (s *modState) urlBackendUsed() error {
 	if s.m.provider != "url" {
 		return fmtErr("backend = %q, want url", s.m.provider)

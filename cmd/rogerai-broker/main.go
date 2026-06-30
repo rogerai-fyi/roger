@@ -515,42 +515,42 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
 	mux.HandleFunc("/balance", b.balance)
-	mux.HandleFunc("/me", b.me)                                   // consumer dashboard: balance, spend, recent
-	mux.HandleFunc("/earnings", b.earnings)                       // owner dashboard: accrued earnings, recent
-	mux.HandleFunc("/market", b.market)                           // per-model market metrics + signal
-	mux.HandleFunc("/promo", b.promo)                             // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
-	mux.HandleFunc("/auth/github", b.authGitHub)                  // bind a GitHub owner to the signing pubkey (CLI device flow)
-	mux.HandleFunc("/auth/apple", b.authApple)                    // bind an Apple owner to the signing pubkey (Sign in with Apple, native)
-	mux.HandleFunc("/auth/apple/web/login", b.authAppleWebLogin)         // web: 302 to Apple authorize (Services ID)
-	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback)   // web: form_post id_token -> Apple-wallet session
-	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)       // web: 302 to GitHub authorize
-	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback) // web: code exchange + session cookie
-	mux.HandleFunc("/auth/logout", b.authLogout)                  // web: clear the session cookie
-	mux.HandleFunc("/account", b.account)                         // web: account hub (GET profile+balances, PATCH email)
-	mux.HandleFunc("/account/limit", b.accountLimit)              // GET/PATCH the per-account monthly spend cap (budget limit)
-	mux.HandleFunc("/account/export", b.accountExport)            // GDPR/CCPA data dump
-	mux.HandleFunc("/account/delete", b.accountDelete)            // soft-delete + anonymize (retention-safe)
-	mux.HandleFunc("/billing", b.billing)                         // money-in view: balance + top-up history
-	mux.HandleFunc("/billing/checkout", b.checkout)               // Stripe top-up -> credits
-	mux.HandleFunc("/billing/webhook", b.webhook)                 // Stripe payment + dispute webhook
-	mux.HandleFunc("/usage", b.usage)                             // consumer spend by model|day
-	mux.HandleFunc("/connect/onboard", b.connectOnboard)          // Stripe Connect Express onboarding link
-	mux.HandleFunc("/connect/status", b.connectStatus)            // Connect capability status (KYC gate)
-	mux.HandleFunc("/payouts/request", b.payoutsRequest)          // request a payout (KYC + min gated)
-	mux.HandleFunc("/payouts/history", b.payoutsHistory)          // payout + clawback history
-	mux.HandleFunc("/payouts/earnings", b.payoutsEarnings)        // earnings split + dated release ladder + rollups
-	mux.HandleFunc("/payouts/", b.payoutsSubtree)                 // /payouts/{id}/lots: a payout's funding lineage
-	mux.HandleFunc("/metrics/provider", b.metricsProvider)        // per-model SERVE metrics (free/paid + earnings)
-	mux.HandleFunc("/metrics/usage", b.metricsUsage)              // per-model CONSUME metrics (free/paid + spend)
-	mux.HandleFunc("/metrics/series", b.metricsSeries)            // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
-	mux.HandleFunc("/console", b.console)                         // recent lineage feed + live counters (Console page)
-	mux.HandleFunc("/activity", b.console)                        // alias for /console
-	mux.HandleFunc("/provider/models", b.providerModels)          // owner: per-model price + time-of-use schedule (Console pricing manager)
-	mux.HandleFunc("/grants", b.grants)                           // owner grant keys: create + list
-	mux.HandleFunc("/grants/", b.grants)                          // owner grant keys: show/edit/revoke by id
-	mux.HandleFunc("/bands", b.bands)                             // owner private bands: list + revoke by id
-	mux.HandleFunc("/bands/", b.bandsByID)                        // /bands/{id} revoke; /bands/resolve = public freq lookup
-	mux.HandleFunc("/bands/resolve", b.bandResolve)               // PUBLIC: resolve a frequency code -> offers (constant-work)
+	mux.HandleFunc("/me", b.me)                                        // consumer dashboard: balance, spend, recent
+	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent
+	mux.HandleFunc("/market", b.market)                                // per-model market metrics + signal
+	mux.HandleFunc("/promo", b.promo)                                  // public: free-credit seed promo state (seeds_remaining; auto-hide at 0)
+	mux.HandleFunc("/auth/github", b.authGitHub)                       // bind a GitHub owner to the signing pubkey (CLI device flow)
+	mux.HandleFunc("/auth/apple", b.authApple)                         // bind an Apple owner to the signing pubkey (Sign in with Apple, native)
+	mux.HandleFunc("/auth/apple/web/login", b.authAppleWebLogin)       // web: 302 to Apple authorize (Services ID)
+	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback) // web: form_post id_token -> Apple-wallet session
+	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)            // web: 302 to GitHub authorize
+	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback)      // web: code exchange + session cookie
+	mux.HandleFunc("/auth/logout", b.authLogout)                       // web: clear the session cookie
+	mux.HandleFunc("/account", b.account)                              // web: account hub (GET profile+balances, PATCH email)
+	mux.HandleFunc("/account/limit", b.accountLimit)                   // GET/PATCH the per-account monthly spend cap (budget limit)
+	mux.HandleFunc("/account/export", b.accountExport)                 // GDPR/CCPA data dump
+	mux.HandleFunc("/account/delete", b.accountDelete)                 // soft-delete + anonymize (retention-safe)
+	mux.HandleFunc("/billing", b.billing)                              // money-in view: balance + top-up history
+	mux.HandleFunc("/billing/checkout", b.checkout)                    // Stripe top-up -> credits
+	mux.HandleFunc("/billing/webhook", b.webhook)                      // Stripe payment + dispute webhook
+	mux.HandleFunc("/usage", b.usage)                                  // consumer spend by model|day
+	mux.HandleFunc("/connect/onboard", b.connectOnboard)               // Stripe Connect Express onboarding link
+	mux.HandleFunc("/connect/status", b.connectStatus)                 // Connect capability status (KYC gate)
+	mux.HandleFunc("/payouts/request", b.payoutsRequest)               // request a payout (KYC + min gated)
+	mux.HandleFunc("/payouts/history", b.payoutsHistory)               // payout + clawback history
+	mux.HandleFunc("/payouts/earnings", b.payoutsEarnings)             // earnings split + dated release ladder + rollups
+	mux.HandleFunc("/payouts/", b.payoutsSubtree)                      // /payouts/{id}/lots: a payout's funding lineage
+	mux.HandleFunc("/metrics/provider", b.metricsProvider)             // per-model SERVE metrics (free/paid + earnings)
+	mux.HandleFunc("/metrics/usage", b.metricsUsage)                   // per-model CONSUME metrics (free/paid + spend)
+	mux.HandleFunc("/metrics/series", b.metricsSeries)                 // per-day(+hourly) time-series + savings-vs-frontier (Dashboard/Metrics charts)
+	mux.HandleFunc("/console", b.console)                              // recent lineage feed + live counters (Console page)
+	mux.HandleFunc("/activity", b.console)                             // alias for /console
+	mux.HandleFunc("/provider/models", b.providerModels)               // owner: per-model price + time-of-use schedule (Console pricing manager)
+	mux.HandleFunc("/grants", b.grants)                                // owner grant keys: create + list
+	mux.HandleFunc("/grants/", b.grants)                               // owner grant keys: show/edit/revoke by id
+	mux.HandleFunc("/bands", b.bands)                                  // owner private bands: list + revoke by id
+	mux.HandleFunc("/bands/", b.bandsByID)                             // /bands/{id} revoke; /bands/resolve = public freq lookup
+	mux.HandleFunc("/bands/resolve", b.bandResolve)                    // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
 	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
 	mux.HandleFunc("/report", b.report)                                                               // public abuse/quality report + node-ban flow

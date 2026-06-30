@@ -52,8 +52,8 @@ func (b *broker) authAppleWebLogin(w http.ResponseWriter, r *http.Request) {
 	q := url.Values{
 		"client_id":     {appleServicesID()},
 		"redirect_uri":  {appleWebRedirectURI()},
-		"response_type": {"code id_token"},   // id_token authenticates; code is for later refresh/revoke
-		"response_mode": {"form_post"},       // required by Apple whenever scope includes name/email
+		"response_type": {"code id_token"}, // id_token authenticates; code is for later refresh/revoke
+		"response_mode": {"form_post"},     // required by Apple whenever scope includes name/email
 		"scope":         {"name email"},
 		"state":         {state},
 		"nonce":         {appleNonceHash(rawNonce)},

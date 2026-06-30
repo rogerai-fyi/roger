@@ -53,7 +53,11 @@ func (s *fundingState) feePct(p string) error {
 	return nil
 }
 
-func (s *fundingState) starterSeed(v string) error { f, err := feParseFloat(v); s.seedGrant = f; return err }
+func (s *fundingState) starterSeed(v string) error {
+	f, err := feParseFloat(v)
+	s.seedGrant = f
+	return err
+}
 
 func (s *fundingState) unseen(name string) error { s.wallet = name; return nil }
 
@@ -263,7 +267,7 @@ func (s *fundingState) realPortion(v string) error {
 	return feApprox(s.lastReal, want)
 }
 
-func (s *fundingState) noEarningLot(op string) error  { return s.noPayableLot(op) }
+func (s *fundingState) noEarningLot(op string) error { return s.noPayableLot(op) }
 func (s *fundingState) noPayableLot(op string) error {
 	sp, err := s.store.EarningSplitOfNode(s.node, time.Now())
 	if err != nil {

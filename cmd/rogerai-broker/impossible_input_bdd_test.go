@@ -54,7 +54,11 @@ func (s *impossState) banMargin(v string) error {
 func (s *impossState) thresholds(string, string) error { return nil }
 
 func (s *impossState) bodyBytes(v string) error { n, err := strconv.Atoi(v); s.bodyLen = n; return err }
-func (s *impossState) nodeClaims(v string) error { n, err := strconv.Atoi(v); s.claimed = n; return err }
+func (s *impossState) nodeClaims(v string) error {
+	n, err := strconv.Atoi(v)
+	s.claimed = n
+	return err
+}
 
 func (s *impossState) namedNodeClaims(node, v string) error {
 	s.node = node
@@ -71,8 +75,8 @@ func (s *impossState) inputSettles() error {
 	return nil
 }
 
-func (s *impossState) billedClampedTo(v string) error { return s.billedEq(v) }
-func (s *impossState) billedIs(v string) error        { return s.billedEq(v) }
+func (s *impossState) billedClampedTo(v string) error       { return s.billedEq(v) }
+func (s *impossState) billedIs(v string) error              { return s.billedEq(v) }
 func (s *impossState) billingClampedToBytes(v string) error { return s.billedEq(v) }
 
 func (s *impossState) billedEq(v string) error {
@@ -124,7 +128,7 @@ func (s *impossState) banFiredIs(b string) error {
 	return nil
 }
 
-func (s *impossState) banFires() error      { return s.bannedNow(s.owner) }
+func (s *impossState) banFires() error { return s.bannedNow(s.owner) }
 func (s *impossState) byteFloorNotApplied() error {
 	if s.billed != s.claimed {
 		return fmt.Errorf("byte floor was applied: billed %d != claimed %d", s.billed, s.claimed)

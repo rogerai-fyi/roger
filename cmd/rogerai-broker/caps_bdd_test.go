@@ -43,9 +43,9 @@ import (
 // grantUsageErrStore (the fail-CLOSED grant-cap seam) is defined in grant_test.go.
 
 type cpState struct {
-	db   *store.Mem
-	b    *broker
-	now  time.Time // fixed mid-month UTC instant for the monthly-cap math
+	db  *store.Mem
+	b   *broker
+	now time.Time // fixed mid-month UTC instant for the monthly-cap math
 
 	capRead    float64
 	monthSpend float64
@@ -54,10 +54,10 @@ type cpState struct {
 	capMsg     string
 	capCalled  bool
 
-	grant      store.Grant
-	grantStat  int
-	grantMsg   string
-	lastCheck  string // "cap" | "grant" — which gate the shared "allowed" verdict reads
+	grant     store.Grant
+	grantStat int
+	grantMsg  string
+	lastCheck string // "cap" | "grant" — which gate the shared "allowed" verdict reads
 
 	rpm, burst float64
 
@@ -98,13 +98,19 @@ func (s *cpState) dbSeed(rows ...store.LedgerRow) error { s.db.SeedLedgerForTest
 
 // --- Background -------------------------------------------------------------
 
-func (s *cpState) freshStore() error      { s.reset(); return nil }
+func (s *cpState) freshStore() error                 { s.reset(); return nil }
 func (s *cpState) grantIssued(g, owner string) error { s.grant = store.Grant{ID: g}; return nil }
 
 // --- section 1: cap resolution ----------------------------------------------
 
-func (s *cpState) defaultCapEnv(v string) error    { os.Setenv("ROGERAI_DEFAULT_MONTHLY_CAP", v); return nil }
-func (s *cpState) defaultCapEnvUnset() error        { os.Setenv("ROGERAI_DEFAULT_MONTHLY_CAP", ""); return nil }
+func (s *cpState) defaultCapEnv(v string) error {
+	os.Setenv("ROGERAI_DEFAULT_MONTHLY_CAP", v)
+	return nil
+}
+func (s *cpState) defaultCapEnvUnset() error {
+	os.Setenv("ROGERAI_DEFAULT_MONTHLY_CAP", "")
+	return nil
+}
 func (s *cpState) capRead_(holder string) error {
 	c, err := s.db.MonthlyCapOf(holder)
 	s.capRead = c
@@ -207,8 +213,8 @@ func (s *cpState) monthSpendIs(v string) error {
 
 // --- section 3/4/5: enforcement ---------------------------------------------
 
-func (s *cpState) hasCap(holder, v string) error          { return s.setsCap(holder, v) }
-func (s *cpState) hasUnlimitedCap(holder string) error    { return s.db.SetMonthlyCap(holder, 0) }
+func (s *cpState) hasCap(holder, v string) error       { return s.setsCap(holder, v) }
+func (s *cpState) hasUnlimitedCap(holder string) error { return s.db.SetMonthlyCap(holder, 0) }
 func (s *cpState) hasSpent(holder, v string) error {
 	f, err := feParseFloat(v)
 	if err != nil {
@@ -357,7 +363,7 @@ func (s *cpState) windowEndsFirstOfNextMonth() error {
 
 // --- section 6: grant token caps --------------------------------------------
 
-func (s *cpState) grantNoCaps() error      { s.grant.DailyCap, s.grant.MonthlyCap = 0, 0; return nil }
+func (s *cpState) grantNoCaps() error { s.grant.DailyCap, s.grant.MonthlyCap = 0, 0; return nil }
 func (s *cpState) grantDailyCap(v string) error {
 	n, err := strconv.ParseInt(v, 10, 64)
 	s.grant.DailyCap = n
@@ -486,7 +492,9 @@ func (s *cpState) usageBecomesToday(v string) error {
 	}
 	return nil
 }
-func (s *cpState) serves(v string) error { return s.db.AddGrantUsage(s.grant.ID, mustI64(v), time.Now()) }
+func (s *cpState) serves(v string) error {
+	return s.db.AddGrantUsage(s.grant.ID, mustI64(v), time.Now())
+}
 func (s *cpState) dayUsageIs(v string) error {
 	u, _ := s.db.GrantUsageOf(s.grant.ID, time.Now())
 	if u.DayTokens != mustI64(v) {

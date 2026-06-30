@@ -88,7 +88,7 @@ func TestRegisterResponseEchoesConfidentialGrant(t *testing.T) {
 func TestRegisterRequireModeRejectsConfidentialClaim(t *testing.T) {
 	b, userPriv, nodePriv, nodePubHex := newBandBroker(t)
 	b.attest = mockRegistry(false) // verifier always fails
-	b.attest.required = true        // ROGERAI_TEE_REQUIRE
+	b.attest.required = true       // ROGERAI_TEE_REQUIRE
 	ch := b.attest.issueNonce()
 	_, code := registerMaybeConfidential(t, b, "cn-req", nodePriv, nodePubHex, userPriv, true, ch.Nonce)
 	if code != http.StatusForbidden {

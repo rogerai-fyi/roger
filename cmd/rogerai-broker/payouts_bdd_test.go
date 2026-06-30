@@ -121,7 +121,7 @@ func (s *poState) reset() {
 
 // --- shared setup -----------------------------------------------------------
 
-func (s *poState) freshStore() error { s.reset(); return nil }
+func (s *poState) freshStore() error   { s.reset(); return nil }
 func (s *poState) feePct(string) error { return nil }
 
 func (s *poState) policyBackground(_, _, minimum string) error {
@@ -252,9 +252,9 @@ func (s *poState) heldLotReleaseExactlyNow(op, gross string) error {
 	return nil
 }
 
-func (s *poState) nodeRecountHold(node string) error  { return s.db.SetNodeRecountHold(node, true) }
-func (s *poState) acctRecountHold(acct string) error  { return s.db.SetAccountRecountHold(acct, true) }
-func (s *poState) clearNodeHold(node string) error    { return s.db.SetNodeRecountHold(node, false) }
+func (s *poState) nodeRecountHold(node string) error { return s.db.SetNodeRecountHold(node, true) }
+func (s *poState) acctRecountHold(acct string) error { return s.db.SetAccountRecountHold(acct, true) }
+func (s *poState) clearNodeHold(node string) error   { return s.db.SetNodeRecountHold(node, false) }
 
 func (s *poState) readSplitNow(op string) error {
 	s.op = op
@@ -698,7 +698,7 @@ func (s *poState) kycActive(op string) error {
 
 func (s *poState) notOnboarded(op string) error { s.ensureOwner(op); return nil }
 
-func (s *poState) transferWillFail() error    { s.ensureBroker(); s.transferErr = true; return nil }
+func (s *poState) transferWillFail() error { s.ensureBroker(); s.transferErr = true; return nil }
 func (s *poState) transferWillSucceed(t string) error {
 	s.ensureBroker()
 	s.transferID = t
@@ -1042,11 +1042,19 @@ func (s *poState) statusFallsBackTo(status string) error {
 
 // --- section 7: fail-closed env guards --------------------------------------
 
-func (s *poState) requireLiveSet() error      { os.Setenv("ROGERAI_REQUIRE_LIVE", "1"); s.requireLive = true; return nil }
-func (s *poState) requireLiveNotSet() error   { os.Unsetenv("ROGERAI_REQUIRE_LIVE"); s.requireLive = false; return nil }
-func (s *poState) keyNotLive() error          { os.Setenv("STRIPE_SECRET_KEY", "sk_test_devkey"); return nil }
-func (s *poState) noStripeKey() error         { os.Setenv("STRIPE_SECRET_KEY", ""); return nil }
-func (s *poState) railLoads() error           { s.loadedConn = loadConnect(); return nil }
+func (s *poState) requireLiveSet() error {
+	os.Setenv("ROGERAI_REQUIRE_LIVE", "1")
+	s.requireLive = true
+	return nil
+}
+func (s *poState) requireLiveNotSet() error {
+	os.Unsetenv("ROGERAI_REQUIRE_LIVE")
+	s.requireLive = false
+	return nil
+}
+func (s *poState) keyNotLive() error  { os.Setenv("STRIPE_SECRET_KEY", "sk_test_devkey"); return nil }
+func (s *poState) noStripeKey() error { os.Setenv("STRIPE_SECRET_KEY", ""); return nil }
+func (s *poState) railLoads() error   { s.loadedConn = loadConnect(); return nil }
 func (s *poState) payoutsDisabled() error {
 	if s.loadedConn.secretKey != "" {
 		return fmt.Errorf("payouts NOT disabled (secretKey=%q)", s.loadedConn.secretKey)

@@ -20,15 +20,15 @@ import (
 )
 
 type costPrecState struct {
-	prompt, completion         int
-	priceIn, priceOut          float64
-	brokerPrompt, brokerComp   int
-	cost, costAlt              float64
-	feeRate                    float64
-	ownerShare, platformTake   float64
-	raw, round6Out             float64
-	captured                   float64
-	activeOut                  float64
+	prompt, completion       int
+	priceIn, priceOut        float64
+	brokerPrompt, brokerComp int
+	cost, costAlt            float64
+	feeRate                  float64
+	ownerShare, platformTake float64
+	raw, round6Out           float64
+	captured                 float64
+	activeOut                float64
 }
 
 func (s *costPrecState) reset() { *s = costPrecState{} }
@@ -85,7 +85,10 @@ func (s *costPrecState) rec() protocol.UsageReceipt {
 	return protocol.UsageReceipt{PromptTokens: s.prompt, CompletionTokens: s.completion, PriceIn: s.priceIn, PriceOut: s.priceOut}
 }
 
-func (s *costPrecState) computeCost() error { s.cost = s.rec().CostWith2(s.prompt, s.completion); return nil }
+func (s *costPrecState) computeCost() error {
+	s.cost = s.rec().CostWith2(s.prompt, s.completion)
+	return nil
+}
 
 func (s *costPrecState) computeBoth() error {
 	r := s.rec()
