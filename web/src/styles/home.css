@@ -314,6 +314,16 @@
   min-height: 420px; white-space: pre; overflow-x: auto;
   font-variant-numeric: tabular-nums; tab-size: 2;
 }
+.term__screen[hidden] { display: none; }
+
+/* media tapes (using / ping): same slot + min-height as the ASCII screen, video
+   centered and full-width. Hidden until its preset is picked. */
+.term__media { margin: 0; padding: 18px 20px; min-height: 420px; place-items: center; }
+.term__media[hidden] { display: none; }
+.term__media:not([hidden]) { display: grid; }
+.term__video { display: block; width: 100%; height: auto; border-radius: var(--r-xs); }
+.term__video[hidden] { display: none; }
+.term__video-gif { display: block; width: 100%; height: auto; }
 
 /* transport: tape-deck play / pause / replay + a tuning-bar progress readout */
 .term__transport {
@@ -357,6 +367,7 @@
 
 @media (max-width: 560px) {
   .term__screen { font-size: 11px; padding: 14px; min-height: 320px; }
+  .term__media { padding: 14px; min-height: 320px; }
   .term__presets { padding: 7px 10px; gap: 5px; }
   .term__preset { padding: 4px 9px; }
 }
