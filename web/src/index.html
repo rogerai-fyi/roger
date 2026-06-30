@@ -223,7 +223,7 @@
 
       <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
-           aria-label="An interactive replay of the roger CLI radio. Switch between five demos that follow the roger arc: booting the dial and reading the band; tuning in to get a local OpenAI-compatible endpoint your own tools point at, with automatic failover and a live wallet debit; the built-in agent running a multi-step, multi-tool job on its own; sharing your GPU on air with a price, schedule, attestation and live requests; and cashing out earnings as a payout.">
+           aria-label="An interactive replay of the roger CLI radio. Switch between seven demos that follow the roger arc: booting the dial and reading the band; tuning in to get a local OpenAI-compatible endpoint your own tools point at, with automatic failover and a live wallet debit; the built-in agent running a multi-step, multi-tool job on its own; sharing your GPU on air with a price, schedule, attestation and live requests; and cashing out earnings as a payout. Two animated tapes round it out: using, a short story of borrowing a friend's model, using Hermes from anywhere, and serving your local LLM to your own bots; and ping, the live Ping World screensaver.">
         <div class="term__bar">
           <span class="term__dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="term__title" id="termTitle">roger — the dial</span>
@@ -247,9 +247,32 @@
           <button class="term__preset" type="button" data-demo="payouts" aria-pressed="false">
             <span class="term__preset-led" aria-hidden="true"></span>payouts
           </button>
+          <button class="term__preset" type="button" data-demo="using" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>using
+          </button>
+          <button class="term__preset" type="button" data-demo="ping" aria-pressed="false">
+            <span class="term__preset-led" aria-hidden="true"></span>ping
+          </button>
         </div>
 
         <pre class="term__screen" id="termScreen" aria-hidden="true"></pre>
+
+        <!-- MEDIA tapes: the same slot as the ASCII screen, shown when the "using"
+             (animated story) or "ping" (real roger --ping screensaver capture)
+             presets are picked. muted + loop + plays-inline; the gif is the poster
+             and the no-<video> fallback. Hidden until selected (terminal.js). -->
+        <div class="term__media" id="termMedia" hidden>
+          <video class="term__video" id="termUsing" muted loop playsinline preload="none"
+                 poster="assets/using-demo.gif" aria-hidden="true" hidden>
+            <source src="assets/using-demo.mp4" type="video/mp4">
+            <img class="term__video-gif" src="assets/using-demo.gif" alt="">
+          </video>
+          <video class="term__video" id="termPing" muted loop playsinline preload="none"
+                 poster="assets/ping-demo.gif" aria-hidden="true" hidden>
+            <source src="assets/ping-demo.mp4" type="video/mp4">
+            <img class="term__video-gif" src="assets/ping-demo.gif" alt="">
+          </video>
+        </div>
 
         <!-- transport: play / pause / replay + a tuning-bar progress readout -->
         <div class="term__transport" aria-hidden="true">
