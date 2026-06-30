@@ -321,7 +321,17 @@ CREATE INDEX IF NOT EXISTS ledger_holder_kind_ts ON rogerai.ledger (holder, kind
 -- trailing window then GROUPs BY (model,node); index (node, ts, model) so the windowed
 -- node scan is range-bounded and the group key is covered. The consumer rollup reuses
 -- receipts_usr_ts (usr, ts DESC).
-CREATE INDEX IF NOT EXISTS receipts_node_ts_model ON rogerai.receipts (node, ts, model);`
+CREATE INDEX IF NOT EXISTS receipts_node_ts_model ON rogerai.receipts (node, ts, model);
+-- deploy-orphan backstop: the tracked relay pre-auth holds still in flight. HoldFor
+-- inserts a row (request_id PK); Finalize / ReleaseHoldFor delete it; the ReleaseStaleHolds
+-- sweep reclaims any row older than the TTL (a relay SIGKILLed mid-flight) by crediting the
+-- EXACT held amount back. Index placed_at so the sweep's range scan stays cheap.
+CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
+    request_id TEXT PRIMARY KEY,
+    usr        TEXT NOT NULL,
+    amount     DOUBLE PRECISION NOT NULL,
+    placed_at  BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
 
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
@@ -840,6 +850,11 @@ func (p *Postgres) Finalize(user, node string, held, cost, ownerShare float64, r
 	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, held-cost).Scan(&bal); err != nil {
 		return 0, err
 	}
+	// Capture clears the tracked hold (no-op if untracked) IN THIS TX, so the deploy-orphan
+	// sweep never double-refunds a settled request.
+	if _, err := tx.Exec(`DELETE FROM rogerai.pending_holds WHERE request_id=$1`, rec.RequestID); err != nil {
+		return 0, err
+	}
 	// Only the REAL (non-seed) funded portion of this cost earns the operator (P0-1):
 	// realEarnShareTx draws down seed_remaining and scales the owner share. Called once.
 	earnShare, err := p.realEarnShareTx(tx, user, cost, ownerShare)
@@ -896,6 +911,111 @@ func (p *Postgres) ReleaseHold(user string, held float64) (float64, error) {
 		return 0, err
 	}
 	return bal, tx.Commit()
+}
+
+// HoldFor is Hold that also records the reservation in pending_holds (the deploy-orphan
+// registry) atomically in the same tx, so the sweep can reclaim it if the relay is
+// SIGKILLed mid-flight. Same overdraft-safe conditional debit as Hold. See the Store
+// interface.
+func (p *Postgres) HoldFor(user, requestID string, amount float64) (bool, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1 AND balance>=$2`, user, amount)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return false, nil // balance can't cover it; nothing committed
+	}
+	if err := appendLedger(tx, user, "consumer", KindHold, -amount, "", StatePending, "", 0); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.pending_holds(request_id,usr,amount,placed_at) VALUES($1,$2,$3,$4)
+		ON CONFLICT (request_id) DO UPDATE SET usr=EXCLUDED.usr, amount=EXCLUDED.amount, placed_at=EXCLUDED.placed_at`,
+		requestID, user, amount, time.Now().Unix()); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// ReleaseHoldFor returns a TRACKED reservation idempotently: the atomic DELETE ... RETURNING
+// is the claim - it refunds the EXACT recorded amount and writes the hold_release row ONLY
+// if it won the row; otherwise (already captured / released / swept) it is a no-op, so a
+// deferred release racing the sweep never double-refunds. See the Store interface.
+func (p *Postgres) ReleaseHoldFor(user, requestID string) (float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var amount float64
+	switch err := tx.QueryRow(`DELETE FROM rogerai.pending_holds WHERE request_id=$1 RETURNING amount`, requestID).Scan(&amount); err {
+	case sql.ErrNoRows:
+		// no tracked hold: idempotent no-op. Return the current balance (0 if absent).
+		var bal float64
+		_ = tx.QueryRow(`SELECT COALESCE((SELECT balance FROM rogerai.wallet WHERE usr=$1),0)`, user).Scan(&bal)
+		return bal, tx.Commit()
+	case nil:
+	default:
+		return 0, err
+	}
+	var bal float64
+	if err := tx.QueryRow(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1 RETURNING balance`, user, amount).Scan(&bal); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, user, "consumer", KindHoldRelease, amount, "", StatePosted, requestID, 0); err != nil {
+		return 0, err
+	}
+	return bal, tx.Commit()
+}
+
+// ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, crediting the
+// EXACT held amount back (the deploy-orphan backstop sweep). The atomic DELETE ... RETURNING
+// makes it single-actor across instances: two brokers racing each claim disjoint rows, so
+// every hold is released exactly once - no double-release, no drift. See the Store interface.
+func (p *Postgres) ReleaseStaleHolds(olderThan time.Time) (int, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(`DELETE FROM rogerai.pending_holds WHERE placed_at<=$1 RETURNING request_id, usr, amount`, olderThan.Unix())
+	if err != nil {
+		return 0, err
+	}
+	type claim struct {
+		req, usr string
+		amount   float64
+	}
+	var claims []claim
+	for rows.Next() {
+		var c claim
+		if err := rows.Scan(&c.req, &c.usr, &c.amount); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		claims = append(claims, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	for _, c := range claims {
+		if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance+$2 WHERE usr=$1`, c.usr, c.amount); err != nil {
+			return 0, err
+		}
+		if err := appendLedger(tx, c.usr, "consumer", KindHoldRelease, c.amount, "", StatePosted, c.req, 0); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(claims), nil
 }
 
 // BindOwner upserts the owner binding for a pubkey, preserving created_at on

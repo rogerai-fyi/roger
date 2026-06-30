@@ -1348,7 +1348,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		b.ensureSeeded(payer) // seed new users so the hold can land (W4: skip the upsert
 		// tx for an already-seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT
 		// stays the real guard, so a lost flag just re-runs the harmless no-op upsert)
-		held, herr := b.db.Hold(payer, maxCost)
+		held, herr := b.db.HoldFor(payer, requestID, maxCost) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
@@ -1381,7 +1381,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	settled := false
 	defer func() {
 		if !settled && maxCost > 0 {
-			b.db.ReleaseHold(payer, maxCost) // refund the hold if we never captured it
+			b.db.ReleaseHoldFor(payer, requestID) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
 		}
 	}()
 
@@ -1636,7 +1636,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	settled := false
 	defer func() {
 		if !settled && maxCost > 0 {
-			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
+			b.db.ReleaseHoldFor(user, job.ID) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
 		}
 	}()
 	flusher, ok := w.(http.Flusher)
