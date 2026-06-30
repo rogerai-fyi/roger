@@ -1,10 +1,12 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"sort"
 	"time"
 
+	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
@@ -70,9 +72,20 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	corsCreds(w, r)
-	login, _, wallet, ok := b.sessionOwner(r)
+	// Accept EITHER the web session cookie OR a signed device-key request (so the native app
+	// can delete in-app — App Store §5.1.1(v) — not just the web console). The signed body is
+	// read first so the Ed25519 signature verifies over the same bytes (a delete POST may sign
+	// an empty body).
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<12))
+	login, wallet, ok := b.deleteIdentity(r, body)
 	if !ok {
 		jsonErr(w, http.StatusUnauthorized, "not logged in")
+		return
+	}
+	if login == "" {
+		// A bound account with no web login (e.g. Apple-only) — DeleteAccount keys on login, and
+		// deleting by an empty login would match the wrong row. Direct them to the web for now.
+		jsonErr(w, http.StatusConflict, "this account can't be deleted in-app yet — delete it from rogerai.fyi")
 		return
 	}
 	// Guard 1: positive consumer balance must be spent/withdrawn first.
@@ -103,6 +116,28 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 	// browser keeps the stale roger_signed_in flag and goes on probing /account (401).
 	clearWebSessionCookies(w)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": done})
+}
+
+// deleteIdentity resolves who is deleting: the web session cookie OR a signed device-key request
+// bound to a non-anonymized owner. Returns the owner's login (the DeleteAccount key — empty for an
+// account with no web login) and account wallet. ok=false when neither auth is usable. This is what
+// lets the native app delete with the device key instead of only the browser session.
+func (b *broker) deleteIdentity(r *http.Request, body []byte) (login, wallet string, ok bool) {
+	if l, _, w, sok := b.sessionOwner(r); sok {
+		return l, w, true
+	}
+	rid, authed, iok := b.identityOf(r, body)
+	if !iok || !authed {
+		return "", "", false
+	}
+	w := b.walletOf(r, rid)
+	if !walletLoggedIn(w) { // must be a bound (logged-in) account, not an anonymous keypair
+		return "", "", false
+	}
+	if o, found, _ := b.db.OwnerByPubkey(r.Header.Get(protocol.HeaderPubkey)); found && !o.Anonymized {
+		return o.Login, w, true
+	}
+	return "", "", false
 }
 
 // billing handles GET /billing: the money-in view (ACCOUNT-PAYOUTS-DESIGN section 4)
