@@ -41,9 +41,9 @@ func TestReplyFooterRichMetrics(t *testing.T) {
 // TestReplyFooterFallback: with no broker metrics (a free turn with no receipt) the footer
 // falls back to the legacy "provider · $cost" one-liner - never an empty footer.
 func TestReplyFooterFallback(t *testing.T) {
-	msg := chatMsg{status: "roggentoo · $0", cost: 0}
+	msg := chatMsg{status: "demo-rig · $0", cost: 0}
 	got := stripANSI(strings.Join(replyFooter(msg, false), "\n"))
-	if !strings.Contains(got, "roggentoo · $0") {
+	if !strings.Contains(got, "demo-rig · $0") {
 		t.Errorf("fallback footer = %q, want the legacy status line", got)
 	}
 }

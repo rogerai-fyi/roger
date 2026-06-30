@@ -53,7 +53,7 @@ func TestShareNodeIDStable(t *testing.T) {
 // hostPortish matches anything that looks like a hostname token or a :port - the node
 // id must contain NONE of it. We use a deliberately broad set of leak signals.
 var leakSignals = []string{
-	"larrys-mac-studio", "macbook", "mac-studio", "localhost", "127", "0-0-0-0",
+	"demo-mac-studio", "macbook", "mac-studio", "localhost", "127", "0-0-0-0",
 	":8080", "8080", "8081", "8060", "1234", "11434", "8000",
 }
 
