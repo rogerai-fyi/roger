@@ -463,16 +463,22 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// PRE-SCALE Stage 1: wire the optional shared-state layer. UNSET ROGERAI_REDIS_URL
 	// => b.shared stays nil and everything below is a no-op (in-memory, unchanged). A
 	// connect failure already degraded to nil inside openSharedStore (logged warning,
-	// no crash). When set, only the SAFE limiters get the shared bucket (anon +
-	// concierge); the per-identity (b.rl) and per-grant (b.grantRL) limiters stay
-	// local in this stage. Liveness sharing is handled by markSeen + syncLiveness.
+	// no crash). When set, ALL request limiters get the shared bucket (anon + concierge +
+	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
+	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
 	b.shared = openSharedStore()
 	if b.shared != nil {
-		// name each shared limiter so anon + concierge (both keyed on the client IP)
-		// get DISTINCT Valkey buckets (rogerai:rl:anon:<ip> vs rogerai:rl:concierge:<ip>)
-		// rather than colliding on one key with mismatched rpm/burst.
+		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
+		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
+		// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
+		// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
+		// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
+		// enforced its own private bucket). rateAllow degrades to the local bucket on any
+		// Valkey error, so a cache outage never blocks a request.
 		b.anonRL.name, b.anonRL.shared = "anon", b.shared
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
+		b.rl.name, b.rl.shared = "id", b.shared
+		b.grantRL.name, b.grantRL.shared = "grant", b.shared
 		go b.syncLiveness(nil)
 		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
