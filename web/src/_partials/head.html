@@ -90,8 +90,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 
   <!-- footer easter egg: 5 fast clicks on the orange -> Ping walks across the bottom edge.
-       The ?v query is a cache-buster: bump it whenever easter-egg.js changes so Cloudflare's
-       edge serves the new file immediately (the proxy caches assets ~24h otherwise). -->
-  <script src="js/easter-egg.js?v=3" defer></script>
+       build.mjs auto-appends ?v=<content-hash> to every js/css url, so the Cloudflare edge
+       (which caches assets ~24h) always serves the current file - no manual cache-bump needed. -->
+  <script src="js/easter-egg.js" defer></script>
 
   <!-- css-bundle -->

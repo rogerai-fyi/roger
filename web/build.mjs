@@ -19,6 +19,7 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, statSync, copyFileSync } from "node:fs";
 import { join, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));   // web/
 const SRC = join(ROOT, "src");
@@ -136,6 +137,25 @@ function copyAssets(dir) {
   }
 }
 
+// cacheBust appends a short CONTENT hash (?v=<hash>) to every local js/ + styles/ URL so a
+// changed asset gets a NEW url the CDN (Cloudflare) cannot serve stale - the fix for the
+// "edited terminal.js but the edge kept the old one" class of bug. The hash is of the SOURCE
+// file (byte-identical to what copyAssets ships), so a url changes ONLY when that file changes.
+const assetHashCache = new Map();
+function assetHash(rel) {
+  if (assetHashCache.has(rel)) return assetHashCache.get(rel);
+  let h = "0";
+  try {
+    h = createHash("sha256").update(readFileSync(join(SRC, rel))).digest("hex").slice(0, 8);
+  } catch { /* missing/external: leave it unversioned rather than break the build */ }
+  assetHashCache.set(rel, h);
+  return h;
+}
+function cacheBust(html) {
+  return html.replace(/((?:src|href)=")((?:js|styles)\/[^"?]+\.(?:js|css))"/g,
+    (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
+}
+
 function build() {
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
@@ -146,6 +166,7 @@ function build() {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
+    out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeFileSync(join(DIST, page), out);
