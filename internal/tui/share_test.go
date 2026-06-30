@@ -38,7 +38,7 @@ func TestShareViewNarrowSafe(t *testing.T) {
 func TestChatFailureIsInline(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
-	mm.connected = &offer{NodeID: "roggentoo", Model: "gpt-oss-20b", Online: true}
+	mm.connected = &offer{NodeID: "demo-rig", Model: "gpt-oss-20b", Online: true}
 	mm.mode = modeChat
 	var m tea.Model = mm
 
@@ -53,13 +53,13 @@ func TestChatFailureIsInline(t *testing.T) {
 	}
 
 	// An empty reply (no error) shows a clear "(no text)" note, never a blank arrow.
-	m, _ = m.Update(chatMsg{reply: "   ", status: "roggentoo · $0"})
+	m, _ = m.Update(chatMsg{reply: "   ", status: "demo-rig · $0"})
 	if !strings.Contains(m.View(), "replied with no text") {
 		t.Errorf("empty reply should show a note, not a blank line:\n%s", m.View())
 	}
 
 	// A real reply still renders.
-	m, _ = m.Update(chatMsg{reply: "roger that", status: "roggentoo · $0"})
+	m, _ = m.Update(chatMsg{reply: "roger that", status: "demo-rig · $0"})
 	if !strings.Contains(m.View(), "roger that") {
 		t.Errorf("a real reply should render:\n%s", m.View())
 	}
@@ -70,7 +70,7 @@ func TestChatFailureIsInline(t *testing.T) {
 func TestChatPreflightNoStation(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.width, mm.height = 100, 30
-	mm.connected = &offer{NodeID: "roggentoo", Model: "gpt-oss-20b"}
+	mm.connected = &offer{NodeID: "demo-rig", Model: "gpt-oss-20b"}
 	mm.mode = modeChat
 	mm.chatIn.Focus()
 	var m tea.Model = mm

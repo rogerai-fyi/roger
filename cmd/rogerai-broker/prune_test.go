@@ -38,7 +38,7 @@ func TestPruneStaleNodes(t *testing.T) {
 	now := time.Now()
 
 	// Dead: old hostname-style id, last seen well past the prune TTL.
-	dead := "larrys-mac-studio"
+	dead := "demo-mac-studio"
 	b.nodes[dead] = protocol.NodeRegistration{NodeID: dead, Offers: []protocol.ModelOffer{{Model: "m"}}}
 	b.lastSeen[dead] = now.Add(-staleNodeTTL - time.Hour)
 	b.tps[dead] = 12

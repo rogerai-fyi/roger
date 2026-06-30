@@ -9,7 +9,7 @@ import (
 
 // TestTuneInRendersMultipleSameHostBands: after the node_id collision fix, one host
 // serving several models registers each as a DISTINCT node id (e.g.
-// larrys-mac-gpt-oss-20b + larrys-mac-qwen3-vl-8b). The tune-in band list must render
+// demo-mac-gpt-oss-20b + demo-mac-qwen3-vl-8b). The tune-in band list must render
 // ALL of them, not collapse same-host bands. Each distinct model is its own band row.
 func TestTuneInRendersMultipleSameHostBands(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
@@ -17,8 +17,8 @@ func TestTuneInRendersMultipleSameHostBands(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	// Two DISTINCT node ids on the SAME host, each serving a different model.
 	m, _ = m.Update(offersMsg{
-		{NodeID: "larrys-mac-gpt-oss-20b", Model: "gpt-oss-20b", PriceOut: 0.2, Online: true, TPS: 40},
-		{NodeID: "larrys-mac-qwen3-vl-8b", Model: "qwen3-vl-8b", PriceOut: 0.3, Online: true, TPS: 30},
+		{NodeID: "demo-mac-gpt-oss-20b", Model: "gpt-oss-20b", PriceOut: 0.2, Online: true, TPS: 40},
+		{NodeID: "demo-mac-qwen3-vl-8b", Model: "qwen3-vl-8b", PriceOut: 0.3, Online: true, TPS: 30},
 	})
 	m, _ = m.Update(tickMsg{})
 
@@ -48,8 +48,8 @@ func TestTuneInSameModelTwoSameHostStations(t *testing.T) {
 	var m tea.Model = New("http://broker.local", "tester")
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m, _ = m.Update(offersMsg{
-		{NodeID: "larrys-mac-gpt-oss-20b-8060", Model: "gpt-oss-20b", PriceOut: 0.5, Online: true, TPS: 20},
-		{NodeID: "larrys-mac-gpt-oss-20b-8061", Model: "gpt-oss-20b", PriceOut: 0.2, Online: true, TPS: 50},
+		{NodeID: "demo-mac-gpt-oss-20b-8060", Model: "gpt-oss-20b", PriceOut: 0.5, Online: true, TPS: 20},
+		{NodeID: "demo-mac-gpt-oss-20b-8061", Model: "gpt-oss-20b", PriceOut: 0.2, Online: true, TPS: 50},
 	})
 	m, _ = m.Update(tickMsg{})
 
@@ -65,7 +65,7 @@ func TestTuneInSameModelTwoSameHostStations(t *testing.T) {
 		t.Errorf("band.all should hold both distinct node ids, got %d", len(bd.all))
 	}
 	// cheapest-of-two wins the headline route.
-	if bd.cheapest == nil || bd.cheapest.NodeID != "larrys-mac-gpt-oss-20b-8061" {
+	if bd.cheapest == nil || bd.cheapest.NodeID != "demo-mac-gpt-oss-20b-8061" {
 		t.Errorf("cheaper same-host station should be the headline route, got %+v", bd.cheapest)
 	}
 }
