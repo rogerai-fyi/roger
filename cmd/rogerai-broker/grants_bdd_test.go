@@ -24,20 +24,20 @@ import (
 )
 
 type grState struct {
-	db        *store.Mem
-	b         *broker
-	owner     string
-	secret    string
-	hash      string
-	grant     store.Grant
-	created   store.Grant // snapshot at create, to verify a patch leaves fields unchanged
-	gc        grantContext
-	resolveOK bool
+	db         *store.Mem
+	b          *broker
+	owner      string
+	secret     string
+	hash       string
+	grant      store.Grant
+	created    store.Grant // snapshot at create, to verify a patch leaves fields unchanged
+	gc         grantContext
+	resolveOK  bool
 	resolveErr string
-	capStat   int
-	capMsg    string
-	useNode   string
-	useModel  string
+	capStat    int
+	capMsg     string
+	useNode    string
+	useModel   string
 }
 
 func grBoolPtr(b bool) *bool { return &b }
@@ -78,7 +78,7 @@ func (s *grState) mkGrant(label string, g store.Grant) error {
 
 // --- Given / setup ----------------------------------------------------------
 
-func (s *grState) mintsGrant(label string) error { return s.mkGrant(label, store.Grant{}) }
+func (s *grState) mintsGrant(label string) error  { return s.mkGrant(label, store.Grant{}) }
 func (s *grState) grantExists(label string) error { return s.mkGrant(label, store.Grant{}) }
 
 func (s *grState) revokedGrant() error {

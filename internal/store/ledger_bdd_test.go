@@ -60,7 +60,7 @@ type lgState struct {
 	lastCost   float64
 	lastEarned float64
 
-	lastCb          ChargebackResult
+	lastCb           ChargebackResult
 	balBeforeRedeliv float64
 }
 

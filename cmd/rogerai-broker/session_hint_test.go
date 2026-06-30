@@ -78,10 +78,10 @@ func TestClearWebSessionCookies(t *testing.T) {
 // safe empty fallback when unset/garbage (host-only hint, front-end falls back to probing).
 func TestWebOriginHost(t *testing.T) {
 	cases := []struct{ env, want string }{
-		{"", "rogerai.fyi"},                       // default
-		{"https://rogerai.fyi", "rogerai.fyi"},    // explicit prod
+		{"", "rogerai.fyi"},                                 // default
+		{"https://rogerai.fyi", "rogerai.fyi"},              // explicit prod
 		{"https://app.example.com:8443", "app.example.com"}, // custom host (port stripped)
-		{"::::not a url", ""},                      // unparseable -> empty (host-only fallback)
+		{"::::not a url", ""},                               // unparseable -> empty (host-only fallback)
 	}
 	for _, c := range cases {
 		if c.env == "" {

@@ -210,8 +210,10 @@ func (s *feeSplitState) round6Is(v string) error {
 	return feApprox(round6(s.exactAmt), want)
 }
 
-func (s *feeSplitState) ownerShareJSON(v string) error  { return feDisplay6(round6(s.ownerShare), v) }
-func (s *feeSplitState) platformTakeJSON(v string) error { return feDisplay6(round6(s.platformTake), v) }
+func (s *feeSplitState) ownerShareJSON(v string) error { return feDisplay6(round6(s.ownerShare), v) }
+func (s *feeSplitState) platformTakeJSON(v string) error {
+	return feDisplay6(round6(s.platformTake), v)
+}
 
 func (s *feeSplitState) walletHasReal(name, v string) error {
 	f, err := feParseFloat(v)

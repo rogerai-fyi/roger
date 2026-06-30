@@ -20,7 +20,7 @@ func TestBandCardWidthSafe(t *testing.T) {
 		m.mode = modeBandCard
 		m.bandCardModel = "gpt-oss-20b"
 		m.bandCardCode = "147.520 MHz · 8F3K-9M2Q" // the one-time FULL code (with the tail)
-		m.bandCardDisp = "147.520 MHz · ••••-••••"  // the MASKED persisted display
+		m.bandCardDisp = "147.520 MHz · ••••-••••" // the MASKED persisted display
 		out := m.View()
 		for _, line := range strings.Split(out, "\n") {
 			if vis := utf8.RuneCountInString(stripANSI(line)); vis > w {

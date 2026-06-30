@@ -22,22 +22,22 @@ import (
 )
 
 type idemState struct {
-	db           *store.Mem
-	node, owner  string
-	wallet       string
-	lastCredited bool
-	lastMark     bool
-	amountTotal  float64
-	settleN      int
-	lastRequest  string
-	cbN          int
-	lastCb       store.ChargebackResult
-	lastClawed   float64
-	totalClawed  float64
-	totalLoss    float64
-	strikeCount  int
-	concOK       int
-	concRef      int
+	db               *store.Mem
+	node, owner      string
+	wallet           string
+	lastCredited     bool
+	lastMark         bool
+	amountTotal      float64
+	settleN          int
+	lastRequest      string
+	cbN              int
+	lastCb           store.ChargebackResult
+	lastClawed       float64
+	totalClawed      float64
+	totalLoss        float64
+	strikeCount      int
+	concOK           int
+	concRef          int
 	initialBal       float64
 	creditsIn        float64
 	heldEach         float64
@@ -55,7 +55,7 @@ func (s *idemState) reset() {
 	s.initialBal, s.creditsIn, s.heldEach, s.successHolds = 0, 0, 0, 0
 }
 
-func (s *idemState) freshStore() error { s.reset(); return nil }
+func (s *idemState) freshStore() error   { s.reset(); return nil }
 func (s *idemState) feePct(string) error { return nil }
 func (s *idemState) nodeOwned(node, owner string) error {
 	s.node, s.owner = node, owner
@@ -100,7 +100,9 @@ func (s *idemState) stripeCredits(session, v, name string) error {
 	return nil
 }
 
-func (s *idemState) stripeCreditsFull(session, v, name string) error { return s.stripeCredits(session, v, name) }
+func (s *idemState) stripeCreditsFull(session, v, name string) error {
+	return s.stripeCredits(session, v, name)
+}
 
 func (s *idemState) deliveredAgain(session string) error {
 	// re-deliver the same session at the same amount (10.00 in these scenarios)
@@ -298,7 +300,9 @@ func (s *idemState) chargeback(amountStr, dispute string) error {
 	return nil
 }
 
-func (s *idemState) chargebackNoDispute(amountStr string) error { return s.chargeback(amountStr, "dp_auto") }
+func (s *idemState) chargebackNoDispute(amountStr string) error {
+	return s.chargeback(amountStr, "dp_auto")
+}
 
 func (s *idemState) disputeAgain(dispute string) error {
 	s.balBeforeRedeliv, _ = s.db.BalanceOf(s.wallet, 0)
@@ -457,9 +461,17 @@ func (s *idemState) redeliveryNoSecondReversal(dispute string) error {
 
 // --- strike idempotency -----------------------------------------------------
 
-func (s *idemState) voidRequest(reqID, owner string) error  { s.owner = owner; s.lastRequest = reqID; return nil }
-func (s *idemState) requestAgainst(reqID, owner string) error { s.owner = owner; s.lastRequest = reqID; return nil }
-func (s *idemState) ownerNoStrikes(owner string) error       { s.owner = owner; return nil }
+func (s *idemState) voidRequest(reqID, owner string) error {
+	s.owner = owner
+	s.lastRequest = reqID
+	return nil
+}
+func (s *idemState) requestAgainst(reqID, owner string) error {
+	s.owner = owner
+	s.lastRequest = reqID
+	return nil
+}
+func (s *idemState) ownerNoStrikes(owner string) error { s.owner = owner; return nil }
 
 func (s *idemState) recordStrike(kindKey string) error {
 	kind := store.StrikeEmptyOutput
@@ -700,8 +712,8 @@ func TestIdempotencyConcurrencyBDD(t *testing.T) {
 			sc.Step(`^the metadata divergence is logged but not trusted$`, st.metaNotTrusted)
 			sc.Step(`^session "([^"]*)" crediting ([\d.]+) is delivered (\d+) times$`, st.sessionDeliveredTimes)
 			sc.Step(`^(\w+) has one settled request of cost ([\d.]+) with owner share ([\d.]+)$`, func(_, c, sh string) error { return st.settledRequest(c, sh) })
-			sc.Step(`^(\w+) has one settled request of cost ([\d.]+) \(owner share ([\d.]+)\)$`, func(_ , c, sh string) error { return st.settledRequest(c, sh) })
-			sc.Step(`^(\w+) has two settled requests of cost ([\d.]+) each with owner share ([\d.]+) each$`, func(_ , c, sh string) error { return st.settledRequests("2", c, sh) })
+			sc.Step(`^(\w+) has one settled request of cost ([\d.]+) \(owner share ([\d.]+)\)$`, func(_, c, sh string) error { return st.settledRequest(c, sh) })
+			sc.Step(`^(\w+) has two settled requests of cost ([\d.]+) each with owner share ([\d.]+) each$`, func(_, c, sh string) error { return st.settledRequests("2", c, sh) })
 			sc.Step(`^a chargeback of ([\d.]+) with dispute id "([^"]*)" is processed$`, st.chargeback)
 			sc.Step(`^the same dispute "([^"]*)" is delivered again$`, st.disputeAgain)
 			sc.Step(`^a chargeback "([^"]*)" of ([\d.]+) and a chargeback "([^"]*)" of ([\d.]+) are processed$`, st.twoDisputes)
@@ -714,7 +726,7 @@ func TestIdempotencyConcurrencyBDD(t *testing.T) {
 			sc.Step(`^([\d.]+) total is removed from (\w+)'s wallet$`, func(v, name string) error { return st.totalRemoved(name, v) })
 			sc.Step(`^the operator is clawed ([\d.]+) in total$`, st.operatorClawed)
 			sc.Step(`^the platform loss is ([\d.]+) in total$`, st.platformLoss)
-			sc.Step(`^(\w+) has one ALREADY-PAID earning lot of gross ([\d.]+) for owner "([^"]*)"$`, func(_ , g, o string) error { return st.paidLot(g, o) })
+			sc.Step(`^(\w+) has one ALREADY-PAID earning lot of gross ([\d.]+) for owner "([^"]*)"$`, func(_, g, o string) error { return st.paidLot(g, o) })
 			sc.Step(`^a chargeback "([^"]*)" claws that paid lot$`, st.chargebackPaid)
 			sc.Step(`^a pending reversal keyed "([^"]*)" is recorded once$`, st.reversalRecordedOnce)
 			sc.Step(`^a webhook redelivery of "([^"]*)" does not create a second reversal intent$`, st.redeliveryNoSecondReversal)

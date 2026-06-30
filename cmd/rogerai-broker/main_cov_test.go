@@ -18,8 +18,8 @@ import (
 // background goroutine is launched.
 func TestBuildBroker(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("ROGERAI_REDIS_URL", "")       // single-instance: b.shared stays nil
-	t.Setenv("ROGERAI_MULTI_INSTANCE", "")  // and no bus goroutine
+	t.Setenv("ROGERAI_REDIS_URL", "")      // single-instance: b.shared stays nil
+	t.Setenv("ROGERAI_MULTI_INSTANCE", "") // and no bus goroutine
 	_, priv, _ := ed25519.GenerateKey(nil)
 
 	b := buildBroker(store.NewMem(), priv, 0.30, 100, 24*time.Hour)

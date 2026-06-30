@@ -200,11 +200,15 @@ func (s *rvState) recordedSucceededDone(key string) error {
 	return s.markAttempt(key, true, "", s.now)
 }
 
-func (s *rvState) recordAgain(key string) error { return s.record(key, "tr_1", "op1", 70, s.nextCreatedAt()) }
+func (s *rvState) recordAgain(key string) error {
+	return s.record(key, "tr_1", "op1", 70, s.nextCreatedAt())
+}
 
 func (s *rvState) recordEmptyKey() error { return s.record("", "tr_1", "op1", 70, 0) }
 
-func (s *rvState) openReversal(key string) error { return s.record(key, "tr_1", "op1", 70, s.nextCreatedAt()) }
+func (s *rvState) openReversal(key string) error {
+	return s.record(key, "tr_1", "op1", 70, s.nextCreatedAt())
+}
 
 func (s *rvState) doneReversal(key string) error { return s.recordedSucceededDone(key) }
 
@@ -292,7 +296,9 @@ func (s *rvState) listOpenLimit(n string) error {
 
 func (s *rvState) markSuccess(key string) error { return s.markAttempt(key, true, "", s.now) }
 
-func (s *rvState) markFailure(key, errMsg string) error { return s.markAttempt(key, false, errMsg, s.now) }
+func (s *rvState) markFailure(key, errMsg string) error {
+	return s.markAttempt(key, false, errMsg, s.now)
+}
 
 func (s *rvState) markFailureAtTime(key string) error {
 	return s.markAttempt(key, false, "x", s.knownTime())
@@ -394,7 +400,7 @@ func (s *rvState) disputeReturnsReversal(lotID, transfer, amount string) error {
 	return nil
 }
 
-func (s *rvState) immediateWillFail() error { s.reverseFail = true; return nil }
+func (s *rvState) immediateWillFail() error    { s.reverseFail = true; return nil }
 func (s *rvState) immediateWillSucceed() error { s.reverseFail = false; return nil }
 
 func (s *rvState) reversePaidLotsProcesses() error {
@@ -676,7 +682,9 @@ func (s *rvState) ledgerClawbackStands() error {
 
 func (s *rvState) intentDone(lotID string) error { return s.notInOpen("reverse:dp1:" + lotID) }
 
-func (s *rvState) operatorGetsNotice() error { return s.notInOpen("reverse:dp1:" + strconv.FormatInt(s.pendingLot, 10)) }
+func (s *rvState) operatorGetsNotice() error {
+	return s.notInOpen("reverse:dp1:" + strconv.FormatInt(s.pendingLot, 10))
+}
 
 func (s *rvState) intentExistsBeforeCall() error {
 	if !s.intentExistedAtCall {

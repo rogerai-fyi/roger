@@ -49,16 +49,16 @@ type rcState struct {
 	node       string
 	owner      string
 
-	model              string
-	priceIn, priceOut  float64
-	bodyBytes          int
-	claimPrompt        int
-	claimCompletion    int
-	recountPrompt      int
-	recountCompletion  int
-	exact              bool
-	recountPromptSet   bool
-	recountCompletSet  bool
+	model             string
+	priceIn, priceOut float64
+	bodyBytes         int
+	claimPrompt       int
+	claimCompletion   int
+	recountPrompt     int
+	recountCompletion int
+	exact             bool
+	recountPromptSet  bool
+	recountCompletSet bool
 
 	completion    string
 	completionSet bool
