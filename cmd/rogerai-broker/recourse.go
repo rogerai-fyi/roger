@@ -460,6 +460,12 @@ func (b *broker) adminUnhold(w http.ResponseWriter, r *http.Request) {
 			b.metricsMu.Lock()
 			delete(b.bannedOwners, req.AccountID)
 			b.metricsMu.Unlock()
+			// Cross-instance: the durable row is gone (ForgiveOwner succeeded above), so bump
+			// the shared ban rev to propagate the lifted ban to the PEER on its next sync tick.
+			// This is the owner-UNBAN twin of unbanNode's bump; without it a forgive on this
+			// instance leaves the operator banned on the peer until an unrelated ban event or a
+			// restart re-pulls (the gap the pre-push audit caught).
+			b.bumpBanRev()
 			out["strikes_forgiven"] = n
 			out["ban_lifted"] = true
 			log.Printf("ADMIN FORGIVE account=%s - %d strike(s) forgiven, owner ban lifted (in-memory cache refreshed)", req.AccountID, n)

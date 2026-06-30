@@ -217,6 +217,15 @@ type broker struct {
 	strikeDecayDays        int
 	strikeCorroborateKinds int
 
+	// banRev is the last cross-instance ban revision this instance has applied. Every
+	// ban/unban (node OR owner) bumps a shared monotonic counter (rogerai:ctr:ban:rev);
+	// syncBanRev compares it on the existing liveness sync tick and, on a change, RE-PULLS
+	// the durable banned sets from the store into b.banned/b.bannedOwners (replace, not
+	// merge — so an UNBAN propagates too). Guarded by metricsMu (where the ban sets live).
+	// 0 until the first cross-instance ban is observed; never moves with no shared backend
+	// (single-instance: the local map flip is already the whole truth). See report.go.
+	banRev float64
+
 	// recountHoldDays is the auto-expiry window for a recount hold (OPERATOR RECOURSE):
 	// a node/account hold placed pending review auto-clears after this many days IF no
 	// further discrepancy re-arms it, so a false positive never freezes an honest
@@ -454,23 +463,29 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// PRE-SCALE Stage 1: wire the optional shared-state layer. UNSET ROGERAI_REDIS_URL
 	// => b.shared stays nil and everything below is a no-op (in-memory, unchanged). A
 	// connect failure already degraded to nil inside openSharedStore (logged warning,
-	// no crash). When set, only the SAFE limiters get the shared bucket (anon +
-	// concierge); the per-identity (b.rl) and per-grant (b.grantRL) limiters stay
-	// local in this stage. Liveness sharing is handled by markSeen + syncLiveness.
+	// no crash). When set, ALL request limiters get the shared bucket (anon + concierge +
+	// the per-identity b.rl + the per-grant b.grantRL) so one limit is enforced across
+	// instances, not 2x. Liveness sharing is handled by markSeen + syncLiveness.
 	b.shared = openSharedStore()
 	if b.shared != nil {
-		// name each shared limiter so anon + concierge (both keyed on the client IP)
-		// get DISTINCT Valkey buckets (rogerai:rl:anon:<ip> vs rogerai:rl:concierge:<ip>)
-		// rather than colliding on one key with mismatched rpm/burst.
+		// name each shared limiter so limiters keyed on the same value get DISTINCT Valkey
+		// buckets (rogerai:rl:<name>:<key>) rather than colliding on one key with mismatched
+		// rpm/burst. ALL request limiters get the shared bucket: anon + concierge (per-IP),
+		// AND the per-identity (b.rl) + per-grant (b.grantRL) limiters — otherwise a signed
+		// user / grant key gets ~2x its configured RPM at the 2-instance cap (each instance
+		// enforced its own private bucket). rateAllow degrades to the local bucket on any
+		// Valkey error, so a cache outage never blocks a request.
 		b.anonRL.name, b.anonRL.shared = "anon", b.shared
 		b.concierge.rl.name, b.concierge.rl.shared = "concierge", b.shared
+		b.rl.name, b.rl.shared = "id", b.shared
+		b.grantRL.name, b.grantRL.shared = "grant", b.shared
 		go b.syncLiveness(nil)
 		// PRE-SCALE Stage 2: the cross-instance rendezvous bus is OPT-IN on top of the
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
 		// Valkey backend (the only place jobs/results/chunks can rendezvous across
 		// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
-		// in-memory single-instance fast-path, byte-for-byte unchanged. The DO spec stays
-		// instance_count:1, so this is off in production until we deliberately scale out.
+		// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
+		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
 		if multiInstanceEnabled() {
 			b.multiInstance = true
 			b.instanceID = newInstanceID()
