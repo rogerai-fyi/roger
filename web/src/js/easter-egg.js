@@ -115,7 +115,7 @@
           // tiny per-click "feel it building" pulse via WAAPI (no CSS dependency).
           if (orange.animate) orange.animate(
             [{ transform: "scale(1)" }, { transform: "scale(1.18)" }, { transform: "scale(1)" }],
-            { duration: 360, easing: "ease" });
+            { duration: 360, easing: "ease", composite: "add" }); // add (not replace) so a rotated orange (the rail) keeps its rotation during the pulse
           fire(Date.now());
         });
       });

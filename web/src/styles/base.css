@@ -100,6 +100,9 @@ code, pre { font-family: var(--font-mono); }
 /* centered across the wider band; head runs top->down, foot bottom->up */
 .rail__head { top: clamp(92px, 12vh, 144px); transform: translateX(-50%); }
 .rail__rev  { bottom: clamp(26px, 4vh, 40px); transform: translateX(-50%) rotate(180deg); color: var(--ink-300); }
+/* the rev rail is flipped 180deg (reads bottom->up), so un-flip the OC orange to sit upright;
+   and .rail is pointer-events:none (decorative) - re-enable clicks on the orange for the Ping egg. */
+.rail__rev .orange3d { transform: rotate(180deg); pointer-events: auto; }
 @media (min-width: 1080px) {
   .rail { display: block; }
   /* offset the whole document right of the spine so the spine + the content
