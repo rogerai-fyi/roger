@@ -287,9 +287,9 @@ func (m *memStore) busPublishStreamDone(string) error          { return errNoSha
 func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFrame, func(), error) {
 	return nil, func() {}, errNoSharedStore
 }
-func (m *memStore) putNode(string, []byte, time.Duration) error { return errNoSharedStore }
-func (m *memStore) getNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
-func (m *memStore) allNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
+func (m *memStore) putNode(string, []byte, time.Duration) error        { return errNoSharedStore }
+func (m *memStore) getNode(string) ([]byte, bool, error)               { return nil, false, errNoSharedStore }
+func (m *memStore) allNodes() (map[string][]byte, error)               { return nil, errNoSharedStore }
 func (m *memStore) putPrivateNode(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) getPrivateNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 func (m *memStore) allPrivateNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
