@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"github.com/rogerai-fyi/roger/internal/pricetier"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -113,31 +114,13 @@ func Search(broker string) error {
 		}
 		fmt.Printf("%-8s %-12s %-22s %-9.2f %-9.2f %-13s %-7s %-7d %-7s %-7s %s\n",
 			status, signalTower(o.Signal, o.TPS, o.Online), o.Model, o.PriceIn, o.PriceOut,
-			priceTierLabel(o.PriceTier, o.PriceOut), tps, o.Ctx, o.Region, o.NodeID, flags)
+			pricetier.Label(o.PriceTier, o.PriceOut), tps, o.Ctx, o.Region, o.NodeID, flags)
 	}
 	return nil
 }
 
-// priceTierLabel renders the broker's neutral price-tier (0..4) + the active OUT-price as
-// a compact, plain-text cell for the CLI band table - the SAME contract as the broker's
-// renderPriceTier and the TUI's priceTierBadge so every surface reads alike: a FREE band
-// shows "FREE"; a priced band shows "$".."$$$$"; and ONLY the cheapest tier is
-// editorialized (" good price") - $$..$$$$ are neutral, never negative. Tier 0 / unknown
-// (a thin market we can't honestly classify) shows nothing - the raw price already carries
-// it. No color: the glyphs + the one favorable word carry the read under NO_COLOR / a pipe.
-func priceTierLabel(tier int, priceOut float64) string {
-	if priceOut <= 0 {
-		return "FREE"
-	}
-	if tier < 1 || tier > 4 {
-		return ""
-	}
-	label := strings.Repeat("$", tier)
-	if tier == 1 {
-		label += " good price"
-	}
-	return label
-}
+// The CLI band table's $-tier cell is the shared canonical render (internal/pricetier.Label),
+// so it reads identically to the TUI + web surfaces - one impl, no drift.
 
 // Shared CLI iconography, kept in lock-step with the TUI's glyphs - BOTH route through
 // internal/glyphs (one set, one chooser): ◉ on air / ○ off air / ◆ verified on capable
