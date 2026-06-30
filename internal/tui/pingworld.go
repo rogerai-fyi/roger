@@ -997,8 +997,10 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	if d == nil { // OFFLINE/seeded world: generative towers whose signal+height VARY over time, so
 		towers = seededTowers(w, horizon, frame, seed) // the offline screensaver "breathes" too.
 	}
+	onAirIdx := 0
 	if len(towers) > 0 {
-		onAirX, onAirY = towers[0].x, towers[0].tipY // the flagship (strongest) tower top
+		onAirIdx = onAirTowerAt(frame, seed, len(towers)) // the live ◉ drifts across the towers over time
+		onAirX, onAirY = towers[onAirIdx].x, towers[onAirIdx].tipY
 	}
 
 	// LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
@@ -1042,7 +1044,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 	// serving (inFlight>0). Painted after the horizon, before Ping (Ping walks in front). The
 	// flagship's tip is left for the ◉ (painted last); the rest get a dim ○. Empty when seeded.
 	for ti, t := range towers {
-		paintTower(buf, t, horizon, ti == 0, frame)
+		paintTower(buf, t, horizon, ti == onAirIdx, frame) // the on-air tower (hops over time) leaves its tip for the ◉
 	}
 
 	// LAYER 3.6 — a ground-station dish sweeps a widening frost transmission cone up into the sky,
@@ -1344,6 +1346,30 @@ type tower struct {
 // worldTowers lays out one tower per on-air band, evenly spaced across the width, height scaled
 // by the band's signal (taller = stronger), STRONGEST first. Empty for a nil/empty snapshot or a
 // too-small world (so the seeded world is untouched).
+// towerHopFrames is how long the live on-air ◉ dwells on one tower before the signal drifts to
+// another (~8.6s at the screensaver tick). The radio/station metaphor: the band on the dial keeps
+// changing, so the single red beacon visibly hops across the towers instead of pinning to one.
+const towerHopFrames = 16
+
+// onAirTowerAt picks which signal tower carries the red on-air ◉ at this frame. It dwells on one
+// tower for towerHopFrames, then drifts to a DIFFERENT tower (never re-lighting the same pole two
+// dwells running) - so as the ◉ moves on, the pole it left drops back to a dim ○. Deterministic in
+// (frame, seed) so the render stays pure + seeded. ALWAYS returns a valid index (exactly one ◉ is
+// lit, upholding the offline one-red-◉ law); n<=1 keeps the lone tower.
+func onAirTowerAt(frame, seed, n int) int {
+	if n <= 1 {
+		return 0
+	}
+	cycle := frame / towerHopFrames
+	idx := int(worldHash(cycle, 808, seed) % uint32(n))
+	if cycle > 0 {
+		if prev := int(worldHash(cycle-1, 808, seed) % uint32(n)); idx == prev {
+			idx = (idx + 1) % n // it must MOVE: never re-light the same pole back-to-back
+		}
+	}
+	return idx
+}
+
 func worldTowers(w, horizon int, d *worldData) []tower {
 	if d == nil || len(d.stations) == 0 || horizon < 3 || w < 6 {
 		return nil
