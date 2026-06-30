@@ -37,6 +37,15 @@ type frontierRef struct {
 	OutPer1M float64 `json:"out_per_1m"`
 }
 
+// frontierRefEst is one reference model PLUS what THIS account's tokens would have cost at its
+// list price (frontier_est). The savings response returns a slice of these so the dashboard can
+// toggle the "vs <model>" comparison entirely client-side (no extra round-trip). frontierCost is
+// linear in tokens, so the baseline row equals the headline frontier_est (consistent on toggle).
+type frontierRefEst struct {
+	frontierRef
+	FrontierEst float64 `json:"frontier_est"`
+}
+
 // frontierTable is the small static reference set the savings estimate compares
 // against. These are public list prices (USD / 1M tokens) for a handful of widely
 // known frontier models, captured as a REFERENCE ESTIMATE - not a live or contractual
@@ -229,8 +238,11 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 	// figures) so the headline totals carry no per-bucket rounding drift. The savings
 	// total is floored at 0 (a heavy/cheap RogerAI use never shows "negative savings").
 	var totSpend, totFrontier float64
+	var totIn, totOut int64
 	for _, e := range consEntries {
 		totSpend += e.Cost
+		totIn += int64(e.PromptTokens)
+		totOut += int64(e.CompletionTokens)
 		totFrontier += frontierCost(int64(e.PromptTokens), int64(e.CompletionTokens), "")
 	}
 	totSavings := totFrontier - totSpend
@@ -240,6 +252,14 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 	totSpend = round6(totSpend)
 	totFrontier = round6(totFrontier)
 	totSavings = round6(totSavings)
+
+	// Per-model frontier estimate: what THIS account's tokens would have cost at EACH reference
+	// model's list price, so the dashboard's "vs <model>" toggle recomputes client-side with no
+	// extra round-trip. (Linear in tokens -> the baseline row equals the headline frontier_est.)
+	refEst := make([]frontierRefEst, len(frontierTable))
+	for i, f := range frontierTable {
+		refEst[i] = frontierRefEst{frontierRef: f, FrontierEst: round6(frontierCost(totIn, totOut, f.Model))}
+	}
 
 	return map[string]any{
 		"period_days": days,
@@ -252,7 +272,7 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 			"spend_usd":      totSpend,
 			"frontier_est":   totFrontier, // est. cost at the baseline frontier list price
 			"savings_est":    totSavings,  // frontier_est - spend (floored at 0 per bucket)
-			"reference":      frontierTable,
+			"reference":      refEst,
 			"reference_note": "Estimate only: published list prices, not a live or contractual quote.",
 		},
 	}
