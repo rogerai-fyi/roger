@@ -12,22 +12,26 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -234,6 +238,13 @@ type broker struct {
 	// 7). <=0 disables auto-expiry (holds clear only via the admin-reviewed unhold).
 	recountHoldDays int
 
+	// holdTTL bounds how long a relay pre-auth hold may live before the backstop sweep
+	// (releaseStaleHoldsSweep) reclaims it: a hold stranded because DO SIGKILLed the
+	// instance mid-redeploy before its deferred ReleaseHoldFor could run. Must exceed the
+	// longest legitimate relay (a 300s stream) with margin so a live relay is never
+	// reclaimed. Env ROGERAI_HOLD_TTL (default 10m). <=0 disables the sweep.
+	holdTTL time.Duration
+
 	// adminKey gates the admin-reviewed recount unhold (and any future admin op). It is
 	// the broker's stable signing seed in hex (the BROKER_PRIVATE_KEY operator secret),
 	// presented in the X-Roger-Admin header. Empty (ephemeral key / not configured) =>
@@ -290,9 +301,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("listen %s: %v", a, err)
 	}
-	// runServe blocks serving on ln until it returns (a serve error). nil stop = the
-	// production daemons run forever (their nil-channel select case never fires).
-	log.Fatal(runServe(ln, *fee, *seed, *lock, nil))
+	// runServe blocks serving on ln until it returns. nil stop = the production daemons run
+	// forever (their nil-channel select case never fires) until a SIGTERM triggers the
+	// graceful drain, on which runServe returns nil (clean exit). A real serve error exits 1.
+	if err := runServe(ln, *fee, *seed, *lock, nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // runServe holds main()'s env/db/seed/key/build/sweeps/serve glue, factored out of
@@ -351,12 +365,13 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	if b.probe.enabled() {
 		go b.proberLoop(stop)
 	}
-	go b.reattestSweep(stop)        // drop verified-confidential status that has lapsed its re-attest cadence
-	go b.recountHoldSweep(stop)     // auto-expire recount holds past the review window (operator recourse)
-	go b.nodeBanSweep(stop)         // auto-lift report-origin node suspensions past the review window (reversible bans)
-	go b.reversalRetrySweep(stop)   // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
-	go b.pruneStaleNodesSweep(stop) // remove long-dead node registrations (old hostname ids that never re-register)
-	go b.refPriceSync(stop)         // refresh same-model external reference prices for the buyer-facing $-tier
+	go b.reattestSweep(stop)          // drop verified-confidential status that has lapsed its re-attest cadence
+	go b.recountHoldSweep(stop)       // auto-expire recount holds past the review window (operator recourse)
+	go b.nodeBanSweep(stop)           // auto-lift report-origin node suspensions past the review window (reversible bans)
+	go b.reversalRetrySweep(stop)     // re-attempt failed Stripe transfer-reversals (silent-money-leak guard)
+	go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
+	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
+	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -388,17 +403,40 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 		IdleTimeout:       120 * time.Second,
 		MaxHeaderBytes:    1 << 16, // 64 KiB
 	}
-	// In production stop is nil, so this watcher is never started and the server runs
-	// until Serve returns on its own. A test closes stop to trigger a clean shutdown so
-	// Serve returns http.ErrServerClosed and the goroutine exits.
-	if stop != nil {
-		go func() {
-			<-stop
-			_ = srv.Close()
-		}()
+	// GRACEFUL DRAIN (deploy-orphan fix, part 1). On SIGTERM (a DO rolling redeploy) - or a
+	// closed stop in tests - call srv.Shutdown so in-flight relays RETURN (running their
+	// deferred ReleaseHoldFor / Finalize) before the process exits, instead of being killed
+	// mid-flight with their consumer holds stranded. We MUST wait for Shutdown to finish
+	// (the canonical pattern: Serve returns ErrServerClosed the moment Shutdown starts, so
+	// the program must not exit until Shutdown returns). Anything still in flight past the
+	// grace window is reclaimed by releaseStaleHoldsSweep, the hard-SIGKILL backstop.
+	drained := make(chan struct{})
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+		defer signal.Stop(sig)
+		select {
+		case <-stop: // test seam (nil in production -> never fires)
+		case <-sig: // production: SIGTERM/SIGINT from a rolling redeploy
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		log.Printf("shutdown: draining in-flight relays (grace %s) so no consumer hold is orphaned", shutdownGrace)
+		_ = srv.Shutdown(ctx)
+		close(drained)
+	}()
+	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
-	return srv.Serve(ln)
+	<-drained // block until the in-flight relays have drained (their holds settled/released)
+	return nil
 }
+
+// shutdownGrace bounds the graceful drain: how long srv.Shutdown waits for in-flight relays
+// to finish before the process exits. A best-effort window (the longest relay is a 300s
+// stream and the platform's own kill deadline may be shorter); whatever doesn't drain in
+// time is reclaimed by the releaseStaleHoldsSweep backstop, so no hold is ever lost.
+const shutdownGrace = 30 * time.Second
 
 // buildBroker constructs + wires the broker from the resolved db/key/flags + the
 // environment (rehydrate, config loaders, optional shared-state layer). It does NOT
@@ -431,6 +469,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		strikeDecayDays:        strikeDecayDays(),
 		strikeCorroborateKinds: strikeCorroborateKinds(),
 		recountHoldDays:        recountHoldDays(),
+		holdTTL:                holdTTL(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
 		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),

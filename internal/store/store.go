@@ -96,6 +96,28 @@ type Store interface {
 	Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (newBalance float64, err error)
 	// ReleaseHold returns a full reservation to the user (request failed, no charge).
 	ReleaseHold(user string, held float64) (newBalance float64, err error)
+	// HoldFor is Hold with a requestID so the reservation is TRACKED in the pending-hold
+	// registry (the deploy-orphan backstop). Same wallet semantics as Hold (conditional
+	// debit; ok=false if the balance can't cover it) PLUS, on success, it records a
+	// pending hold (requestID -> user, amount, placed_at). Finalize clears it on capture,
+	// ReleaseHoldFor clears it on a deferred release, and ReleaseStaleHolds reclaims it if
+	// the relay is SIGKILLed mid-flight. requestID is the relay's job id (unique per
+	// in-flight request). The relay path uses HoldFor; Hold stays for the unit/parity
+	// callers that don't need tracking.
+	HoldFor(user, requestID string, amount float64) (ok bool, err error)
+	// ReleaseHoldFor returns a TRACKED reservation to the user and clears its pending-hold
+	// row, IDEMPOTENTLY: it refunds (and writes the hold_release ledger row) ONLY if the
+	// row still exists. A second call - or a call after the sweep already reclaimed it - is
+	// a no-op (no double-refund). This is the relay's deferred release for a HoldFor hold.
+	ReleaseHoldFor(user, requestID string) (newBalance float64, err error)
+	// ReleaseStaleHolds reclaims every pending hold whose placed_at is at or before
+	// olderThan (the deploy-orphan backstop sweep): an instance SIGKILLed mid-relay never
+	// runs its deferred release, stranding the consumer's pre-auth hold. The sweep returns
+	// the EXACT held amount to each wallet and clears the row, atomically + single-actor:
+	// two instances racing each claim disjoint rows (atomic delete-and-credit), so every
+	// hold is released exactly once. A live relay's hold is younger than the TTL and is
+	// NEVER reclaimed. Returns the count released.
+	ReleaseStaleHolds(olderThan time.Time) (released int, err error)
 	// BindOwner records (or refreshes) an owner binding: a verified GitHub identity
 	// linked to the signing pubkey of the logged-in CLI. Earning operations require
 	// this binding; it never affects the free/consume paths. Idempotent per pubkey.
@@ -590,22 +612,26 @@ type Mem struct {
 	policy     PayoutPolicy
 	monthlyCap map[string]float64 // wallet -> explicit monthly spend cap ($); absent = env default
 
-	ledger      []LedgerRow              // append-only money events
-	ledgerID    int64                    // monotonic ledger id
-	idem        map[string]bool          // ledger idem keys seen
-	lots        []EarningLot             // operator earning lifecycle lots
-	lotID       int64                    // monotonic lot id
-	payouts     []Payout                 // payout history
-	payoutID    int64                    // monotonic payout id
-	disputes    map[string]bool          // seen stripe dispute ids (idempotency)
-	settled     map[string]bool          // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
-	recountHold map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
-	nodeAcct    map[string]string        // node id -> owner pubkey (TOFU)
-	charges     map[string]charge        // stripe payment_intent/charge id -> checkout mapping
-	gs          *grantStore              // grant keys + per-grant usage rollups
-	bs          *bandStore               // private bands ("frequency codes": private discovery)
-	nodes       map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
-	overrides   map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
+	ledger   []LedgerRow     // append-only money events
+	ledgerID int64           // monotonic ledger id
+	idem     map[string]bool // ledger idem keys seen
+	lots     []EarningLot    // operator earning lifecycle lots
+	lotID    int64           // monotonic lot id
+	payouts  []Payout        // payout history
+	payoutID int64           // monotonic payout id
+	disputes map[string]bool // seen stripe dispute ids (idempotency)
+	settled  map[string]bool // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
+	// pendingHolds is the deploy-orphan backstop registry: requestID -> the still-open
+	// relay pre-auth hold (HoldFor records it; Finalize/ReleaseHoldFor clear it; the
+	// ReleaseStaleHolds sweep reclaims any left stranded by a SIGKILLed relay). Guarded by mu.
+	pendingHolds map[string]pendingHold
+	recountHold  map[string]int64         // node id -> unix when the open L1 re-count hold was placed (holds promotion, P0-2; auto-expires)
+	nodeAcct     map[string]string        // node id -> owner pubkey (TOFU)
+	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
+	gs           *grantStore              // grant keys + per-grant usage rollups
+	bs           *bandStore               // private bands ("frequency codes": private discovery)
+	nodes        map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
+	overrides    map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
 
 	// safety surfaces (safety.go): preserved CSAM incidents + the abuse/report log +
 	// banned-node set. Rare, off the hot path; guarded by the same m.mu.
@@ -641,6 +667,15 @@ type Mem struct {
 	seedCount int
 }
 
+// pendingHold is one tracked relay pre-auth reservation in the deploy-orphan registry:
+// who placed it, how much is held, and when (unix), so the sweep can reclaim the EXACT
+// amount for any hold stranded past its TTL by a SIGKILLed relay.
+type pendingHold struct {
+	user     string
+	amount   float64
+	placedAt int64
+}
+
 // charge is a persisted checkout->charge mapping, so a later dispute (which carries
 // none of the checkout metadata) can resolve the wallet to claw back.
 type charge struct {
@@ -654,7 +689,8 @@ func NewMem() *Mem {
 		wallet: map[string]float64{}, seedRemain: map[string]float64{}, earnings: map[string]float64{}, spend: map[string]float64{},
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
-		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
+		pendingHolds: map[string]pendingHold{},
+		charges:      map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
@@ -929,12 +965,69 @@ func (m *Mem) Settle(user, node string, cost, ownerShare float64, rec protocol.U
 func (m *Mem) Hold(user string, amount float64) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.holdLocked(user, amount), nil
+}
+
+// holdLocked is the shared conditional debit for Hold + HoldFor. Caller holds m.mu. It
+// returns false (and debits nothing) when the balance can't cover amount; otherwise it
+// debits and writes the pending-hold ledger row. The strictly-less guard means an
+// EXACT-balance hold SUCCEEDS (a wallet can never go negative through the hold path).
+func (m *Mem) holdLocked(user string, amount float64) bool {
 	if m.wallet[user] < amount {
-		return false, nil
+		return false
 	}
 	m.wallet[user] -= amount
 	m.appendLedgerLocked(user, "consumer", KindHold, -amount, "", StatePending, "", 0)
+	return true
+}
+
+// HoldFor is Hold that also records the reservation in the pending-hold registry so the
+// deploy-orphan sweep can reclaim it if the relay is SIGKILLed mid-flight. See the Store
+// interface. Same wallet semantics as Hold (atomic conditional debit under m.mu).
+func (m *Mem) HoldFor(user, requestID string, amount float64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.holdLocked(user, amount) {
+		return false, nil
+	}
+	m.pendingHolds[requestID] = pendingHold{user: user, amount: amount, placedAt: time.Now().Unix()}
 	return true, nil
+}
+
+// ReleaseHoldFor returns a TRACKED reservation idempotently: it refunds the EXACT recorded
+// amount and clears the row ONLY if the row still exists; otherwise it is a no-op (the hold
+// was already captured, released, or swept). user must be the hold's payer. See the Store
+// interface.
+func (m *Mem) ReleaseHoldFor(user, requestID string) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ph, ok := m.pendingHolds[requestID]
+	if !ok {
+		return m.wallet[user], nil // already cleared: no double-refund
+	}
+	delete(m.pendingHolds, requestID)
+	m.wallet[user] += ph.amount
+	m.appendLedgerLocked(user, "consumer", KindHoldRelease, ph.amount, "", StatePosted, requestID, 0)
+	return m.wallet[user], nil
+}
+
+// ReleaseStaleHolds reclaims every pending hold placed at or before olderThan, returning
+// the EXACT held amount to each wallet (the deploy-orphan backstop sweep). Single-actor
+// under m.mu; idempotent (a re-run after a release finds nothing). See the Store interface.
+func (m *Mem) ReleaseStaleHolds(olderThan time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cut := olderThan.Unix()
+	released := 0
+	for req, ph := range m.pendingHolds {
+		if ph.placedAt <= cut {
+			delete(m.pendingHolds, req)
+			m.wallet[ph.user] += ph.amount
+			m.appendLedgerLocked(ph.user, "consumer", KindHoldRelease, ph.amount, "", StatePosted, req, 0)
+			released++
+		}
+	}
+	return released, nil
 }
 
 func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec protocol.UsageReceipt) (float64, error) {
@@ -946,7 +1039,8 @@ func (m *Mem) Finalize(user, node string, held, cost, ownerShare float64, rec pr
 		}
 		m.settled[rec.RequestID] = true
 	}
-	m.wallet[user] += held - cost // refund the unused reservation
+	delete(m.pendingHolds, rec.RequestID) // capture clears the tracked hold (no-op if untracked) so the sweep never double-refunds a settled request
+	m.wallet[user] += held - cost         // refund the unused reservation
 	m.spend[user] += cost
 	// Only the REAL (non-seed) funded portion of this cost earns the operator a payable
 	// lot (P0-1): seed-funded spend records the metering receipt but mints no earning.
