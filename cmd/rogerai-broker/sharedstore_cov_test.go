@@ -57,6 +57,7 @@ func TestValkeyDownedBackendErrorsExtra(t *testing.T) {
 	if _, err := vs.allPrivateNodes(); err == nil {
 		t.Error("allPrivateNodes against a dead backend should error")
 	}
+	sharedErrWanted(t, "dropSharedNode", vs.dropSharedNode("p"))
 
 	sharedErrWanted(t, "markInflight", vs.markInflight("inst", "n", 3, time.Now()))
 	if _, err := vs.inflightByNode("inst"); err == nil {
@@ -170,6 +171,19 @@ func TestValkeyPrivateNodeNamespaceIsolated(t *testing.T) {
 	}
 	if _, ok, _ := vs.getNode("band-x"); ok {
 		t.Fatal("private band resolvable via the PUBLIC getNode - namespace isolation broken")
+	}
+	// dropSharedNode clears a node from BOTH namespaces (the flip-cleanup primitive).
+	if err := vs.dropSharedNode("band-x"); err != nil {
+		t.Fatalf("dropSharedNode: %v", err)
+	}
+	if err := vs.dropSharedNode("pub-y"); err != nil {
+		t.Fatalf("dropSharedNode: %v", err)
+	}
+	if _, ok, _ := vs.getPrivateNode("band-x"); ok {
+		t.Error("dropSharedNode left band-x in the private namespace")
+	}
+	if _, ok, _ := vs.getNode("pub-y"); ok {
+		t.Error("dropSharedNode left pub-y in the public namespace")
 	}
 }
 
