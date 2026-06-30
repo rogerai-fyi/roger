@@ -137,10 +137,11 @@ function copyAssets(dir) {
   }
 }
 
-// cacheBust appends a short CONTENT hash (?v=<hash>) to every local js/ + styles/ URL so a
-// changed asset gets a NEW url the CDN (Cloudflare) cannot serve stale - the fix for the
-// "edited terminal.js but the edge kept the old one" class of bug. The hash is of the SOURCE
-// file (byte-identical to what copyAssets ships), so a url changes ONLY when that file changes.
+// cacheBust appends a short CONTENT hash (?v=<hash>) to every local js/, styles/ + assets/ media
+// URL so a changed asset gets a NEW url the CDN (Cloudflare) cannot serve stale - the fix for the
+// "edited terminal.js but the edge kept the old one" class of bug (and the same for swapping in a
+// re-timed ledger-demo.mp4/.gif). The hash is of the SOURCE file (byte-identical to what copyAssets
+// ships), so a url changes ONLY when that file changes; missing/external refs stay unversioned.
 const assetHashCache = new Map();
 function assetHash(rel) {
   if (assetHashCache.has(rel)) return assetHashCache.get(rel);
@@ -152,7 +153,7 @@ function assetHash(rel) {
   return h;
 }
 function cacheBust(html) {
-  return html.replace(/((?:src|href)=")((?:js|styles)\/[^"?]+\.(?:js|css))"/g,
+  return html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|gif|png|webp|svg|jpe?g|avif))"/g,
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
 }
 
