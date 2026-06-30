@@ -663,8 +663,9 @@ const syncLocalRegisterGrace = 15 * time.Second
 // + the prune sweep age a dead node out). A node THIS instance just (re)registered is left
 // untouched for syncLocalRegisterGrace (so the fresh local token wins a race with a stale
 // shared read); after that it too is reconciled from the shared registry, which is the
-// source of truth for the bridge token (register publishes it on every register). Private
-// bands are not mirrored.
+// source of truth for the bridge token (register publishes it on every register). PRIVATE
+// bands are mirrored too, in a SECOND pass from the separate private namespace and flagged
+// b.private=true, so they are resolvable + freq-routable on a peer yet never enter /discover.
 func (b *broker) syncRegistry() {
 	if b.shared == nil {
 		return
