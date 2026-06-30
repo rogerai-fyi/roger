@@ -187,6 +187,9 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) {
 	b.bannedOwners[accountID] = true
 	b.metricsMu.Unlock()
 	if !already {
+		// Cross-instance: bump the shared rev so the PEER instance re-pulls this owner ban on
+		// its next sync tick (so a banned operator stops being picked + settled on B too).
+		b.bumpBanRev()
 		log.Printf("BAN owner=%s EJECTED (durable, anti-rotation): %s - blocked at register + relay pick + settle for ALL current/future nodes", accountID, reason)
 	}
 }

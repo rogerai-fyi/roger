@@ -613,6 +613,11 @@ func (b *broker) syncLiveness(stop <-chan struct{}) {
 // newer last_seen into this instance (and, in multi-instance mode, mirrors the shared
 // registry). Split out of the ticker loop so the merge is testable deterministically.
 func (b *broker) syncLivenessOnce() {
+	// Cross-instance BAN propagation: re-pull the durable banned sets when a peer changed
+	// them (cheap rev-counter check; no-op when unchanged). FIRST, before the liveness
+	// early-return below, so bans still propagate on a tick where the liveness snapshot is
+	// empty (e.g. no node has been markSeen to the shared store yet).
+	b.syncBanRev()
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return
