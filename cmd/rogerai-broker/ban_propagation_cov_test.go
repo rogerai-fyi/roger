@@ -15,6 +15,39 @@ import (
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
+// TestBanDBWriteFailureDoesNotSelfDrop pins the audit's robustness finding: when the DURABLE
+// ban write fails, the instance keeps its local best-effort flip but must NOT bump the shared
+// rev — else its own next syncBanRev re-pulls the ban-less DB, REPLACES the cache, and silently
+// drops the ban within one tick (worse than single-instance, which keeps it until restart).
+func TestBanDBWriteFailureDoesNotSelfDrop(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	fs := &failStore{Store: store.NewMem()}
+	b := newMIBroker(t, priv, fs, mr)
+
+	// Node ban with a failing durable write.
+	fs.failBanNode = true
+	b.banNode("x", "abuse")
+	if !b.isBanned("x") {
+		t.Fatal("local best-effort node-ban flip should be set even when the DB write failed")
+	}
+	b.syncBanRev() // self-sync must NOT drop it (no rev should have been bumped)
+	if !b.isBanned("x") {
+		t.Error("node ban self-dropped after a failed durable write + a sync (rev bumped despite the write failing)")
+	}
+
+	// Owner ban with a failing durable write.
+	fs.failBanOwner = true
+	b.banOwner("op", "abuse", "{}")
+	if !b.isOwnerBanned("op") {
+		t.Fatal("local best-effort owner-ban flip should be set even when the DB write failed")
+	}
+	b.syncBanRev()
+	if !b.isOwnerBanned("op") {
+		t.Error("owner ban self-dropped after a failed durable write + a sync")
+	}
+}
+
 // TestSyncBanRevNoSharedBackend: with no shared store wired, both helpers are guarded no-ops
 // (single-instance: the local map flip is already the whole truth).
 func TestSyncBanRevNoSharedBackend(t *testing.T) {

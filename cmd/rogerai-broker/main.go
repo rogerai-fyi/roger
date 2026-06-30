@@ -484,8 +484,8 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		// shared backend. ROGERAI_MULTI_INSTANCE=1 turns it on; it HARD-REQUIRES a wired
 		// Valkey backend (the only place jobs/results/chunks can rendezvous across
 		// instances), so it is only ever enabled when b.shared is non-nil. Unset = the
-		// in-memory single-instance fast-path, byte-for-byte unchanged. The DO spec stays
-		// instance_count:1, so this is off in production until we deliberately scale out.
+		// in-memory single-instance fast-path, byte-for-byte unchanged. PROD runs it ON
+		// (.do/app.yaml: instance_count:2 + ROGERAI_MULTI_INSTANCE=1, reconciled in P1-4).
 		if multiInstanceEnabled() {
 			b.multiInstance = true
 			b.instanceID = newInstanceID()

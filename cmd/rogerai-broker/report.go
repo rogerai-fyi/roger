@@ -219,17 +219,23 @@ func (b *broker) banNode(nodeID, reason string) {
 	if nodeID == "" {
 		return
 	}
-	if err := b.db.BanNode(nodeID, reason); err != nil {
-		log.Printf("ban: persist failed node=%s: %v", nodeID, err)
+	persistErr := b.db.BanNode(nodeID, reason)
+	if persistErr != nil {
+		log.Printf("ban: persist failed node=%s: %v", nodeID, persistErr)
 	}
 	b.metricsMu.Lock()
 	already := b.banned[nodeID]
 	b.banned[nodeID] = true
 	b.metricsMu.Unlock()
 	if !already {
-		// Cross-instance: bump the shared rev so the PEER instance re-pulls this ban on its
-		// next sync tick (out of the lock — bumpBanRev does a Valkey round-trip).
-		b.bumpBanRev()
+		// Cross-instance: bump the shared rev so the PEER re-pulls this ban on its next sync
+		// tick (out of the lock — bumpBanRev does a Valkey round-trip). ONLY when the durable
+		// write SUCCEEDED: bumping after a failed write would make every instance (incl. THIS
+		// one) re-pull the ban-less DB and drop the in-memory flip within a tick. On a write
+		// failure keep the local best-effort flip (single-instance parity) + skip propagation.
+		if persistErr == nil {
+			b.bumpBanRev()
+		}
 		log.Printf("ban: node=%s EJECTED from routing (%s)", nodeID, reason)
 	}
 }

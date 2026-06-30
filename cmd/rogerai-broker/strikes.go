@@ -176,8 +176,9 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) {
 	if accountID == "" || b.db == nil {
 		return
 	}
-	if err := b.db.BanOwner(accountID, reason, evidenceJSON); err != nil {
-		log.Printf("banOwner: persist failed acct=%s: %v", accountID, err)
+	persistErr := b.db.BanOwner(accountID, reason, evidenceJSON)
+	if persistErr != nil {
+		log.Printf("banOwner: persist failed acct=%s: %v", accountID, persistErr)
 	}
 	b.metricsMu.Lock()
 	if b.bannedOwners == nil {
@@ -187,9 +188,14 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) {
 	b.bannedOwners[accountID] = true
 	b.metricsMu.Unlock()
 	if !already {
-		// Cross-instance: bump the shared rev so the PEER instance re-pulls this owner ban on
-		// its next sync tick (so a banned operator stops being picked + settled on B too).
-		b.bumpBanRev()
+		// Cross-instance: bump the shared rev so the PEER re-pulls this owner ban on its next
+		// sync tick (so a banned operator stops being picked + settled on B too). ONLY when the
+		// durable write SUCCEEDED: a bump after a failed write would make this instance re-pull
+		// the ban-less DB and drop its own in-memory flip within a tick. On failure keep the
+		// local best-effort flip (single-instance parity) + skip propagation.
+		if persistErr == nil {
+			b.bumpBanRev()
+		}
 		log.Printf("BAN owner=%s EJECTED (durable, anti-rotation): %s - blocked at register + relay pick + settle for ALL current/future nodes", accountID, reason)
 	}
 }
