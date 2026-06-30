@@ -373,16 +373,21 @@ func (b *broker) probeOnce() {
 		if model == "" {
 			continue
 		}
-		owner := n.NodeID // fallback: node is its own owner group
-		if b.db != nil {
-			if acct, ok, _ := b.db.AccountOfNode(n.NodeID); ok && acct != "" {
-				owner = acct
-			}
-		}
-		cands = append(cands, cand{node: n, model: model, owner: owner})
+		cands = append(cands, cand{node: n, model: model}) // owner resolved below, OUTSIDE the locks
 	}
 	b.metricsMu.Unlock()
 	b.mu.Unlock()
+
+	// Resolve each candidate's owner via the cached binding OUTSIDE metricsMu/mu: a
+	// per-candidate AccountOfNode under the global locks serialized the whole probe round on
+	// N store round-trips for a large fleet. Fallback (no binding / no store) = node is its
+	// own owner group, preserving the prior per-owner grouping.
+	for i := range cands {
+		cands[i].owner = cands[i].node.NodeID
+		if acct, ok := b.cachedOwnerOf(cands[i].node.NodeID); ok && acct != "" {
+			cands[i].owner = acct
+		}
+	}
 
 	// Stable order so the per-owner rotation is deterministic across rounds: nodes of
 	// the same owner are visited in node-id order, and the round number rotates the

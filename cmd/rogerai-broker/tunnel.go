@@ -1348,7 +1348,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		b.ensureSeeded(payer) // seed new users so the hold can land (W4: skip the upsert
 		// tx for an already-seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT
 		// stays the real guard, so a lost flag just re-runs the harmless no-op upsert)
-		held, herr := b.db.Hold(payer, maxCost)
+		held, herr := b.db.HoldFor(payer, requestID, maxCost) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
 			return
@@ -1381,7 +1381,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	settled := false
 	defer func() {
 		if !settled && maxCost > 0 {
-			b.db.ReleaseHold(payer, maxCost) // refund the hold if we never captured it
+			b.db.ReleaseHoldFor(payer, requestID) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
 		}
 	}()
 
@@ -1636,7 +1636,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 	settled := false
 	defer func() {
 		if !settled && maxCost > 0 {
-			b.db.ReleaseHold(user, maxCost) // refund the hold if we never captured it
+			b.db.ReleaseHoldFor(user, job.ID) // refund + clear the tracked hold if we never captured it (idempotent vs the sweep)
 		}
 	}()
 	flusher, ok := w.(http.Flusher)
@@ -2032,9 +2032,47 @@ type pickReq struct {
 // All hard filters (price caps, min-tps, confidential, private/freq, banned, grant
 // allow-list, pin/exclude) and the adaptive-probe refresh are PRESERVED unchanged.
 // Caller holds b.mu.
+// bannedOwnerNodeSet precomputes which on-air nodes resolve to a BANNED owner account, so
+// the pick/score loop can drop them with an O(1) map lookup instead of a per-candidate
+// AccountOfNode call under metricsMu. Returns nil when no owner is banned (the common case
+// => zero work). The owner bindings are resolved via the cache OUTSIDE metricsMu: the ban
+// set + on-air node ids are snapshotted under a brief lock, then released BEFORE the (cached)
+// binding lookups, so a single banned owner no longer serializes every pick on N store
+// round-trips under the global lock. A node that registers after the snapshot is caught by
+// the settle-time owner-ban backstop (settleRequest), so nothing slips through unbilled-safe.
+func (b *broker) bannedOwnerNodeSet() map[string]bool {
+	b.metricsMu.Lock()
+	if len(b.bannedOwners) == 0 {
+		b.metricsMu.Unlock()
+		return nil
+	}
+	owners := make(map[string]bool, len(b.bannedOwners))
+	for o := range b.bannedOwners {
+		owners[o] = true
+	}
+	ids := make([]string, 0, len(b.nodes))
+	for id := range b.nodes {
+		ids = append(ids, id)
+	}
+	b.metricsMu.Unlock()
+
+	banned := make(map[string]bool)
+	for _, id := range ids {
+		if acct, found := b.cachedOwnerOf(id); found && owners[acct] {
+			banned[id] = true
+		}
+	}
+	return banned
+}
+
 func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn, maxPriceOut float64, pin string, exclude, allow, privateAllow map[string]bool, req pickReq) (protocol.NodeRegistration, protocol.ModelOffer, bool) {
 	now := time.Now()
 	w := req.pref.weights()
+
+	// Owner-ban filter precomputed OUTSIDE metricsMu (nil when no owner is banned): the
+	// scoring loop below then drops a banned owner's nodes with an O(1) lookup instead of a
+	// store round-trip per candidate under the global lock. See bannedOwnerNodeSet.
+	bannedNode := b.bannedOwnerNodeSet()
 
 	// Per-candidate evidence collected during the single eligibility pass. We score
 	// in a SECOND pass once rangeMin/rangeMax (the cheapest/dearest eligible out-price)
@@ -2071,16 +2109,12 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 			continue
 		}
 		// DURABLE OWNER BAN (anti-rotation): drop nodes whose resolved owner account is
-		// banned, so a banned operator's fresh node id / callsign is never routed to. We
-		// hold metricsMu here, so read b.bannedOwners directly (like b.banned). Resolving
-		// the owner is a store lookup, so SKIP the whole resolution when no owner is
-		// banned (the common case = zero overhead); only pay the lookup when the ban set
-		// is non-empty. (For Mem, AccountOfNode is a map read; for Postgres a small
-		// indexed query, bounded to the rare banned-owner case.)
-		if len(b.bannedOwners) > 0 {
-			if acct, found, _ := b.db.AccountOfNode(n.NodeID); found && b.bannedOwners[acct] {
-				continue
-			}
+		// banned, so a banned operator's fresh node id / callsign is never routed to. The
+		// banned-node set was precomputed via the cached binding OUTSIDE this lock (nil when
+		// no owner is banned, the common case), so this is an O(1) map lookup - never a store
+		// round-trip under metricsMu. See bannedOwnerNodeSet.
+		if bannedNode[n.NodeID] {
+			continue
 		}
 		if b.private[n.NodeID] && !privateAllow[n.NodeID] {
 			continue

@@ -7,7 +7,7 @@
 //                 spend, earned, frontier_est, savings_est, models:[...] } ],
 //     hourly: [ same shape, "2026-06-01T15" buckets, last 48h ],
 //     savings:{ baseline_model, spend_usd, frontier_est, savings_est,
-//               reference:[ { model, in_per_1m, out_per_1m } ], reference_note }
+//               reference:[ { model, in_per_1m, out_per_1m, frontier_est } ], reference_note }
 //   }
 //
 // Login gate matches the other account pages: /account confirms the session, a

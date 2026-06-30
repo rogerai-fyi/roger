@@ -142,36 +142,8 @@ func TestSearchRendersEveryFlag(t *testing.T) {
 	}
 }
 
-// TestPriceTierLabel locks the CLI band table's $-tier cell to the broker's renderPriceTier
-// contract (and the TUI's priceTierBadge), so every surface reads the price alike: FREE wins
-// on a zero/negative price; a priced band shows "$".."$$$$"; ONLY the cheapest tier is
-// editorialized (" good price"); and an out-of-range / tier-0 (thin, unclassifiable) band
-// shows nothing - the raw price already carries it.
-func TestPriceTierLabel(t *testing.T) {
-	cases := []struct {
-		name     string
-		tier     int
-		priceOut float64
-		want     string
-	}{
-		{"free wins over any tier", 4, 0, "FREE"},
-		{"negative price is free", 2, -0.5, "FREE"},
-		{"tier 1 is editorialized", 1, 0.05, "$ good price"},
-		{"tier 2 neutral", 2, 0.20, "$$"},
-		{"tier 3 neutral", 3, 1.50, "$$$"},
-		{"tier 4 neutral", 4, 9.00, "$$$$"},
-		{"tier 0 unknown shows nothing", 0, 0.20, ""},
-		{"tier above range shows nothing", 5, 0.20, ""},
-		{"tier below range shows nothing", -1, 0.20, ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := priceTierLabel(tc.tier, tc.priceOut); got != tc.want {
-				t.Errorf("priceTierLabel(%d, %v) = %q, want %q", tc.tier, tc.priceOut, got, tc.want)
-			}
-		})
-	}
-}
+// The CLI $-tier cell render contract is tested once in internal/pricetier (TestLabel); the
+// client now consumes pricetier.Label directly, so there is no client-local copy to test.
 
 // TestBalanceNoCapBranch covers Balance's logged-in-but-no-monthly-cap branch (the
 // "no cap - set one" line), distinct from the capped branch the fakeBroker drives.

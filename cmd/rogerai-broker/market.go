@@ -561,29 +561,3 @@ func computeSignal(in signalInput) signalTerms {
 	t.Total = s
 	return t
 }
-
-// offerSignal scores a SINGLE offer 0..100 using the exact same blend /market uses,
-// so the band list's meter and the /market view agree for the same node.
-// providers=1 for one offer. An offline offer is 0 (no supply); an online offer with
-// no traffic still earns its baseline from supply + verified-serving + trust (no tps
-// required) - the freshly-on-air-band fix, now differentiated by probe evidence.
-func offerSignal(online bool, inflight int, tps, ttftMs, successRate, trust, recency float64, verified bool) int {
-	if !online {
-		return 0
-	}
-	return computeSignal(signalInput{
-		providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttftMs,
-		successRate: successRate, trust: trust, recency: recency, verified: verified,
-	}).Total
-}
-
-// marketSignal is the original 5-arg blend, KEPT for the monotonicity tests and as
-// a thin shim: supply + speed + success + trust, idle-fresh (recency 1), no probe
-// evidence (latency neutral, unverified). New call sites use computeSignal directly
-// with the full evidence; this remains so the existing contract + tests hold.
-func marketSignal(providers, inflight int, bestTPS, successRate, trust float64) int {
-	return computeSignal(signalInput{
-		providers: providers, inflight: inflight, bestTPS: bestTPS,
-		successRate: successRate, trust: trust, recency: 1,
-	}).Total
-}
