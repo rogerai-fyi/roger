@@ -1,9 +1,10 @@
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:18:		accountExport			96.2%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:65:		accountDelete			88.5%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:110:		billing				92.3%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:138:		usage				85.7%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:183:		groupSpend			85.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:212:		nonNilLedger			100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:20:		accountExport			96.2%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:67:		accountDelete			90.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:125:		deleteIdentity			81.8%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:145:		billing				92.3%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:173:		usage				85.7%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:218:		groupSpend			85.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/account.go:247:		nonNilLedger			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:23:		adminGitHubID			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:34:		stripeMode			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/admin.go:49:		liveMarket			100.0%
@@ -1534,4 +1535,4 @@ github.com/rogerai-fyi/roger/internal/webui/server.go:133:		localhostOnly			100.
 github.com/rogerai-fyi/roger/internal/webui/server.go:150:		Listen				75.0%
 github.com/rogerai-fyi/roger/internal/webui/server.go:160:		listenFreePort			80.0%
 github.com/rogerai-fyi/roger/internal/webui/server.go:184:		newToken			100.0%
-total:									(statements)			92.6%
+total:									(statements)			92.5%
