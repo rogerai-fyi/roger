@@ -50,6 +50,14 @@ func TestValkeyDownedBackendErrorsExtra(t *testing.T) {
 		t.Error("allNodes against a dead backend should error")
 	}
 
+	sharedErrWanted(t, "putPrivateNode", vs.putPrivateNode("p", []byte("{}"), time.Second))
+	if _, _, err := vs.getPrivateNode("p"); err == nil {
+		t.Error("getPrivateNode against a dead backend should error")
+	}
+	if _, err := vs.allPrivateNodes(); err == nil {
+		t.Error("allPrivateNodes against a dead backend should error")
+	}
+
 	sharedErrWanted(t, "markInflight", vs.markInflight("inst", "n", 3, time.Now()))
 	if _, err := vs.inflightByNode("inst"); err == nil {
 		t.Error("inflightByNode against a dead backend should error")
@@ -124,6 +132,44 @@ func TestValkeyNodeRegistryRoundTrip(t *testing.T) {
 	}
 	if string(all["node-a"]) != `{"node_id":"node-a"}` {
 		t.Fatalf("allNodes missing node-a: %v", all)
+	}
+}
+
+// TestValkeyPrivateNodeNamespaceIsolated exercises the PRIVATE band registry trio
+// (putPrivateNode/getPrivateNode/allPrivateNodes) AND pins the security invariant: a private
+// node lives ONLY in the private namespace and NEVER bleeds into the public registry the
+// /discover mirror reads (and vice-versa).
+func TestValkeyPrivateNodeNamespaceIsolated(t *testing.T) {
+	vs, _ := newTestValkey(t)
+	if err := vs.putPrivateNode("band-x", []byte(`{"node_id":"band-x","private":true}`), time.Minute); err != nil {
+		t.Fatalf("putPrivateNode: %v", err)
+	}
+	if err := vs.putNode("pub-y", []byte(`{"node_id":"pub-y"}`), time.Minute); err != nil {
+		t.Fatalf("putNode: %v", err)
+	}
+	// Private round-trip: targeted get hit + miss, and bulk list.
+	raw, ok, err := vs.getPrivateNode("band-x")
+	if err != nil || !ok || string(raw) != `{"node_id":"band-x","private":true}` {
+		t.Fatalf("getPrivateNode(band-x) = (%q, ok=%v, %v), want the stored reg", raw, ok, err)
+	}
+	if _, ok, err := vs.getPrivateNode("ghost"); err != nil || ok {
+		t.Fatalf("getPrivateNode(ghost) = (ok=%v, %v), want (false,nil) miss", ok, err)
+	}
+	priv, err := vs.allPrivateNodes()
+	if err != nil || string(priv["band-x"]) != `{"node_id":"band-x","private":true}` {
+		t.Fatalf("allPrivateNodes missing band-x: %v (%v)", priv, err)
+	}
+	// ISOLATION: the public registry must NOT contain the private node, and the private
+	// namespace must NOT contain the public node - neither can leak into the other.
+	if _, leaked := priv["pub-y"]; leaked {
+		t.Fatal("public node leaked into the PRIVATE namespace")
+	}
+	pub, _ := vs.allNodes()
+	if _, leaked := pub["band-x"]; leaked {
+		t.Fatal("private band LEAKED into the public registry (allNodes) - it would surface in /discover")
+	}
+	if _, ok, _ := vs.getNode("band-x"); ok {
+		t.Fatal("private band resolvable via the PUBLIC getNode - namespace isolation broken")
 	}
 }
 

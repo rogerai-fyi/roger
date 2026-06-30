@@ -382,15 +382,20 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	b.localRegAt[reg.NodeID] = now
 	b.mu.Unlock()
 
-	// MULTI-INSTANCE registry mirror: publish this PUBLIC node's full registration (incl.
+	// MULTI-INSTANCE registry mirror: publish this node's full registration (incl.
 	// BridgeToken) to the shared store so PEER instances can pick it AND authenticate its
 	// poll/result - the fix for the 2-instance break where a node that dialed instance A
-	// is invisible (503) / un-pollable (404) on instance B. Private bands are NOT mirrored
-	// (cross-instance private is a follow-up), so they never leak into a peer's public
-	// view. Outside b.mu (network I/O); best-effort - the registry sync re-pulls.
-	if b.multiInstance && b.shared != nil && !reg.Private {
+	// is invisible (503) / un-pollable (404) on instance B. A PRIVATE band publishes to a
+	// SEPARATE namespace (putPrivateNode) so a peer can resolve + route it WITHOUT it ever
+	// entering the public allNodes()/discover mirror. Outside b.mu (network I/O); best-effort
+	// - the registry sync re-pulls.
+	if b.multiInstance && b.shared != nil {
 		if raw, mErr := json.Marshal(reg); mErr == nil {
-			_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
+			if reg.Private {
+				_ = b.shared.putPrivateNode(reg.NodeID, raw, livenessTTL)
+			} else {
+				_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
+			}
 		}
 	}
 
@@ -660,12 +665,19 @@ func (b *broker) syncRegistry() {
 	if b.shared == nil {
 		return
 	}
-	regs, err := b.shared.allNodes()
-	if err != nil || len(regs) == 0 {
+	// Pull BOTH the public registry and the SEPARATE private-band namespace before taking
+	// the lock (network I/O). Proceed if EITHER is non-empty - a fleet with only private
+	// bands must still mirror them (don't early-return on an empty public registry).
+	regs, _ := b.shared.allNodes()
+	pregs, _ := b.shared.allPrivateNodes()
+	if len(regs) == 0 && len(pregs) == 0 {
 		return
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.private == nil {
+		b.private = map[string]bool{}
+	}
 	for id, raw := range regs {
 		// Trust our OWN just-(re)registered token over the shared read for a short grace
 		// window: the shared key is written right after register's unlock, so an in-flight
@@ -705,6 +717,38 @@ func (b *broker) syncRegistry() {
 			b.tunnels[id].token = reg.BridgeToken
 		}
 	}
+	// PRIVATE band mirror: the SAME learn as above, but from the separate private namespace
+	// and flagged b.private[id]=true so the node is resolvable + freq-routable on this
+	// instance yet stays OUT of /discover + the public market + a public pick (those all gate
+	// on b.private). The band CODE is never here - only the node reg (offers + bridge token).
+	for id, raw := range pregs {
+		if at, ok := b.localRegAt[id]; ok && time.Since(at) < syncLocalRegisterGrace {
+			continue
+		}
+		var reg protocol.NodeRegistration
+		if json.Unmarshal(raw, &reg) != nil || !reg.Private {
+			continue // private namespace is private-only; ignore a mis-tagged entry defensively
+		}
+		if reg.NodeID == "" {
+			reg.NodeID = id
+		}
+		b.nodes[id] = reg
+		b.private[id] = true
+		b.confidential[id] = reg.Confidential
+		if reg.Confidential {
+			if b.attestedAt == nil {
+				b.attestedAt = map[string]time.Time{}
+			}
+			if _, ok := b.attestedAt[id]; !ok {
+				b.attestedAt[id] = time.Now()
+			}
+		}
+		if b.tunnels[id] == nil {
+			b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
+		} else {
+			b.tunnels[id].token = reg.BridgeToken
+		}
+	}
 }
 
 // tunnelFor returns the node's tunnel, LAZILY learning it from the shared registry on a
@@ -723,11 +767,19 @@ func (b *broker) tunnelFor(node string) *nodeTunnel {
 		return t
 	}
 	raw, ok, err := b.shared.getNode(node)
+	private := false
 	if err != nil || !ok {
-		return nil
+		// Public miss: try the SEPARATE private-band namespace. A --private/--freq node that
+		// dialed a PEER must still be able to poll/result on THIS instance (no re-register
+		// storm), so we learn it here too - flagged private so it stays out of /discover.
+		praw, pok, perr := b.shared.getPrivateNode(node)
+		if perr != nil || !pok {
+			return nil
+		}
+		raw, private = praw, true
 	}
 	var reg protocol.NodeRegistration
-	if json.Unmarshal(raw, &reg) != nil || reg.Private {
+	if json.Unmarshal(raw, &reg) != nil {
 		return nil
 	}
 	if reg.NodeID == "" {
@@ -740,6 +792,12 @@ func (b *broker) tunnelFor(node string) *nodeTunnel {
 	}
 	b.nodes[node] = reg
 	b.confidential[node] = reg.Confidential
+	if private || reg.Private {
+		if b.private == nil {
+			b.private = map[string]bool{}
+		}
+		b.private[node] = true // keep a lazily-learned band OUT of /discover + public pick
+	}
 	if reg.Confidential {
 		if b.attestedAt == nil {
 			b.attestedAt = map[string]time.Time{}
@@ -782,8 +840,9 @@ func (b *broker) rehydrateNodes() {
 	// 10m key self-expires for nodes that never come back, and peers gate picking on
 	// liveness regardless. Collected here, published after the lock is dropped.
 	type pubReg struct {
-		id  string
-		raw []byte
+		id      string
+		raw     []byte
+		private bool
 	}
 	var toPublish []pubReg
 	n := 0
@@ -819,9 +878,11 @@ func (b *broker) rehydrateNodes() {
 		} else {
 			b.tunnels[reg.NodeID].token = reg.BridgeToken
 		}
-		if b.multiInstance && b.shared != nil && !reg.Private {
+		if b.multiInstance && b.shared != nil {
 			if raw, mErr := json.Marshal(reg); mErr == nil {
-				toPublish = append(toPublish, pubReg{reg.NodeID, raw})
+				// Public -> public registry; private -> the SEPARATE private namespace, so a
+				// peer re-learns a band after a redeploy without it ever leaking into /discover.
+				toPublish = append(toPublish, pubReg{reg.NodeID, raw, reg.Private})
 			}
 		}
 		n++
@@ -833,7 +894,13 @@ func (b *broker) rehydrateNodes() {
 	// Publish OUTSIDE the lock: putNode is a Valkey round-trip and rehydrate runs at
 	// startup; no need to hold b.mu across the network calls.
 	for _, p := range toPublish {
-		if err := b.shared.putNode(p.id, p.raw, livenessTTL); err != nil {
+		var err error
+		if p.private {
+			err = b.shared.putPrivateNode(p.id, p.raw, livenessTTL)
+		} else {
+			err = b.shared.putNode(p.id, p.raw, livenessTTL)
+		}
+		if err != nil {
 			log.Printf("re-hydrate: shared registry re-publish of node %s failed: %v", p.id, err)
 		}
 	}
