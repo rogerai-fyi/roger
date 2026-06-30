@@ -194,7 +194,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 
 /* ============================ PROMO STRIP ====================== */
 /* thin dismissible launch band above the nav: the $1 starter seed for the
-   first 1000 accounts. Monochrome + the one red dot; mono numerals. Ships
+   next 1000 new accounts. Monochrome + the one red dot; mono numerals. Ships
    hidden ([hidden]); promo.js reveals it unless dismissed. */
 .promo {
   border-bottom: 1px solid var(--hairline);
