@@ -13,10 +13,14 @@ package main
 // re-traps a ban in one instance's map fails this suite RED.
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -105,6 +109,15 @@ func (s *banPropState) aReportBannedAndBSynced(node string) error {
 	return nil
 }
 
+func (s *banPropState) aBannedOwnerAndBSynced(owner string) error {
+	s.a.banOwner(owner, "abuse", `{"note":"test"}`)
+	s.b.syncLivenessOnce()
+	if !s.b.isOwnerBanned(owner) {
+		return fmt.Errorf("precondition: instance B did not sync the owner ban for %q (propagation missing)", owner)
+	}
+	return nil
+}
+
 func (s *banPropState) singleInstanceNoShared() error {
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
 	s.single = newMIBroker(s.t, brokerPriv, store.NewMem(), nil) // nil mr => shared==nil
@@ -124,6 +137,22 @@ func (s *banPropState) aBansOwner(owner string) error {
 }
 
 func (s *banPropState) aUnbansNode(node string) error { return s.a.unbanNode(node) }
+
+// aForgivesOwner drives the REAL admin forgive path (POST /admin/unhold forgive=true) on
+// instance A — the only owner-UNBAN path — so the test exercises the production handler, not a
+// shortcut. It must propagate to B like every other ban write.
+func (s *banPropState) aForgivesOwner(owner string) error {
+	s.a.adminKey = "admin-secret"
+	body, _ := json.Marshal(map[string]any{"account_id": owner, "forgive": true})
+	r := httptest.NewRequest(http.MethodPost, "/admin/unhold", bytes.NewReader(body))
+	r.Header.Set("X-Roger-Admin", "admin-secret")
+	w := httptest.NewRecorder()
+	s.a.adminUnhold(w, r)
+	if w.Code != http.StatusOK {
+		return fmt.Errorf("adminUnhold(forgive %s) on A = %d, want 200 (body=%s)", owner, w.Code, w.Body.String())
+	}
+	return nil
+}
 
 func (s *banPropState) aSweepLifts() error {
 	// Cutoff one hour in the FUTURE so the just-placed report-ban is "older" and auto-lifts.
@@ -223,11 +252,13 @@ func TestMultinodeBanPropagationBDD(t *testing.T) {
 			sc.Step(`^a funded consumer$`, st.fundedConsumer)
 			sc.Step(`^instance A has banned node "([^"]*)" and instance B has synced the ban$`, st.aBannedAndBSynced)
 			sc.Step(`^instance A has report-banned node "([^"]*)" and instance B has synced the ban$`, st.aReportBannedAndBSynced)
+			sc.Step(`^instance A has banned owner "([^"]*)" and instance B has synced the ban$`, st.aBannedOwnerAndBSynced)
 			sc.Step(`^a single-instance broker with no shared backend$`, st.singleInstanceNoShared)
 			// When
 			sc.Step(`^instance A bans node "([^"]*)"$`, st.aBansNode)
 			sc.Step(`^instance A bans owner "([^"]*)"$`, st.aBansOwner)
 			sc.Step(`^instance A unbans node "([^"]*)"$`, st.aUnbansNode)
+			sc.Step(`^instance A forgives owner "([^"]*)"$`, st.aForgivesOwner)
 			sc.Step(`^instance A's node-ban sweep auto-lifts the suspension$`, st.aSweepLifts)
 			sc.Step(`^instance B runs its liveness sync tick$`, st.bSyncs)
 			sc.Step(`^the consumer settles a paid request served by node "([^"]*)" on instance B$`, st.consumerSettlesOnB)

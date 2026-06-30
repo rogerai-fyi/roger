@@ -67,6 +67,14 @@ Feature: Cross-instance ban propagation
     And instance B runs its liveness sync tick
     Then instance B picks node "n1" for model "m" again
 
+  # --- an owner FORGIVE (admin unban) must propagate too (the owner unban path) -
+  Scenario: An owner forgive on instance A restores the operator on instance B
+    Given node "n2" owned by operator "op-1" offering model "m" is registered on both instances
+    And instance A has banned owner "op-1" and instance B has synced the ban
+    When instance A forgives owner "op-1"
+    And instance B runs its liveness sync tick
+    Then instance B picks node "n2" for model "m" again
+
   # --- the auto-lift sweep is a ban WRITE too: it must bump the revision --------
   Scenario: An auto-lifted report suspension on instance A restores routing on instance B
     Given node "n1" offering model "m" is registered on both instances
