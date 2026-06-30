@@ -1,6 +1,9 @@
 # DigitalOcean App Platform spec for the RogerAI broker.
 #   doctl apps create --spec .do/app.yaml
-# Set DATABASE_URL (your existing managed Postgres) as an encrypted env in the DO UI.
+# Set the SECRETs (DATABASE_URL = your managed Postgres, ROGERAI_REDIS_URL = the DO
+# Valkey rediss:// URI) as encrypted envs in the DO UI - the slots are declared below.
+# The broker runs 2 instances (a deliberate cap) with the cross-instance bus ON: see
+# instance_count + ROGERAI_MULTI_INSTANCE below and .env.example.
 name: rogerai-broker
 region: nyc
 services:
@@ -12,13 +15,19 @@ services:
       deploy_on_push: true
     http_port: 8080
     instance_size_slug: basic-xxs   # cheapest; broker is I/O-bound
-    instance_count: 1
+    instance_count: 2               # deliberate cap (scale higher only on explicit go); multi-instance bus ON
     health_check:
       http_path: /health
     envs:
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET
+      - key: ROGERAI_REDIS_URL     # DO Valkey rediss:// URI (set the value in the DO UI)
+        scope: RUN_TIME            # REQUIRED by ROGERAI_MULTI_INSTANCE: the cross-instance
+        type: SECRET               # job/result/stream + ban/registry rendezvous bus
+      - key: ROGERAI_MULTI_INSTANCE # turn ON cross-instance handoff across the 2 instances
+        scope: RUN_TIME            # (no-ops to single-instance if ROGERAI_REDIS_URL is unset)
+        value: "1"
       - key: PORT
         scope: RUN_TIME
         value: "8080"
