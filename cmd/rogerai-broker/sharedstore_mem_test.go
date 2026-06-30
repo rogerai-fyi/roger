@@ -104,6 +104,16 @@ func TestMemStoreNoOps(t *testing.T) {
 	if _, err := m.allNodes(); err != errNoSharedStore {
 		t.Errorf("allNodes = %v", err)
 	}
+	// private band registry mirror (separate namespace)
+	if err := m.putPrivateNode("p", []byte("x"), time.Second); err != errNoSharedStore {
+		t.Errorf("putPrivateNode = %v", err)
+	}
+	if _, ok, err := m.getPrivateNode("p"); ok || err != errNoSharedStore {
+		t.Errorf("getPrivateNode = %v/%v", ok, err)
+	}
+	if _, err := m.allPrivateNodes(); err != errNoSharedStore {
+		t.Errorf("allPrivateNodes = %v", err)
+	}
 }
 
 // TestConfigLoaders covers the env-backed config loaders return a populated struct with
