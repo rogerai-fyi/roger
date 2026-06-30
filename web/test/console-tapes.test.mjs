@@ -7,7 +7,7 @@
 // Run: node --test test/console-tapes.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -67,6 +67,17 @@ test("terminal.js: using + ping are MEDIA demos wired to their <video> ids", () 
   assert.match(termJs, /function playMedia\(/, "playMedia exists");
   assert.match(termJs, /\.play\(/, "plays the video");
   assert.match(termJs, /prefers-reduced-motion|REDUCED/, "reduced-motion aware");
+});
+
+test("assets: every referenced tape file actually exists (no broken tile in prod)", () => {
+  // markup-path matching isn't enough: a tape wired to a missing asset 404s in prod.
+  // Pin that all four media files exist + are non-empty. (using-demo is a placeholder
+  // card until task D ships the real cartoon at the same paths.)
+  for (const f of ["ping-demo.mp4", "ping-demo.gif", "using-demo.mp4", "using-demo.gif"]) {
+    const p = path.join(SRC, "assets", f);
+    assert.ok(existsSync(p), `assets/${f} exists`);
+    assert.ok(statSync(p).size > 0, `assets/${f} is non-empty`);
+  }
 });
 
 test("home.css: the media slot matches the ASCII screen slot", () => {
