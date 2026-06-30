@@ -1,4 +1,4 @@
-// easter-egg.js - "Ping takes a walk": click the footer orange (.orange3d) 5 times fast and the
+// easter-egg.js - "Ping takes a walk": click any footer orange (.orange3d) 5 times fast and the
 // Ping mascot strolls once across the BOTTOM edge of the screen, then off. Deliberately small and
 // calm - nothing crazy.
 //
@@ -107,15 +107,17 @@
   }
 
   function wire() {
-    var orange = document.querySelector(".orange3d");
-    if (orange) {
-      var fire = makeMultiClick(5, 2500, launch);
-      orange.addEventListener("click", function () {
-        // tiny per-click "feel it building" pulse via WAAPI (no CSS dependency).
-        if (orange.animate) orange.animate(
-          [{ transform: "scale(1)" }, { transform: "scale(1.18)" }, { transform: "scale(1)" }],
-          { duration: 360, easing: "ease" });
-        fire(Date.now());
+    var oranges = document.querySelectorAll(".orange3d");
+    if (oranges.length) {
+      var fire = makeMultiClick(5, 2500, launch);   // one shared rolling counter across every orange
+      oranges.forEach(function (orange) {
+        orange.addEventListener("click", function () {
+          // tiny per-click "feel it building" pulse via WAAPI (no CSS dependency).
+          if (orange.animate) orange.animate(
+            [{ transform: "scale(1)" }, { transform: "scale(1.18)" }, { transform: "scale(1)" }],
+            { duration: 360, easing: "ease" });
+          fire(Date.now());
+        });
       });
     }
     if (/^#73$/.test(location.hash)) setTimeout(launch, 350);
