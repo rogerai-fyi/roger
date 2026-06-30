@@ -29,7 +29,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
-const worldTickMs = 120 // ~8fps: smoother than the 160ms TUI tick, still calm
+const worldTickMs = 540 // ~1.8fps: deliberately slow + calm for an ambient screensaver (was 120ms; founder asked ~4.5x slower)
 
 // worldCell is one composited cell. eye=true is the ONLY thing rendered red; bright=true is a
 // near/foreground element drawn brighter (a depth cue, NEVER red - one-red is untouched); tone is
