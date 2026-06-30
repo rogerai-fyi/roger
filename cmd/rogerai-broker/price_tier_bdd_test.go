@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/rogerai-fyi/roger/internal/pricetier"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -101,7 +102,7 @@ func (s *ptState) hasTier(tier string) error {
 }
 
 func (s *ptState) rendersGoodPriceChip() error {
-	_, chip := renderPriceTier(s.lastTier, s.lastPrice)
+	_, chip := pricetier.Render(s.lastTier, s.lastPrice)
 	if chip != "good price" {
 		return fmt.Errorf("tier %d rendered chip %q, want \"good price\"", s.lastTier, chip)
 	}
@@ -109,7 +110,7 @@ func (s *ptState) rendersGoodPriceChip() error {
 }
 
 func (s *ptState) noNegativeWording() error {
-	bars, chip := renderPriceTier(s.lastTier, s.lastPrice)
+	bars, chip := pricetier.Render(s.lastTier, s.lastPrice)
 	for _, bad := range []string{"expensive", "overpriced", "rip-off", "pricey", "costly"} {
 		if strings.Contains(strings.ToLower(bars+" "+chip), bad) {
 			return fmt.Errorf("rendered band carries negative wording %q: bars=%q chip=%q", bad, bars, chip)
@@ -193,7 +194,7 @@ func (s *ptState) onlineMedian(model, med string) error {
 }
 
 func (s *ptState) rawPriceNoTierNoChip(price string) error {
-	bars, chip := renderPriceTier(0, ptF(price))
+	bars, chip := pricetier.Render(0, ptF(price))
 	if bars != "" || chip != "" {
 		return fmt.Errorf("tier-0 priced band rendered bars=%q chip=%q, want empty (raw price only)", bars, chip)
 	}
@@ -222,7 +223,7 @@ func (s *ptState) bandFree(model, price string) error { return s.bandPriced(mode
 func (s *ptState) freeBandTier(tier string) error { return s.hasTier(tier) }
 
 func (s *ptState) freeBandRendersFREE() error {
-	bars, _ := renderPriceTier(s.lastTier, s.lastPrice)
+	bars, _ := pricetier.Render(s.lastTier, s.lastPrice)
 	if bars != "FREE" {
 		return fmt.Errorf("free band rendered %q, want the FREE badge", bars)
 	}

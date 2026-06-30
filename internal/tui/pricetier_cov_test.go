@@ -5,35 +5,8 @@ import (
 	"testing"
 )
 
-// TestPriceTierBadge mirrors the broker's renderPriceTier contract on the TUI side so the
-// two surfaces read alike: FREE wins; tier 0 priced shows nothing; only tier 1 is
-// editorialized ("good price"); $$..$$$$ are neutral; never any negative wording.
-func TestPriceTierBadge(t *testing.T) {
-	cases := []struct {
-		tier     int
-		price    float64
-		wantBars string
-		wantChip string
-	}{
-		{0, 0.0, "FREE", ""},
-		{0, 0.05, "", ""},
-		{1, 0.05, "$", "good price"},
-		{2, 0.10, "$$", ""},
-		{3, 0.20, "$$$", ""},
-		{4, 0.40, "$$$$", ""},
-	}
-	for _, c := range cases {
-		bars, chip := priceTierBadge(c.tier, c.price)
-		if bars != c.wantBars || chip != c.wantChip {
-			t.Errorf("priceTierBadge(%d,%.2f) = %q,%q want %q,%q", c.tier, c.price, bars, chip, c.wantBars, c.wantChip)
-		}
-		for _, bad := range []string{"expensive", "overpriced", "too ", "rip-off"} {
-			if chip != "" && strings.Contains(strings.ToLower(chip), bad) {
-				t.Errorf("tier %d chip %q contains negative wording %q", c.tier, chip, bad)
-			}
-		}
-	}
-}
+// The tier->glyph render contract is tested once in internal/pricetier (TestRender); this
+// file covers the TUI-SPECIFIC surface (bandTierSuffix styling) that consumes it.
 
 // TestBandTierSuffixRenders covers the band-row suffix: an online band shows its cheapest
 // station's tier ($ + a "good price" chip on tier 1; bare $$$$ on tier 4, no negatives);

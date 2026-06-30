@@ -63,13 +63,31 @@ var frontierTable = []frontierRef{
 // savings figure (the others are returned for context/spread).
 const frontierBaseline = "gpt-4o"
 
-// frontierCost returns what `in`/`out` tokens would cost at the named reference
-// model's list price (USD), or at the baseline when model is "".
-func frontierCost(in, out int64, model string) float64 {
+// liveFrontierTable returns frontierTable with each model's OUT price overridden by the
+// LIVE same-model aggregator price (the refprices.go OpenRouter sync) when one is known, so
+// the headline "you saved $X vs gpt-4o" tracks the real list price instead of going stale on
+// a hard-coded number. The static frontierTable is the offline SEED (the input price + the
+// pre-sync output price) - the cross-model analogue of refPriceSeed for the per-open-model
+// tier. The IN price stays from the seed: the sync carries the OUT (completion) price only.
+func (b *broker) liveFrontierTable() []frontierRef {
+	out := make([]frontierRef, len(frontierTable))
+	copy(out, frontierTable)
+	for i := range out {
+		if live, ok := b.refOut(out[i].Model); ok && live > 0 {
+			out[i].OutPer1M = live
+		}
+	}
+	return out
+}
+
+// frontierCost returns what `in`/`out` tokens would cost at the named reference model's list
+// price (USD) within `table`, or at the baseline when model is "". `table` is the live-resolved
+// frontier set (liveFrontierTable) so the estimate tracks the synced OUT price.
+func frontierCost(table []frontierRef, in, out int64, model string) float64 {
 	if model == "" {
 		model = frontierBaseline
 	}
-	for _, f := range frontierTable {
+	for _, f := range table {
 		if f.Model == model {
 			return (float64(in)*f.InPer1M + float64(out)*f.OutPer1M) / 1e6
 		}
@@ -132,7 +150,7 @@ type mergedEntry struct {
 // count once; spend + frontier come from the consumer side, earned from the provider
 // side. A self-served receipt contributes to both spend and earned but counts as one
 // request.
-func (a *bucketAgg) fold(m mergedEntry) {
+func (a *bucketAgg) fold(m mergedEntry, table []frontierRef) {
 	e := m.Entry
 	a.requests++
 	a.tokensIn += int64(e.PromptTokens)
@@ -151,7 +169,7 @@ func (a *bucketAgg) fold(m mergedEntry) {
 	mp.TokensOut += int64(e.CompletionTokens)
 	if m.spendSide {
 		a.spend += e.Cost
-		a.frontier += frontierCost(int64(e.PromptTokens), int64(e.CompletionTokens), "")
+		a.frontier += frontierCost(table, int64(e.PromptTokens), int64(e.CompletionTokens), "")
 		mp.Spend += e.Cost
 	}
 	if m.earnSide {
@@ -211,6 +229,10 @@ func (b *broker) metricsSeries(w http.ResponseWriter, r *http.Request) {
 func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, consumer bool, ownerPubkey string, provider bool) any {
 	since, until := metricsWindowUTC(now, days)
 
+	// Resolve the frontier reference set ONCE per request: live OUT prices from the
+	// refprices.go sync overlaid on the static seed, so the savings estimate can't go stale.
+	frontier := b.liveFrontierTable()
+
 	var consEntries, provEntries []store.Entry
 	if consumer {
 		consEntries, _ = b.db.EntriesByUser(wallet, since, until)
@@ -224,14 +246,14 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 	dayKey := func(ts int64) string { return time.Unix(ts, 0).UTC().Format("2006-01-02") }
 	days24Key := func(ts int64) string { return time.Unix(ts, 0).UTC().Format("2006-01-02T15") }
 
-	daySeries := buildSeries(consEntries, provEntries, dayKey)
+	daySeries := buildSeries(consEntries, provEntries, dayKey, frontier)
 
 	// Short hourly series for the last 48h (cheap: a re-bucket of the same rows in a
 	// tighter window). This is what a "last 24-48h" sparkline renders.
 	h48Since := now.UTC().Add(-48 * time.Hour).Unix()
 	hourCons := windowEntries(consEntries, h48Since)
 	hourProv := windowEntries(provEntries, h48Since)
-	hourSeries := buildSeries(hourCons, hourProv, days24Key)
+	hourSeries := buildSeries(hourCons, hourProv, days24Key, frontier)
 
 	// Savings rollup (consumer side only - a provider does not "save", they earn).
 	// Computed from the raw consumer entries (NOT by re-summing the rounded per-bucket
@@ -243,7 +265,7 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 		totSpend += e.Cost
 		totIn += int64(e.PromptTokens)
 		totOut += int64(e.CompletionTokens)
-		totFrontier += frontierCost(int64(e.PromptTokens), int64(e.CompletionTokens), "")
+		totFrontier += frontierCost(frontier, int64(e.PromptTokens), int64(e.CompletionTokens), "")
 	}
 	totSavings := totFrontier - totSpend
 	if totSavings < 0 {
@@ -256,9 +278,9 @@ func (b *broker) computeMetricsSeries(now time.Time, days int, wallet string, co
 	// Per-model frontier estimate: what THIS account's tokens would have cost at EACH reference
 	// model's list price, so the dashboard's "vs <model>" toggle recomputes client-side with no
 	// extra round-trip. (Linear in tokens -> the baseline row equals the headline frontier_est.)
-	refEst := make([]frontierRefEst, len(frontierTable))
-	for i, f := range frontierTable {
-		refEst[i] = frontierRefEst{frontierRef: f, FrontierEst: round6(frontierCost(totIn, totOut, f.Model))}
+	refEst := make([]frontierRefEst, len(frontier))
+	for i, f := range frontier {
+		refEst[i] = frontierRefEst{frontierRef: f, FrontierEst: round6(frontierCost(frontier, totIn, totOut, f.Model))}
 	}
 
 	return map[string]any{
@@ -340,7 +362,7 @@ func mergeEntries(cons, prov []store.Entry) []mergedEntry {
 // appears in BOTH but is ONE request), folds them into time buckets keyed by keyFn(ts),
 // then returns them sorted oldest -> newest (chart order) with a per-model split and the
 // per-bucket savings estimate.
-func buildSeries(cons, prov []store.Entry, keyFn func(int64) string) []seriesPoint {
+func buildSeries(cons, prov []store.Entry, keyFn func(int64) string, table []frontierRef) []seriesPoint {
 	merged := mergeEntries(cons, prov)
 	aggs := map[string]*bucketAgg{}
 	get := func(k string) *bucketAgg {
@@ -352,7 +374,7 @@ func buildSeries(cons, prov []store.Entry, keyFn func(int64) string) []seriesPoi
 		return a
 	}
 	for _, m := range merged {
-		get(keyFn(m.TS)).fold(m)
+		get(keyFn(m.TS)).fold(m, table)
 	}
 	out := make([]seriesPoint, 0, len(aggs))
 	for k, a := range aggs {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"sort"
-	"strings"
 )
 
 // Price-tier classification — a NEUTRAL, buyer-facing "$ … $$$$" signal computed once
@@ -90,23 +89,9 @@ func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int {
 	return 0 // UNKNOWN
 }
 
-// renderPriceTier maps a tier + active price to display glyphs + an optional FAVORABLE
-// chip. FREE wins; a tier-0 priced band shows nothing (its raw price renders elsewhere);
-// only tier 1 is ever editorialized ("good price") — $$..$$$$ are neutral, never negative.
-// Shared so the TUI matches the web surfaces exactly.
-func renderPriceTier(tier int, priceOut float64) (bars, chip string) {
-	if priceOut <= 0 {
-		return "FREE", ""
-	}
-	if tier < 1 || tier > 4 {
-		return "", ""
-	}
-	bars = strings.Repeat("$", tier)
-	if tier == 1 {
-		chip = "good price"
-	}
-	return bars, chip
-}
+// The neutral tier (0..4) is RENDERED into "$ … $$$$" display glyphs by the shared
+// internal/pricetier package (pricetier.Render / .Label), which the broker, TUI, and client
+// all import - one canonical render, so every surface reads a band's price identically.
 
 // assignPriceTiers fills each offer's PriceTier from the same-model external reference
 // (preferred) or the live per-model median of the ONLINE, PRICED offers in the set.

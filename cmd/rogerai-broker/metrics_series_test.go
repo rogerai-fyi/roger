@@ -152,7 +152,7 @@ func TestMetricsSeriesShape(t *testing.T) {
 			// in-window tokens (in=116, out=226), and the baseline row equals the headline
 			// frontier_est (linear in tokens) - the consistency the dashboard "vs <model>" toggle relies on.
 			for _, ref := range resp.Savings.Reference {
-				want := round6(frontierCost(116, 226, ref.Model))
+				want := round6(frontierCost(frontierTable, 116, 226, ref.Model))
 				if ref.FrontierEst < want-1e-9 || ref.FrontierEst > want+1e-9 {
 					t.Errorf("reference %q frontier_est = %v, want %v", ref.Model, ref.FrontierEst, want)
 				}
@@ -208,6 +208,34 @@ func TestMetricsSeriesSavingsPositive(t *testing.T) {
 	wantSavings := 12.50 - 0.10
 	if resp.Savings.SavingsEst < wantSavings-1e-4 || resp.Savings.SavingsEst > wantSavings+1e-4 {
 		t.Errorf("savings_est = %v, want %v", resp.Savings.SavingsEst, wantSavings)
+	}
+}
+
+// TestLiveFrontierTableTracksSync proves the savings baseline tracks the live OpenRouter
+// sync (refprices.go) instead of going stale on a hard-coded number: a synced gpt-4o OUT
+// price overrides the static seed's OUT, while the IN price (not synced) stays from the
+// seed; a model with no live price falls back to the static seed entirely.
+func TestLiveFrontierTableTracksSync(t *testing.T) {
+	b := &broker{refPrices: map[string]float64{"gpt-4o": 20.0}}
+	var gpt4o frontierRef
+	for _, f := range b.liveFrontierTable() {
+		if f.Model == "gpt-4o" {
+			gpt4o = f
+		}
+	}
+	if gpt4o.OutPer1M != 20.0 {
+		t.Errorf("live gpt-4o OUT = %v, want 20.0 (synced override)", gpt4o.OutPer1M)
+	}
+	if gpt4o.InPer1M != 2.50 {
+		t.Errorf("live gpt-4o IN = %v, want 2.50 (static seed; IN is not synced)", gpt4o.InPer1M)
+	}
+	// 1M in + 1M out at the LIVE baseline = 2.50 + 20.00 = 22.50 (not the stale 12.50).
+	if got := frontierCost(b.liveFrontierTable(), 1_000_000, 1_000_000, ""); got < 22.4999 || got > 22.5001 {
+		t.Errorf("frontierCost(live baseline) = %v, want 22.50", got)
+	}
+	// No live price -> the static offline seed (gpt-4o 2.50 + 10.00 = 12.50).
+	if got := frontierCost((&broker{}).liveFrontierTable(), 1_000_000, 1_000_000, ""); got < 12.4999 || got > 12.5001 {
+		t.Errorf("frontierCost(seed baseline) = %v, want 12.50 (static offline seed)", got)
 	}
 }
 

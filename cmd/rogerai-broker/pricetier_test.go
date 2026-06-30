@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -149,37 +148,10 @@ func TestPerModelIsolation(t *testing.T) {
 	}
 }
 
-// TestRenderPriceTier covers the FAVORABLE-ONLY display rule: tier 1 gets the only
-// editorialized chip ("good price"); $$-$$$$ are bars only; FREE shows the FREE badge;
-// tier 0 priced shows nothing (the raw price renders elsewhere). No negative wording.
-func TestRenderPriceTier(t *testing.T) {
-	cases := []struct {
-		tier     int
-		priceOut float64
-		wantBars string
-		wantChip string
-	}{
-		{0, 0.0, "FREE", ""}, // free
-		{0, 0.05, "", ""},    // unknown-but-priced: no bars, no chip
-		{1, 0.05, "$", "good price"},
-		{2, 0.10, "$$", ""},
-		{3, 0.20, "$$$", ""},
-		{4, 0.40, "$$$$", ""},
-	}
-	for _, c := range cases {
-		bars, chip := renderPriceTier(c.tier, c.priceOut)
-		if bars != c.wantBars || chip != c.wantChip {
-			t.Errorf("renderPriceTier(%d, %.2f) = %q,%q want %q,%q",
-				c.tier, c.priceOut, bars, chip, c.wantBars, c.wantChip)
-		}
-		// Favorable-only: a chip, when present, is never negative.
-		for _, bad := range []string{"expensive", "overpriced", "too ", "rip-off", "bad"} {
-			if chip != "" && strings.Contains(strings.ToLower(chip), bad) {
-				t.Errorf("renderPriceTier(%d) chip %q contains negative wording %q", c.tier, chip, bad)
-			}
-		}
-	}
-}
+// The tier->"$ … $$$$" RENDER contract now lives in internal/pricetier (one canonical impl
+// the broker, TUI, and client all import); its exhaustive cases are TestRender/TestLabel
+// there. This file keeps the broker-side CLASSIFICATION tests (priceTier + the scale
+// boundaries) that produce the neutral tier the render consumes.
 
 // TestNormalizeModelName: OpenRouter "vendor/model" ids and operator free-text collapse
 // to the same key (lowercased, vendor prefix dropped, trimmed) so the ref lookup matches.

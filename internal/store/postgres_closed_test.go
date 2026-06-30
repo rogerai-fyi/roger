@@ -112,6 +112,21 @@ func TestPostgresClosedPoolPropagatesErrors(t *testing.T) {
 		errZeroF(t, "ReleaseHold", v, err)
 	}
 	{
+		ok, err := pg.HoldFor("u", "req", 5)
+		errNil(t, "HoldFor", err)
+		if ok {
+			t.Error("HoldFor: want ok=false on error")
+		}
+	}
+	{
+		v, err := pg.ReleaseHoldFor("u", "req")
+		errZeroF(t, "ReleaseHoldFor", v, err)
+	}
+	{
+		n, err := pg.ReleaseStaleHolds(now)
+		errZeroI(t, "ReleaseStaleHolds", n, err)
+	}
+	{
 		ok, err := pg.MarkProcessed("k")
 		errNil(t, "MarkProcessed", err)
 		if ok {
