@@ -94,6 +94,22 @@ func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool))
 	return acct, ok
 }
 
+// cachedOwnerOf resolves a node's bound owner account through the immutable-binding cache
+// (Redis read-through when configured; the authoritative Postgres AccountOfNode on miss).
+// Call it OUTSIDE metricsMu/mu: it may do store/Redis I/O, which must NEVER run under the
+// hot-path global locks. A per-candidate AccountOfNode under metricsMu was the routing cliff
+// this fixes - the moment one owner was banned, every relay pick + market/discover recompute
+// serialized on N store round-trips under the global lock. nil db (tests) -> ("",false).
+func (b *broker) cachedOwnerOf(node string) (string, bool) {
+	if b.db == nil || node == "" {
+		return "", false
+	}
+	return b.cachedAccountOfNode(node, func() (string, bool) {
+		acct, ok, _ := b.db.AccountOfNode(node)
+		return acct, ok
+	})
+}
+
 // invalidateAccountOfNode drops a node's cached binding after a BindNode write.
 func (b *broker) invalidateAccountOfNode(node string) {
 	if b.shared == nil || node == "" {
