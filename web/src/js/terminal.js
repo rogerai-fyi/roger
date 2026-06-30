@@ -49,6 +49,7 @@
   var btnReplay = document.getElementById("termReplay");
   var barFill = document.getElementById("termBarFill");
   var titleEl = document.getElementById("termTitle");
+  var mediaWrap = document.getElementById("termMedia");
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -515,7 +516,17 @@
           ], END_HOLD);
         });
       }
-    }
+    },
+
+    // `using` - the animated STORY tape (ComfyUI): borrow a friend's qwen-coder-next
+    // through opencode, use Hermes from anywhere, serve your local LLM to your bots.
+    // A MEDIA tape (muted/looping mp4 + gif), not an ASCII replay - so it carries
+    // `media:true` + the <video> id instead of a frame builder.
+    using: { label: "using", title: "roger — using it", media: true, el: "termUsing" },
+
+    // `ping` - the live Ping World screensaver (the real `roger --ping`), captured
+    // straight from internal/tui. Also a media tape.
+    ping: { label: "ping", title: "roger — ping", media: true, el: "termPing" }
   };
 
   /* ---- engine -------------------------------------------------------- */
@@ -541,6 +552,7 @@
   function flush(lines) { screen.innerHTML = lines.join("\n"); screen.scrollTop = screen.scrollHeight; }
 
   function buildFrames(name) {
+    if (DEMOS[name].media) { frames = []; total = 0; return; } // media tapes have no frames
     frames = DEMOS[name].build();
     total = frames.reduce(function (a, f) { return a + f.hold; }, 0);
   }
@@ -556,6 +568,7 @@
     frameStart = now();
   }
   function renderFinal() {
+    if (DEMOS[current] && DEMOS[current].media) { setBar(1); return; } // poster shows; no frames
     if (!frames.length) buildFrames(current);
     flush(frames[frames.length - 1].lines);
     idx = frames.length - 1; elapsed = total; setBar(1);
@@ -617,16 +630,11 @@
     //       "auto"  = first scroll-into-view kick (respects hover/visibility);
     //       falsy   = passive load (paused on frame 0).
     current = name;
-    buildFrames(name);
     if (titleEl) titleEl.textContent = DEMOS[name].title;
-    if (presetBar) {
-      var btns = presetBar.querySelectorAll("[data-demo]");
-      for (var i = 0; i < btns.length; i++) {
-        var on = btns[i].getAttribute("data-demo") === name;
-        btns[i].classList.toggle("is-on", on);
-        btns[i].setAttribute("aria-pressed", on ? "true" : "false");
-      }
-    }
+    highlightPreset(name);
+    if (DEMOS[name].media) { selectMedia(name, mode); return; } // a video tape
+    showAscii();
+    buildFrames(name);
     if (REDUCED) { renderFinal(); return; }
     if (mode === "force") {
       // a deliberate switch means "show me this one now" - the cursor is by
@@ -638,13 +646,76 @@
     } else { pause(); showFrame(0); setBar(0); }
   }
 
+  function highlightPreset(name) {
+    if (!presetBar) return;
+    var btns = presetBar.querySelectorAll("[data-demo]");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute("data-demo") === name;
+      btns[i].classList.toggle("is-on", on);
+      btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  /* ---- media tapes (using / ping): a muted, looping inline <video> shown in the
+     SAME slot as the ASCII screen. The transport (play/pause/replay), tuning bar
+     and hover/visibility pause all work on the video; reduced-motion shows the
+     poster (gif) and never autoplays. Media tapes are opt-in (clicked), so they
+     stay OUT of the auto-advance ORDER - the CLI demos keep the rotation snappy. */
+  var media = null; // the currently-shown <video>, or null while an ASCII tape is up
+
+  function videos() { return mediaWrap ? mediaWrap.querySelectorAll("video") : []; }
+
+  function showAscii() {
+    var vs = videos();
+    for (var i = 0; i < vs.length; i++) { vs[i].pause(); vs[i].hidden = true; }
+    media = null;
+    if (mediaWrap) mediaWrap.hidden = true;
+    if (screen) screen.hidden = false;
+  }
+
+  function selectMedia(name, mode) {
+    pause();                                   // halt any ASCII frame timer
+    if (screen) screen.hidden = true;
+    if (mediaWrap) mediaWrap.hidden = false;
+    var target = document.getElementById(DEMOS[name].el);
+    var vs = videos();
+    for (var i = 0; i < vs.length; i++) {
+      var on = vs[i] === target;
+      vs[i].hidden = !on;
+      if (!on) vs[i].pause();
+    }
+    media = target;
+    setBar(0);
+    if (!media) return;
+    if (REDUCED) { setPlayUI(false); setBar(1); return; } // poster only, no motion
+    if (mode === "force" || (mode === "auto" && visible && !hovered)) playMedia();
+    else { try { media.currentTime = 0; } catch (e) {} setPlayUI(false); }
+  }
+
+  function playMedia() {
+    if (!media || REDUCED) return;
+    setPlayUI(true);
+    var p = media.play();
+    if (p && p.catch) p.catch(function () {}); // ignore autoplay rejection
+    startRAF();
+  }
+  function pauseMedia() {
+    if (!media) return;
+    media.pause(); setPlayUI(false); stopRAF();
+  }
+
   /* ---- one shared rAF: advances ONLY the tuning-bar fill ------------- */
   var rafId = null, rafRunning = false;
   function tick() {
     if (!rafRunning) return;
-    var f = frames[idx];
-    var frac = f ? Math.min(1, (now() - frameStart) / Math.max(1, f.hold)) : 0;
-    setBar(total ? (elapsed + (f ? f.hold * frac : 0)) / total : 0);
+    if (media) {
+      var d = media.duration || 0;
+      setBar(d ? media.currentTime / d : 0); // the bar tracks the video's progress
+    } else {
+      var f = frames[idx];
+      var frac = f ? Math.min(1, (now() - frameStart) / Math.max(1, f.hold)) : 0;
+      setBar(total ? (elapsed + (f ? f.hold * frac : 0)) / total : 0);
+    }
     rafId = requestAnimationFrame(tick);
   }
   function startRAF() { if (REDUCED || rafRunning) return; rafRunning = true; rafId = requestAnimationFrame(tick); }
@@ -657,31 +728,37 @@
       if (btn) select(btn.getAttribute("data-demo"), "force");
     });
   }
-  if (btnPlay) btnPlay.addEventListener("click", function () { if (playing) pause(); else resume(); });
-  if (btnReplay) btnReplay.addEventListener("click", function () { if (REDUCED) { renderFinal(); return; } start(); });
+  if (btnPlay) btnPlay.addEventListener("click", function () {
+    if (media) { if (media.paused) playMedia(); else pauseMedia(); return; }
+    if (playing) pause(); else resume();
+  });
+  if (btnReplay) btnReplay.addEventListener("click", function () {
+    if (media) { try { media.currentTime = 0; } catch (e) {} if (!REDUCED) playMedia(); return; }
+    if (REDUCED) { renderFinal(); return; } start();
+  });
 
   // pause on hover so it can be read; resume on leave
-  root.addEventListener("mouseenter", function () { hovered = true; pause(); });
-  root.addEventListener("mouseleave", function () { hovered = false; if (visible) resume(); });
+  root.addEventListener("mouseenter", function () { hovered = true; if (media) pauseMedia(); else pause(); });
+  root.addEventListener("mouseleave", function () { hovered = false; if (!visible) return; if (media) playMedia(); else resume(); });
 
   document.addEventListener("visibilitychange", function () {
-    if (document.hidden) pause();
-    else if (visible && !hovered) resume();
+    if (document.hidden) { if (media) pauseMedia(); else pause(); }
+    else if (visible && !hovered) { if (media) playMedia(); else resume(); }
   });
 
   // autoplay the first demo once it scrolls into view; pause offscreen
   var kicked = false;
   function activate() {
     visible = true;
-    if (REDUCED) { renderFinal(); return; }
+    if (REDUCED) { if (!media) renderFinal(); return; }
     if (!kicked) { kicked = true; select(current, "auto"); }
-    else if (!hovered) resume();
+    else if (!hovered) { if (media) playMedia(); else resume(); }
   }
   if ("IntersectionObserver" in window) {
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (e.isIntersecting) activate();
-        else { visible = false; pause(); }
+        else { visible = false; if (media) pauseMedia(); else pause(); }
       });
     }, { threshold: 0.3 });
     io.observe(root);
