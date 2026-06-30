@@ -200,6 +200,22 @@ type sharedStore interface {
 	// mirror that each instance syncs into its in-memory b.nodes/b.tunnels.
 	allNodes() (map[string][]byte, error)
 
+	// putPrivateNode mirrors a PRIVATE (band) node's registration into a SEPARATE shared
+	// namespace (preg:/pregset), so a peer can RESOLVE + ROUTE the band yet it NEVER appears
+	// in the public allNodes() the /discover mirror reads (private secrecy by construction).
+	// getPrivateNode/allPrivateNodes are the targeted + bulk reads; markSeen extends this
+	// namespace's TTL on every heartbeat (private nodes re-register rarely) exactly as it does
+	// the public registry, so a live band is not dropped between its infrequent re-registers.
+	putPrivateNode(id string, reg []byte, ttl time.Duration) error
+	getPrivateNode(id string) ([]byte, bool, error)
+	allPrivateNodes() (map[string][]byte, error)
+
+	// dropSharedNode removes a node from BOTH shared registries (public + private). register
+	// calls it before re-publishing so a node that FLIPS private<->public never leaves a
+	// stale entry in the OTHER namespace (which markSeen would otherwise keep alive forever),
+	// keeping each node in EXACTLY ONE namespace and upholding private/public isolation.
+	dropSharedNode(id string) error
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -274,6 +290,10 @@ func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFra
 func (m *memStore) putNode(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) getNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 func (m *memStore) allNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
+func (m *memStore) putPrivateNode(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) getPrivateNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
+func (m *memStore) allPrivateNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
+func (m *memStore) dropSharedNode(string) error                        { return errNoSharedStore }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -475,6 +495,12 @@ func (v *valkeyStore) markSeen(node string, now time.Time) error {
 	// after the TTL can't re-learn the node (the deferred C2 503/404 break). Mirror the
 	// keyPrefix+"nodes" handling exactly so heartbeats keep BOTH the value and its index.
 	pipe.PExpire(ctx, keyPrefix+"regset", livenessTTL)
+	// Keep the PRIVATE registry value + its index alive on the same heartbeat (no-ops on a
+	// public node, whose preg/pregset keys do not exist): private band nodes re-register
+	// rarely, so without this their mirrored reg would expire after livenessTTL and a peer
+	// could no longer resolve/route a still-live band. Mirrors the public reg/regset handling.
+	pipe.PExpire(ctx, pregKey(node), livenessTTL)
+	pipe.PExpire(ctx, pregsetKey, livenessTTL)
 	// Track the node id in a prefixed set so liveness() can enumerate without an
 	// un-prefixed SCAN over the SHARED keyspace (which would touch other projects).
 	pipe.SAdd(ctx, keyPrefix+"nodes", node)
@@ -613,6 +639,112 @@ func (v *valkeyStore) allNodes() (map[string][]byte, error) {
 	}
 	v.setUp(true)
 	return out, nil
+}
+
+// pregKey holds a PRIVATE band node's full registration JSON; pregsetKey is its index set.
+// Both live under a SEPARATE namespace from the public regKey/regset, so a private node is
+// mirrored for cross-instance routing yet can NEVER surface in the public allNodes() the
+// /discover mirror enumerates. Same shape as the public pair; only the prefix differs.
+func pregKey(node string) string { return keyPrefix + "preg:" + node }
+
+const pregsetKey = keyPrefix + "pregset"
+
+func (v *valkeyStore) putPrivateNode(id string, reg []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Set(ctx, pregKey(id), reg, ttl)
+	pipe.SAdd(ctx, pregsetKey, id)
+	pipe.PExpire(ctx, pregsetKey, ttl)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("putPrivateNode", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) getPrivateNode(id string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	raw, err := v.rdb.Get(ctx, pregKey(id)).Bytes()
+	if err == redis.Nil {
+		return nil, false, nil // no such private node in the shared registry
+	}
+	if err != nil {
+		v.noteErr("getPrivateNode", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return raw, true, nil
+}
+
+func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	ids, err := v.rdb.SMembers(ctx, pregsetKey).Result()
+	if err != nil {
+		v.noteErr("allPrivateNodes", err)
+		return nil, err
+	}
+	if len(ids) == 0 {
+		v.setUp(true)
+		return map[string][]byte{}, nil
+	}
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.StringCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.Get(ctx, pregKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("allPrivateNodes", err)
+		return nil, err
+	}
+	out := make(map[string][]byte, len(ids))
+	for i, id := range ids {
+		raw, err := cmds[i].Bytes()
+		if err == redis.Nil {
+			continue // reg expired since the set listing - skip
+		}
+		if err != nil {
+			v.noteErr("allPrivateNodes", err)
+			return out, err
+		}
+		out[id] = raw
+	}
+	v.setUp(true)
+	return out, nil
+}
+
+// dropSharedNode removes a node from BOTH the public (reg/regset) and private (preg/pregset)
+// shared registries in one pipeline. Called by register before re-publishing so a private<->
+// public flip never leaves a stale mirror in the other namespace.
+func (v *valkeyStore) dropSharedNode(id string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Del(ctx, regKey(id))
+	pipe.SRem(ctx, keyPrefix+"regset", id)
+	pipe.Del(ctx, pregKey(id))
+	pipe.SRem(ctx, pregsetKey, id)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("dropSharedNode", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 // --- PRE-SCALE Stage 2: cross-instance inflight (write-through + merge). ---
