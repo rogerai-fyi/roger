@@ -4239,7 +4239,7 @@ func (m model) confirmView(w int) string {
 	if q.limit.MaxOut > 0 {
 		cap = stDim.Render("   ·   ") + stLive.Render("under your "+money(q.limit.MaxOut)+" cap")
 	}
-	b.WriteString("    " + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out") + cap +
+	b.WriteString("    " + stEmber.Render(money(bd.minOut)) + stDim.Render(" $/1M out") + bandTierSuffix(bd) + cap +
 		stDim.Render("   ·   ~"+dollars(q.estReply)+" / reply") + "\n")
 
 	// Everything else is behind [d] - keep the default screen simple.
