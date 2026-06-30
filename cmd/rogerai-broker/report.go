@@ -139,6 +139,73 @@ func (b *broker) rehydrateBans() {
 	}
 }
 
+// banRevKey is the shared monotonic ban-revision counter (under the rogerai:ctr: keyspace).
+// Every ban/unban — node OR owner — bumps it; each instance compares it on the existing
+// liveness sync tick and re-pulls the durable banned sets when it changes. This is the
+// lightest cross-instance ban propagation: ONE counter, checked on a loop that already
+// runs, with NO Valkey round-trip on the hot pick/discover/settle path (those keep reading
+// the in-memory sets exactly as before). Reuses the shared-store counter primitives.
+const banRevKey = "ban:rev"
+
+// bumpBanRev increments the shared ban-revision so PEER instances re-pull the banned sets on
+// their next sync tick. Called on every ban/unban STATE CHANGE (node + owner). A guarded
+// no-op when no shared backend is wired (single-instance: the local map flip is already the
+// whole truth); best-effort on a Valkey error — the ban already persisted to the store and
+// flipped this instance's set, so a blip only delays cross-instance propagation to the next
+// ban event / restart (the peer still rehydrates from the store on boot).
+func (b *broker) bumpBanRev() {
+	if b.shared == nil {
+		return
+	}
+	if _, err := b.shared.counterIncr(banRevKey, 1); err != nil {
+		log.Printf("ban: rev bump failed (cross-instance propagation delayed): %v", err)
+	}
+}
+
+// syncBanRev re-pulls the durable banned-node + banned-owner sets from the store into the
+// in-memory caches when a PEER instance has changed them, detected via the shared ban-rev
+// counter. Called on the existing liveness sync tick (syncLivenessOnce). The common case is
+// ONE cheap counter read that matches the last-applied rev → a no-op. On a change it
+// REPLACES (not merges) both local sets with the store truth, so an UNBAN/auto-lift on a
+// peer propagates too. A no-op when no shared backend is wired. On a store read error it
+// leaves the rev unrecorded so the re-pull retries next tick (fail-safe: never silently drop
+// a ban). The store reads run OUTSIDE metricsMu (no DB call under the hot-path lock).
+func (b *broker) syncBanRev() {
+	if b.shared == nil {
+		return
+	}
+	rev, found, err := b.shared.counterGet(banRevKey)
+	if err != nil || !found {
+		return // no ban has ever been issued (clean miss) or a transient backend error
+	}
+	b.metricsMu.Lock()
+	unchanged := rev == b.banRev
+	b.metricsMu.Unlock()
+	if unchanged {
+		return
+	}
+	nodes, nerr := b.db.BannedNodes()
+	owners, oerr := b.db.BannedOwners()
+	if nerr != nil || oerr != nil {
+		log.Printf("ban: cross-instance re-pull failed (nodes=%v owners=%v) - retrying next tick", nerr, oerr)
+		return // leave b.banRev unchanged so the next tick retries; local sets stay as-is
+	}
+	nb := make(map[string]bool, len(nodes))
+	for id := range nodes {
+		nb[id] = true
+	}
+	ob := make(map[string]bool, len(owners))
+	for acct := range owners {
+		ob[acct] = true
+	}
+	b.metricsMu.Lock()
+	b.banned = nb
+	b.bannedOwners = ob
+	b.banRev = rev
+	b.metricsMu.Unlock()
+	log.Printf("ban: cross-instance sync applied rev %.0f - %d node ban(s), %d owner ban(s)", rev, len(nb), len(ob))
+}
+
 // isBanned reports whether a node is ejected from routing. Concurrency-safe.
 func (b *broker) isBanned(nodeID string) bool {
 	b.metricsMu.Lock()
@@ -160,6 +227,9 @@ func (b *broker) banNode(nodeID, reason string) {
 	b.banned[nodeID] = true
 	b.metricsMu.Unlock()
 	if !already {
+		// Cross-instance: bump the shared rev so the PEER instance re-pulls this ban on its
+		// next sync tick (out of the lock — bumpBanRev does a Valkey round-trip).
+		b.bumpBanRev()
 		log.Printf("ban: node=%s EJECTED from routing (%s)", nodeID, reason)
 	}
 }
@@ -179,6 +249,9 @@ func (b *broker) unbanNode(nodeID string) error {
 	delete(b.banned, nodeID)
 	b.metricsMu.Unlock()
 	if was {
+		// Cross-instance: bump the shared rev so the PEER re-pulls (the re-pull REPLACES its
+		// set, so this unban clears the node there too — not just adds).
+		b.bumpBanRev()
 		log.Printf("ban: node=%s UN-banned - routing restored", nodeID)
 	}
 	return nil
@@ -232,6 +305,9 @@ func (b *broker) nodeBanSweepOnce(cutoff time.Time) {
 		delete(b.banned, id)
 	}
 	b.metricsMu.Unlock()
+	// Cross-instance: the sweep is a ban WRITE too — bump the shared rev so the peer re-pulls
+	// and restores routing for the auto-lifted nodes (cleared is non-empty here).
+	b.bumpBanRev()
 	log.Printf("node-ban: auto-lifted %d report-origin suspension(s) older than %d day(s) (no further corroboration) - those nodes can route again", len(cleared), b.nodeBanDays)
 }
 

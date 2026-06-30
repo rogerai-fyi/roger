@@ -217,6 +217,15 @@ type broker struct {
 	strikeDecayDays        int
 	strikeCorroborateKinds int
 
+	// banRev is the last cross-instance ban revision this instance has applied. Every
+	// ban/unban (node OR owner) bumps a shared monotonic counter (rogerai:ctr:ban:rev);
+	// syncBanRev compares it on the existing liveness sync tick and, on a change, RE-PULLS
+	// the durable banned sets from the store into b.banned/b.bannedOwners (replace, not
+	// merge — so an UNBAN propagates too). Guarded by metricsMu (where the ban sets live).
+	// 0 until the first cross-instance ban is observed; never moves with no shared backend
+	// (single-instance: the local map flip is already the whole truth). See report.go.
+	banRev float64
+
 	// recountHoldDays is the auto-expiry window for a recount hold (OPERATOR RECOURSE):
 	// a node/account hold placed pending review auto-clears after this many days IF no
 	// further discrepancy re-arms it, so a false positive never freezes an honest
