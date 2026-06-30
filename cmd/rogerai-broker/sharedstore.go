@@ -210,6 +210,12 @@ type sharedStore interface {
 	getPrivateNode(id string) ([]byte, bool, error)
 	allPrivateNodes() (map[string][]byte, error)
 
+	// dropSharedNode removes a node from BOTH shared registries (public + private). register
+	// calls it before re-publishing so a node that FLIPS private<->public never leaves a
+	// stale entry in the OTHER namespace (which markSeen would otherwise keep alive forever),
+	// keeping each node in EXACTLY ONE namespace and upholding private/public isolation.
+	dropSharedNode(id string) error
+
 	// Close releases any resources (connections). Safe to call on a nil-ish store.
 	Close() error
 }
@@ -287,6 +293,7 @@ func (m *memStore) allNodes() (map[string][]byte, error)        { return nil, er
 func (m *memStore) putPrivateNode(string, []byte, time.Duration) error { return errNoSharedStore }
 func (m *memStore) getPrivateNode(string) ([]byte, bool, error)        { return nil, false, errNoSharedStore }
 func (m *memStore) allPrivateNodes() (map[string][]byte, error)        { return nil, errNoSharedStore }
+func (m *memStore) dropSharedNode(string) error                        { return errNoSharedStore }
 
 // errNoSharedStore signals "no shared backend; use the in-memory path". It is a
 // sentinel, not a failure - call sites treat ANY non-nil error the same way (fall
@@ -716,6 +723,28 @@ func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) {
 	}
 	v.setUp(true)
 	return out, nil
+}
+
+// dropSharedNode removes a node from BOTH the public (reg/regset) and private (preg/pregset)
+// shared registries in one pipeline. Called by register before re-publishing so a private<->
+// public flip never leaves a stale mirror in the other namespace.
+func (v *valkeyStore) dropSharedNode(id string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Del(ctx, regKey(id))
+	pipe.SRem(ctx, keyPrefix+"regset", id)
+	pipe.Del(ctx, pregKey(id))
+	pipe.SRem(ctx, pregsetKey, id)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("dropSharedNode", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
 }
 
 // --- PRE-SCALE Stage 2: cross-instance inflight (write-through + merge). ---

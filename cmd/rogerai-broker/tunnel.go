@@ -391,6 +391,10 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// - the registry sync re-pulls.
 	if b.multiInstance && b.shared != nil {
 		if raw, mErr := json.Marshal(reg); mErr == nil {
+			// Clear any stale entry in the OTHER namespace first, so a private<->public flip
+			// never leaves a mirror markSeen would keep alive (each node lives in EXACTLY one
+			// namespace). Then publish to the correct one.
+			_ = b.shared.dropSharedNode(reg.NodeID)
 			if reg.Private {
 				_ = b.shared.putPrivateNode(reg.NodeID, raw, livenessTTL)
 			} else {
@@ -699,6 +703,9 @@ func (b *broker) syncRegistry() {
 			reg.NodeID = id
 		}
 		b.nodes[id] = reg
+		// This node is in the PUBLIC registry, so it is public: clear any stale private flag
+		// from a prior mirror (a node that flipped private->public must stop being hidden).
+		b.private[id] = false
 		b.confidential[id] = reg.Confidential
 		// Seed the re-attestation clock for mirrored confidential nodes, exactly as
 		// register() does (tunnel.go:359). Without this the clock is zero on the mirror,

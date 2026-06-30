@@ -114,6 +114,9 @@ func TestMemStoreNoOps(t *testing.T) {
 	if _, err := m.allPrivateNodes(); err != errNoSharedStore {
 		t.Errorf("allPrivateNodes = %v", err)
 	}
+	if err := m.dropSharedNode("p"); err != errNoSharedStore {
+		t.Errorf("dropSharedNode = %v", err)
+	}
 }
 
 // TestConfigLoaders covers the env-backed config loaders return a populated struct with
