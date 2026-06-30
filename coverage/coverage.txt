@@ -1481,7 +1481,7 @@ github.com/rogerai-fyi/roger/internal/tui/tui.go:6718:			shareView			93.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:6899:			bandCardView			94.7%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:6927:			sharePriceCell			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:6940:			shareEditorView			89.3%
-github.com/rogerai-fyi/roger/internal/tui/tui.go:7067:			editorLivePreview		92.0%
+github.com/rogerai-fyi/roger/internal/tui/tui.go:7067:			editorLivePreview		96.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7116:			maskKey				100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7133:			shareSetupView			85.4%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7201:			modalFooter			100.0%
