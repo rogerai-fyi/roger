@@ -424,6 +424,7 @@ const (
 	modeBandDetail     // [i] expanded per-station QSL view: every station's real metrics + the signal-term breakdown
 	modeFreqEntry      // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
 	modePingWorld      // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
+	modeLog            // /log: the captured node + broker log buffer (any key closes)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -1561,6 +1562,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var c tea.Cmd
 		m.chatIn, c = m.chatIn.Update(k)
 		return m, c
+	case modeLog:
+		// /log is read-only; any key closes it back to the band browser.
+		m.mode = modeBrowse
+		return m, nil
 	case modeHelp:
 		// A preset key jumps straight to its mode; any other key returns to browse.
 		if k.String() != "?" {
@@ -2036,6 +2041,8 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 	case "help", "h":
 		m.mode = modeHelp
+	case "log", "logs":
+		m.mode = modeLog
 	case "support":
 		// Opens the site (where the Discord/community link lives). openURL self-gates on
 		// an interactive TTY, so this never hijacks a browser headless; the URL is shown
@@ -3898,6 +3905,8 @@ func (m model) View() string {
 	switch m.mode {
 	case modeHelp:
 		b.WriteString(m.helpView())
+	case modeLog:
+		b.WriteString(m.logView(w))
 	case modeChat:
 		b.WriteString(m.chatView(w))
 	case modeConnectConfirm:
@@ -3963,7 +3972,19 @@ func (m model) View() string {
 		b.WriteString("\n" + m.promptLine(w))
 	}
 	b.WriteString("\n" + m.footer(w))
-	return b.String()
+	// Alt-screen: pad a short frame with blank lines up to the terminal height so it
+	// fully overwrites a TALLER previous frame (e.g. a long model list that overflowed
+	// a small terminal) rather than leaving ghost remnants of the old frame - the
+	// duplicated brand/header/"scanning…" the founder hit after going on-air. Guarded
+	// on height>0 so headless tests (no WindowSizeMsg) keep their exact, unpadded output.
+	out := b.String()
+	if m.height > 0 {
+		out = strings.TrimRight(out, "\n")
+		if n := strings.Count(out, "\n") + 1; n < m.height {
+			out += strings.Repeat("\n", m.height-n)
+		}
+	}
+	return out
 }
 
 // paletteCmd is one entry in the `/` command palette (A.5 progressive disclosure): a runnable
@@ -3987,6 +4008,7 @@ var paletteCmds = []paletteCmd{
 	{"/ping", "the Ping World screensaver", "z"},
 	{"/support", "rogerai.fyi - community + Discord", ""},
 	{"/help", "the full operating manual", "?"},
+	{"/log", "node + broker messages", ""},
 	{"/quit", "quit RogerAI", "q"},
 }
 
@@ -7214,7 +7236,7 @@ func (m model) compactFooter(w int) string {
 	var keys string
 	switch m.mode {
 	case modeChat:
-		keys = "talk · esc disconnect · tab peek · ⇧⇥ agent · ⌃y copy"
+		keys = "talk · esc disconnect · tab peek · shift-tab agent · ⌃y copy"
 	case modeAgent:
 		keys = "ask · ⌃y copy · /model · esc exit · write/run confirm"
 	case modeShare:
@@ -7341,9 +7363,9 @@ func (m model) footer(w int) string {
 		// One contextual hint (Zone 4): the keys live NOW, including the copy + connect
 		// affordances; the full set (/quit, ⌃c, etc.) lives in /help.
 		if m.narrow() {
-			left = stDim.Render("talk · esc leave · ") + stKey.Render("⇧⇥") + stDim.Render(" agent · ") + stKey.Render("⌃y") + stDim.Render(" copy")
+			left = stDim.Render("talk · esc leave · ") + stKey.Render("shift-tab") + stDim.Render(" agent · ") + stKey.Render("⌃y") + stDim.Render(" copy")
 		} else {
-			left = stDim.Render("talk  ·  ") + stKey.Render("⏎") + stDim.Render(" send  ·  ") + stKey.Render("esc") + stDim.Render(" leave  ·  ") + stKey.Render("tab") + stDim.Render(" peek  ·  ") + stKey.Render("⇧⇥") + stDim.Render(" agent (tools)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  /connect")
+			left = stDim.Render("talk  ·  ") + stKey.Render("⏎") + stDim.Render(" send  ·  ") + stKey.Render("esc") + stDim.Render(" leave  ·  ") + stKey.Render("tab") + stDim.Render(" peek  ·  ") + stKey.Render("shift-tab") + stDim.Render(" agent (tools)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  /connect")
 		}
 	} else if m.filterMode {
 		// FILTER ENTRY: teach the live-filter keys (type / esc / enter), not the browse keys.
@@ -7926,7 +7948,7 @@ func RunWithController(broker, user string, limits *LimitStore, notice string, h
 	// mouse and native drag-select + copy works on ANY text immediately. The user opts INTO
 	// wheel-scroll with ctrl+o / /mouse (EnableMouseCellMotion); scrollback also works via
 	// PgUp/PgDn + arrows regardless. (m.mouseOff defaults true to match this start state.)
-	return runProgram(m, tea.WithAltScreen())
+	return launchTUI(m, tea.WithAltScreen())
 }
 
 // runProgram launches a Bubble Tea program and returns its exit error. It is a

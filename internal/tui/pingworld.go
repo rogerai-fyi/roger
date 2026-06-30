@@ -789,13 +789,16 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData
 		return
 	}
 	live := d != nil && len(d.stations) > 0
-	win := frame / 70
+	// satCross: frames for one edge-to-edge pass. Slowed (was 70) so the on-air ticker
+	// lingers long enough to actually READ the band names as it drifts across.
+	const satCross = 120
+	win := frame / satCross
 	if !live && worldHash(win, 31, seed)%2 != 0 {
 		return // seeded world: only ~half the windows carry a satellite (don't overdo it)
 	}
-	k := frame % 70
+	k := frame % satCross
 	span := w + 12
-	prog := k * span / 70
+	prog := k * span / satCross
 	x := prog - 6
 	if worldHash(win, 32, seed)%2 == 0 {
 		x = w + 5 - prog // sometimes it crosses the other way
@@ -804,7 +807,7 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData
 	blitT(buf, x, y, []string{"-=▢=-"}, 0, toneSat) // aqua bus + solar-panel arms
 	if live {
 		// a faint scrolling ticker of the on-air bands, downlinked under the bus.
-		tape := marqueeWindow(tickerText(d), frame/3, tickerWidth)
+		tape := marqueeWindow(tickerText(d), frame/8, tickerWidth)
 		blit(buf, x, y+1, []string{"•"}, '•')            // the on-air pip (red, on-air-semantic)
 		blitT(buf, x+1, y+1, []string{tape}, 0, toneSat) // the band names, faint aqua, scrolling
 	} else if k%9 < 2 { // a brief downlink every ~9 frames
@@ -1483,5 +1486,5 @@ func PingWorld(broker string) error {
 	}
 	// broker set => the model fetches /discover for LIVE signal towers (falls back to the seeded
 	// world on any error); the live beat re-fetches on a calm cadence.
-	return runProgram(pingWorldModel{seed: int(time.Now().UnixNano() & 0x7fffffff), broker: broker}, tea.WithAltScreen())
+	return launchTUI(pingWorldModel{seed: int(time.Now().UnixNano() & 0x7fffffff), broker: broker}, tea.WithAltScreen())
 }
