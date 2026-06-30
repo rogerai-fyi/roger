@@ -83,11 +83,11 @@ func TestMetricsSeriesShape(t *testing.T) {
 				Daily      []seriesPoint `json:"daily"`
 				Hourly     []seriesPoint `json:"hourly"`
 				Savings    struct {
-					BaselineModel string        `json:"baseline_model"`
-					SpendUSD      float64       `json:"spend_usd"`
-					FrontierEst   float64       `json:"frontier_est"`
-					SavingsEst    float64       `json:"savings_est"`
-					Reference     []frontierRef `json:"reference"`
+					BaselineModel string           `json:"baseline_model"`
+					SpendUSD      float64          `json:"spend_usd"`
+					FrontierEst   float64          `json:"frontier_est"`
+					SavingsEst    float64          `json:"savings_est"`
+					Reference     []frontierRefEst `json:"reference"`
 				} `json:"savings"`
 			}
 			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -147,6 +147,18 @@ func TestMetricsSeriesShape(t *testing.T) {
 			}
 			if len(resp.Savings.Reference) != len(frontierTable) {
 				t.Errorf("savings.reference len = %d, want %d", len(resp.Savings.Reference), len(frontierTable))
+			}
+			// Each reference model carries THIS account's frontier_est = frontierCost over the
+			// in-window tokens (in=116, out=226), and the baseline row equals the headline
+			// frontier_est (linear in tokens) - the consistency the dashboard "vs <model>" toggle relies on.
+			for _, ref := range resp.Savings.Reference {
+				want := round6(frontierCost(116, 226, ref.Model))
+				if ref.FrontierEst < want-1e-9 || ref.FrontierEst > want+1e-9 {
+					t.Errorf("reference %q frontier_est = %v, want %v", ref.Model, ref.FrontierEst, want)
+				}
+				if ref.Model == frontierBaseline && (ref.FrontierEst < resp.Savings.FrontierEst-1e-9 || ref.FrontierEst > resp.Savings.FrontierEst+1e-9) {
+					t.Errorf("baseline reference frontier_est = %v, want headline %v", ref.FrontierEst, resp.Savings.FrontierEst)
+				}
 			}
 			// Here spend (1.50) exceeds the frontier estimate (tiny token counts), so the
 			// per-bucket floor pins savings at 0 - it must never go negative.

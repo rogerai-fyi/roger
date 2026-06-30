@@ -37,6 +37,28 @@
   }
   function n0(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
 
+  // frontierAt cycles the frontier reference table for the savings toggle: given the
+  // reference list (each carrying a server-computed frontier_est = what THIS account's tokens
+  // would have cost at that model's list price), the user's spend, and a step index, it
+  // returns the model to show, what it would have billed, and the savings (floored at 0 - a
+  // frontier model cheaper than what you actually paid shows $0 saved, never a negative). i is
+  // taken modulo the list length and wraps both ways, so the click handler just increments it.
+  function frontierAt(ref, spend, i) {
+    var n = ref.length;
+    var r = ref[((i % n) + n) % n];
+    var frontier = n0(r.frontier_est);
+    return { model: r.model, frontier: frontier, savings: Math.max(0, frontier - n0(spend)) };
+  }
+
+  // Node test seam (mirrors easter-egg.js): in a non-DOM runtime, export the pure bit and skip
+  // the browser fetch/render below. The browser path (document present) runs exactly as before.
+  if (typeof document === "undefined") {
+    if (typeof module !== "undefined" && module.exports) {
+      module.exports = { frontierAt: frontierAt, n0: n0 };
+    }
+    return;
+  }
+
   // Money in dollars (1 credit = $1). Adaptive precision so a real cost never
   // reads as $0.00 (same rule as account.js cr()).
   function cr(n) {
@@ -224,6 +246,39 @@
   // ---------------------------------------------------------------------------
   // render the whole dashboard from one /metrics/series payload.
   // ---------------------------------------------------------------------------
+  // Make the frontier baseline name (heroBase) a clickable control that cycles the reference
+  // frontier models, recomputing "would have billed" (heroFrontier) + savings (heroAmt) live.
+  // No-op unless >=2 reference models carry a numeric frontier_est, so it silently does nothing
+  // on an older broker that doesn't ship per-model estimates yet (progressive enhancement).
+  function wireFrontierToggle(sv) {
+    var ref = (Array.isArray(sv.reference) ? sv.reference : []).filter(function (r) {
+      return r && r.model && typeof r.frontier_est === "number" && isFinite(r.frontier_est);
+    });
+    if (ref.length < 2) return;
+    var spend = n0(sv.spend_usd);
+    var base = sv.baseline_model || "gpt-4o";
+    var i = 0;
+    for (var k = 0; k < ref.length; k++) { if (ref[k].model === base) { i = k; break; } }
+    var el = $("heroBase");
+    if (!el) return;
+    el.classList.add("ds-hero__toggle");
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", "Compare another frontier model");
+    el.title = "click to compare other frontier models";
+    function apply() {
+      var v = frontierAt(ref, spend, i);
+      text("heroBase", v.model);
+      text("heroFrontier", cr(v.frontier));
+      text("heroAmt", cr(v.savings));
+    }
+    function stepFn() { i += 1; apply(); }
+    el.addEventListener("click", stepFn);
+    el.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); stepFn(); }
+    });
+  }
+
   function render(d) {
     var daily = (d && d.daily) || [];
     var sv = (d && d.savings) || {};
@@ -250,6 +305,7 @@
       text("heroSpend", cr(n0(sv.spend_usd)));
       text("heroFrontier", cr(n0(sv.frontier_est)));
       show("hero");
+      wireFrontierToggle(sv);
       $("savingsChart").appendChild(savingsBars(daily));
       $("savingsChart").appendChild(axisLabels(daily));
       if (sv.reference_note) text("savingsNote", sv.reference_note);
