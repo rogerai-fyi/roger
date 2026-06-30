@@ -35,6 +35,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/node"
+	"github.com/rogerai-fyi/roger/internal/pricetier"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -5782,30 +5783,13 @@ func bandOverLimit(b band, limits *LimitStore) bool {
 // money renders a price as a fixed 2-dp string (the per-1M band prices).
 func money(v float64) string { return fmt.Sprintf("%.2f", v) }
 
-// priceTierBadge maps the broker's neutral price-tier (0..4) + active price to display
-// glyphs + an optional FAVORABLE chip, mirroring the broker's renderPriceTier so every
-// surface reads alike: FREE wins; tier 0 priced shows nothing; only tier 1 is
-// editorialized ("good price"); $$..$$$$ are neutral; never any negative wording.
-func priceTierBadge(tier int, priceOut float64) (bars, chip string) {
-	if priceOut <= 0 {
-		return "FREE", ""
-	}
-	if tier < 1 || tier > 4 {
-		return "", ""
-	}
-	bars = strings.Repeat("$", tier)
-	if tier == 1 {
-		chip = "good price"
-	}
-	return bars, chip
-}
-
 // priceTierCell renders the $-tier as a row suffix: the $-glyphs in the price style plus
 // (tier 1 only) a subtle "good price" chip. Monochrome by design - the chip carries the
 // favorable signal as TEXT, not hue. Returns "" for FREE / unknown (the caller already
-// shows the FREE tag or the raw price).
+// shows the FREE tag or the raw price). The tier->glyph render is the shared canonical one
+// (internal/pricetier), so the TUI reads identically to the CLI + web surfaces.
 func priceTierCell(tier int, priceOut float64) string {
-	bars, chip := priceTierBadge(tier, priceOut)
+	bars, chip := pricetier.Render(tier, priceOut)
 	if bars == "" || bars == "FREE" {
 		return ""
 	}
@@ -5883,7 +5867,7 @@ func bandTierTag(b band) string {
 	if !b.online || b.cheapest == nil {
 		return ""
 	}
-	bars, _ := priceTierBadge(b.cheapest.PriceTier, b.minOut)
+	bars, _ := pricetier.Render(b.cheapest.PriceTier, b.minOut)
 	if bars == "" || bars == "FREE" { // free has its own FREE tag; unknown shows nothing
 		return ""
 	}
