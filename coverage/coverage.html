@@ -3430,11 +3430,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov4" title="7">{
+        for _, n := range b.nodes </span><span class="cov3" title="6">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
+                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -6410,13 +6410,13 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="18">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="16">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="17">{
+                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="15">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
@@ -6428,7 +6428,7 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov2" title="14">{
+                        <span class="cov3" title="31">if recency &gt; a.bestRecency </span><span class="cov3" title="15">{
                                 a.bestRecency = recency
                         }</span>
                         <span class="cov3" title="31">if staleness &gt; a.bestStaleness </span><span class="cov2" title="14">{
@@ -9377,11 +9377,11 @@ func (b *broker) probeOnce() <span class="cov2" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="7">{
+        sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov2" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -11923,10 +11923,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3647">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5340">{
+        <span class="cov8" title="11822">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5321">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5965">{
+        <span class="cov8" title="11822">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5982">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11822">return rangeMin, rangeMax, true</span>
@@ -12082,7 +12082,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13575">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1389">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1357">{
                         best = i
                 }</span>
         }
@@ -12115,7 +12115,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1264">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1235">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -18349,9 +18349,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="484">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="478">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="481">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="475">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -19179,7 +19179,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="954">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="845">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -19193,7 +19193,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="95
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -19389,23 +19389,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="938">{
+        for </span><span class="cov9" title="827">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="4">
+                case &lt;-sess.stop:<span class="cov1" title="2">
                         return</span> // /share went off air
-                default:<span class="cov9" title="934"></span>
+                default:<span class="cov9" title="825"></span>
                 }
-                <span class="cov9" title="934">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="825">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="3">{
+                if err != nil </span><span class="cov3" title="5">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="931">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="924">{
+                <span class="cov9" title="820">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="813">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -19865,7 +19865,7 @@ var (
 // and persisted (see the CLI's loadOrCreateStation); the persisted value is then reused
 // so the node re-registers as the same id across restarts. It reveals nothing about the
 // host.
-func GenerateStation() string <span class="cov7" title="201">{
+func GenerateStation() string <span class="cov8" title="201">{
         adj := stationAdjectives[randIndex(len(stationAdjectives))]
         animal := stationAnimals[randIndex(len(stationAnimals))]
         return adj + "-" + animal + "-" + strconv.Itoa(randIndex(90)+10)
@@ -19894,21 +19894,21 @@ func SlugStation(s string) string <span class="cov3" title="5">{ return slugify(
 // slugify lowercases s and collapses every run of non-alphanumeric characters to a
 // single `-`, trimming leading/trailing `-`. It yields readable, broker-safe id
 // fragments (e.g. "Qwen3-Coder/Next" -&gt; "qwen3-coder-next").
-func slugify(s string) string <span class="cov5" title="45">{
+func slugify(s string) string <span class="cov6" title="45">{
         var b strings.Builder
         prevDash := false
         for _, r := range strings.ToLower(s) </span><span class="cov9" title="500">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="408">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov9" title="408">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov6" title="92">if !prevDash </span><span class="cov6" title="78">{
+                <span class="cov7" title="92">if !prevDash </span><span class="cov6" title="78">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov5" title="45">return strings.Trim(b.String(), "-")</span>
+        <span class="cov6" title="45">return strings.Trim(b.String(), "-")</span>
 }
 </pre>
 		
@@ -25132,8 +25132,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="25">{
-                if s != nil </span><span class="cov7" title="24">{
+        for _, s := range c.sessions </span><span class="cov7" title="24">{
+                if s != nil </span><span class="cov7" title="23">{
                         n++
                 }</span>
         }
@@ -25214,13 +25214,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov1" title="1">
+        case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov7" title="9">
+        default:<span class="cov6" title="7">
                 return "connecting"</span>
         }
 }
@@ -25249,7 +25249,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="7">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -25581,7 +25581,7 @@ func pad3(n int) string <span class="cov7" title="1009">{
                 n = 0
         }</span>
         <span class="cov7" title="1009">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="125">{
+        for len(s) &lt; 3 </span><span class="cov5" title="119">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1009">return s</span>
@@ -25589,17 +25589,17 @@ func pad3(n int) string <span class="cov7" title="1009">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2012">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2009">var buf [12]byte
+        <span class="cov8" title="2010">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5909">{
+        for n &gt; 0 </span><span class="cov9" title="5916">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2009">return string(buf[i:])</span>
+        <span class="cov8" title="2010">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -34004,7 +34004,7 @@ func tintEyeLine(line, eyeGlyph string) string <span class="cov4" title="564">{
 // the frame counter. It is fully deterministic (same frame -&gt; same value) so tests
 // stay reproducible, while reading as "random" across frames so the mascot never
 // looks like a metronome.
-func pingHash(x int) uint32 <span class="cov10" title="6048248">{
+func pingHash(x int) uint32 <span class="cov10" title="6048714">{
         z := uint32(x)*2654435761 + 0x9e3779b9
         z ^= z &gt;&gt; 15
         z *= 0x85ebca6b
@@ -34445,22 +34445,22 @@ var (
 // toneStyle maps a cool tone to its lipgloss style (bright = a touch bolder, for near elements).
 // Under NO_COLOR lipgloss renders these plain, so the screensaver degrades to mono. toneNone (and
 // any unknown) falls back to the shared dim ink. It NEVER returns red - that's the one-red law.
-func toneStyle(t worldTone, bright bool) lipgloss.Style <span class="cov5" title="6218">{
+func toneStyle(t worldTone, bright bool) lipgloss.Style <span class="cov5" title="6353">{
         var c lipgloss.AdaptiveColor
         switch t </span>{
-        case toneSky:<span class="cov5" title="3005">
+        case toneSky:<span class="cov5" title="3078">
                 c = cSky</span>
         case toneSun:<span class="cov3" title="98">
                 c = cSun</span>
-        case toneEarth:<span class="cov4" title="533">
+        case toneEarth:<span class="cov4" title="546">
                 c = cEarth</span>
-        case toneAurora:<span class="cov4" title="608">
+        case toneAurora:<span class="cov4" title="621">
                 c = cAurora</span>
-        case toneAuroraV:<span class="cov4" title="657">
+        case toneAuroraV:<span class="cov4" title="670">
                 c = cAuroraV</span>
         case toneLeaf:<span class="cov3" title="101">
                 c = cLeaf</span>
-        case toneWater:<span class="cov4" title="1136">
+        case toneWater:<span class="cov4" title="1159">
                 c = cWater</span>
         case tonePale:<span class="cov2" title="11">
                 c = cPale</span>
@@ -34471,11 +34471,11 @@ func toneStyle(t worldTone, bright bool) lipgloss.Style <span class="cov5" title
         default:<span class="cov1" title="2">
                 return stDim</span>
         }
-        <span class="cov5" title="6216">st := lipgloss.NewStyle().Foreground(c)
-        if bright </span><span class="cov4" title="603">{
+        <span class="cov5" title="6351">st := lipgloss.NewStyle().Foreground(c)
+        if bright </span><span class="cov4" title="616">{
                 st = st.Bold(true)
         }</span>
-        <span class="cov5" title="6216">return st</span>
+        <span class="cov5" title="6351">return st</span>
 }
 
 // worldStation is one ON-AIR band feeding the LIVE screensaver (rendered as a signal tower);
@@ -34563,7 +34563,7 @@ func (m pingWorldModel) View() string <span class="cov1" title="2">{ return rend
 
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
-func worldHash(a, b, seed int) uint32 <span class="cov9" title="6042694">{ return pingHash(a*7349 + b*916703 + seed*2654435761) }</span>
+func worldHash(a, b, seed int) uint32 <span class="cov9" title="6043160">{ return pingHash(a*7349 + b*916703 + seed*2654435761) }</span>
 
 // Depth-weighted starfield (v2 P0-2): three tiers give the sky genuine parallax instead of a
 // flat speckle. Far stars are tiny/faint/static, mid drift slowly, near are bright + drift
@@ -34576,13 +34576,13 @@ var (
 
 // starTier buckets star i into 0=far, 1=mid, 2=near, weighted FAR-heavy (~4/6 far) so most of
 // the sky reads as distant - the essence of depth.
-func starTier(i, seed int) int <span class="cov8" title="1020793">{
+func starTier(i, seed int) int <span class="cov8" title="1020880">{
         switch worldHash(i, 9, seed) % 6 </span>{
-        case 4:<span class="cov7" title="176082">
+        case 4:<span class="cov7" title="176094">
                 return 1</span> // mid  (~1/6)
-        case 5:<span class="cov7" title="172216">
+        case 5:<span class="cov7" title="172232">
                 return 2</span> // near (~1/6)
-        default:<span class="cov8" title="672495">
+        default:<span class="cov8" title="672554">
                 return 0</span> // far  (~4/6)
         }
 }
@@ -34593,10 +34593,10 @@ const dayNightPeriod = 1600
 // dayNightDarkness returns 0..100 sky darkness: 100 = deep night (all stars out), 0 = midday
 // (only the brightest near stars + moon remain). A slow triangle wave, starting at night
 // (frame 0). Pure in frame - so the sky "breathes" yet stays reproducible.
-func dayNightDarkness(frame int) int <span class="cov6" title="52482">{
+func dayNightDarkness(frame int) int <span class="cov6" title="52483">{
         half := dayNightPeriod / 2
         p := ((frame % dayNightPeriod) + dayNightPeriod) % dayNightPeriod
-        if p &lt; half </span><span class="cov6" title="41167">{
+        if p &lt; half </span><span class="cov6" title="41168">{
                 return 100 - p*100/half // night -&gt; day
         }</span>
         <span class="cov5" title="11315">return (p - half) * 100 / half</span> // day -&gt; night
@@ -34614,58 +34614,58 @@ func dayNightDarkness(frame int) int <span class="cov6" title="52482">{
 // discHalfWidth is the horizontal half-width (columns) of a round disc at vertical offset dy
 // from centre, for vertical radius ry and horizontal radius rx (~2*ry, so the ~1:2 cell aspect
 // reads round). Rows past the poles (|dy|&gt;ry) return -1 (empty). Pure.
-func discHalfWidth(dy, ry, rx int) int <span class="cov9" title="8526601">{
-        if ry &lt;= 0 || dy &lt; -ry || dy &gt; ry </span><span class="cov6" title="54417">{
+func discHalfWidth(dy, ry, rx int) int <span class="cov9" title="8527407">{
+        if ry &lt;= 0 || dy &lt; -ry || dy &gt; ry </span><span class="cov6" title="54419">{
                 return -1
         }</span>
-        <span class="cov9" title="8472184">frac := 1 - float64(dy*dy)/float64(ry*ry) // 1 - (dy/ry)^2
+        <span class="cov9" title="8472988">frac := 1 - float64(dy*dy)/float64(ry*ry) // 1 - (dy/ry)^2
         if frac &lt; 0 </span><span class="cov0" title="0">{
                 frac = 0
         }</span>
-        <span class="cov9" title="8472184">return int(float64(rx)*math.Sqrt(frac) + 0.5)</span>
+        <span class="cov9" title="8472988">return int(float64(rx)*math.Sqrt(frac) + 0.5)</span>
 }
 
 // discRim reports whether cell (dx,dy) sits on the disc's outline: a horizontal end of its row,
 // or a cell the row above/below doesn't reach (a top/bottom curve). Pure.
-func discRim(dx, dy, ry, rx int) bool <span class="cov8" title="2394190">{
+func discRim(dx, dy, ry, rx int) bool <span class="cov8" title="2394423">{
         xw := discHalfWidth(dy, ry, rx)
         if xw &lt; 0 </span><span class="cov0" title="0">{
                 return false
         }</span>
-        <span class="cov8" title="2394190">a := absI(dx)
+        <span class="cov8" title="2394423">a := absI(dx)
         return a == xw || discHalfWidth(dy-1, ry, rx) &lt; a || discHalfWidth(dy+1, ry, rx) &lt; a</span>
 }
 
 // discRimGlyph picks a curved outline rune for a rim cell by where it sits: ◜◝◞◟ at the four
 // quarter-arcs, ( ) on the near-vertical sides, ▔ ▁ across the flatter top/bottom caps. Shared
 // by the moon + sun so both read as the same clean circle. Pure.
-func discRimGlyph(dx, dy, ry, rx int) rune <span class="cov8" title="657816">{
+func discRimGlyph(dx, dy, ry, rx int) rune <span class="cov8" title="657868">{
         xw := discHalfWidth(dy, ry, rx)
         a := absI(dx)
         leftEnd, rightEnd := dx == -xw, dx == xw
         topCap := discHalfWidth(dy-1, ry, rx) &lt; a // nothing directly above -&gt; a top edge
         botCap := discHalfWidth(dy+1, ry, rx) &lt; a // nothing directly below -&gt; a bottom edge
         switch </span>{
-        case leftEnd &amp;&amp; rightEnd:<span class="cov6" title="54416"> // a single-cell pole row -&gt; a flat little cap, not a lone arc
-                if topCap </span><span class="cov6" title="27208">{
+        case leftEnd &amp;&amp; rightEnd:<span class="cov6" title="54418"> // a single-cell pole row -&gt; a flat little cap, not a lone arc
+                if topCap </span><span class="cov6" title="27209">{
                         return '▔'
                 }</span>
-                <span class="cov6" title="27208">return '▁'</span>
-        case topCap &amp;&amp; leftEnd:<span class="cov6" title="63251">
+                <span class="cov6" title="27209">return '▁'</span>
+        case topCap &amp;&amp; leftEnd:<span class="cov6" title="63256">
                 return '◜'</span>
-        case topCap &amp;&amp; rightEnd:<span class="cov6" title="63251">
+        case topCap &amp;&amp; rightEnd:<span class="cov6" title="63256">
                 return '◝'</span>
-        case botCap &amp;&amp; leftEnd:<span class="cov6" title="48771">
+        case botCap &amp;&amp; leftEnd:<span class="cov6" title="48776">
                 return '◟'</span>
-        case botCap &amp;&amp; rightEnd:<span class="cov6" title="48771">
+        case botCap &amp;&amp; rightEnd:<span class="cov6" title="48776">
                 return '◞'</span>
-        case topCap:<span class="cov7" title="186758">
+        case topCap:<span class="cov7" title="186772">
                 return '▔'</span>
-        case botCap:<span class="cov7" title="157798">
+        case botCap:<span class="cov7" title="157812">
                 return '▁'</span>
-        case leftEnd:<span class="cov6" title="17400">
+        case leftEnd:<span class="cov6" title="17401">
                 return '('</span>
-        default:<span class="cov6" title="17400"> // rightEnd
+        default:<span class="cov6" title="17401"> // rightEnd
                 return ')'</span>
         }
 }
@@ -34673,21 +34673,21 @@ func discRimGlyph(dx, dy, ry, rx int) rune <span class="cov8" title="657816">{
 // celestialRadius sizes the moon/sun vertical radius to the sky: big + round on a normal
 // terminal (capped at ry=7 -&gt; a 15-row disc) yet shrinking to fit short skies / narrow widths,
 // and 0 (too small for a real disc -&gt; a tiny fallback) on a degenerate size. Pure.
-func celestialRadius(skyRows, w int) int <span class="cov6" title="32058">{
+func celestialRadius(skyRows, w int) int <span class="cov6" title="32059">{
         if skyRows &lt; 3 || w &lt; 8 </span><span class="cov5" title="4883">{
                 return 0
         }</span>
-        <span class="cov6" title="27175">ry := (skyRows - 1) / 3
+        <span class="cov6" title="27176">ry := (skyRows - 1) / 3
         if ry &gt; 7 </span><span class="cov4" title="306">{
                 ry = 7
         }</span>
-        <span class="cov6" title="27175">for ry &gt;= 1 &amp;&amp; 2*(2*ry)+1 &gt; w-2 </span><span class="cov1" title="3">{ // keep the disc width within the screen
+        <span class="cov6" title="27176">for ry &gt;= 1 &amp;&amp; 2*(2*ry)+1 &gt; w-2 </span><span class="cov1" title="3">{ // keep the disc width within the screen
                 ry--
         }</span>
-        <span class="cov6" title="27175">if ry &lt; 1 </span><span class="cov1" title="3">{
+        <span class="cov6" title="27176">if ry &lt; 1 </span><span class="cov1" title="3">{
                 return 0
         }</span>
-        <span class="cov6" title="27172">return ry</span>
+        <span class="cov6" title="27173">return ry</span>
 }
 
 // moonShades ramps the moon's limb darkening: faint rim (░) -&gt; bright centre (▓), so the teal
@@ -34696,14 +34696,14 @@ var moonShades = []rune("░▒▓")
 
 // moonShadeIdx is the limb-darkening level for an interior moon cell: bright at the centre,
 // fading to the rim (normalized elliptical distance). Pure.
-func moonShadeIdx(dx, dy, ry, rx int) int <span class="cov8" title="931422">{
+func moonShadeIdx(dx, dy, ry, rx int) int <span class="cov8" title="931603">{
         nd := float64(dx*dx)/float64(rx*rx) + float64(dy*dy)/float64(ry*ry) // 0 centre .. 1 rim
         switch </span>{
-        case nd &lt; 0.45:<span class="cov7" title="527616">
+        case nd &lt; 0.45:<span class="cov7" title="527713">
                 return 2</span> // ▓ bright centre
-        case nd &lt; 0.80:<span class="cov7" title="339376">
+        case nd &lt; 0.80:<span class="cov7" title="339446">
                 return 1</span> // ▒
-        default:<span class="cov6" title="64430">
+        default:<span class="cov6" title="64444">
                 return 0</span> // ░ faint rim
         }
 }
@@ -34717,56 +34717,56 @@ var moonCraters = []struct{ lon, lat float64 }{
 // stampCraters dimples the moon grid with its craters at their current rotation. A crater on the
 // far side (cos&lt;0) or at the very limb is hidden; a visible one marks one interior shade cell as
 // a small · dimple. Pure in frame (the spin is frame/spinDiv). Never touches the rim/sky.
-func stampCraters(g [][]rune, ry, rx, frame int) <span class="cov5" title="12494">{
+func stampCraters(g [][]rune, ry, rx, frame int) <span class="cov5" title="12495">{
         h := len(g)
         if h == 0 </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov5" title="12494">w := len(g[0])
+        <span class="cov5" title="12495">w := len(g[0])
         spin := float64(frame) / 48.0 // a slow turn
-        for _, cr := range moonCraters </span><span class="cov6" title="49976">{
+        for _, cr := range moonCraters </span><span class="cov6" title="49980">{
                 a := cr.lon + spin
-                if math.Cos(a) &lt;= 0.2 </span><span class="cov6" title="27555">{ // far side / limb: hidden
+                if math.Cos(a) &lt;= 0.2 </span><span class="cov6" title="27557">{ // far side / limb: hidden
                         continue</span>
                 }
-                <span class="cov6" title="22421">cdx := int(float64(rx)*math.Sin(a)*math.Cos(cr.lat) + 0.5)
+                <span class="cov6" title="22423">cdx := int(float64(rx)*math.Sin(a)*math.Cos(cr.lat) + 0.5)
                 cdy := int(float64(ry)*math.Sin(cr.lat) + 0.5)
                 cx, cy := rx+cdx, ry+cdy
                 if cy &lt; 0 || cy &gt;= h || cx &lt; 0 || cx &gt;= w </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov6" title="22421">if !isMoonShade(g[cy][cx]) </span><span class="cov5" title="8680">{ // only on the lit surface, never on the rim or empty sky
+                <span class="cov6" title="22423">if !isMoonShade(g[cy][cx]) </span><span class="cov5" title="8680">{ // only on the lit surface, never on the rim or empty sky
                         continue</span>
                 }
-                <span class="cov6" title="13741">g[cy][cx] = '·'</span>
+                <span class="cov6" title="13743">g[cy][cx] = '·'</span>
         }
 }
 
-func isMoonShade(r rune) bool <span class="cov6" title="22421">{ return r == '░' || r == '▒' || r == '▓' }</span>
+func isMoonShade(r rune) bool <span class="cov6" title="22423">{ return r == '░' || r == '▒' || r == '▓' }</span>
 
 // moonDisc renders the night moon: a big ROUND teal sphere, limb-darkened (░▒▓) with a curved
 // ◜◝◞◟ ( ) outline and a few craters that rotate across its face as the frame advances (so it
 // gently spins). 2*ry+1 rows tall, 4*ry+1 wide. Pure in (ry,frame); tinted toneEarth by the
 // caller, NEVER red.
-func moonDisc(ry, frame int) []string <span class="cov5" title="12494">{
+func moonDisc(ry, frame int) []string <span class="cov5" title="12495">{
         rx := 2 * ry
         h, w := 2*ry+1, 2*rx+1
         g := newRuneGrid(h, w)
-        for i := 0; i &lt; h; i++ </span><span class="cov7" title="90682">{
+        for i := 0; i &lt; h; i++ </span><span class="cov7" title="90695">{
                 dy := i - ry
                 xw := discHalfWidth(dy, ry, rx)
                 if xw &lt; 0 </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov7" title="90682">for c := -xw; c &lt;= xw; c++ </span><span class="cov8" title="1263082">{
-                        if discRim(c, dy, ry, rx) </span><span class="cov7" title="331660">{
+                <span class="cov7" title="90695">for c := -xw; c &lt;= xw; c++ </span><span class="cov8" title="1263315">{
+                        if discRim(c, dy, ry, rx) </span><span class="cov7" title="331712">{
                                 g[i][rx+c] = discRimGlyph(c, dy, ry, rx)
-                        }</span> else<span class="cov8" title="931422"> {
+                        }</span> else<span class="cov8" title="931603"> {
                                 g[i][rx+c] = moonShades[moonShadeIdx(c, dy, ry, rx)]
                         }</span>
                 }
         }
-        <span class="cov5" title="12494">stampCraters(g, ry, rx, frame)
+        <span class="cov5" title="12495">stampCraters(g, ry, rx, frame)
         return gridLines(g)</span>
 }
 
@@ -34839,23 +34839,23 @@ func stampSunRays(g [][]rune, cx, cy, ry, rx, frame int) <span class="cov6" titl
 
 // newRuneGrid is an h x w grid of spaces; gridLines flattens a rune grid to strings. Helpers
 // for the disc painters (spaces stay transparent in blitT).
-func newRuneGrid(h, w int) [][]rune <span class="cov6" title="27208">{
+func newRuneGrid(h, w int) [][]rune <span class="cov6" title="27209">{
         g := make([][]rune, h)
-        for i := range g </span><span class="cov7" title="242694">{
+        for i := range g </span><span class="cov7" title="242707">{
                 g[i] = make([]rune, w)
-                for j := range g[i] </span><span class="cov9" title="4742826">{
+                for j := range g[i] </span><span class="cov9" title="4743151">{
                         g[i][j] = ' '
                 }</span>
         }
-        <span class="cov6" title="27208">return g</span>
+        <span class="cov6" title="27209">return g</span>
 }
 
-func gridLines(g [][]rune) []string <span class="cov6" title="27208">{
+func gridLines(g [][]rune) []string <span class="cov6" title="27209">{
         out := make([]string, len(g))
-        for i := range g </span><span class="cov7" title="242694">{
+        for i := range g </span><span class="cov7" title="242707">{
                 out[i] = string(g[i])
         }</span>
-        <span class="cov6" title="27208">return out</span>
+        <span class="cov6" title="27209">return out</span>
 }
 
 // sunArc is the sun's position over the day: up ONLY while it's day (darkness&lt;50), rising from the
@@ -34891,8 +34891,8 @@ const plantMax = 3
 
 // plantStage maps the day's darkness to a plant's growth 0..plantMax: dormant (0) at/under deep
 // night (darkness&gt;=50), tallest at high noon (darkness 0), growing monotonically between.
-func plantStage(darkness int) int <span class="cov6" title="32055">{
-        if darkness &gt;= 50 </span><span class="cov6" title="14603">{
+func plantStage(darkness int) int <span class="cov6" title="32056">{
+        if darkness &gt;= 50 </span><span class="cov6" title="14604">{
                 return 0
         }</span>
         <span class="cov6" title="17452">return plantMax - darkness*plantMax/50</span>
@@ -34919,7 +34919,7 @@ func paintPlant(buf [][]worldCell, x, base, stage int) <span class="cov6" title=
 // moonPos returns the planet's top-left (x,y): parked in the UPPER sky and drifting ~1 cell per
 // 24 frames (a slow arc). Pure + seeded; x wraps into [0,w). seed b-values 5/6 don't collide
 // with the on-air star's (1/2).
-func moonPos(w, skyRows, frame, seed int) (int, int) <span class="cov6" title="32076">{
+func moonPos(w, skyRows, frame, seed int) (int, int) <span class="cov6" title="32077">{
         ww := maxI(1, w)
         x := ((int(worldHash(0, 5, seed)%uint32(ww)) + frame/24) % ww) % ww
         y := int(worldHash(0, 6, seed) % uint32(maxI(1, skyRows/3)))
@@ -34928,48 +34928,48 @@ func moonPos(w, skyRows, frame, seed int) (int, int) <span class="cov6" title="3
 
 // starColumn is star i's drifting column for its tier, wrapped into [0,w): far is static, mid
 // drifts slowly, near drifts fastest (parallax). w is assumed &gt; 0 (worldBuffer guards it).
-func starColumn(x0, frame, w, tier int) int <span class="cov8" title="568092">{
+func starColumn(x0, frame, w, tier int) int <span class="cov8" title="568179">{
         div := 0
         switch tier </span>{
-        case 2:<span class="cov7" title="130332">
+        case 2:<span class="cov7" title="130348">
                 div = 10</span> // near: fastest
-        case 1:<span class="cov7" title="90901">
+        case 1:<span class="cov7" title="90913">
                 div = 28</span> // mid: slow
-        default:<span class="cov7" title="346859">
+        default:<span class="cov7" title="346918">
                 return ((x0 % w) + w) % w</span> // far: static
         }
-        <span class="cov7" title="221233">return ((x0-frame/div)%w + w) % w</span>
+        <span class="cov7" title="221261">return ((x0-frame/div)%w + w) % w</span>
 }
 
 // blit paints sprite lines into the buffer at (x,y) in dim ink (no tone); see blitT.
-func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov7" title="527006">{
+func blit(buf [][]worldCell, x, y int, lines []string, eye rune) <span class="cov7" title="527030">{
         blitT(buf, x, y, lines, eye, toneNone)
 }</span>
 
 // blitT is blit with a COOL tone: spaces are transparent, a cell whose rune == eye is marked red
 // (eye=true) AND left tone-free (the eye is red-only - it beats any passed tone), and every other
 // painted cell takes the tone. Out-of-bounds cells are clipped, never wrap-corrupt.
-func blitT(buf [][]worldCell, x, y int, lines []string, eye rune, tone worldTone) <span class="cov8" title="925065">{
+func blitT(buf [][]worldCell, x, y int, lines []string, eye rune, tone worldTone) <span class="cov8" title="925096">{
         if len(buf) == 0 </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov8" title="925065">w := len(buf[0])
-        for dy, line := range lines </span><span class="cov8" title="1342657">{
+        <span class="cov8" title="925096">w := len(buf[0])
+        for dy, line := range lines </span><span class="cov8" title="1342706">{
                 ry := y + dy
                 if ry &lt; 0 || ry &gt;= len(buf) </span><span class="cov6" title="36398">{
                         continue</span>
                 }
-                <span class="cov8" title="1306259">cx := x
-                for _, r := range line </span><span class="cov9" title="13079858">{
-                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov9" title="6871335">{
+                <span class="cov8" title="1306308">cx := x
+                for _, r := range line </span><span class="cov9" title="13080606">{
+                        if r != ' ' &amp;&amp; cx &gt;= 0 &amp;&amp; cx &lt; w </span><span class="cov9" title="6904358">{
                                 isEye := eye != 0 &amp;&amp; r == eye
                                 ct := tone
-                                if isEye </span><span class="cov7" title="123372">{
+                                if isEye </span><span class="cov7" title="123376">{
                                         ct = toneNone // the eye is red-only; never also a cool tone
                                 }</span>
-                                <span class="cov9" title="6871335">buf[ry][cx] = worldCell{r: r, eye: isEye, tone: ct}</span>
+                                <span class="cov9" title="6904358">buf[ry][cx] = worldCell{r: r, eye: isEye, tone: ct}</span>
                         }
-                        <span class="cov9" title="13079858">cx++</span>
+                        <span class="cov9" title="13080606">cx++</span>
                 }
         }
 }
@@ -34995,29 +34995,29 @@ const (
 )
 
 // worldActAt is the (periodic, seeded) act for window wi - weighted heavily toward calm amble.
-func worldActAt(wi, seed int) worldAct <span class="cov8" title="1534163">{
+func worldActAt(wi, seed int) worldAct <span class="cov8" title="1534190">{
         switch worldHash(((wi%waCycle)+waCycle)%waCycle, 11, seed) % 12 </span>{
-        case 0, 1:<span class="cov7" title="267700">
+        case 0, 1:<span class="cov7" title="267703">
                 return waPause</span>
-        case 2:<span class="cov7" title="156485">
+        case 2:<span class="cov7" title="156492">
                 return waLook</span>
-        case 3:<span class="cov7" title="159699">
+        case 3:<span class="cov7" title="159702">
                 return waRun</span>
-        case 4:<span class="cov7" title="155643">
+        case 4:<span class="cov7" title="155646">
                 return waTransmit</span>
-        default:<span class="cov8" title="794636">
+        default:<span class="cov8" title="794647">
                 return waAmble</span> // ~7/12
         }
 }
 
 // worldActSpeed is the per-frame columns an act advances (only amble/run move).
-func worldActSpeed(a worldAct) int <span class="cov8" title="1470661">{
+func worldActSpeed(a worldAct) int <span class="cov8" title="1470686">{
         switch a </span>{
-        case waAmble:<span class="cov8" title="760502">
+        case waAmble:<span class="cov8" title="760513">
                 return 1</span>
-        case waRun:<span class="cov7" title="153509">
+        case waRun:<span class="cov7" title="153512">
                 return 3</span>
-        default:<span class="cov7" title="556650">
+        default:<span class="cov7" title="556661">
                 return 0</span>
         }
 }
@@ -35025,20 +35025,20 @@ func worldActSpeed(a worldAct) int <span class="cov8" title="1470661">{
 // worldPingDist integrates the act speeds into Ping's TOTAL path length walked so far (monotonic,
 // never wrapped). Bounded to O(waCycle) by summing one loop cycle (the schedule is periodic in
 // waCycle). 0 for frame&lt;0. The walk's left/right folding is done by worldPingMotion.
-func worldPingDist(frame, seed int) int <span class="cov6" title="40721">{
+func worldPingDist(frame, seed int) int <span class="cov6" title="40722">{
         if frame &lt; 0 </span><span class="cov0" title="0">{
                 return 0
         }</span>
-        <span class="cov6" title="40721">wi, prog := frame/waWindow, frame%waWindow
+        <span class="cov6" title="40722">wi, prog := frame/waWindow, frame%waWindow
         cycLen := 0
-        for k := 0; k &lt; waCycle; k++ </span><span class="cov8" title="977304">{
+        for k := 0; k &lt; waCycle; k++ </span><span class="cov8" title="977328">{
                 cycLen += worldActSpeed(worldActAt(k, seed)) * waWindow
         }</span>
-        <span class="cov6" title="40721">pos := (wi / waCycle) * cycLen
+        <span class="cov6" title="40722">pos := (wi / waCycle) * cycLen
         for k := 0; k &lt; wi%waCycle; k++ </span><span class="cov7" title="452635">{
                 pos += worldActSpeed(worldActAt(k, seed)) * waWindow
         }</span>
-        <span class="cov6" title="40721">pos += worldActSpeed(worldActAt(wi, seed)) * prog
+        <span class="cov6" title="40722">pos += worldActSpeed(worldActAt(wi, seed)) * prog
         return pos</span>
 }
 
@@ -35047,18 +35047,18 @@ func worldPingDist(frame, seed int) int <span class="cov6" title="40721">{
 // to the left). It also reports his facing dir (+1 right / -1 left), whether he's in a brief edge
 // TURNAROUND beat (a "73, signing off → tuning back in" wave near each edge), and the wave frame.
 // Pure + seeded. span&lt;=0 -&gt; the degenerate (0,+1,false,0).
-func worldPingMotion(frame, seed, span int) (x, dir int, turning bool, beat int) <span class="cov6" title="40722">{
+func worldPingMotion(frame, seed, span int) (x, dir int, turning bool, beat int) <span class="cov6" title="40723">{
         if span &lt;= 0 || frame &lt; 0 </span><span class="cov1" title="1">{
                 return 0, 1, false, 0
         }</span>
-        <span class="cov6" title="40721">period := 2 * span
+        <span class="cov6" title="40722">period := 2 * span
         p := ((worldPingDist(frame, seed) % period) + period) % period
-        if p &lt;= span </span><span class="cov6" title="22709">{
+        if p &lt;= span </span><span class="cov6" title="22710">{
                 x, dir = p, 1 // outward leg: ambling right
         }</span> else<span class="cov6" title="18012"> {
                 x, dir = 2*span-p, -1 // return leg: ambling back left
         }</span>
-        <span class="cov6" title="40721">band := maxI(1, span/10) // a small zone around each turn where he signs off + waves
+        <span class="cov6" title="40722">band := maxI(1, span/10) // a small zone around each turn where he signs off + waves
         turning = span &gt; 1 &amp;&amp; (p &lt;= band || p &gt;= period-band || absI(p-span) &lt;= band)
         return x, dir, turning, (frame / 2) % len(pingWaveFrames)</span>
 }
@@ -35094,7 +35094,7 @@ func renderWorld(w, h, frame, seed int) string <span class="cov2" title="31">{ r
 
 // renderWorldData is renderWorld with an optional LIVE data snapshot (nil = byte-identical to
 // the pure seeded world, so every existing test + the offline standalone path are unchanged).
-func renderWorldData(w, h, frame, seed int, d *worldData) string <span class="cov3" title="48">{
+func renderWorldData(w, h, frame, seed int, d *worldData) string <span class="cov3" title="49">{
         return compositeWorld(worldBufferData(w, h, frame, seed, d))
 }</span>
 
@@ -35148,11 +35148,11 @@ func marqueeWindow(s string, start, width int) string <span class="cov3" title="
 // bands currently on the air) so you can glance at what's live without leaving the screensaver.
 // It crosses either direction at a seeded altitude. Pure + seeded; tones go through blitT so it's
 // NO_COLOR-safe, and the lone red pip keeps the one-red law (• is on-air-semantic, never a 2nd ◉).
-func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData) <span class="cov6" title="32050">{
+func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData) <span class="cov6" title="32051">{
         if skyRows &lt; 3 || w &lt; 10 </span><span class="cov5" title="4881">{
                 return
         }</span>
-        <span class="cov6" title="27169">live := d != nil &amp;&amp; len(d.stations) &gt; 0
+        <span class="cov6" title="27170">live := d != nil &amp;&amp; len(d.stations) &gt; 0
         // satCross: frames for one edge-to-edge pass. Slowed (was 70) so the on-air ticker
         // lingers long enough to actually READ the band names as it drifts across.
         const satCross = 120
@@ -35160,21 +35160,21 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData
         if !live &amp;&amp; worldHash(win, 31, seed)%2 != 0 </span><span class="cov6" title="12826">{
                 return // seeded world: only ~half the windows carry a satellite (don't overdo it)
         }</span>
-        <span class="cov6" title="14343">k := frame % satCross
+        <span class="cov6" title="14344">k := frame % satCross
         span := w + 12
         prog := k * span / satCross
         x := prog - 6
-        if worldHash(win, 32, seed)%2 == 0 </span><span class="cov5" title="8909">{
+        if worldHash(win, 32, seed)%2 == 0 </span><span class="cov5" title="8910">{
                 x = w + 5 - prog // sometimes it crosses the other way
         }</span>
-        <span class="cov6" title="14343">y := 1 + int(worldHash(win, 33, seed)%uint32(maxI(1, skyRows/2)))
+        <span class="cov6" title="14344">y := 1 + int(worldHash(win, 33, seed)%uint32(maxI(1, skyRows/2)))
         blitT(buf, x, y, []string{"-=▢=-"}, 0, toneSat) // aqua bus + solar-panel arms
         if live </span><span class="cov3" title="242">{
                 // a faint scrolling ticker of the on-air bands, downlinked under the bus.
                 tape := marqueeWindow(tickerText(d), frame/8, tickerWidth)
                 blit(buf, x, y+1, []string{"•"}, '•')            // the on-air pip (red, on-air-semantic)
                 blitT(buf, x+1, y+1, []string{tape}, 0, toneSat) // the band names, faint aqua, scrolling
-        }</span> else<span class="cov6" title="14101"> if k%9 &lt; 2 </span><span class="cov5" title="3386">{ // a brief downlink every ~9 frames
+        }</span> else<span class="cov6" title="14102"> if k%9 &lt; 2 </span><span class="cov5" title="3387">{ // a brief downlink every ~9 frames
                 blit(buf, x+2, y+1, []string{"•"}, '•') // the on-air red dot, beamed groundward
         }</span>
 }
@@ -35182,12 +35182,12 @@ func paintSatellite(buf [][]worldCell, w, skyRows, frame, seed int, d *worldData
 // paintSpaceship sends a RARE spaceship across the upper sky (~1/4 of 130-frame windows) with a dim
 // fading ion trail and a single red '•' running light at the nose. Amber hull (toneShip) for a
 // warm pop against the cool sky. Calm + infrequent so the sky never feels busy. Pure + seeded.
-func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) <span class="cov6" title="32050">{
+func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) <span class="cov6" title="32051">{
         if skyRows &lt; 3 || w &lt; 12 </span><span class="cov5" title="4881">{
                 return
         }</span>
-        <span class="cov6" title="27169">win := frame / 130
-        if worldHash(win, 41, seed)%4 != 0 </span><span class="cov6" title="22170">{
+        <span class="cov6" title="27170">win := frame / 130
+        if worldHash(win, 41, seed)%4 != 0 </span><span class="cov6" title="22171">{
                 return // rare
         }</span>
         <span class="cov5" title="4999">k := frame % 130
@@ -35207,25 +35207,25 @@ func paintSpaceship(buf [][]worldCell, w, skyRows, frame, seed int) <span class=
 // cone up into the sky, with a red '•' at the feed while it transmits (another deliberate place for
 // the live on-air dot). One seeded dish, a calm 24-frame sweep. Painted after the towers, before
 // Ping (Ping walks in front). Pure + seeded; the cone tone is NO_COLOR-safe via blitT.
-func paintRadioDish(buf [][]worldCell, w, horizon, frame, seed int) <span class="cov6" title="32050">{
+func paintRadioDish(buf [][]worldCell, w, horizon, frame, seed int) <span class="cov6" title="32051">{
         if horizon &lt; 4 || w &lt; 14 </span><span class="cov5" title="4963">{
                 return
         }</span>
-        <span class="cov6" title="27087">dx := 5 + int(worldHash(0, 51, seed)%uint32(maxI(1, w-10)))
+        <span class="cov6" title="27088">dx := 5 + int(worldHash(0, 51, seed)%uint32(maxI(1, w-10)))
         dy := horizon - 1
         blit(buf, dx, dy, []string{"Y"}, 0) // the dish mast/feed on the rim
         b := frame % 24
         if b &gt;= 12 </span><span class="cov6" title="13505">{
                 return // a quiet beat between sweeps
         }</span>
-        <span class="cov6" title="13582">rad := 1 + b/4 // the cone widens 1-&gt;3 then resets
-        for i := 1; i &lt;= rad; i++ </span><span class="cov6" title="26955">{
-                if ay := dy - i; ay &gt;= 0 </span><span class="cov6" title="26955">{
+        <span class="cov6" title="13583">rad := 1 + b/4 // the cone widens 1-&gt;3 then resets
+        for i := 1; i &lt;= rad; i++ </span><span class="cov6" title="26956">{
+                if ay := dy - i; ay &gt;= 0 </span><span class="cov6" title="26956">{
                         blitT(buf, dx-i, ay, []string{"/"}, 0, toneSky)
                         blitT(buf, dx+i, ay, []string{"\\"}, 0, toneSky)
                 }</span>
         }
-        <span class="cov6" title="13582">if b &lt; 3 </span><span class="cov5" title="3415">{
+        <span class="cov6" title="13583">if b &lt; 3 </span><span class="cov5" title="3416">{
                 blit(buf, dx, dy-1, []string{"•"}, '•') // the feed transmits: the on-air red dot
         }</span>
 }
@@ -35233,18 +35233,18 @@ func paintRadioDish(buf [][]worldCell, w, horizon, frame, seed int) <span class=
 // worldBufferData builds the back-&gt;front composited cell buffer. d is an optional LIVE snapshot
 // (on-air bands -&gt; signal towers on the horizon + the ◉ riding the strongest); nil =&gt; the pure
 // seeded world. Split out so tests assert the ONE-RED invariant on the cells directly.
-func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span class="cov6" title="32053">{
+func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span class="cov6" title="32054">{
         if w &lt;= 0 || h &lt;= 0 </span><span class="cov1" title="3">{
                 return nil
         }</span>
-        <span class="cov6" title="32050">buf := make([][]worldCell, h)
-        for y := range buf </span><span class="cov7" title="412737">{
+        <span class="cov6" title="32051">buf := make([][]worldCell, h)
+        for y := range buf </span><span class="cov7" title="412761">{
                 buf[y] = make([]worldCell, w)
-                for x := range buf[y] </span><span class="cov10" title="24552037">{
+                for x := range buf[y] </span><span class="cov10" title="24553957">{
                         buf[y][x] = worldCell{r: ' '}
                 }</span>
         }
-        <span class="cov6" title="32050">horizon := h - 4
+        <span class="cov6" title="32051">horizon := h - 4
         if horizon &lt; 2 </span><span class="cov5" title="4801">{
                 horizon = h - 1
         }</span>
@@ -35253,61 +35253,61 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // bucketed into far/mid/near tiers for genuine parallax (see starTier/starColumn). Far are
         // faint+static, mid drift slowly, near are bright + drift fastest. Star 0 is the RED on-air
         // station, painted LAST so nothing twinkles over it.
-        <span class="cov6" title="32050">skyRows := horizon
+        <span class="cov6" title="32051">skyRows := horizon
         if skyRows &lt; 1 </span><span class="cov1" title="1">{
                 skyRows = 1
         }</span>
-        <span class="cov6" title="32050">nStars := (w * skyRows) / 18
+        <span class="cov6" title="32051">nStars := (w * skyRows) / 18
         darkness := dayNightDarkness(frame) // day washes the faint stars out; the sky breathes
         day := darkness &lt; 50                // the sun-up half: sun, plants, birds + the butterfly come out
-        for i := 1; i &lt; nStars; i++ </span><span class="cov8" title="1014794">{
+        for i := 1; i &lt; nStars; i++ </span><span class="cov8" title="1014881">{
                 tier := starTier(i, seed)
                 // Faint far/mid stars fade as it brightens toward day; the bright near stars linger at
                 // dusk but wash out at full day (darkness&lt;20) for a clean daytime sky. The sun/moon +
                 // on-air ◉ are separate.
-                if tier == 2 </span><span class="cov7" title="171259">{
+                if tier == 2 </span><span class="cov7" title="171275">{
                         if darkness &lt; 20 </span><span class="cov6" title="41015">{
                                 continue</span> // full day: even the near stars are washed out
                         }
-                } else<span class="cov8" title="843535"> if int(worldHash(i, 4, seed)%100) &gt;= darkness </span><span class="cov7" title="405951">{
+                } else<span class="cov8" title="843606"> if int(worldHash(i, 4, seed)%100) &gt;= darkness </span><span class="cov7" title="405951">{
                         continue</span>
                 }
-                <span class="cov8" title="567828">set := starsFar
+                <span class="cov8" title="567915">set := starsFar
                 bright := false
                 switch tier </span>{
-                case 2:<span class="cov7" title="130244">
+                case 2:<span class="cov7" title="130260">
                         set, bright = starsNear, true</span>
-                case 1:<span class="cov7" title="90813">
+                case 1:<span class="cov7" title="90825">
                         set = starsMid</span>
                 }
-                <span class="cov8" title="567828">x0 := starColumn(int(worldHash(i, 1, seed)%uint32(w)), frame, w, tier)
+                <span class="cov8" title="567915">x0 := starColumn(int(worldHash(i, 1, seed)%uint32(w)), frame, w, tier)
                 y := int(worldHash(i, 2, seed) % uint32(skyRows))
                 g := set[int(worldHash(i, frame/8, seed))%len(set)]
-                if y &gt;= 0 &amp;&amp; y &lt; len(buf) &amp;&amp; x0 &gt;= 0 &amp;&amp; x0 &lt; w </span><span class="cov8" title="567828">{ // in-bounds by construction; guard anyway
+                if y &gt;= 0 &amp;&amp; y &lt; len(buf) &amp;&amp; x0 &gt;= 0 &amp;&amp; x0 &lt; w </span><span class="cov8" title="567915">{ // in-bounds by construction; guard anyway
                         buf[y][x0] = worldCell{r: g, bright: bright, tone: toneSky} // the starfield reads frost-blue
                 }</span>
         }
         // LAYER 0.5 — a faint aurora wisp near the top, ONLY at deep night, drifting slowly. Dim
         // ink, never red; behind the moon + on-air star (both painted later).
-        <span class="cov6" title="32050">if darkness &gt; 70 &amp;&amp; skyRows &gt;= 3 &amp;&amp; len(buf) &gt; 1 </span><span class="cov5" title="7663">{
+        <span class="cov6" title="32051">if darkness &gt; 70 &amp;&amp; skyRows &gt;= 3 &amp;&amp; len(buf) &gt; 1 </span><span class="cov5" title="7664">{
                 aur := []rune("≈ ∼ ∽ ≋   ") // gappy so it reads as a wisp, not a solid bar
-                for x := 0; x &lt; w; x++ </span><span class="cov7" title="396970">{
+                for x := 0; x &lt; w; x++ </span><span class="cov7" title="397050">{
                         r := aur[(x+frame/12)%len(aur)]
-                        if r == ' ' </span><span class="cov7" title="238156">{
+                        if r == ' ' </span><span class="cov7" title="238204">{
                                 continue</span>
                         }
-                        <span class="cov7" title="158814">tone := toneAurora // green, shimmering to violet along the wisp (both cool, never red)
-                        if (x/4+frame/10)%2 == 0 </span><span class="cov6" title="79042">{
+                        <span class="cov7" title="158846">tone := toneAurora // green, shimmering to violet along the wisp (both cool, never red)
+                        if (x/4+frame/10)%2 == 0 </span><span class="cov6" title="79058">{
                                 tone = toneAuroraV
                         }</span>
-                        <span class="cov7" title="158814">buf[1][x] = worldCell{r: r, tone: tone}</span>
+                        <span class="cov7" title="158846">buf[1][x] = worldCell{r: r, tone: tone}</span>
                 }
         }
 
         // LAYER 0.7 — daytime DRIFTING CLOUDS: a few seeded puffs glide across the day sky with
         // parallax (nearer clouds drift faster), in a pale frost tone. Gentle + calm; gone at night,
         // behind the sun. Never red.
-        <span class="cov6" title="32050">if day </span><span class="cov6" title="17449">{
+        <span class="cov6" title="32051">if day </span><span class="cov6" title="17449">{
                 paintClouds(buf, w, skyRows, frame, seed)
         }</span>
 
@@ -35315,7 +35315,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // (limb-darkened, craters rotating across its face); by DAY a big gold SUN with shimmering
         // rays arcing across the sky. Both sized to the sky (celestialRadius) so they read large +
         // round without overwhelming Ping/the horizon. Never red; the on-air ◉ is still painted LAST.
-        <span class="cov6" title="32050">mx, my := moonPos(w, skyRows, frame, seed)
+        <span class="cov6" title="32051">mx, my := moonPos(w, skyRows, frame, seed)
         cry := celestialRadius(skyRows, w)
         if day </span><span class="cov6" title="17449">{
                 if upSun, sx, sy := sunArc(w, skyRows, frame); upSun </span><span class="cov6" title="17449">{
@@ -35332,10 +35332,10 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
                                 blitT(buf, topx, topy, disc, 0, toneSun)
                         }</span>
                 }
-        } else<span class="cov6" title="14601"> {
+        } else<span class="cov6" title="14602"> {
                 if cry == 0 </span><span class="cov5" title="2122">{ // degenerate sky: a tiny fallback moon
                         blitT(buf, mx, my, []string{" .--. ", "(░▒▓.)", " `--' "}, 0, toneEarth)
-                }</span> else<span class="cov5" title="12479"> {
+                }</span> else<span class="cov5" title="12480"> {
                         disc := moonDisc(cry, frame)
                         mw, mh := len(disc[0]), len(disc)
                         topx := clampI(mx-2*cry, 0, maxI(0, w-mw)) // centre on moonPos x, stay on-screen
@@ -35348,7 +35348,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // live on-air ticker when there's data) with a periodic red DOWNLINK blip, and RARELY a
         // spaceship with an ion trail + a red running light. Generative (seeded windows, direction,
         // altitude). The on-air ◉ is still painted LAST, on top of all.
-        <span class="cov6" title="32050">paintSatellite(buf, w, skyRows, frame, seed, d)
+        <span class="cov6" title="32051">paintSatellite(buf, w, skyRows, frame, seed, d)
         paintSpaceship(buf, w, skyRows, frame, seed)
 
         // (the ONE on-air station ◉ is painted LAST, at the end, so nothing overwrites it.)
@@ -35358,41 +35358,41 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // STRONGEST band's tower top. towers is empty in the seeded (d==nil) world, so the ◉ keeps
         // its seeded sky position there.
         towers := worldTowers(w, horizon, d)
-        if d == nil </span><span class="cov6" title="31808">{ // OFFLINE/seeded world: generative towers whose signal+height VARY over time, so
+        if d == nil </span><span class="cov6" title="31809">{ // OFFLINE/seeded world: generative towers whose signal+height VARY over time, so
                 towers = seededTowers(w, horizon, frame, seed) // the offline screensaver "breathes" too.
         }</span>
-        <span class="cov6" title="32050">if len(towers) &gt; 0 </span><span class="cov6" title="27169">{
+        <span class="cov6" title="32051">if len(towers) &gt; 0 </span><span class="cov6" title="27170">{
                 onAirX, onAirY = towers[0].x, towers[0].tipY // the flagship (strongest) tower top
         }</span>
 
         // LAYER 3 — the planet horizon Ping walks along: a gentle rim + a banded surface line.
-        <span class="cov6" title="32050">if horizon &gt;= 0 &amp;&amp; horizon &lt; h </span><span class="cov6" title="32050">{
+        <span class="cov6" title="32051">if horizon &gt;= 0 &amp;&amp; horizon &lt; h </span><span class="cov6" title="32051">{
                 rim := make([]rune, w)
-                for x := 0; x &lt; w; x++ </span><span class="cov8" title="1420265">{
+                for x := 0; x &lt; w; x++ </span><span class="cov8" title="1420345">{
                         rim[x] = '_'
                 }</span>
-                <span class="cov6" title="32050">blit(buf, 0, horizon, []string{string(rim)}, 0)
-                if horizon+1 &lt; h </span><span class="cov6" title="27249">{
+                <span class="cov6" title="32051">blit(buf, 0, horizon, []string{string(rim)}, 0)
+                if horizon+1 &lt; h </span><span class="cov6" title="27250">{
                         ramp := []rune("░▒▓▒░  ·  ") // banded surface = the band's "skin"
-                        brand := []rune(" R O G E R · A I ")
+                        brand := []rune(" R O G E R · A I .fyi ")
                         s := make([]rune, 0, w+len(ramp))
-                        for len(s) &lt; w </span><span class="cov7" title="134479">{
+                        for len(s) &lt; w </span><span class="cov7" title="134487">{
                                 s = append(s, ramp...)
                         }</span>
-                        <span class="cov6" title="27249">s = s[:w]
+                        <span class="cov6" title="27250">s = s[:w]
                         // stamp the brand in the middle of the surface band
-                        if w &gt; len(brand)+4 </span><span class="cov6" title="22289">{
+                        if w &gt; len(brand)+4 </span><span class="cov6" title="22290">{
                                 off := (w - len(brand)) / 2
                                 copy(s[off:], brand)
                         }</span>
-                        <span class="cov6" title="27249">blit(buf, 0, horizon+1, []string{string(s)}, 0)</span>
+                        <span class="cov6" title="27250">blit(buf, 0, horizon+1, []string{string(s)}, 0)</span>
                 }
         }
 
         // LAYER 3.2 — daytime PLANTS growing from the ground: seeded columns sprout green stems that
         // grow taller toward noon and bloom a violet flower at full height (dormant at night). Painted
         // behind Ping + the ducklings (they walk in front).
-        <span class="cov6" title="32050">if stage := plantStage(darkness); stage &gt; 0 &amp;&amp; horizon &gt;= 2 </span><span class="cov6" title="17449">{
+        <span class="cov6" title="32051">if stage := plantStage(darkness); stage &gt; 0 &amp;&amp; horizon &gt;= 2 </span><span class="cov6" title="17449">{
                 for px := 3; px &lt; w-2; px += 9 </span><span class="cov6" title="78121">{
                         jx := px + int(worldHash(px, 21, seed)%5) // a little seeded jitter so it isn't a grid
                         if jx &gt;= 0 &amp;&amp; jx &lt; w </span><span class="cov6" title="78121">{
@@ -35405,30 +35405,30 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // height = the band's real signal, a bright cell SCANNING up the mast when it's actively
         // serving (inFlight&gt;0). Painted after the horizon, before Ping (Ping walks in front). The
         // flagship's tip is left for the ◉ (painted last); the rest get a dim ○. Empty when seeded.
-        <span class="cov6" title="32050">for ti, t := range towers </span><span class="cov6" title="76557">{
+        <span class="cov6" title="32051">for ti, t := range towers </span><span class="cov6" title="76560">{
                 paintTower(buf, t, horizon, ti == 0, frame)
         }</span>
 
         // LAYER 3.6 — a ground-station dish sweeps a widening frost transmission cone up into the sky,
         // with a red '•' at the feed while it transmits (another deliberate place for the live on-air dot).
-        <span class="cov6" title="32050">paintRadioDish(buf, w, horizon, frame, seed)
+        <span class="cov6" title="32051">paintRadioDish(buf, w, horizon, frame, seed)
 
         // LAYER 4 — a still pond at the shore: the banded surface above is the beach, and the
         // bottom rows give back a dim, rippled reflection of the moon (water for a duck). Dim ink,
         // NEVER red - even reflections stay dim, reinforcing the one-red law. Additive: the
         // ROGER·AI shore band is untouched.
-        for wy := horizon + 2; wy &lt; h; wy++ </span><span class="cov6" title="54498">{
+        for wy := horizon + 2; wy &lt; h; wy++ </span><span class="cov6" title="54500">{
                 ripple := make([]rune, w)
-                for x := 0; x &lt; w; x++ </span><span class="cov8" title="2686928">{
-                        if (x+frame/6+wy)%7 == 0 </span><span class="cov7" title="383787">{ // mostly-still water, a slow drifting ripple
+                for x := 0; x &lt; w; x++ </span><span class="cov8" title="2687088">{
+                        if (x+frame/6+wy)%7 == 0 </span><span class="cov7" title="383809">{ // mostly-still water, a slow drifting ripple
                                 ripple[x] = '~'
-                        }</span> else<span class="cov8" title="2303141"> {
+                        }</span> else<span class="cov8" title="2303279"> {
                                 ripple[x] = ' ' // transparent in blit - leaves the row calm
                         }</span>
                 }
-                <span class="cov6" title="54498">blitT(buf, 0, wy, []string{string(ripple)}, 0, toneWater)</span>
+                <span class="cov6" title="54500">blitT(buf, 0, wy, []string{string(ripple)}, 0, toneWater)</span>
         }
-        <span class="cov6" title="32050">if rw := horizon + 2; rw &lt; h &amp;&amp; !day </span><span class="cov5" title="12560">{ // the moon's wobbling reflection (night only)
+        <span class="cov6" title="32051">if rw := horizon + 2; rw &lt; h &amp;&amp; !day </span><span class="cov5" title="12561">{ // the moon's wobbling reflection (night only)
                 rmx := (mx + frame/6) % maxI(1, w)
                 blitT(buf, rmx, rw, []string{"(.)"}, 0, toneWater)
         }</span>
@@ -35437,7 +35437,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // the night wanderer) and the BUTTERFLY (the new character) flutters low by the plants on a
         // gentle bob. Both gone at night. Dim silhouette birds; violet butterfly. Never red. GENERATIVE:
         // the flock SIZE varies (with a rare big migration) and a 2nd butterfly occasionally joins.
-        <span class="cov6" title="32050">if day </span><span class="cov6" title="17449">{
+        <span class="cov6" title="32051">if day </span><span class="cov6" title="17449">{
                 if skyRows &gt;= 4 &amp;&amp; worldHash(frame/90, 17, seed)%3 != 0 </span><span class="cov5" title="10885">{ // ~2/3 of windows have a flock
                         by := 2 + int(worldHash(frame/90, 18, seed)%uint32(maxI(1, skyRows/3)))
                         bx := (frame / 4) % maxI(1, w+12)
@@ -35472,16 +35472,16 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // edge he plays a brief "73, signing off → tuning back in" WAVE, then turns and ambles back
         // (worldPingMotion). The eye stays the red '•' through the wave; the always-on-screen baby
         // duckling below (and the on-air ◉) still carry the "at least one red eye" law regardless.
-        <span class="cov6" title="32050">pingSpan := maxI(1, w-pingWalkW)
+        <span class="cov6" title="32051">pingSpan := maxI(1, w-pingWalkW)
         px, pdir, pingTurning, pingBeat := worldPingMotion(frame, seed, pingSpan) // always fully on-screen
         var pingLines []string
         var pingEye rune
-        if pingTurning </span><span class="cov5" title="8513">{
+        if pingTurning </span><span class="cov5" title="8514">{
                 pingLines, pingEye = pingWaveFrames[pingBeat].lines[:], '•' // the edge sign-off wave
         }</span> else<span class="cov6" title="23537"> {
                 pingLines, pingEye = worldPingPose(frame, seed)
         }</span>
-        <span class="cov6" title="32050">blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
+        <span class="cov6" title="32051">blit(buf, px, horizon-len(pingLines)+1, pingLines, pingEye)
 
         // Ping naps at deep night while he pauses: a soft Zzz drifts up over his head (his eye stays
         // the red • - the law is carried regardless). More life, no extra red.
@@ -35499,8 +35499,8 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // so it never pops/vanishes mid-screen (the old frame/80-window bug). Lane 0 crosses ~2/3 of
         // traversals; lane 1 occasionally adds a 2nd wanderer ambling the opposite way (they pass). The
         // wanderer keeps its red '•' eye, but the always-on-screen lead duckling carries the one-red law.
-        <span class="cov6" title="32050">for lane := 0; lane &lt; 2; lane++ </span><span class="cov6" title="64100">{
-                if draw, lines, wx, wy := wandererAt(frame, seed, w, horizon, lane); draw </span><span class="cov6" title="32327">{
+        <span class="cov6" title="32051">for lane := 0; lane &lt; 2; lane++ </span><span class="cov6" title="64102">{
+                if draw, lines, wx, wy := wandererAt(frame, seed, w, horizon, lane); draw </span><span class="cov6" title="32328">{
                         blit(buf, wx, wy, lines, '•')
                 }</span>
         }
@@ -35508,7 +35508,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // LAYER 6 — occasional shooting stars (transient, calm), upper sky, NIGHT only. GENERATIVE: a
         // window is usually a single streak, but RARELY a meteor SHOWER of 2-3 staggered streaks. Dim
         // ink; painted BEFORE the lead duckling so a streak can never clobber its red-eye backstop.
-        <span class="cov6" title="32050">if !day &amp;&amp; worldHash(frame/40, 7, seed)%4 == 0 </span><span class="cov5" title="3202">{
+        <span class="cov6" title="32051">if !day &amp;&amp; worldHash(frame/40, 7, seed)%4 == 0 </span><span class="cov5" title="3202">{
                 win, k := frame/40, frame%40
                 for s := 0; s &lt; meteorCount(win, seed); s++ </span><span class="cov5" title="4320">{
                         ks := k - s*2 // each extra streak starts a beat later (a staggered shower)
@@ -35526,9 +35526,9 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // on-screen, painted AFTER the shooting star - keeps the red '•' so it survives at every
         // reasonable size, even mid-transmit, even at h=8. (The single ◉ below is the UNIVERSAL
         // red-eye backstop at degenerate sizes like w=1 where the lead clips off.)
-        <span class="cov6" title="32050">wad := (frame / 5) % 2 // the ducklings waddle: followers bob out of phase
-        duckX := func(n int) int </span><span class="cov7" title="96150">{ return clampI(px-n*pdir, 0, maxI(0, w-3)) }</span>
-        <span class="cov6" title="32050">blit(buf, duckX(12), horizon-wad, []string{"(·)"}, 0)    // far follower (dim)
+        <span class="cov6" title="32051">wad := (frame / 5) % 2 // the ducklings waddle: followers bob out of phase
+        duckX := func(n int) int </span><span class="cov7" title="96153">{ return clampI(px-n*pdir, 0, maxI(0, w-3)) }</span>
+        <span class="cov6" title="32051">blit(buf, duckX(12), horizon-wad, []string{"(·)"}, 0)    // far follower (dim)
         blit(buf, duckX(8), horizon-(1-wad), []string{"(·)"}, 0) // near follower (dim)
         blit(buf, duckX(4), horizon, []string{"(•)"}, '•')       // lead - steady red-eye backstop
 
@@ -35547,7 +35547,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
         // on-air blip: a faint ring pulses outward from the station every ~30 frames (a radio blip
         // that says "live"), dim, expanding 1-&gt;3 cells then resetting. Distinct from the Ping-driven
         // transmit halo above.
-        <span class="cov6" title="32050">if b := frame % 30; b &lt; 9 </span><span class="cov5" title="9680">{
+        <span class="cov6" title="32051">if b := frame % 30; b &lt; 9 </span><span class="cov5" title="9681">{
                 rad := 1 + b/3 // 1,2,3
                 blit(buf, onAirX-rad, onAirY, []string{"("}, 0)
                 blit(buf, onAirX+rad, onAirY, []string{")"}, 0)
@@ -35555,7 +35555,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell <span cl
 
         // the ONE on-air station: a red ◉ painted LAST so nothing (twinkle, shooting star, baby,
         // breathe-halo, blip) ever overwrites the sky's single red glint (off the baby's rim row).
-        <span class="cov6" title="32050">blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
+        <span class="cov6" title="32051">blit(buf, onAirX, onAirY, []string{"◉"}, '◉')
 
         return buf</span>
 }
@@ -35579,31 +35579,31 @@ const (
 // frame the wanderer is fully OFF-SCREEN, so it always enters from one edge and exits the other and
 // never pops/vanishes mid-screen (the old frame/80-window bug). Lane 0 crosses ~2/3 of traversals;
 // lane 1 occasionally adds a 2nd wanderer ambling the OPPOSITE way. Pure + seeded.
-func wandererAt(frame, seed, w, horizon, lane int) (draw bool, lines []string, wx, y int) <span class="cov6" title="70615">{
+func wandererAt(frame, seed, w, horizon, lane int) (draw bool, lines []string, wx, y int) <span class="cov6" title="70617">{
         if w &lt;= 0 || frame &lt; 0 </span><span class="cov1" title="2">{
                 return false, nil, 0, 0
         }</span>
-        <span class="cov6" title="70613">travel := w + wandererW // columns from fully-off-left to fully-off-right
+        <span class="cov6" title="70615">travel := w + wandererW // columns from fully-off-left to fully-off-right
         period := (travel + 1) * wandererStride
         cyc := frame / period
-        if lane == 0 </span><span class="cov6" title="37849">{
+        if lane == 0 </span><span class="cov6" title="37850">{
                 if worldHash(cyc, 13, seed)%3 == 0 </span><span class="cov5" title="10864">{ // ~1/3 of traversals: lane 0 rests (Ping ambles alone)
                         return false, nil, 0, 0
                 }</span>
-        } else<span class="cov6" title="32764"> if worldHash(cyc, 14, seed)%4 != 0 </span><span class="cov6" title="23066">{ // ~1/4 of traversals: a 2nd wanderer joins
+        } else<span class="cov6" title="32765"> if worldHash(cyc, 14, seed)%4 != 0 </span><span class="cov6" title="23067">{ // ~1/4 of traversals: a 2nd wanderer joins
                 return false, nil, 0, 0
         }</span>
-        <span class="cov6" title="36683">off := (frame % period) / wandererStride // 0..travel
+        <span class="cov6" title="36684">off := (frame % period) / wandererStride // 0..travel
         dir := int(worldHash(cyc, 13, seed)&gt;&gt;2) % 2
         if lane != 0 </span><span class="cov5" title="9698">{
                 dir = 1 - dir // the 2nd wanderer ambles the opposite way, so the pair pass each other
         }</span>
-        <span class="cov6" title="36683">if dir == 0 </span><span class="cov6" title="19197">{
+        <span class="cov6" title="36684">if dir == 0 </span><span class="cov6" title="19198">{
                 wx = off - wandererW // enter off-left, exit off-right
         }</span> else<span class="cov6" title="17486"> {
                 wx = w - off // enter off-right, exit off-left
         }</span>
-        <span class="cov6" title="36683">lines = cornerWandererFrames[(frame/3)%len(cornerWandererFrames)] // a calm 2-frame leg shuffle
+        <span class="cov6" title="36684">lines = cornerWandererFrames[(frame/3)%len(cornerWandererFrames)] // a calm 2-frame leg shuffle
         return true, lines, wx, horizon - len(lines) + 1</span>
 }
 
@@ -35655,12 +35655,12 @@ func meteorCount(win, seed int) int <span class="cov5" title="8405">{
 
 // triWave is a slow 0..100 triangle wave over a 0..199 input (rise then fall). Pure - drives the
 // seeded towers' breathing signal.
-func triWave(p int) int <span class="cov6" title="78145">{
+func triWave(p int) int <span class="cov6" title="78148">{
         p = ((p % 200) + 200) % 200
         if p &lt; 100 </span><span class="cov6" title="41287">{
                 return p
         }</span>
-        <span class="cov6" title="36858">return 200 - p</span>
+        <span class="cov6" title="36861">return 200 - p</span>
 }
 
 // seededTowers builds a few GENERATIVE signal towers for the OFFLINE/seeded world (d==nil) so the
@@ -35669,17 +35669,17 @@ func triWave(p int) int <span class="cov6" title="78145">{
 // bright serving-scan - that stays a LIVE-data cue); the flagship (index 0) leaves its tip for the
 // red ◉ (painted last). Empty for a too-small world (so the seeded ◉ keeps its sky position there).
 // Pure + seeded - never touches the live (d!=nil) path.
-func seededTowers(w, horizon, frame, seed int) []tower <span class="cov6" title="32239">{
+func seededTowers(w, horizon, frame, seed int) []tower <span class="cov6" title="32240">{
         if horizon &lt; 3 || w &lt; 6 </span><span class="cov5" title="4883">{
                 return nil
         }</span>
-        <span class="cov6" title="27356">n := 2 + int(worldHash(0, 41, seed)%3) // 2..4 towers
+        <span class="cov6" title="27357">n := 2 + int(worldHash(0, 41, seed)%3) // 2..4 towers
         maxH := horizon - 1
-        if maxH &gt; 6 </span><span class="cov6" title="12874">{
+        if maxH &gt; 6 </span><span class="cov6" title="12875">{
                 maxH = 6
         }</span>
-        <span class="cov6" title="27356">out := make([]tower, 0, n)
-        for i := 0; i &lt; n; i++ </span><span class="cov6" title="77142">{
+        <span class="cov6" title="27357">out := make([]tower, 0, n)
+        for i := 0; i &lt; n; i++ </span><span class="cov6" title="77145">{
                 phase := int(worldHash(i, 42, seed) % 200)
                 speed := 6 + int(worldHash(i, 43, seed)%6) // frames per signal step (slow, calm)
                 sig := triWave(frame/speed + phase)        // 0..100, breathing over time
@@ -35687,16 +35687,16 @@ func seededTowers(w, horizon, frame, seed int) []tower <span class="cov6" title=
                 if h &lt; 1 </span><span class="cov0" title="0">{
                         h = 1
                 }</span>
-                <span class="cov6" title="77142">if h &gt; maxH </span><span class="cov0" title="0">{
+                <span class="cov6" title="77145">if h &gt; maxH </span><span class="cov0" title="0">{
                         h = maxH
                 }</span>
-                <span class="cov6" title="77142">out = append(out, tower{
+                <span class="cov6" title="77145">out = append(out, tower{
                         x:    (i + 1) * w / (n + 1),
                         tipY: horizon - h,
                         st:   worldStation{signal: sig}, // dim only: no inFlight scan in the seeded world
                 })</span>
         }
-        <span class="cov6" title="27356">return out</span>
+        <span class="cov6" title="27357">return out</span>
 }
 
 // tower is one laid-out LIVE signal tower: column x, tipY (top row), + its station.
@@ -35708,8 +35708,8 @@ type tower struct {
 // worldTowers lays out one tower per on-air band, evenly spaced across the width, height scaled
 // by the band's signal (taller = stronger), STRONGEST first. Empty for a nil/empty snapshot or a
 // too-small world (so the seeded world is untouched).
-func worldTowers(w, horizon int, d *worldData) []tower <span class="cov6" title="32091">{
-        if d == nil || len(d.stations) == 0 || horizon &lt; 3 || w &lt; 6 </span><span class="cov6" title="31808">{
+func worldTowers(w, horizon int, d *worldData) []tower <span class="cov6" title="32092">{
+        if d == nil || len(d.stations) == 0 || horizon &lt; 3 || w &lt; 6 </span><span class="cov6" title="31809">{
                 return nil
         }</span>
         <span class="cov3" title="283">maxH := horizon - 1
@@ -35734,18 +35734,18 @@ func worldTowers(w, horizon int, d *worldData) []tower <span class="cov6" title=
 // paintTower draws a tower's dim │ mast from the rim up to its tip. The flagship leaves its tip
 // for the ◉ (painted last); the rest get a dim ○ tip. A busy tower (inFlight&gt;0) shows a single
 // BRIGHT cell scanning up the mast (the "actively serving" pulse). Dim/bright ink, never red.
-func paintTower(buf [][]worldCell, t tower, horizon int, flagship bool, frame int) <span class="cov6" title="76557">{
+func paintTower(buf [][]worldCell, t tower, horizon int, flagship bool, frame int) <span class="cov6" title="76560">{
         base := horizon - 1
-        for y := t.tipY + 1; y &lt;= base; y++ </span><span class="cov7" title="106960">{ // the mast below the tip
+        for y := t.tipY + 1; y &lt;= base; y++ </span><span class="cov7" title="106969">{ // the mast below the tip
                 blit(buf, t.x, y, []string{"│"}, 0)
         }</span>
-        <span class="cov6" title="76557">if height := base - t.tipY; t.st.inFlight &gt; 0 &amp;&amp; height &gt; 0 </span><span class="cov4" title="452">{ // a bright scan rides a serving tower
+        <span class="cov6" title="76560">if height := base - t.tipY; t.st.inFlight &gt; 0 &amp;&amp; height &gt; 0 </span><span class="cov4" title="452">{ // a bright scan rides a serving tower
                 scanY := base - (frame/2)%(height+1)
                 if scanY &gt;= t.tipY &amp;&amp; scanY &gt;= 0 &amp;&amp; scanY &lt; len(buf) &amp;&amp; t.x &gt;= 0 &amp;&amp; len(buf) &gt; 0 &amp;&amp; t.x &lt; len(buf[0]) </span><span class="cov4" title="452">{
                         buf[scanY][t.x] = worldCell{r: '│', bright: true}
                 }</span>
         }
-        <span class="cov6" title="76557">if !flagship </span><span class="cov6" title="49388">{ // dim ○ tip; the flagship's tip is the ◉ (painted last)
+        <span class="cov6" title="76560">if !flagship </span><span class="cov6" title="49390">{ // dim ○ tip; the flagship's tip is the ◉ (painted last)
                 blit(buf, t.x, t.tipY, []string{"○"}, 0)
         }</span>
 }
@@ -35774,67 +35774,67 @@ func buildWorldData(bands []band) *worldData <span class="cov4" title="339">{
 // compositeWorld flattens the cell buffer into a styled string: spaces stay bare, eye cells go
 // red (stPingEye), bright (near-star) cells go brighter ink (stLive), everything else dim
 // (stDim). Same-style runs are batched into one Render call so a full frame is cheap.
-func compositeWorld(buf [][]worldCell) string <span class="cov3" title="48">{
+func compositeWorld(buf [][]worldCell) string <span class="cov3" title="49">{
         var b strings.Builder
-        for y, row := range buf </span><span class="cov4" title="1083">{
-                if y &gt; 0 </span><span class="cov4" title="1038">{
+        for y, row := range buf </span><span class="cov4" title="1107">{
+                if y &gt; 0 </span><span class="cov4" title="1061">{
                         b.WriteByte('\n')
                 }</span>
-                <span class="cov4" title="1083">i := 0
-                for i &lt; len(row) </span><span class="cov6" title="16953">{
+                <span class="cov4" title="1107">i := 0
+                for i &lt; len(row) </span><span class="cov6" title="17325">{
                         c := row[i]
                         j := i + 1
-                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; row[j].tone == c.tone &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov6" title="81132">{
+                        for j &lt; len(row) &amp;&amp; row[j].eye == c.eye &amp;&amp; row[j].bright == c.bright &amp;&amp; row[j].tone == c.tone &amp;&amp; (row[j].r == ' ') == (c.r == ' ') </span><span class="cov6" title="82680">{
                                 j++
                         }</span>
-                        <span class="cov6" title="16953">seg := make([]rune, 0, j-i)
-                        for k := i; k &lt; j; k++ </span><span class="cov7" title="98085">{
+                        <span class="cov6" title="17325">seg := make([]rune, 0, j-i)
+                        for k := i; k &lt; j; k++ </span><span class="cov7" title="100005">{
                                 seg = append(seg, row[k].r)
                         }</span>
                         // Fold non-ASCII art to ASCII stand-ins on a legacy console (no-op on UTF-8), so
                         // the screensaver degrades cleanly instead of mojibake-ing ░▒▓ ◉ ✦ etc.
-                        <span class="cov6" title="16953">s := glyphs.Fold(string(seg))
+                        <span class="cov6" title="17325">s := glyphs.Fold(string(seg))
                         switch </span>{
-                        case c.r == ' ':<span class="cov5" title="8591">
+                        case c.r == ' ':<span class="cov5" title="8778">
                                 b.WriteString(s)</span>
-                        case c.eye:<span class="cov3" title="185">
+                        case c.eye:<span class="cov3" title="189">
                                 b.WriteString(stPingEye.Render(s))</span> // the ONE hot color
-                        case c.tone != toneNone:<span class="cov5" title="6196">
+                        case c.tone != toneNone:<span class="cov5" title="6331">
                                 b.WriteString(toneStyle(c.tone, c.bright).Render(s))</span> // cool ambient color
                         case c.bright:<span class="cov2" title="10">
                                 b.WriteString(stLive.Render(s))</span>
-                        default:<span class="cov5" title="1971">
+                        default:<span class="cov5" title="2017">
                                 b.WriteString(stDim.Render(s))</span>
                         }
-                        <span class="cov6" title="16953">i = j</span>
+                        <span class="cov6" title="17325">i = j</span>
                 }
         }
-        <span class="cov3" title="48">return b.String()</span>
+        <span class="cov3" title="49">return b.String()</span>
 }
 
-func maxI(a, b int) int <span class="cov7" title="475216">{
+func maxI(a, b int) int <span class="cov7" title="475228">{
         if a &gt; b </span><span class="cov6" title="23808">{
                 return a
         }</span>
-        <span class="cov7" title="451408">return b</span>
+        <span class="cov7" title="451420">return b</span>
 }
 
-func absI(a int) int <span class="cov8" title="3091475">{
-        if a &lt; 0 </span><span class="cov8" title="1425841">{
+func absI(a int) int <span class="cov8" title="3091760">{
+        if a &lt; 0 </span><span class="cov8" title="1425976">{
                 return -a
         }</span>
-        <span class="cov8" title="1665634">return a</span>
+        <span class="cov8" title="1665784">return a</span>
 }
 
 // clampI pins v into [lo,hi] (assumes lo&lt;=hi).
-func clampI(v, lo, hi int) int <span class="cov7" title="150484">{
-        if v &lt; lo </span><span class="cov6" title="23911">{
+func clampI(v, lo, hi int) int <span class="cov7" title="150489">{
+        if v &lt; lo </span><span class="cov6" title="23914">{
                 return lo
         }</span>
-        <span class="cov7" title="126573">if v &gt; hi </span><span class="cov5" title="8058">{
+        <span class="cov7" title="126575">if v &gt; hi </span><span class="cov5" title="8058">{
                 return hi
         }</span>
-        <span class="cov7" title="118515">return v</span>
+        <span class="cov7" title="118517">return v</span>
 }
 
 // PingWorld runs the `roger --ping` screensaver: the live animated Ping world until any key.
@@ -40616,12 +40616,12 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
                 return net.Listen("tcp", net.JoinHostPort(host, "0"))
         }</span>
         <span class="cov1" title="2">var lastErr error
-        for p := start; p &lt; start+200; p++ </span><span class="cov1" title="3">{
+        for p := start; p &lt; start+200; p++ </span><span class="cov1" title="4">{
                 ln, lerr := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
                 if lerr == nil </span><span class="cov1" title="2">{
                         return ln, nil
                 }</span>
-                <span class="cov1" title="1">lastErr = lerr</span>
+                <span class="cov1" title="2">lastErr = lerr</span>
         }
         <span class="cov0" title="0">return nil, fmt.Errorf("no free TCP port in %d-%d (close some listeners): %v", start, start+199, lastErr)</span>
 }
@@ -42320,11 +42320,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="3">
+        case agent.LinkOnAir:<span class="cov1" title="2">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="1">
+        default:<span class="cov1" title="2">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -42344,7 +42344,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="379">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="342">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -42366,7 +42366,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="68">
+                case agent.LinkOnAir:<span class="cov3" title="70">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -42423,7 +42423,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="10">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -42474,7 +42474,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="35">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
