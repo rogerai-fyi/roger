@@ -12,15 +12,18 @@ hardware; users get cheap, diverse access.
 curl -fsSL https://rogerai.fyi/install.sh | sh
 ```
 
-Then just run `rogerai` for the interactive radio (browse stations, tune in, test, copy the
-endpoint). Already have Go? `go install github.com/rogerai-fyi/roger/cmd/rogerai@latest`.
+Then just run `roger` for the interactive radio (browse stations, tune in, test, copy the
+endpoint; `rogerai` is the legacy alias). Already have Go?
+`go install github.com/rogerai-fyi/roger/cmd/rogerai@latest`.
 
 ## Use it
 
 ```
-rogerai                         # interactive TUI: browse → connect → test → copy endpoint
+roger                         # interactive TUI: browse → connect → test → copy endpoint
 roger search                  # list models (cheapest now first; shows tok/s, ◆ confidential, FREE)
 roger use <model>             # open a local OpenAI-compatible endpoint that relays via the broker
+roger voices                  # browse voices on air (TTS/STT stations, sample previews)
+roger say --voice <v> "hi"    # text-to-speech through a voice station, played locally
 roger balance                 # wallet credits
 roger topup 10                # buy credits (Stripe)
 ```
@@ -52,6 +55,8 @@ signed receipts, never prompts). It's an OpenAI-compatible relay - see the serve
 `/openapi.yaml`.
 
 - **Per-token pricing** with a 24h price-lock, **free** and **time-of-use** windows.
+- **Voice bands** - TTS/STT stations alongside chat: share a Kokoro-style speech server with
+  `roger share`, browse with `roger voices`, attributed on air as `@station/slug`.
 - **Lineage receipts** - hash-chained, dual-signed (`internal/protocol`).
 - **Privacy** - identity pseudonymized to providers; a confidential (TEE) tier for sensitive work.
 - **Routing constraints** - price, measured throughput (tok/s), confidential-only.
