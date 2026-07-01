@@ -1,6 +1,6 @@
 # Layer 1 (protocol) spec — the ModelOffer gains a modality + a billing unit.
 # Founder-approvable behaviour: chat stays the back-compatible default; voice adds TTS (speak,
-# billed per character) and STT (listen, billed per audio-second); the unit can never lie about
+# billed per character) and STT (listen, billed per audio-byte); the unit can never lie about
 # the modality; and a pre-voice node keeps working unchanged through a rolling deploy.
 # See VOICE-AUDIO-DESIGN.md §4.1, §5, §7 (internal docs).
 
@@ -30,11 +30,11 @@ Feature: Voice/audio offers carry a modality and a truthful billing unit
     Then the offer unit is "char"
     And its price is read as credits per 1,000,000 input characters
 
-  Scenario: An STT offer is billed per audio-second
+  Scenario: An STT offer is billed per audio-byte
     Given an offer for model "whisper-large-v3" with modality "stt"
     When the broker normalizes the offer
-    Then the offer unit is "second"
-    And its price is read as credits per 1,000,000 audio-seconds
+    Then the offer unit is "byte"
+    And its price is read as credits per 1,000,000 audio-bytes
 
   # --- truth-in-labeling: the unit is canonical for the modality; it cannot be spoofed ---
   Scenario Outline: The unit is canonicalized from the modality regardless of what was sent
@@ -48,8 +48,8 @@ Feature: Voice/audio offers carry a modality and a truthful billing unit
       | chat     | char      | token          |
       | tts      | token     | char           |
       | tts      | char      | char           |
-      | stt      | second    | second         |
-      | stt      | char      | second         |
+      | stt      | byte      | byte           |
+      | stt      | char      | byte           |
 
   # --- the enum is closed: an unknown modality is rejected, not silently trusted ---
   Scenario Outline: Only known modalities are accepted

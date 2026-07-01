@@ -13,12 +13,12 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
     Then "roger-operator" is detected with modality "tts"
     And its unit is "char"
 
-  Scenario: A local Whisper server is detected as an stt offer billed per second
+  Scenario: A local Whisper server is detected as an stt offer billed per byte
     Given a local server that serves GET /v1/models listing "whisper-large-v3"
     And that server serves POST /v1/audio/transcriptions
     When roger detects local models
     Then "whisper-large-v3" is detected with modality "stt"
-    And its unit is "second"
+    And its unit is "byte"
 
   Scenario: A chat server is still detected as chat (no regression)
     Given a local server that serves GET /v1/models listing "llama3.2"
@@ -64,4 +64,4 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
     And that server serves POST /v1/audio/transcriptions
     When roger detects local models
     Then "voxtral-mini" is detected with modality "stt"
-    And its unit is "second"
+    And its unit is "byte"

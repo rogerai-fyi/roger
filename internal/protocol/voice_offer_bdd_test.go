@@ -143,7 +143,7 @@ func TestVoiceOfferBDD(t *testing.T) {
 			sc.Step(`^the offer unit is "([^"]*)"$`, st.unitIs)
 			sc.Step(`^it is priced as credits per 1,000,000 tokens, exactly as before$`, func() error { return st.unitIs(UnitToken) })
 			sc.Step(`^its price is read as credits per 1,000,000 input characters$`, func() error { return st.unitIs(UnitChar) })
-			sc.Step(`^its price is read as credits per 1,000,000 audio-seconds$`, func() error { return st.unitIs(UnitSecond) })
+			sc.Step(`^its price is read as credits per 1,000,000 audio-bytes$`, func() error { return st.unitIs(UnitByte) })
 			sc.Step(`^the offer is "([^"]*)"$`, st.offerResult)
 			sc.Step(`^each offer keeps its own modality and canonical unit$`, st.eachCanonical)
 			sc.Step(`^the node is discoverable under all three$`, st.allThreeModalities)
