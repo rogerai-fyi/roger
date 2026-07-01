@@ -26,11 +26,14 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -69,14 +72,16 @@ func (b band) isVoice() bool {
 func (b band) isTTS() bool { return b.modality == protocol.ModalityTTS }
 func (b band) isSTT() bool { return b.modality == protocol.ModalitySTT }
 
-// voiceBadge is the tiny modality glyph shown on a voice band row (♪ speak / 🎤 listen), so a
-// voice station is unmistakable in the list. Empty for a chat band.
+// voiceBadge is the tiny MONO modality glyph for a voice band: ♪ (tts, folds to >) / ▽ (stt,
+// "into text", folds to v). Both are one-ink, fixed-width, and ASCII-foldable — the house rule.
+// It is deliberately NOT the color emoji 🎤 (variable-width, no fold, breaks mono+red). Empty for
+// a chat band. Used inside the DJ BOOTH / Listening Post drill-in, never in the top-level list.
 func voiceBadge(b band) string {
 	switch {
 	case b.isTTS():
 		return "♪"
 	case b.isSTT():
-		return "🎤"
+		return "▽"
 	default:
 		return ""
 	}
@@ -378,9 +383,9 @@ func (m model) voicePreviewView(w int) string {
 	kind := "voice"
 	switch {
 	case b.isTTS():
-		kind = "text-to-speech " + voiceBadge(b)
+		kind = "text-to-speech " + voiceBadgeGlyph(b) // folded (♪→>) for a legacy console
 	case b.isSTT():
-		kind = "speech-to-text " + voiceBadge(b)
+		kind = "speech-to-text " + voiceBadgeGlyph(b) // folded (▽→v)
 	}
 	s.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("VOICES") + stDim.Render("  preview") + "\n\n")
 	s.WriteString("  " + stKey.Render(b.model) + stDim.Render("  ·  "+kind) + "\n")
@@ -457,4 +462,359 @@ func httpErrMessage(status int, body []byte) string {
 		return e.Error
 	}
 	return fmt.Sprintf("station error (%d)", status)
+}
+
+// --- THE DJ BOOTH: voice as a DIM footnote off the LLM list, drilling into a CHILD screen ------
+//
+// Founder framing: LLM (chat) bands are THE product. Voice (tts/stt) is additive and must NEVER
+// look co-equal. So voice is NOT a section on the dial — it is a single dim line at the FOOT of
+// THE BAND ("also on air: N voices ▸ [v]"), present ONLY when a voice is actually on air, that
+// drills into THE DJ BOOTH (a child screen; esc returns to THE BAND). The Booth is the tts DJ
+// lineup; stt sits one step further inside it (a "▸ N transcribers" line) → THE LISTENING POST.
+
+// voiceBands returns every VOICE (tts/stt) band, in the model's grouped order. These are excluded
+// from the top-level list (visibleBands) so THE BAND stays pure LLM; the Booth is where they live.
+func (m model) voiceBands() []band {
+	out := make([]band, 0, 4)
+	for _, b := range m.bands {
+		if b.isVoice() {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// voiceBandsOnAir counts the ON-AIR voice bands (tts + stt). It gates the footnote: the "also on
+// air" line appears IFF this is > 0, so a pure-LLM screen (no voice around) shows zero voice
+// affordance at all — voice is invisible until a real voice band exists.
+func (m model) voiceBandsOnAir() int {
+	n := 0
+	for _, b := range m.voiceBands() {
+		if b.online {
+			n++
+		}
+	}
+	return n
+}
+
+// llmBands is the count of LLM (chat) bands — the umbrella "models" the top-level list shows.
+// Voice bands are NOT models in the headline sense (they live in the Booth), so every top-level
+// "N models / N bands" count reads THIS, not len(m.bands), or the number would disagree with the
+// LLM-only rows rendered below it.
+func (m model) llmBands() int {
+	n := 0
+	for _, b := range m.bands {
+		if !b.isVoice() {
+			n++
+		}
+	}
+	return n
+}
+
+// llmBandsOnAir / llmStationsOnAir count the ON-AIR LLM (chat) bands and their stations — the
+// honest "what's live to chat" figures for the header + ambient status, excluding voice.
+func (m model) llmBandsOnAir() int {
+	n := 0
+	for _, b := range m.bands {
+		if !b.isVoice() && b.online {
+			n++
+		}
+	}
+	return n
+}
+
+func (m model) llmStationsOnAir() int {
+	n := 0
+	for _, o := range m.offers {
+		if o.Online && canonModality(o.Modality) == protocol.ModalityChat {
+			n++
+		}
+	}
+	return n
+}
+
+// boothDJs is the DJ BOOTH lineup: the ON-AIR tts voices (the ones a listener can cue/preview),
+// ordered strongest-first so the booth reads like the band list. stt is NOT a DJ (it doesn't
+// speak) — it lives in the Listening Post, reached from the Booth's transcriber line.
+func (m model) boothDJs() []band {
+	out := make([]band, 0, 4)
+	for _, b := range m.voiceBands() {
+		if b.isTTS() && b.online {
+			out = append(out, b)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return bandSignal(out[i]) > bandSignal(out[j]) })
+	return out
+}
+
+// boothTranscribers is the ON-AIR stt lineup surfaced by the Listening Post (info only).
+func (m model) boothTranscribers() []band {
+	out := make([]band, 0, 4)
+	for _, b := range m.voiceBands() {
+		if b.isSTT() && b.online {
+			out = append(out, b)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return bandSignal(out[i]) > bandSignal(out[j]) })
+	return out
+}
+
+// voiceFootnote is the ONE dim line at the foot of THE BAND: "also on air: N voices ▸ [v]". It is
+// the quietest live line on the screen — stDim only, NO ◉ beacon, NO accent red — so voice can
+// never visually rival the LLM bands above it. The caller (browseView) draws it ONLY when
+// voiceBandsOnAir() > 0. `[v]` / ▸ drills into the Booth (a child screen), not a dial stop.
+func (m model) voiceFootnote() string {
+	n := m.voiceBandsOnAir()
+	if n <= 0 {
+		return ""
+	}
+	// plural() yields "1 voice" / "N voices" — the singular reads right for a lone voice.
+	return "  " + stDim.Render("also on air: "+plural(n, "voice")+" "+glyphs.Fold("▸")+" ") + stKey.Render("[v]")
+}
+
+// enterBooth opens THE DJ BOOTH child screen (from the footnote / `v`). It is a NO-OP when no
+// voice is on air (the affordance is absent then), so `v` never lands on an empty voice screen.
+// The Booth is a CHILD of THE BAND: esc returns to modeBrowse, and [1]/section keys go to THE
+// BAND — voice is never the default landing.
+func (m model) enterBooth() (tea.Model, tea.Cmd) {
+	if m.voiceBandsOnAir() <= 0 {
+		return m, nil
+	}
+	m.mode = modeVoiceBooth
+	m.boothCursor = 0
+	m.status = stDim.Render("THE DJ BOOTH — voices on air · " + glyphs.Fold("▶") + " spin a sample · enter to cue")
+	return m, nil
+}
+
+// onVoiceBoothKey drives the DJ BOOTH lineup. esc/←/q returns to THE BAND (this is a child
+// screen). ↑/↓ move the cursor over the DJs. enter CUEs the selected DJ — opening the money-gated
+// preview (startVoicePreview: FREE plays now, PAID holds at the confirm gate; NEVER a chat
+// channel). ▶/space "spins" a sample (the same preview entry — spin=sample, cue=endpoint, both
+// route through the preserved preview panel). `t` drills into THE LISTENING POST (stt info).
+func (m model) onVoiceBoothKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	djs := m.boothDJs()
+	switch k.String() {
+	case "esc", "left", "h", "q":
+		m.mode = modeBrowse
+		m.status = stDim.Render("back to THE BAND")
+		return m, nil
+	case "1":
+		// TUNE IN: THE BAND is the home of TUNE IN; leaving the Booth lands there, never voices.
+		m.mode = modeBrowse
+		return m, nil
+	case "t", "T":
+		// Drill one step further to the quieter stt lineup (info/how-to), if any transcriber is up.
+		if len(m.boothTranscribers()) == 0 {
+			m.status = stDim.Render("no transcribers on air right now")
+			return m, nil
+		}
+		m.mode = modeListeningPost
+		m.boothCursor = 0
+		m.status = stDim.Render("THE LISTENING POST — transcribers (send audio, not chat)")
+		return m, nil
+	case "up", "k":
+		if m.boothCursor > 0 {
+			m.boothCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.boothCursor < len(djs)-1 {
+			m.boothCursor++
+		}
+		return m, nil
+	case "enter", " ", "▶", "p", "P":
+		// Cue (enter) or spin a sample (▶/space/p): both open the preview endpoint on the DJ. The
+		// money gate lives inside startVoicePreview — a PAID DJ holds at the confirm before any
+		// spend; a FREE DJ plays now. A DJ is NEVER chatted.
+		if len(djs) == 0 {
+			return m, nil
+		}
+		i := m.boothCursor
+		if i < 0 || i >= len(djs) {
+			i = 0
+		}
+		return m.startVoicePreview(djs[i])
+	}
+	return m, nil
+}
+
+// onListeningPostKey drives THE LISTENING POST (stt info/how-to). It is INFO ONLY — there is no
+// sample to spin and an stt band is never chatted. esc/← returns to the Booth (its parent).
+func (m model) onListeningPostKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "esc", "left", "h", "q":
+		m.mode = modeVoiceBooth
+		m.boothCursor = 0
+		m.status = stDim.Render("back to THE DJ BOOTH")
+		return m, nil
+	case "1":
+		m.mode = modeBrowse
+		return m, nil
+	}
+	return m, nil
+}
+
+// boothPricePer1k renders a tts DJ's price in its REAL headline unit — $/1k chars — because that
+// is how tts bills (per input char; minIn is the per-1M-char rate). NOT $/1M-out (meaningless for
+// a voice). FREE for a free/free-now DJ.
+func boothPricePer1k(b band) string {
+	if b.free || b.minIn == 0 {
+		return "FREE"
+	}
+	return dollars(b.minIn / 1000) // dollars() already prepends "$"
+}
+
+// voiceBadgeGlyph is the DJ/transcriber modality mark ROUTED through the single voiceBadge source
+// and folded for a legacy console (♪→>, ▽→v) — so the Booth/Post rows use one badge definition and
+// obey the ASCII-fold rule (the DELTA's hard requirement after the un-foldable 🎤).
+func voiceBadgeGlyph(b band) string { return glyphs.Fold(voiceBadge(b)) }
+
+// emDash is the folded "none"/absent mark (—, folds to - on a legacy console). Used for the
+// Booth's not-yet-populated lang/sample cells so they degrade like every other glyph.
+func emDash() string { return glyphs.Fold("—") }
+
+// boothSampleGlyph is ♪ when the DJ published a broker-hosted sample clip, else — (none). The TUI
+// offer does not yet carry sample_url from /discover (that is producer-side plumbing, a separate
+// pass), so today this reads — for every DJ; the column + glyph are in place for when it lands.
+func boothSampleGlyph(b band) string { return emDash() }
+
+// voiceBoothView renders THE DJ BOOTH: a k9s table of the on-air tts DJs
+// (dj · on air · $/1k ch · lang · lat · sample · signal) with the reverse-video cursor row + the
+// honest signal tower, and a dim "▸ N transcribers" line into the Listening Post. It makes its
+// SUBORDINATE, drill-in nature explicit ("esc → THE BAND") so it never reads as a peer section.
+func (m model) voiceBoothView(w int) string {
+	var b strings.Builder
+	djs := m.boothDJs()
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE DJ BOOTH") +
+		stDim.Render(fmt.Sprintf("   %s on air", plural(len(djs), "voice"))) +
+		stDim.Render("   ·   esc "+glyphs.Fold("→")+" THE BAND") + "\n")
+	b.WriteString("  " + stDim.Render("shared voices you can cue "+emDash()+" point your app/CLI at a DJ to speak your text (you never chat it)") + "\n\n")
+
+	if len(djs) == 0 {
+		b.WriteString("  " + stDim.Render("no DJs on air right now.") + "\n")
+	} else {
+		wide := !m.narrow() && w >= 88
+		if wide {
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-22s  %-8s  %-9s  %-6s  %-6s  %-6s  %s",
+				"dj", "on air", "$/1k ch", "lang", "lat", "sample", "signal")) + "\n")
+		} else {
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-18s  %-8s  %-9s", "dj", "on air", "$/1k ch")) + "\n")
+		}
+		tableW := w - 2
+		if tableW < 20 {
+			tableW = 20
+		}
+		cur := m.boothCursor
+		if cur >= len(djs) {
+			cur = len(djs) - 1
+		}
+		if cur < 0 {
+			cur = 0
+		}
+		for i, dj := range djs {
+			sel := i == cur
+			onair := fmt.Sprintf("%d on", dj.stations)
+			price := boothPricePer1k(dj)
+			nameW, priceW := 18, 9
+			if wide {
+				nameW = 22
+			}
+			var sigSignal int
+			var sigTPS float64
+			if dj.cheapest != nil {
+				sigSignal = dj.cheapest.Signal
+				sigTPS = dj.cheapest.TPS
+			}
+			if wide {
+				lat := "-"
+				if dj.cheapest != nil {
+					lat = fmtTtft(dj.cheapest.TTFTMs)
+				}
+				if sel {
+					rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, dj.online, dj.inFlight, dj.stations), 6)
+					plain := fmt.Sprintf("%s  %s  %s  %s  %s  %s  %s",
+						pad(dj.model, nameW), pad(onair, 8), pad(price, priceW), pad(emDash(), 6), pad(lat, 6), pad(boothSampleGlyph(dj), 6), rawSig)
+					b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
+					continue
+				}
+				sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, dj.online, dj.inFlight, dj.stations), 6), sigSignal, sigTPS, dj.online)
+				priceCell := stEmber.Render(pad(price, priceW))
+				if price == "FREE" {
+					priceCell = stLive.Render(pad(price, priceW))
+				}
+				b.WriteString(selCarat(false) + " " + stGold.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
+					stDim.Render(pad(onair, 8)) + "  " + priceCell + "  " + stDim.Render(pad(emDash(), 6)) + "  " +
+					stDim.Render(pad(lat, 6)) + "  " + stDim.Render(pad(boothSampleGlyph(dj), 6)) + "  " + sig + "\n")
+				continue
+			}
+			// Narrow: dj · on air · $/1k ch only (mirrors the chat narrow grid).
+			if sel {
+				plain := fmt.Sprintf("%s  %s  %s", pad(dj.model, nameW), pad(onair, 8), pad(price, priceW))
+				b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
+				continue
+			}
+			priceCell := stEmber.Render(pad(price, priceW))
+			if price == "FREE" {
+				priceCell = stLive.Render(pad(price, priceW))
+			}
+			b.WriteString(selCarat(false) + " " + stGold.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
+				stDim.Render(pad(onair, 8)) + "  " + priceCell + "\n")
+		}
+	}
+
+	// The stt lineup is quieter still: a single dim drill-line into the Listening Post, present
+	// only when a transcriber is on air. stt gets NO top-line affordance of its own.
+	if nt := len(m.boothTranscribers()); nt > 0 {
+		b.WriteString("\n  " + stDim.Render(glyphs.Fold("▸")+" "+plural(nt, "transcriber")+" "+glyphs.Fold("▽")+" listen "+emDash()+" ") +
+			stKey.Render("[t]") + stDim.Render(" the listening post (send audio, not chat)") + "\n")
+	}
+	b.WriteString("\n  " + stDim.Render("rog "+glyphs.Fold("›")+" "+glyphs.Fold("▶")+" spin a sample  ·  enter to cue this DJ (open a voice endpoint)") + "\n")
+	return b.String()
+}
+
+// voiceBoothFooter is the DJ BOOTH key-hint footer: cue is the endpoint verb, spin is the sample.
+func (m model) voiceBoothFooter() string {
+	if m.narrow() {
+		return stDim.Render("↑↓ · " + glyphs.Fold("▶") + " spin · ⏎ cue · t post · esc " + glyphs.Fold("→") + " band")
+	}
+	return stDim.Render("↑↓ pick  ·  " + glyphs.Fold("▶") + "/p spin a sample  ·  ⏎ cue (open endpoint)  ·  t listening post  ·  esc " + glyphs.Fold("→") + " THE BAND")
+}
+
+// listeningPostView renders THE LISTENING POST: an INFO/how-to panel for the on-air stt
+// transcribers. A transcriber turns AUDIO INTO TEXT — it does NOT chat and has no sample to spin,
+// so this is deliberately not a preview surface. esc returns to the Booth.
+func (m model) listeningPostView(w int) string {
+	var b strings.Builder
+	posts := m.boothTranscribers()
+	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE LISTENING POST") +
+		stDim.Render(fmt.Sprintf("   %s on air", plural(len(posts), "transcriber"))) +
+		stDim.Render("   ·   esc "+glyphs.Fold("→")+" THE DJ BOOTH") + "\n\n")
+	b.WriteString("  " + stDim.Render("A transcriber turns AUDIO INTO TEXT. It does not chat and has no sample to spin "+emDash()) + "\n")
+	b.WriteString("  " + stDim.Render("send it an audio file and get a transcript back.") + "\n\n")
+
+	if len(posts) == 0 {
+		b.WriteString("  " + stDim.Render("no transcribers on air right now.") + "\n")
+	} else {
+		b.WriteString("  " + stDim.Render(fmt.Sprintf("%-22s  %-8s  %s", "transcriber", "on air", "~$/min*")) + "\n")
+		for _, p := range posts {
+			price := "FREE"
+			if !p.free && p.minIn > 0 {
+				// stt bills by audio-BYTES (minIn is per-1M-bytes); a per-minute figure is an
+				// ESTIMATE at a nominal bitrate — marked * so it reads as a friendly guess, not a
+				// billed rate. ~128kbps ≈ 960,000 bytes/min. dollars() already prepends "$".
+				price = dollars(p.minIn*960000/1e6) + "*"
+			}
+			b.WriteString("  " + stGold.Render(voiceBadgeGlyph(p)) + " " + stKey.Render(pad(p.model, 20)) + "  " +
+				stDim.Render(pad(fmt.Sprintf("%d on", p.stations), 8)) + "  " + stEmber.Render(price) + "\n")
+		}
+		b.WriteString("  " + stDim.Render("* billed by uploaded audio bytes; per-minute is an estimate at ~128kbps") + "\n")
+	}
+	b.WriteString("\n  " + stDim.Render("how to use "+emDash()+" POST your audio to the endpoint (the app records + uploads; the CLI takes a file):") + "\n")
+	b.WriteString("  " + stKey.Render("roger transcribe --model <name> path/to/audio.m4a") + "\n")
+	return b.String()
+}
+
+// listeningPostFooter is the how-to footer for THE LISTENING POST (no preview keys).
+func (m model) listeningPostFooter() string {
+	return stDim.Render("send audio via the app / API  ·  esc " + glyphs.Fold("→") + " THE DJ BOOTH")
 }

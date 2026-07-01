@@ -281,7 +281,9 @@ func (m model) caratGutter() string {
 // the signal), so there the toast clears to empty.
 func (m model) ambientStatus() string {
 	if m.mode == modeBrowse || m.mode == modeCommand {
-		return fmt.Sprintf("%s · %s on air", plural(len(m.bands), "band"), plural(countOnline(m.offers), "station"))
+		// LLM (chat) bands + their stations only — voice bands live in THE DJ BOOTH, so folding
+		// them into the top-level "N bands · M stations" would over-count what the list shows.
+		return fmt.Sprintf("%s · %s on air", plural(m.llmBands(), "band"), plural(m.llmStationsOnAir(), "station"))
 	}
 	return ""
 }
@@ -432,6 +434,8 @@ const (
 	modePingWorld      // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 	modeLog            // /log: the captured node + broker log buffer (any key closes)
 	modeVoicePreview   // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
+	modeVoiceBooth     // THE DJ BOOTH: the tts voices lineup, a CHILD screen of THE BAND (esc returns). Voice is a dim footnote off the LLM list, never a peer section (voice.go)
+	modeListeningPost  // THE LISTENING POST: the stt info/how-to screen, drilled into FROM the Booth (esc returns to the Booth). Info only — no preview, no chat (voice.go)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -627,6 +631,11 @@ type model struct {
 	previewPath   string
 	previewErr    string
 	previewPlayer audioPlayerFn
+	// boothCursor indexes the DJ BOOTH lineup (the tts voices drill-in). Voice is a DIM footnote
+	// under the LLM band list (voiceFootnote); the footnote / `v` drills into modeVoiceBooth (a
+	// CHILD screen of THE BAND). The Booth is the ONLY place a voice band is surfaced/cued — the
+	// top-level list stays pure LLM. See boothDJs / voiceBoothView.
+	boothCursor int
 	// SCALE: the band browser is built for hundreds/thousands of stations, so the
 	// list is FILTERED + SORTED into a derived view (visibleBands) and only the
 	// VISIBLE window is rendered each frame (virtualized). m.cursor indexes the
@@ -1649,6 +1658,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onLoginKey(k)
 	case modeVoicePreview:
 		return m.onVoicePreviewKey(k)
+	case modeVoiceBooth:
+		return m.onVoiceBoothKey(k)
+	case modeListeningPost:
+		return m.onListeningPostKey(k)
 	case modeBandDetail:
 		// The expanded station log: esc/←/h/i close it back to the list; enter tunes in to
 		// the band (the cheapest station), matching the browse Enter. r re-scans.
@@ -1784,6 +1797,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.freqIn.Focus()
 			m.status = stDim.Render("private freq · esc cancels")
 			return m, textinput.Blink
+		case "v", "V":
+			// v = drill into THE DJ BOOTH (the shared voices lineup), the same target as the dim
+			// "also on air: N voices ▸ [v]" footnote. The Booth is a CHILD screen of THE BAND
+			// (esc returns); voice never sits on the dial as a peer of the LLM bands. NO-OP when
+			// no voice is on air (the footnote/affordance is absent then), so `v` never lands on
+			// an empty voice screen.
+			return m.enterBooth()
 		case "esc":
 			// esc clears a tuned PRIVATE frequency back to OPEN MARKET (re-scan the public
 			// band). With no freq tuned it is a harmless no-op (browse has no other esc use).
@@ -3351,13 +3371,11 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	// VOICE bands (tts/stt) are NOT chat channels: selecting one opens a sample-play/preview
-	// panel, never the chat relay (which would 504 "no station is serving <voice>"). The
-	// divert happens BEFORE the chat-only cost/login/connect path below so a voice band can
-	// never fall through into a chat tune-in.
-	if bd.isVoice() {
-		return m.startVoicePreview(bd)
-	}
+	// VOICE bands (tts/stt) can never reach the chat relay here: visibleBands() STRUCTURALLY
+	// excludes them from the top-level list, so selectedBand() only ever returns an LLM (chat)
+	// band. A voice band is surfaced + cued exclusively from THE DJ BOOTH (voice.go), which
+	// routes to startVoicePreview — never openChannel/modeChat. This is why a consumer can no
+	// longer tune a voice band as chat and hit "504 no station is serving <voice>".
 	if !bd.online || bd.cheapest == nil {
 		// An offline band (incl. the sticky recent station whose node aged out of
 		// /discover): Enter re-scans the band to find it back on air, rather than a
@@ -3977,6 +3995,10 @@ func (m model) View() string {
 		b.WriteString(m.bandDetailView(w))
 	case modeVoicePreview:
 		b.WriteString(m.voicePreviewView(w))
+	case modeVoiceBooth:
+		b.WriteString(m.voiceBoothView(w))
+	case modeListeningPost:
+		b.WriteString(m.listeningPostView(w))
 	case modeFreqEntry:
 		// The PRIVATE FREQUENCY input rides ABOVE the live band browser (the list stays
 		// visible behind it), mirroring the filter strip: a small focused input to enter a
@@ -4728,16 +4750,16 @@ func (m model) compactHeader(w int) string {
 			sep + stKey.Render(o.Model) +
 			sep + stEmber.Render(dollars(o.PriceOut)+"/1M") + priceTierSuffix(o.PriceTier, o.PriceOut)
 	} else {
-		// Browsing: the section + how many stations are on air.
-		on := 0 // on-air BANDS (matches the windowshade deck + the "M bands" total below)
-		for _, bd := range m.bands {
-			if bd.online {
-				on++
-			}
-		}
+		// Browsing: the section + how many LLM bands are on air. Counts LLM (chat) bands only so
+		// the figure matches the windowshade deck (which renders voice-excluded visibleBands);
+		// voices do NOT take deck cells. Instead they fold into a single dim "· N DJs" count
+		// (only when any are on air) — voice's one, quiet compact affordance.
 		summary := "scanning…"
 		if m.scanned {
-			summary = fmt.Sprintf("%d on air · %d bands", on, len(m.bands))
+			summary = fmt.Sprintf("%d on air · %d bands", m.llmBandsOnAir(), m.llmBands())
+			if v := m.voiceBandsOnAir(); v > 0 {
+				summary += " · " + plural(v, "DJ")
+			}
 		}
 		section := "TUNE IN"
 		if m.inShareSection() {
@@ -4893,10 +4915,11 @@ func (m model) header(w int) string {
 			stDim.Render(" · ") + stKey.Render(m.connected.Model) +
 			stDim.Render(" · ") + m.accountTag(true) + hint
 	} else {
-		on := countOnline(m.offers)
+		// LLM (chat) stations on air — matches the LLM-only band list; voice stations are counted
+		// in the Booth (the "also on air: N voices" footnote), not the top-level "N on air".
 		summary := "scanning the band…"
 		if m.scanned {
-			summary = fmt.Sprintf("%d on air", on)
+			summary = fmt.Sprintf("%d on air", m.llmStationsOnAir())
 		}
 		// The beacon in the lockup above already carries the (( • )) motif, so the
 		// state line drops its literal ((•)) prefix - exactly one on-air mark in the
@@ -5130,6 +5153,13 @@ func (m model) visibleBands() []band {
 	q := strings.ToLower(strings.TrimSpace(m.filterApplied))
 	out := make([]band, 0, len(m.bands))
 	for _, b := range m.bands {
+		// LLM PRIMACY (founder): the top-level list is the LLM (chat) bands ONLY. VOICE bands
+		// (tts/stt) are NOT peers here — they live one drill-in deeper (THE DJ BOOTH), surfaced
+		// only via the dim "also on air: N voices ▸ [v]" footnote. Excluding them keeps THE BAND
+		// pure LLM at full weight, so voice can never sit inline-and-equal to the main event.
+		if b.isVoice() {
+			continue
+		}
 		if q != "" && !strings.Contains(strings.ToLower(b.model), q) {
 			continue
 		}
@@ -5152,13 +5182,6 @@ func (m model) visibleBands() []band {
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		// VOICE bands (tts/stt) always group AFTER the chat bands, regardless of the active
-		// sort dial - they are a distinct "Voices" section (previewed, not chat), so a voice
-		// band must never interleave into the chat list even when its signal/price would sort
-		// it higher. Within each group the per-mode order below applies (stable).
-		if a.isVoice() != b.isVoice() {
-			return !a.isVoice() // chat (non-voice) first
-		}
 		switch m.sortMode {
 		case sortCheapest:
 			// offline bands (no live price) sort last; then cheapest out-price first.
@@ -5390,8 +5413,10 @@ func (m model) browseView(w int) string {
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("BAND") +
 			stDim.Render(fmt.Sprintf("  %d", matched)) + sortTag + freqTag + "\n")
 	} else {
+		// "N models on air" counts LLM (chat) bands only — voice bands live in THE DJ BOOTH (the
+		// footnote), so counting them here would disagree with the LLM-only rows below.
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
-			stDim.Render(fmt.Sprintf("   %d models on air", total)) + sortTag + freqTag + "\n")
+			stDim.Render(fmt.Sprintf("   %d models on air", m.llmBands())) + sortTag + freqTag + "\n")
 	}
 	// FILTER line: shown while the live filter input is open (f) OR when a filter /
 	// toggle is applied. It carries the active name filter, the quick toggles, and the
@@ -5471,16 +5496,6 @@ func (m model) browseView(w int) string {
 		bd := vis[i]
 		sel := i == cur
 		connected := connModel != "" && bd.model == connModel
-		// VOICES section divider: visibleBands groups chat bands first, then voice (tts/stt)
-		// bands, so the first voice band marks the section boundary. A thin labelled rule here
-		// makes voice stations a DISTINCT group - they are previewed, never offered as chat -
-		// so a consumer never tunes a voice band as a chat channel (the 504 bug). Drawn only
-		// when the boundary falls inside the rendered window (it rides above the row like the
-		// "↑ more above" hint; it does not consume a band slot).
-		if bd.isVoice() && (i == 0 || !vis[i-1].isVoice()) {
-			b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("VOICES") +
-				stDim.Render("  ♪ speak · 🎤 listen · ⏎ previews a sample (not a chat channel)") + "\n")
-		}
 		// An offline band (no station on air - incl. a sticky recent band whose node aged
 		// out of /discover) reads "offline" in the on-air column, not a bare "-", so it is
 		// obvious you cannot connect to it until a station is up. The status line + the
@@ -5608,6 +5623,17 @@ func (m model) browseView(w int) string {
 	if matched > rows {
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("%d-%d of %d", top+1, end, matched)) + "\n")
 	}
+	// VOICE FOOTNOTE (LLM primacy): one DIM line at the FOOT of the LLM band list —
+	// "also on air: N voices ▸ [v]" — shown ONLY when a voice band is actually on air. It is the
+	// quietest live line on the screen (no ◉, no accent), drilling into THE DJ BOOTH (a child
+	// screen), so voice is additive and can never rival the LLM bands above it. Absent on a
+	// pure-LLM screen. Not drawn while a name filter is active (the filtered LLM view is the
+	// focus) or in compact (voices fold into the header count, never a deck cell).
+	if !m.compact && !m.filterMode && strings.TrimSpace(m.filterApplied) == "" {
+		if foot := m.voiceFootnote(); foot != "" {
+			b.WriteString(foot + "\n")
+		}
+	}
 	return b.String()
 }
 
@@ -5669,15 +5695,6 @@ func (m model) filterLine(matched, total int) string {
 // band is unmistakable even on the cursor row / under NO_COLOR.
 func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
-	// VOICE bands lead with their modality badge (♪ speak / 🎤 listen) so a voice station is
-	// unmistakable even on the cursor row / under NO_COLOR - it is previewed, never chat.
-	if v := voiceBadge(bd); v != "" {
-		label := "speak"
-		if bd.isSTT() {
-			label = "listen"
-		}
-		parts = append(parts, v+" "+label)
-	}
 	if connected {
 		parts = append(parts, glyphOnAir+" connected")
 	}
@@ -5705,15 +5722,6 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 // the ember above-limit warning.
 func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
-	// VOICE bands lead with their modality badge (♪ speak / 🎤 listen): a voice station is a
-	// PREVIEW target, visually distinct from a chat channel so it is never tuned as chat.
-	if v := voiceBadge(bd); v != "" {
-		label := "speak"
-		if bd.isSTT() {
-			label = "listen"
-		}
-		parts = append(parts, stGold.Render(v)+stDim.Render(" "+label))
-	}
 	if connected {
 		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
 	}
@@ -7417,6 +7425,10 @@ func (m model) footer(w int) string {
 	case modeVoicePreview:
 		left = m.voicePreviewFooter()
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeVoiceBooth:
+		return modalFooter(m.effWidth(), m.voiceBoothFooter(), m.accountTag(true), m.status)
+	case modeListeningPost:
+		return modalFooter(m.effWidth(), m.listeningPostFooter(), m.accountTag(true), m.status)
 	case modeFreqEntry:
 		left = stDim.Render("type/paste a private frequency code  ·  ⏎ tune in  ·  esc cancel")
 		if m.narrow() {
@@ -7462,9 +7474,14 @@ func (m model) footer(w int) string {
 		left = stDim.Render("↑↓ pick · enter tune in · i log · esc OPEN MARKET · s sort")
 	} else {
 		// ~ freq is the discoverable PRIVATE FREQUENCY affordance: it opens a small input
-		// to enter a private band's frequency code. The trailing "s" (share) is terse so the
-		// freq affordance AND the ←/→ section hint both fit the 80-col grid (78 cols).
-		left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · s sort · ←/→ section")
+		// to enter a private band's frequency code. `v voices` (the DJ BOOTH drill-in) rides
+		// here ONLY when a voice band is actually on air, so a pure-LLM screen never teaches a
+		// voice key. The trailing "s" (share) is terse so it all fits the 80-col grid.
+		if m.voiceBandsOnAir() > 0 {
+			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · v voices · s sort · ←/→ section")
+		} else {
+			left = stDim.Render("↑↓ pick · enter tune in · i log · f filter · ~ freq · s sort · ←/→ section")
+		}
 	}
 	confMode := ""
 	if m.confidentialOnly {
