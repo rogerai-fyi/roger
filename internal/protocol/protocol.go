@@ -216,6 +216,18 @@ type NodeRegistration struct {
 	// secret code again. It tags the node's band for idempotent re-register; it is NOT
 	// the secret (that is the Crockford code, stored only as a sha256 hash).
 	BandID string `json:"band_id,omitempty"`
+	// Station is the owner's friendly, NON-SENSITIVE broadcast CALLSIGN (e.g. `brave-otter-37`),
+	// the SAME persisted callsign the node id is derived from (agent.ShareNodeID's first segment).
+	// It is the AUTHORITATIVE source the broker uses to namespace this node's PUBLIC voices as
+	// `@<station>/<slug(name)>` (attribution + routing) — the node id's station prefix is NOT
+	// recoverable (slugify is lossy, the station + model slugs share no delimiter, and an
+	// instance>=2 id has a trailing suffix), so the station is carried explicitly rather than
+	// parsed back out. It is a PER-MACHINE broadcast handle (an owner on two machines has two
+	// callsigns, by design). Covered by regSigningBytes (only Sig is excluded), so it cannot be
+	// forged, stripped, or swapped in flight by anyone but the node's key — the broker trusts it
+	// only for an OWNER-BOUND registration. Empty for a node that predates this field or an
+	// anonymous share (no public voice, so no namespace needed). See VOICE-AUDIO-DESIGN.md.
+	Station string `json:"station,omitempty"`
 	// TS (unix seconds) + Sig prove possession of PubKey's private key and bound the
 	// registration to a moment (the broker rejects stale ones to stop replay). Sig is
 	// hex(ed25519 sign over regSigningBytes), verified against PubKey on register.

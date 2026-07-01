@@ -1,7 +1,16 @@
 # Layer (broker view + register validation) spec — public TTS voices are namespaced per
-# operator, attributed to a GitHub handle, and cannot impersonate a chat model or another
-# operator. FOUNDER-APPROVED with 4 binding decisions baked in:
-#   Q1  the voice-name slug comes from the offer's display NAME → @<login>/<slug(Name)>.
+# operator, attributed to a callsign, and cannot impersonate a chat model or another operator.
+#
+# NAMESPACE UPDATE (founder-approved 2026-07-01): the operator handle is now the STATION CALLSIGN
+# (@<station>/<slug>), NOT the GitHub login — the station is auth-agnostic (works for Apple-only
+# owners too) and non-sensitive. This suite predates that switch; it runs with each owner's station
+# set EQUAL to its bare login, so the @<login>/<slug> ids below read as the station-namespaced ids
+# they now are. All the SLUG behavior it exercises (normalization, "/"+"@" forgery in a NAME, the
+# 64-rune cap, the chat-model impersonation prefix denylist, and moderation fail-closed) is keyed
+# on the voice NAME and is UNCHANGED by the switch. Station-specific behavior (Apple-only listing,
+# cross-owner station uniqueness, namespaced ROUTING) lives in features/voice/namespaced_routing.feature.
+# FOUNDER-APPROVED with 4 binding decisions baked in:
+#   Q1  the voice-name slug comes from the offer's display NAME → @<station>/<slug(Name)>.
 #   Q2  PUBLIC voices are SIGNED-IN operators only: an UNBOUND (anonymous) TTS offer is NOT
 #       listed on public /voices. Every public voice is attributable.
 #   Q3  the chat-model impersonation denylist is PREFIX-match, ENV-overridable.

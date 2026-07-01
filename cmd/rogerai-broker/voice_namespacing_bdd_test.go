@@ -153,6 +153,12 @@ func (s *nsState) nodeID(kind, login string) string {
 	return fmt.Sprintf("%s-%s-%s-%d", kind, strings.TrimPrefix(login, "@"), s.salt, s.nodeSeq)
 }
 
+// stationFor is the callsign an owner broadcasts under in this suite: the bare login (a valid
+// callsign slug). This suite predates the login->station switch; keeping station == login means
+// its @<login>/<slug> assertions read as the station-namespaced ids they now are, with the SLUG /
+// impersonation / moderation / forgery coverage (all keyed on the voice NAME, unchanged) intact.
+func stationFor(login string) string { return strings.TrimPrefix(login, "@") }
+
 // registerVoice posts a signed TTS register for `login`, model+name, optional bridge/private.
 // Returns nothing; stores the HTTP status + error message on the state.
 func (s *nsState) registerVoice(login, model, name string, priv2 ...bool) {
@@ -164,7 +170,7 @@ func (s *nsState) registerVoice(login, model, name string, priv2 ...bool) {
 	off := protocol.ModelOffer{Model: model, Modality: protocol.ModalityTTS, Name: name}
 	reg := protocol.NodeRegistration{
 		NodeID: s.nodeID("node", login), TS: time.Now().Unix(),
-		Offers: []protocol.ModelOffer{off}, Private: priv,
+		Offers: []protocol.ModelOffer{off}, Private: priv, Station: stationFor(login),
 	}
 	s.doRegister(reg, &o)
 }
@@ -175,7 +181,7 @@ func (s *nsState) registerVoice(login, model, name string, priv2 ...bool) {
 func (s *nsState) registerTwoOffers(login, name1, name2 string) {
 	o := s.owner(login)
 	reg := protocol.NodeRegistration{
-		NodeID: s.nodeID("node", login), TS: time.Now().Unix(),
+		NodeID: s.nodeID("node", login), TS: time.Now().Unix(), Station: stationFor(login),
 		Offers: []protocol.ModelOffer{
 			{Model: "two-a", Modality: protocol.ModalityTTS, Name: name1},
 			{Model: "two-b", Modality: protocol.ModalityTTS, Name: name2},
@@ -307,7 +313,16 @@ func (s *nsState) localAddr(addr string) error { s.secrets = append(s.secrets, a
 // stored last node id + owner so it lands on the same node (same TOFU binding).
 func (s *nsState) reRegisterLastWithBridge(url string) error {
 	off := protocol.ModelOffer{Model: "m-leak", Modality: protocol.ModalityTTS, Name: "Operator"}
-	reg := protocol.NodeRegistration{NodeID: s.lastNodeID, BridgeURL: url, TS: time.Now().Unix(), Offers: []protocol.ModelOffer{off}}
+	station := ""
+	if s.lastOwner != nil {
+		for login, o := range s.owners {
+			if o.pub == s.lastOwner.pub {
+				station = stationFor(login)
+				break
+			}
+		}
+	}
+	reg := protocol.NodeRegistration{NodeID: s.lastNodeID, BridgeURL: url, TS: time.Now().Unix(), Offers: []protocol.ModelOffer{off}, Station: station}
 	s.doRegister(reg, s.lastOwner)
 	return nil
 }

@@ -304,17 +304,35 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// offer. For each such offer it (1) derives the namespaced voice-name SLUG from the
 	// display Name and rejects an empty-after-normalize slug, (2) rejects a slug that
 	// PREFIX-matches a chat-model family root (impersonation, Q3, env-overridable), and (3)
-	// screens Name+slug+handle through the EXISTING b.mod.screen at this new register-time
+	// screens Name+slug+STATION through the EXISTING b.mod.screen at this new register-time
 	// call site (honoring ROGERAI_REQUIRE_MODERATION fail-closed). The raw o.Model is left
-	// untouched — the slug is a computed view, not a stored field. The duplicate-within-
-	// operator check needs b.nodes and runs under the lock below.
+	// untouched — the slug is a computed view, not a stored field. The station is the public
+	// namespace handle (@<station>/…), normalized from the signed reg.Station. The duplicate-
+	// within-operator + cross-owner station-uniqueness checks need b.nodes and run under the
+	// lock below.
+	station := slugStation(reg.Station)
 	if regOwner.Pubkey != "" {
-		if code, msg := b.screenVoiceOffers(reg.Offers, regOwner.Login); code != 0 {
+		if code, msg := b.screenVoiceOffers(reg.Offers, station); code != 0 {
 			jsonErr(w, code, msg)
 			return
 		}
 	}
 	b.mu.Lock()
+	// CROSS-OWNER STATION UNIQUENESS (anti-impersonation): a station is a PER-MACHINE public
+	// broadcast callsign; the auto-generated one is ~unique but RENAMEABLE, so two DIFFERENT
+	// owners could claim the same public @<station>. Reject a public-voice registration whose
+	// station is already on air under a DIFFERENT owner's public (TTS) voice, so @<station> is
+	// an unambiguous handle for attribution + routing. The SAME owner reusing their own station
+	// (a second model, or an idempotent re-register) is fine — the check keys on a DIFFERENT
+	// owner account. Only fires when this registration actually brings a public voice (a TTS
+	// offer) under a station; a chat-only or station-less node reserves nothing.
+	if regOwner.Pubkey != "" && station != "" && offersTTS(reg.Offers) {
+		if other := b.stationClaimedByOther(station, regOwner.Pubkey); other != "" {
+			b.mu.Unlock()
+			jsonErr(w, http.StatusConflict, fmt.Sprintf("station %q is already in use by another operator - pick a different callsign with `share --node`", station))
+			return
+		}
+	}
 	// DUPLICATE VOICE-NAME (same operator): two of an operator's on-air voices may not
 	// share a normalized slug (deterministic ids; an operator can't shadow themselves). Run
 	// under the lock since it reads the owner's other live nodes. Excludes this node id so
@@ -953,6 +971,18 @@ func offersPriced(offers []protocol.ModelOffer) bool {
 			if !w.Free && (w.In > 0 || w.Out > 0) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// offersTTS reports whether any offer is a TTS (public voice) offer. Only a TTS offer becomes a
+// public /voices entry, so the station-uniqueness reservation fires only for these — a chat/stt
+// node under a station reserves no public callsign.
+func offersTTS(offers []protocol.ModelOffer) bool {
+	for _, o := range offers {
+		if o.Modality == protocol.ModalityTTS {
+			return true
 		}
 	}
 	return false

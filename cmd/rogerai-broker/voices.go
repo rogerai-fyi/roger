@@ -15,13 +15,16 @@ import (
 //
 // NamespacedID + Operator are the per-operator attribution layer (founder-approved). ID stays
 // the RAW o.Model for BACK-COMPAT + routing (the app treats ID as opaque, and pickFor still
-// matches the raw model); NamespacedID is the DUAL-EMITTED @<login>/<slug(Name)> alias for the
-// migration window (Q5); Operator is the bare GitHub login for "Name · by @operator" (no "@").
-// An UNBOUND (anonymous) node's TTS offer is NOT listed at all (Q2: public voices are signed-in
-// operators only), so a listed voice ALWAYS carries an Operator. NamespacedID is present whenever
-// a slug is derivable from the display Name — which is always true for a voice that passed the
-// register guard (an empty name is rejected there); it is simply omitted if a name is absent.
-// Both Operator and NamespacedID are omitempty so anonymous/nameless cases emit no empty field.
+// matches the raw model); NamespacedID is the DUAL-EMITTED @<station>/<slug(Name)> alias and IS
+// ROUTABLE (a caller may pass it as `voice`/`model` and the relay resolves it to this exact node,
+// billing this operator — see resolveNamespacedVoice); Operator is the bare STATION CALLSIGN for
+// "Name · by @operator" (no "@"). The station is the owner's non-sensitive, auth-agnostic broadcast
+// handle (works for Apple-only accounts, unlike a GitHub login), authoritative from the signed
+// reg.Station. An UNBOUND (anonymous) node's TTS offer is NOT listed (Q2: attributable operators
+// only), and a node carrying no station has no public namespace, so a listed voice ALWAYS carries
+// an Operator. NamespacedID is present whenever a slug is derivable from the display Name (always
+// true for a voice that passed the register guard). Both are omitempty so nameless/station-less
+// cases emit no empty field.
 type voiceView struct {
 	ID              string  `json:"id"`
 	NamespacedID    string  `json:"namespaced_id,omitempty"`
@@ -67,12 +70,12 @@ type pendingVoice struct {
 //
 //	phase 1 (under b.mu): collect the address-free voice metadata + node id for every on-air,
 //	  non-banned, non-private TTS offer (banned/private excluded exactly as from /discover).
-//	phase 2 (off b.mu):   resolve each node's operator (AccountOfNode -> OwnerByPubkey ->
-//	  Login); DROP an UNBOUND node's voice (Q2: public voices are signed-in operators only)
-//	  and a durably-owner-banned operator's voices; then DUAL-EMIT the raw id (ID, unchanged
-//	  for routing/back-compat) plus the namespaced alias @<login>/<slug(Name)> (Q5) and the
-//	  bare login as Operator. An empty-after-normalize slug can't be listed (it was rejected
-//	  at register; belt-and-suspenders, we skip it here too).
+//	phase 2 (off b.mu):   resolve each node's operator STATION (operatorStation: owner-bound +
+//	  not owner-banned + a signed reg.Station); DROP an UNBOUND / banned / station-less node's
+//	  voice (Q2: public voices are attributable operators only); then DUAL-EMIT the raw id (ID,
+//	  unchanged for routing/back-compat) plus the ROUTABLE namespaced alias @<station>/<slug(Name)>
+//	  and the bare station as Operator. An empty-after-normalize slug can't be listed (it was
+//	  rejected at register; belt-and-suspenders, we skip it here too).
 //
 // SECURITY: only voice display metadata + price are copied; a node's BridgeURL / hostname /
 // IP / pubkey / node id are NEVER read into the payload (the node id is used only for the
@@ -108,17 +111,17 @@ func (b *broker) computeVoices() any {
 
 	out := []voiceView{} // empty serializes as [] (not null) so the app's array decoder never sees null
 	for _, p := range pending {
-		login, ok := b.operatorLogin(p.nodeID)
+		station, ok := b.operatorStation(p.nodeID)
 		if !ok {
-			continue // UNBOUND (anonymous) node: not publicly listable (Q2)
+			continue // UNBOUND (anonymous) / banned / station-less node: not publicly listable (Q2)
 		}
-		p.v.Operator = login
-		// DUAL-EMIT the namespaced alias when a slug can be derived from the display Name
-		// (Q5). ID stays the raw model regardless (back-compat/routing). A NEW public voice
-		// always has a valid name (the register guard rejects an empty one), so namespaced_id
+		p.v.Operator = station
+		// DUAL-EMIT the namespaced alias @<station>/<slug(Name)> when a slug can be derived from
+		// the display Name. ID stays the raw model regardless (back-compat/routing). A NEW public
+		// voice always has a valid name (the register guard rejects an empty one), so namespaced_id
 		// is present in practice; it is simply omitted if a name is somehow absent.
 		if slug, ok := slugVoiceName(p.v.Name); ok {
-			p.v.NamespacedID = "@" + login + "/" + slug
+			p.v.NamespacedID = "@" + station + "/" + slug
 		}
 		out = append(out, p.v)
 	}
@@ -126,22 +129,27 @@ func (b *broker) computeVoices() any {
 	return map[string]any{"voices": out}
 }
 
-// operatorLogin resolves a node's attributable operator handle: the node's TOFU-bound owner
-// account (AccountOfNode, via the immutable-binding cache) -> the owner's GitHub login
-// (OwnerByPubkey). ok is false when the node is UNBOUND (anonymous), the owner row is
-// missing, the login is empty, OR the owner is durably banned — in every such case the
-// voice is not publicly listable. NO address is touched; only the login string is returned.
-func (b *broker) operatorLogin(nodeID string) (string, bool) {
+// operatorStation resolves a node's public STATION callsign — the per-machine broadcast handle
+// (@<station>/…) a public voice is attributed to + routed by. It requires the node to be
+// OWNER-BOUND (so anonymous supply stays unlisted, Q2), NOT durably owner-banned (a banned
+// operator's voices never appear), AND to carry a station (the signed reg.Station field; a node
+// that predates the field has none, so no public voice). The station is AUTHORITATIVE from the
+// signed registration (regSigningBytes covers it, so it can't be forged/stripped) — the node id's
+// prefix is deliberately NOT parsed back out (slugify is lossy). NO address is touched.
+func (b *broker) operatorStation(nodeID string) (string, bool) {
 	pub, ok := b.cachedOwnerOf(nodeID)
 	if !ok || pub == "" {
-		return "", false
+		return "", false // UNBOUND (anonymous): not publicly listable
 	}
 	if b.isOwnerBanned(pub) {
 		return "", false // a banned operator's voices never appear
 	}
-	o, ok, err := b.db.OwnerByPubkey(pub)
-	if err != nil || !ok || o.Login == "" {
-		return "", false
+	b.mu.Lock()
+	st := b.nodes[nodeID].Station
+	b.mu.Unlock()
+	st = slugStation(st)
+	if st == "" {
+		return "", false // no station carried => no public namespace for this node
 	}
-	return o.Login, true
+	return st, true
 }
