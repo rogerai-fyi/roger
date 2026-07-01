@@ -340,10 +340,15 @@ func detectSharesCmd(extra, key string) tea.Cmd {
 }
 
 type offer struct {
-	NodeID       string  `json:"node_id"`
-	Region       string  `json:"region"`
-	HW           string  `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
-	Model        string  `json:"model"`
+	NodeID string `json:"node_id"`
+	Region string `json:"region"`
+	HW     string `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
+	Model  string `json:"model"`
+	// Modality is what the station DOES: "chat" (the back-compat default), "tts" (speak), or
+	// "stt" (listen), carried from the broker's /discover feed. It is what lets the browser tell
+	// a VOICE band apart from a chat band so a voice station is offered as a PREVIEW, never
+	// (wrongly) as a chat channel that would 504 ("no station is serving <voice>").
+	Modality     string  `json:"modality,omitempty"`
 	PriceIn      float64 `json:"price_in"`
 	PriceOut     float64 `json:"price_out"`
 	PriceTier    int     `json:"price_tier"` // broker's neutral 0..4 $-tier (0 = FREE/unknown)
@@ -426,6 +431,7 @@ const (
 	modeFreqEntry      // [~] small input to ENTER a private frequency code (tune off the OPEN MARKET onto a hidden band)
 	modePingWorld      // [z] / `/ping`: the fullscreen Ping World screensaver; any key wakes back to prevMode
 	modeLog            // /log: the captured node + broker log buffer (any key closes)
+	modeVoicePreview   // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -490,7 +496,12 @@ func (s *LimitStore) clear(model string) {
 // band is one model grouped across stations, with its live cross-station
 // out-price range (semantics A in the design doc).
 type band struct {
-	model    string
+	model string
+	// modality is what the band DOES, canonical: "chat" (the back-compat default), "tts"
+	// (speak), or "stt" (listen). A band groups offers of ONE model, which share a modality;
+	// groupBands sets it. isVoice() (tts/stt) drives BOTH the separate "Voices" section in the
+	// browser AND the preview-instead-of-chat divert in connect().
+	modality string
 	stations int     // online stations serving it
 	minIn    float64 // cheapest active in-price now (the headline $/1M in, mirrors the web)
 	minOut   float64 // cheapest active out-price now
@@ -603,6 +614,19 @@ type model struct {
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
+	// VOICE PREVIEW state (voice.go): selecting a voice (tts/stt) band opens modeVoicePreview
+	// instead of a chat channel. previewBand is the band under preview; previewStage tracks the
+	// panel (confirm-first for a PAID tts, synthesizing, played/saved, error, or the stt info
+	// panel). previewCost/previewPlayed/previewPath/previewErr carry the last synth outcome.
+	// previewPlayer is the INJECTABLE audio player (nil => the real system player) so the
+	// synth+play path is testable without a real audio device. See startVoicePreview.
+	previewBand   band
+	previewStage  int
+	previewCost   float64
+	previewPlayed bool
+	previewPath   string
+	previewErr    string
+	previewPlayer audioPlayerFn
 	// SCALE: the band browser is built for hundreds/thousands of stations, so the
 	// list is FILTERED + SORTED into a derived view (visibleBands) and only the
 	// VISIBLE window is rendered each frame (virtualized). m.cursor indexes the
@@ -1118,6 +1142,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		m.status = stRed.Render(glyphOnAir+" PRIVATE FREQ") + stDim.Render(" tuned · esc for OPEN MARKET")
 		return m, nil
+	case voicePreviewMsg:
+		// A voice sample synth completed (or failed): fold the outcome into the preview panel.
+		// Ignore a late result if the user already left the preview (mode changed).
+		if m.mode != modeVoicePreview {
+			return m, nil
+		}
+		return m.applyVoicePreview(msg), nil
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
@@ -1616,6 +1647,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onAgentKey(k)
 	case modeLogin:
 		return m.onLoginKey(k)
+	case modeVoicePreview:
+		return m.onVoicePreviewKey(k)
 	case modeBandDetail:
 		// The expanded station log: esc/←/h/i close it back to the list; enter tunes in to
 		// the band (the cheapest station), matching the browse Enter. r re-scans.
@@ -3318,6 +3351,13 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// VOICE bands (tts/stt) are NOT chat channels: selecting one opens a sample-play/preview
+	// panel, never the chat relay (which would 504 "no station is serving <voice>"). The
+	// divert happens BEFORE the chat-only cost/login/connect path below so a voice band can
+	// never fall through into a chat tune-in.
+	if bd.isVoice() {
+		return m.startVoicePreview(bd)
+	}
 	if !bd.online || bd.cheapest == nil {
 		// An offline band (incl. the sticky recent station whose node aged out of
 		// /discover): Enter re-scans the band to find it back on air, rather than a
@@ -3935,6 +3975,8 @@ func (m model) View() string {
 		b.WriteString(m.loginView(w))
 	case modeBandDetail:
 		b.WriteString(m.bandDetailView(w))
+	case modeVoicePreview:
+		b.WriteString(m.voicePreviewView(w))
 	case modeFreqEntry:
 		// The PRIVATE FREQUENCY input rides ABOVE the live band browser (the list stays
 		// visible behind it), mirroring the filter strip: a small focused input to enter a
@@ -5110,6 +5152,13 @@ func (m model) visibleBands() []band {
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+		// VOICE bands (tts/stt) always group AFTER the chat bands, regardless of the active
+		// sort dial - they are a distinct "Voices" section (previewed, not chat), so a voice
+		// band must never interleave into the chat list even when its signal/price would sort
+		// it higher. Within each group the per-mode order below applies (stable).
+		if a.isVoice() != b.isVoice() {
+			return !a.isVoice() // chat (non-voice) first
+		}
 		switch m.sortMode {
 		case sortCheapest:
 			// offline bands (no live price) sort last; then cheapest out-price first.
@@ -5422,6 +5471,16 @@ func (m model) browseView(w int) string {
 		bd := vis[i]
 		sel := i == cur
 		connected := connModel != "" && bd.model == connModel
+		// VOICES section divider: visibleBands groups chat bands first, then voice (tts/stt)
+		// bands, so the first voice band marks the section boundary. A thin labelled rule here
+		// makes voice stations a DISTINCT group - they are previewed, never offered as chat -
+		// so a consumer never tunes a voice band as a chat channel (the 504 bug). Drawn only
+		// when the boundary falls inside the rendered window (it rides above the row like the
+		// "↑ more above" hint; it does not consume a band slot).
+		if bd.isVoice() && (i == 0 || !vis[i-1].isVoice()) {
+			b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("VOICES") +
+				stDim.Render("  ♪ speak · 🎤 listen · ⏎ previews a sample (not a chat channel)") + "\n")
+		}
 		// An offline band (no station on air - incl. a sticky recent band whose node aged
 		// out of /discover) reads "offline" in the on-air column, not a bare "-", so it is
 		// obvious you cannot connect to it until a station is up. The status line + the
@@ -5610,6 +5669,15 @@ func (m model) filterLine(matched, total int) string {
 // band is unmistakable even on the cursor row / under NO_COLOR.
 func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
+	// VOICE bands lead with their modality badge (♪ speak / 🎤 listen) so a voice station is
+	// unmistakable even on the cursor row / under NO_COLOR - it is previewed, never chat.
+	if v := voiceBadge(bd); v != "" {
+		label := "speak"
+		if bd.isSTT() {
+			label = "listen"
+		}
+		parts = append(parts, v+" "+label)
+	}
 	if connected {
 		parts = append(parts, glyphOnAir+" connected")
 	}
@@ -5637,6 +5705,15 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 // the ember above-limit warning.
 func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	parts := []string{}
+	// VOICE bands lead with their modality badge (♪ speak / 🎤 listen): a voice station is a
+	// PREVIEW target, visually distinct from a chat channel so it is never tuned as chat.
+	if v := voiceBadge(bd); v != "" {
+		label := "speak"
+		if bd.isSTT() {
+			label = "listen"
+		}
+		parts = append(parts, stGold.Render(v)+stDim.Render(" "+label))
+	}
 	if connected {
 		parts = append(parts, stRed.Render(glyphOnAir+" connected"))
 	}
@@ -5671,7 +5748,7 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 	for _, o := range offers {
 		b, ok := byModel[o.Model]
 		if !ok {
-			b = &band{model: o.Model}
+			b = &band{model: o.Model, modality: canonModality(o.Modality)}
 			byModel[o.Model] = b
 			order = append(order, o.Model)
 		}
@@ -7336,6 +7413,9 @@ func (m model) footer(w int) string {
 		if m.narrow() {
 			left = stDim.Render("⏎ tune · esc · r")
 		}
+		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
+	case modeVoicePreview:
+		left = m.voicePreviewFooter()
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
 	case modeFreqEntry:
 		left = stDim.Render("type/paste a private frequency code  ·  ⏎ tune in  ·  esc cancel")

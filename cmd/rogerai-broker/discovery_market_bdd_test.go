@@ -57,6 +57,19 @@ func (s *dmState) addNode(id, model string, in float64, age time.Duration) {
 	s.b.tps[id] = 120
 }
 
+// addVoiceNode registers a public node on air for one model with the given modality (raw, as a
+// node registers it — "" is the pre-voice back-compat default), so /discover's modality exposure
+// can be asserted for tts/stt/chat/legacy offers.
+func (s *dmState) addVoiceNode(id, model, modality string) {
+	s.b.nodes[id] = protocol.NodeRegistration{
+		NodeID: id,
+		Offers: []protocol.ModelOffer{{Model: model, Modality: modality, PriceIn: 0.20, PriceOut: 0.20}},
+	}
+	s.b.lastSeen[id] = s.now
+	s.b.trust[id] = trustState{probed: true, probeOK: true, ttftMs: 200}
+	s.b.tps[id] = 120
+}
+
 func (s *dmState) getDiscover() {
 	res := s.b.computeDiscover().(map[string]any)
 	s.offers, _ = res["offers"].([]offerView)
@@ -268,6 +281,25 @@ func (s *dmState) marketTierIs(model, tier string) error {
 	return nil
 }
 
+// --- Scenario 8: /discover exposes each offer's modality (voice vs chat) ----
+
+func (s *dmState) nodeOnAirWithModality(model, modality string) error {
+	s.addVoiceNode("n-mod", model, modality)
+	return nil
+}
+
+func (s *dmState) offerCarriesModality(want string) error {
+	s.getDiscover()
+	o, ok := s.offerFor("n-mod", s.b.nodes["n-mod"].Offers[0].Model)
+	if !ok {
+		return fmt.Errorf("the node's offer must be listed on /discover; got %d offers", len(s.offers))
+	}
+	if o.Modality != want {
+		return fmt.Errorf("/discover offer modality = %q, want %q (voice vs chat differentiation)", o.Modality, want)
+	}
+	return nil
+}
+
 func TestDiscoveryMarketBDD(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -295,6 +327,8 @@ func TestDiscoveryMarketBDD(t *testing.T) {
 			sc.Step(`^the fresher node contributes a stronger signal than the staling one$`, st.fresherContributesStronger)
 			sc.Step(`^several nodes on air for "([^"]*)" at out-prices "([^"]*)"$`, st.nodesAtOutPrices)
 			sc.Step(`^"([^"]*)" carries price_tier (\d+)$`, st.marketTierIs)
+			sc.Step(`^a node on air for "([^"]*)" with modality "([^"]*)"$`, st.nodeOnAirWithModality)
+			sc.Step(`^that offer carries modality "([^"]*)"$`, st.offerCarriesModality)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
