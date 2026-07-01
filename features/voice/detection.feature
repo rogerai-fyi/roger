@@ -65,3 +65,34 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
     When roger detects local models
     Then "voxtral-mini" is detected with modality "stt"
     And its unit is "byte"
+
+  # --- BARE voice servers: no /v1/models at all (Kokoro/kokoro-fastapi, most Whisper servers) ---
+  # kokoro-fastapi on :8095 serves POST /v1/audio/speech and GET /health but 404s GET /v1/models,
+  # so the /v1/models gate silently dropped it. A bare voice server must still be detected as ONE
+  # offer synthesized from its capability (there is no model list to enumerate). VOICE-AUDIO-DESIGN.md §4.2.
+  Scenario: A bare TTS server that 404s /v1/models is still detected as one tts offer
+    Given a local server that 404s GET /v1/models
+    And that server serves POST /v1/audio/speech
+    When roger detects local models
+    Then one offer is synthesized with modality "tts"
+    And its unit is "char"
+
+  Scenario: A bare STT server with no /v1/models is still detected as one stt offer
+    Given a local server that 404s GET /v1/models
+    And that server serves POST /v1/audio/transcriptions
+    When roger detects local models
+    Then one offer is synthesized with modality "stt"
+    And its unit is "byte"
+
+  Scenario: A normal chat server with /v1/models is unaffected and the voice probe does not change it
+    Given a local server that serves GET /v1/models listing "llama3.2"
+    And that server serves POST /v1/chat/completions
+    When roger detects local models
+    Then "llama3.2" is detected with modality "chat"
+    And exactly one offer is synthesized
+
+  Scenario: A bare server that 404s /v1/models and serves no audio endpoint is not detected
+    Given a local server that 404s GET /v1/models
+    And that server serves neither audio endpoint
+    When roger detects local models
+    Then no offer is synthesized
