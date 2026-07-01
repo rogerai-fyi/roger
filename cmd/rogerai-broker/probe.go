@@ -365,13 +365,25 @@ func (b *broker) probeOnce() {
 		if !st.nextDue.IsZero() && st.nextDue.After(now) {
 			continue // backed off: not due yet this round
 		}
+		// The active canary is a /v1/chat/completions request, so probe ONLY a CHAT
+		// offer's model. A voice-only (tts/stt) node has no chat endpoint: a chat canary
+		// would relay to its voice upstream, fail liveness, and after probeDeadStreak fails
+		// QUARANTINE the whole node - killing every voice station ("no station on air").
+		// Selecting a chat offer here (empty modality == chat, back-compat) leaves a
+		// voice-only node with model=="" so the guard below skips it entirely: it is never
+		// chat-probed, never penalized, and its liveness rides the passive heartbeat/TTL
+		// (voice-canary probing is a documented follow-up). A mixed chat+voice node is still
+		// probed, on its CHAT model - never the voice one.
 		var model string
 		for _, o := range n.Offers {
+			if offerModality(o.Modality) != protocol.ModalityChat {
+				continue // skip tts/stt offers: the chat canary would false-fail them
+			}
 			model = o.Model
-			break // one probe per node per round is enough for liveness
+			break // one chat probe per node per round is enough for liveness
 		}
 		if model == "" {
-			continue
+			continue // no chat offer (voice-only node): never chat-probe it
 		}
 		cands = append(cands, cand{node: n, model: model}) // owner resolved below, OUTSIDE the locks
 	}
