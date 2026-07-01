@@ -7,10 +7,10 @@
 Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
 
   Scenario: A local TTS server is detected as a tts offer billed per character
-    Given a local server that serves GET /v1/models listing "roger-operator"
+    Given a local server that serves GET /v1/models listing "roger-operator-voice"
     And that server serves POST /v1/audio/speech
     When roger detects local models
-    Then "roger-operator" is detected with modality "tts"
+    Then "roger-operator-voice" is detected with modality "tts"
     And its unit is "char"
 
   Scenario: A local Whisper server is detected as an stt offer billed per byte
@@ -48,9 +48,9 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
     And "whisper-1" is classified "stt"
 
   Scenario: The existing roggentoo-tts server is detected out of the box
-    Given a local server matching roggentoo-tts (GET /v1/models -> "roger-operator", POST /v1/audio/speech)
+    Given a local server matching roggentoo-tts (GET /v1/models -> "roger-operator-voice", POST /v1/audio/speech)
     When roger detects local models
-    Then "roger-operator" is detected with modality "tts"
+    Then "roger-operator-voice" is detected with modality "tts"
 
   Scenario: A key-protected voice server surfaces as needs-key, not "nothing detected"
     Given a local TTS server that answers 401 to an unauthenticated GET /v1/models
