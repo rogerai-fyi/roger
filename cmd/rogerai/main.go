@@ -715,6 +715,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 
 	up := *upstream
 	mdl := *model
+	var foundModality string // detected modality of the shared model (tts/stt); "" = chat
 	ctxLen := *ctx
 	// ctxEstimated tracks whether ctxLen is the real detected window or the last-resort
 	// default. A user-pinned --ctx (ctxLen>0 here) is authoritative, never estimated.
@@ -779,6 +780,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
 		}
+		foundModality = pick.Modality[mdl] // tts/stt/chat for the model we're about to share
 		// Auto-detect --ctx from the upstream when the user didn't pin it: detect.ResolveCtx
 		// prefers the REAL per-model window (Ollama /api/show + /api/ps, llama.cpp /props,
 		// LM Studio /api/v0/models, then /v1/models) and only falls back to the estimated
@@ -894,7 +896,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
 		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
 		// node leaking its exact rig.
-		NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl,
+		NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 	}
