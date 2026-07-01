@@ -200,6 +200,29 @@ func TestWriteTempWAVCreateError(t *testing.T) {
 	}
 }
 
+// A resolved player that FAILS (wedged device, bad wav, timeout) still returns the saved path with
+// played=false and the error — the sample stays on disk so the user can replay it. Injected Run so
+// this is deterministic on a headless runner too (TestSystemPlayerSmoke only reaches this branch on
+// a machine with a real-but-failing player, which is why CI coverage silently dropped below the bar).
+func TestPlayPlayerErrorKeepsFile(t *testing.T) {
+	env := Env{
+		GOOS:     "linux",
+		LookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil },
+		Run:      func(string, ...string) error { return os.ErrPermission },
+	}
+	path, played, err := env.Play([]byte("RIFFbroken"))
+	if err == nil || played {
+		t.Fatalf("a failing player must surface its error with played=false, got played=%v err=%v", played, err)
+	}
+	if path == "" {
+		t.Fatal("the sample must remain on disk (path returned) so the user can retry")
+	}
+	if _, serr := os.Stat(path); serr != nil {
+		t.Fatalf("returned path must exist: %v", serr)
+	}
+	os.Remove(path)
+}
+
 // SystemPlayer is the exported real player used by both the TUI and `roger say`; here we only assert
 // it returns without panicking on tiny bytes (it resolves the host player or falls back to save —
 // on a CI runner with no audio device it saves; either way no crash).
