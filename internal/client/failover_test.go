@@ -32,6 +32,39 @@ func TestRetryable(t *testing.T) {
 	}
 }
 
+// TestDiscoverParsesModality: the client's Offer carries the broker's per-offer modality, so a
+// consumer can tell a VOICE station (tts/stt) apart from a chat station. It hits the REAL fetch
+// path (discover -> JSON decode into []Offer), not an isolated Unmarshal, so the JSON tag is the
+// contract under test. A voice offer reads "tts"/"stt"; a plain chat offer reads "chat".
+func TestDiscoverParsesModality(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/discover" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`{"offers":[
+			{"node_id":"tts-1","model":"eager-puma-54-voice","modality":"tts","price_in":0.2,"online":true},
+			{"node_id":"stt-1","model":"whisper-listener","modality":"stt","price_in":0.2,"online":true},
+			{"node_id":"chat-1","model":"gpt-oss-20b","modality":"chat","price_in":0.2,"online":true}
+		]}`))
+	}))
+	defer srv.Close()
+
+	offers, err := discover(srv.URL)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	got := map[string]string{}
+	for _, o := range offers {
+		got[o.NodeID] = o.Modality
+	}
+	for node, want := range map[string]string{"tts-1": "tts", "stt-1": "stt", "chat-1": "chat"} {
+		if got[node] != want {
+			t.Errorf("offer %s modality = %q, want %q", node, got[node], want)
+		}
+	}
+}
+
 func TestPickAlternative(t *testing.T) {
 	offers := []Offer{
 		{NodeID: "a", Model: "m", PriceIn: 0.5, Online: true, TPS: 100},

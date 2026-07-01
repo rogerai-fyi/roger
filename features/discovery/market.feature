@@ -65,3 +65,20 @@ Feature: Discovery — the public marketplace
       | gpt-oss-20b  | 0.04,0.10,0.10,0.12 | 1    |
       | qwen3-4b     | 0.10,0.10,0.10,0.12 | 2    |
       | niche-model  | 0.10,0.50           | 0    |
+
+  # Each /discover offer carries its MODALITY so the consumer's client + TUI can tell a VOICE
+  # station (tts/stt) apart from a chat station and never (wrongly) offer a voice band as a chat
+  # channel. A voice offer reads its real modality ("tts"/"stt"); a plain chat / pre-voice offer
+  # reads the canonical "chat" (the back-compat empty modality is normalized, never a bare "").
+  # GROUND TRUTH: enrichOffersForNode copies offerModality(o.Modality) into offerView.Modality.
+  Scenario Outline: /discover exposes each offer's modality (voice vs chat)
+    Given a node on air for "<model>" with modality "<registered>"
+    When a consumer GETs /discover
+    Then that offer carries modality "<seen>"
+
+    Examples:
+      | model              | registered | seen |
+      | eager-puma-54-voice | tts        | tts  |
+      | whisper-listener    | stt        | stt  |
+      | gpt-oss-20b         | chat       | chat |
+      | legacy-model        |            | chat |

@@ -28,10 +28,14 @@ type Criteria struct {
 // Offer is one discoverable provider offer (a subset of the broker's /discover
 // view, just the fields selection needs).
 type Offer struct {
-	NodeID       string  `json:"node_id"`
-	Region       string  `json:"region"`
-	HW           string  `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
-	Model        string  `json:"model"`
+	NodeID string `json:"node_id"`
+	Region string `json:"region"`
+	HW     string `json:"hw"` // privacy-bucketed hardware class (multi-gpu/single-gpu/apple/cpu)
+	Model  string `json:"model"`
+	// Modality is what the offer DOES: "chat" (the back-compat default), "tts" (speak), or
+	// "stt" (listen), mirrored from the broker's /discover feed so the client + TUI can tell a
+	// VOICE station apart from a chat station (and never offer a voice band as a chat channel).
+	Modality     string  `json:"modality,omitempty"`
 	PriceIn      float64 `json:"price_in"`
 	PriceOut     float64 `json:"price_out"`
 	Ctx          int     `json:"ctx"`

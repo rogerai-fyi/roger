@@ -27,12 +27,18 @@ func normalizedMarketQuery(r *http.Request) string {
 }
 
 type offerView struct {
-	NodeID string  `json:"node_id"`
-	Region string  `json:"region"`
-	HW     string  `json:"hw"`
-	Model  string  `json:"model"`
-	In     float64 `json:"price_in"`  // active (time-of-use) price right now
-	Out    float64 `json:"price_out"` // active price right now
+	NodeID string `json:"node_id"`
+	Region string `json:"region"`
+	HW     string `json:"hw"`
+	Model  string `json:"model"`
+	// Modality is what the offer DOES: "chat" (the back-compat default), "tts" (speak), or
+	// "stt" (listen). Carried on the public feed so the consumer's client + TUI can tell a
+	// VOICE station apart from a chat station and never (wrongly) offer a voice band as a chat
+	// channel (the "504 no station is serving <voice>" bug). Always canonical (offerModality):
+	// a pre-voice offer's empty modality is normalized to "chat", never a bare "".
+	Modality string  `json:"modality,omitempty"`
+	In       float64 `json:"price_in"`  // active (time-of-use) price right now
+	Out      float64 `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
 	// graded vs the same-model external reference (preferred) or the live per-model
 	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
@@ -128,7 +134,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		}
 		pin, pout, free, _ := o.ActivePrice(now)
 		out = append(out, offerView{
-			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model,
+			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
 			In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
