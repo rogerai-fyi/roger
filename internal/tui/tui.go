@@ -2307,7 +2307,19 @@ func (m *model) toggleShareAt(i int) {
 	if i < 0 || i >= len(m.shareRows) {
 		return
 	}
-	model := m.shareRows[i].model
+	row := m.shareRows[i]
+	model := row.model
+	// A tts voice needs a DJ NAME + a picked VOICE before it can go on air: the broker
+	// 400s a nameless voice offer ("voice name is empty after normalization"), so we BLOCK
+	// it here with a clear prompt instead of firing a doomed register. Only a row that is
+	// currently OFF air (about to start) is gated; stt + chat rows are unaffected.
+	if row.modality == "tts" && m.shares[model] == nil {
+		if vc := m.ctrl.VoiceConfigFor(model); vc.Name == "" || vc.Voice == "" {
+			m.status = stEmber.Render("♪ "+model+" needs a name + voice") +
+				stDim.Render(" - press ") + stKey.Render("p") + stDim.Render(" to set it in the VOICE BOOTH before going on air")
+			return
+		}
+	}
 	res := m.ctrl.ToggleOnAir(model)
 	m.syncShareCache()
 	switch {
@@ -7021,6 +7033,23 @@ func (m model) shareView(w int) string {
 			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
 	}
 
+	// DETAIL BANNER: a full-width contextual line for the SELECTED row (only when
+	// there ARE rows and the cursor is on one), so a terse cell like "set voice…" reads
+	// as its full state + next action. A ▌-barred, dim line matching the SHARE chrome; it
+	// marquee-scrolls only if the detail overflows the available width (static otherwise),
+	// driven by the SAME frame counter as the signal bars (sigFrame — frozen when compact).
+	if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
+		row := m.shareRows[m.shareCursor]
+		detail := m.shareRowDetail(row, m.shares[row.model], m.loggedInState())
+		// The bar + a leading space cost 2 cols; the 2-col left margin costs 2 more.
+		avail := w - 4
+		if avail < 8 {
+			avail = 8
+		}
+		detail = marquee(glyphs.Fold(detail), avail, m.sigFrame())
+		b.WriteString("\n  " + stSelBar.Render("▌") + stDim.Render(" "+detail) + "\n")
+	}
+
 	// Pricing affordance: logged in -> the per-model editor; anonymous -> the clear
 	// "log in to earn" gate (free sharing still works without an account).
 	if dense {
@@ -7098,6 +7127,114 @@ func sharePriceCell(txt string) string {
 		return stLive.Render(txt)
 	}
 	return stEmber.Render(txt)
+}
+
+// shareRowDetail is the PLAIN full-detail line the SHARE view's DETAIL BANNER renders
+// for the selected row: it spells out the row's full state + the next action, so a terse
+// table cell (e.g. "set voice…") becomes readable. It is model-first (LLM-first framing),
+// uses the SAME real row / live-session / VoiceConfig data + helpers the table cells use
+// (sharePrice, VoiceConfigFor, Served/Earnings, dollars, fmtCtx), leads with the shared
+// fold-safe glyphs (♪ tts · ▽ stt · ◉ on air), and returns NO ANSI — the banner applies the
+// chrome. The caller folds the whole line for ASCII terminals.
+//
+//   - tts, no voice → prompts the VOICE BOOTH (p), then enter to go on air
+//   - tts, configured, off air → dj-name (or model) · voice · price/FREE — enter · p to edit
+//   - tts, on air → ◉ on air · name · voice · N served · earn
+//   - stt, off air → transcriber, metered per uploaded byte — enter · p to price
+//   - stt, on air → ◉ on air · N served · earn
+//   - chat, off air → model · ctx — enter to go on air free · p to set a price + schedule
+//   - chat, on air → ◉ on air · N served · out tok · earn
+//
+// A row on a hidden (private) band appends a code-only note so the banner never implies
+// it's on the open market.
+func (m model) shareRowDetail(row shareRow, live *agent.Session, loggedIn bool) string {
+	on := live != nil
+	in, _ := m.sharePrice(row, live)
+
+	// on-air served/earn suffix shared by every modality.
+	onAirTail := func(withTok bool) string {
+		reqs, toks := live.Served()
+		s := fmt.Sprintf("%s on air · %d served", glyphOnAir, reqs)
+		if withTok {
+			s += fmt.Sprintf(" · %d tok", toks)
+		}
+		return s + " · " + dollars(live.Earnings())
+	}
+
+	var detail string
+	switch row.modality {
+	case "tts":
+		switch {
+		case on:
+			vc := m.ctrl.VoiceConfigFor(row.model)
+			name := vc.Name
+			if name == "" {
+				name = row.model
+			}
+			reqs, _ := live.Served()
+			detail = fmt.Sprintf("%s on air · %s · %s · %d served · %s",
+				glyphOnAir, name, vc.Voice, reqs, dollars(live.Earnings()))
+		default:
+			// A voice is READY only with BOTH a DJ name AND a picked voice (the broker 400s a
+			// nameless offer), so an unnamed/voiceless row prompts the VOICE BOOTH (press p),
+			// matching the on-air toggle guard — never an "enter to go on air" it can't honor.
+			vc := m.ctrl.VoiceConfigFor(row.model)
+			if vc.Name == "" || vc.Voice == "" {
+				detail = "♪ " + row.model + " needs a name + voice — press p to set it in the VOICE BOOTH (voice · blend · speed · price), then enter to go on air"
+			} else {
+				price := "FREE"
+				if in > 0 {
+					price = dollars(in/1000) + "/1k ch"
+				}
+				detail = fmt.Sprintf("♪ %s · %s · %s — enter to go on air · p to edit", vc.Name, vc.Voice, price)
+			}
+		}
+	case "stt":
+		if on {
+			detail = onAirTail(false)
+		} else {
+			detail = "▽ " + row.model + " transcriber — enter to go on air (metered per uploaded byte) · p to price"
+		}
+	default: // chat (default/empty modality)
+		if on {
+			detail = onAirTail(true)
+		} else {
+			detail = fmt.Sprintf("%s · %s ctx — enter to go on air free · p to set a price + schedule", row.model, fmtCtx(row.ctx))
+		}
+	}
+
+	// A hidden (private-band) row is code-only: say so, so the banner never reads as open-market.
+	if on && m.sharePrivate[row.model] {
+		detail += " · hidden on a private band (code-only)"
+	}
+	return detail
+}
+
+// marquee is the SHARE banner's gentle horizontal scroller: when text fits in width it is
+// returned UNCHANGED (static by default — the no-op contract); when it overflows, it returns
+// a width-wide window that advances one cell per animation frame, with a small trailing GAP
+// so the line reads as a loop (not a jump-cut) and a short start DWELL so the reader catches
+// the beginning before it scrolls. It counts by RUNE (so a folded-ASCII and a Unicode line
+// both stay width-bounded) and is ANSI-free — pass PLAIN text (fold + strip first), style the
+// result. frame is the model's EXISTING animation counter (sigFrame); no new ticker. The raw
+// wrapping slice is delegated to marqueeWindow (the Ping World ticker's window), so only the
+// banner-specific policy (fit / gap / dwell) lives here.
+func marquee(text string, width, frame int) string {
+	if width <= 0 {
+		return ""
+	}
+	if len([]rune(text)) <= width {
+		return text // fits — static, every frame
+	}
+	const gap = 4   // spaces between the tail and the wrapped-around head
+	const dwell = 3 // frames held at the start each cycle, so the opening is readable
+	loop := text + strings.Repeat(" ", gap)
+	period := len([]rune(loop))
+	start := frame % (period + dwell)
+	if start -= dwell; start < 0 {
+		start = 0 // hold at the beginning for the dwell frames
+	}
+	return marqueeWindow(loop, start, width)
 }
 
 // shareEditorView is the per-model price + time-of-use schedule editor (the

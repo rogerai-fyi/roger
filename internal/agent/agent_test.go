@@ -100,6 +100,37 @@ func TestRegisterStatus(t *testing.T) {
 			t.Errorf("429 reject should surface the broker reason, got %v", err)
 		}
 	})
+	t.Run("400 surfaces the broker body (voice-name reject), not a bare status", func(t *testing.T) {
+		// The broker 400s a nameless voice offer ("voice name is empty after normalization").
+		// The CLI must surface that reason for ANY non-2xx (this was previously hidden behind a
+		// bare "broker returned status 400"), so the operator learns to set a name.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"voice name is empty after normalization"}}`))
+		}))
+		defer srv.Close()
+		_, err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"})
+		if err == nil {
+			t.Fatal("a 400 reject should be an error")
+		}
+		if !strings.Contains(err.Error(), "voice name is empty after normalization") {
+			t.Errorf("400 reject should surface the broker body, got %v", err)
+		}
+		if strings.Contains(err.Error(), "status 400") {
+			t.Errorf("400 reject should NOT read as a bare status, got %v", err)
+		}
+	})
+	t.Run("plain-text non-2xx body is surfaced too", func(t *testing.T) {
+		// A non-JSON error body still beats a bare status (brokerErrMsg falls back to raw bytes).
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "upstream exploded", http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		_, err := register(srv.URL, protocol.NodeRegistration{NodeID: "n1"})
+		if err == nil || !strings.Contains(err.Error(), "upstream exploded") {
+			t.Errorf("a 500 with a plain body should surface it, got %v", err)
+		}
+	})
 }
 
 // TestRegisterSignsAtZeroPrice confirms a FREE (price 0/0) registration still carries
