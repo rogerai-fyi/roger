@@ -12,16 +12,66 @@ import (
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
-// audioRelay handles POST /v1/audio/speech (TTS). Same money spine as relay(), metered by the
-// EXACT input characters (Unicode runes) instead of tokens: because the char count is known up
-// front, the hold equals the final charge (no recount). Routes ONLY to tts nodes; empty input is
-// refused before any hold; a paid voice with no funded wallet is 403; the response is the node's
-// audio bytes with the same X-RogerAI-* meter headers as chat. See VOICE-AUDIO-DESIGN.md.
+// audioSpec parameterizes the shared voice/audio money relay. TTS (/v1/audio/speech) and STT
+// (/v1/audio/transcriptions) run the SAME spine (auth, rate limits, routing, pricing, hold==
+// finalize, settle, meter headers) and differ only in: how the metered unit is counted (input
+// chars vs uploaded bytes), whether there is screenable text, the routed modality, and the
+// response content type. Keeping one core avoids two divergent copies of the money path.
+type audioSpec struct {
+	modality    string // protocol.ModalityTTS | ModalitySTT
+	path        string // upstream Path tag the node's bridge serves (/v1/audio/speech | /transcriptions)
+	contentType string // response Content-Type (audio/mpeg | application/json)
+	// parse pulls the routing model, the exact metered unit count (the BROKER's count), and any
+	// screenable text out of the request. A non-empty badReq is returned as a 400 (empty/invalid
+	// payload) BEFORE any hold; moderate == "" means there is no text to screen (opaque audio).
+	parse func(r *http.Request, body []byte) (model string, units int, moderate, badReq string)
+}
+
+// audioRelay handles POST /v1/audio/speech (TTS): metered by the EXACT input characters (Unicode
+// runes) — the broker's count, never the node's claim — so the hold equals the final charge.
 func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
+	b.audioRelayCore(w, r, audioSpec{
+		modality: protocol.ModalityTTS, path: "/v1/audio/speech", contentType: "audio/mpeg",
+		parse: func(_ *http.Request, body []byte) (string, int, string, string) {
+			var req struct {
+				Model string `json:"model"`
+				Input string `json:"input"`
+			}
+			_ = json.Unmarshal(body, &req)
+			chars := len([]rune(strings.TrimSpace(req.Input)))
+			if chars == 0 {
+				return "", 0, "", "empty input"
+			}
+			return req.Model, chars, req.Input, "" // the input text IS screened
+		},
+	})
+}
+
+// transcribeRelay handles POST /v1/audio/transcriptions (STT): metered by the EXACT uploaded audio
+// BYTES — the broker's own count of the request body (tamper-proof: no audio to parse, no node
+// claim). The model is a ?model= query param so the broker routes without touching the binary body.
+func (b *broker) transcribeRelay(w http.ResponseWriter, r *http.Request) {
+	b.audioRelayCore(w, r, audioSpec{
+		modality: protocol.ModalitySTT, path: "/v1/audio/transcriptions", contentType: "application/json",
+		parse: func(r *http.Request, body []byte) (string, int, string, string) {
+			if len(body) == 0 {
+				return "", 0, "", "empty audio upload"
+			}
+			return r.URL.Query().Get("model"), len(body), "", "" // opaque audio: no text to screen
+		},
+	})
+}
+
+// audioRelayCore is the shared voice money path (see audioSpec). Same spine as relay(): grant/
+// signed auth, rate limits, moderation (when there is text), pickFor modality isolation, resolve-
+// Pricing, HoldFor/settleRequest on the same wallet, multi-instance bus dispatch, node-receipt
+// verification, and the X-RogerAI-* meter headers. Because the unit count is exact + known up
+// front, the hold equals the final charge (no recount). See VOICE-AUDIO-DESIGN.md.
+func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec audioSpec) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 32<<20)) // audio uploads run larger than chat
 
 	// --- Auth: a grant key, else a signed identity (identical to the chat relay). ---
 	gc, gok, gerr := b.resolveGrant(r)
@@ -67,16 +117,11 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var req struct {
-		Model string `json:"model"`
-		Input string `json:"input"`
-	}
-	_ = json.Unmarshal(body, &req)
-
-	// D2: empty / whitespace-only input is refused BEFORE any hold - no charge for nothing.
-	chars := len([]rune(strings.TrimSpace(req.Input)))
-	if chars == 0 {
-		jsonErr(w, http.StatusBadRequest, "empty input")
+	// Parse the routing model + the EXACT metered unit count (chars for TTS, bytes for STT). An
+	// empty / invalid payload is refused BEFORE any hold - no charge for nothing.
+	model, units, moderate, badReq := spec.parse(r, body)
+	if badReq != "" {
+		jsonErr(w, http.StatusBadRequest, badReq)
 		return
 	}
 
@@ -86,24 +131,26 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Moderation screens the text to be spoken, before any node is paid.
-	if res := b.mod.screen(req.Input); !res.allow() {
-		if res.csam {
-			b.preserveCSAM(b.pseudonym(user, "audio"), clientIP(r), res.category, body)
+	// Moderation screens the text (TTS input) before any node is paid; STT audio has no text.
+	if moderate != "" {
+		if res := b.mod.screen(moderate); !res.allow() {
+			if res.csam {
+				b.preserveCSAM(b.pseudonym(user, "audio"), clientIP(r), res.category, body)
+			}
+			jsonErr(w, res.status, res.msg)
+			return
 		}
-		jsonErr(w, res.status, res.msg)
-		return
 	}
 
-	// --- Route to a TTS node ONLY (modality isolation via pickFor). ---
+	// --- Route to a node of THIS modality ONLY (isolation via pickFor). ---
 	requestID := protocol.NewRequestID()
 	b.mu.Lock()
-	node, offer, ok := b.pickFor(req.Model, false, 0, 0, 0, "", nil, nil, nil,
-		pickReq{modality: protocol.ModalityTTS, rng: seededRand(requestID)})
+	node, offer, ok := b.pickFor(model, false, 0, 0, 0, "", nil, nil, nil,
+		pickReq{modality: spec.modality, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
 	if !ok || t == nil {
-		jsonErr(w, http.StatusServiceUnavailable, "no voice station on air for "+req.Model)
+		jsonErr(w, http.StatusServiceUnavailable, "no station on air for "+model)
 		return
 	}
 
@@ -114,7 +161,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 		grantID = gc.grant.ID
 	}
 
-	// Per-1M-char price -> this request's exact cost (chars is the broker's count, never a node
+	// Per-1M-unit price -> this request's exact cost (units is the broker's count, never a node
 	// claim). A price-0 / free-window offer is $0.
 	pin := pricing.in
 	if !pricing.fixed {
@@ -124,18 +171,18 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 			pin = 0
 		}
 	}
-	cost := float64(chars) * pin / 1e6
+	cost := float64(units) * pin / 1e6
 	if pricing.free {
 		cost = 0
 	}
 
-	// A PAID voice with no funded wallet -> 403 (the app shows "Sign in to use this voice").
+	// A PAID request with no funded wallet -> 403 (the app shows "sign in ...").
 	if !gok && cost > 0 && !walletLoggedIn(payer) {
-		jsonErr(w, http.StatusForbidden, "sign in to use this voice")
+		jsonErr(w, http.StatusForbidden, "sign in to use this voice model")
 		return
 	}
 
-	// Hold the exact char cost before dispatch (hold == finalize; count known up front).
+	// Hold the exact unit cost before dispatch (hold == finalize; count known up front).
 	settled := false
 	if cost > 0 {
 		if st, msg := b.monthlyCapCheck(w, payer, cost, time.Now()); st != 0 {
@@ -159,18 +206,16 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	// Dispatch to the node's bridge + await the audio result.
-	job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body, Path: "/v1/audio/speech"}
+	// Dispatch to the node's bridge (tagged with spec.path so it serves the right local endpoint) +
+	// await the result. In multi-instance prod the poller may be on a PEER, so route over the Valkey
+	// bus (mirrors relay()); single-instance falls through to the local job channel.
+	job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body, Path: spec.path}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
-	// Dispatch: in multi-instance prod the node's poller may be on a PEER instance, so route the
-	// job over the Valkey bus (mirrors relay()'s multiInstance branch); single-instance falls
-	// through to the local job channel. Without this, a TTS request on the instance lacking the
-	// node's live poller would 503 in the 2-instance deployment.
 	var busRes <-chan []byte
 	if b.multiInstance && b.shared != nil {
 		ch, cancel, derr := b.busDispatchJob(r.Context(), node.NodeID, job)
@@ -178,7 +223,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 		}
 		if derr != nil {
-			jsonErr(w, http.StatusServiceUnavailable, "voice station busy (no poller free)")
+			jsonErr(w, http.StatusServiceUnavailable, "station busy (no poller free)")
 			return
 		}
 		busRes = ch
@@ -186,7 +231,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 		select {
 		case t.jobs <- job:
 		case <-time.After(3 * time.Second):
-			jsonErr(w, http.StatusServiceUnavailable, "voice station busy")
+			jsonErr(w, http.StatusServiceUnavailable, "station busy")
 			return
 		}
 	}
@@ -209,14 +254,14 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 	select {
 	case res := <-resCh:
 		if res.Status < 200 || res.Status >= 400 || len(res.Body) == 0 {
-			jsonErr(w, http.StatusBadGateway, "voice station returned no audio") // hold refunds via defer
+			jsonErr(w, http.StatusBadGateway, "station returned nothing") // hold refunds via defer
 			return
 		}
 		rec := res.Receipt
 		// Verify the node's signed receipt before it is stored + broker-re-signed (as relay() does),
 		// so an unverified node claim never enters lineage or grant-usage accounting.
 		if !rec.VerifyNode(node.PubKey) {
-			jsonErr(w, http.StatusBadGateway, "voice station receipt failed verification") // hold refunds via defer
+			jsonErr(w, http.StatusBadGateway, "station receipt failed verification") // hold refunds via defer
 			return
 		}
 		rec.PriceIn, rec.GrantID = pin, grantID
@@ -230,7 +275,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 				settled, newBal = true, nb
 			}
 		} else {
-			if b.db != nil { // free path: record a $0 metering receipt for lineage/auditability (as chat does)
+			if b.db != nil { // free path: record a $0 metering receipt for lineage (as chat does)
 				_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec)
 			}
 			settled = true
@@ -240,10 +285,10 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 		if cost > 0 {
 			w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
 		}
-		w.Header().Set("Content-Type", "audio/mpeg")
+		w.Header().Set("Content-Type", spec.contentType)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(res.Body)
 	case <-time.After(nonStreamRelayWait):
-		jsonErr(w, http.StatusGatewayTimeout, "voice station timed out")
+		jsonErr(w, http.StatusGatewayTimeout, "station timed out")
 	}
 }
