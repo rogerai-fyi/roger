@@ -103,10 +103,13 @@ func TestShareViewK9s(t *testing.T) {
 			t.Errorf("share view missing %q:\n%s", want, v)
 		}
 	}
-	// The selection carat marks the cursor row (row 1 = llama) under NO_COLOR.
+	// The selection carat marks the cursor row (row 1 = llama) under NO_COLOR. Match the
+	// TABLE row (model + its OFF-AIR status cell), never the detail banner below the grid,
+	// which also names the selected model.
 	var caratLine string
 	for _, line := range strings.Split(v, "\n") {
-		if strings.Contains(line, "llama-3.3-70b") {
+		p := stripANSI(line)
+		if strings.Contains(p, "llama-3.3-70b") && strings.Contains(p, "OFF-AIR") {
 			caratLine = line
 		}
 	}

@@ -819,15 +819,14 @@ func register(broker string, reg protocol.NodeRegistration) (registerResult, err
 	if resp.StatusCode != http.StatusOK {
 		// Surface a broker rejection instead of silently "succeeding" - otherwise
 		// the node would start poll loops against a registration that didn't take.
+		// Surface the broker's reason verbatim for EVERY non-2xx a user can ACT on: a
+		// 403/401 owner-auth failure, a 429 hard per-owner on-air cap ("station limit
+		// reached: ... take one off air"), AND a 400 offer reject ("voice name is empty
+		// after normalization"). The share UX shows this message so the operator learns the
+		// cause rather than seeing a bare "status 4xx". Falls back to the status when the
+		// body is empty (brokerErrMsg already falls back to raw bytes for a non-JSON body).
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		// Surface the broker's reason verbatim for the rejections a user can ACT on: a
-		// 403/401 owner-auth failure, AND a 429 hard per-owner on-air cap ("station limit
-		// reached: ... take one off air"). The share UX shows this message so the operator
-		// knows to free a slot rather than seeing a bare "status 429".
-		if msg = bytes.TrimSpace(msg); len(msg) > 0 &&
-			(resp.StatusCode == http.StatusForbidden ||
-				resp.StatusCode == http.StatusUnauthorized ||
-				resp.StatusCode == http.StatusTooManyRequests) {
+		if msg = bytes.TrimSpace(msg); len(msg) > 0 {
 			return registerResult{}, fmt.Errorf("broker rejected registration (%d): %s", resp.StatusCode, brokerErrMsg(msg))
 		}
 		return registerResult{}, fmt.Errorf("broker returned status %d", resp.StatusCode)
