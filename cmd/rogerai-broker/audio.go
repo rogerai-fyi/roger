@@ -166,11 +166,44 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 	t.waiters[job.ID] = resCh
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
-	select {
-	case t.jobs <- job:
-	case <-time.After(3 * time.Second):
-		jsonErr(w, http.StatusServiceUnavailable, "voice station busy")
-		return
+
+	// Dispatch: in multi-instance prod the node's poller may be on a PEER instance, so route the
+	// job over the Valkey bus (mirrors relay()'s multiInstance branch); single-instance falls
+	// through to the local job channel. Without this, a TTS request on the instance lacking the
+	// node's live poller would 503 in the 2-instance deployment.
+	var busRes <-chan []byte
+	if b.multiInstance && b.shared != nil {
+		ch, cancel, derr := b.busDispatchJob(r.Context(), node.NodeID, job)
+		if cancel != nil {
+			defer cancel()
+		}
+		if derr != nil {
+			jsonErr(w, http.StatusServiceUnavailable, "voice station busy (no poller free)")
+			return
+		}
+		busRes = ch
+	} else {
+		select {
+		case t.jobs <- job:
+		case <-time.After(3 * time.Second):
+			jsonErr(w, http.StatusServiceUnavailable, "voice station busy")
+			return
+		}
+	}
+	if busRes != nil {
+		go func() {
+			raw, ok := <-busRes
+			if !ok {
+				return
+			}
+			var br protocol.JobResult
+			if json.Unmarshal(raw, &br) == nil {
+				select {
+				case resCh <- br:
+				default:
+				}
+			}
+		}()
 	}
 
 	select {
@@ -180,6 +213,12 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rec := res.Receipt
+		// Verify the node's signed receipt before it is stored + broker-re-signed (as relay() does),
+		// so an unverified node claim never enters lineage or grant-usage accounting.
+		if !rec.VerifyNode(node.PubKey) {
+			jsonErr(w, http.StatusBadGateway, "voice station receipt failed verification") // hold refunds via defer
+			return
+		}
 		rec.PriceIn, rec.GrantID = pin, grantID
 		rec.SignBroker(b.priv)
 		newBal := 0.0
@@ -191,6 +230,9 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 				settled, newBal = true, nb
 			}
 		} else {
+			if b.db != nil { // free path: record a $0 metering receipt for lineage/auditability (as chat does)
+				_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec)
+			}
 			settled = true
 		}
 		w.Header().Set("X-RogerAI-Provider", node.NodeID)
