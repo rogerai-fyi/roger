@@ -44,6 +44,15 @@ type ModelOffer struct {
 	Language  string `json:"language,omitempty"`
 	SampleURL string `json:"sample_url,omitempty"`
 	LatencyMS int    `json:"latency_ms,omitempty"`
+	// Voice is the operator's chosen DEFAULT voice for a tts offer: a single Kokoro id
+	// ("af_heart") OR a weighted blend string ("af_heart:0.5+af_aoede:0.5" — the blend the
+	// operator crafted in the SHARE VOICE BOOTH IS the shared voice). The node injects it into a
+	// /v1/audio/speech request that OMITS `voice` (see agent.serve), so a consumer gets the
+	// operator's picked voice, not the raw local-server default. A caller's explicit `voice` always
+	// wins. Speed is the default playback rate (0.5–2.0) injected the same way. Both are opaque to
+	// the broker — they configure the operator's LOCAL Kokoro, never a node address on the wire.
+	Voice string  `json:"voice,omitempty"`
+	Speed float64 `json:"speed,omitempty"`
 }
 
 // Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the

@@ -436,6 +436,8 @@ const (
 	modeVoicePreview   // a VOICE band (tts/stt): a sample-play/preview panel, NOT a chat channel (voice.go)
 	modeVoiceBooth     // THE DJ BOOTH: the tts voices lineup, a CHILD screen of THE BAND (esc returns). Voice is a dim footnote off the LLM list, never a peer section (voice.go)
 	modeListeningPost  // THE LISTENING POST: the stt info/how-to screen, drilled into FROM the Booth (esc returns to the Booth). Info only — no preview, no chat (voice.go)
+	modeShareVoice     // SHARE VOICE BOOTH: the operator's voice-sharing wizard, reached via `p` on a tts share row — same depth as the chat price editor (voicebooth_share.go)
+	modeVoicePicker    // SHARE VOICE BOOTH picker popover: pick a Kokoro voice (local list + bundled fallback), audition free (voicebooth_share.go)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -636,6 +638,24 @@ type model struct {
 	// CHILD screen of THE BAND). The Booth is the ONLY place a voice band is surfaced/cued — the
 	// top-level list stays pure LLM. See boothDJs / voiceBoothView.
 	boothCursor int
+	// SHARE VOICE BOOTH state (voicebooth_share.go): the operator's voice-sharing wizard, reached
+	// via `p` on a tts share row. vb* are the editor fields (dj-name/voice/blend/speed/lang/price +
+	// focused field + inline error); vp* are the picker popover (fetched-or-bundled voice ids +
+	// live filter + cursor). The result is stored on the shared *node.Controller on save, so the
+	// row's offer carries the operator's picked voice/blend when it goes on air.
+	vbModel       string
+	vbName        string
+	vbVoice       string
+	vbBlend       []blendVoice
+	vbSpeed       float64
+	vbLang        string
+	vbPrice       string
+	vbField       int
+	vbErr         string
+	vpVoices      []string
+	vpFilter      string
+	vpCursor      int
+	vpSourceLocal bool // true when vpVoices came from the LOCAL server (else the bundled fallback)
 	// SCALE: the band browser is built for hundreds/thousands of stations, so the
 	// list is FILTERED + SORTED into a derived view (visibleBands) and only the
 	// VISIBLE window is rendered each frame (virtualized). m.cursor indexes the
@@ -1158,6 +1178,20 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyVoicePreview(msg), nil
+	case boothPreviewMsg:
+		// A SHARE VOICE BOOTH local preview / audition completed: fold the outcome (played/saved/
+		// error) into the booth or picker. Ignore a late result once the operator left the booth.
+		if m.mode != modeShareVoice && m.mode != modeVoicePicker {
+			return m, nil
+		}
+		return m.applyBoothPreview(msg), nil
+	case localVoicesMsg:
+		// The LOCAL GET /v1/audio/voices fetch returned (or missed): refine the picker list, or keep
+		// the bundled fallback. Only meaningful while the picker is open.
+		if m.mode != modeVoicePicker {
+			return m, nil
+		}
+		return m.applyLocalVoices(msg), nil
 	case offersMsg:
 		// A private freq is tuned: ignore the periodic public-market scan so it does not
 		// clobber the freq-only band list (esc / a bare /freq returns to OPEN MARKET).
@@ -1662,6 +1696,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onVoiceBoothKey(k)
 	case modeListeningPost:
 		return m.onListeningPostKey(k)
+	case modeShareVoice:
+		return m.onShareVoiceKey(k)
+	case modeVoicePicker:
+		return m.onVoicePickerKey(k)
 	case modeBandDetail:
 		// The expanded station log: esc/←/h/i close it back to the list; enter tunes in to
 		// the band (the cheapest station), matching the browse Enter. r re-scans.
@@ -2536,9 +2574,13 @@ func (m *model) onShareKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("rename station - type a callsign, ") + stKey.Render("enter") + stDim.Render(" save · ") + stKey.Render("esc") + stDim.Render(" cancel")
 		return m, nil
 	case "p", "e":
-		// Open the price + time-of-use schedule editor for the selected model. This is
-		// EARNING, so it is login-gated: anonymous users get a clear /login prompt
-		// (free sharing stays open to anyone).
+		// Open the pricing editor for the selected model. A VOICE (tts) row opens the VOICE BOOTH
+		// (pick voice/blend/speed + set a $/1k price) instead of the token-price editor — at the
+		// SAME depth (founder DELTA §D2: model-first, no elevation). A chat row opens the ordinary
+		// price + time-of-use schedule editor. Both are EARNING, so login-gated inside their entry.
+		if m.isTTSShareRow(m.shareCursor) {
+			return m.enterVoiceBooth()
+		}
 		return m.enterShareEditor()
 	case "r":
 		// ASYNC re-detect: stay on the table in the loading pose and probe off the event
@@ -3999,6 +4041,10 @@ func (m model) View() string {
 		b.WriteString(m.voiceBoothView(w))
 	case modeListeningPost:
 		b.WriteString(m.listeningPostView(w))
+	case modeShareVoice:
+		b.WriteString(m.shareVoiceView(w))
+	case modeVoicePicker:
+		b.WriteString(m.voicePickerView(w))
 	case modeFreqEntry:
 		// The PRIVATE FREQUENCY input rides ABOVE the live band browser (the list stays
 		// visible behind it), mirroring the filter strip: a small focused input to enter a
@@ -4661,7 +4707,9 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 // never ambiguous that RogerAI does both.
 func (m model) inShareSection() bool {
 	switch m.mode {
-	case modeShare, modeBandCard, modeShareEditor, modeShareSetup:
+	case modeShare, modeBandCard, modeShareEditor, modeShareSetup, modeShareVoice, modeVoicePicker:
+		// The SHARE VOICE BOOTH + its picker are reached FROM the SHARE table (via `p` on a tts
+		// row, same depth as the chat price editor), so they belong to the SHARE section.
 		return true
 	}
 	return false
@@ -6902,13 +6950,36 @@ func (m model) shareView(w int) string {
 		if !on && m.hasSchedule(row) {
 			priceTxt += " ~tou"
 		}
+		// VOICE rows read model-first with a tiny mono modality tag (♪ tts / ▽ stt, fold-safe) so the
+		// operator sees which rows are voices without a separate section (founder DELTA §D2). A tts
+		// row's price is in its REAL unit ($/1k chars); until a voice is picked it prompts "set
+		// voice…" (you can't go on air as a nameless default). An stt row can go straight on air.
+		modelCell := row.model
+		if tag := shareModalityTag(row.modality); tag != "" {
+			modelCell = row.model + "  " + tag
+		}
+		if row.modality == "tts" {
+			vc := m.ctrl.VoiceConfigFor(row.model)
+			if vc.Voice == "" {
+				priceTxt = "set voice…"
+			} else if in > 0 {
+				priceTxt = dollars(in/1000) + "/1k ch"
+			} else {
+				priceTxt = "FREE"
+			}
+		} else if row.modality == "stt" {
+			priceTxt = "FREE ~bytes"
+			if in > 0 {
+				priceTxt = dollars(in) + "/1M B"
+			}
+		}
 
 		// Build the row body as PLAIN text first (cells padded), then color it: a
 		// selected row is one reverse-video bar; an unselected row tints the status
 		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
 		var plain string
 		if dense {
-			plain = fmt.Sprintf("  %-14s  %-8s  %s", pad(row.model, 14), statusTxt, priceTxt)
+			plain = fmt.Sprintf("  %-14s  %-8s  %s", pad(modelCell, 14), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
@@ -6918,7 +6989,7 @@ func (m model) shareView(w int) string {
 				earn = dollars(live.Earnings())
 			}
 			plain = fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-				pad(row.model, nameW), statusTxt, priceTxt, served, outTok, earn)
+				pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
 		}
 
 		if sel {
@@ -6936,7 +7007,7 @@ func (m model) shareView(w int) string {
 			if on {
 				stN = stRed.Render(pad(glyphOnAir+statusTxt, 8))
 			}
-			b.WriteString(selCarat(false) + "  " + stDim.Render(pad(row.model, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
+			b.WriteString(selCarat(false) + "  " + stDim.Render(pad(modelCell, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
 			continue
 		}
 		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render("-")
@@ -6946,7 +7017,7 @@ func (m model) shareView(w int) string {
 			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
 			earn = stEmber.Render(dollars(live.Earnings()))
 		}
-		b.WriteString(selCarat(false) + "  " + stDim.Render(pad(row.model, nameW)) + "  " + st + "  " +
+		b.WriteString(selCarat(false) + "  " + stDim.Render(pad(modelCell, nameW)) + "  " + st + "  " +
 			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
 	}
 
@@ -7007,6 +7078,18 @@ func (m model) bandCardView(w int) string {
 	b.WriteString("\n")
 	line(stKey.Render("c") + stDim.Render(" copy · any key returns (not shown again)"))
 	return b.String()
+}
+
+// shareModalityTag is the tiny mono modality tag for a SHARE voice row (♪ tts / ▽ stt, fold-safe:
+// ♪→>, ▽→v). Empty for a chat/back-compat row. It routes the glyph through the SINGLE
+// voiceBadgeForModality source so the SHARE table + the consumer Booth share ONE ♪/▽ definition and
+// the ASCII-fold house rule.
+func shareModalityTag(modality string) string {
+	badge := voiceBadgeForModality(modality)
+	if badge == "" {
+		return ""
+	}
+	return glyphs.Fold(badge) + " " + modality
 }
 
 // sharePriceCell tints a price cell: FREE live-green, a priced cell ember.
@@ -7429,6 +7512,10 @@ func (m model) footer(w int) string {
 		return modalFooter(m.effWidth(), m.voiceBoothFooter(), m.accountTag(true), m.status)
 	case modeListeningPost:
 		return modalFooter(m.effWidth(), m.listeningPostFooter(), m.accountTag(true), m.status)
+	case modeShareVoice:
+		return modalFooter(m.effWidth(), m.shareVoiceFooter(), m.accountTag(true), m.status)
+	case modeVoicePicker:
+		return modalFooter(m.effWidth(), m.voicePickerFooter(), m.accountTag(true), m.status)
 	case modeFreqEntry:
 		left = stDim.Render("type/paste a private frequency code  ·  ⏎ tune in  ·  esc cancel")
 		if m.narrow() {
