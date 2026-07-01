@@ -54,7 +54,13 @@
     .catch(function () { /* offline / logged-out: leave the static link as-is */ });
 
   function mount(acct, anchor) {
+    // GitHub sessions carry a username; Apple sessions carry the email (or the
+    // literal "apple") in github_login with github_id 0. Only a real GitHub
+    // username gets the @-prefix and the github.com avatar - an email is shown
+    // as-is (never "@a@b.com", never a 404 avatar).
     var login = acct.github_login || "you";
+    var isEmail = login.indexOf("@") !== -1;
+    var display = isEmail ? login : "@" + login;
 
     // wrapper keeps the same slot in the utility cluster
     var wrap = document.createElement("div");
@@ -66,9 +72,9 @@
     btn.className = "acctmenu__btn";
     btn.setAttribute("aria-haspopup", "menu");
     btn.setAttribute("aria-expanded", "false");
-    btn.setAttribute("aria-label", "Account menu for @" + login);
+    btn.setAttribute("aria-label", "Account menu for " + display);
 
-    if (acct.github_login || acct.github_id) {
+    if (acct.github_id || (acct.github_login && !isEmail)) {
       var img = document.createElement("img");
       img.className = "acctmenu__avatar";
       // No crossOrigin: github.com/<login>.png 302-redirects to a CDN with no CORS
@@ -89,7 +95,7 @@
     }
     var handle = document.createElement("span");
     handle.className = "acctmenu__handle";
-    handle.textContent = "@" + login;
+    handle.textContent = display;
     btn.appendChild(handle);
 
     var caret = document.createElement("span");
