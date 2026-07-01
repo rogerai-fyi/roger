@@ -5,12 +5,38 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
+
+// audioTTSMaxChars is the per-request TTS input cap (Unicode runes). Default ~10k
+// (a multi-minute read; roger say + the TUI preview send sentences, far below it).
+// <=0 disables the cap. ROGERAI_TTS_MAX_CHARS overrides.
+func audioTTSMaxChars() int {
+	if n, err := strconv.Atoi(os.Getenv("ROGERAI_TTS_MAX_CHARS")); err == nil {
+		return n // including <=0 (disabled) - an explicit operator choice
+	}
+	return 10000
+}
+
+// newAudioSem builds the in-flight-audio semaphore: a buffered channel whose depth is
+// the max concurrent TTS+STT relays per instance (default 8; 8 x ~40 MiB worst case
+// fits the 1 GB instance beside the brain). <=0 disables the bound (nil semaphore).
+// ROGERAI_AUDIO_INFLIGHT overrides.
+func newAudioSem() chan struct{} {
+	n := 8
+	if v, err := strconv.Atoi(os.Getenv("ROGERAI_AUDIO_INFLIGHT")); err == nil {
+		n = v
+	}
+	if n <= 0 {
+		return nil
+	}
+	return make(chan struct{}, n)
+}
 
 // audioSpec parameterizes the shared voice/audio money relay. TTS (/v1/audio/speech) and STT
 // (/v1/audio/transcriptions) run the SAME spine (auth, rate limits, routing, pricing, hold==
@@ -71,6 +97,20 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	// In-flight bound: a non-blocking slot acquire caps concurrent 32 MiB audio relays
+	// so they can't stack N-deep and exhaust the small instance's memory. A full pool
+	// sheds load with 503 + Retry-After (the client retries) rather than OOMing. Released
+	// on EVERY return path below via defer. nil semaphore = disabled.
+	if b.audioSem != nil {
+		select {
+		case b.audioSem <- struct{}{}:
+			defer func() { <-b.audioSem }()
+		default:
+			w.Header().Set("Retry-After", "2")
+			jsonErr(w, http.StatusServiceUnavailable, "voice relay saturated - retry shortly")
+			return
+		}
+	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 32<<20)) // audio uploads run larger than chat
 
 	// --- Auth: a grant key, else a signed identity (identical to the chat relay). ---
@@ -122,6 +162,14 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	model, units, moderate, badReq := spec.parse(r, body)
 	if badReq != "" {
 		jsonErr(w, http.StatusBadRequest, badReq)
+		return
+	}
+	// TTS input cap: refuse an over-long synth BEFORE any hold or dispatch (units is the
+	// exact rune count for TTS, so the cap and the meter agree). Only TTS has a screenable
+	// text unit to bound this way; STT is bounded by the 32 MiB body cap above.
+	if spec.modality == protocol.ModalityTTS && b.ttsMaxChars > 0 && units > b.ttsMaxChars {
+		jsonErr(w, http.StatusRequestEntityTooLarge,
+			"input too long: "+strconv.Itoa(units)+" characters exceeds the "+strconv.Itoa(b.ttsMaxChars)+"-character limit")
 		return
 	}
 
