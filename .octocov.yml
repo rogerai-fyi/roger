@@ -17,11 +17,14 @@ codeToTestRatio:
 # PR comment with the coverage table + diff vs the base branch.
 comment:
   if: is_pull_request
-# On main: persist the report + badge to the gh-pages branch (badge committed to docs/).
+# On main: persist the report as a GitHub Actions artifact (octocov-report); PRs diff
+# against it. The github://...@gh-pages datastore was permanently broken ("sub : invalid
+# argument" on every push, masked by continue-on-error) - the artifact store needs no
+# branch coupling and no extra publish step.
 report:
   if: is_default_branch
   datastores:
-    - github://rogerai-fyi/roger@gh-pages
+    - artifact://${GITHUB_REPOSITORY}
 diff:
   datastores:
-    - github://rogerai-fyi/roger@gh-pages
+    - artifact://${GITHUB_REPOSITORY}
