@@ -18,20 +18,17 @@ package tui
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/audio"
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -269,120 +266,15 @@ func (m model) applyVoicePreview(msg voicePreviewMsg) model {
 
 // --- audio playback (injectable; save-to-file fallback) -----------------------
 
-// audioPlayerFn plays a WAV sample and reports the fallback save path (when it could not play,
-// so the caller can tell the user where the file is), whether it played, and any error. Injected
-// into the model (m.previewPlayer) so tests stub it without a real audio device.
-type audioPlayerFn func(wav []byte) (savedPath string, played bool, err error)
+// audioPlayerFn is the injected preview player (m.previewPlayer) so tests stub it without a real
+// audio device. It is the shared internal/audio seam: the cross-platform player + save-to-file
+// fallback lives in ONE place (internal/audio), reused by both this preview and `roger say`.
+type audioPlayerFn = audio.PlayerFn
 
-// audioPlayTimeout bounds a preview so a wedged player can never block the UI indefinitely (a few
-// seconds of speech + slack). On timeout the sample is already on disk (the user can replay it).
-const audioPlayTimeout = 20 * time.Second
-
-// audioEnv is the runtime environment for the real player, with the OS + exec seams injectable so
-// the per-OS resolution + fallback are unit-testable without spawning a process.
-type audioEnv struct {
-	goos     string
-	lookPath func(string) (string, error)            // exec.LookPath
-	run      func(name string, args ...string) error // start + wait (bounded)
-}
-
-// systemAudioPlayer is the real player: it resolves a CLI audio player for the host OS and plays
-// the sample, falling back to saving the wav when none exists.
-func systemAudioPlayer(wav []byte) (string, bool, error) {
-	return defaultAudioEnv().play(wav)
-}
-
-func defaultAudioEnv() audioEnv {
-	return audioEnv{
-		goos:     runtime.GOOS,
-		lookPath: exec.LookPath,
-		run: func(name string, args ...string) error {
-			ctx, cancel := context.WithTimeout(context.Background(), audioPlayTimeout)
-			defer cancel()
-			return exec.CommandContext(ctx, name, args...).Run()
-		},
-	}
-}
-
-// play writes the sample to a temp .wav and runs the resolved system player on it. WAV (not mp3)
-// is requested for the LOCAL preview because it is universally + trivially playable with no
-// lame/ffmpeg: darwin (afplay) and windows (.NET SoundPlayer) both play it built-in, guaranteed.
-// With NO player available (only possible on linux/other) it degrades gracefully: the file is left
-// on disk and (path, played=false) is returned so the caller surfaces the path — it NEVER crashes
-// and (via the run timeout) NEVER blocks indefinitely. On a player error the path is still
-// returned (the sample is on disk to retry).
-//
-// SHELL-OUT ONLY (no in-process oto/beep): roger ships CGO_ENABLED=0 static across linux/darwin/
-// windows × amd64/arm64, so an in-process audio lib would break the cross-compiled release build.
-func (e audioEnv) play(wav []byte) (string, bool, error) {
-	path, err := writeTempWAV(wav)
-	if err != nil {
-		return "", false, err
-	}
-	name, args := resolveAudioPlayer(e.goos, e.lookPath, path)
-	if name == "" {
-		return path, false, nil // no player: saved for the user, no crash
-	}
-	if err := e.run(name, args...); err != nil {
-		return path, false, err
-	}
-	return path, true, nil
-}
-
-// resolveAudioPlayer returns the player command + full args to play `file` on goos, or ("",nil)
-// when linux/other has NOTHING on PATH (-> the save-to-file fallback). darwin + windows always
-// resolve to a GUARANTEED built-in player (afplay / .NET SoundPlayer via powershell), so they
-// never hit the fallback. lookPath is injected so the linux chain is testable without a real PATH.
-func resolveAudioPlayer(goos string, lookPath func(string) (string, error), file string) (string, []string) {
-	switch goos {
-	case "darwin":
-		// afplay ships with macOS — always present, plays wav natively.
-		return "afplay", []string{file}
-	case "windows":
-		// The built-in .NET SoundPlayer plays wav SYNCHRONOUSLY (blocks until done, no duration
-		// math, no external deps) — always present on Windows. Args are split (never a raw string).
-		ps := fmt.Sprintf("(New-Object System.Media.SoundPlayer '%s').PlaySync()", file)
-		return "powershell", []string{"-NoProfile", "-Command", ps}
-	default:
-		// linux (and any other unix): first on PATH wins, then degrade.
-		for _, p := range linuxAudioPlayers {
-			if _, err := lookPath(p.cmd); err == nil {
-				return p.cmd, append(append([]string{}, p.flags...), file)
-			}
-		}
-		return "", nil
-	}
-}
-
-// linuxAudioPlayers is the ordered candidate chain for linux/other (first available wins), with
-// each player's quiet / no-video / auto-exit flags so the preview plays once and returns. paplay/
-// aplay/play are common and play wav directly; mpv/ffplay are heavier but ubiquitous fallbacks.
-var linuxAudioPlayers = []struct {
-	cmd   string
-	flags []string
-}{
-	{"paplay", nil},
-	{"aplay", []string{"-q"}},
-	{"play", []string{"-q"}}, // sox
-	{"mpv", []string{"--no-video", "--really-quiet"}},
-	{"ffplay", []string{"-nodisp", "-autoexit", "-loglevel", "quiet"}},
-}
-
-// writeTempWAV writes the sample bytes to a uniquely-named temp .wav and returns its path.
-func writeTempWAV(wav []byte) (string, error) {
-	f, err := os.CreateTemp("", "rogerai-voice-*.wav")
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.Write(wav); err != nil {
-		f.Close()
-		return "", err
-	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	return f.Name(), nil
-}
+// systemAudioPlayer is the real player, delegated to the shared internal/audio package (the same
+// impl `roger say` uses). It resolves a CLI audio player for the host OS and plays the WAV sample,
+// falling back to saving the file when none exists.
+func systemAudioPlayer(wav []byte) (string, bool, error) { return audio.SystemPlayer(wav) }
 
 // --- rendering ----------------------------------------------------------------
 

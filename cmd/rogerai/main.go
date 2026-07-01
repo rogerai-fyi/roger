@@ -498,6 +498,10 @@ func dispatch(cfg config, args []string) error {
 		return cmdTopup(cfg, args[1:])
 	case "use", "connect", "tune":
 		return cmdUse(cfg, args[1:])
+	case "say", "speak":
+		return cmdSay(cfg, args[1:])
+	case "voices":
+		return cmdVoices(cfg, args[1:])
 	case "share":
 		return cmdShare(cfg, args[1:])
 	case "limits":
@@ -1732,6 +1736,8 @@ func usage() {
   roger --ping                  full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
+  roger voices                list on-air voices, cheapest first
+  roger say --voice <v> "..." speak a line through a voice and play it
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
