@@ -1,5 +1,5 @@
-# PROPOSED SPEC - no step definitions or production code yet: approve this spec first
-# (spec-first workflow, CLAUDE.md step 3). Written from the 2026-07-01 launch audit.
+# APPROVED by the founder 2026-07-01 (spec-first workflow step 3) - step definitions +
+# implementation may now proceed. Written from the 2026-07-01 launch audit.
 #
 # Spec-first behavior contract closing P2-5 (cross-instance confidential attestation
 # trust) - open since the 2026-06-30 review, re-confirmed by the 2026-07-01 audit:
@@ -56,8 +56,7 @@ Feature: The cross-instance mirror carries the attestation verdict, never the ra
     Then B records it as NOT confidential
 
   Scenario: a poisoned mirror record cannot confer the tier
-    Given the shared-store record for "sneaky" is hand-edited to Confidential=true
-      but A's verdict for it was false
+    Given the shared-store record for "sneaky" is hand-edited to Confidential=true but A's verdict for it was false
     When A re-registers or re-attests "sneaky"
     Then the shared-store record is overwritten back to the verdict (false)
     # (Full tamper-proofing of the store itself is the rung-2 signed verdict record.)

@@ -291,6 +291,13 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, attErr.Error())
 		return
 	}
+	// P2-5: from here on, reg carries the broker's VERDICT, never the node's raw claim.
+	// Everything downstream (b.nodes, the durable UpsertNode record, and above all the
+	// MULTI-INSTANCE mirror put) stores this reg - if the claim survived here, a node
+	// that FAILED attestation under require=0 would be mirrored Confidential=true and
+	// a peer instance would grant it the ◆ tier. The signature was already verified
+	// above, so mutating the struct after the check is safe.
+	reg.Confidential = confidential
 	// Owner-authored web-Console price/schedule overrides take PRECEDENCE over (seed)
 	// the node-supplied offers, and survive this re-register because we re-apply them
 	// here on every register, before reg.Offers lands in b.nodes + is persisted. Done
@@ -558,8 +565,16 @@ func (b *broker) reattestSweep(stop <-chan struct{}) {
 // expireStaleAttestations drops confidential status for any node whose last
 // attestation is older than ttl. Split out so tests can drive it deterministically.
 func (b *broker) expireStaleAttestations(now time.Time, ttl time.Duration) {
+	// P2-5: a lapsed node's downgrade must reach the MULTI-INSTANCE mirror too, or a
+	// peer keeps granting the ◆ tier until the node happens to re-register. Collect the
+	// re-publishes under the lock, put them outside it (network I/O).
+	type republish struct {
+		id      string
+		raw     []byte
+		private bool
+	}
+	var toPublish []republish
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	for node, at := range b.attestedAt {
 		if now.Sub(at) > ttl {
 			if b.confidential[node] {
@@ -567,6 +582,23 @@ func (b *broker) expireStaleAttestations(now time.Time, ttl time.Duration) {
 			}
 			b.confidential[node] = false
 			delete(b.attestedAt, node)
+			if reg, ok := b.nodes[node]; ok && reg.Confidential {
+				reg.Confidential = false
+				b.nodes[node] = reg
+				if b.multiInstance && b.shared != nil {
+					if raw, err := json.Marshal(reg); err == nil {
+						toPublish = append(toPublish, republish{node, raw, reg.Private})
+					}
+				}
+			}
+		}
+	}
+	b.mu.Unlock()
+	for _, p := range toPublish {
+		if p.private {
+			_ = b.shared.putPrivateNode(p.id, p.raw, livenessTTL)
+		} else {
+			_ = b.shared.putNode(p.id, p.raw, livenessTTL)
 		}
 	}
 }
@@ -904,6 +936,10 @@ func (b *broker) rehydrateNodes() {
 		if reg.NodeID == "" {
 			reg.NodeID = rec.NodeID
 		}
+		// P2-5: the persisted Reg may predate the verdict normalization (or carry a raw
+		// claim from an old release); rec.Confidential is the broker's stored VERDICT, so
+		// re-hydrate memory + the mirror re-publish below with the verdict, never the claim.
+		reg.Confidential = rec.Confidential
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential

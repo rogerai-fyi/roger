@@ -1,5 +1,5 @@
-# PROPOSED SPEC - no step definitions or production code yet: approve this spec first
-# (spec-first workflow, CLAUDE.md step 3). Written from the 2026-07-01 launch audit.
+# APPROVED by the founder 2026-07-01 (spec-first workflow step 3) - step definitions +
+# implementation may now proceed. Written from the 2026-07-01 launch audit.
 #
 # Spec-first behavior contract for the voice relay RESOURCE guardrails the 2026-07-01
 # launch audit called out: (1) TTS input has no explicit length cap - a 32 MiB body of
