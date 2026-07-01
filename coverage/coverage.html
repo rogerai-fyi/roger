@@ -1689,7 +1689,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) <span class=
         }
 
         // Dispatch to the node's bridge + await the audio result.
-        <span class="cov7" title="8">job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body}
+        <span class="cov7" title="8">job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body, Path: "/v1/audio/speech"}
         resCh := make(chan protocol.JobResult, 1)
         t.mu.Lock()
         t.waiters[job.ID] = resCh
@@ -6816,13 +6816,13 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="15">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="16">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov2" title="14">{
+                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="15">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
@@ -10112,7 +10112,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
         tq.probeOK = alive
         if alive </span><span class="cov2" title="6">{
                 tq.probeFails = 0
-                if ttftMs &gt; 0 </span><span class="cov2" title="4">{
+                if ttftMs &gt; 0 </span><span class="cov2" title="5">{
                         tq.ttftMs = ewma(tq.ttftMs, ttftMs, 0.3)
                 }</span>
                 <span class="cov2" title="6">if tps &gt; 0 </span><span class="cov2" title="6">{
@@ -10156,8 +10156,8 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 }
 
 // ewma updates an EWMA, seeding it on the first sample (cur == 0).
-func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="12">{
-        if cur &lt;= 0 </span><span class="cov3" title="11">{
+func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="13">{
+        if cur &lt;= 0 </span><span class="cov3" title="12">{
                 return sample
         }</span>
         <span class="cov1" title="1">return alpha*sample + (1-alpha)*cur</span>
@@ -12423,10 +12423,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3662">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5331">{
+        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5329">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5976">{
+        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5977">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11823">return rangeMin, rangeMax, true</span>
@@ -12582,7 +12582,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13591">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1351">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1375">{
                         best = i
                 }</span>
         }
@@ -12615,7 +12615,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1227">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1251">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -18178,6 +18178,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 
         <span class="cov5" title="19">up := *upstream
         mdl := *model
+        var foundModality string // detected modality of the shared model (tts/stt); "" = chat
         ctxLen := *ctx
         // ctxEstimated tracks whether ctxLen is the real detected window or the last-resort
         // default. A user-pinned --ctx (ctxLen&gt;0 here) is authoritative, never estimated.
@@ -18242,11 +18243,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
                 <span class="cov2" title="3">if mdl == "" &amp;&amp; len(pick.Models) &gt; 0 </span><span class="cov2" title="2">{
                         mdl = pick.Models[0]
                 }</span>
+                <span class="cov2" title="3">foundModality = pick.Modality[mdl] // tts/stt/chat for the model we're about to share
                 // Auto-detect --ctx from the upstream when the user didn't pin it: detect.ResolveCtx
                 // prefers the REAL per-model window (Ollama /api/show + /api/ps, llama.cpp /props,
                 // LM Studio /api/v0/models, then /v1/models) and only falls back to the estimated
                 // default - flagging that so the offer is honest about a guess.
-                <span class="cov2" title="3">if ctxLen == 0 </span><span class="cov2" title="3">{
+                if ctxLen == 0 </span><span class="cov2" title="3">{
                         ctxLen, ctxEstimated = detect.ResolveCtx(pick.Ctx, mdl)
                 }</span>
                 // Remember the verified upstream (and any key it needed) so a custom-port /
@@ -18357,7 +18359,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
                 // HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
                 // NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
                 // node leaking its exact rig.
-                NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl,
+                NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
                 PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
                 Confidential: *confidential, Private: *private, Schedule: sched,
         }
@@ -19200,9 +19202,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="481">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="483">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="478">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="480">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -19899,6 +19901,13 @@ type Config struct {
         Confidential bool
         Private      bool // go on air as a PRIVATE band (hidden; freq-code only)
         Schedule     []protocol.PriceWindow
+        // Voice: the offer's modality + display metadata (set only when sharing a voice/audio model,
+        // from the detected server; empty modality = chat, so a normal LLM share is unchanged).
+        Modality  string // "" / "chat" | "tts" | "stt"
+        Name      string // display name for the /voices picker (e.g. "1950s Operator")
+        Language  string
+        SampleURL string
+        LatencyMS int
 }
 
 var (
@@ -20030,7 +20039,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1229">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="1128">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -20181,7 +20190,9 @@ func Start(cfg Config) (*Session, error) <span class="cov3" title="5">{
                 cfg.Parallel = 4
         }</span>
 
-        <span class="cov3" title="5">offer := protocol.ModelOffer{Model: cfg.Model, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut, Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule}
+        <span class="cov3" title="5">offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
+                Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
+                Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS}
         reg := protocol.NodeRegistration{
                 NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
                 Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
@@ -20240,23 +20251,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="1212">{
+        for </span><span class="cov9" title="1112">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="3">
+                case &lt;-sess.stop:<span class="cov2" title="4">
                         return</span> // /share went off air
-                default:<span class="cov9" title="1209"></span>
+                default:<span class="cov9" title="1108"></span>
                 }
-                <span class="cov9" title="1209">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="1108">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="4">{
+                if err != nil </span><span class="cov2" title="3">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="1205">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1198">{
+                <span class="cov9" title="1105">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="1098">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -20368,8 +20379,8 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) <s
 // operator's OWN upstream key can never leave the machine in a job result. A no-op
 // when no key is configured (and never called with an empty key, which would match
 // everywhere).
-func redactUpstreamKey(b []byte, key string) []byte <span class="cov3" title="10">{
-        if key == "" </span><span class="cov3" title="5">{
+func redactUpstreamKey(b []byte, key string) []byte <span class="cov4" title="12">{
+        if key == "" </span><span class="cov3" title="7">{
                 return b
         }</span>
         <span class="cov3" title="5">return bytes.ReplaceAll(b, []byte(key), []byte("[redacted]"))</span>
@@ -20477,17 +20488,24 @@ func parseUsage(line []byte) (prompt, completion int, ok bool) <span class="cov3
         <span class="cov1" title="2">return 0, 0, false</span>
 }
 
-func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult <span class="cov2" title="3">{
-        upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(job.Body))
+func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult <span class="cov3" title="5">{
+        // The broker tags a voice job with the upstream Path to hit (e.g. /v1/audio/speech); serve it
+        // against the SAME local server at that path, derived from the chat upstream's base. An empty
+        // or chat Path leaves cfg.Upstream unchanged (a normal LLM share is untouched).
+        target := cfg.Upstream
+        if p := job.Path; p != "" &amp;&amp; !strings.HasSuffix(p, "/chat/completions") </span><span class="cov1" title="1">{
+                target = strings.TrimSuffix(cfg.Upstream, "/chat/completions") + strings.TrimPrefix(p, "/v1")
+        }</span>
+        <span class="cov3" title="5">upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(job.Body))
         upReq.Header.Set("Content-Type", "application/json")
         if cfg.UpstreamKey != "" </span><span class="cov1" title="1">{
                 upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
         }</span>
-        <span class="cov2" title="3">resp, err := up.Do(upReq)
+        <span class="cov3" title="5">resp, err := up.Do(upReq)
         if err != nil </span><span class="cov1" title="1">{
                 return protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway, Body: json.RawMessage(`{"error":"upstream unreachable"}`)}
         }</span>
-        <span class="cov1" title="2">defer resp.Body.Close()
+        <span class="cov2" title="4">defer resp.Body.Close()
         respBody, _ := io.ReadAll(resp.Body)
         // Belt-and-suspenders: never relay the node's own upstream key, in case the
         // upstream echoed the request Authorization header into its response body.
@@ -25602,6 +25620,7 @@ type Pricing struct {
 // needs, so a multi-endpoint box shares each model against the right backend.
 type ShareRow struct {
         Model        string
+        Modality     string // "" / chat | tts | stt — the detected kind, carried onto the offer
         Ctx          int
         CtxEstimated bool
         Upstream     string
@@ -25762,7 +25781,7 @@ func (c *Controller) loadRows(found []detect.Found, persist bool) <span class="c
                         // One ctx resolver shared with the CLI/TUI: the real detected window when the
                         // upstream reported it, else the estimated default (flagged).
                         ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
-                        rows = append(rows, ShareRow{Model: mdl, Ctx: ctxLen, CtxEstimated: ctxEst, Upstream: up, UpstreamKey: srv.Key})</span>
+                        rows = append(rows, ShareRow{Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst, Upstream: up, UpstreamKey: srv.Key})</span>
                 }
         }
         // Saved onboarding model first, so the obvious default is at the cursor.
@@ -25894,7 +25913,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
         node := agent.ShareNodeID(c.station, row.Model, 0)
         return agent.Start(agent.Config{
                 Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
-                Region: "home", HW: c.hw, Model: row.Model,
+                Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
                 PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
                 Private: private, Schedule: SchedToProtocol(p.Windows),
         })</span>
@@ -26113,11 +26132,11 @@ type Totals struct {
 
 func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov2" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="1">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov6" title="7">
+        default:<span class="cov6" title="8">
                 return "connecting"</span>
         }
 }
@@ -26521,7 +26540,7 @@ func pad3(n int) string <span class="cov7" title="1009">{
                 n = 0
         }</span>
         <span class="cov7" title="1009">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="126">{
+        for len(s) &lt; 3 </span><span class="cov5" title="145">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1009">return s</span>
@@ -26529,17 +26548,17 @@ func pad3(n int) string <span class="cov7" title="1009">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2012">{
-        if n == 0 </span><span class="cov1" title="2">{
+        if n == 0 </span><span class="cov2" title="5">{
                 return "0"
         }</span>
-        <span class="cov8" title="2010">var buf [12]byte
+        <span class="cov8" title="2007">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5909">{
+        for n &gt; 0 </span><span class="cov9" title="5887">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2010">return string(buf[i:])</span>
+        <span class="cov8" title="2007">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -26938,6 +26957,10 @@ type Job struct {
         ID   string          `json:"id"`
         User string          `json:"user"`
         Body json.RawMessage `json:"body"` // the raw OpenAI request
+        // Path is the upstream endpoint the node's bridge POSTs Body to, relative to the upstream
+        // base: empty (or "/v1/chat/completions") = chat, back-compat; "/v1/audio/speech" for TTS.
+        // One bridge can thus serve chat + voice from the same node.
+        Path string `json:"path,omitempty"`
 }
 
 // JobResult is what the node POSTs back after serving a Job.
@@ -28171,8 +28194,8 @@ func sortProvider(rows []ProviderModelMetric) <span class="cov7" title="6">{
 }
 
 func sortUsage(rows []UsageModelMetric) <span class="cov7" title="6">{
-        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov8" title="8">{
-                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov7" title="7">{
+        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov7" title="7">{
+                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov7" title="6">{
                         return rows[i].SpendUSD &gt; rows[j].SpendUSD
                 }</span>
                 <span class="cov1" title="1">return rows[i].Model &lt; rows[j].Model</span>
@@ -41869,10 +41892,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="817">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="669">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="668">{
                 return s
         }</span>
-        <span class="cov3" title="148">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="149">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -43545,11 +43568,11 @@ func (m model) headlineBadge() string <span class="cov1" title="6">{
                 return stRed.Render(glyphOnAir + " ON AIR")
         }</span>
         <span class="cov1" title="5">switch m.share.Link() </span>{
-        case agent.LinkOnAir:<span class="cov1" title="3">
+        case agent.LinkOnAir:<span class="cov1" title="2">
                 return stRed.Render(glyphOnAir + " ON AIR")</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return stEmber.Render(glyphOffAir + " RECONNECTING")</span>
-        default:<span class="cov1" title="1">
+        default:<span class="cov1" title="2">
                 return stDim.Render(glyphOffAir + " connecting…")</span>
         }
 }
@@ -43569,7 +43592,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="349">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="353">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -43648,7 +43671,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -43699,7 +43722,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -46011,11 +46034,11 @@ func (s *Server) routes() <span class="cov6" title="45">{
         files := http.FileServer(http.FS(sub))
         // The shell at / and its assets are static and carry no node data, so they load
         // without a token; everything under /api does require it (see auth()).
-        s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov4" title="11">{
+        s.mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) </span><span class="cov4" title="10">{
                 if r.URL.Path == "/" </span><span class="cov2" title="4">{
                         r.URL.Path = "/console.html"
                 }</span>
-                <span class="cov4" title="11">files.ServeHTTP(w, r)</span>
+                <span class="cov4" title="10">files.ServeHTTP(w, r)</span>
         })
         <span class="cov6" title="45">s.mux.Handle("/assets/", http.StripPrefix("/assets/", files))
         s.mux.HandleFunc("/api/state", s.auth(s.handleState))
@@ -46069,16 +46092,16 @@ func (s *Server) auth(h http.HandlerFunc) http.HandlerFunc <span class="cov10" t
 // localhostOnly rejects any request whose peer is not a loopback address — defense in
 // depth on top of the 127.0.0.1 bind (e.g. a misconfigured reverse proxy).
 func (s *Server) localhostOnly(next http.Handler) http.Handler <span class="cov6" title="83">{
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov7" title="98">{
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) </span><span class="cov7" title="97">{
                 host, _, err := net.SplitHostPort(r.RemoteAddr)
                 if err != nil </span><span class="cov1" title="1">{
                         host = r.RemoteAddr
                 }</span>
-                <span class="cov7" title="98">if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() </span><span class="cov1" title="1">{
+                <span class="cov7" title="97">if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() </span><span class="cov1" title="1">{
                         http.Error(w, "console is localhost-only", http.StatusForbidden)
                         return
                 }</span>
-                <span class="cov7" title="97">next.ServeHTTP(w, r)</span>
+                <span class="cov7" title="96">next.ServeHTTP(w, r)</span>
         })
 }
 
