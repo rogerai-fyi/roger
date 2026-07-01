@@ -1,5 +1,5 @@
-# PROPOSED SPEC - no step definitions or production code yet: approve this spec first
-# (spec-first workflow, CLAUDE.md step 3). Written from the 2026-07-01 launch audit.
+# APPROVED by the founder 2026-07-01 (spec-first workflow step 3) - step definitions +
+# implementation may now proceed. Written from the 2026-07-01 launch audit.
 #
 # Spec-first behavior contract for STT OUTPUT screening - the 2026-07-01 launch audit's
 # moderation gap: /v1/audio/transcriptions accepts opaque audio (nothing to screen going
@@ -62,8 +62,7 @@ Feature: STT transcription output is screened before it reaches the consumer
     Given the screen classifies the node's transcription as unsafe category "S4"
     When a consumer transcribes that audio
     Then the response is 451
-    And the uploaded AUDIO and the transcription are preserved encrypted with the
-      consumer pseudonym and observed IP, report_state "queued"
+    And the uploaded AUDIO and the transcription are preserved encrypted with the consumer pseudonym and observed IP, report_state "queued"
 
   # ===========================================================================
   # 3. Fail modes (D2)
