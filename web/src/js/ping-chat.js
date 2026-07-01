@@ -320,8 +320,25 @@
     sendBtn.disabled = true;
     deck.classList.add("is-transmitting");
     setState("transmit");
-    setBanner("transmitting...", true);
-    var thinking = addLine("ping", "...");
+    // While waiting, roll a descriptive radio-themed status instead of a bare "..." - the
+    // broker may scan for a free on-air station before the DJ answers (up to ~60s when
+    // nothing's on air), so the wait should read as "searching", not "stuck". Cycles until
+    // the reply lands (cleared in the settle .then below). Static first line under reduced-motion.
+    var WAIT_MSGS = [
+      "Searching for an available free station...",
+      "Scanning the band for a clear signal...",
+      "Hailing on-air operators...",
+      "Still tuning you in - hang tight...",
+      "Patching you through to the DJ...",
+    ];
+    setBanner(WAIT_MSGS[0], true);
+    var thinking = addLine("ping", WAIT_MSGS[0]);
+    var wi = 0;
+    var waitTimer = REDUCED ? 0 : setInterval(function () {
+      wi = (wi + 1) % WAIT_MSGS.length;
+      thinking.textContent = WAIT_MSGS[wi];
+      setBanner(WAIT_MSGS[wi], true);
+    }, 4000);
     history.push({ role: "user", content: text });
 
     fetch(BROKER + "/concierge", {
@@ -351,6 +368,7 @@
         log.scrollTop = log.scrollHeight;
       })
       .then(function () {
+        if (waitTimer) clearInterval(waitTimer); // stop the "searching..." roll
         sending = false;
         sendBtn.disabled = false;
         deck.classList.remove("is-transmitting");
