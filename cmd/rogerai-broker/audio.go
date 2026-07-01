@@ -160,7 +160,7 @@ func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Dispatch to the node's bridge + await the audio result.
-	job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body}
+	job := protocol.Job{ID: requestID, User: b.pseudonym(user, node.NodeID), Body: body, Path: "/v1/audio/speech"}
 	resCh := make(chan protocol.JobResult, 1)
 	t.mu.Lock()
 	t.waiters[job.ID] = resCh

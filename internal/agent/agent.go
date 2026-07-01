@@ -52,6 +52,13 @@ type Config struct {
 	Confidential bool
 	Private      bool // go on air as a PRIVATE band (hidden; freq-code only)
 	Schedule     []protocol.PriceWindow
+	// Voice: the offer's modality + display metadata (set only when sharing a voice/audio model,
+	// from the detected server; empty modality = chat, so a normal LLM share is unchanged).
+	Modality  string // "" / "chat" | "tts" | "stt"
+	Name      string // display name for the /voices picker (e.g. "1950s Operator")
+	Language  string
+	SampleURL string
+	LatencyMS int
 }
 
 var (
@@ -334,7 +341,9 @@ func Start(cfg Config) (*Session, error) {
 		cfg.Parallel = 4
 	}
 
-	offer := protocol.ModelOffer{Model: cfg.Model, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut, Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule}
+	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
+		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
+		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS}
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
@@ -631,7 +640,14 @@ func parseUsage(line []byte) (prompt, completion int, ok bool) {
 }
 
 func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
-	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(job.Body))
+	// The broker tags a voice job with the upstream Path to hit (e.g. /v1/audio/speech); serve it
+	// against the SAME local server at that path, derived from the chat upstream's base. An empty
+	// or chat Path leaves cfg.Upstream unchanged (a normal LLM share is untouched).
+	target := cfg.Upstream
+	if p := job.Path; p != "" && !strings.HasSuffix(p, "/chat/completions") {
+		target = strings.TrimSuffix(cfg.Upstream, "/chat/completions") + strings.TrimPrefix(p, "/v1")
+	}
+	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(job.Body))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
