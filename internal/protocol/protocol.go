@@ -38,6 +38,12 @@ type ModelOffer struct {
 	// receipt: a guess is never displayed as a measured fact.
 	CtxEstimated bool          `json:"ctx_estimated,omitempty"`
 	Schedule     []PriceWindow `json:"schedule,omitempty"`
+	// Voice metadata (optional; set only for voice offers) — surfaced by GET /voices for the app
+	// picker (BROKER-VOICE-API.md). Passive display labels ONLY; a node address is never here.
+	Name      string `json:"name,omitempty"`
+	Language  string `json:"language,omitempty"`
+	SampleURL string `json:"sample_url,omitempty"`
+	LatencyMS int    `json:"latency_ms,omitempty"`
 }
 
 // Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the
