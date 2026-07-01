@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"os"
 	"strconv"
 	"time"
 
@@ -333,11 +334,30 @@ CREATE TABLE IF NOT EXISTS rogerai.pending_holds (
     placed_at  BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS pending_holds_placed_at ON rogerai.pending_holds (placed_at);`
 
+// poolLimits reads the connection-pool bounds from the environment. The production
+// cluster is a small shared managed Postgres (~22 usable backends across every app on
+// it), so the default keeps 2 broker instances well under the cap: 8 open per instance,
+// recycled every 30m so a managed-DB failover doesn't strand dead conns in the pool.
+func poolLimits() (maxOpen int, lifetime time.Duration) {
+	maxOpen, lifetime = 8, 30*time.Minute
+	if n, err := strconv.Atoi(os.Getenv("ROGERAI_DB_MAX_CONNS")); err == nil && n > 0 {
+		maxOpen = n
+	}
+	if d, err := time.ParseDuration(os.Getenv("ROGERAI_DB_CONN_LIFETIME")); err == nil && d > 0 {
+		lifetime = d
+	}
+	return maxOpen, lifetime
+}
+
 func NewPostgres(dsn string) (*Postgres, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
+	maxOpen, lifetime := poolLimits()
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxOpen)
+	db.SetConnMaxLifetime(lifetime)
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
