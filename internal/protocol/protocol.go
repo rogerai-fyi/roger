@@ -420,12 +420,18 @@ type Job struct {
 	Path string `json:"path,omitempty"`
 }
 
-// JobResult is what the node POSTs back after serving a Job.
+// JobResult is what the node POSTs back after serving a Job. Body is a plain []byte (NOT
+// json.RawMessage) because a served result may be OPAQUE BINARY — a WAV/MP3 from /v1/audio/speech —
+// not JSON. A []byte is base64-encoded on the wire by encoding/json, so ANY bytes (binary audio or a
+// JSON chat body) survive the node -> /agent/result -> broker round-trip byte-for-byte. A
+// json.RawMessage here would make json.Marshal FAIL on a non-JSON body (it validates its content as
+// JSON), which silently posted an EMPTY result and hung the consumer (see internal/protocol
+// jobresult_test.go + features/voice/binary_relay.feature).
 type JobResult struct {
-	ID      string          `json:"id"`
-	Status  int             `json:"status"`
-	Body    json.RawMessage `json:"body"`
-	Receipt UsageReceipt    `json:"receipt"`
+	ID      string       `json:"id"`
+	Status  int          `json:"status"`
+	Body    []byte       `json:"body"`
+	Receipt UsageReceipt `json:"receipt"`
 }
 
 // NewRequestID returns a short random hex id.
