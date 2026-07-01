@@ -830,6 +830,7 @@ type Pricing = node.Pricing
 // model against the server that actually serves it - not a single shared upstream.
 type shareRow struct {
 	model        string
+	modality     string // "" / chat | tts | stt — carried onto the offer so a voice shares as a voice
 	ctx          int
 	ctxEstimated bool   // ctx is the estimated default (no real window detected), not measured
 	upstream     string // the normalized chat-completions URL backing THIS row's model
@@ -2172,7 +2173,7 @@ func (m *model) loadShareRows(found []detect.Found) {
 func (m *model) setShareRows(rows []shareRow) {
 	nr := make([]node.ShareRow, len(rows))
 	for i, r := range rows {
-		nr[i] = node.ShareRow{Model: r.model, Ctx: r.ctx, CtxEstimated: r.ctxEstimated, Upstream: r.upstream, UpstreamKey: r.upstreamKey}
+		nr[i] = node.ShareRow{Model: r.model, Modality: r.modality, Ctx: r.ctx, CtxEstimated: r.ctxEstimated, Upstream: r.upstream, UpstreamKey: r.upstreamKey}
 	}
 	m.ctrl.SetRows(nr)
 	m.syncShareCache()
@@ -2190,7 +2191,7 @@ func (m *model) syncShareCache() {
 	nr := m.ctrl.Rows()
 	rows := make([]shareRow, len(nr))
 	for i, r := range nr {
-		rows[i] = shareRow{model: r.Model, ctx: r.Ctx, ctxEstimated: r.CtxEstimated, upstream: r.Upstream, upstreamKey: r.UpstreamKey}
+		rows[i] = shareRow{model: r.Model, modality: r.Modality, ctx: r.Ctx, ctxEstimated: r.CtxEstimated, upstream: r.Upstream, upstreamKey: r.UpstreamKey}
 	}
 	m.shareRows = rows
 	m.shares = m.ctrl.Sessions()
