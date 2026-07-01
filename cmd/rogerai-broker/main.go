@@ -568,6 +568,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/agent/result", b.agentResult) // node posts the served result
 	mux.HandleFunc("/agent/stream", b.agentStream) // node streams SSE chunks (streaming)
 	mux.HandleFunc("/discover", b.discover)
+	mux.HandleFunc("/voices", b.voices) // PUBLIC: on-air voice stations for the app picker (metadata only, no node addresses)
 	mux.HandleFunc("/balance", b.balance)
 	mux.HandleFunc("/me", b.me)                                        // consumer dashboard: balance, spend, recent
 	mux.HandleFunc("/earnings", b.earnings)                            // owner dashboard: accrued earnings, recent
