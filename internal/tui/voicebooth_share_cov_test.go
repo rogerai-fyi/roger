@@ -431,10 +431,15 @@ func TestPickerViewRenders(t *testing.T) {
 	m.vpVoices = []string{"af_heart", "am_onyx", "bf_emma", "bm_george"}
 	m.vpCursor = 0
 	out := stripANSI(m.voicePickerView(100))
-	for _, want := range []string{"PICK A VOICE", "American female", "af_heart", "British male", "audition"} {
+	// The sample-preview verb is "spin" (verb parity with the consumer DJ BOOTH: spin=sample,
+	// cue=endpoint) — never the old producer-only "audition".
+	for _, want := range []string{"PICK A VOICE", "American female", "af_heart", "British male", "spin"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("picker view missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "audition") {
+		t.Errorf("the producer-only verb 'audition' must be gone (use 'spin'):\n%s", out)
 	}
 	// filter echo + no-match case.
 	m.vpFilter = "zzz"
@@ -442,9 +447,12 @@ func TestPickerViewRenders(t *testing.T) {
 	if !strings.Contains(out2, "no voices match") {
 		t.Errorf("empty-filter view should say no match:\n%s", out2)
 	}
-	// footer renders.
-	if !strings.Contains(stripANSI(m.voicePickerFooter()), "audition") {
-		t.Error("picker footer should mention audition")
+	// footer renders (spin, not audition).
+	if !strings.Contains(stripANSI(m.voicePickerFooter()), "spin") {
+		t.Error("picker footer should mention the shared verb spin")
+	}
+	if strings.Contains(stripANSI(m.voicePickerFooter()), "audition") {
+		t.Error("picker footer must not use the old 'audition' verb")
 	}
 	// booth footer renders (wide + narrow).
 	if !strings.Contains(stripANSI(m.shareVoiceFooter()), "save") {
@@ -453,6 +461,45 @@ func TestPickerViewRenders(t *testing.T) {
 	m.width = 40
 	if stripANSI(m.shareVoiceFooter()) == "" {
 		t.Error("narrow booth footer should render")
+	}
+}
+
+// TestVoiceBoothVerbIsSpinNotAudition locks VERB PARITY across the two booths: the producer VOICE
+// BOOTH + its picker use "spin" for the sample preview (matching the consumer DJ BOOTH), never the
+// old producer-only "audition"/"play"/"preview" verb. spin = sample, cue = endpoint — one vocabulary
+// for both booths (the S1 theme-audit finding). Covers every producer-side surface that named the
+// verb: the BOOTH open status, the preview line, the picker open status, the picker view + footer,
+// and the BOOTH footer (wide + narrow).
+func TestVoiceBoothVerbIsSpinNotAudition(t *testing.T) {
+	m := vbSeed(t)
+
+	// The BOOTH open status + preview line.
+	m.enterVoiceBooth()
+	boothSurfaces := strings.ToLower(stripANSI(m.status) + "\n" +
+		stripANSI(m.shareVoiceView(100)) + "\n" + stripANSI(m.shareVoiceFooter()))
+	m.width = 40
+	boothSurfaces += "\n" + strings.ToLower(stripANSI(m.shareVoiceFooter()))
+
+	// The picker open status + view + footer.
+	m.openVoicePicker()
+	m.vpVoices = []string{"af_heart", "am_onyx"}
+	pickerSurfaces := strings.ToLower(stripANSI(m.status) + "\n" +
+		stripANSI(m.voicePickerView(100)) + "\n" + stripANSI(m.voicePickerFooter()))
+
+	all := boothSurfaces + "\n" + pickerSurfaces
+	if !strings.Contains(all, "spin") {
+		t.Errorf("the producer VOICE BOOTH / picker must use the shared sample verb 'spin':\n%s", all)
+	}
+	if strings.Contains(all, "audition") {
+		t.Errorf("the producer-only verb 'audition' must be gone (parity: both booths say 'spin'):\n%s", all)
+	}
+	// The sample-preview hint must no longer say "play"/"preview" as the verb after the ▶ mark
+	// (they were renamed to "spin"); "local preview (free)" prose describing the feature is fine, so
+	// we check the specific "▶ play"/"▶ preview" hint tokens are gone.
+	for _, gone := range []string{"> play", "> preview", "▶ play", "▶ preview"} {
+		if strings.Contains(all, gone) {
+			t.Errorf("the '%s' hint should be aligned to '> spin':\n%s", gone, all)
+		}
 	}
 }
 

@@ -91,6 +91,14 @@ func voiceBadgeForModality(modality string) string {
 // voiceBadge is the modality glyph for a voice band (consumer DJ BOOTH / Listening Post rows).
 func voiceBadge(b band) string { return voiceBadgeForModality(b.modality) }
 
+// stBadge is the SINGLE style for the ♪/▽ modality badge across BOTH booths (consumer DJ BOOTH /
+// Listening Post rows AND the producer VOICE BOOTH / picker preview lines). It is the quiet dim ink,
+// NOT red: the TUI reserves red (stRed/stGold) for the ◉ on-air beacon + ✓/◆ verified marks — red
+// signals LIVE/VERIFIED, never model KIND. Routing every badge site through this one var keeps the
+// badge's restraint in one place (the finding was that stGold painted the kind-badge red on every
+// row). Defined here beside voiceBadge so both voice.go and voicebooth_share.go share it.
+var stBadge = stDim
+
 // sampleVoiceCost is the credit cost of ONE tts preview at the band's cheapest input price —
 // the broker meters TTS by exact input CHARS (cost = chars * priceIn/1e6), so this is computed
 // the SAME way the server will bill, making the disclosed cost honest. A free band is $0.
@@ -746,7 +754,7 @@ func (m model) voiceBoothView(w int) string {
 				if price == "FREE" {
 					priceCell = stLive.Render(pad(price, priceW))
 				}
-				b.WriteString(selCarat(false) + " " + stGold.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
+				b.WriteString(selCarat(false) + " " + stBadge.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
 					stDim.Render(pad(onair, 8)) + "  " + priceCell + "  " + stDim.Render(pad(emDash(), 6)) + "  " +
 					stDim.Render(pad(lat, 6)) + "  " + stDim.Render(pad(boothSampleGlyph(dj), 6)) + "  " + sig + "\n")
 				continue
@@ -761,7 +769,7 @@ func (m model) voiceBoothView(w int) string {
 			if price == "FREE" {
 				priceCell = stLive.Render(pad(price, priceW))
 			}
-			b.WriteString(selCarat(false) + " " + stGold.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
+			b.WriteString(selCarat(false) + " " + stBadge.Render(voiceBadgeGlyph(dj)) + " " + stKey.Render(pad(dj.model, nameW-2)) + "  " +
 				stDim.Render(pad(onair, 8)) + "  " + priceCell + "\n")
 		}
 	}
@@ -808,7 +816,7 @@ func (m model) listeningPostView(w int) string {
 				// billed rate. ~128kbps ≈ 960,000 bytes/min. dollars() already prepends "$".
 				price = dollars(p.minIn*960000/1e6) + "*"
 			}
-			b.WriteString("  " + stGold.Render(voiceBadgeGlyph(p)) + " " + stKey.Render(pad(p.model, 20)) + "  " +
+			b.WriteString("  " + stBadge.Render(voiceBadgeGlyph(p)) + " " + stKey.Render(pad(p.model, 20)) + "  " +
 				stDim.Render(pad(fmt.Sprintf("%d on", p.stations), 8)) + "  " + stEmber.Render(price) + "\n")
 		}
 		b.WriteString("  " + stDim.Render("* billed by uploaded audio bytes; per-minute is an estimate at ~128kbps") + "\n")

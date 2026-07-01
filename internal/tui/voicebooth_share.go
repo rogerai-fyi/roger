@@ -123,7 +123,7 @@ func (m *model) enterVoiceBooth() (tea.Model, tea.Cmd) {
 	m.vbField = vbFieldName
 	m.vbErr = ""
 	m.mode = modeShareVoice
-	m.status = stDim.Render("VOICE BOOTH - tab field · type to set · " + glyphs.Fold("▶") + " local preview (free) · ⏎ save + arm on-air · esc")
+	m.status = stDim.Render("VOICE BOOTH - tab field · type to set · " + glyphs.Fold("▶") + " spin (local · free) · ⏎ save + arm on-air · esc")
 	return m, nil
 }
 
@@ -498,7 +498,7 @@ func (m *model) openVoicePicker() (tea.Model, tea.Cmd) {
 		}
 	}
 	m.mode = modeVoicePicker
-	m.status = stDim.Render("PICK A VOICE - type to filter · " + glyphs.Fold("▶") + " audition (local · free) · ⏎ pick · esc")
+	m.status = stDim.Render("PICK A VOICE - type to filter · " + glyphs.Fold("▶") + " spin (local · free) · ⏎ pick · esc")
 	return m, m.fetchLocalVoicesCmd()
 }
 
@@ -743,8 +743,8 @@ func (m model) shareVoiceView(w int) string {
 	b.WriteString(field(vbFieldPrice, "price", m.vbPrice, "$ / 1k chars  ·  FREE if 0"))
 
 	// Local free preview line.
-	b.WriteString("\n  " + stGold.Render(glyphs.Fold("♪")) + " " + stDim.Render("preview   ") +
-		stKey.Render(glyphs.Fold("▶")+" play") + stDim.Render(" (local · free)   ") + stDim.Render("\""+sampleBoothText+"\"") + "\n")
+	b.WriteString("\n  " + stBadge.Render(glyphs.Fold("♪")) + " " + stDim.Render("preview   ") +
+		stKey.Render(glyphs.Fold("▶")+" spin") + stDim.Render(" (local · free)   ") + stDim.Render("\""+sampleBoothText+"\"") + "\n")
 
 	// The live "right now you would broadcast as …" line.
 	b.WriteString("\n  " + stDim.Render("right now you would broadcast as  ") + boothBroadcastLine(m) + "\n")
@@ -791,9 +791,9 @@ func boothBroadcastLine(m model) string {
 // voiceBoothFooter in voice.go).
 func (m model) shareVoiceFooter() string {
 	if m.narrow() {
-		return stDim.Render("tab · " + glyphs.Fold("▶") + " preview · ⏎ save · esc")
+		return stDim.Render("tab · " + glyphs.Fold("▶") + " spin · ⏎ save · esc")
 	}
-	return stDim.Render("tab field  ·  type to set  ·  " + glyphs.Fold("▶") + "/p local preview (free)  ·  ⏎ save + arm on-air  ·  esc cancel")
+	return stDim.Render("tab field  ·  type to set  ·  " + glyphs.Fold("▶") + "/p spin (local · free)  ·  ⏎ save + arm on-air  ·  esc cancel")
 }
 
 // voicePickerView renders the PICK A VOICE popover: a dense grouped grid (American ♀/♂, British
@@ -835,13 +835,13 @@ func (m model) voicePickerView(w int) string {
 		}
 		b.WriteString(row + "\n")
 	}
-	b.WriteString("\n  " + stGold.Render(glyphs.Fold("♪")) + " " + stDim.Render(glyphs.Fold("▶")+" audition the highlighted voice (local · free)") + "\n")
+	b.WriteString("\n  " + stBadge.Render(glyphs.Fold("♪")) + " " + stDim.Render(glyphs.Fold("▶")+" spin the highlighted voice (local · free)") + "\n")
 	return b.String()
 }
 
 // voicePickerFooter is the popover footer.
 func (m model) voicePickerFooter() string {
-	return stDim.Render("↑↓←→ move  ·  ⏎ pick  ·  " + glyphs.Fold("▶") + " audition  ·  type to filter  ·  esc")
+	return stDim.Render("↑↓←→ move  ·  ⏎ pick  ·  " + glyphs.Fold("▶") + " spin  ·  type to filter  ·  esc")
 }
 
 // --- blend/price parsing helpers ---------------------------------------------

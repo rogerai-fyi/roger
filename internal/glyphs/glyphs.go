@@ -129,6 +129,9 @@ var asciiFold = map[rune]rune{
 	// Voice modality badge: the mono ▽ (stt "into text") folds to a plain v — the same
 	// key the "also on air … ▸ [v]" footnote uses. ♪ (tts) already folds to > above.
 	'▽': 'v',
+	// Voice transport arrows: the ▶ "spin"/preview and ◀ speed-nudge marks the booth wraps in
+	// Fold() at ~17 sites fold to the plain >/< a legacy console renders (mirroring ♪→>).
+	'▶': '>', '◀': '<',
 	// The em-dash 'none' mark used in voice tables folds to a plain hyphen.
 	'—': '-',
 }

@@ -31,6 +31,8 @@ import (
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
@@ -411,6 +413,64 @@ func TestBoothAndFootnoteNoEmoji(t *testing.T) {
 	for name, s := range map[string]string{"footnote": foot, "booth": booth} {
 		if strings.Contains(s, "🎤") {
 			t.Errorf("%s must not contain the color emoji 🎤; got:\n%s", name, s)
+		}
+	}
+}
+
+// --- Red restraint: the ♪/▽ modality badge is NOT red -------------------------
+
+// stBadge is the SINGLE style for the ♪/▽ modality badge, and it must NOT resolve to the reserved
+// on-air/verified red (cRed). The TUI reserves red for the ◉ on-air beacon + ✓/◆ verified marks —
+// red = a live/verified SIGNAL, never model KIND. The badge marks kind, so it renders dim, not red.
+// (Mirrors pingworld_color_test.go's TestToneStyleNeverRed: the one-red law is locked at the STYLE
+// level via GetForeground, not by inspecting rendered ANSI — which strips to plain off a TTY.)
+func TestModalityBadgeStyleNeverRed(t *testing.T) {
+	if got := stBadge.GetForeground(); got == cRed {
+		t.Fatalf("the modality badge style resolves to the reserved on-air RED (cRed) — red is for the ◉ beacon / ✓◆ verified marks, never model KIND")
+	}
+	// It must also NOT be bold-red by any other route: the badge is a quiet dim mark.
+	if stBadge.GetForeground() == stGold.GetForeground() {
+		t.Fatalf("the badge must not share stGold's red foreground — stGold stays for the verified/peak glint")
+	}
+	// Pin the chosen restraint: the badge is the dim ink (stDim), the quietest label color.
+	if stBadge.GetForeground() != stDim.GetForeground() {
+		t.Errorf("the modality badge should render in stDim (dim ink), got foreground %v", stBadge.GetForeground())
+	}
+}
+
+// Every badge RENDER SITE emits the badge NOT wrapped in the reserved red glint: the consumer DJ
+// BOOTH rows + the Listening Post rows (voice.go). This is the render-path belt to the style-level
+// lock above. We force a TrueColor profile so lipgloss actually emits SGR (off a TTY every style
+// strips to plain), then assert the rendered view does NOT contain the badge glyph wrapped in the
+// red stGold styling, and DOES contain it wrapped in the non-red stBadge styling. The comparison is
+// self-computing (stGold.Render(glyph) IS the red-wrapped token) so it needs no hard-coded escape.
+func TestBadgeRenderSitesNotRed(t *testing.T) {
+	r := lipgloss.DefaultRenderer()
+	old := r.ColorProfile()
+	r.SetColorProfile(termenv.TrueColor) // emit SGR so red is distinguishable from dim
+	defer r.SetColorProfile(old)
+
+	m := voiceSeed(t, "http://broker.local")
+	// DJ BOOTH (tts DJ rows) and the Listening Post (stt rows) both render a modality badge.
+	tm, _ := m.Update(keyMsg("v"))
+	bm := asModel(tm)
+	booth := bm.voiceBoothView(100)
+	tm, _ = bm.Update(keyMsg("t"))
+	post := asModel(tm).listeningPostView(100)
+
+	ttsGlyph := voiceBadgeGlyph(band{modality: "tts", online: true})
+	sttGlyph := voiceBadgeGlyph(band{modality: "stt", online: true})
+	for _, c := range []struct {
+		name, view, glyph string
+	}{
+		{"DJ BOOTH", booth, ttsGlyph},
+		{"LISTENING POST", post, sttGlyph},
+	} {
+		if red := stGold.Render(c.glyph); strings.Contains(c.view, red) {
+			t.Errorf("%s renders the modality badge in reserved RED (stGold) — red is for the ◉ beacon / verified marks only:\n%s", c.name, c.view)
+		}
+		if quiet := stBadge.Render(c.glyph); !strings.Contains(c.view, quiet) {
+			t.Errorf("%s should render the modality badge via the non-red stBadge style; not found in:\n%s", c.name, c.view)
 		}
 	}
 }

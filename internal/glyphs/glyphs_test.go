@@ -73,3 +73,21 @@ func TestFoldWorldGlyphs(t *testing.T) {
 		}
 	}
 }
+
+// TestFoldVoiceArrows covers the ▶/◀ transport arrows the voice booth wraps in Fold() at its
+// ~17 call sites (the spin/nudge hints). Before they were added to asciiFold, Fold("▶") returned
+// the raw ▶ unchanged — leaking non-ASCII under NO_UNICODE / ROGERAI_ASCII=1 on a legacy console.
+// They fold to the plain >/< that console renders (mirroring the ♪→> tts-badge fold above).
+func TestFoldVoiceArrows(t *testing.T) {
+	t.Setenv("ROGERAI_ASCII", "1")
+	if got := Fold("▶"); got != ">" {
+		t.Errorf("Fold(▶) = %q, want > (forced ASCII must not leak the raw arrow)", got)
+	}
+	if got := Fold("◀"); got != "<" {
+		t.Errorf("Fold(◀) = %q, want <", got)
+	}
+	// Width-preserving in the compound "◀ ▶" nudge hint (the speed-field label).
+	if got := Fold("◀ ▶"); got != "< >" {
+		t.Errorf("Fold(◀ ▶) = %q, want < >", got)
+	}
+}
