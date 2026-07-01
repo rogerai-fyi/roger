@@ -18,19 +18,19 @@ import (
 )
 
 // ModelOffer is one model a node exposes, with per-1M-unit credit pricing. Chat bills per
-// token; voice adds tts (per input char) and stt (per audio-second) — see Modality/Unit.
+// token; voice adds tts (per input char) and stt (per audio-byte) — see Modality/Unit.
 // Schedule (optional) overrides the base price by time-of-use (ChargePoint-style).
 type ModelOffer struct {
 	Model string `json:"model"`
 	// Modality is what the model DOES: "" (back-compat) and "chat" bill per token; "tts"
 	// (speak, /v1/audio/speech) bills per input char; "stt" (listen, /v1/audio/transcriptions)
-	// bills per audio-second. See VOICE-AUDIO-DESIGN.md.
+	// bills per audio-byte. See VOICE-AUDIO-DESIGN.md.
 	Modality string `json:"modality,omitempty"`
-	// Unit is the billing unit, CANONICAL for the modality (token|char|second) — set by
+	// Unit is the billing unit, CANONICAL for the modality (token|char|byte) — set by
 	// Normalize, never trusted from the wire, so a node cannot mis-state how it is metered.
 	Unit     string  `json:"unit,omitempty"`
 	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
-	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-seconds)
+	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
 	Ctx      int     `json:"ctx"`
 	// CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
 	// real per-model window), so the UI can render it as an estimate (~32k, dim) instead
@@ -46,21 +46,21 @@ type ModelOffer struct {
 const (
 	ModalityChat = "chat" // /v1/chat/completions,      billed per token
 	ModalityTTS  = "tts"  // /v1/audio/speech,          billed per input char
-	ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-second
+	ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-byte
 
-	UnitToken  = "token"
-	UnitChar   = "char"
-	UnitSecond = "second"
+	UnitToken = "token"
+	UnitChar  = "char"
+	UnitByte  = "byte"
 )
 
 // canonicalUnit is the ONE billing unit for a modality. A tts offer always bills chars and an
-// stt offer always bills audio-seconds, regardless of what unit the node claimed.
+// stt offer always bills audio-bytes, regardless of what unit the node claimed.
 func canonicalUnit(modality string) string {
 	switch modality {
 	case ModalityTTS:
 		return UnitChar
 	case ModalitySTT:
-		return UnitSecond
+		return UnitByte
 	default: // chat + the empty back-compat default
 		return UnitToken
 	}
