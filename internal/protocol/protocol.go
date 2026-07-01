@@ -393,6 +393,10 @@ type Job struct {
 	ID   string          `json:"id"`
 	User string          `json:"user"`
 	Body json.RawMessage `json:"body"` // the raw OpenAI request
+	// Path is the upstream endpoint the node's bridge POSTs Body to, relative to the upstream
+	// base: empty (or "/v1/chat/completions") = chat, back-compat; "/v1/audio/speech" for TTS.
+	// One bridge can thus serve chat + voice from the same node.
+	Path string `json:"path,omitempty"`
 }
 
 // JobResult is what the node POSTs back after serving a Job.
