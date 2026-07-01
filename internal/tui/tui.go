@@ -1332,7 +1332,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeLogin {
 			m.mode = m.loginReturn
 		}
-		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready, you can now earn as a provider")
+		m.status = stLive.Render(glyphLineage + " verified operator @" + string(msg) + " - wallet ready ($1 starter credit on first login), you can now earn as a provider")
 		// Refresh the wallet so the header flips to @login · $balance right away, and
 		// (re)fetch the payout snapshot now that there is a signing identity to read it.
 		m.payoutFetched = true

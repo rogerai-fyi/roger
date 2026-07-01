@@ -1731,9 +1731,9 @@ func normalizeUpstream(u string) string {
 func usage() {
 	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
-  roger                         open the app (browse, tune in, chat) + browser console
-  roger --no-webui              open the app WITHOUT the browser console
-  roger --ping                  full-screen "Ping World" screensaver (or press z in the app)
+  roger                       open the app (browse, tune in, chat) + browser console
+  roger --no-webui            open the app WITHOUT the browser console
+  roger --ping                full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
   roger use <model>           local OpenAI endpoint for your bots  (alias: connect · --max-out $ caps spend)
   roger voices                list on-air voices, cheapest first

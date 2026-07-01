@@ -178,6 +178,11 @@ func (m model) onVoicePreviewKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startVoicePreview(m.previewBand)
 		}
 	}
+	// No text entry here either: unmatched keys reach the preset bank. The money gate is
+	// untouched — y/enter (handled above) stays the ONLY path that spends.
+	if nm, cmd, ok := m.presetForKey(k.String()); ok {
+		return nm, cmd
+	}
 	return m, nil
 }
 
@@ -539,6 +544,11 @@ func (m model) onVoiceBoothKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.startVoicePreview(djs[i])
 	}
+	// Nav screen, no text entry: unmatched keys fall through to the preset bank so
+	// plain m (windowshade) and the preset jumps work here like on BROWSE/HELP.
+	if nm, cmd, ok := m.presetForKey(k.String()); ok {
+		return nm, cmd
+	}
 	return m, nil
 }
 
@@ -554,6 +564,10 @@ func (m model) onListeningPostKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "1":
 		m.mode = modeBrowse
 		return m, nil
+	}
+	// Nav screen, no text entry: fall through to the preset bank (windowshade + jumps).
+	if nm, cmd, ok := m.presetForKey(k.String()); ok {
+		return nm, cmd
 	}
 	return m, nil
 }
