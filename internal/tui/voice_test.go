@@ -1,15 +1,16 @@
 package tui
 
-// voice_test.go is the executable spec for VOICE-band differentiation in the TUI: voice
-// (tts/stt) bands are grouped into their own "Voices" section (never the chat list), and
-// SELECTING one opens a VOICE PREVIEW panel — NOT a chat channel — so a consumer can never
-// tune a voice band as chat and hit "504 no station is serving <voice>". The MONEY rule: a
-// PAID tts preview spends real char-metered credits, so it REQUIRES an explicit confirm
-// before any POST /v1/audio/speech; a FREE voice previews immediately. Audio playback is
-// routed through an INJECTABLE player so the synth+play path is fully testable, with a
-// save-to-file fallback when no system player exists (never crash). No over-mocking: the
-// broker is a real httptest server and the money/spend gate is asserted by whether the
-// endpoint was actually hit.
+// voice_test.go is the executable spec for the VOICE PREVIEW PANEL (a9749755's money-gated
+// sample player, preserved). Per the founder DELTA, voice bands are EXCLUDED from the top-level
+// list and surfaced/cued only from THE DJ BOOTH (see voicebooth_test.go for the Booth/footnote/
+// child-screen behaviors); these tests drive the preview panel itself via startVoicePreview (the
+// SAME entry the Booth "cue"/"spin" uses). The MONEY rule: a PAID tts preview spends real
+// char-metered credits, so it REQUIRES an explicit confirm before any POST /v1/audio/speech; a
+// FREE voice previews immediately. Selecting a voice NEVER opens a chat channel (the original
+// "504 no station is serving <voice>" bug). Audio playback is routed through an INJECTABLE player
+// so the synth+play path is fully testable, with a save-to-file fallback when no system player
+// exists (never crash). No over-mocking: the broker is a real httptest server and the money/spend
+// gate is asserted by whether the endpoint was actually hit.
 
 import (
 	"net/http"
@@ -39,21 +40,29 @@ func voiceSeed(t *testing.T, broker string) model {
 	return m.(model)
 }
 
-// selectBandByModel points the browse cursor at the named band in the visible list.
-func selectBandByModel(t *testing.T, m *model, model string) {
+// bandByModel finds the grouped band with the given model in m.bands (voice bands are NOT in the
+// top-level visible list any more — they live in THE DJ BOOTH — so tests resolve them here).
+func bandByModel(t *testing.T, m *model, model string) band {
 	t.Helper()
-	vis := m.visibleBands()
-	for i, b := range vis {
+	for _, b := range m.bands {
 		if b.model == model {
-			m.cursor = i
-			m.selectedModel = model
-			return
+			return b
 		}
 	}
-	t.Fatalf("band %q not in the visible list (%d bands)", model, len(vis))
+	t.Fatalf("band %q not found in m.bands", model)
+	return band{}
 }
 
-// --- Grouping: voice bands are their own section, after the chat bands ---------
+// openVoicePreview enters the voice preview for the named voice band via startVoicePreview — the
+// SAME entry the DJ BOOTH "cue"/"spin" uses (voice.go onVoiceBoothKey) and the connect() safety
+// divert use. Tests exercising the preview PANEL (the money gate, the stt info, the off-air note)
+// go through here so they are independent of how the list surfaces the band.
+func openVoicePreview(t *testing.T, m *model, model string) (tea.Model, tea.Cmd) {
+	t.Helper()
+	return m.startVoicePreview(bandByModel(t, m, model))
+}
+
+// --- Grouping: groupBands tags modality; voice bands are excluded from the top-level list ------
 
 func TestGroupBandsTagsModality(t *testing.T) {
 	bands := groupBands([]offer{
@@ -82,14 +91,13 @@ func TestBandIsVoice(t *testing.T) {
 	}
 }
 
-// visibleBands must group chat bands BEFORE voice bands, so the render can draw a distinct
-// "Voices" section and a voice band never sits inline in the chat list. Proven EXPLICIT (not
-// incidental to signal/price ordering) by handing a voice band a signal that would otherwise
-// sort it to the very top.
-func TestVisibleBandsGroupsVoicesLast(t *testing.T) {
+// SUPERSEDED by the founder DELTA (LLM primacy): voice bands are NOT grouped into the top-level
+// list at all — they are EXCLUDED and live one drill-in deeper (THE DJ BOOTH). This regression
+// pins the adversarial corner the old "group voices last" test guarded: a voice band handed a
+// table-topping signal + the cheapest price must STILL never appear in the LLM band list.
+// (The Booth-entry + footnote behaviors are asserted in voicebooth_test.go.)
+func TestVisibleBandsExcludesVoicesEvenTopSignal(t *testing.T) {
 	m := voiceSeed(t, "http://broker.local")
-	// Force a voice band with a table-topping signal + the cheapest price; explicit grouping
-	// must STILL keep it after every chat band.
 	for i := range m.bands {
 		if m.bands[i].model == "eager-puma-54-voice" {
 			m.bands[i].minOut = 0.0
@@ -98,27 +106,25 @@ func TestVisibleBandsGroupsVoicesLast(t *testing.T) {
 			m.bands[i].cheapest = &m.bands[i].all[0]
 		}
 	}
-	vis := m.visibleBands()
-	firstVoice := -1
-	for i, b := range vis {
-		if b.isVoice() && firstVoice < 0 {
-			firstVoice = i
+	for _, b := range m.visibleBands() {
+		if b.isVoice() {
+			t.Fatalf("a voice band (%q) must NEVER appear in the top-level LLM list, even with a top signal", b.model)
 		}
-		if firstVoice >= 0 && !b.isVoice() {
-			t.Fatalf("a chat band (%q) appears AFTER a voice band — voices must be grouped last", b.model)
-		}
-	}
-	if firstVoice < 0 {
-		t.Fatal("expected at least one voice band in the visible list")
 	}
 }
 
-// The browse view labels the voice group so it is visually distinct (not offered as chat).
-func TestBrowseViewShowsVoicesSection(t *testing.T) {
+// SUPERSEDED by the DELTA: there is no "VOICES" divider-SECTION in the list any more. Voice is a
+// single dim FOOTNOTE at the foot of the LLM band list ("also on air: N voices ▸ [v]") that
+// drills into the Booth. This regression pins that the old always-on divider-section is gone.
+func TestBrowseViewHasFootnoteNotVoicesSection(t *testing.T) {
 	m := voiceSeed(t, "http://broker.local")
 	out := m.browseView(100)
-	if !strings.Contains(strings.ToUpper(out), "VOICES") {
-		t.Errorf("browse view should carry a VOICES section header; got:\n%s", out)
+	if !strings.Contains(out, "also on air") {
+		t.Errorf("browse view should carry the dim voice footnote; got:\n%s", out)
+	}
+	// The old VOICES divider-section (a ▌ VOICES header row with the speak/listen legend) is gone.
+	if strings.Contains(out, "▌ "+"VOICES") || strings.Contains(strings.ToUpper(out), "SPEAK · ") {
+		t.Errorf("the old VOICES divider-section must be gone; got:\n%s", out)
 	}
 }
 
@@ -144,12 +150,12 @@ func TestSelectFreeVoiceOpensPreviewNotChat(t *testing.T) {
 
 	m := voiceSeed(t, srv.URL)
 	m.previewPlayer = func([]byte) (string, bool, error) { return "", true, nil } // stub: "played"
-	selectBandByModel(t, &m, "free-crier-voice")
 
-	tm, cmd := m.connect()
+	// Cue the DJ from THE DJ BOOTH (the same startVoicePreview entry the Booth uses).
+	tm, cmd := openVoicePreview(t, &m, "free-crier-voice")
 	m = asModel(tm)
 	if m.mode != modeVoicePreview {
-		t.Fatalf("selecting a voice band should open modeVoicePreview, got mode %d", m.mode)
+		t.Fatalf("cueing a voice DJ should open modeVoicePreview, got mode %d", m.mode)
 	}
 	if m.connected != nil {
 		t.Fatalf("a voice preview must NOT open a chat channel (connected=%v)", m.connected)
@@ -188,9 +194,8 @@ func TestSelectPaidVoiceRequiresConfirmBeforeSpend(t *testing.T) {
 
 	m := voiceSeed(t, srv.URL)
 	m.previewPlayer = func([]byte) (string, bool, error) { return "", true, nil }
-	selectBandByModel(t, &m, "eager-puma-54-voice")
 
-	tm, cmd := m.connect()
+	tm, cmd := openVoicePreview(t, &m, "eager-puma-54-voice")
 	m = asModel(tm)
 	if m.mode != modeVoicePreview {
 		t.Fatalf("paid voice should open modeVoicePreview, got %d", m.mode)
@@ -235,8 +240,7 @@ func TestPaidVoicePreviewDeclineCancels(t *testing.T) {
 	}))
 	defer srv.Close()
 	m := voiceSeed(t, srv.URL)
-	selectBandByModel(t, &m, "eager-puma-54-voice")
-	tm, _ := m.connect()
+	tm, _ := openVoicePreview(t, &m, "eager-puma-54-voice")
 	m = asModel(tm)
 	tm, _ = m.onVoicePreviewKey(keyMsg("n"))
 	m = asModel(tm)
@@ -255,11 +259,10 @@ func TestSelectSTTShowsInfoPanelNoChat(t *testing.T) {
 	}))
 	defer srv.Close()
 	m := voiceSeed(t, srv.URL)
-	selectBandByModel(t, &m, "whisper-listener")
-	tm, cmd := m.connect()
+	tm, cmd := openVoicePreview(t, &m, "whisper-listener")
 	m = asModel(tm)
 	if m.mode != modeVoicePreview {
-		t.Fatalf("selecting an stt band should open the preview panel, got mode %d", m.mode)
+		t.Fatalf("previewing an stt band should open the preview panel, got mode %d", m.mode)
 	}
 	if m.connected != nil {
 		t.Fatal("an stt band must not open a chat channel")
@@ -278,9 +281,8 @@ func TestSelectSTTShowsInfoPanelNoChat(t *testing.T) {
 // esc leaves the preview back to the band browser (no lingering state).
 func TestVoicePreviewEscReturnsToBrowse(t *testing.T) {
 	m := voiceSeed(t, "http://broker.local")
-	selectBandByModel(t, &m, "free-crier-voice")
 	m.previewPlayer = func([]byte) (string, bool, error) { return "", true, nil }
-	tm, _ := m.connect()
+	tm, _ := openVoicePreview(t, &m, "free-crier-voice")
 	m = asModel(tm)
 	tm, _ = m.onVoicePreviewKey(keyMsg("esc"))
 	if asModel(tm).mode != modeBrowse {
@@ -392,8 +394,7 @@ func TestVoicePreviewReplay(t *testing.T) {
 	defer srv.Close()
 	m := voiceSeed(t, srv.URL)
 	m.previewPlayer = func([]byte) (string, bool, error) { return "", true, nil }
-	selectBandByModel(t, &m, "free-crier-voice")
-	tm, cmd := m.connect()
+	tm, cmd := openVoicePreview(t, &m, "free-crier-voice")
 	m = asModel(tm)
 	m = asModel(func() tea.Model { t, _ := m.Update(cmd()); return t }()) // land the first sample
 	if m.previewStage != previewDone {
@@ -414,8 +415,7 @@ func TestVoicePreviewReplay(t *testing.T) {
 // A non-action key on the stt info panel is a harmless no-op (stays in the preview).
 func TestVoicePreviewInfoKeyNoop(t *testing.T) {
 	m := voiceSeed(t, "http://broker.local")
-	selectBandByModel(t, &m, "whisper-listener")
-	tm, _ := m.connect()
+	tm, _ := openVoicePreview(t, &m, "whisper-listener")
 	m = asModel(tm)
 	tm, cmd := m.onVoicePreviewKey(keyMsg("x"))
 	if asModel(tm).mode != modeVoicePreview || cmd != nil {
@@ -428,8 +428,7 @@ func TestSelectOfflineVoiceShowsOffAir(t *testing.T) {
 	m := voiceSeed(t, "http://broker.local")
 	// Add an offline voice band directly (groupBands from an offline offer).
 	m.bands = append(m.bands, band{model: "sleepy-voice", modality: "tts", online: false})
-	selectBandByModel(t, &m, "sleepy-voice")
-	tm, cmd := m.connect()
+	tm, cmd := openVoicePreview(t, &m, "sleepy-voice")
 	m = asModel(tm)
 	if m.mode != modeVoicePreview || m.previewStage != previewOffline {
 		t.Fatalf("offline voice should open the off-air preview, got mode %d stage %d", m.mode, m.previewStage)
@@ -495,7 +494,10 @@ func TestSynthVoiceSampleErrors(t *testing.T) {
 	// Unreachable broker.
 	m := voiceSeed(t, "http://127.0.0.1:1") // nothing listening
 	m.previewBand = band{model: "v", modality: "tts", online: true, minIn: 1}
-	m.previewPlayer = func([]byte) (string, bool, error) { t.Fatal("player must not run on a fetch error"); return "", false, nil }
+	m.previewPlayer = func([]byte) (string, bool, error) {
+		t.Fatal("player must not run on a fetch error")
+		return "", false, nil
+	}
 	msg := m.synthVoiceSample()()
 	vm, ok := msg.(voicePreviewMsg)
 	if !ok || vm.err == "" {
