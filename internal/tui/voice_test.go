@@ -15,7 +15,6 @@ package tui
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -290,95 +289,10 @@ func TestVoicePreviewEscReturnsToBrowse(t *testing.T) {
 	}
 }
 
-// --- Audio player helper (injectable; save-to-file fallback) -------------------
-
-// With a system player resolved for the OS, play() runs it on the written temp file and reports
-// played=true. The player command + args are injectable so this asserts the RIGHT player was
-// invoked with the sample, WITHOUT actually playing audio.
-func TestAudioPlayRunsSystemPlayer(t *testing.T) {
-	var ranName string
-	var ranArgs []string
-	env := audioEnv{
-		goos:     "linux",
-		lookPath: func(name string) (string, error) { return "/usr/bin/" + name, nil }, // paplay found
-		run:      func(name string, args ...string) error { ranName = name; ranArgs = args; return nil },
-	}
-	path, played, err := env.play([]byte("RIFFfake-wav"))
-	if err != nil {
-		t.Fatalf("play: %v", err)
-	}
-	if !played {
-		t.Fatal("expected played=true when a player is available")
-	}
-	if ranName != "paplay" || len(ranArgs) == 0 || ranArgs[len(ranArgs)-1] != path {
-		t.Fatalf("player should be invoked on the sample file, ran %q %v (path %q)", ranName, ranArgs, path)
-	}
-	if _, err := os.Stat(path); err == nil {
-		os.Remove(path)
-	}
-}
-
-// darwin ALWAYS has a built-in player (afplay); windows ALWAYS has one (powershell SoundPlayer).
-// Assert both resolve without any lookPath hits (they are guaranteed), and play the sample file.
-func TestAudioPlayGuaranteedPlayers(t *testing.T) {
-	for _, tc := range []struct {
-		goos     string
-		wantName string
-	}{
-		{"darwin", "afplay"},
-		{"windows", "powershell"},
-	} {
-		var ranName string
-		var ranArgs []string
-		env := audioEnv{
-			goos:     tc.goos,
-			lookPath: func(string) (string, error) { return "", os.ErrNotExist }, // nothing on PATH
-			run:      func(name string, args ...string) error { ranName = name; ranArgs = args; return nil },
-		}
-		path, played, err := env.play([]byte("RIFFwav"))
-		if err != nil {
-			t.Fatalf("%s play: %v", tc.goos, err)
-		}
-		if !played {
-			t.Fatalf("%s must have a guaranteed built-in player (played=false)", tc.goos)
-		}
-		if ranName != tc.wantName {
-			t.Fatalf("%s should use %q, ran %q", tc.goos, tc.wantName, ranName)
-		}
-		// The sample path must appear in the invocation (powershell embeds it in the -Command).
-		joined := strings.Join(append([]string{ranName}, ranArgs...), " ")
-		if !strings.Contains(joined, path) {
-			t.Fatalf("%s invocation must reference the sample file %q, got %q", tc.goos, path, joined)
-		}
-		os.Remove(path)
-	}
-}
-
-// With NO player available (linux, nothing on PATH), play() degrades: it writes the sample to a
-// temp file and returns played=false + the path (so the caller tells the user where it is) — it
-// must never crash.
-func TestAudioPlayNoPlayerSavesFile(t *testing.T) {
-	env := audioEnv{
-		goos:     "linux",
-		lookPath: func(string) (string, error) { return "", os.ErrNotExist }, // nothing found
-		run:      func(string, ...string) error { t.Fatal("run must not be called with no player"); return nil },
-	}
-	path, played, err := env.play([]byte("RIFFwav-bytes"))
-	if err != nil {
-		t.Fatalf("play must not error on the no-player fallback: %v", err)
-	}
-	if played {
-		t.Fatal("expected played=false with no player")
-	}
-	if path == "" {
-		t.Fatal("the fallback must return the saved file path")
-	}
-	data, rerr := os.ReadFile(path)
-	if rerr != nil || string(data) != "RIFFwav-bytes" {
-		t.Fatalf("the sample must be written to the fallback path; read=%q err=%v", data, rerr)
-	}
-	os.Remove(path)
-}
+// NOTE: the cross-platform audio player (audioEnv/play/resolveAudioPlayer/writeTempWAV) was
+// EXTRACTED into internal/audio (shared with `roger say`); its tests now live in
+// internal/audio/audio_test.go. The TUI keeps only the preview-flow tests below, which stub the
+// player via m.previewPlayer (audioPlayerFn == audio.PlayerFn).
 
 // After a FREE sample plays, r replays it (re-synths) — a paid band would re-enter the confirm
 // gate instead (startVoicePreview picks the stage), never an auto-spend.
@@ -579,67 +493,5 @@ func TestSampleVoiceCost(t *testing.T) {
 	paid := sampleVoiceCost(band{online: true, minIn: 1_000_000}) // 1 credit / char
 	if paid != float64(len([]rune(sampleVoiceText))) {
 		t.Errorf("paid sample cost = %v, want %d (one credit per char)", paid, len([]rune(sampleVoiceText)))
-	}
-}
-
-// defaultAudioEnv wires the real OS + exec seams; its run closure executes a subprocess (a
-// harmless no-op command here, so no audio actually plays).
-func TestDefaultAudioEnvWiring(t *testing.T) {
-	env := defaultAudioEnv()
-	if env.goos == "" || env.lookPath == nil || env.run == nil {
-		t.Fatalf("defaultAudioEnv must wire goos + the exec seams, got %+v", env)
-	}
-	// Exercise the run closure with a command that exists on every unix test runner; on an OS
-	// without it the error path is still exercised (we only require it not to panic).
-	if env.goos != "windows" {
-		_ = env.run("true") // no-op; covers the exec.CommandContext closure
-	}
-}
-
-// systemAudioPlayer degrades to save-to-file when no player resolves. To keep the test
-// deterministic (never spawn a real audio player), drive the SAME code path through an injected
-// audioEnv with no player on PATH — asserting the wav is saved and reported, never played.
-func TestSystemAudioPlayerFallbackDeterministic(t *testing.T) {
-	env := audioEnv{
-		goos:     "plan9", // no built-in + the linux chain won't match either
-		lookPath: func(string) (string, error) { return "", os.ErrNotExist },
-		run:      func(string, ...string) error { t.Fatal("no player should run"); return nil },
-	}
-	path, played, err := env.play([]byte("RIFFtiny-wav"))
-	if err != nil || played || path == "" {
-		t.Fatalf("no-player fallback should save + report the file; path=%q played=%v err=%v", path, played, err)
-	}
-	os.Remove(path)
-}
-
-// resolveAudioPlayer picks the right command per OS and returns none only when linux/other has
-// nothing on PATH. darwin/windows always resolve (built-in); an unknown unix OS falls to the
-// linux chain.
-func TestResolveAudioPlayer(t *testing.T) {
-	found := func(string) (string, error) { return "/bin/x", nil }
-	if name, _ := resolveAudioPlayer("darwin", found, "/f"); name != "afplay" {
-		t.Errorf("darwin should use afplay, got %q", name)
-	}
-	if name, _ := resolveAudioPlayer("windows", func(string) (string, error) { return "", os.ErrNotExist }, "/f"); name != "powershell" {
-		t.Errorf("windows should use the built-in powershell player, got %q", name)
-	}
-	if name, _ := resolveAudioPlayer("linux", found, "/f"); name == "" {
-		t.Errorf("linux should find a player when one exists")
-	}
-	// linux preference order: paplay first, then aplay when paplay is absent.
-	order := []string{}
-	pref := func(name string) (string, error) {
-		order = append(order, name)
-		if name == "aplay" {
-			return "/usr/bin/aplay", nil
-		}
-		return "", os.ErrNotExist
-	}
-	if name, _ := resolveAudioPlayer("linux", pref, "/f"); name != "aplay" {
-		t.Errorf("linux should fall through to aplay when paplay is absent, got %q (probed %v)", name, order)
-	}
-	// An unsupported/unknown OS with nothing on PATH yields no player (save-to-file fallback).
-	if name, _ := resolveAudioPlayer("plan9", func(string) (string, error) { return "", os.ErrNotExist }, "/f"); name != "" {
-		t.Errorf("an unsupported OS with no player should yield none, got %q", name)
 	}
 }
