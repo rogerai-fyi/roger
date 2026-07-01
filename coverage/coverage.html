@@ -6559,13 +6559,13 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="16">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="15">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="15">{
+                        <span class="cov3" title="31">if !a.haveOut || out &lt; a.minOut </span><span class="cov2" title="14">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
@@ -9855,7 +9855,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
         tq.probeOK = alive
         if alive </span><span class="cov2" title="6">{
                 tq.probeFails = 0
-                if ttftMs &gt; 0 </span><span class="cov2" title="5">{
+                if ttftMs &gt; 0 </span><span class="cov2" title="4">{
                         tq.ttftMs = ewma(tq.ttftMs, ttftMs, 0.3)
                 }</span>
                 <span class="cov2" title="6">if tps &gt; 0 </span><span class="cov2" title="6">{
@@ -9899,8 +9899,8 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 }
 
 // ewma updates an EWMA, seeding it on the first sample (cur == 0).
-func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="13">{
-        if cur &lt;= 0 </span><span class="cov3" title="12">{
+func ewma(cur, sample, alpha float64) float64 <span class="cov3" title="12">{
+        if cur &lt;= 0 </span><span class="cov3" title="11">{
                 return sample
         }</span>
         <span class="cov1" title="1">return alpha*sample + (1-alpha)*cur</span>
@@ -12166,10 +12166,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3652">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5319">{
+        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5331">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5987">{
+        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5975">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11823">return rangeMin, rangeMax, true</span>
@@ -12325,7 +12325,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13581">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1346">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1355">{
                         best = i
                 }</span>
         }
@@ -12358,7 +12358,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1222">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1228">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -18847,9 +18847,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="482">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="478">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="479">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="475">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -19677,7 +19677,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="841">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="863">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -19691,7 +19691,7 @@ func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="84
 // observed via curToken; if the generation has already advanced, another worker
 // already recovered and we return immediately so the caller picks up the fresh
 // token on its next iteration. Respects stop.
-func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov5" title="20">{
+func (rr *reregistrar) recover(seenGen uint64, stop &lt;-chan struct{}) <span class="cov4" title="20">{
         rr.mu.Lock()
         // Someone already re-registered past the generation we last saw - a fresh
         // token is already available; just let the caller re-read it.
@@ -19887,23 +19887,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="826">{
+        for </span><span class="cov9" title="849">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov3" title="5">
+                case &lt;-sess.stop:<span class="cov3" title="6">
                         return</span> // /share went off air
-                default:<span class="cov9" title="821"></span>
+                default:<span class="cov9" title="843"></span>
                 }
-                <span class="cov9" title="821">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="843">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov1" title="2">{
+                if err != nil </span><span class="cov1" title="1">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="819">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="812">{
+                <span class="cov9" title="842">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="835">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -25676,8 +25676,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="25">{
-                if s != nil </span><span class="cov7" title="24">{
+        for _, s := range c.sessions </span><span class="cov7" title="24">{
+                if s != nil </span><span class="cov7" title="23">{
                         n++
                 }</span>
         }
@@ -25758,13 +25758,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov1" title="1">
+        case agent.LinkOnAir:<span class="cov2" title="2">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov7" title="9">
+        default:<span class="cov6" title="7">
                 return "connecting"</span>
         }
 }
@@ -25793,7 +25793,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="7">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -26168,7 +26168,7 @@ func pad3(n int) string <span class="cov7" title="1009">{
                 n = 0
         }</span>
         <span class="cov7" title="1009">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="116">{
+        for len(s) &lt; 3 </span><span class="cov5" title="117">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1009">return s</span>
@@ -26181,7 +26181,7 @@ func itoa3(n int) string <span class="cov8" title="2012">{
         }</span>
         <span class="cov8" title="2010">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5919">{
+        for n &gt; 0 </span><span class="cov9" title="5918">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
@@ -26210,19 +26210,19 @@ import (
 )
 
 // ModelOffer is one model a node exposes, with per-1M-unit credit pricing. Chat bills per
-// token; voice adds tts (per input char) and stt (per audio-second) — see Modality/Unit.
+// token; voice adds tts (per input char) and stt (per audio-byte) — see Modality/Unit.
 // Schedule (optional) overrides the base price by time-of-use (ChargePoint-style).
 type ModelOffer struct {
         Model string `json:"model"`
         // Modality is what the model DOES: "" (back-compat) and "chat" bill per token; "tts"
         // (speak, /v1/audio/speech) bills per input char; "stt" (listen, /v1/audio/transcriptions)
-        // bills per audio-second. See VOICE-AUDIO-DESIGN.md.
+        // bills per audio-byte. See VOICE-AUDIO-DESIGN.md.
         Modality string `json:"modality,omitempty"`
-        // Unit is the billing unit, CANONICAL for the modality (token|char|second) — set by
+        // Unit is the billing unit, CANONICAL for the modality (token|char|byte) — set by
         // Normalize, never trusted from the wire, so a node cannot mis-state how it is metered.
         Unit     string  `json:"unit,omitempty"`
         PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
-        PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-seconds)
+        PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
         Ctx      int     `json:"ctx"`
         // CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
         // real per-model window), so the UI can render it as an estimate (~32k, dim) instead
@@ -26238,21 +26238,21 @@ type ModelOffer struct {
 const (
         ModalityChat = "chat" // /v1/chat/completions,      billed per token
         ModalityTTS  = "tts"  // /v1/audio/speech,          billed per input char
-        ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-second
+        ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-byte
 
-        UnitToken  = "token"
-        UnitChar   = "char"
-        UnitSecond = "second"
+        UnitToken = "token"
+        UnitChar  = "char"
+        UnitByte  = "byte"
 )
 
 // canonicalUnit is the ONE billing unit for a modality. A tts offer always bills chars and an
-// stt offer always bills audio-seconds, regardless of what unit the node claimed.
+// stt offer always bills audio-bytes, regardless of what unit the node claimed.
 func canonicalUnit(modality string) string <span class="cov7" title="16">{
         switch modality </span>{
         case ModalityTTS:<span class="cov4" title="5">
                 return UnitChar</span>
         case ModalitySTT:<span class="cov4" title="5">
-                return UnitSecond</span>
+                return UnitByte</span>
         default:<span class="cov4" title="6"> // chat + the empty back-compat default
                 return UnitToken</span>
         }
@@ -32413,8 +32413,8 @@ func (m *Mem) EarningRollups(accountID string) (byModel, byNode []EarningRollup,
                 for k, a := range t </span><span class="cov4" title="12">{
                         out = append(out, EarningRollup{Key: k, Amount: a.amount, Lots: a.lots})
                 }</span>
-                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="6">{
-                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="5">{
+                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="7">{
+                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="6">{
                                 return out[i].Amount &gt; out[j].Amount
                         }</span>
                         <span class="cov1" title="1">return out[i].Key &lt; out[j].Key</span>
@@ -41510,10 +41510,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="817">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="668">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="669">{
                 return s
         }</span>
-        <span class="cov3" title="149">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="148">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -43210,7 +43210,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="341">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="364">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
