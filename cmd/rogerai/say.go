@@ -29,7 +29,7 @@ var sayPlayer audio.PlayerFn = audio.SystemPlayer
 // gates, or a graceful "broker unreachable"), and nothing plays on an error.
 func cmdSay(cfg config, args []string) error {
 	fs := flag.NewFlagSet("say", flag.ContinueOnError)
-	voice := fs.String("voice", "", "the voice to speak in: a model id, or the @login/name from `roger voices`")
+	voice := fs.String("voice", "", "the voice to speak in: a model id, or the @station/name from `roger voices`")
 	speed := fs.Float64("voice-speed", 0, "playback speed (0.5-2.0; 0 = the voice's default)")
 	fs.Usage = func() {
 		fmt.Print(`roger say - speak a line through a shared voice and play it locally
@@ -37,7 +37,7 @@ func cmdSay(cfg config, args []string) error {
   roger say --voice <voice> "roger that"     synthesize + play
   roger voices                               list on-air voices (cheapest first)
 
-  --voice <voice>       REQUIRED: a voice model id, or the @login/name from ` + "`roger voices`" + `
+  --voice <voice>       REQUIRED: a voice model id, or the @station/name from ` + "`roger voices`" + `
   --voice-speed <n>     playback speed (0.5-2.0; default: the voice's own)
 
 Voices are metered per character you speak, billed to your wallet (self/free is $0).
@@ -131,7 +131,7 @@ func voiceRosterLine(v client.Voice) string {
 	return fmt.Sprintf("  %s\n      --voice %s", strings.Join(parts, " · "), voiceHandle(v))
 }
 
-// voiceHandle is the id a consumer passes to --voice: the human-friendly @login/name alias when the
+// voiceHandle is the id a consumer passes to --voice: the human-friendly @station/name alias when the
 // broker emitted one, else the raw model id (both route at the broker).
 func voiceHandle(v client.Voice) string {
 	if v.NamespacedID != "" {
