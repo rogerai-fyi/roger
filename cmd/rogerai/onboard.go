@@ -101,7 +101,7 @@ func runWizard(cfg config, opts wizardOpts) (config, bool, error) {
 	intent := "consume"
 	if err := huh.NewSelect[string]().
 		Title("Welcome to RogerAI - a two-way radio for GPUs.").
-		Description("Are you here to use models, or to share your GPU?").
+		Description("Are you here to use models, or to share your GPU?\nEither way, your first login drops a $1 starter credit in your wallet.").
 		Options(
 			huh.NewOption("Just use models (open the app)", "consume"),
 			huh.NewOption("Share my GPU - QuickStart, FREE, no login", "free"),
