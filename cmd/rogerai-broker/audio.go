@@ -13,6 +13,32 @@ import (
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
+// transcriptText pulls the screenable text out of an STT result body. The OpenAI STT
+// shape is {"text":"..."}; verbose_json adds a "segments" array of {"text":...}. We read
+// the top-level "text" (present in both) and fall back to concatenating segment texts.
+// A body that does not parse yields "" (the caller treats no-text as nothing to screen;
+// a malformed body is separately rejected as a 502 by the result-shape guard).
+func transcriptText(body []byte) (string, bool) {
+	var out struct {
+		Text     string `json:"text"`
+		Segments []struct {
+			Text string `json:"text"`
+		} `json:"segments"`
+	}
+	if json.Unmarshal(body, &out) != nil {
+		return "", false // not the transcription shape -> 502, never forwarded raw
+	}
+	if strings.TrimSpace(out.Text) != "" {
+		return out.Text, true
+	}
+	var sb strings.Builder
+	for _, s := range out.Segments {
+		sb.WriteString(s.Text)
+		sb.WriteString(" ")
+	}
+	return sb.String(), true
+}
+
 // audioTTSMaxChars is the per-request TTS input cap (Unicode runes). Default ~10k
 // (a multi-minute read; roger say + the TUI preview send sentences, far below it).
 // <=0 disables the cap. ROGERAI_TTS_MAX_CHARS overrides.
@@ -47,6 +73,16 @@ type audioSpec struct {
 	modality    string // protocol.ModalityTTS | ModalitySTT
 	path        string // upstream Path tag the node's bridge serves (/v1/audio/speech | /transcriptions)
 	contentType string // response Content-Type (audio/mpeg | application/json)
+	// screenOutput screens the node's RESULT text before returning it (STT: the
+	// transcription is text the broker hands the consumer, so it must pass the same
+	// policy as chat/TTS input - else STT is a laundering channel). TTS output is
+	// opaque audio, so it is false there; its INPUT is screened up front instead.
+	screenOutput bool
+	// resultText extracts the screenable text from the node's result body (the STT
+	// transcription's "text" field). ok=false means the body did not parse as the
+	// expected result shape -> the caller 502s rather than forward it raw. nil when
+	// screenOutput is false.
+	resultText func(body []byte) (text string, ok bool)
 	// parse pulls the routing model, the exact metered unit count (the BROKER's count), and any
 	// screenable text out of the request. A non-empty badReq is returned as a 400 (empty/invalid
 	// payload) BEFORE any hold; moderate == "" means there is no text to screen (opaque audio).
@@ -83,8 +119,10 @@ func (b *broker) transcribeRelay(w http.ResponseWriter, r *http.Request) {
 			if len(body) == 0 {
 				return "", 0, "", "empty audio upload"
 			}
-			return r.URL.Query().Get("model"), len(body), "", "" // opaque audio: no text to screen
+			return r.URL.Query().Get("model"), len(body), "", "" // opaque audio IN: no text to screen
 		},
+		screenOutput: true, // ...but the transcription OUT is text - screen it before returning
+		resultText:   transcriptText,
 	})
 }
 
@@ -330,20 +368,62 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		}
 		rec.PriceIn, rec.GrantID = pin, grantID
 		rec.SignBroker(b.priv)
-		newBal := 0.0
-		if cost > 0 {
-			nb, ferr := b.settleRequest(payer, node.NodeID, cost, cost, rec, grantID, pricing.free)
-			if ferr != nil {
-				log.Printf("audio settle FAILED user=%s node=%s: %v", user, node.NodeID, ferr)
-			} else {
-				settled, newBal = true, nb
+
+		// settle charges the request (or records a $0 metering receipt on the free path)
+		// and marks the hold consumed. Factored out so the STT-block path can CHARGE the
+		// abuser (the node did the work in good faith) while still withholding the text.
+		settle := func() float64 {
+			if cost > 0 {
+				nb, ferr := b.settleRequest(payer, node.NodeID, cost, cost, rec, grantID, pricing.free)
+				if ferr != nil {
+					log.Printf("audio settle FAILED user=%s node=%s: %v", user, node.NodeID, ferr)
+					return 0
+				}
+				settled = true
+				return nb
 			}
-		} else {
 			if b.db != nil { // free path: record a $0 metering receipt for lineage (as chat does)
 				_, _ = b.db.Settle(payer, node.NodeID, 0, 0, rec)
 			}
 			settled = true
+			return 0
 		}
+
+		// STT output screen: the transcription is text the broker is about to hand the
+		// consumer, so it passes the SAME policy as chat/TTS input. A screen OUTAGE (503,
+		// require=1) withholds AND releases the hold (the failure is ours - `settled`
+		// stays false, the defer refunds). A FLAGGED result (451) still CHARGES (the node
+		// worked in good faith on opaque audio; the abuser eats the cost + is priced out
+		// of repeat probing) but the body is withheld - no fragment leaks. CSAM preserves
+		// the audio (primary evidence) + the transcription, exactly like the chat path.
+		if spec.screenOutput && spec.resultText != nil {
+			text, okShape := spec.resultText(res.Body)
+			if !okShape {
+				jsonErr(w, http.StatusBadGateway, "station returned an unreadable result") // hold refunds via defer
+				return
+			}
+			if strings.TrimSpace(text) != "" {
+				if sres := b.mod.screen(text); !sres.allow() {
+					if sres.status == http.StatusServiceUnavailable {
+						jsonErr(w, sres.status, sres.msg) // outage: hold refunds via defer
+						return
+					}
+					if sres.csam {
+						b.preserveCSAM(b.pseudonym(user, node.NodeID), clientIP(r), sres.category, append(append([]byte{}, body...), []byte("\n--transcript--\n"+text)...))
+					}
+					newBal := settle() // charge the abuser
+					w.Header().Set("X-RogerAI-Provider", node.NodeID)
+					w.Header().Set("X-RogerAI-Cost", fmtCostHeader(cost))
+					if cost > 0 {
+						w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
+					}
+					jsonErr(w, sres.status, sres.msg) // withhold the body
+					return
+				}
+			}
+		}
+
+		newBal := settle()
 		w.Header().Set("X-RogerAI-Provider", node.NodeID)
 		w.Header().Set("X-RogerAI-Cost", fmtCostHeader(cost))
 		if cost > 0 {
