@@ -176,6 +176,32 @@ test("logged-in (roger_signed_in=1): credentialed /account probe, then nav swap 
   assert.equal(img.src, "https://avatars.githubusercontent.com/u/583231?s=48&v=4");
 });
 
+// An Apple web session carries the email (or "apple") in github_login with github_id 0:
+// the menu must show the email AS-IS (never "@a@b.com", never the literal "@you") and must
+// NOT fetch a github.com avatar for it (github.com/<email>.png would 404 = broken image).
+test("Apple session (email handle, github_id 0): email shown as-is, no GitHub avatar", async () => {
+  const acct = { github_login: "pilot@privaterelay.appleid.com", github_id: 0 };
+  const { utils } = await run({ cookie: "roger_signed_in=1", acct });
+  const wrap = utils.children.find((c) => c.className === "acctmenu");
+  assert.ok(wrap, "the account control mounts for an Apple session too");
+  const btn = wrap.children.find((c) => c.tagName === "BUTTON");
+  assert.equal(btn.getAttribute("aria-label"), "Account menu for pilot@privaterelay.appleid.com");
+  const handle = btn.children.find((c) => c.className === "acctmenu__handle");
+  assert.equal(handle.textContent, "pilot@privaterelay.appleid.com", "an email handle gets no @-prefix");
+  const img = btn.children.find((c) => c.tagName === "IMG");
+  assert.equal(img, undefined, "no github.com avatar for an email identity (it would 404)");
+});
+
+// The "apple" fallback (no email relayed) still renders a sane handle, not a 404 avatar URL
+// keyed by a non-username - but a username-shaped login without an id may use github.com/<login>.png.
+test("Apple session with no email: @apple handle, github.com avatar by login shape", async () => {
+  const acct = { github_login: "apple", github_id: 0 };
+  const { utils } = await run({ cookie: "roger_signed_in=1", acct });
+  const wrap = utils.children.find((c) => c.className === "acctmenu");
+  const handle = wrap.children.find((c) => c.tagName === "BUTTON").children.find((c) => c.className === "acctmenu__handle");
+  assert.equal(handle.textContent, "@apple");
+});
+
 // Scenario: forcing the probe for local-broker development.
 test("window.ROGER_BROKER_CHECK forces the probe even with no hint cookie", async () => {
   const { calls } = await run({ cookie: "", brokerCheck: true, acct: { github_login: "dev" } });
