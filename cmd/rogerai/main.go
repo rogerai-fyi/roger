@@ -934,7 +934,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
 		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
 		// node leaking its exact rig.
-		NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
+		NodeID: nodeID, Station: station, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the

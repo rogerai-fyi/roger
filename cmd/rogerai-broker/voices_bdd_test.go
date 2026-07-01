@@ -44,7 +44,10 @@ func (s *voicesState) addVoice(id, voiceID string, priceIn float64, name, lang s
 	o := protocol.ModelOffer{Model: voiceID, Modality: protocol.ModalityTTS, PriceIn: priceIn,
 		Name: name, Language: lang, LatencyMS: latency}
 	o.Normalize()
-	s.b.nodes[id] = protocol.NodeRegistration{NodeID: id, BridgeURL: bridgeURL, Offers: []protocol.ModelOffer{o}}
+	// Carry the owner's broadcast station so the voice is publicly listable + namespaced (the
+	// discovery.feature assertions are about voice SHAPE, not the @station handle; one fixed
+	// callsign for the single "voicehost" owner is fine — no cross-owner uniqueness at play).
+	s.b.nodes[id] = protocol.NodeRegistration{NodeID: id, BridgeURL: bridgeURL, Station: "voicehost-fm", Offers: []protocol.ModelOffer{o}}
 	s.b.lastSeen[id] = s.now // online
 	s.b.trust[id] = trustState{probed: true, probeOK: true, ttftMs: 200}
 	s.bindOwnedNode(id)

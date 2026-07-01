@@ -143,9 +143,25 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	}
 
 	// --- Route to a node of THIS modality ONLY (isolation via pickFor). ---
+	// A NAMESPACED model "@<station>/<slug>" is RESOLVED to the SPECIFIC on-air node whose
+	// operator station + voice-name slug match, then dispatched PINNED to that node on its RAW
+	// offer model. This is what makes the money land on the RIGHT operator when two operators
+	// share a raw model (e.g. both offer "af_heart"): pickFor(rawModel) alone would pick EITHER
+	// node (power-of-two over the RNG) and could bill the wrong owner, so we constrain selection
+	// to the resolved node id. A RAW id (no "@") routes exactly as before (pin=""). A namespaced
+	// id with no matching on-air voice falls through to the uniform 503 below.
+	routeModel, pinNode := model, ""
+	if station, slug, isNS := parseNamespacedVoice(model); isNS {
+		raw, node, resolved := b.resolveNamespacedVoice(station, slug, spec.modality)
+		if !resolved {
+			jsonErr(w, http.StatusServiceUnavailable, "no station on air for "+model)
+			return
+		}
+		routeModel, pinNode = raw, node
+	}
 	requestID := protocol.NewRequestID()
 	b.mu.Lock()
-	node, offer, ok := b.pickFor(model, false, 0, 0, 0, "", nil, nil, nil,
+	node, offer, ok := b.pickFor(routeModel, false, 0, 0, 0, pinNode, nil, nil, nil,
 		pickReq{modality: spec.modality, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
