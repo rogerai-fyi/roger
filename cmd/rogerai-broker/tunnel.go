@@ -2011,10 +2011,21 @@ func (b *broker) observeOrganicTTFT(nodeID string, ttftMs float64) {
 // the request-size-aware speedFit), and a seeded PRNG for power-of-two-choices
 // spread. The zero value (prefBalanced, no prompt, nil rng) reproduces the legacy
 // deterministic top-1 route, so callers/tests that don't supply it are unchanged.
+// offerModality normalizes an offer's or request's modality: an empty value is the chat
+// back-compat default, so a pre-voice node (no modality) still matches a chat request. Used by
+// pickFor's isolation gate so voice + chat never cross-route.
+func offerModality(m string) string {
+	if m == "" {
+		return protocol.ModalityChat
+	}
+	return m
+}
+
 type pickReq struct {
 	pref         pref
 	promptTokens int
 	rng          *rand.Rand // nil => deterministic top-1 (no P2C spread)
+	modality     string     // "" / "chat" match chat offers; "tts" / "stt" match voice offers
 }
 
 // pickFor is the smart-router v2 selection (the winning spec). For each ELIGIBLE
@@ -2159,6 +2170,11 @@ func (b *broker) pickFor(model string, confidentialOnly bool, minTPS, maxPriceIn
 
 		for _, o := range n.Offers {
 			if o.Model != model {
+				continue
+			}
+			// Modality isolation: a tts/stt request routes ONLY to that modality's offers, a
+			// chat request only to chat — never cross-modality (empty = chat, back-compat).
+			if offerModality(o.Modality) != offerModality(req.modality) {
 				continue
 			}
 			in, out, _, _ := o.ActivePrice(now)

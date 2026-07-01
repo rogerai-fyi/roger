@@ -607,6 +607,7 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/bands/", b.bandsByID)                             // /bands/{id} revoke; /bands/resolve = public freq lookup
 	mux.HandleFunc("/bands/resolve", b.bandResolve)                    // PUBLIC: resolve a frequency code -> offers (constant-work)
 	mux.HandleFunc("/v1/chat/completions", b.relay)
+	mux.HandleFunc("/v1/audio/speech", b.audioRelay)                                                  // TTS relay: metered by input chars; tts nodes only
 	mux.HandleFunc("/concierge", b.conciergeHandler)                                                  // "Ping" homepage chatbot (public)
 	mux.HandleFunc("/report", b.report)                                                               // public abuse/quality report + node-ban flow
 	mux.HandleFunc("/owner/strikes", b.ownerStrikes)                                                  // owner-authed: the caller's own strikes + evidence + node-ban status (operator recourse)
