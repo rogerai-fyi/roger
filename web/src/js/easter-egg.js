@@ -31,17 +31,57 @@
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
+  // The iOS app isn't live yet (bundle fyi.rogerai.app; Sign-in-with-Apple still a submission
+  // blocker), so there is no real numeric App Store id. PLACEHOLDER - swap in the real id at launch;
+  // the bubble says "coming soon" so this is never presented as a live listing.
+  var APP_STORE_URL = "https://apps.apple.com/app/rogerai/id000000000"; // TODO: real App Store ID once the app is live
+  // pure: the argument tuple for a safe new-tab open - opener severed so the store tab can't touch us.
+  function openArgs(url) { return [url, "_blank", "noopener,noreferrer"]; }
+
   if (typeof document === "undefined") { // node test path: export the pure bits, skip the DOM
     if (typeof module !== "undefined" && module.exports) {
-      module.exports = { makeMultiClick: makeMultiClick, easeInOutCubic: easeInOutCubic };
+      module.exports = { makeMultiClick: makeMultiClick, easeInOutCubic: easeInOutCubic,
+        openArgs: openArgs, APP_STORE_URL: APP_STORE_URL };
     }
     return;
   }
 
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var SIZE = 58;          // px - small + subtle
-  var DURATION = 8600;    // ms - one calm stroll across
+  var SIZE = 58;           // px - small + subtle
+  var WALK_IN = 3400;      // ms - stroll in from the left to centre stage
+  var HOLD = 3400;         // ms - pause at centre with the App Store bubble up (clickable)
+  var WALK_OUT = 3400;     // ms - amble off to the right
+  var REDUCED_MS = 4600;   // ms - reduced motion: fade in, hold (clickable), fade out - no travel
   var playing = false;
+
+  // the App Store speech bubble: calm + on-brand (paper, hairline, one red arrow), sits above Ping.
+  // Built from nodes with inline styles (CSP-safe, no innerHTML); token vars carry literal fallbacks
+  // so a missing stylesheet can't leave it unstyled. Starts hidden + click-through until Ping arrives.
+  function makeBubble() {
+    var b = document.createElement("div");
+    b.style.cssText =
+      "position:absolute;left:50%;bottom:calc(100% + 12px);transform:translateX(-50%);box-sizing:border-box;" +
+      "max-width:min(240px,76vw);padding:8px 11px;text-align:center;white-space:normal;" +
+      "font-family:var(--font-mono,ui-monospace,monospace);font-size:12px;line-height:1.35;letter-spacing:.01em;" +
+      "color:var(--ink-900,#15140f);background:var(--paper,#fbfbfa);border:1px solid var(--hairline-2,#d8d7d2);" +
+      "border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.22),0 0 0 1px rgba(224,35,28,.10);" +
+      "opacity:0;pointer-events:none;cursor:pointer;will-change:transform,opacity;";
+    var line = document.createElement("span");
+    line.textContent = "Check out RogerAI on the App Store ";
+    var arrow = document.createElement("b");
+    arrow.textContent = "→";
+    arrow.style.cssText = "color:#e0231c;font-weight:700;";
+    line.appendChild(arrow);
+    var soon = document.createElement("div"); // honest: the listing isn't live yet (placeholder id)
+    soon.textContent = "coming soon";
+    soon.style.cssText = "margin-top:2px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-400,#9a968b);";
+    var tail = document.createElement("div"); // little downward beak toward Ping
+    tail.style.cssText = "position:absolute;left:50%;bottom:-5px;width:10px;height:10px;" +
+      "transform:translateX(-50%) rotate(45deg);background:var(--paper,#fbfbfa);" +
+      "border-right:1px solid var(--hairline-2,#d8d7d2);border-bottom:1px solid var(--hairline-2,#d8d7d2);";
+    b.appendChild(line); b.appendChild(soon); b.appendChild(tail);
+    return b;
+  }
 
   function launch() {
     if (playing) return;
@@ -58,52 +98,99 @@
     halo.style.cssText = "position:absolute;left:0;bottom:8px;width:132px;height:132px;" +
       "border-radius:50%;background:radial-gradient(circle,rgba(224,35,28,.20),rgba(224,35,28,0) 66%);" +
       "opacity:0;will-change:transform,opacity;";
+    // Ping is the ONE clickable island on the click-through stage (pointer-events:auto on the dancer).
     var dancer = document.createElement("div");
     dancer.style.cssText = "position:absolute;left:0;bottom:8px;width:" + SIZE + "px;height:" + SIZE + "px;" +
-      "opacity:0;will-change:transform,opacity;";
+      "opacity:0;cursor:pointer;pointer-events:auto;will-change:transform,opacity;";
     var img = document.createElement("img");
     img.src = "ping.svg"; img.alt = "";
-    img.style.cssText = "width:100%;height:100%;display:block;border-radius:13px;" +
+    img.style.cssText = "width:100%;height:100%;display:block;border-radius:13px;pointer-events:none;" +
       "box-shadow:0 8px 18px rgba(0,0,0,.28),0 0 0 1px rgba(150,150,150,.16);";
     dancer.appendChild(img);
+    var bubble = makeBubble();
+    dancer.appendChild(bubble); // rides with Ping; steady while he's paused at centre
     stage.appendChild(halo); stage.appendChild(dancer);
     document.body.appendChild(stage);
 
-    if (REDUCED) { reducedFade(stage, dancer, halo, (W - SIZE) / 2); return; }
-
-    var fromX = -SIZE - 24, toX = W + 24;   // walk in from the left, off to the right
     var haloDx = (SIZE - 132) / 2;          // centre the bloom behind Ping
-    var start = null;
-    function frame(ts) {
-      if (start === null) start = ts;
-      var ms = ts - start, t = ms / DURATION;
-      if (t >= 1) { stage.remove(); playing = false; return; }
-      var x = fromX + (toX - fromX) * easeInOutCubic(t);   // gentle start + stop
-      var bob = -Math.abs(Math.sin(ms / 250)) * 3;          // little walking hops
-      var waddle = Math.sin(ms / 250) * 2;                  // slight weight shift
-      var op = clamp(t / 0.06, 0, 1) * clamp((1 - t) / 0.06, 0, 1);  // fade in/out at the edges
-      dancer.style.opacity = op;
-      dancer.style.transform = "translate(" + x.toFixed(1) + "px," + bob.toFixed(1) + "px) rotate(" + waddle.toFixed(2) + "deg)";
-      halo.style.opacity = (op * 0.5).toFixed(3);
-      halo.style.transform = "translate(" + (x + haloDx).toFixed(1) + "px," + (bob + 6).toFixed(1) + "px)";
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  }
+    var centerX = (W - SIZE) / 2;
+    var fromX = -SIZE - 24, toX = W + 24;   // walk in from the left, off to the right
+    var rafId = 0, done = false, dismissing = false, dismissAt = null;
+    var lastX = centerX, lastBob = 0, curDOp = 0, curBOp = 0, dOp0 = 0, bOp0 = 0;
 
-  // reduced motion: no walk - Ping just fades in at the bottom centre, holds, fades out.
-  function reducedFade(stage, dancer, halo, cx) {
-    dancer.style.transform = "translateX(" + cx + "px)";
-    halo.style.transform = "translateX(" + (cx + (SIZE - 132) / 2) + "px)";
-    var start = null, T = 2600;
-    function frame(ts) {
-      if (start === null) start = ts;
-      var p = clamp((ts - start) / T, 0, 1);
-      var op = Math.min(1, p * 5) * (1 - clamp((p - 0.78) / 0.22, 0, 1));
-      dancer.style.opacity = op; halo.style.opacity = (op * 0.5).toFixed(3);
-      if (p < 1) requestAnimationFrame(frame); else { stage.remove(); playing = false; }
+    function place(x, bob, waddle, dop) {
+      lastX = x; lastBob = bob; curDOp = dop;
+      dancer.style.opacity = dop;
+      dancer.style.transform = "translate(" + x.toFixed(1) + "px," + bob.toFixed(1) + "px) rotate(" + waddle.toFixed(2) + "deg)";
+      halo.style.opacity = (dop * 0.5).toFixed(3);
+      halo.style.transform = "translate(" + (x + haloDx).toFixed(1) + "px," + (bob + 6).toFixed(1) + "px)";
     }
-    requestAnimationFrame(frame);
+    function bubbleOp(op) {
+      curBOp = op;
+      bubble.style.opacity = op.toFixed(3);
+      bubble.style.pointerEvents = op > 0.05 ? "auto" : "none"; // only hot while actually visible
+    }
+    function finish() {
+      if (done) return;
+      done = true; playing = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      stage.remove();
+    }
+    function dismissFrame(ts) {                 // graceful quick fade from wherever we were, then gone
+      if (dismissAt === null) dismissAt = ts;
+      var k = 1 - clamp((ts - dismissAt) / 460, 0, 1);
+      place(lastX, lastBob * k, 0, dOp0 * k);
+      bubble.style.opacity = (bOp0 * k).toFixed(3);
+      if (k <= 0) { finish(); return; }
+      rafId = requestAnimationFrame(dismissFrame);
+    }
+    // click Ping (any time) or his bubble -> open the store in a severed new tab, then bow out. One-shot.
+    dancer.addEventListener("click", function (ev) {
+      ev.preventDefault(); ev.stopPropagation();
+      if (done || dismissing) return;
+      window.open.apply(window, openArgs(APP_STORE_URL));
+      dismissing = true; dismissAt = null; dOp0 = curDOp; bOp0 = curBOp;
+      bubble.style.pointerEvents = "none";
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(dismissFrame);
+    });
+
+    if (REDUCED) { // reduced motion: fade in at bottom-centre, hold (clickable), fade out - no travel.
+      var rStart = null;
+      rafId = requestAnimationFrame(function reducedFrame(ts) {
+        if (rStart === null) rStart = ts;
+        var p = clamp((ts - rStart) / REDUCED_MS, 0, 1);
+        var out = 1 - clamp((p - 0.80) / 0.20, 0, 1);
+        place(centerX, 0, 0, Math.min(1, p * 5) * out);
+        bubbleOp(clamp((ts - rStart) / 500, 0, 1) * out); // reachable through the calm hold
+        if (p >= 1) { finish(); return; }
+        rafId = requestAnimationFrame(reducedFrame);
+      });
+      return;
+    }
+
+    var wStart = null;
+    rafId = requestAnimationFrame(function walkFrame(ts) {
+      if (wStart === null) wStart = ts;
+      var e = ts - wStart;
+      if (e < WALK_IN) {                                   // 1) stroll in to centre
+        var p = e / WALK_IN;
+        place(fromX + (centerX - fromX) * easeInOutCubic(p),
+          -Math.abs(Math.sin(e / 250)) * 3, Math.sin(e / 250) * 2, clamp(p / 0.08, 0, 1));
+        bubbleOp(0);
+      } else if (e < WALK_IN + HOLD) {                     // 2) pause, settle the hops, raise the bubble
+        var he = e - WALK_IN, hop = 1 - clamp(he / 260, 0, 1);
+        place(centerX, -Math.abs(Math.sin(e / 250)) * 3 * hop, Math.sin(e / 250) * 2 * hop, 1);
+        bubbleOp(clamp(he / 420, 0, 1) * (1 - clamp((he - (HOLD - 520)) / 520, 0, 1)));
+      } else {                                             // 3) amble off to the right
+        var oe = e - WALK_IN - HOLD, p2 = oe / WALK_OUT;
+        if (p2 >= 1) { finish(); return; }
+        place(centerX + (toX - centerX) * easeInOutCubic(p2),
+          -Math.abs(Math.sin(oe / 250)) * 3, Math.sin(oe / 250) * 2, clamp((1 - p2) / 0.12, 0, 1));
+        bubbleOp(0);
+      }
+      rafId = requestAnimationFrame(walkFrame);
+    });
   }
 
   function wire() {

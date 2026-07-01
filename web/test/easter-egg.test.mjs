@@ -37,3 +37,13 @@ test("easeInOutCubic: pinned at 0, 0.5, 1 (smooth, symmetric)", () => {
   assert.ok(Math.abs(R.easeInOutCubic(0.5) - 0.5) < 1e-9);
   assert.ok(R.easeInOutCubic(0.25) < 0.25 && R.easeInOutCubic(0.75) > 0.75); // ease-in then ease-out
 });
+
+test("openArgs: new tab with the opener severed (no window.opener leak to the store tab)", () => {
+  assert.deepEqual(R.openArgs("https://example.com/x"), ["https://example.com/x", "_blank", "noopener,noreferrer"]);
+  assert.ok(R.openArgs("u")[2].includes("noopener")); // security: store tab can't reach back via opener
+});
+
+test("APP_STORE_URL: a well-formed apps.apple.com deep link (id format locked for the real swap)", () => {
+  // Placeholder today; this lock still passes once a real numeric id replaces id000000000.
+  assert.match(R.APP_STORE_URL, /^https:\/\/apps\.apple\.com\/.+\/id\d+$/);
+});
