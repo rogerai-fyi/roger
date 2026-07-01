@@ -44,6 +44,7 @@ const CSS_BUNDLES = {
   "index.html":     [...CSS_MARKETING, "home.css"],
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
+  "voices.html":    [...CSS_MARKETING, "voices.css"],
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
