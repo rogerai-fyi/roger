@@ -23,7 +23,7 @@ Feature: A TTS request is metered by exact input characters, capped, on the same
 
   Background:
     Given a consumer with a funded wallet
-    And a node offering "roger-operator" with modality "tts" at price_in 15 per 1M chars
+    And a node offering "roger-operator-voice" with modality "tts" at price_in 15 per 1M chars
 
   Rule: cost = chars * price_per_1M_chars / 1e6, using the broker's char count
 

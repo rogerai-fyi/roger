@@ -25,7 +25,7 @@ Feature: Voice/audio offers carry a modality and a truthful billing unit
 
   # --- the two new modalities and their canonical units ---
   Scenario: A TTS offer is billed per character
-    Given an offer for model "roger-operator" with modality "tts"
+    Given an offer for model "roger-operator-voice" with modality "tts"
     When the broker normalizes the offer
     Then the offer unit is "char"
     And its price is read as credits per 1,000,000 input characters
@@ -70,10 +70,10 @@ Feature: Voice/audio offers carry a modality and a truthful billing unit
   # --- a single node may advertise a mixed fleet across modalities ---
   Scenario: One node registers chat, TTS, and STT offers together
     Given a node registers offers:
-      | model             | modality |
-      | llama3.2          | chat     |
-      | roger-operator    | tts      |
-      | whisper-large-v3  | stt      |
+      | model                | modality |
+      | llama3.2             | chat     |
+      | roger-operator-voice | tts      |
+      | whisper-large-v3     | stt      |
     When the broker normalizes the offers
     Then each offer keeps its own modality and canonical unit
     And the node is discoverable under all three

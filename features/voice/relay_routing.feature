@@ -21,8 +21,8 @@ Feature: Audio requests route to the right modality; chat is untouched
   Rule: each audio path routes only to a node offering that modality (D9, D10)
 
     Scenario: /v1/audio/speech routes to a tts node
-      Given a node offering "roger-operator" with modality "tts"
-      When a POST /v1/audio/speech for "roger-operator" arrives
+      Given a node offering "roger-operator-voice" with modality "tts"
+      When a POST /v1/audio/speech for "roger-operator-voice" arrives
       Then the request is relayed to that tts node
 
     Scenario: /v1/audio/transcriptions routes to an stt node
@@ -39,7 +39,7 @@ Feature: Audio requests route to the right modality; chat is untouched
       And the chat node is never called
 
     Scenario: A tts node is never picked for a chat request
-      Given a node offering "roger-operator" with modality "tts"
+      Given a node offering "roger-operator-voice" with modality "tts"
       And no chat node is registered
       When a POST /v1/chat/completions arrives
       Then no node is selected
@@ -48,7 +48,7 @@ Feature: Audio requests route to the right modality; chat is untouched
   Rule: no eligible node => 503, never a cross-modality mis-route (D11)
 
     Scenario: An stt request with only a tts node available fails cleanly
-      Given a node offering "roger-operator" with modality "tts"
+      Given a node offering "roger-operator-voice" with modality "tts"
       And no stt node is registered
       When a POST /v1/audio/transcriptions arrives
       Then no node is selected
@@ -68,3 +68,36 @@ Feature: Audio requests route to the right modality; chat is untouched
       When a chat request is relayed to it
       Then the offer normalizes to modality "chat" and unit "token"
       And it is metered by tokens with nothing about the chat path changed
+
+  # --- the exact status codes the BUILT app maps (roger-ios docs/BROKER-VOICE-API.md, APIError);
+  #     each one makes the app fall back to the on-device Apple voice ---
+  Rule: the audio path returns the status codes the app maps
+
+    Scenario: A bad or missing signature/key is 401
+      Given a POST /v1/audio/speech with an invalid signature and no key
+      When it is relayed
+      Then the response is 401
+
+    Scenario: Insufficient funds or monthly cap hit is 402
+      Given a consumer whose wallet cannot cover the request, or who is over the monthly cap
+      And a POST /v1/audio/speech for a paid voice
+      When it is relayed
+      Then the response is 402
+
+    Scenario: A paid voice requested without a funded wallet is 403
+      Given a device-signed request with no funded wallet
+      And a POST /v1/audio/speech for the PAID voice "roger-operator-voice"
+      When it is relayed
+      Then the response is 403
+
+    Scenario: No station on air for that voice id is 503
+      Given no tts node offers "roger-operator-voice"
+      When a POST /v1/audio/speech for "roger-operator-voice" arrives
+      Then the response is 503
+
+  Rule: the audio response carries the same balance-meter headers as chat
+
+    Scenario: A served TTS request returns the metering headers
+      Given a paid TTS request that succeeds
+      When the response is returned
+      Then it carries X-RogerAI-Provider, X-RogerAI-Cost, and X-RogerAI-Balance
