@@ -53,6 +53,24 @@ type ShareRow struct {
 	UpstreamKey  string
 }
 
+// VoiceConfig is the SHARE VOICE BOOTH's result for one tts model: the on-air DJ identity the
+// operator built. Name is the display name (/voices picker); Voice is the chosen default voice — a
+// single Kokoro id OR a weighted blend string ("af_heart:0.5+af_aoede:0.5", the blend IS the
+// shared voice); Speed is the default rate (0.5–2.0); Language is the display language. On on-air
+// they ride the offer (agent.Config), so a consumer gets the operator's picked voice. The zero
+// value means "not configured" — a plain chat model shares with no voice metadata.
+type VoiceConfig struct {
+	Name     string
+	Voice    string
+	Speed    float64
+	Language string
+}
+
+// startAgent is the process-edge seam for launching a share (defaults to the real agent.Start). It
+// is a package var ONLY so a test can capture the built agent.Config without a live broker; the
+// production path is agent.Start unchanged.
+var startAgent = agent.Start
+
 // Hooks are the host-supplied persistence closures (disk I/O lives in the CLI, not
 // here). All are nil-safe: a nil hook just skips persistence.
 type Hooks struct {
@@ -94,6 +112,7 @@ type Controller struct {
 	sessions map[string]*agent.Session
 	private  map[string]bool
 	prices   map[string]Pricing
+	voices   map[string]VoiceConfig // per-model SHARE VOICE BOOTH result (dj-name/voice/speed/lang)
 
 	upstream    string // headline upstream (found[0]) — fallback for rows that predate per-row upstreams
 	upstreamKey string
@@ -118,6 +137,7 @@ func New(cfg Config) *Controller {
 		sessions:    map[string]*agent.Session{},
 		private:     map[string]bool{},
 		prices:      map[string]Pricing{},
+		voices:      map[string]VoiceConfig{},
 		// Seed the saved/verified upstream so the first scan probes it first and a saved
 		// keyed upstream is reused without re-prompting. savedUp/Key mirror what is already
 		// on disk so a re-detection of the same endpoint is a no-op (no SaveUpstream write).
@@ -337,12 +357,35 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	}
 	upKey := pickUpstreamKey(up, row.UpstreamKey, c.upstream, c.upstreamKey)
 	node := agent.ShareNodeID(c.station, row.Model, 0)
-	return agent.Start(agent.Config{
+	// The SHARE VOICE BOOTH result (if any) rides onto the offer so a voice goes on air as the
+	// operator's named DJ with their picked voice/blend/speed. An unconfigured model has the zero
+	// VoiceConfig, so a plain chat share carries no voice metadata (unchanged).
+	vc := c.voices[row.Model]
+	return startAgent(agent.Config{
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
+		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language,
 	})
+}
+
+// SetVoiceConfig records the SHARE VOICE BOOTH result for a model (dj-name + voice/blend + speed +
+// language). Like SetPricing it does not restart a live session — the next on-air toggle applies
+// it. Persistence is via the price hook's sibling if the host wires one; for now it is in-session
+// (the BOOTH re-derives from the offer on reload).
+func (c *Controller) SetVoiceConfig(model string, vc VoiceConfig) {
+	c.mu.Lock()
+	c.voices[model] = vc
+	c.mu.Unlock()
+}
+
+// VoiceConfigFor returns the stored BOOTH result for a model, or the zero VoiceConfig when the
+// model never went through the BOOTH (so the editor can seed its fields on reopen).
+func (c *Controller) VoiceConfigFor(model string) VoiceConfig {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.voices[model]
 }
 
 // pickUpstreamKey chooses the bearer to send to a row's upstream: the row's OWN key if it

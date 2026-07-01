@@ -59,6 +59,11 @@ type Config struct {
 	Language  string
 	SampleURL string
 	LatencyMS int
+	// Voice/Speed: the operator's chosen DEFAULT voice (a single Kokoro id OR a blend string,
+	// from the SHARE VOICE BOOTH) + default speed. The node injects them into a /v1/audio/speech
+	// request that OMITS `voice` (see serve), so a consumer gets the operator's picked voice.
+	Voice string
+	Speed float64
 }
 
 var (
@@ -343,7 +348,8 @@ func Start(cfg Config) (*Session, error) {
 
 	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
-		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS}
+		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS,
+		Voice: cfg.Voice, Speed: cfg.Speed}
 	reg := protocol.NodeRegistration{
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
@@ -644,10 +650,18 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	// against the SAME local server at that path, derived from the chat upstream's base. An empty
 	// or chat Path leaves cfg.Upstream unchanged (a normal LLM share is untouched).
 	target := cfg.Upstream
+	body := job.Body
 	if p := job.Path; p != "" && !strings.HasSuffix(p, "/chat/completions") {
 		target = strings.TrimSuffix(cfg.Upstream, "/chat/completions") + strings.TrimPrefix(p, "/v1")
+		// On the speech path, inject the operator's DEFAULT voice/speed when the caller omitted
+		// them, so a consumer gets the operator's picked voice/blend (offer.Voice) — not the raw
+		// local-server default. A caller's explicit value always wins; an unparseable body is
+		// forwarded byte-for-byte. This is the ONLY place the wire default is applied.
+		if isSpeechPath(p) {
+			body = injectVoiceDefaults(job.Body, offer.Voice, offer.Speed)
+		}
 	}
-	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(job.Body))
+	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
@@ -682,6 +696,53 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	lastHash = rec.Hash()
 	mu.Unlock()
 	return protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Body: respBody, Receipt: rec}
+}
+
+// isSpeechPath reports whether a broker job Path targets the local text-to-speech endpoint (the
+// ONLY path where the operator's default voice/speed is injected). stt (/v1/audio/transcriptions)
+// and chat are excluded — they have no `voice` knob.
+func isSpeechPath(p string) bool { return strings.HasSuffix(p, "/audio/speech") }
+
+// injectVoiceDefaults returns body with the operator's default voice/speed FILLED IN when the
+// caller omitted them, so a consumer gets the operator's picked voice/blend (offer.Voice) rather
+// than the raw local-server default. It is deliberately conservative:
+//   - a caller's explicit `voice`/`speed` is NEVER overwritten (present key wins);
+//   - an empty default voice / zero speed injects nothing (forwarded as-is);
+//   - a body that is not a JSON object is forwarded byte-for-byte unchanged (never crash).
+//
+// voice may be a single Kokoro id ("af_heart") OR a weighted blend string
+// ("af_heart:0.5+af_aoede:0.5") — it is injected VERBATIM; the operator's local Kokoro resolves it.
+func injectVoiceDefaults(body []byte, voice string, speed float64) []byte {
+	if voice == "" && speed == 0 {
+		return body
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil || m == nil {
+		return body // not a JSON object: forward unchanged
+	}
+	changed := false
+	if voice != "" {
+		if _, ok := m["voice"]; !ok {
+			v, _ := json.Marshal(voice)
+			m["voice"] = v
+			changed = true
+		}
+	}
+	if speed != 0 {
+		if _, ok := m["speed"]; !ok {
+			sp, _ := json.Marshal(speed)
+			m["speed"] = sp
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 func postResult(client *http.Client, cfg Config, token string, res protocol.JobResult) {
