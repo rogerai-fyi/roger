@@ -676,7 +676,7 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	}
 	resp, err := up.Do(upReq)
 	if err != nil {
-		return protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway, Body: json.RawMessage(`{"error":"upstream unreachable"}`)}
+		return protocol.JobResult{ID: job.ID, Status: http.StatusBadGateway, Body: []byte(`{"error":"upstream unreachable"}`)}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
