@@ -175,7 +175,7 @@
 				
 				<option value="file59">github.com/rogerai-fyi/roger/internal/client/payout.go (98.3%)</option>
 				
-				<option value="file60">github.com/rogerai-fyi/roger/internal/detect/detect.go (90.5%)</option>
+				<option value="file60">github.com/rogerai-fyi/roger/internal/detect/detect.go (91.5%)</option>
 				
 				<option value="file61">github.com/rogerai-fyi/roger/internal/detect/hwclass.go (88.0%)</option>
 				
@@ -203,7 +203,7 @@
 				
 				<option value="file73">github.com/rogerai-fyi/roger/internal/protocol/band.go (100.0%)</option>
 				
-				<option value="file74">github.com/rogerai-fyi/roger/internal/protocol/protocol.go (97.6%)</option>
+				<option value="file74">github.com/rogerai-fyi/roger/internal/protocol/protocol.go (97.8%)</option>
 				
 				<option value="file75">github.com/rogerai-fyi/roger/internal/store/band.go (100.0%)</option>
 				
@@ -3450,11 +3450,11 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) <span class="co
         now := time.Now()
         b.mu.Lock()
         defer b.mu.Unlock()
-        for _, n := range b.nodes </span><span class="cov3" title="6">{
+        for _, n := range b.nodes </span><span class="cov4" title="7">{
                 if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov3" title="5">for _, o := range n.Offers </span><span class="cov3" title="5">{
+                <span class="cov3" title="6">for _, o := range n.Offers </span><span class="cov3" title="6">{
                         in, out, free, _ := o.ActivePrice(now)
                         if free || (in == 0 &amp;&amp; out == 0) </span><span class="cov2" title="3">{
                                 return n.NodeID, o.Model, true
@@ -6559,7 +6559,7 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="15">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="16">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
@@ -6571,7 +6571,7 @@ func (b *broker) computeMarket() any <span class="cov3" title="19">{
                         <span class="cov3" title="31">if out &gt; 0 </span><span class="cov3" title="26">{
                                 a.outPrices = append(a.outPrices, out)
                         }</span>
-                        <span class="cov3" title="31">if tps &gt; a.bestTPS </span><span class="cov2" title="14">{
+                        <span class="cov3" title="31">if tps &gt; a.bestTPS </span><span class="cov2" title="13">{
                                 a.bestTPS = tps
                         }</span>
                         <span class="cov3" title="31">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
@@ -9532,11 +9532,11 @@ func (b *broker) probeOnce() <span class="cov2" title="6">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        <span class="cov2" title="6">sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="9">{
+        <span class="cov2" title="6">sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="4">{
                 if cands[i].owner != cands[j].owner </span><span class="cov0" title="0">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov3" title="9">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
@@ -11761,12 +11761,12 @@ func (b *broker) bumpBanRev() <span class="cov7" title="68">{
 // peer propagates too. A no-op when no shared backend is wired. On a store read error it
 // leaves the rev unrecorded so the re-pull retries next tick (fail-safe: never silently drop
 // a ban). The store reads run OUTSIDE metricsMu (no DB call under the hot-path lock).
-func (b *broker) syncBanRev() <span class="cov7" title="78">{
+func (b *broker) syncBanRev() <span class="cov7" title="77">{
         if b.shared == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov7" title="77">rev, found, err := b.shared.counterGet(banRevKey)
-        if err != nil || !found </span><span class="cov7" title="61">{
+        <span class="cov7" title="76">rev, found, err := b.shared.counterGet(banRevKey)
+        if err != nil || !found </span><span class="cov7" title="60">{
                 return // no ban has ever been issued (clean miss) or a transient backend error
         }</span>
         <span class="cov5" title="16">b.metricsMu.Lock()
@@ -12166,10 +12166,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3652">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5311">{
+        <span class="cov8" title="11823">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5319">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5994">{
+        <span class="cov8" title="11823">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="5987">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11823">return rangeMin, rangeMax, true</span>
@@ -12325,7 +12325,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13581">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1355">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1346">{
                         best = i
                 }</span>
         }
@@ -12358,7 +12358,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1232">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1222">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -12682,7 +12682,7 @@ func (m *memStore) cacheDel(string) error <span class="cov1" title="1">{ return 
 
 // The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
 // every money/seed fast-path falls back to its Postgres-authoritative computation.
-func (m *memStore) counterGet(string) (float64, bool, error) <span class="cov2" title="4">{ return 0, false, errNoSharedStore }</span>
+func (m *memStore) counterGet(string) (float64, bool, error) <span class="cov2" title="3">{ return 0, false, errNoSharedStore }</span>
 func (m *memStore) counterSet(string, float64, time.Duration) error <span class="cov1" title="1">{
         return errNoSharedStore
 }</span>
@@ -14661,15 +14661,15 @@ var syncTickInterval = 5 * time.Second
 func (b *broker) syncLiveness(stop &lt;-chan struct{}) <span class="cov3" title="9">{
         t := time.NewTicker(syncTickInterval)
         defer t.Stop()
-        for </span><span class="cov4" title="58">{
+        for </span><span class="cov4" title="57">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         return</span>
-                case &lt;-t.C:<span class="cov4" title="50">
+                case &lt;-t.C:<span class="cov4" title="49">
                         if b.shared == nil </span><span class="cov1" title="1">{
                                 return
                         }</span>
-                        <span class="cov4" title="49">b.syncLivenessOnce()</span>
+                        <span class="cov4" title="48">b.syncLivenessOnce()</span>
                 }
         }
 }
@@ -14677,7 +14677,7 @@ func (b *broker) syncLiveness(stop &lt;-chan struct{}) <span class="cov3" title=
 // syncLivenessOnce pulls the shared liveness snapshot once and merges every peer's
 // newer last_seen into this instance (and, in multi-instance mode, mirrors the shared
 // registry). Split out of the ticker loop so the merge is testable deterministically.
-func (b *broker) syncLivenessOnce() <span class="cov4" title="68">{
+func (b *broker) syncLivenessOnce() <span class="cov4" title="67">{
         // Cross-instance BAN propagation: re-pull the durable banned sets when a peer changed
         // them (cheap rev-counter check; no-op when unchanged). FIRST, before the liveness
         // early-return below, so bans still propagate on a tick where the liveness snapshot is
@@ -14687,13 +14687,13 @@ func (b *broker) syncLivenessOnce() <span class="cov4" title="68">{
         if err != nil || len(snap) == 0 </span><span class="cov4" title="57">{
                 return
         }</span>
-        <span class="cov3" title="11">b.mu.Lock()
-        for node, ts := range snap </span><span class="cov3" title="13">{
+        <span class="cov3" title="10">b.mu.Lock()
+        for node, ts := range snap </span><span class="cov3" title="12">{
                 if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) </span><span class="cov3" title="9">{
                         b.lastSeen[node] = ts
                 }</span>
         }
-        <span class="cov3" title="11">b.mu.Unlock()
+        <span class="cov3" title="10">b.mu.Unlock()
         // MULTI-INSTANCE registry mirror: pull every peer's published registration into
         // this instance's registry + tunnel stubs, so a node that dialed a DIFFERENT
         // instance is still pickable + its poll/result authenticatable here (the bus then
@@ -18847,9 +18847,9 @@ type onAirInfo struct {
 
 // lockFileChars keeps a node id filesystem-safe for use in a lock filename.
 func lockSlug(nodeID string) string <span class="cov5" title="29">{
-        return strings.Map(func(r rune) rune </span><span class="cov10" title="487">{
+        return strings.Map(func(r rune) rune </span><span class="cov10" title="482">{
                 switch </span>{
-                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="484">
+                case r &gt;= 'a' &amp;&amp; r &lt;= 'z', r &gt;= 'A' &amp;&amp; r &lt;= 'Z', r &gt;= '0' &amp;&amp; r &lt;= '9', r == '.', r == '_', r == '-':<span class="cov9" title="479">
                         return r</span>
                 default:<span class="cov2" title="3">
                         return '-'</span>
@@ -19677,7 +19677,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov9" title="776">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="841">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -19887,23 +19887,23 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="760">{
+        for </span><span class="cov9" title="826">{
                 select </span>{
-                case &lt;-sess.stop:<span class="cov2" title="4">
+                case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="756"></span>
+                default:<span class="cov9" title="821"></span>
                 }
-                <span class="cov9" title="756">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="821">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
-                if err != nil </span><span class="cov2" title="3">{
+                if err != nil </span><span class="cov1" title="2">{
                         // Transient network error: keep the existing short retry (the broker may
                         // just be momentarily unreachable, not have forgotten us).
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="753">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="746">{
+                <span class="cov9" title="819">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="812">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -20371,7 +20371,7 @@ func GenerateStation() string <span class="cov8" title="201">{
 
 // randIndex returns a uniform crypto/rand index in [0,n) (n&gt;0). Falls back to 0 only if
 // the system RNG fails, which never happens in practice.
-func randIndex(n int) int <span class="cov10" title="805">{
+func randIndex(n int) int <span class="cov9" title="805">{
         if n &lt;= 0 </span><span class="cov1" title="2">{
                 return 0
         }</span>
@@ -23259,6 +23259,8 @@ import (
         "strconv"
         "strings"
         "time"
+
+        "github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Found is a reachable local OpenAI-compatible server discovered by DetectFull.
@@ -23269,6 +23271,9 @@ type Found struct {
         Models  []string       // served model ids from GET /v1/models (+ native discovery)
         Ctx     map[string]int // per-model context length when the server reports it
         Key     string         // bearer key the upstream required (discovered from env), if any
+        // Modality is the per-model kind: "chat" (default), "tts", or "stt" — filled by
+        // classifyModalities from the served endpoints + an id heuristic. See VOICE-AUDIO-DESIGN.md.
+        Modality map[string]string
 }
 
 // Status is the tri-state result of probing a single endpoint: a 401/403 means an
@@ -23308,29 +23313,29 @@ var httpClient = &amp;http.Client{Timeout: 1500 * time.Millisecond}
 // vLLM --api-key, a LiteLLM master key, llama.cpp --api-key, LM Studio's API-key
 // toggle - returns 401 to an unauthenticated GET /v1/models and would otherwise be
 // invisible). An empty key sends no header (the no-auth common case).
-func authGet(url, key string) (*http.Response, error) <span class="cov9" title="83">{
+func authGet(url, key string) (*http.Response, error) <span class="cov9" title="132">{
         req, err := http.NewRequest(http.MethodGet, url, nil)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
-        <span class="cov9" title="83">if key != "" </span><span class="cov5" title="12">{
+        <span class="cov9" title="132">if key != "" </span><span class="cov5" title="12">{
                 req.Header.Set("Authorization", "Bearer "+key)
         }</span>
-        <span class="cov9" title="83">return httpClient.Do(req)</span>
+        <span class="cov9" title="132">return httpClient.Do(req)</span>
 }
 
-func authPost(url, key, contentType string, body io.Reader) (*http.Response, error) <span class="cov5" title="13">{
+func authPost(url, key, contentType string, body io.Reader) (*http.Response, error) <span class="cov8" title="81">{
         req, err := http.NewRequest(http.MethodPost, url, body)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
-        <span class="cov5" title="13">if contentType != "" </span><span class="cov5" title="13">{
+        <span class="cov8" title="81">if contentType != "" </span><span class="cov8" title="81">{
                 req.Header.Set("Content-Type", contentType)
         }</span>
-        <span class="cov5" title="13">if key != "" </span><span class="cov2" title="2">{
+        <span class="cov8" title="81">if key != "" </span><span class="cov4" title="8">{
                 req.Header.Set("Authorization", "Bearer "+key)
         }</span>
-        <span class="cov5" title="13">return httpClient.Do(req)</span>
+        <span class="cov8" title="81">return httpClient.Do(req)</span>
 }
 
 // maxEnumPorts caps how many real listening ports the cross-platform enumerator
@@ -23361,21 +23366,21 @@ var (
 // OpenAI-compatible servers (de-duplicated by base URL) PLUS the base URLs of servers
 // that are present but answered 401/403 with no usable key (the needKey list), so the
 // caller can prompt for an API key instead of reporting "nothing detected".
-func DetectFull(extra ...string) (found []Found, needKey []string) <span class="cov5" title="10">{
+func DetectFull(extra ...string) (found []Found, needKey []string) <span class="cov6" title="19">{
         return detectWith(priorityCands(extra))
 }</span>
 
 // priorityCands normalizes explicit --upstream/config URLs into priority candidates
 // probed before the defaults (so an explicit endpoint wins de-dup and keeps its
 // "configured" name).
-func priorityCands(extra []string) []candidate <span class="cov5" title="10">{
+func priorityCands(extra []string) []candidate <span class="cov6" title="19">{
         cands := make([]candidate, 0, len(extra))
         for _, u := range extra </span><span class="cov1" title="1">{
                 if b := toV1Base(u); b != "" </span><span class="cov1" title="1">{
                         cands = append(cands, candidate{name: "configured", base: b})
                 }</span>
         }
-        <span class="cov5" title="10">return cands</span>
+        <span class="cov6" title="19">return cands</span>
 }
 
 // ProbeKey verifies that a single user-supplied endpoint serves /v1/models and returns
@@ -23394,10 +23399,11 @@ func ProbeKey(rawURL, key string) (Found, Status) <span class="cov4" title="8">{
         }</span>
         <span class="cov4" title="8">models, ctx, usedKey, res := probeModels(base, keys)
         switch res </span>{
-        case probeOK:<span class="cov4" title="5">
+        case probeOK:<span class="cov3" title="5">
                 f := Found{Name: "configured", BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx, Key: usedKey}
                 mergeOllamaNative(&amp;f, base)
                 enrichCtx(&amp;f, base)
+                classifyModalities(&amp;f, base)
                 return f, Reachable</span>
         case probeAuth:<span class="cov1" title="1">
                 return Found{BaseURL: base}, NeedsKey</span>
@@ -23409,14 +23415,14 @@ func ProbeKey(rawURL, key string) (Found, Status) <span class="cov4" title="8">{
 // detectWith runs the full pipeline with optional priority candidates first. It
 // returns the reachable servers plus the base URLs of any that need a key we don't
 // have (so the caller can ask for one).
-func detectWith(priority []candidate) (found []Found, needKey []string) <span class="cov5" title="10">{
+func detectWith(priority []candidate) (found []Found, needKey []string) <span class="cov6" title="19">{
         cands := priority
         // (a) documented default endpoints.
-        for _, p := range probes </span><span class="cov4" title="8">{
+        for _, p := range probes </span><span class="cov5" title="17">{
                 cands = append(cands, candidate{name: p.name, base: p.base})
         }</span>
         // (b) environment variables the user's tooling already exports.
-        <span class="cov5" title="10">cands = append(cands, envCands()...)
+        <span class="cov6" title="19">cands = append(cands, envCands()...)
         // (d) real listening ports -&gt; probe each on localhost for /v1/models. This is
         // what finds a model on a CUSTOM port without a brute scan: the OS already
         // knows which ports are open; we only probe those.
@@ -23427,15 +23433,15 @@ func detectWith(priority []candidate) (found []Found, needKey []string) <span cl
         // Keys the user's tooling exports, tried (as Bearer) against any candidate that
         // answers 401/403 - so a key-protected local server whose key is already in the
         // environment is detected with zero extra config.
-        <span class="cov5" title="10">keys := envKeysFn()
+        <span class="cov6" title="19">keys := envKeysFn()
         seen := map[string]bool{}
         needSeen := map[string]bool{}
-        for _, c := range cands </span><span class="cov5" title="12">{
+        for _, c := range cands </span><span class="cov6" title="21">{
                 base := strings.TrimRight(c.base, "/")
                 if base == "" || seen[base] </span><span class="cov2" title="2">{
                         continue</span>
                 }
-                <span class="cov5" title="10">seen[base] = true
+                <span class="cov6" title="19">seen[base] = true
                 // Harvested env keys are retried (as Bearer) on a 401/403 — but ONLY against
                 // candidates we have a reason to trust: a configured / known-default / env-derived
                 // endpoint. A BLIND port-scan hit ("port:N") could be ANY local service, so we never
@@ -23447,12 +23453,12 @@ func detectWith(priority []candidate) (found []Found, needKey []string) <span cl
                 }</span>
                 // Try this candidate's own paired key first (e.g. OPENAI_API_KEY for an
                 // OPENAI_BASE_URL endpoint), then the rest of the (trusted-candidate) env keys.
-                <span class="cov5" title="10">if c.key != "" </span><span class="cov0" title="0">{
+                <span class="cov6" title="19">if c.key != "" </span><span class="cov0" title="0">{
                         tryKeys = append([]string{c.key}, tryKeys...)
                 }</span>
-                <span class="cov5" title="10">models, ctx, usedKey, res := probeModels(base, tryKeys)
+                <span class="cov6" title="19">models, ctx, usedKey, res := probeModels(base, tryKeys)
                 switch res </span>{
-                case probeOK:<span class="cov4" title="6">
+                case probeOK:<span class="cov5" title="14">
                         f := Found{Name: c.name, BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx, Key: usedKey}
                         // (c) native fleet discovery: an Ollama base also exposes /api/tags and
                         // /api/ps, which list models installed-but-swapped-out (a fresh /v1/models
@@ -23465,17 +23471,18 @@ func detectWith(priority []candidate) (found []Found, needKey []string) <span cl
                         // Ollama omits ctx from /v1/models entirely), so a node advertises the REAL
                         // served window instead of falling back to the 32768 last-resort default.
                         enrichCtx(&amp;f, base)
+                        classifyModalities(&amp;f, base)
                         found = append(found, f)</span>
-                case probeAuth:<span class="cov2" title="2">
+                case probeAuth:<span class="cov2" title="3">
                         // Present but key-protected and no env key fit: surface it so the caller can
                         // ask the user to paste a key rather than report "nothing detected".
-                        if !needSeen[base] </span><span class="cov2" title="2">{
+                        if !needSeen[base] </span><span class="cov2" title="3">{
                                 needSeen[base] = true
                                 needKey = append(needKey, base)
                         }</span>
                 }
         }
-        <span class="cov5" title="10">return found, needKey</span>
+        <span class="cov6" title="19">return found, needKey</span>
 }
 
 // probeResult is probeModels' tri-state: a usable server, a key-protected one, or
@@ -23492,12 +23499,12 @@ const (
 // answers 401/403 - retries with each candidate key until one returns 200. It
 // returns the parsed model ids, per-model context length, the key that worked (""
 // when none was needed), and the tri-state result.
-func probeModels(base string, keys []string) (models []string, ctx map[string]int, usedKey string, res probeResult) <span class="cov6" title="18">{
+func probeModels(base string, keys []string) (models []string, ctx map[string]int, usedKey string, res probeResult) <span class="cov6" title="27">{
         models, ctx, code := getModels(base, "")
         switch </span>{
-        case code == 200:<span class="cov5" title="9">
+        case code == 200:<span class="cov5" title="17">
                 return models, ctx, "", probeOK</span>
-        case code == 401 || code == 403:<span class="cov4" title="5">
+        case code == 401 || code == 403:<span class="cov4" title="6">
                 for _, k := range keys </span><span class="cov2" title="2">{
                         if k == "" </span><span class="cov0" title="0">{
                                 continue</span>
@@ -23506,7 +23513,7 @@ func probeModels(base string, keys []string) (models []string, ctx map[string]in
                                 return m, c, k, probeOK
                         }</span>
                 }
-                <span class="cov3" title="3">return nil, nil, "", probeAuth</span>
+                <span class="cov3" title="4">return nil, nil, "", probeAuth</span>
         default:<span class="cov3" title="4">
                 return nil, nil, "", probeMiss</span>
         }
@@ -23515,18 +23522,18 @@ func probeModels(base string, keys []string) (models []string, ctx map[string]in
 // getModels performs one GET base/models with the optional key and parses the model
 // ids + per-model context length. status is the HTTP status code, or 0 on a
 // transport error (treated as unreachable by the caller).
-func getModels(base, key string) (models []string, ctx map[string]int, status int) <span class="cov6" title="20">{
+func getModels(base, key string) (models []string, ctx map[string]int, status int) <span class="cov6" title="29">{
         resp, err := authGet(base+"/models", key)
-        if err != nil </span><span class="cov3" title="3">{
+        if err != nil </span><span class="cov2" title="3">{
                 return nil, nil, 0
         }</span>
-        <span class="cov6" title="17">defer resp.Body.Close()
-        if resp.StatusCode != 200 </span><span class="cov4" title="6">{
+        <span class="cov6" title="26">defer resp.Body.Close()
+        if resp.StatusCode != 200 </span><span class="cov4" title="7">{
                 return nil, nil, resp.StatusCode
         }</span>
         // Many OpenAI-compatible servers (vLLM, llama.cpp, LM Studio, TGI) report a
         // per-model context length on /v1/models under one of these common keys.
-        <span class="cov5" title="11">var d struct {
+        <span class="cov6" title="19">var d struct {
                 Data []struct {
                         ID         string `json:"id"`
                         MaxLen     int    `json:"max_model_len"`  // vLLM
@@ -23538,16 +23545,16 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
         }
         _ = json.NewDecoder(resp.Body).Decode(&amp;d)
         ctx = map[string]int{}
-        for _, m := range d.Data </span><span class="cov5" title="12">{
+        for _, m := range d.Data </span><span class="cov6" title="22">{
                 if m.ID == "" </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov5" title="12">models = append(models, m.ID)
+                <span class="cov6" title="22">models = append(models, m.ID)
                 if c := firstPositive(m.MaxLen, m.CtxLen, m.NCtx, m.MaxCtx, m.ContextWin); c &gt; 0 </span><span class="cov0" title="0">{
                         ctx[m.ID] = c
                 }</span>
         }
-        <span class="cov5" title="11">return models, ctx, 200</span>
+        <span class="cov6" title="19">return models, ctx, 200</span>
 }
 
 // envCandidates derives base URLs from environment variables the user's existing
@@ -23556,7 +23563,7 @@ func getModels(base, key string) (models []string, ctx map[string]int, status in
 // a key-protected server is reached on the first try.
 func envCandidates() []candidate <span class="cov1" title="1">{
         var out []candidate
-        add := func(name, raw, key string) </span><span class="cov4" title="5">{
+        add := func(name, raw, key string) </span><span class="cov3" title="5">{
                 if b := toV1Base(raw); b != "" </span><span class="cov1" title="1">{
                         out = append(out, candidate{name: name, base: b, key: strings.TrimSpace(key)})
                 }</span>
@@ -23572,7 +23579,7 @@ func envCandidates() []candidate <span class="cov1" title="1">{
         }</span>
         // LM Studio exports a few spellings depending on version.
         <span class="cov1" title="1">lmKey := os.Getenv("LMSTUDIO_API_KEY")
-        for _, k := range []string{"LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LMSTUDIO_HOST"} </span><span class="cov3" title="3">{
+        for _, k := range []string{"LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LMSTUDIO_HOST"} </span><span class="cov2" title="3">{
                 add("env:"+k, os.Getenv(k), lmKey)
         }</span>
         <span class="cov1" title="1">return out</span>
@@ -23593,7 +23600,7 @@ func envKeys() []string <span class="cov6" title="18">{
                 "LMSTUDIO_API_KEY",
                 "VLLM_API_KEY",
                 "OLLAMA_API_KEY",
-        } </span><span class="cov10" title="108">{
+        } </span><span class="cov9" title="108">{
                 if v := strings.TrimSpace(os.Getenv(name)); v != "" &amp;&amp; !seen[v] </span><span class="cov2" title="2">{
                         seen[v] = true
                         out = append(out, v)
@@ -23619,19 +23626,19 @@ func ollamaHostURL(h string) string <span class="cov0" title="0">{
 // model that is installed but swapped out of VRAM still shows as offerable. It is
 // a best-effort enrichment: a non-Ollama base simply has no /api/tags and is left
 // as-is.
-func mergeOllamaNative(f *Found, base string) <span class="cov5" title="13">{
+func mergeOllamaNative(f *Found, base string) <span class="cov6" title="21">{
         root := strings.TrimSuffix(base, "/v1")
         have := map[string]bool{}
-        for _, m := range f.Models </span><span class="cov6" title="14">{
+        for _, m := range f.Models </span><span class="cov6" title="24">{
                 have[m] = true
         }</span>
-        <span class="cov5" title="13">addNames := func(path string) </span><span class="cov7" title="26">{
+        <span class="cov6" title="21">addNames := func(path string) </span><span class="cov7" title="42">{
                 resp, err := authGet(root+path, f.Key)
-                if err != nil || resp.StatusCode != 200 </span><span class="cov7" title="24">{
-                        if resp != nil </span><span class="cov7" title="24">{
+                if err != nil || resp.StatusCode != 200 </span><span class="cov7" title="40">{
+                        if resp != nil </span><span class="cov7" title="40">{
                                 resp.Body.Close()
                         }</span>
-                        <span class="cov7" title="24">return</span>
+                        <span class="cov7" title="40">return</span>
                 }
                 <span class="cov2" title="2">var d struct {
                         Models []struct {
@@ -23641,18 +23648,18 @@ func mergeOllamaNative(f *Found, base string) <span class="cov5" title="13">{
                 }
                 _ = json.NewDecoder(resp.Body).Decode(&amp;d)
                 resp.Body.Close()
-                for _, m := range d.Models </span><span class="cov3" title="3">{
+                for _, m := range d.Models </span><span class="cov2" title="3">{
                         id := m.Name
                         if id == "" </span><span class="cov0" title="0">{
                                 id = m.Model
                         }</span>
-                        <span class="cov3" title="3">if id != "" &amp;&amp; !have[id] </span><span class="cov1" title="1">{
+                        <span class="cov2" title="3">if id != "" &amp;&amp; !have[id] </span><span class="cov1" title="1">{
                                 have[id] = true
                                 f.Models = append(f.Models, id)
                         }</span>
                 }
         }
-        <span class="cov5" title="13">addNames("/api/tags") // every installed model (the full fleet)
+        <span class="cov6" title="21">addNames("/api/tags") // every installed model (the full fleet)
         addNames("/api/ps")   // currently-loaded (already in tags, but harmless)
         sort.Strings(f.Models)</span>
 }
@@ -23667,13 +23674,13 @@ const DefaultCtx = 32768
 // detected from the upstream (estimated=false). It is the ONE resolver both the CLI
 // (`roger share`) and the TUI share table route through, so a detection improvement
 // lands in both and the duplicated 32768 literal lives in exactly one place.
-func ResolveCtx(ctx map[string]int, model string) (n int, estimated bool) <span class="cov4" title="5">{
+func ResolveCtx(ctx map[string]int, model string) (n int, estimated bool) <span class="cov3" title="5">{
         if ctx != nil </span><span class="cov3" title="4">{
                 if c, ok := ctx[model]; ok &amp;&amp; c &gt; 0 </span><span class="cov2" title="2">{
                         return c, false
                 }</span>
         }
-        <span class="cov3" title="3">return DefaultCtx, true</span>
+        <span class="cov2" title="3">return DefaultCtx, true</span>
 }
 
 // enrichCtx fills f.Ctx with the REAL per-model context window from each server's
@@ -23682,21 +23689,77 @@ func ResolveCtx(ctx map[string]int, model string) (n int, estimated bool) <span 
 // /v1/models value, else the DefaultCtx fallback at share time). Only fills a model
 // that does not already have a (non-zero) ctx, so a /v1/models-reported window is
 // not clobbered.
-func enrichCtx(f *Found, base string) <span class="cov5" title="11">{
+func enrichCtx(f *Found, base string) <span class="cov6" title="19">{
         if f.Ctx == nil </span><span class="cov0" title="0">{
                 f.Ctx = map[string]int{}
         }</span>
-        <span class="cov5" title="11">root := strings.TrimSuffix(base, "/v1")
+        <span class="cov6" title="19">root := strings.TrimSuffix(base, "/v1")
         enrichOllamaCtx(f, root)
         enrichLlamaCppCtx(f, root)
         enrichLMStudioCtx(f, root)</span>
+}
+
+// modalityFromID classifies a model by its id when the server exposes no probeable audio
+// endpoint (a gateway that only lists /v1/models) or when a mixed server's endpoints alone can't
+// say which model is which. A hint, not a hard rule: the capability probe decides when the id is
+// unknown. Empty =&gt; no hint. See VOICE-AUDIO-DESIGN.md §4.2.
+func modalityFromID(id string) string <span class="cov6" title="22">{
+        s := strings.ToLower(id)
+        if strings.Contains(s, "whisper") || strings.Contains(s, "transcrib") || strings.HasSuffix(s, "-stt") </span><span class="cov2" title="2">{
+                return protocol.ModalitySTT
+        }</span>
+        <span class="cov6" title="20">for _, k := range []string{"kokoro", "tts", "parler", "chatterbox", "bark", "piper", "xtts", "vits", "speecht5", "orpheus"} </span><span class="cov10" title="173">{
+                if strings.Contains(s, k) </span><span class="cov2" title="3">{
+                        return protocol.ModalityTTS
+                }</span>
+        }
+        <span class="cov5" title="17">return ""</span>
+}
+
+// endpointExists reports whether base serves the given OpenAI endpoint: a minimal POST that a
+// present route rejects with a 4xx (bad/empty body) while an ABSENT route 404s. Any non-404
+// (incl. 401) means the route is there. Short-timeout, key-aware — same probe budget as detection.
+func endpointExists(url, key string) bool <span class="cov8" title="58">{
+        resp, err := authPost(url, key, "application/json", strings.NewReader("{}"))
+        if err != nil </span><span class="cov1" title="1">{
+                return false
+        }</span>
+        <span class="cov8" title="57">defer resp.Body.Close()
+        return resp.StatusCode != http.StatusNotFound</span>
+}
+
+// classifyModalities fills f.Modality per model. A known voice/stt id wins first; otherwise the
+// server's CAPABILITY decides — a pure speech endpoint =&gt; tts, a pure transcription endpoint =&gt;
+// stt, and everything else (chat, mixed, or unknown) stays chat. Endpoint-probed, so a model on
+// CPU and the same model on GPU classify identically.
+func classifyModalities(f *Found, base string) <span class="cov6" title="19">{
+        if f.Modality == nil </span><span class="cov6" title="19">{
+                f.Modality = map[string]string{}
+        }</span>
+        <span class="cov6" title="19">hasSpeech := endpointExists(base+"/audio/speech", f.Key)
+        hasTranscribe := endpointExists(base+"/audio/transcriptions", f.Key)
+        hasChat := endpointExists(base+"/chat/completions", f.Key)
+        for _, m := range f.Models </span><span class="cov6" title="22">{
+                if hint := modalityFromID(m); hint != "" </span><span class="cov3" title="5">{
+                        f.Modality[m] = hint
+                        continue</span>
+                }
+                <span class="cov5" title="17">switch </span>{
+                case hasSpeech &amp;&amp; !hasChat &amp;&amp; !hasTranscribe:<span class="cov2" title="2">
+                        f.Modality[m] = protocol.ModalityTTS</span>
+                case hasTranscribe &amp;&amp; !hasChat &amp;&amp; !hasSpeech:<span class="cov1" title="1">
+                        f.Modality[m] = protocol.ModalitySTT</span>
+                default:<span class="cov5" title="14">
+                        f.Modality[m] = protocol.ModalityChat</span>
+                }
+        }
 }
 
 // enrichOllamaCtx reads Ollama's real per-model context: the loaded runtime num_ctx
 // from GET /api/ps (the window the model is ACTUALLY served at right now), else the
 // trained window from POST /api/show .model_info["&lt;arch&gt;.context_length"]. A
 // non-Ollama base simply has neither endpoint and is left untouched.
-func enrichOllamaCtx(f *Found, root string) <span class="cov5" title="13">{
+func enrichOllamaCtx(f *Found, root string) <span class="cov6" title="21">{
         // /api/ps: currently-loaded models carry context_length = the live num_ctx.
         if resp, err := authGet(root+"/api/ps", f.Key); err == nil &amp;&amp; resp.StatusCode == 200 </span><span class="cov2" title="2">{
                 var d struct {
@@ -23718,22 +23781,22 @@ func enrichOllamaCtx(f *Found, root string) <span class="cov5" title="13">{
                                 }</span>
                         }
                 }
-        } else<span class="cov5" title="11"> if resp != nil </span><span class="cov5" title="11">{
+        } else<span class="cov6" title="19"> if resp != nil </span><span class="cov6" title="19">{
                 resp.Body.Close()
         }</span>
         // /api/show: the model's trained context window, keyed under "&lt;arch&gt;.context_length"
         // in model_info. Used for installed-but-not-loaded models (no live num_ctx yet).
-        <span class="cov5" title="13">for _, id := range f.Models </span><span class="cov6" title="14">{
+        <span class="cov6" title="21">for _, id := range f.Models </span><span class="cov6" title="24">{
                 if f.Ctx[id] &gt; 0 </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov5" title="13">body := strings.NewReader(`{"model":` + strconv.Quote(id) + `}`)
+                <span class="cov6" title="23">body := strings.NewReader(`{"model":` + strconv.Quote(id) + `}`)
                 resp, err := authPost(root+"/api/show", f.Key, "application/json", body)
-                if err != nil || resp.StatusCode != 200 </span><span class="cov5" title="12">{
-                        if resp != nil </span><span class="cov5" title="12">{
+                if err != nil || resp.StatusCode != 200 </span><span class="cov6" title="22">{
+                        if resp != nil </span><span class="cov6" title="22">{
                                 resp.Body.Close()
                         }</span>
-                        <span class="cov5" title="12">continue</span>
+                        <span class="cov6" title="22">continue</span>
                 }
                 <span class="cov1" title="1">var d struct {
                         ModelInfo map[string]json.RawMessage `json:"model_info"`
@@ -23767,13 +23830,13 @@ func ollamaContextFromInfo(info map[string]json.RawMessage) int <span class="cov
 // .default_generation_settings.n_ctx (the live window, more reliable than the
 // optional /v1/models n_ctx). llama.cpp serves a single model, so the value applies
 // to every model id this base advertises that lacks a detected ctx.
-func enrichLlamaCppCtx(f *Found, root string) <span class="cov5" title="12">{
+func enrichLlamaCppCtx(f *Found, root string) <span class="cov6" title="20">{
         resp, err := authGet(root+"/props", f.Key)
-        if err != nil || resp.StatusCode != 200 </span><span class="cov5" title="11">{
-                if resp != nil </span><span class="cov5" title="11">{
+        if err != nil || resp.StatusCode != 200 </span><span class="cov6" title="19">{
+                if resp != nil </span><span class="cov6" title="19">{
                         resp.Body.Close()
                 }</span>
-                <span class="cov5" title="11">return</span>
+                <span class="cov6" title="19">return</span>
         }
         <span class="cov1" title="1">var d struct {
                 DefaultGen struct {
@@ -23795,13 +23858,13 @@ func enrichLlamaCppCtx(f *Found, root string) <span class="cov5" title="12">{
 // enrichLMStudioCtx reads LM Studio's per-model context from GET /api/v0/models,
 // preferring loaded_context_length (the live window) over max_context_length (the
 // model cap). A non-LM-Studio base has no /api/v0/models and is left untouched.
-func enrichLMStudioCtx(f *Found, root string) <span class="cov5" title="12">{
+func enrichLMStudioCtx(f *Found, root string) <span class="cov6" title="20">{
         resp, err := authGet(root+"/api/v0/models", f.Key)
-        if err != nil || resp.StatusCode != 200 </span><span class="cov5" title="11">{
-                if resp != nil </span><span class="cov5" title="11">{
+        if err != nil || resp.StatusCode != 200 </span><span class="cov6" title="19">{
+                if resp != nil </span><span class="cov6" title="19">{
                         resp.Body.Close()
                 }</span>
-                <span class="cov5" title="11">return</span>
+                <span class="cov6" title="19">return</span>
         }
         <span class="cov1" title="1">var d struct {
                 Data []struct {
@@ -23827,13 +23890,13 @@ func enrichLMStudioCtx(f *Found, root string) <span class="cov5" title="12">{
 // /v1/chat/completions URL. Returns "" for empty input.
 func toV1Base(u string) string <span class="cov6" title="20">{
         u = strings.TrimSpace(u)
-        if u == "" </span><span class="cov4" title="5">{
+        if u == "" </span><span class="cov3" title="5">{
                 return ""
         }</span>
-        <span class="cov6" title="15">if !strings.Contains(u, "://") </span><span class="cov2" title="2">{
+        <span class="cov5" title="15">if !strings.Contains(u, "://") </span><span class="cov2" title="2">{
                 u = "http://" + u
         }</span>
-        <span class="cov6" title="15">u = strings.TrimRight(u, "/")
+        <span class="cov5" title="15">u = strings.TrimRight(u, "/")
         switch </span>{
         case strings.HasSuffix(u, "/v1/chat/completions"):<span class="cov2" title="2">
                 return strings.TrimSuffix(u, "/chat/completions")</span>
@@ -23842,20 +23905,20 @@ func toV1Base(u string) string <span class="cov6" title="20">{
                 return strings.TrimSuffix(u, "/chat/completions")</span>
         case strings.HasSuffix(u, "/v1"):<span class="cov3" title="4">
                 return u</span>
-        default:<span class="cov5" title="9">
+        default:<span class="cov4" title="9">
                 return u + "/v1"</span>
         }
 }
 
 // firstPositive returns the first value &gt; 0 (the first context-length key a server
 // actually populated), or 0 when none is reported.
-func firstPositive(vals ...int) int <span class="cov5" title="13">{
-        for _, v := range vals </span><span class="cov8" title="61">{
+func firstPositive(vals ...int) int <span class="cov6" title="23">{
+        for _, v := range vals </span><span class="cov9" title="111">{
                 if v &gt; 0 </span><span class="cov1" title="1">{
                         return v
                 }</span>
         }
-        <span class="cov5" title="12">return 0</span>
+        <span class="cov6" title="22">return 0</span>
 }
 </pre>
 		
@@ -25613,8 +25676,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="20">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov9" title="49">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov7" title="24">{
-                if s != nil </span><span class="cov7" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="25">{
+                if s != nil </span><span class="cov7" title="24">{
                         n++
                 }</span>
         }
@@ -25695,13 +25758,13 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov2" title="2">
+        case agent.LinkOnAir:<span class="cov1" title="1">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
-        default:<span class="cov6" title="7">
+        default:<span class="cov7" title="9">
                 return "connecting"</span>
         }
 }
@@ -25730,7 +25793,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="7">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -26105,7 +26168,7 @@ func pad3(n int) string <span class="cov7" title="1009">{
                 n = 0
         }</span>
         <span class="cov7" title="1009">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="118">{
+        for len(s) &lt; 3 </span><span class="cov5" title="116">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1009">return s</span>
@@ -26113,17 +26176,17 @@ func pad3(n int) string <span class="cov7" title="1009">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2012">{
-        if n == 0 </span><span class="cov2" title="3">{
+        if n == 0 </span><span class="cov1" title="2">{
                 return "0"
         }</span>
-        <span class="cov8" title="2009">var buf [12]byte
+        <span class="cov8" title="2010">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5916">{
+        for n &gt; 0 </span><span class="cov9" title="5919">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2009">return string(buf[i:])</span>
+        <span class="cov8" title="2010">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -26146,12 +26209,20 @@ import (
         "time"
 )
 
-// ModelOffer is one model a node exposes, with per-1M-token credit pricing.
+// ModelOffer is one model a node exposes, with per-1M-unit credit pricing. Chat bills per
+// token; voice adds tts (per input char) and stt (per audio-second) — see Modality/Unit.
 // Schedule (optional) overrides the base price by time-of-use (ChargePoint-style).
 type ModelOffer struct {
-        Model    string  `json:"model"`
-        PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input tokens (base/fallback)
-        PriceOut float64 `json:"price_out"` // credits per 1,000,000 output tokens (base/fallback)
+        Model string `json:"model"`
+        // Modality is what the model DOES: "" (back-compat) and "chat" bill per token; "tts"
+        // (speak, /v1/audio/speech) bills per input char; "stt" (listen, /v1/audio/transcriptions)
+        // bills per audio-second. See VOICE-AUDIO-DESIGN.md.
+        Modality string `json:"modality,omitempty"`
+        // Unit is the billing unit, CANONICAL for the modality (token|char|second) — set by
+        // Normalize, never trusted from the wire, so a node cannot mis-state how it is metered.
+        Unit     string  `json:"unit,omitempty"`
+        PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
+        PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-seconds)
         Ctx      int     `json:"ctx"`
         // CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
         // real per-model window), so the UI can render it as an estimate (~32k, dim) instead
@@ -26159,6 +26230,53 @@ type ModelOffer struct {
         // receipt: a guess is never displayed as a measured fact.
         CtxEstimated bool          `json:"ctx_estimated,omitempty"`
         Schedule     []PriceWindow `json:"schedule,omitempty"`
+}
+
+// Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the
+// modality (canonicalUnit), never trusted from the wire — truth-in-labeling for how a request
+// is metered, like CtxEstimated for the context window.
+const (
+        ModalityChat = "chat" // /v1/chat/completions,      billed per token
+        ModalityTTS  = "tts"  // /v1/audio/speech,          billed per input char
+        ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-second
+
+        UnitToken  = "token"
+        UnitChar   = "char"
+        UnitSecond = "second"
+)
+
+// canonicalUnit is the ONE billing unit for a modality. A tts offer always bills chars and an
+// stt offer always bills audio-seconds, regardless of what unit the node claimed.
+func canonicalUnit(modality string) string <span class="cov7" title="16">{
+        switch modality </span>{
+        case ModalityTTS:<span class="cov4" title="5">
+                return UnitChar</span>
+        case ModalitySTT:<span class="cov4" title="5">
+                return UnitSecond</span>
+        default:<span class="cov4" title="6"> // chat + the empty back-compat default
+                return UnitToken</span>
+        }
+}
+
+// Normalize fills the back-compat default modality (empty -&gt; chat) and sets the CANONICAL unit
+// for that modality. The broker calls it on every registered offer, so a node can never
+// mis-state its billing unit (protecting the customer who pays it).
+func (o *ModelOffer) Normalize() <span class="cov6" title="13">{
+        if o.Modality == "" </span><span class="cov2" title="2">{
+                o.Modality = ModalityChat
+        }</span>
+        <span class="cov6" title="13">o.Unit = canonicalUnit(o.Modality)</span>
+}
+
+// ValidModality reports whether the offer's modality is one the broker accepts. The enum is
+// CLOSED — an unknown modality is rejected, not silently trusted. Empty is valid (-&gt; chat).
+func (o ModelOffer) ValidModality() bool <span class="cov5" title="7">{
+        switch o.Modality </span>{
+        case "", ModalityChat, ModalityTTS, ModalitySTT:<span class="cov4" title="4">
+                return true</span>
+        default:<span class="cov3" title="3">
+                return false</span>
+        }
 }
 
 // PriceWindow is a time-of-use rule. Times are "HH:MM" UTC; a window may wrap past
@@ -41392,10 +41510,10 @@ func listenFreePort(addr string) (net.Listener, error) <span class="cov1" title=
 }
 
 func truncVisible(s string, n int) string <span class="cov4" title="817">{
-        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="669">{
+        if lipgloss.Width(s) &lt;= n </span><span class="cov4" title="668">{
                 return s
         }</span>
-        <span class="cov3" title="148">return ansi.Truncate(s, n, "")</span>
+        <span class="cov3" title="149">return ansi.Truncate(s, n, "")</span>
 }
 
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
@@ -43092,7 +43210,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="314">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="341">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -43114,7 +43232,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="75">
+                case agent.LinkOnAir:<span class="cov3" title="69">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -43171,7 +43289,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
                         price = stEmber.Render(dollars(out) + "/1M out")
                 }</span>
                 <span class="cov3" title="74">dot := stRed.Render(glyphOnAir)
-                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="7">{
+                if s.Link() != agent.LinkOnAir </span><span class="cov2" title="8">{
                         dot = stEmber.Render(glyphOffAir)
                 }</span>
                 <span class="cov3" title="74">row := "  " + dot + " " + stKey.Render(s.Model()) +
@@ -43222,7 +43340,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov2" title="38">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
