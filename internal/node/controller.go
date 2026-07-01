@@ -46,6 +46,7 @@ type Pricing struct {
 // needs, so a multi-endpoint box shares each model against the right backend.
 type ShareRow struct {
 	Model        string
+	Modality     string // "" / chat | tts | stt — the detected kind, carried onto the offer
 	Ctx          int
 	CtxEstimated bool
 	Upstream     string
@@ -206,7 +207,7 @@ func (c *Controller) loadRows(found []detect.Found, persist bool) {
 			// One ctx resolver shared with the CLI/TUI: the real detected window when the
 			// upstream reported it, else the estimated default (flagged).
 			ctxLen, ctxEst := detect.ResolveCtx(srv.Ctx, mdl)
-			rows = append(rows, ShareRow{Model: mdl, Ctx: ctxLen, CtxEstimated: ctxEst, Upstream: up, UpstreamKey: srv.Key})
+			rows = append(rows, ShareRow{Model: mdl, Modality: srv.Modality[mdl], Ctx: ctxLen, CtxEstimated: ctxEst, Upstream: up, UpstreamKey: srv.Key})
 		}
 	}
 	// Saved onboarding model first, so the obvious default is at the cursor.
@@ -338,7 +339,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	node := agent.ShareNodeID(c.station, row.Model, 0)
 	return agent.Start(agent.Config{
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
-		Region: "home", HW: c.hw, Model: row.Model,
+		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 	})
