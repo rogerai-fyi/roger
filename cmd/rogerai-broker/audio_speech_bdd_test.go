@@ -28,6 +28,9 @@ type ttsState struct {
 	input          string  // the text to synth
 	nodeClaimChars int     // a lying node's claimed char count (0 = honest)
 	unsigned       bool    // omit the request signature
+	noStation      bool    // register no on-air tts node (-> 503)
+	anonUser       bool    // sign but don't bind an owner (not logged in -> paid voice 403)
+	nodeModality   string  // the node's offer modality (default tts); chat -> never picked for speech
 
 	code       int
 	spend      float64
@@ -37,6 +40,7 @@ type ttsState struct {
 func (s *ttsState) reset() {
 	s.priceIn, s.balance = 15, 100
 	s.input, s.nodeClaimChars, s.unsigned = "", 0, false
+	s.noStation, s.anonUser, s.nodeModality = false, false, protocol.ModalityTTS
 	s.code, s.spend, s.nodeCalled = 0, 0, false
 }
 
@@ -47,7 +51,7 @@ func (s *ttsState) run() error {
 	nodePub, nodePriv, _ := ed25519.GenerateKey(nil)
 	b.nodes["v1"] = protocol.NodeRegistration{
 		NodeID: "v1", PubKey: hex.EncodeToString(nodePub),
-		Offers: []protocol.ModelOffer{{Model: "roger-operator-voice", Modality: protocol.ModalityTTS, PriceIn: s.priceIn}},
+		Offers: []protocol.ModelOffer{{Model: "roger-operator-voice", Modality: s.nodeModality, PriceIn: s.priceIn}},
 	}
 	b.lastSeen["v1"] = time.Now()
 	tun := &nodeTunnel{jobs: make(chan protocol.Job, 1), waiters: map[string]chan protocol.JobResult{}}
@@ -74,14 +78,19 @@ func (s *ttsState) run() error {
 			ch <- res
 		}
 	}()
+	if s.noStation {
+		delete(b.nodes, "v1") // no station on air -> pickFor finds nothing -> 503
+	}
 
 	_, userPriv, _ := ed25519.GenerateKey(nil)
 	userPubHex := hex.EncodeToString(userPriv.Public().(ed25519.PublicKey))
-	if err := mem.BindOwner(store.Owner{GitHubID: 7, Login: "alice", Pubkey: userPubHex}); err != nil {
-		return err
-	}
-	if _, err := mem.AddCredits("u_gh_7", s.balance); err != nil {
-		return err
+	if !s.anonUser {
+		if err := mem.BindOwner(store.Owner{GitHubID: 7, Login: "alice", Pubkey: userPubHex}); err != nil {
+			return err
+		}
+		if _, err := mem.AddCredits("u_gh_7", s.balance); err != nil {
+			return err
+		}
 	}
 	before, _ := mem.PeekBalance("u_gh_7")
 
@@ -165,6 +174,34 @@ func approxF(a, b float64) bool {
 		d = -d
 	}
 	return d < 1e-9
+}
+
+// TestAudioRelayCodes covers b.audioRelay's status codes the built app maps to an Apple-voice
+// fallback: 401 (bad/absent signature), 403 (paid voice, not logged in), 503 (no station / a
+// chat-only node is never cross-routed to speech), 400 (empty input). Reuses the tts harness.
+func TestAudioRelayCodes(t *testing.T) {
+	cases := []struct {
+		name string
+		set  func(*ttsState)
+		want int
+	}{
+		{"unsigned -> 401", func(s *ttsState) { s.input = "hi"; s.unsigned = true }, http.StatusUnauthorized},
+		{"paid voice, not logged in -> 403", func(s *ttsState) { s.input = "hi"; s.anonUser = true }, http.StatusForbidden},
+		{"no station -> 503", func(s *ttsState) { s.input = "hi"; s.noStation = true }, http.StatusServiceUnavailable},
+		{"chat node never picked for speech -> 503", func(s *ttsState) { s.input = "hi"; s.nodeModality = protocol.ModalityChat }, http.StatusServiceUnavailable},
+		{"empty input -> 400", func(s *ttsState) {}, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		s := &ttsState{}
+		s.reset()
+		c.set(s)
+		if err := s.run(); err != nil {
+			t.Fatalf("%s: run: %v", c.name, err)
+		}
+		if s.code != c.want {
+			t.Errorf("%s: code = %d, want %d", c.name, s.code, c.want)
+		}
+	}
 }
 
 func TestTTSMeteringBDD(t *testing.T) {
