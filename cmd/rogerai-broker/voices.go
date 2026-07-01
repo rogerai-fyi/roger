@@ -48,7 +48,7 @@ func (b *broker) voices(w http.ResponseWriter, r *http.Request) {
 func (b *broker) computeVoices() any {
 	b.mu.Lock()
 	now := time.Now()
-	var out []voiceView
+	out := []voiceView{} // empty serializes as [] (not null) so the app's array decoder never sees null
 	for _, n := range b.nodes {
 		if b.isBanned(n.NodeID) || b.private[n.NodeID] {
 			continue

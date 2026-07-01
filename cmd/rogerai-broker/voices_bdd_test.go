@@ -162,6 +162,9 @@ func (s *voicesState) emptyList() error {
 	if len(s.voices) != 0 {
 		return fmt.Errorf("expected empty voices list, got %d", len(s.voices))
 	}
+	if strings.Contains(s.payload, `"voices":null`) {
+		return fmt.Errorf("empty /voices must serialize as [] not null (the app decodes an array): %s", s.payload)
+	}
 	return nil
 }
 
