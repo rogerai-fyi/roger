@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/cucumber/godog"
@@ -24,7 +25,9 @@ func vdExpect(s string) error { return vdErr("expected " + s) }
 type voiceDetectState struct {
 	models        []string
 	endpoints     map[string]bool
+	endpointCode  map[string]int // per-path status override (default 400); a STUBBED route uses 501/405
 	protectedAuth bool
+	noModels      bool // the server 404s GET /v1/models (a BARE voice server: Kokoro/Whisper)
 	srv           *httptest.Server
 	found         []Found
 	needKey       []string
@@ -32,7 +35,7 @@ type voiceDetectState struct {
 }
 
 func (s *voiceDetectState) reset() {
-	*s = voiceDetectState{endpoints: map[string]bool{}}
+	*s = voiceDetectState{endpoints: map[string]bool{}, endpointCode: map[string]int{}}
 }
 
 func (s *voiceDetectState) list1(a string) error    { s.models = []string{a}; return nil }
@@ -49,6 +52,20 @@ func (s *voiceDetectState) servesChatAndSpeech() error {
 	return nil
 }
 func (s *voiceDetectState) neitherAudio() error { return nil }
+
+// no404Models marks the server as a BARE voice server: GET /v1/models 404s, so the
+// /v1/models enumeration finds nothing and the voice-capability fallback must carry it.
+func (s *voiceDetectState) no404Models() error  { s.noModels = true; return nil }
+func (s *voiceDetectState) noAudioAtAll() error { return nil } // no audio endpoint registered
+
+// stubsSpeechWithStatus registers POST /v1/audio/speech but as a STUB that returns the given
+// status (501 Not Implemented / 405 / 5xx) — the shape of a Hermes worker's placeholder route,
+// which must NOT count as a live voice endpoint.
+func (s *voiceDetectState) stubsSpeechWithStatus(code int) error {
+	s.endpoints["/v1/audio/speech"] = true
+	s.endpointCode["/v1/audio/speech"] = code
+	return nil
+}
 func (s *voiceDetectState) roggentoo(a string) error {
 	s.models = []string{a}
 	s.endpoints["/v1/audio/speech"] = true
@@ -64,6 +81,11 @@ func (s *voiceDetectState) noKey() error { return nil } // envKeysFn is stubbed 
 func (s *voiceDetectState) detect() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		if s.noModels {
+			// A bare voice server (kokoro-fastapi, most Whisper servers) has NO model list.
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		if s.protectedAuth && r.Header.Get("Authorization") == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -75,7 +97,11 @@ func (s *voiceDetectState) detect() error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	})
 	for path := range s.endpoints {
-		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
+		code := http.StatusBadRequest // a real route rejects the empty probe body with 400
+		if c, ok := s.endpointCode[path]; ok {
+			code = c // a STUBBED route (Hermes worker) returns 501/405/5xx instead
+		}
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })
 	}
 	s.srv = httptest.NewServer(mux)
 	old := probes
@@ -123,6 +149,47 @@ func (s *voiceDetectState) needsKey() error {
 	return nil
 }
 
+// offerCount is the total number of synthesized model offers across all found servers.
+func (s *voiceDetectState) offerCount() int {
+	n := 0
+	for _, f := range s.found {
+		n += len(f.Models)
+	}
+	return n
+}
+
+// oneOfferWithModality asserts EXACTLY one synthesized offer, of the given modality
+// (a bare voice server has no /v1/models to enumerate, so there is one offer whose id
+// is a synthesized default; we assert on its modality, not its name).
+func (s *voiceDetectState) oneOfferWithModality(modality string) error {
+	if s.offerCount() != 1 {
+		return vdExpect("exactly 1 synthesized offer, got " + strconv.Itoa(s.offerCount()))
+	}
+	for _, f := range s.found {
+		for _, m := range f.Models {
+			if f.Modality[m] != modality {
+				return vdExpect("modality " + modality + " for the synthesized offer " + m + ", got " + f.Modality[m])
+			}
+			s.lastModel = m // so `And its unit is "..."` resolves against it
+		}
+	}
+	return nil
+}
+
+func (s *voiceDetectState) exactlyOneOffer() error {
+	if s.offerCount() != 1 {
+		return vdExpect("exactly 1 synthesized offer, got " + strconv.Itoa(s.offerCount()))
+	}
+	return nil
+}
+
+func (s *voiceDetectState) noOffer() error {
+	if len(s.found) != 0 || s.offerCount() != 0 {
+		return vdExpect("no synthesized offer, got " + strconv.Itoa(s.offerCount()))
+	}
+	return nil
+}
+
 func TestEndpointExistsDead(t *testing.T) {
 	// a dead port => transport error => the endpoint is not "present" (endpointExists err branch)
 	if endpointExists("http://127.0.0.1:1/v1/audio/speech", "") {
@@ -160,6 +227,9 @@ func TestVoiceDetectionBDD(t *testing.T) {
 			sc.Step(`^it lists "([^"]*)" and "([^"]*)" on /v1/models$`, st.list2)
 			sc.Step(`^a local server that lists "([^"]*)" and "([^"]*)" on /v1/models$`, st.list2)
 			sc.Step(`^that server answers neither audio endpoint on a capability probe$`, st.neitherAudio)
+			sc.Step(`^a local server that 404s GET /v1/models$`, st.no404Models)
+			sc.Step(`^that server serves neither audio endpoint$`, st.noAudioAtAll)
+			sc.Step(`^that server stubs POST /v1/audio/speech with status (\d+)$`, st.stubsSpeechWithStatus)
 			sc.Step(`^a local server matching roggentoo-tts \(GET /v1/models -> "([^"]*)", POST /v1/audio/speech\)$`, st.roggentoo)
 			sc.Step(`^a local TTS server that answers 401 to an unauthenticated GET /v1/models$`, st.protectedTTS)
 			sc.Step(`^no usable key is present in the environment$`, st.noKey)
@@ -170,6 +240,9 @@ func TestVoiceDetectionBDD(t *testing.T) {
 			sc.Step(`^its unit is "([^"]*)"$`, st.unitIs)
 			sc.Step(`^the server is reported as needing a key$`, st.needsKey)
 			sc.Step(`^it is not silently dropped$`, st.needsKey)
+			sc.Step(`^one offer is synthesized with modality "([^"]*)"$`, st.oneOfferWithModality)
+			sc.Step(`^exactly one offer is synthesized$`, st.exactlyOneOffer)
+			sc.Step(`^no offer is synthesized$`, st.noOffer)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
