@@ -24,7 +24,7 @@ import (
 // DefaultMaxOnAir is the SOFT local on-air cap used when the host supplies none. A
 // local UX guard so an operator does not over-subscribe their host; the broker's
 // per-owner cap is the real backstop.
-const DefaultMaxOnAir = 4
+const DefaultMaxOnAir = 5
 
 // SchedWindow is one editable time-of-use price window (times "HH:MM" UTC). Free
 // zeroes the in-window price.
