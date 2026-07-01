@@ -81,7 +81,7 @@ func Speak(broker, user, model, text string, speed float64) (SpeakResult, error)
 
 // Voice is one entry in the broker's /voices roster (the shape GET /voices emits). The CLI renders
 // it as "Name · by @operator · language · $price/1k chars" (or FREE). ID is the raw model id (the
-// broker routes on it); NamespacedID is the human-friendly @<login>/<name> alias when present. NO
+// broker routes on it); NamespacedID is the human-friendly @<station>/<name> alias when present. NO
 // node address ever appears (the broker strips it).
 type Voice struct {
 	ID              string  `json:"id"`

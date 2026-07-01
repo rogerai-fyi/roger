@@ -17,8 +17,8 @@
      - honors prefers-reduced-motion (no background polling).
 
    PRIVACY: /voices already carries NO node address, host or IP (the broker
-   proxies all voice traffic). It exposes the operator's GitHub `login`; we
-   render it as a pseudonymous @callsign only - no other identity.
+   proxies all voice traffic). It exposes only the operator's STATION callsign -
+   a pseudonymous @handle like @brave-otter, never the GitHub/Apple login.
    ===================================================================== */
 (function () {
   "use strict";
@@ -74,7 +74,7 @@
   }
   // A voice's display name, falling back to its raw id (opaque) if nameless.
   function voiceName(v) { return v.name || v.id || "voice"; }
-  // The operator attribution: "@login" (the broker sends a bare login). A listed
+  // The operator attribution: "@station" (the broker sends a bare station callsign). A listed
   // voice ALWAYS carries an operator (anonymous nodes aren't listed), but stay
   // defensive - an operator-less row simply omits the "by @…".
   function operatorTag(v) {
