@@ -1,0 +1,125 @@
+/* =====================================================================
+   RogerAI - voices.css : the live VOICE directory (/voices.html).
+   The bands hero (shared with models.css tokens) + the roster table +
+   the "how to speak" command box. Reuses the shared chrome from base.css
+   (.bands-panel, .bands-panel__bar/__status/__quiet, .band-tag--free,
+   .beacon, .market__refresh, .market__foot, .install__box) and models.css
+   (.bands-hero, .section__head). Consumes tokens.css + base.css.
+
+   Design language: the WEB voice (monochrome ink + the one live-red
+   beacon), RogerAI's radio idiom (on-air / roster / station / @callsign).
+   Real data only - no station, no voice.
+   ===================================================================== */
+
+/* ---------- bands hero (shared shape with the Models board) ----- */
+.bands-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
+.bands-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
+.bands-hero__title {
+  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.bands-hero__sub {
+  margin: var(--s-5) 0 0; max-width: 64ch; color: var(--ink-500);
+  font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.bands-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+/* ---------- roster panel + table -------------------------------- */
+.bands-panel { border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900); background: var(--paper); }
+.bands-panel__bar {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline); background: var(--paper-2);
+}
+.bands-panel__status { display: inline-flex; align-items: center; gap: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-sm); color: var(--ink-500); }
+.bands-panel__status.is-live { color: var(--ink-900); }
+.bands-panel__status.is-off { color: var(--ink-400); }
+.bands-panel__status.is-quiet { color: var(--ink-400); }
+
+/* honest empty state: nothing real on air. No fake voices - just the truth
+   and the one command that fixes it. (Shared shape with the Models board.) */
+.bands-panel__quiet { padding: var(--s-8) var(--s-4); text-align: center; }
+.bands-panel__quiet-head { color: var(--ink-700); font-size: var(--t-sm); }
+.bands-panel__quiet-head .beacon { margin-right: var(--s-2); }
+.bands-panel__quiet-sub { margin-top: var(--s-3); color: var(--ink-500); font-size: var(--t-sm); }
+.bands-panel__quiet-sub .inline { color: var(--ink-900); }
+
+/* the grid: name · operator | language | latency | price */
+.voice-row, .voice-row--head {
+  display: grid;
+  grid-template-columns: minmax(0, 2.6fr) minmax(96px, 1.2fr) 88px minmax(96px, 1fr);
+  align-items: center; gap: var(--s-3) var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
+}
+.voice-row--head {
+  font-family: var(--font-mono); font-size: var(--t-micro); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--ink-400); background: var(--paper-2);
+}
+.voice-list { list-style: none; margin: 0; padding: 0; }
+.voice-row {
+  font-size: var(--t-sm);
+  opacity: 0; transform: translateY(8px);
+  animation: voiceIn var(--d-4) var(--ease-out-quint) forwards;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+@keyframes voiceIn { to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .voice-row { animation: none; opacity: 1; transform: none; } }
+.voice-row:last-child { border-bottom: 0; }
+.voice-row:hover { background: var(--paper-2); }
+
+.voice-cell { min-width: 0; }
+.voice-cell--lang, .voice-cell--lat, .voice-cell--price { text-align: right; }
+.voice-cell--name { text-align: left; }
+
+/* name cell: ◉ dot + display name, with the @operator attribution beneath */
+.voice-name-line { display: flex; align-items: baseline; gap: var(--s-2); }
+.voice-dot { font-size: 11px; line-height: 1; }
+.voice-dot--on { color: var(--live); }
+.voice-name { font-weight: var(--weight-semi); color: var(--ink-900); letter-spacing: -.01em; word-break: break-word; }
+.voice-op { display: block; font-size: var(--t-xs); color: var(--ink-400); margin-top: 2px; letter-spacing: 0.02em; }
+
+.voice-lang { color: var(--ink-700); letter-spacing: 0.02em; }
+.voice-lat { color: var(--ink-900); font-size: .9375rem; }
+.voice-unit { color: var(--ink-400); font-size: var(--t-xs); }
+.voice-unit--idle { color: var(--ink-300); }
+.voice-cell--price b { font-size: .9375rem; }
+.voice-cell--price .band-tag--free { font-size: 0.625rem; }
+
+/* honest empty state row (broker reachable/unreachable, no voices) */
+.voice-quiet {
+  display: block; padding: var(--s-8) var(--s-4); text-align: center;
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.voice-quiet__txt { display: inline-block; max-width: 52ch; }
+.voice-quiet code { color: var(--ink-900); }
+.voice-quiet a { color: var(--ink-700); border-bottom: 1px solid transparent; }
+.voice-quiet a:hover { color: var(--live); border-bottom-color: var(--live); }
+
+/* skeleton shimmer while the first fetch resolves */
+.voice-skel { height: 54px; border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, var(--paper) 0%, var(--paper-2) 50%, var(--paper) 100%);
+  background-size: 200% 100%; animation: voiceSkel 1.4s ease-in-out infinite; }
+.voice-skel:last-child { border-bottom: 0; }
+@keyframes voiceSkel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .voice-skel { animation: none; background: var(--paper-2); } }
+
+/* ---------- "how to speak" command box -------------------------- */
+.voice-tune { margin-top: var(--s-8); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); max-width: 640px; }
+.voice-tune__lead { color: var(--ink-500); font-size: var(--t-sm); }
+.voice-tune__cmd { width: 100%; }
+.voice-tune__cmd.is-copied .install__copy { color: var(--live); }
+.voice-tune__note { color: var(--ink-400); font-size: var(--t-xs); }
+
+/* ---------- responsive ------------------------------------------ */
+@media (max-width: 640px) {
+  .bands-hero__inner { max-width: none; }
+  /* drop the latency column on narrow screens; keep name · language · price */
+  .voice-row, .voice-row--head {
+    grid-template-columns: minmax(0, 1.8fr) minmax(80px, 1fr) minmax(84px, 1fr);
+    grid-template-areas: "name lang price";
+  }
+  .voice-cell--lat { display: none; }
+  .voice-cell--name { grid-area: name; }
+  .voice-cell--lang { grid-area: lang; }
+  .voice-cell--price { grid-area: price; }
+}
