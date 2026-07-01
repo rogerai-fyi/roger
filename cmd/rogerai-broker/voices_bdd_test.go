@@ -35,7 +35,11 @@ func (s *voicesState) reset() {
 	s.voices, s.payload, s.secrets = nil, "", nil
 }
 
-// addVoice registers an ONLINE public node serving one voice (tts) offer, with optional metadata.
+// addVoice registers an ONLINE public node serving one voice (tts) offer, with optional
+// metadata. Public voices are now signed-in operators only (founder Q2), so the node is
+// BOUND to an owner ("voicehost") — the discovery.feature assertions here are about the
+// voice SHAPE (id=raw, price, free, metadata, no address leak), which the namespacing layer
+// leaves intact; an unbound node would simply not be publicly listable.
 func (s *voicesState) addVoice(id, voiceID string, priceIn float64, name, lang string, latency int, bridgeURL string) {
 	o := protocol.ModelOffer{Model: voiceID, Modality: protocol.ModalityTTS, PriceIn: priceIn,
 		Name: name, Language: lang, LatencyMS: latency}
@@ -43,9 +47,19 @@ func (s *voicesState) addVoice(id, voiceID string, priceIn float64, name, lang s
 	s.b.nodes[id] = protocol.NodeRegistration{NodeID: id, BridgeURL: bridgeURL, Offers: []protocol.ModelOffer{o}}
 	s.b.lastSeen[id] = s.now // online
 	s.b.trust[id] = trustState{probed: true, probeOK: true, ttftMs: 200}
+	s.bindOwnedNode(id)
 	if bridgeURL != "" {
 		s.secrets = append(s.secrets, bridgeURL)
 	}
+}
+
+// bindOwnedNode binds a node to a stable "voicehost" owner so it is publicly listable under
+// the signed-in-only rule (Q2). The login is fixed (attribution isn't what discovery.feature
+// asserts); the owner pubkey is derived from the node id so each node binds deterministically.
+func (s *voicesState) bindOwnedNode(nodeID string) {
+	pub := "vh" + nodeID // a stable, unique per-node owner pubkey (not a real key; the store keys on the string)
+	_ = s.b.db.BindOwner(store.Owner{GitHubID: 1, Login: "voicehost", Pubkey: pub})
+	_ = s.b.db.BindNode(nodeID, pub)
 }
 
 // addModel registers an online node for a non-voice modality (chat/stt).
