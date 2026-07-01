@@ -654,11 +654,16 @@ func cmdShare(cfg config, args []string) error {
 	priceIn := fs.Float64("price-in", defIn, "$/1M input tokens to EARN (default 0 = free, no login needed)")
 	priceOut := fs.Float64("price-out", defOut, "$/1M output tokens to EARN (default 0 = free, no login needed)")
 	ctx := fs.Int("ctx", 0, "context length (default: auto-detect from the upstream)")
+	// --modality is the explicit override for the --upstream path (where auto-detection, which
+	// classifies a voice server, is skipped): tts (speak, /v1/audio/speech, billed per char) or
+	// stt (listen, /v1/audio/transcriptions, billed per byte). Empty = chat (the back-compat
+	// default). Ignored/overridden by detection on the auto path, which reads the endpoint.
+	modality := fs.String("modality", "", "offer modality for --upstream: tts|stt (default: chat / auto-detected)")
 	confidential := fs.Bool("confidential", false, "GATED enterprise tier: advertise as confidential - needs data-center silicon (AMD EPYC SEV-SNP + an H100-class confidential GPU), not consumer hardware. Apply at "+confidentialApplyURL+" (see docs/tee-eligibility.md)")
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
 	schedule := fs.String("schedule", "", `time-of-use schedule, JSON e.g. '[{"start":"18:00","end":"22:00","price_in":0.5,"price_out":0.7}]'`)
-	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --ctx --confidential --free-window --schedule)")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule)")
 	fs.Usage = func() {
 		fmt.Print(`roger share - go on air as a provider (auto-detects your local model)
 
@@ -670,7 +675,7 @@ func cmdShare(cfg config, args []string) error {
   --model <name>      model to expose (default: first detected)
   --price-out <P>     $/1M output tokens to earn (default 0 = free, no login)
   --private           hidden band, frequency-code only (needs ` + "`roger login`" + `)
-  --advanced          reveal: --node --region --parallel --upstream --ctx --confidential --free-window --schedule
+  --advanced          reveal: --node --region --parallel --upstream --modality --ctx --confidential --free-window --schedule
 
 Earning needs a GitHub-linked owner: run ` + "`roger login`" + ` first. Free sharing
 needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
@@ -678,7 +683,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	}
 	fs.Parse(rest)
 	if *advanced {
-		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --ctx --confidential --free-window --schedule")
+		fmt.Println("advanced flags: --node --region --parallel --upstream --upstream-key --modality --ctx --confidential --free-window --schedule")
 	}
 	// EARN login-gate, UP FRONT (mirrors the --private pre-check below): a priced share
 	// 401s at the broker if the owner is not GitHub-linked. Fail FAST here - before any
@@ -714,6 +719,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	})
 
 	up := *upstream
+	explicitUpstream := up != "" // the user passed --upstream, so detection (which classifies) is skipped
 	mdl := *model
 	var foundModality string // detected modality of the shared model (tts/stt); "" = chat
 	ctxLen := *ctx
@@ -780,7 +786,14 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		if mdl == "" && len(pick.Models) > 0 {
 			mdl = pick.Models[0]
 		}
-		foundModality = pick.Modality[mdl] // tts/stt/chat for the model we're about to share
+		// tts/stt/chat for the model we're about to share. A BARE voice server (Kokoro/Whisper,
+		// no /v1/models) synthesizes one offer under a default id; if the operator renamed it with
+		// `--model roger-operator-voice` the direct lookup misses, so fall back to the server's
+		// single detected modality — a rename must not silently downgrade a tts offer to chat.
+		foundModality = pick.Modality[mdl]
+		if foundModality == "" {
+			foundModality = soleModality(pick.Modality)
+		}
 		// Auto-detect --ctx from the upstream when the user didn't pin it: detect.ResolveCtx
 		// prefers the REAL per-model window (Ollama /api/show + /api/ps, llama.cpp /props,
 		// LM Studio /api/v0/models, then /v1/models) and only falls back to the estimated
@@ -809,6 +822,20 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// momentarily down (the same reason the explicit path skips a hard preflight).
 		if f, st := detectProbeKey(up, ""); st == detect.Reachable && f.Key != "" {
 			*upKey = f.Key
+		}
+	}
+	// --modality is the operator's override for the --upstream path, where auto-detection (which
+	// reads the endpoint and classifies a voice server) is skipped. Validate against the CLOSED
+	// enum ALWAYS, so a fat-finger (`--modality video`) fails fast on either path rather than at
+	// the broker. But only APPLY it on the explicit --upstream path: on the auto path detection is
+	// authoritative and already set the right modality, so the flag must not clobber a detected
+	// chat server into tts. Empty = leave as-is.
+	if *modality != "" {
+		if !(protocol.ModelOffer{Modality: *modality}).ValidModality() {
+			return fmt.Errorf("bad --modality %q, want tts or stt (or chat)", *modality)
+		}
+		if explicitUpstream {
+			foundModality = *modality
 		}
 	}
 	if mdl == "" {
@@ -1649,6 +1676,22 @@ func printLimits(c config) {
 // for its own endpoint - never sprayed onto a different --upstream).
 func sameEndpoint(a, b string) bool {
 	return b != "" && normalizeUpstream(a) == normalizeUpstream(b)
+}
+
+// soleModality returns the one modality shared by every entry in m, or "" if m is empty or the
+// entries disagree. Used to carry a bare voice server's single detected modality through a
+// `--model` rename (its synthesized id changes, but the capability doesn't); a mixed server has
+// no single modality, so "" falls back to the chat default rather than guessing.
+func soleModality(m map[string]string) string {
+	only := ""
+	for _, v := range m {
+		if only == "" {
+			only = v
+		} else if v != only {
+			return ""
+		}
+	}
+	return only
 }
 
 // normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible

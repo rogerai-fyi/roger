@@ -251,6 +251,22 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 				needSeen[base] = true
 				needKey = append(needKey, base)
 			}
+		case probeMiss:
+			// No usable /v1/models (kokoro-fastapi 404s it; most Whisper servers omit it).
+			// Before giving up, probe the audio capability: a bare TTS/STT server has no model
+			// list to enumerate, so synthesize ONE offer from what it can DO. endpointExists
+			// treats a 401 as "route present", so a key-protected bare voice server is caught too
+			// WITHOUT spraying a key (no key is sent — consistent with the port-scan policy). A
+			// normal chat server never reaches here (its /v1/models is probeOK), so chat is untouched.
+			if kind := probeVoice(base); kind != "" {
+				name := voiceModelName(kind)
+				f := Found{
+					Name: c.name, BaseURL: base, Chat: base + "/chat/completions",
+					Models:   []string{name},
+					Modality: map[string]string{name: kind},
+				}
+				found = append(found, f)
+			}
 		}
 	}
 	return found, needKey
@@ -497,6 +513,55 @@ func endpointExists(url, key string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode != http.StatusNotFound
+}
+
+// audioRouteLive reports whether an audio route is actually IMPLEMENTED and handling POST — a
+// stricter test than endpointExists (non-404), needed because worker servers STUB the OpenAI audio
+// routes: they answer POST /v1/audio/speech with 501 Not Implemented (or 405), a non-404 that the
+// loose check mistook for a real voice endpoint (7 false positives on the live box: Hermes workers
+// on :8779, :8814, :8912-8915, :9090). A route is live only if it responds like a real handler:
+// accept 2xx and a 4xx-that-isn't-absent (400 empty-body, 401 key-protected, 415/422), and reject
+// 404 (absent), 405 (present but not for POST), 501 (stubbed) and any 5xx, plus a transport error.
+// Keeping 401 live means a key-protected real voice server is still caught without sending a key.
+func audioRouteLive(url, key string) bool {
+	resp, err := authPost(url, key, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return false // transport error: nothing listening / no route
+	}
+	defer resp.Body.Close()
+	code := resp.StatusCode
+	// Implemented + POST-handling: below 500 (not a server-side stub/5xx), and neither 404
+	// (route absent) nor 405 (route exists but rejects POST — a stub or a GET-only handler).
+	return code < 500 && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
+}
+
+// probeVoice classifies a BARE voice server — one with no usable GET /v1/models to enumerate
+// (kokoro-fastapi on :8095 404s it; most Whisper servers omit it) — from its capability alone:
+// a LIVE POST /v1/audio/speech route => "tts", a LIVE POST /v1/audio/transcriptions route =>
+// "stt", otherwise "" (not a voice server). Uses audioRouteLive (not the loose endpointExists) so a
+// worker that merely STUBS the audio routes (501/405) is not a false positive, while a key-protected
+// real voice server (401) is still caught without a key. CPU vs GPU is irrelevant (endpoint-probed).
+// Speech wins when a bare server answers both (one offer per server; a mixed bare server is a rare
+// edge — we pick a deterministic label rather than emit two phantom ids).
+func probeVoice(base string) string {
+	switch {
+	case audioRouteLive(base+"/audio/speech", ""):
+		return protocol.ModalityTTS
+	case audioRouteLive(base+"/audio/transcriptions", ""):
+		return protocol.ModalitySTT
+	default:
+		return ""
+	}
+}
+
+// voiceModelName is the stable default model id synthesized for a bare voice server that exposes
+// no /v1/models to enumerate. It is overridable at share time (`roger share --model <name>`), which
+// is how an operator names it (e.g. roger-operator-voice).
+func voiceModelName(modality string) string {
+	if modality == protocol.ModalitySTT {
+		return "transcribe"
+	}
+	return "voice" // tts default
 }
 
 // classifyModalities fills f.Modality per model. A known voice/stt id wins first; otherwise the
