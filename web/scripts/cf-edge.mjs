@@ -35,6 +35,7 @@ const API = "https://api.cloudflare.com/client/v4";
 
 const apply = process.argv.includes("--apply");
 const reportOnly = process.argv.includes("--report-only");
+const check = process.argv.includes("--check");
 
 // stable markers so re-runs update our rules instead of stacking duplicates.
 const DESC_HEADERS = "rogerai:security-headers";
@@ -149,6 +150,33 @@ console.log(`headers:     ${headers.length} (${headers.map((h) => h.name).join("
 console.log(`csp mode:    ${reportOnly ? "Content-Security-Policy-Report-Only (test)" : "Content-Security-Policy (enforce)"}`);
 console.log(`redirect:    ${redirectLine}`);
 console.log("");
+
+if (check) {
+  // DRIFT CHECK (no token, no writes): the live site's response headers must match the
+  // repo's _headers block, and www must 301 to the apex. This is the end-to-end truth -
+  // if someone edits _headers without re-running --apply, this is what catches it (CI
+  // runs it on _headers/_redirects changes + a weekly cron).
+  const drift = [];
+  const live = await fetch(`https://${APEX}/`, { method: "HEAD", redirect: "manual" });
+  for (const h of headers) {
+    const got = live.headers.get(h.name);
+    if (got === null) drift.push(`missing on the live edge: ${h.name}`);
+    else if (got.trim() !== h.value) drift.push(`value drift: ${h.name}\n  repo: ${h.value}\n  live: ${got.trim()}`);
+  }
+  const www = await fetch(`https://${WWW}/`, { method: "HEAD", redirect: "manual" });
+  const loc = www.headers.get("location") || "";
+  if (www.status !== 301 || !loc.startsWith(`https://${APEX}`)) {
+    drift.push(`www redirect drift: expected 301 -> https://${APEX}/..., got ${www.status} -> ${loc || "(none)"}`);
+  }
+  if (drift.length) {
+    console.error(`EDGE DRIFT (${drift.length}): the live Cloudflare edge does not match web/src/_headers|_redirects.\n`);
+    for (const d of drift) console.error("  - " + d);
+    console.error("\nFix: CF_API_TOKEN=... node web/scripts/cf-edge.mjs --apply");
+    process.exit(1);
+  }
+  console.log(`edge in sync: ${headers.length} header(s) + www->apex 301 all match the repo.`);
+  process.exit(0);
+}
 
 if (!apply) {
   console.log("DRY RUN (no changes). Payloads that --apply would PUT:\n");

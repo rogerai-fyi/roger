@@ -1,0 +1,34 @@
+name: edge-drift
+# The Cloudflare edge headers are applied MANUALLY (web/scripts/cf-edge.mjs --apply), so a
+# _headers/_redirects edit silently drifts from the live edge until someone re-runs it.
+# This checks the LIVE site's response headers + www redirect against the repo (no token,
+# read-only) on every change to those files and weekly, and goes red on drift.
+on:
+  push:
+    branches: [main]
+    paths:
+      - web/src/_headers
+      - web/src/_redirects
+      - web/scripts/cf-edge.mjs
+  pull_request:
+    paths:
+      - web/src/_headers
+      - web/src/_redirects
+      - web/scripts/cf-edge.mjs
+  schedule:
+    - cron: '17 9 * * 1' # weekly Monday sweep - catches edits made directly in Cloudflare
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: live edge vs repo _headers/_redirects
+        run: node web/scripts/cf-edge.mjs --check
