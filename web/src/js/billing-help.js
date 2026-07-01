@@ -33,8 +33,17 @@
   var demoVid = modal.querySelector("#ledger-demo video");
   var reduceMotion = window.matchMedia
     ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+  // The 3.7MB poster gif is deferred (data-poster) so a closed modal costs zero bytes on
+  // page load - a `poster=` gif is fetched on paint even under preload="none". Promote it
+  // to a real poster the first time the modal opens, right before the demo can be seen.
+  function hydratePoster() {
+    if (!demoVid) return;
+    var p = demoVid.getAttribute("data-poster");
+    if (p && !demoVid.getAttribute("poster")) demoVid.setAttribute("poster", p);
+  }
   function playDemo() {
     if (!demoVid) return;
+    hydratePoster();
     if (reduceMotion && reduceMotion.matches) {
       try { demoVid.pause(); demoVid.currentTime = 0; } catch (e) {}
       return;

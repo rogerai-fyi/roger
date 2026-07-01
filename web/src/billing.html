@@ -217,10 +217,15 @@
       <figure class="bx-demo">
         <div class="bx-demo__stage" id="ledger-demo" role="img"
              aria-label="Flow diagram: tokens are metered, then priced, then debited from your wallet, then written to the append-only ledger, which is re-summed to verify your balance.">
-          <video class="bx-demo__vid" muted loop playsinline preload="metadata"
-                 poster="assets/ledger-demo.gif" aria-hidden="true">
+          <!-- LAZY: the modal is closed on load, so this explainer must cost zero bytes
+               until opened. preload="none" (no metadata/video fetch) and the 3.7MB poster
+               gif is deferred to data-poster (a `poster=` gif is fetched on paint even under
+               preload=none); billing-help.js promotes it to poster on open. The <img>
+               fallback is loading="lazy" too. -->
+          <video class="bx-demo__vid" muted loop playsinline preload="none"
+                 data-poster="assets/ledger-demo.gif" aria-hidden="true">
             <source src="assets/ledger-demo.mp4" type="video/mp4">
-            <img class="bx-demo__gif" src="assets/ledger-demo.gif" alt="">
+            <img class="bx-demo__gif" src="assets/ledger-demo.gif" alt="" loading="lazy">
           </video>
         </div>
         <figcaption class="bx-demo__cap">tokens &rarr; price &rarr; wallet &rarr; ledger &rarr; verified</figcaption>
