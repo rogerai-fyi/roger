@@ -579,11 +579,14 @@
               mirrors the on-air identity as you tune it.</p>
             <pre><span class="p">$</span> roger share                                   <span class="c"># auto-detects Kokoro / Whisper, tags the row</span>
 <span class="p">$</span> roger share --voice af_heart:0.5+af_aoede:0.5 --voice-speed 1.1   <span class="c"># or set the default headless</span></pre>
-            <p>Your voice is <b>namespaced</b> to you: it lists as
-              <code>@&lt;your-login&gt;/&lt;name&gt;</code> and is shown "by @you", so a voice
-              is always attributable to its operator and can never impersonate a model or
-              another operator. Earning needs a linked GitHub, like any priced share; the
-              Booth is login-gated for the same reason.</p>
+            <p>Your voice is <b>namespaced</b> to your <b>station</b>: it lists as
+              <code>@&lt;your-station&gt;/&lt;name&gt;</code> and is shown "by @&lt;your-station&gt;",
+              so a voice is always attributable to its operator and can never impersonate a
+              model or another operator. Your station is an anonymous broadcast callsign
+              (auto-generated like <code>brave-otter</code>, renameable in SHARE) - never your
+              login - so it reads the same whether you linked GitHub or Apple, and never exposes
+              your identity. Public voices need a signed-in owner (so every one is attributable);
+              the Booth is login-gated for that and for earning.</p>
             <div class="man-note">
               <span class="man-note__tag">whisper.cpp</span>
               A bare <code>whisper.cpp</code> server needs the small <b>whisper-shim</b> (a
