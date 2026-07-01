@@ -17,12 +17,20 @@ import (
 	"time"
 )
 
-// ModelOffer is one model a node exposes, with per-1M-token credit pricing.
+// ModelOffer is one model a node exposes, with per-1M-unit credit pricing. Chat bills per
+// token; voice adds tts (per input char) and stt (per audio-second) — see Modality/Unit.
 // Schedule (optional) overrides the base price by time-of-use (ChargePoint-style).
 type ModelOffer struct {
-	Model    string  `json:"model"`
-	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input tokens (base/fallback)
-	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output tokens (base/fallback)
+	Model string `json:"model"`
+	// Modality is what the model DOES: "" (back-compat) and "chat" bill per token; "tts"
+	// (speak, /v1/audio/speech) bills per input char; "stt" (listen, /v1/audio/transcriptions)
+	// bills per audio-second. See VOICE-AUDIO-DESIGN.md.
+	Modality string `json:"modality,omitempty"`
+	// Unit is the billing unit, CANONICAL for the modality (token|char|second) — set by
+	// Normalize, never trusted from the wire, so a node cannot mis-state how it is metered.
+	Unit     string  `json:"unit,omitempty"`
+	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
+	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-seconds)
 	Ctx      int     `json:"ctx"`
 	// CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
 	// real per-model window), so the UI can render it as an estimate (~32k, dim) instead
@@ -30,6 +38,53 @@ type ModelOffer struct {
 	// receipt: a guess is never displayed as a measured fact.
 	CtxEstimated bool          `json:"ctx_estimated,omitempty"`
 	Schedule     []PriceWindow `json:"schedule,omitempty"`
+}
+
+// Modality + Unit values. The enum is CLOSED (ValidModality); the unit is DERIVED from the
+// modality (canonicalUnit), never trusted from the wire — truth-in-labeling for how a request
+// is metered, like CtxEstimated for the context window.
+const (
+	ModalityChat = "chat" // /v1/chat/completions,      billed per token
+	ModalityTTS  = "tts"  // /v1/audio/speech,          billed per input char
+	ModalitySTT  = "stt"  // /v1/audio/transcriptions,  billed per audio-second
+
+	UnitToken  = "token"
+	UnitChar   = "char"
+	UnitSecond = "second"
+)
+
+// canonicalUnit is the ONE billing unit for a modality. A tts offer always bills chars and an
+// stt offer always bills audio-seconds, regardless of what unit the node claimed.
+func canonicalUnit(modality string) string {
+	switch modality {
+	case ModalityTTS:
+		return UnitChar
+	case ModalitySTT:
+		return UnitSecond
+	default: // chat + the empty back-compat default
+		return UnitToken
+	}
+}
+
+// Normalize fills the back-compat default modality (empty -> chat) and sets the CANONICAL unit
+// for that modality. The broker calls it on every registered offer, so a node can never
+// mis-state its billing unit (protecting the customer who pays it).
+func (o *ModelOffer) Normalize() {
+	if o.Modality == "" {
+		o.Modality = ModalityChat
+	}
+	o.Unit = canonicalUnit(o.Modality)
+}
+
+// ValidModality reports whether the offer's modality is one the broker accepts. The enum is
+// CLOSED — an unknown modality is rejected, not silently trusted. Empty is valid (-> chat).
+func (o ModelOffer) ValidModality() bool {
+	switch o.Modality {
+	case "", ModalityChat, ModalityTTS, ModalitySTT:
+		return true
+	default:
+		return false
+	}
 }
 
 // PriceWindow is a time-of-use rule. Times are "HH:MM" UTC; a window may wrap past

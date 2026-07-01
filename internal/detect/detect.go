@@ -30,6 +30,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // Found is a reachable local OpenAI-compatible server discovered by DetectFull.
@@ -40,6 +42,9 @@ type Found struct {
 	Models  []string       // served model ids from GET /v1/models (+ native discovery)
 	Ctx     map[string]int // per-model context length when the server reports it
 	Key     string         // bearer key the upstream required (discovered from env), if any
+	// Modality is the per-model kind: "chat" (default), "tts", or "stt" — filled by
+	// classifyModalities from the served endpoints + an id heuristic. See VOICE-AUDIO-DESIGN.md.
+	Modality map[string]string
 }
 
 // Status is the tri-state result of probing a single endpoint: a 401/403 means an
@@ -169,6 +174,7 @@ func ProbeKey(rawURL, key string) (Found, Status) {
 		f := Found{Name: "configured", BaseURL: base, Chat: base + "/chat/completions", Models: models, Ctx: ctx, Key: usedKey}
 		mergeOllamaNative(&f, base)
 		enrichCtx(&f, base)
+		classifyModalities(&f, base)
 		return f, Reachable
 	case probeAuth:
 		return Found{BaseURL: base}, NeedsKey
@@ -236,6 +242,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			// Ollama omits ctx from /v1/models entirely), so a node advertises the REAL
 			// served window instead of falling back to the 32768 last-resort default.
 			enrichCtx(&f, base)
+			classifyModalities(&f, base)
 			found = append(found, f)
 		case probeAuth:
 			// Present but key-protected and no env key fit: surface it so the caller can
@@ -461,6 +468,62 @@ func enrichCtx(f *Found, base string) {
 	enrichOllamaCtx(f, root)
 	enrichLlamaCppCtx(f, root)
 	enrichLMStudioCtx(f, root)
+}
+
+// modalityFromID classifies a model by its id when the server exposes no probeable audio
+// endpoint (a gateway that only lists /v1/models) or when a mixed server's endpoints alone can't
+// say which model is which. A hint, not a hard rule: the capability probe decides when the id is
+// unknown. Empty => no hint. See VOICE-AUDIO-DESIGN.md §4.2.
+func modalityFromID(id string) string {
+	s := strings.ToLower(id)
+	if strings.Contains(s, "whisper") || strings.Contains(s, "transcrib") || strings.HasSuffix(s, "-stt") {
+		return protocol.ModalitySTT
+	}
+	for _, k := range []string{"kokoro", "tts", "parler", "chatterbox", "bark", "piper", "xtts", "vits", "speecht5", "orpheus"} {
+		if strings.Contains(s, k) {
+			return protocol.ModalityTTS
+		}
+	}
+	return ""
+}
+
+// endpointExists reports whether base serves the given OpenAI endpoint: a minimal POST that a
+// present route rejects with a 4xx (bad/empty body) while an ABSENT route 404s. Any non-404
+// (incl. 401) means the route is there. Short-timeout, key-aware — same probe budget as detection.
+func endpointExists(url, key string) bool {
+	resp, err := authPost(url, key, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode != http.StatusNotFound
+}
+
+// classifyModalities fills f.Modality per model. A known voice/stt id wins first; otherwise the
+// server's CAPABILITY decides — a pure speech endpoint => tts, a pure transcription endpoint =>
+// stt, and everything else (chat, mixed, or unknown) stays chat. Endpoint-probed, so a model on
+// CPU and the same model on GPU classify identically.
+func classifyModalities(f *Found, base string) {
+	if f.Modality == nil {
+		f.Modality = map[string]string{}
+	}
+	hasSpeech := endpointExists(base+"/audio/speech", f.Key)
+	hasTranscribe := endpointExists(base+"/audio/transcriptions", f.Key)
+	hasChat := endpointExists(base+"/chat/completions", f.Key)
+	for _, m := range f.Models {
+		if hint := modalityFromID(m); hint != "" {
+			f.Modality[m] = hint
+			continue
+		}
+		switch {
+		case hasSpeech && !hasChat && !hasTranscribe:
+			f.Modality[m] = protocol.ModalityTTS
+		case hasTranscribe && !hasChat && !hasSpeech:
+			f.Modality[m] = protocol.ModalitySTT
+		default:
+			f.Modality[m] = protocol.ModalityChat
+		}
+	}
 }
 
 // enrichOllamaCtx reads Ollama's real per-model context: the loaded runtime num_ctx
