@@ -659,6 +659,13 @@ func cmdShare(cfg config, args []string) error {
 	// stt (listen, /v1/audio/transcriptions, billed per byte). Empty = chat (the back-compat
 	// default). Ignored/overridden by detection on the auto path, which reads the endpoint.
 	modality := fs.String("modality", "", "offer modality for --upstream: tts|stt (default: chat / auto-detected)")
+	// --voice sets the DEFAULT voice a tts offer speaks in: a single Kokoro id ("af_heart") or a
+	// weighted blend string ("af_heart:0.5+af_aoede:0.5"). The node injects it into a
+	// /v1/audio/speech request that OMITS `voice`, so a consumer gets THIS voice, not the raw
+	// local-server default. --voice-speed sets the default playback rate (0.5–2.0). Both only apply
+	// to a tts share; the TUI VOICE BOOTH is the guided way to pick these.
+	voice := fs.String("voice", "", "default voice for a tts share: a Kokoro id or blend (e.g. af_heart:0.5+af_aoede:0.5)")
+	voiceSpeed := fs.Float64("voice-speed", 0, "default speed for a tts share (0.5-2.0; 0 = server default)")
 	confidential := fs.Bool("confidential", false, "GATED enterprise tier: advertise as confidential - needs data-center silicon (AMD EPYC SEV-SNP + an H100-class confidential GPU), not consumer hardware. Apply at "+confidentialApplyURL+" (see docs/tee-eligibility.md)")
 	private := fs.Bool("private", false, "share on a PRIVATE band: hidden from the public market, reachable only by a secret frequency code (shown once). Requires `roger login`.")
 	freeWindow := fs.String("free-window", "", "daily FREE window in UTC, e.g. 03:00-03:30")
@@ -926,6 +933,9 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		NodeID: nodeID, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
 		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
+		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
+		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
+		Voice: *voice, Speed: *voiceSpeed,
 	}
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
 	// already on air for THIS node id and bow out, rather than double-registering it

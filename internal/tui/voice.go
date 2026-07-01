@@ -72,20 +72,24 @@ func (b band) isVoice() bool {
 func (b band) isTTS() bool { return b.modality == protocol.ModalityTTS }
 func (b band) isSTT() bool { return b.modality == protocol.ModalitySTT }
 
-// voiceBadge is the tiny MONO modality glyph for a voice band: ♪ (tts, folds to >) / ▽ (stt,
-// "into text", folds to v). Both are one-ink, fixed-width, and ASCII-foldable — the house rule.
-// It is deliberately NOT the color emoji 🎤 (variable-width, no fold, breaks mono+red). Empty for
-// a chat band. Used inside the DJ BOOTH / Listening Post drill-in, never in the top-level list.
-func voiceBadge(b band) string {
-	switch {
-	case b.isTTS():
+// voiceBadgeForModality is the SINGLE source of the mono modality glyph: ♪ (tts, folds to >) / ▽
+// (stt, "into text", folds to v). Both are one-ink, fixed-width, and ASCII-foldable — the house
+// rule. Deliberately NOT the color emoji 🎤 (variable-width, no fold, breaks mono+red). Empty for
+// chat/back-compat. BOTH the consumer DJ BOOTH badge (voiceBadge) and the SHARE-table tag
+// (shareModalityTag) route through here so the ♪/▽ marks are defined once.
+func voiceBadgeForModality(modality string) string {
+	switch modality {
+	case protocol.ModalityTTS:
 		return "♪"
-	case b.isSTT():
+	case protocol.ModalitySTT:
 		return "▽"
 	default:
 		return ""
 	}
 }
+
+// voiceBadge is the modality glyph for a voice band (consumer DJ BOOTH / Listening Post rows).
+func voiceBadge(b band) string { return voiceBadgeForModality(b.modality) }
 
 // sampleVoiceCost is the credit cost of ONE tts preview at the band's cheapest input price —
 // the broker meters TTS by exact input CHARS (cost = chars * priceIn/1e6), so this is computed
