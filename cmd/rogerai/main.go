@@ -137,7 +137,7 @@ type Share struct {
 // defaultShareMaxOnAir is the soft local on-air cap when share.max_on_air is unset
 // (or <=0). Local UX guard against over-subscribing a host's GPU; the broker's hard
 // per-owner cap is the real backstop.
-const defaultShareMaxOnAir = 4
+const defaultShareMaxOnAir = 5
 
 // shareMaxOnAir resolves the effective soft on-air cap from the config: the saved
 // share.max_on_air when positive, else the default. Read once at CLI startup.

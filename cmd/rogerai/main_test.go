@@ -159,24 +159,24 @@ func TestParseMonthlyCap(t *testing.T) {
 // TestLimitsLoadSaveBackCompat verifies the new limits section round-trips and
 // that an OLD config with NO limits section still loads (back-compat) with no
 // caps. Uses XDG_CONFIG_HOME so configPath() points at a temp dir.
-// TestShareMaxOnAirDefault: the soft local on-air cap defaults to 4 and is read from
+// TestShareMaxOnAirDefault: the soft local on-air cap defaults to 5 and is read from
 // share.max_on_air, surviving a save/reload. The default holds for an old config with
 // no share section.
 func TestShareMaxOnAirDefault(t *testing.T) {
 	useTempConfig(t) // cross-platform config isolation (see config_isolation_test.go)
 
-	// No share section at all -> default 4.
+	// No share section at all -> default 5.
 	if err := os.MkdirAll(filepath.Dir(configPath()), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(configPath(), []byte(`{"broker":"https://b.example"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadConfig().shareMaxOnAir(); got != 4 {
-		t.Fatalf("default share.max_on_air = %d, want 4", got)
+	if got := loadConfig().shareMaxOnAir(); got != 5 {
+		t.Fatalf("default share.max_on_air = %d, want 5", got)
 	}
-	if defaultShareMaxOnAir != 4 {
-		t.Fatalf("defaultShareMaxOnAir = %d, want 4", defaultShareMaxOnAir)
+	if defaultShareMaxOnAir != 5 {
+		t.Fatalf("defaultShareMaxOnAir = %d, want 5", defaultShareMaxOnAir)
 	}
 
 	// A configured share.max_on_air is read back.
@@ -192,8 +192,8 @@ func TestShareMaxOnAirDefault(t *testing.T) {
 	c2 := loadConfig()
 	c2.Share.MaxOnAir = 0
 	_ = saveConfig(c2)
-	if got := loadConfig().shareMaxOnAir(); got != 4 {
-		t.Errorf("zero share.max_on_air should fall back to the default 4, got %d", got)
+	if got := loadConfig().shareMaxOnAir(); got != 5 {
+		t.Errorf("zero share.max_on_air should fall back to the default 5, got %d", got)
 	}
 }
 
