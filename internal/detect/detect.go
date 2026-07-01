@@ -515,18 +515,39 @@ func endpointExists(url, key string) bool {
 	return resp.StatusCode != http.StatusNotFound
 }
 
+// audioRouteLive reports whether an audio route is actually IMPLEMENTED and handling POST — a
+// stricter test than endpointExists (non-404), needed because worker servers STUB the OpenAI audio
+// routes: they answer POST /v1/audio/speech with 501 Not Implemented (or 405), a non-404 that the
+// loose check mistook for a real voice endpoint (7 false positives on the live box: Hermes workers
+// on :8779, :8814, :8912-8915, :9090). A route is live only if it responds like a real handler:
+// accept 2xx and a 4xx-that-isn't-absent (400 empty-body, 401 key-protected, 415/422), and reject
+// 404 (absent), 405 (present but not for POST), 501 (stubbed) and any 5xx, plus a transport error.
+// Keeping 401 live means a key-protected real voice server is still caught without sending a key.
+func audioRouteLive(url, key string) bool {
+	resp, err := authPost(url, key, "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return false // transport error: nothing listening / no route
+	}
+	defer resp.Body.Close()
+	code := resp.StatusCode
+	// Implemented + POST-handling: below 500 (not a server-side stub/5xx), and neither 404
+	// (route absent) nor 405 (route exists but rejects POST — a stub or a GET-only handler).
+	return code < 500 && code != http.StatusNotFound && code != http.StatusMethodNotAllowed
+}
+
 // probeVoice classifies a BARE voice server — one with no usable GET /v1/models to enumerate
 // (kokoro-fastapi on :8095 404s it; most Whisper servers omit it) — from its capability alone:
-// a POST /v1/audio/speech route => "tts", a POST /v1/audio/transcriptions route => "stt",
-// otherwise "" (not a voice server). Reuses the endpointExists probe (which counts a 401 as
-// present), so a keyed bare voice server is still classified without a key, and CPU vs GPU is
-// irrelevant. Speech wins when a bare server answers both (one offer per server; a mixed bare
-// server is a rare edge — we pick a deterministic label rather than emit two phantom ids).
+// a LIVE POST /v1/audio/speech route => "tts", a LIVE POST /v1/audio/transcriptions route =>
+// "stt", otherwise "" (not a voice server). Uses audioRouteLive (not the loose endpointExists) so a
+// worker that merely STUBS the audio routes (501/405) is not a false positive, while a key-protected
+// real voice server (401) is still caught without a key. CPU vs GPU is irrelevant (endpoint-probed).
+// Speech wins when a bare server answers both (one offer per server; a mixed bare server is a rare
+// edge — we pick a deterministic label rather than emit two phantom ids).
 func probeVoice(base string) string {
 	switch {
-	case endpointExists(base+"/audio/speech", ""):
+	case audioRouteLive(base+"/audio/speech", ""):
 		return protocol.ModalityTTS
-	case endpointExists(base+"/audio/transcriptions", ""):
+	case audioRouteLive(base+"/audio/transcriptions", ""):
 		return protocol.ModalitySTT
 	default:
 		return ""

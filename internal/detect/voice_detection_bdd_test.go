@@ -25,6 +25,7 @@ func vdExpect(s string) error { return vdErr("expected " + s) }
 type voiceDetectState struct {
 	models        []string
 	endpoints     map[string]bool
+	endpointCode  map[string]int // per-path status override (default 400); a STUBBED route uses 501/405
 	protectedAuth bool
 	noModels      bool // the server 404s GET /v1/models (a BARE voice server: Kokoro/Whisper)
 	srv           *httptest.Server
@@ -34,7 +35,7 @@ type voiceDetectState struct {
 }
 
 func (s *voiceDetectState) reset() {
-	*s = voiceDetectState{endpoints: map[string]bool{}}
+	*s = voiceDetectState{endpoints: map[string]bool{}, endpointCode: map[string]int{}}
 }
 
 func (s *voiceDetectState) list1(a string) error    { s.models = []string{a}; return nil }
@@ -56,6 +57,15 @@ func (s *voiceDetectState) neitherAudio() error { return nil }
 // /v1/models enumeration finds nothing and the voice-capability fallback must carry it.
 func (s *voiceDetectState) no404Models() error  { s.noModels = true; return nil }
 func (s *voiceDetectState) noAudioAtAll() error { return nil } // no audio endpoint registered
+
+// stubsSpeechWithStatus registers POST /v1/audio/speech but as a STUB that returns the given
+// status (501 Not Implemented / 405 / 5xx) — the shape of a Hermes worker's placeholder route,
+// which must NOT count as a live voice endpoint.
+func (s *voiceDetectState) stubsSpeechWithStatus(code int) error {
+	s.endpoints["/v1/audio/speech"] = true
+	s.endpointCode["/v1/audio/speech"] = code
+	return nil
+}
 func (s *voiceDetectState) roggentoo(a string) error {
 	s.models = []string{a}
 	s.endpoints["/v1/audio/speech"] = true
@@ -87,7 +97,11 @@ func (s *voiceDetectState) detect() error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	})
 	for path := range s.endpoints {
-		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
+		code := http.StatusBadRequest // a real route rejects the empty probe body with 400
+		if c, ok := s.endpointCode[path]; ok {
+			code = c // a STUBBED route (Hermes worker) returns 501/405/5xx instead
+		}
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })
 	}
 	s.srv = httptest.NewServer(mux)
 	old := probes
@@ -215,6 +229,7 @@ func TestVoiceDetectionBDD(t *testing.T) {
 			sc.Step(`^that server answers neither audio endpoint on a capability probe$`, st.neitherAudio)
 			sc.Step(`^a local server that 404s GET /v1/models$`, st.no404Models)
 			sc.Step(`^that server serves neither audio endpoint$`, st.noAudioAtAll)
+			sc.Step(`^that server stubs POST /v1/audio/speech with status (\d+)$`, st.stubsSpeechWithStatus)
 			sc.Step(`^a local server matching roggentoo-tts \(GET /v1/models -> "([^"]*)", POST /v1/audio/speech\)$`, st.roggentoo)
 			sc.Step(`^a local TTS server that answers 401 to an unauthenticated GET /v1/models$`, st.protectedTTS)
 			sc.Step(`^no usable key is present in the environment$`, st.noKey)

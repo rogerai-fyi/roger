@@ -96,3 +96,20 @@ Feature: roger detects local voice/audio servers (TTS + STT), CPU or GPU alike
     And that server serves neither audio endpoint
     When roger detects local models
     Then no offer is synthesized
+
+  # --- FALSE-POSITIVE guard: a worker that STUBS the audio routes must NOT be tagged voice ---
+  # Hermes worker servers (:8779, :8814, :8912-8915, :9090 on the live box) 404 /v1/models AND stub
+  # POST /v1/audio/speech with 501 Not Implemented — a non-404 that a loose presence check let
+  # through as tts. A route is "live" only if actually implemented (accept 2xx/4xx except 404/405;
+  # reject 405/501/5xx), so these synthesize ZERO offers.
+  Scenario Outline: A worker that stubs /v1/audio/speech with <status> is NOT detected as voice
+    Given a local server that 404s GET /v1/models
+    And that server stubs POST /v1/audio/speech with status <status>
+    When roger detects local models
+    Then no offer is synthesized
+
+    Examples:
+      | status |
+      | 501    |
+      | 405    |
+      | 502    |

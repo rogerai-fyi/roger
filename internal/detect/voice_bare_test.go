@@ -105,13 +105,15 @@ func TestBareVoiceServerDetected(t *testing.T) {
 // chat exactly as before — the voice fallback must not run for it and must not add or change any
 // offer. Guards against the fix leaking into the chat path.
 func TestChatServerUnaffectedByVoiceProbe(t *testing.T) {
-	// A chat server that ALSO happens to answer /v1/audio/speech with a non-404 (some gateways
-	// front both) must still be classified by /v1/models, NOT collapsed to one voice offer.
+	// A chat server that ALSO serves a LIVE /v1/audio/speech (some gateways front both) must still
+	// be classified by /v1/models via classifyModalities, NOT reach the voice fallback (which only
+	// fires on probeMiss) or get collapsed to one voice offer.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"id": "llama3.2"}}})
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
+	mux.HandleFunc("/v1/audio/speech", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }) // live, but /v1/models wins
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -143,6 +145,88 @@ func TestBareVoiceServerBothEndpoints(t *testing.T) {
 	m := found[0].Models[0]
 	if found[0].Modality[m] != protocol.ModalityTTS {
 		t.Errorf("a speech-capable bare server should label tts, got %q", found[0].Modality[m])
+	}
+}
+
+// stubAudioServer builds a server that 404s GET /v1/models (like a bare voice server) but answers
+// its audio routes with a FIXED status code — used to prove that a STUBBED/unimplemented route
+// (Hermes workers return 501; some return 405) is not mistaken for a live voice endpoint.
+func stubAudioServer(code int, audioPaths ...string) *httptest.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	for _, p := range audioPaths {
+		mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) })
+	}
+	return httptest.NewServer(mux)
+}
+
+// TestBareVoiceServerRejectsStubbedRoutes is the exact false-positive regression: a Hermes worker
+// (and friends) 404s /v1/models AND STUBS the OpenAI audio routes — /v1/audio/speech returns 501
+// Not Implemented (or 405 Method Not Allowed). A stubbed route is NOT a live voice endpoint, so the
+// server must synthesize ZERO offers, not be tagged voice/tts. The real bare-voice codes (200/400,
+// and 401 for a key-protected server) still count as live.
+func TestBareVoiceServerRejectsStubbedRoutes(t *testing.T) {
+	cases := []struct {
+		name       string
+		code       int
+		wantOffers int
+	}{
+		{"501 not implemented -> not voice", http.StatusNotImplemented, 0},      // the live-box bug (:8779, :9090, ...)
+		{"405 method not allowed -> not voice", http.StatusMethodNotAllowed, 0}, // a route that rejects POST
+		{"502 bad gateway -> not voice", http.StatusBadGateway, 0},              // any 5xx is not a live endpoint
+		{"400 bad request -> real bare voice", http.StatusBadRequest, 1},        // real Kokoro
+		{"200 ok -> real bare voice", http.StatusOK, 1},                         // a permissive real server
+		{"401 unauthorized -> key-protected real voice", http.StatusUnauthorized, 1},
+		{"422 unprocessable -> real bare voice", http.StatusUnprocessableEntity, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := stubAudioServer(tc.code, "/v1/audio/speech")
+			defer srv.Close()
+
+			found := detectOne(t, srv.URL+"/v1")
+			offers := 0
+			for _, f := range found {
+				offers += len(f.Models)
+			}
+			if offers != tc.wantOffers {
+				t.Fatalf("audio route %d: synthesized %d offers, want %d: %+v", tc.code, offers, tc.wantOffers, found)
+			}
+			if tc.wantOffers == 1 && found[0].Modality[found[0].Models[0]] != protocol.ModalityTTS {
+				t.Errorf("audio route %d: modality = %q, want tts", tc.code, found[0].Modality[found[0].Models[0]])
+			}
+		})
+	}
+}
+
+// TestAudioRouteLive covers the presence rule directly: a route is live only if implemented and
+// handling POST — accept 2xx/4xx-except-404/405, reject 404/405/5xx and a transport error (0).
+func TestAudioRouteLive(t *testing.T) {
+	cases := []struct {
+		code int
+		live bool
+	}{
+		{http.StatusOK, true},                   // 200
+		{http.StatusBadRequest, true},           // 400 — empty body rejected by a real route
+		{http.StatusUnauthorized, true},         // 401 — key-protected, route IS present
+		{http.StatusUnsupportedMediaType, true}, // 415
+		{http.StatusUnprocessableEntity, true},  // 422
+		{http.StatusNotFound, false},            // 404 — route absent
+		{http.StatusMethodNotAllowed, false},    // 405 — route exists but not for POST
+		{http.StatusNotImplemented, false},      // 501 — stubbed (the Hermes bug)
+		{http.StatusBadGateway, false},          // 502 — any 5xx
+		{http.StatusServiceUnavailable, false},  // 503
+	}
+	for _, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.code) }))
+		if got := audioRouteLive(srv.URL, ""); got != tc.live {
+			t.Errorf("audioRouteLive(code=%d) = %v, want %v", tc.code, got, tc.live)
+		}
+		srv.Close()
+	}
+	// A dead port => transport error (code 0) => not live.
+	if audioRouteLive("http://127.0.0.1:1/v1/audio/speech", "") {
+		t.Error("dead endpoint reported as a live audio route")
 	}
 }
 
