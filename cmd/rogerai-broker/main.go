@@ -99,16 +99,22 @@ type broker struct {
 	// performance probing lazy (floor -> doubling -> ceiling) while real traffic and
 	// fresh demand pull it back to the floor; liveness/heartbeat is untouched. See
 	// probe.go (probeState). Reset-on-restart is fine (cold-start re-probes at floor).
-	probeSched  map[string]*probeState
-	streamMu    sync.Mutex
-	streams     map[string]*streamSink // jobID -> waiting client (streaming)
-	authMu      sync.Mutex
-	pubOfUser   map[string]string // TOFU: verified user id -> first pubkey that claimed it
-	db          store.Store
-	priv        ed25519.PrivateKey
-	feeRate     float64
-	seedFunds   float64
-	lockWin     time.Duration
+	probeSched map[string]*probeState
+	streamMu   sync.Mutex
+	streams    map[string]*streamSink // jobID -> waiting client (streaming)
+	authMu     sync.Mutex
+	pubOfUser  map[string]string // TOFU: verified user id -> first pubkey that claimed it
+	db         store.Store
+	priv       ed25519.PrivateKey
+	feeRate    float64
+	seedFunds  float64
+	lockWin    time.Duration
+	// Voice-relay resource guardrails (see audioLimits): the max TTS input chars per
+	// request (a huge input would place a large hold for work that can only fail the
+	// node's result cap), and a bounded in-flight-audio semaphore (32 MiB uploads must
+	// not stack N-deep across the small instances). audioSem is nil when disabled.
+	ttsMaxChars int
+	audioSem    chan struct{}
 	bill        billing
 	conn        connect
 	mod         moderation
@@ -455,6 +461,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,
+		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),
 		banned:                 map[string]bool{},
 		reportEjectAt:          reportEjectThreshold(),
 		reportDecayDays:        reportDecayDays(),
