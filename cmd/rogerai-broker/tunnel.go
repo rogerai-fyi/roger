@@ -298,7 +298,34 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	// set) can carry overrides; ActivePrice then reads the overridden price at serve
 	// time. (Past receipts/ledger are immutable - this changes only future pricing.)
 	overriddenModels := b.applyOfferOverrides(regOwner.Pubkey, reg.NodeID, reg.Offers)
+	// PUBLIC-VOICE REGISTER GUARD (off-lock: the content screen does network IO, which must
+	// never run under b.mu). A voice is only PUBLICLY listable when it is owner-bound (Q2:
+	// signed-in operators only), so the guard applies to an owner-bound (regOwner set) TTS
+	// offer. For each such offer it (1) derives the namespaced voice-name SLUG from the
+	// display Name and rejects an empty-after-normalize slug, (2) rejects a slug that
+	// PREFIX-matches a chat-model family root (impersonation, Q3, env-overridable), and (3)
+	// screens Name+slug+handle through the EXISTING b.mod.screen at this new register-time
+	// call site (honoring ROGERAI_REQUIRE_MODERATION fail-closed). The raw o.Model is left
+	// untouched — the slug is a computed view, not a stored field. The duplicate-within-
+	// operator check needs b.nodes and runs under the lock below.
+	if regOwner.Pubkey != "" {
+		if code, msg := b.screenVoiceOffers(reg.Offers, regOwner.Login); code != 0 {
+			jsonErr(w, code, msg)
+			return
+		}
+	}
 	b.mu.Lock()
+	// DUPLICATE VOICE-NAME (same operator): two of an operator's on-air voices may not
+	// share a normalized slug (deterministic ids; an operator can't shadow themselves). Run
+	// under the lock since it reads the owner's other live nodes. Excludes this node id so
+	// an idempotent re-register is not a self-collision.
+	if regOwner.Pubkey != "" {
+		if msg := b.duplicateVoiceName(regOwner.Pubkey, reg.NodeID, reg.Offers); msg != "" {
+			b.mu.Unlock()
+			jsonErr(w, http.StatusConflict, msg)
+			return
+		}
+	}
 	// TOFU identity binding: a node_id belongs to the first pub_key that claims it;
 	// later registrations for that id must use the SAME key (no takeover).
 	if prev, ok := b.nodes[reg.NodeID]; ok && prev.PubKey != reg.PubKey {

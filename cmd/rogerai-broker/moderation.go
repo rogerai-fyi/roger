@@ -449,6 +449,19 @@ func splitCategories(s string) []string {
 	return out
 }
 
+// screenVoiceRegistration is the NEW register-time content screen for a public voice: it
+// runs the voice's display Name, its derived namespaced SLUG, and the operator handle
+// through the SAME b.mod.screen hook used on the prompt path (no new backend, no new model
+// dependency). This closes the register-time impersonation/abuse vector the recon flagged:
+// today an offer's Name/id lands verbatim on /voices unscreened. It honors the identical
+// posture as the prompt path — ROGERAI_REQUIRE_MODERATION fails CLOSED (503) when the
+// screen is required but unreachable, and an empty field short-circuits ALLOW inside
+// screen(). Returns modResult so the caller can reject with the screen's status (451/503).
+// The three fields are joined into one screen call so a single flagged token trips it.
+func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult {
+	return m.screen(strings.TrimSpace(name + "\n" + slug + "\n" + handle))
+}
+
 // promptText pulls the user-visible text from an OpenAI chat-completions body for
 // screening: the concatenated string content of the messages. Tolerates the array
 // (multimodal) content form by collecting its text parts; the launch is text-only.
