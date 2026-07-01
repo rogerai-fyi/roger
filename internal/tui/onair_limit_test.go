@@ -32,15 +32,15 @@ func freeRows(n int) []shareRow {
 	return out
 }
 
-// TestShareSoftLimitDefault: the soft on-air cap defaults to 4 when the host supplies
+// TestShareSoftLimitDefault: the soft on-air cap defaults to 5 when the host supplies
 // no share.max_on_air.
 func TestShareSoftLimitDefault(t *testing.T) {
 	mm := New("http://broker.local", "tester")
-	if got := mm.maxOnAir(); got != 4 {
-		t.Fatalf("default soft on-air cap = %d, want 4", got)
+	if got := mm.maxOnAir(); got != 5 {
+		t.Fatalf("default soft on-air cap = %d, want 5", got)
 	}
-	if defaultShareMaxOnAir != 4 {
-		t.Fatalf("defaultShareMaxOnAir = %d, want 4", defaultShareMaxOnAir)
+	if defaultShareMaxOnAir != 5 {
+		t.Fatalf("defaultShareMaxOnAir = %d, want 5", defaultShareMaxOnAir)
 	}
 	// A host-supplied value overrides it.
 	mm2 := NewWithHooks("http://broker.local", "tester", nil, Hooks{ShareMaxOnAir: 7})
