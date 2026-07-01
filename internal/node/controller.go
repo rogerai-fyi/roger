@@ -362,7 +362,7 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	// VoiceConfig, so a plain chat share carries no voice metadata (unchanged).
 	vc := c.voices[row.Model]
 	return startAgent(agent.Config{
-		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node,
+		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),

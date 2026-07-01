@@ -42,8 +42,13 @@ const shareFeeRate = 0.30
 type Config struct {
 	Broker, Upstream, UpstreamKey string
 	NodeID, Region, HW, Model     string
-	PriceIn, PriceOut             float64
-	Ctx, Parallel                 int
+	// Station is the owner's persisted broadcast CALLSIGN (e.g. `brave-otter-37`) — the SAME one
+	// NodeID's first segment is derived from (ShareNodeID). Carried on the registration as the
+	// AUTHORITATIVE station the broker namespaces this node's public voices by, since the id's
+	// prefix can't be parsed back out. Empty for an anonymous share (no public voice).
+	Station           string
+	PriceIn, PriceOut float64
+	Ctx, Parallel     int
 	// CtxEstimated marks Ctx as the last-resort default (no real per-model window was
 	// detected), so the offer carries an honest "estimated" flag instead of presenting
 	// a guess as a measured value.
@@ -354,6 +359,9 @@ func Start(cfg Config) (*Session, error) {
 		NodeID: cfg.NodeID, PubKey: pubHex, BridgeToken: token,
 		Region: cfg.Region, HW: cfg.HW, Offers: []protocol.ModelOffer{offer},
 		Confidential: cfg.Confidential, Private: cfg.Private,
+		// Carry the AUTHORITATIVE station (the same callsign NodeID is derived from) so the broker
+		// can namespace this node's public voices as @<station>/<slug> without parsing the id.
+		Station: cfg.Station,
 	}
 	// Confidential tier: generate a REAL TEE quote bound to (pubkey, fresh broker
 	// nonce). On non-TEE hardware this fails - we surface the error so the node does
