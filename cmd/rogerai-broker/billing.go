@@ -34,6 +34,13 @@ func loadBilling() billing {
 			cu = f
 		}
 	}
+	if cu != 1.0 {
+		// The broker's money math honors creditUSD everywhere, but every consumer
+		// surface (CLI/TUI/web) still renders credits as dollars 1:1 - so a non-1:1
+		// rate makes every user-facing price/balance/savings figure a lie until the
+		// clients thread /me's credit_usd through their formatters.
+		log.Printf("billing: WARNING ROGERAI_CREDIT_USD=%v != 1 - consumer displays assume 1 credit = $1 and WILL misprice; settlement stays correct", cu)
+	}
 	b := billing{
 		secretKey:     stripeSecretKey(),
 		webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
