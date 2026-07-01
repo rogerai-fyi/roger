@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v4.14.1</b></span>
+          <span>Version: <b data-cli-version>v4.15.0</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -100,6 +100,7 @@
             <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
             <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
+            <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
             <li><a href="#s6"><span class="man-toc__no">§6</span>Wallet &amp; billing</a></li>
             <li><a href="#s7"><span class="man-toc__no">§7</span>Earnings &amp; payouts</a></li>
@@ -525,6 +526,72 @@
               and <code>--schedule</code>.</p>
           </section>
 
+          <!-- ============== §V VOICES ============== -->
+          <section class="man-sec" id="sV">
+            <span class="man-sec__no">§V · Voices (speak &amp; listen)</span>
+            <h2>Voices - speak &amp; listen</h2>
+            <p class="man-lead">Voice rides the same rails as chat. A voice station is
+              just another band: a <b>tts</b> band speaks (text in, audio out) and an
+              <b>stt</b> band listens (audio in, text out) - discovered, priced, routed,
+              and metered exactly like a model. Voice is <b>additive</b>: the LLM bands
+              stay the headline, and voices never bury them - they sit one dim step off to
+              the side, on air only when a real one is.</p>
+            <p>Metering follows the shape of the signal: a <b>tts</b> band is billed
+              <b>by the character</b> you speak, an <b>stt</b> band <b>by the byte</b> you
+              send - both off the same wallet, per the same 70/30 split, with the same
+              broker re-count you can trust. Prices are in $ / 1k chars (speak) or
+              $ / 1M bytes (listen).</p>
+
+            <h3>Use a voice (cue a DJ)</h3>
+            <p>In <b>TUNE IN</b>, the dial stays pure LLM. When a voice is on air, one dim
+              footnote appears at the foot of the band - <span class="cs">also on air: N
+              voices &#9656;</span> <kbd>[v]</kbd> - and <kbd>v</kbd> drills into the
+              <b>DJ BOOTH</b>, a child screen (esc returns to the band). The Booth is the
+              tts lineup, strongest first; the quieter stt transcribers sit one step
+              further in, at THE LISTENING POST (<kbd>t</kbd>).</p>
+            <p>You do not <i>chat</i> a voice - you <b>cue</b> it. <kbd>Enter</kbd> on a DJ
+              cues it (points your app or CLI at its voice endpoint); <kbd>&#9654;</kbd> (or
+              <kbd>space</kbd>) <b>spins</b> a sample so you can hear it first. A FREE voice
+              plays the sample straight away; a priced one shows the tiny sample cost and
+              waits for an explicit keypress - a preview never spends by surprise.</p>
+            <pre><span class="p">$</span> roger say --voice af_heart "roger that"     <span class="c"># speak a line through a cued DJ</span></pre>
+            <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k"><kbd>v</kbd></span><span class="man-plate__v">from TUNE IN, open the DJ BOOTH (only shown when a voice is on air)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><kbd>Enter</kbd> · cue</span><span class="man-plate__v">point your app/CLI at that DJ's voice endpoint (you cue a voice, you don't chat it)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><kbd>&#9654;</kbd> · spin</span><span class="man-plate__v">play a sample; FREE plays now, a priced voice confirms first (never auto-spends)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k"><kbd>t</kbd></span><span class="man-plate__v">drop one step further to THE LISTENING POST - the stt transcribers (info)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">roster</span><span class="man-plate__v">the public voice directory is at <a href="/voices.html">rogerai.fyi/voices</a> (cheapest first, live)</span></div>
+            </div>
+
+            <h3>Share a voice (open the VOICE BOOTH)</h3>
+            <p><code>roger share</code> auto-detects a local voice server - Kokoro, Whisper,
+              and friends - even the bare ones that 404 <code>/v1/models</code>. A detected
+              tts/stt server shows in <b>SHARE</b> as one tagged row (<span class="cs">&#9834;
+              tts</span> / <span class="cs">&#9661; stt</span>) among your models - model-first,
+              never elevated. Press <kbd>p</kbd> on a tts row to open the <b>VOICE BOOTH</b>,
+              at the same depth as the chat price editor.</p>
+            <p>The Booth is the guided way to put a DJ on air: pick a Kokoro voice from the
+              picker, build a <b>weighted blend</b> (auto-normalized), set the <b>speed</b>
+              (0.5-2.0), a <b>DJ name</b>, and a <b>price</b> ($ / 1k chars, or FREE at 0).
+              <kbd>&#9654;</kbd> <b>spins</b> a <b>local, free preview</b> - it synths a fixed
+              line through <i>your own</i> <code>/v1/audio/speech</code>, so it never touches
+              the broker and never bills. A live "right now you'd broadcast as ..." line
+              mirrors the on-air identity as you tune it.</p>
+            <pre><span class="p">$</span> roger share                                   <span class="c"># auto-detects Kokoro / Whisper, tags the row</span>
+<span class="p">$</span> roger share --voice af_heart:0.5+af_aoede:0.5 --voice-speed 1.1   <span class="c"># or set the default headless</span></pre>
+            <p>Your voice is <b>namespaced</b> to you: it lists as
+              <code>@&lt;your-login&gt;/&lt;name&gt;</code> and is shown "by @you", so a voice
+              is always attributable to its operator and can never impersonate a model or
+              another operator. Earning needs a linked GitHub, like any priced share; the
+              Booth is login-gated for the same reason.</p>
+            <div class="man-note">
+              <span class="man-note__tag">whisper.cpp</span>
+              A bare <code>whisper.cpp</code> server needs the small <b>whisper-shim</b> (a
+              thin OpenAI front) so <code>share</code> can detect it as an stt band; Kokoro
+              and most Whisper servers are picked up as-is.
+            </div>
+          </section>
+
           <!-- ============== §5 PRIVATE CHANNELS ============== -->
           <section class="man-sec" id="s5">
             <span class="man-sec__no">§5 · Private channels (grant keys)</span>
@@ -845,7 +912,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v4.14.1</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v4.15.0</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1124,7 +1191,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v4.14.1</span><span class="man-plate__v"><code>roger share</code> now auto-detects local voice servers that don't advertise <code>/v1/models</code> (Kokoro, Whisper via a small shim), and the default on-air slot cap is now 5 (was 4).</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v4.15.0</span><span class="man-plate__v">Voices, first-class - cue shared DJ voices in TUNE IN, share your own in the VOICE BOOTH (pick/blend/speed/preview), namespaced + attributed by operator; public roster at <code>/voices</code>.</span></div>
+            <div class="man-plate__row"><span class="man-plate__k">v4.14.1</span><span class="man-plate__v"><code>roger share</code> now auto-detects local voice servers that don't advertise <code>/v1/models</code> (Kokoro, Whisper via a small shim), and the default on-air slot cap is now 5 (was 4).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.14.0</span><span class="man-plate__v">Voice bands: host your local text-to-speech + speech-to-text servers (Kokoro, Whisper, ...) as voice models - auto-detected on <code>roger share</code>, discoverable at <code>/voices</code>, and metered like any band (by the character for speech, the byte for transcription).</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.13.4</span><span class="man-plate__v">Ping World screensaver: the on-air beacon now drifts across the signal towers - the live station moving on the dial.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.13.3</span><span class="man-plate__v">Ping World screensaver runs ~4.5× slower (calmer) and shows .fyi on the brand band.</span></div>
