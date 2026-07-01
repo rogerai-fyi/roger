@@ -13,13 +13,8 @@ region: sfo
 alerts:
   - rule: DEPLOYMENT_FAILED
   - rule: DOMAIN_FAILED
-databases:
-  - cluster_name: db-halo-main # shared cluster (see internal docs RUNBOOK) - rogeraidb database
-    db_name: rogeraidb
-    db_user: dorogeraiuser
-    engine: PG
-    name: db-halo-main
-    production: true
+# databases: the attached managed Postgres (cluster/db/user names live in the LIVE spec
+# and the internal RUNBOOK only - not mirrored here; this public file is documentation).
 domains:
   - domain: broker.rogerai.fyi
     type: PRIMARY
@@ -56,7 +51,7 @@ services:
         window: FIVE_MINUTES
     envs:
       # --- wiring (values in DO; SECRETs are encrypted slots) ---
-      - key: DATABASE_URL # ${db-halo-main.DATABASE_URL}
+      - key: DATABASE_URL # bind ref ${<cluster>.DATABASE_URL} - see the LIVE spec / RUNBOOK
         scope: RUN_TIME
       - key: ROGERAI_REDIS_URL # DO Valkey rediss:// URI - REQUIRED by ROGERAI_MULTI_INSTANCE
         scope: RUN_TIME
