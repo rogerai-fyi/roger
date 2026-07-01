@@ -1,13 +1,14 @@
 /* =====================================================================
    RogerAI - the demo console: a tape-deck / station-preset player.
 
-   Five switchable demos, each an animated terminal replay, selected from a radio-
-   preset bar ( [ roger ] [ tune in ] [ agent ] [ share ] [ payouts ] ) with the
-   current preset lit red. The tapes follow the roger arc - borrow -> automate ->
-   lend -> get paid - and mirror the real TUI preset bank you get from a bare
-   `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). Transport controls (play / pause
-   / replay) and a tuning-bar progress readout, all radio/tape-deck styled. tune in
-   and agent are deliberately distinct: tune in hands an ENDPOINT to your tools;
+   Eight demos, selected from a radio-preset bar ( [ roger ] [ tune in ] [ agent ]
+   [ share ] [ payouts ] [ using ] [ hosting ] [ ping ] ) with the current preset lit
+   red. The first five are animated terminal replays that follow the roger arc - borrow
+   -> automate -> lend -> get paid - and mirror the real TUI preset bank you get from a
+   bare `roger` ( [0] AGENT  [1] TUNE IN  [2] SHARE ). The last three are MEDIA tapes
+   (using, hosting, ping): muted/looping inline <video>s. Transport controls (play /
+   pause / replay) and a tuning-bar progress readout, all radio/tape-deck styled. tune
+   in and agent are deliberately distinct: tune in hands an ENDPOINT to your tools;
    agent is roger ITSELF running a multi-tool job.
 
      roger    - boot the dial: type `roger`, acquire the carrier (an animated
@@ -524,6 +525,12 @@
     // `media:true` + the <video> id instead of a frame builder.
     using: { label: "using", title: "roger — using it", media: true, el: "termUsing" },
 
+    // `hosting` - the animated STORY tape (ComfyUI): the companion to the `share` tape,
+    // told in the house cartoon voice - run your own model locally (Ollama / LM Studio),
+    // expose it OpenAI-compatibly (even as a TTS voice), and put it on the air to be
+    // discovered, served, metered and earning. Also a media tape.
+    hosting: { label: "hosting", title: "roger — hosting", media: true, el: "termHosting" },
+
     // `ping` - the live Ping World screensaver (the real `roger --ping`), captured
     // straight from internal/tui. Also a media tape.
     ping: { label: "ping", title: "roger — ping", media: true, el: "termPing" }
@@ -656,14 +663,30 @@
     }
   }
 
-  /* ---- media tapes (using / ping): a muted, looping inline <video> shown in the
-     SAME slot as the ASCII screen. The transport (play/pause/replay), tuning bar
+  /* ---- media tapes (using / hosting / ping): a muted, looping inline <video> shown in
+     the SAME slot as the ASCII screen. The transport (play/pause/replay), tuning bar
      and hover/visibility pause all work on the video; reduced-motion shows the
      poster (gif) and never autoplays. Media tapes are opt-in (clicked), so they
      stay OUT of the auto-advance ORDER - the CLI demos keep the rotation snappy. */
   var media = null; // the currently-shown <video>, or null while an ASCII tape is up
 
   function videos() { return mediaWrap ? mediaWrap.querySelectorAll("video") : []; }
+
+  // hydratePosters: promote each tape's deferred data-poster -> poster. The poster gif is
+  // 2.6-3.7MB and the browser fetches it the moment a `poster=` is set (even under
+  // preload="none"), so the markup ships it as data-poster and we set it only once the
+  // console nears the viewport (activate) / a tape opens (selectMedia). First paint pays
+  // zero tape bytes; the gif fetches lazily right before it can be seen.
+  var postersHydrated = false;
+  function hydratePosters() {
+    if (postersHydrated) return;
+    postersHydrated = true;
+    var vs = videos();
+    for (var i = 0; i < vs.length; i++) {
+      var p = vs[i].getAttribute("data-poster");
+      if (p && !vs[i].getAttribute("poster")) vs[i].setAttribute("poster", p);
+    }
+  }
 
   function showAscii() {
     var vs = videos();
@@ -675,6 +698,7 @@
 
   function selectMedia(name, mode) {
     pause();                                   // halt any ASCII frame timer
+    hydratePosters();                          // ensure the deferred poster gif is set before showing
     if (screen) screen.hidden = true;
     if (mediaWrap) mediaWrap.hidden = false;
     var target = document.getElementById(DEMOS[name].el);
@@ -750,6 +774,7 @@
   var kicked = false;
   function activate() {
     visible = true;
+    hydratePosters();  // console is near the viewport now - safe to fetch the tape posters
     if (REDUCED) { if (!media) renderFinal(); return; }
     if (!kicked) { kicked = true; select(current, "auto"); }
     else if (!hovered) { if (media) playMedia(); else resume(); }

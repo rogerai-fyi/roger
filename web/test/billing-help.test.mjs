@@ -69,6 +69,23 @@ test("billing: the #ledger-demo slot hosts the animated explainer video + gif fa
   assert.match(billing, /<img[^>]+assets\/ledger-demo\.gif/, "gif fallback for no-<video>");
 });
 
+test("billing: the #ledger-demo video is lazy - no eager poster/preload on first paint", () => {
+  // the modal is closed on load, so the explainer must cost ZERO bytes until opened: the
+  // <video> is preload="none" (no metadata/video fetch) and its 3.7MB poster gif is deferred
+  // to data-poster (browsers fetch a `poster=` gif even under preload=none). billing-help.js
+  // promotes data-poster -> poster on open. The <img> fallback is loading="lazy" too.
+  const vid = billing.slice(billing.indexOf('id="ledger-demo"'), billing.indexOf('</figure>'));
+  assert.match(vid, /<video[^>]*preload="none"/, 'the demo video is preload="none"');
+  assert.doesNotMatch(vid, /preload="metadata"/, "no eager preload=metadata");
+  assert.doesNotMatch(vid, /(?<!-)\bposter="assets\//, "no eager poster= (it would fetch the gif on paint)");
+  assert.match(vid, /data-poster="assets\/ledger-demo\.gif"/, "poster deferred to data-poster");
+  assert.match(vid, /<img[^>]*class="bx-demo__gif"[^>]*loading="lazy"|<img[^>]*loading="lazy"[^>]*class="bx-demo__gif"/,
+    "gif <img> fallback is loading=lazy");
+  // billing-help.js swaps the deferred poster in.
+  assert.match(helpJs, /data-poster|dataset\.poster|getAttribute\(["']data-poster["']\)/,
+    "billing-help.js promotes data-poster -> poster");
+});
+
 test("billing: the modal explains the flow and the two confused numbers", () => {
   assert.match(billing, /append-only ledger/i, "names the append-only ledger");
   assert.match(billing, /re-sums.+ledger.+re-derive/is, "explains Verified as a re-sum drift check");
