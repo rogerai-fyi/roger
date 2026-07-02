@@ -350,6 +350,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
 	// esc cancels/leaves, the scroll/recall/copy keys below act, and everything else feeds
 	// the prompt input - typable even mid-turn so the next ask can be composed + queued.
+	// Any key but Tab ends a slash-completion cycle first: the strip then re-derives
+	// from what is actually typed (the tab case below steps the SAME candidate set).
+	if k.String() != "tab" {
+		m.agentTabPrefix, m.agentTabIdx = "", 0
+	}
 	switch k.String() {
 	case "esc":
 		// While a turn is in flight, esc CANCELS it; when idle, esc leaves to BROWSE. This is
@@ -434,6 +439,34 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.agentVP.ScrollDown(1)
+		return m, nil
+	case "tab":
+		// Slash-command autocomplete (see agentCommands): a unique prefix match fills
+		// the input + a trailing space (word done - ready for args or enter); several
+		// matches CYCLE Minecraft-style on repeated Tab, completing against the
+		// ORIGINALLY typed prefix (agentTabPrefix) so each press steps candidates
+		// instead of locking onto the filled word. Outside a completable slash word
+		// Tab stays the no-op it always was (nothing else in AGENT binds it).
+		src := m.agentIn.Value()
+		if m.agentTabPrefix != "" {
+			src = m.agentTabPrefix
+		}
+		cands := agentSlashCandidates(src)
+		if len(cands) == 0 {
+			return m, nil
+		}
+		if len(cands) == 1 {
+			m.agentIn.SetValue(cands[0] + " ") // complete + space: the strip hides itself
+			m.agentIn.CursorEnd()
+			return m, nil
+		}
+		if m.agentTabPrefix == "" {
+			m.agentTabPrefix = src // start the cycle on the first match (idx already 0)
+		} else {
+			m.agentTabIdx = (m.agentTabIdx + 1) % len(cands) // step, wrapping around
+		}
+		m.agentIn.SetValue(cands[m.agentTabIdx])
+		m.agentIn.CursorEnd()
 		return m, nil
 	case "enter":
 		p := strings.TrimSpace(m.agentIn.Value())
@@ -538,6 +571,62 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// agentCommands is the ONE canonical registry of AGENT slash commands - the same set
+// the switch in runAgentCommand (directly below) dispatches and the /help output
+// describes. The `ask ›` Tab-autocomplete strip suggests from THIS list, so a new
+// command is added HERE alongside its switch case (one place, kept in lock-step by
+// TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
+// Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
+// typable but are not suggested.
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/persona", "/remote-control"}
+
+// agentSlashCandidates returns the agentCommands entries the input's command word
+// prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
+// suggestion strip + Tab completion source. It returns nil once the strip should
+// hide: the input is not a slash command (any leading text means a chat turn), or
+// the command word is already terminated by a space (args are being typed). Leading
+// spaces are tolerated exactly like the enter handler's TrimSpace.
+func agentSlashCandidates(input string) []string {
+	s := strings.TrimLeft(input, " ")
+	if !strings.HasPrefix(s, "/") || strings.Contains(s, " ") {
+		return nil
+	}
+	want := strings.ToLower(s) // registry entries are lowercase (pinned by the seam test)
+	var out []string
+	for _, c := range agentCommands {
+		if strings.HasPrefix(c, want) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// agentSlashStrip renders the one-line autocomplete hint for the `ask ›` prompt, or
+// "" when it must hide. House footer treatment: dim commands, " · " separators, the
+// current Tab-cycle pick carated + red (stSelText) exactly like the picker cursor
+// row (the carat carries the selection under NO_COLOR). While a cycle is live the
+// strip keeps showing the ORIGINAL prefix's candidate set, so repeated Tab visibly
+// steps the same choices instead of collapsing onto the filled word.
+func (m model) agentSlashStrip() string {
+	src, cycling := m.agentIn.Value(), false
+	if m.agentTabPrefix != "" {
+		src, cycling = m.agentTabPrefix, true
+	}
+	cands := agentSlashCandidates(src)
+	if len(cands) == 0 {
+		return ""
+	}
+	parts := make([]string, len(cands))
+	for i, c := range cands {
+		if cycling && i == m.agentTabIdx {
+			parts[i] = stSelText.Render("▸ " + c)
+		} else {
+			parts[i] = stDim.Render(c)
+		}
+	}
+	return strings.Join(parts, stDim.Render(" · "))
+}
+
 // runAgentCommand handles the small set of in-AGENT slash commands (no chat turn):
 // /clear resets the session, /persona shows where dj.md lives + its first lines,
 // /help lists them. Anything else is a hint (never sent as a turn).
@@ -596,7 +685,9 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// logged into your account. `/remote-control off` takes it back off the air.
 		off := len(fields) >= 2 && strings.EqualFold(fields[1], "off")
 		return m.runRemoteCommand(off)
-	case "help", "h":
+	case "help", "h", "commands":
+		// "commands" matches the CHANNEL view's alias (tui.go) so the autocomplete
+		// strip's /commands pick dispatches here instead of falling to unknown.
 		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
 		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
@@ -1053,6 +1144,13 @@ func (m model) agentView(w int) string {
 			sinceLast = int(time.Since(m.agentLastEvent).Seconds())
 		}
 		b.WriteString("  " + m.agentWorkingLine(elapsed, sinceLast) + "\n")
+	}
+	// SLASH STRIP: the passive autocomplete hint for the command word being typed -
+	// every prefix match (ALL commands on a bare "/"), the Tab-cycled pick carated.
+	// One footer-styled line directly ABOVE the input; agentSlashStrip returns ""
+	// outside a live command word (chat text / args typing), so nothing is drawn then.
+	if strip := m.agentSlashStrip(); strip != "" {
+		b.WriteString("\n" + truncVisible("  "+strip, w)) // the prompt's \n ends this line
 	}
 	// The always-live prompt: `ask ›` + the input view (cursor + echoed text). Clipped
 	// to width so a long placeholder / echoed line never overflows.
