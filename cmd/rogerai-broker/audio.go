@@ -298,9 +298,28 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		}
 		routeModel, pinNode = raw, node
 	}
+	// A grant confines the voice relay to the issuing owner's nodes (owner's nodes ∩ grant.Nodes)
+	// and model allow-list, exactly as the chat relay does (tunnel.go relay). Without this a grant
+	// escapes to ANY operator's on-air voice node and bills the sponsor for third-party hardware
+	// (audit BLOCKER #2). Namespaced resolution above sets pinNode, but pin does NOT enforce
+	// ownership, so the allow set is what actually confines routing. The model refusal is the
+	// uniform "no station" 503 (no oracle on the grant's model list), per
+	// features/voice/grant_node_isolation.feature.
+	var allow map[string]bool
+	if gok {
+		allow = gc.nodeAllow
+		if len(allow) == 0 {
+			jsonErr(w, http.StatusServiceUnavailable, "no node of this grant's owner is serving right now")
+			return
+		}
+		if gc.modelDenied(routeModel) {
+			jsonErr(w, http.StatusServiceUnavailable, "no station on air for "+model)
+			return
+		}
+	}
 	requestID := protocol.NewRequestID()
 	b.mu.Lock()
-	node, offer, ok := b.pickFor(routeModel, false, 0, 0, 0, pinNode, nil, nil, nil,
+	node, offer, ok := b.pickFor(routeModel, false, 0, 0, 0, pinNode, nil, allow, nil,
 		pickReq{modality: spec.modality, rng: seededRand(requestID)})
 	t := b.tunnels[node.NodeID]
 	b.mu.Unlock()
