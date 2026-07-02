@@ -215,7 +215,12 @@ func (b *broker) computeDiscover() any {
 
 // marketView is the per-model market summary surfaced by GET /market.
 type marketView struct {
-	Model       string  `json:"model"`
+	Model string `json:"model"`
+	// Modality mirrors offerView's canonical modality ("chat"/"tts"/"stt", always
+	// offerModality-normalized - a pre-voice empty modality reads "chat", never a bare "") so
+	// the aggregated market row can never present a VOICE station (tts/stt) as a usable CHAT
+	// model in a client picker. A model's offers share one modality; the first seen sets it.
+	Modality    string  `json:"modality,omitempty"`
 	Providers   int     `json:"providers"`    // online nodes offering this model
 	InFlight    int     `json:"in_flight"`    // active requests across those nodes
 	MinPrice    float64 `json:"min_price"`    // cheapest active input price (credits/1M)
@@ -258,6 +263,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 // so its serialized result is safe to cache briefly.
 func (b *broker) computeMarket() any {
 	type acc struct {
+		modality      string // canonical modality of this model's offers (offerModality; first seen sets it)
 		providers     int
 		inflight      int
 		minPrice      float64
@@ -316,7 +322,9 @@ func (b *broker) computeMarket() any {
 		for _, o := range n.Offers {
 			a := agg[o.Model]
 			if a == nil {
-				a = &acc{}
+				// The SAME canonical modality the per-offer feed carries (offerView):
+				// offerModality normalizes a pre-voice empty modality to "chat".
+				a = &acc{modality: offerModality(o.Modality)}
 				agg[o.Model] = a
 			}
 			a.providers++
@@ -380,7 +388,7 @@ func (b *broker) computeMarket() any {
 		ref, _ := b.refOut(model)
 		tier := priceTier(a.minOut, ref, a.outPrices)
 		out = append(out, marketView{
-			Model: model, Providers: a.providers, InFlight: a.inflight,
+			Model: model, Modality: a.modality, Providers: a.providers, InFlight: a.inflight,
 			MinPrice: a.minPrice, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),
 			SuccessRate: round6(successRate),
