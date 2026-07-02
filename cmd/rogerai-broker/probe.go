@@ -539,19 +539,19 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 		select {
 		case raw, ok := <-ch:
 			if !ok {
-				b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+				b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 				return
 			}
 			var res protocol.JobResult
 			if json.Unmarshal(raw, &res) != nil {
-				b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+				b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 				return
 			}
 			elapsed := time.Since(start)
-			outcome, tps, matched := b.evalCanary(res, elapsed, fp)
-			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched)
+			outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp)
+			b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
 		case <-time.After(30 * time.Second):
-			b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+			b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 		}
 		return
 	}
@@ -568,17 +568,17 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
 	case <-time.After(3 * time.Second):
 		// Could not even enqueue: transport/backpressure failure, not a fingerprint
 		// miss. This is a real liveness failure.
-		b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 		return
 	}
 
 	select {
 	case res := <-resCh:
 		elapsed := time.Since(start)
-		outcome, tps, matched := b.evalCanary(res, elapsed, fp)
-		b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched)
+		outcome, tps, matched, completed := b.evalCanary(res, elapsed, fp)
+		b.recordProbe(node.NodeID, outcome, float64(elapsed.Milliseconds()), tps, matched, completed)
 	case <-time.After(30 * time.Second):
-		b.recordProbe(node.NodeID, probeDead, 0, 0, false)
+		b.recordProbe(node.NodeID, probeDead, 0, 0, false, false)
 	}
 }
 
@@ -602,7 +602,8 @@ func (o probeOutcome) failed() bool { return o == probeDead || o == probeWrong }
 
 // evalCanary classifies a probe result and computes a clean tok/s sample. It returns
 // the outcome, the tok/s (measured whenever the node responded, regardless of the
-// fingerprint), and whether the exact fingerprint matched (a strong positive signal).
+// fingerprint), whether the exact fingerprint matched (a strong positive signal), and
+// whether the canary ran to COMPLETION (the node reported counted output tokens).
 //
 //   - non-2xx / empty content => probeDead (real failure).
 //   - expected token present anywhere in the visible content => probePass.
@@ -610,9 +611,14 @@ func (o probeOutcome) failed() bool { return o == probeDead || o == probeWrong }
 //     (clearly wrong-family: the node is answering, but with the wrong fact).
 //   - responded with content but neither => probeAlive (alive, fingerprint
 //     inconclusive). This is the reasoning-model case: NOT a failure.
-func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp canaryFingerprint) (outcome probeOutcome, tps float64, matched bool) {
+//
+// `completed` is CompletionTokens>0 — a passed canary that actually PRODUCED a counted
+// answer (not just a 2xx reasoning channel that stalled). It is the SAME reading the tok/s
+// measurement uses; recordProbe threads it into trustState.probeCompleted so the concierge
+// gate can require completion, not merely liveness. A dead/empty result never completed.
+func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp canaryFingerprint) (outcome probeOutcome, tps float64, matched, completed bool) {
 	if res.Status < 200 || res.Status >= 300 {
-		return probeDead, 0, false
+		return probeDead, 0, false, false
 	}
 	// Visible answer text is what the fingerprint is checked against. Reasoning text
 	// (the harmony/think channel) is a liveness signal only - a reasoning model can
@@ -620,29 +626,31 @@ func (b *broker) evalCanary(res protocol.JobResult, elapsed time.Duration, fp ca
 	text := completionText(res.Body)
 	reasoning := probeReasoningText(res.Body)
 	if strings.TrimSpace(text) == "" && strings.TrimSpace(reasoning) == "" {
-		return probeDead, 0, false // truly empty body: dead
+		return probeDead, 0, false, false // truly empty body: dead
 	}
-	// The node responded => it is ALIVE. Measure tok/s now, before any fingerprint
-	// reasoning, so latency/speed are recorded for every responsive node.
-	if ct := res.Receipt.CompletionTokens; ct > 0 {
+	// The node responded => it is ALIVE. Counted output tokens mean the canary ran to
+	// COMPLETION; measure tok/s off the SAME reading, before any fingerprint reasoning, so
+	// latency/speed are recorded for every responsive node.
+	completed = res.Receipt.CompletionTokens > 0
+	if completed {
 		if s := elapsed.Seconds(); s > 0 {
-			tps = float64(ct) / s
+			tps = float64(res.Receipt.CompletionTokens) / s
 		}
 	}
 	low := strings.ToLower(text)
 	if strings.Contains(low, fp.expect) {
-		return probePass, tps, true // strong positive signal
+		return probePass, tps, true, completed // strong positive signal
 	}
 	// Wrong-family: the visible answer contains a DIFFERENT canary's expected token
 	// (a mutually-exclusive answer to a deterministic prompt) but not ours. A
 	// reasoning preamble that merely mentions other words is unlikely to be flagged
 	// because the prompts demand a single bare word and the tokens are distinct.
 	if canaryWrongFamily(low, fp) {
-		return probeWrong, tps, false
+		return probeWrong, tps, false, completed
 	}
 	// Responded, but the fingerprint is inconclusive (reasoning model wandered or
 	// burned the budget reasoning). ALIVE, not a failure.
-	return probeAlive, tps, false
+	return probeAlive, tps, false, completed
 }
 
 // canaryWrongFamily reports whether the visible content asserts a DIFFERENT canary's
@@ -717,7 +725,13 @@ func distinctiveCanaryToken(tok string) bool {
 // fingerprint landed. Only probeDead/probeWrong increment the streak that pick uses to
 // deprioritize a node. ttft/tps are recorded for every responsive probe. matched marks
 // a clean fingerprint extraction (a strong positive), surfaced only in the log.
-func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps float64, matched bool) {
+//
+// `completed` (from evalCanary: CompletionTokens>0) records whether this passed canary
+// actually ran to COMPLETION. probeCompleted tracks the LAST probe's completion exactly as
+// probeOK tracks its liveness: a node that stalls after the first token (alive but !completed)
+// or fails (!alive) reads probeCompleted=false, so verifiedServing() — which now requires it —
+// no longer certifies a TTFT-alive-but-never-finished reasoning node.
+func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps float64, matched, completed bool) {
 	alive := !outcome.failed()
 
 	b.metricsMu.Lock()
@@ -725,6 +739,7 @@ func (b *broker) recordProbe(nodeID string, outcome probeOutcome, ttftMs, tps fl
 	tq.probes++
 	tq.probed = true
 	tq.probeOK = alive
+	tq.probeCompleted = alive && completed // last passed canary produced counted output
 	if alive {
 		tq.probeFails = 0
 		if ttftMs > 0 {

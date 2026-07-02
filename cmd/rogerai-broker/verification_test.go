@@ -232,22 +232,22 @@ func TestSSEDeltaCapture(t *testing.T) {
 func TestEvalCanary(t *testing.T) {
 	b := newTrustBroker()
 	fp := canaryFingerprint{prompt: "Reply with only the single word: BANANA", expect: "banana"}
-	eval := func(body string, status int) (probeOutcome, float64, bool) {
+	eval := func(body string, status int) (probeOutcome, float64, bool, bool) {
 		res := protocol.JobResult{Status: status, Body: json.RawMessage(body), Receipt: protocol.UsageReceipt{CompletionTokens: 1}}
 		return b.evalCanary(res, 50*time.Millisecond, fp)
 	}
 
 	// Clean fingerprint extraction => probePass (a strong positive), matched=true.
-	if o, _, m := eval(`{"choices":[{"message":{"content":"BANANA"}}]}`, 200); o != probePass || !m {
+	if o, _, m, _ := eval(`{"choices":[{"message":{"content":"BANANA"}}]}`, 200); o != probePass || !m {
 		t.Errorf("correct canary: outcome=%v matched=%v, want probePass+matched", o, m)
 	}
-	if o, _, m := eval(`{"choices":[{"message":{"content":"the answer is banana."}}]}`, 200); o != probePass || !m {
+	if o, _, m, _ := eval(`{"choices":[{"message":{"content":"the answer is banana."}}]}`, 200); o != probePass || !m {
 		t.Errorf("substring (case-insensitive): outcome=%v matched=%v, want probePass+matched", o, m)
 	}
 
 	// Responded with content but no fingerprint and no competing canary token =>
 	// ALIVE (not a failure). An arbitrary off-script word is inconclusive, not wrong.
-	if o, _, m := eval(`{"choices":[{"message":{"content":"APPLE"}}]}`, 200); o != probeAlive || m {
+	if o, _, m, _ := eval(`{"choices":[{"message":{"content":"APPLE"}}]}`, 200); o != probeAlive || m {
 		t.Errorf("off-script responsive answer: outcome=%v matched=%v, want probeAlive", o, m)
 	}
 	if o := mustNotFail(eval(`{"choices":[{"message":{"content":"APPLE"}}]}`, 200)); o {
@@ -255,20 +255,37 @@ func TestEvalCanary(t *testing.T) {
 	}
 
 	// Clearly WRONG-family: the content asserts a DIFFERENT canary's answer => fail.
-	if o, _, _ := eval(`{"choices":[{"message":{"content":"PENGUIN"}}]}`, 200); o != probeWrong {
+	if o, _, _, _ := eval(`{"choices":[{"message":{"content":"PENGUIN"}}]}`, 200); o != probeWrong {
 		t.Errorf("wrong-family answer: outcome=%v, want probeWrong", o)
 	}
 
 	// Empty / non-2xx => probeDead (real failure).
-	if o, _, _ := eval(`{"choices":[{"message":{"content":""}}]}`, 200); o != probeDead {
+	if o, _, _, _ := eval(`{"choices":[{"message":{"content":""}}]}`, 200); o != probeDead {
 		t.Errorf("empty completion: outcome=%v, want probeDead", o)
 	}
-	if o, _, _ := eval(`{"choices":[{"message":{"content":"BANANA"}}]}`, 500); o != probeDead {
+	if o, _, _, _ := eval(`{"choices":[{"message":{"content":"BANANA"}}]}`, 500); o != probeDead {
 		t.Errorf("non-2xx: outcome=%v, want probeDead", o)
+	}
+
+	// COMPLETED signal (CompletionTokens>0): a responsive canary that reported counted
+	// output is `completed` (the reading verifiedServing() now requires). A dead result is not.
+	if _, _, _, c := eval(`{"choices":[{"message":{"content":"BANANA"}}]}`, 200); !c {
+		t.Error("a 2xx with counted output tokens must report completed=true")
+	}
+	if _, _, _, c := eval(`{"choices":[{"message":{"content":""}}]}`, 200); c {
+		t.Error("an empty/dead result must report completed=false")
+	}
+	// A stall-after-first-token reasoning reply: 2xx, reasoning present, ZERO counted output
+	// => ALIVE but NOT completed (the exact gpt-oss symptom the concierge gate must skip).
+	stallRes := protocol.JobResult{Status: 200,
+		Body:    json.RawMessage(`{"choices":[{"message":{"content":"","reasoning":"still thinking"}}]}`),
+		Receipt: protocol.UsageReceipt{CompletionTokens: 0}}
+	if o, _, _, c := b.evalCanary(stallRes, 50*time.Millisecond, fp); o.failed() || c {
+		t.Errorf("stall-only reasoning reply: outcome=%v completed=%v, want ALIVE + completed=false", o, c)
 	}
 }
 
-func mustNotFail(o probeOutcome, _ float64, _ bool) bool { return o.failed() }
+func mustNotFail(o probeOutcome, _ float64, _, _ bool) bool { return o.failed() }
 
 // TestEvalCanaryReasoningModel: a gpt-oss-style reasoning response (a reasoning
 // preamble that wanders, or reasoning that EXHAUSTS the budget leaving content
@@ -277,28 +294,29 @@ func mustNotFail(o probeOutcome, _ float64, _ bool) bool { return o.failed() }
 func TestEvalCanaryReasoningModel(t *testing.T) {
 	b := newTrustBroker()
 	fp := canaryFingerprint{prompt: "Reply with only the single word: BANANA", expect: "banana"}
-	eval := func(body string) (probeOutcome, float64, bool) {
+	eval := func(body string) (probeOutcome, float64, bool, bool) {
 		res := protocol.JobResult{Status: 200, Body: json.RawMessage(body), Receipt: protocol.UsageReceipt{CompletionTokens: 200}}
 		return b.evalCanary(res, 1*time.Second, fp)
 	}
 
-	// Reasoning preamble that later DOES emit the answer => probePass.
+	// Reasoning preamble that later DOES emit the answer => probePass, and it reported
+	// counted output so it also COMPLETED.
 	withAnswer := `{"choices":[{"message":{"content":"Let me think. The user wants one word. Okay: BANANA"}}]}`
-	if o, tps, m := eval(withAnswer); o != probePass || !m || tps <= 0 {
-		t.Errorf("reasoning+answer: outcome=%v matched=%v tps=%v, want probePass+matched+tps>0", o, m, tps)
+	if o, tps, m, c := eval(withAnswer); o != probePass || !m || tps <= 0 || !c {
+		t.Errorf("reasoning+answer: outcome=%v matched=%v tps=%v completed=%v, want probePass+matched+tps>0+completed", o, m, tps, c)
 	}
 
 	// Reasoning that wanders and never emits the bare token, but returns content =>
 	// probeAlive (verified), tok/s still measured. NOT a failure.
 	wander := `{"choices":[{"message":{"content":"The user is asking for a single word answer about a fruit, I should respond concisely with the requested item."}}]}`
-	if o, tps, _ := eval(wander); o != probeAlive || tps <= 0 || o.failed() {
+	if o, tps, _, _ := eval(wander); o != probeAlive || tps <= 0 || o.failed() {
 		t.Errorf("reasoning wander: outcome=%v tps=%v, want probeAlive (not failed), tps>0", o, tps)
 	}
 
 	// Reasoning that exhausts the budget: content empty but reasoning_content present
 	// => still ALIVE (the node responded), tok/s measured.
 	exhausted := `{"choices":[{"message":{"content":"","reasoning_content":"I need to output exactly one word and the user asked for a fruit so I will carefully consider the constraints..."}}]}`
-	if o, tps, _ := eval(exhausted); o.failed() || tps <= 0 {
+	if o, tps, _, _ := eval(exhausted); o.failed() || tps <= 0 {
 		t.Errorf("reasoning exhausted budget: outcome=%v tps=%v, want alive (not failed), tps>0", o, tps)
 	}
 }
@@ -354,7 +372,7 @@ func TestRecordProbeStreakAndPick(t *testing.T) {
 	// "bad" fails three probes -> a streak that marks it failing (pick reads probeFails>=3
 	// inline; assert the streak the same way before checking the routing effect).
 	for i := 0; i < 3; i++ {
-		b.recordProbe("bad", probeDead, 0, 0, false)
+		b.recordProbe("bad", probeDead, 0, 0, false, false)
 	}
 	if b.trust["bad"].probeFails < 3 {
 		t.Fatal("bad node should be probe-failing after 3 consecutive fails")
@@ -388,8 +406,8 @@ func TestMarketSurfacesTTFTAndQuality(t *testing.T) {
 	}
 	b.lastSeen = map[string]time.Time{"n": now}
 	b.recount = recountConfig{tolerance: 0.02}
-	// One good probe (sets ttft) + one token discrepancy (drops quality).
-	b.recordProbe("n", probePass, 120, 50, true)
+	// One good COMPLETED probe (sets ttft) + one token discrepancy (drops quality).
+	b.recordProbe("n", probePass, 120, 50, true, true)
 	b.observeRecount("n", "", 200, 100, true)
 
 	// /market
