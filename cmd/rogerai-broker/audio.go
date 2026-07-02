@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +20,24 @@ import (
 // A body that does not parse yields "" (the caller treats no-text as nothing to screen;
 // a malformed body is separately rejected as a 502 by the result-shape guard).
 func transcriptText(body []byte) (string, bool) {
+	// Shape check on KEY PRESENCE, not just parseability: any JSON object would otherwise
+	// pass (e.g. {"not":"a transcription"}) and be relayed RAW. A transcription must carry a
+	// "text" or "segments" key; an empty "text" is a legitimate silent-audio result.
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(body, &keys) != nil {
+		return "", false // not the transcription shape -> never forwarded raw
+	}
+	hasKey := func(name string) bool {
+		for k := range keys { // Go's struct unmarshal is case-insensitive; match it
+			if strings.EqualFold(k, name) {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasKey("text") && !hasKey("segments") {
+		return "", false // a JSON object, but not a transcription
+	}
 	var out struct {
 		Text     string `json:"text"`
 		Segments []struct {
@@ -26,7 +45,7 @@ func transcriptText(body []byte) (string, bool) {
 		} `json:"segments"`
 	}
 	if json.Unmarshal(body, &out) != nil {
-		return "", false // not the transcription shape -> 502, never forwarded raw
+		return "", false
 	}
 	if strings.TrimSpace(out.Text) != "" {
 		return out.Text, true
@@ -356,14 +375,27 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 	select {
 	case res := <-resCh:
 		if res.Status < 200 || res.Status >= 400 || len(res.Body) == 0 {
-			jsonErr(w, http.StatusBadGateway, "station returned nothing") // hold refunds via defer
+			// NODE-SIDE FAILURE (error_passthrough.feature): a 5xx whose JSON body the edge
+			// passes through (origin 502/504 bodies are replaced with its HTML page), carrying
+			// a SHORT reason extracted from a standard error shape and SANITIZED here — never
+			// the node's raw body. The reason passes the same screen as STT output; flagged or
+			// screen-down degrades to the generic form (an error is never withheld, and this
+			// path never charges - the hold refunds via defer).
+			reason, extracted := stationErrReason(res.Status, res.Body)
+			if extracted {
+				if sres := b.mod.screen(strings.TrimPrefix(reason, "station error: ")); !sres.allow() {
+					reason = fmt.Sprintf("station error (status %d)", res.Status)
+				}
+			}
+			jsonErr(w, http.StatusInternalServerError, reason)
 			return
 		}
 		rec := res.Receipt
 		// Verify the node's signed receipt before it is stored + broker-re-signed (as relay() does),
-		// so an unverified node claim never enters lineage or grant-usage accounting.
+		// so an unverified node claim never enters lineage or grant-usage accounting. 500 (not
+		// 502) so the reason survives the edge (see above).
 		if !rec.VerifyNode(node.PubKey) {
-			jsonErr(w, http.StatusBadGateway, "station receipt failed verification") // hold refunds via defer
+			jsonErr(w, http.StatusInternalServerError, "station error: station receipt failed verification") // hold refunds via defer
 			return
 		}
 		rec.PriceIn, rec.GrantID = pin, grantID
@@ -399,7 +431,8 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		if spec.screenOutput && spec.resultText != nil {
 			text, okShape := spec.resultText(res.Body)
 			if !okShape {
-				jsonErr(w, http.StatusBadGateway, "station returned an unreadable result") // hold refunds via defer
+				// 500 (not 502) so the reason survives the edge (see the node-failure path).
+				jsonErr(w, http.StatusInternalServerError, "station error: station returned an unreadable result") // hold refunds via defer
 				return
 			}
 			if strings.TrimSpace(text) != "" {

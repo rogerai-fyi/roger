@@ -1685,7 +1685,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 // the consumer always gets the broker's own 504 rather than CF's untyped 524. Slow
 // providers should be consumed with stream:true, which flushes headers immediately and
 // keeps the CF connection alive for the full 300s stream window.
-const nonStreamRelayWait = 90 * time.Second
+// var (not const) so the error-passthrough BDD's timeout scenario can shorten it for one
+// scenario instead of sleeping the full production window; production never mutates it.
+var nonStreamRelayWait = 90 * time.Second
 
 // errNoPoller is the dispatch sentinel for "no provider is long-polling this node on
 // ANY instance right now" - the cross-instance equivalent of a full local job channel.

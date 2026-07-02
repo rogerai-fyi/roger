@@ -270,8 +270,10 @@ func (s *sttOutState) ttsRefusedBeforeDispatch() error {
 	return nil
 }
 func (s *sttOutState) response502NotRaw() error {
-	if s.code != http.StatusBadGateway {
-		return fmt.Errorf("a malformed result must 502, got %d", s.code)
+	// 2026-07-02 (founder-approved error_passthrough.feature E6): 500, not 502 — the edge
+	// replaces origin 502/504 bodies with HTML, so the reason must ride a pass-through 5xx.
+	if s.code != http.StatusInternalServerError {
+		return fmt.Errorf("a malformed result must be a clean 500, got %d", s.code)
 	}
 	if strings.Contains(s.body, "not json") {
 		return fmt.Errorf("the raw malformed body must not be forwarded: %q", s.body)
@@ -310,7 +312,7 @@ func TestSTTOutputScreenFeature(t *testing.T) {
 			sc.Step(`^a consumer requests speech for text the screen flags$`, s.requestsSpeechFlagged)
 			sc.Step(`^it is still refused 451 BEFORE any node is dispatched or hold placed$`, s.ttsRefusedBeforeDispatch)
 			sc.Step(`^the node returns a body that does not parse as transcription JSON$`, s.malformed)
-			sc.Step(`^the response is 502 and the raw body is not forwarded$`, func() error { s.transcribe(); return s.response502NotRaw() })
+			sc.Step(`^the response is 500 and the raw body is not forwarded$`, func() error { s.transcribe(); return s.response502NotRaw() })
 			sc.Step(`^the consumer's hold is released$`, s.holdReleasedMalformed)
 		},
 		Options: &godog.Options{
