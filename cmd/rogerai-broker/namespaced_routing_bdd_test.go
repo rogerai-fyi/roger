@@ -577,7 +577,7 @@ func (s *srState) onlyOneNS(id string) error {
 func (s *srState) regRejectedStationInUse() error {
 	return s.regRejected("station", "in use", "already", "taken")
 }
-func (s *srState) regRejectedDuplicate() error   { return s.regRejected("duplicate", "already") }
+func (s *srState) regRejectedDuplicate() error { return s.regRejected("duplicate", "already") }
 func (s *srState) regRejectedImpersonation() error {
 	return s.regRejected("impersonat", "chat", "model", "reserved")
 }
@@ -699,7 +699,9 @@ func TestNamespacedRoutingBDD(t *testing.T) {
 			sc.Step(`^an anonymous GET /voices arrives$`, st.getVoicesStep)
 			// When — register (uniqueness)
 			sc.Step(`^a DIFFERENT owner registers an on-air tts node under station "([^"]*)" offering raw model "([^"]*)" named "([^"]*)"$`, st.differentOwnerRegisters)
-			sc.Step(`^station "([^"]*)" re-registers node "([^"]*)" offering raw model "([^"]*)" named "([^"]*)"$`, func(station, handle, rawModel, name string) error { return st.stationReRegisters(handle, station, rawModel, name) })
+			sc.Step(`^station "([^"]*)" re-registers node "([^"]*)" offering raw model "([^"]*)" named "([^"]*)"$`, func(station, handle, rawModel, name string) error {
+				return st.stationReRegisters(handle, station, rawModel, name)
+			})
 			sc.Step(`^station "([^"]*)" registers another on-air tts node offering raw model "([^"]*)" named "([^"]*)"$`, st.stationRegistersSecond)
 			sc.Step(`^station "([^"]*)" registers an on-air tts node offering raw model "([^"]*)" named "([^"]*)"$`, st.stationRegistersTTS)
 			// When — relay

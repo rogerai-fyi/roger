@@ -105,7 +105,9 @@ func (s *attMirrorState) register(node string, claim, verifierOK, private bool) 
 	return nil
 }
 
-func (s *attMirrorState) registersFailing(node string) error { return s.register(node, true, false, false) }
+func (s *attMirrorState) registersFailing(node string) error {
+	return s.register(node, true, false, false)
+}
 func (s *attMirrorState) registersVerified(node string) error {
 	if err := s.register(node, true, true, false); err != nil {
 		return err
@@ -115,7 +117,9 @@ func (s *attMirrorState) registersVerified(node string) error {
 	}
 	return nil
 }
-func (s *attMirrorState) registersNoClaim(node string) error { return s.register(node, false, true, false) }
+func (s *attMirrorState) registersNoClaim(node string) error {
+	return s.register(node, false, true, false)
+}
 func (s *attMirrorState) registersFailingPrivate(node string) error {
 	if err := s.register(node, true, false, true); err != nil {
 		return err
@@ -174,8 +178,12 @@ func (s *attMirrorState) sharedConfidential(node string, want bool) error {
 	return nil
 }
 
-func (s *attMirrorState) sharedConfidentialFalse(node string) error { return s.sharedConfidential(node, false) }
-func (s *attMirrorState) sharedConfidentialTrue(node string) error  { return s.sharedConfidential(node, true) }
+func (s *attMirrorState) sharedConfidentialFalse(node string) error {
+	return s.sharedConfidential(node, false)
+}
+func (s *attMirrorState) sharedConfidentialTrue(node string) error {
+	return s.sharedConfidential(node, true)
+}
 
 func (s *attMirrorState) bSyncs() {
 	s.b.syncRegistry()
