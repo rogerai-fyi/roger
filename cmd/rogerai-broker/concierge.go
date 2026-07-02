@@ -470,20 +470,64 @@ func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byt
 	}
 }
 
+// conciergeProvenLiveLocked is the concierge PICK's fail-fast gate: it reports whether a
+// heartbeat-fresh node is also PROVEN-LIVE - it has RECENT hard evidence it actually answers,
+// either a PASSED canary with a clean failure streak (verifiedServing) OR a quality-validated
+// real served request (successCount>0), AND that evidence is FRESH (within the probe ceiling;
+// measurementStale=false). markMeasured stamps lastMeasured on every served request and
+// recordProbe on every passed canary, so "fresh" tracks both. This is what keeps Ping from
+// burning the full ~30s relay wait on a registered-but-dead station: an unproven node is
+// skipped AT THE PICK, so the dogfood misses in milliseconds and Ping falls through to Groq
+// in seconds, while a genuinely slow-but-LIVE flagship (proven-live) still gets its relay
+// headroom. Admitting a recent successful relay - not only a canary - avoids wrongly skipping
+// a busy node that is DEMONSTRABLY alive (actively serving paid traffic) but not yet
+// canary-probed in its first ~30s on air.
+//
+// It is INERT when the active probe is DISABLED: with no probe there is no proven-liveness
+// signal at all, so the concierge keeps the legacy heartbeat-only pick (Ping must not go
+// dark just because probing is off) - matching demandProbeSoonLocked / measurementStaleness,
+// which are likewise gated on b.probe.enabled(). This gate is the FREE public concierge
+// surface ONLY; the paid relay pick (pickFor) and its billing path are untouched (a paying
+// caller accepts the risk of an unproven node and gets failover/retries there). Caller holds b.mu;
+// this takes b.metricsMu for the trust/probe reads (the b.mu -> b.metricsMu order used by
+// enrichOffersForNode and probeOnce).
+func (b *broker) conciergeProvenLiveLocked(nodeID string, now time.Time) bool {
+	if !b.probe.enabled() {
+		return true // no probe => no liveness proof to require: legacy heartbeat-only pick
+	}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	// Hard liveness evidence: a passed canary (verifiedServing) OR a quality-validated real
+	// relay (successCount>0). Without either, the node has only heartbeated - not proven-live.
+	if !b.trust[nodeID].verifiedServing() && b.successCount[nodeID] == 0 {
+		return false
+	}
+	st := b.probeSched[nodeID]
+	if st == nil {
+		return false // proven once but no measurement timestamp: treat as not-recently-proven
+	}
+	return !b.probe.measurementStale(st.lastMeasured, now) // the proof (canary or relay) must be FRESH
+}
+
 // pickGrantStation returns an on-air node from the grant's nodeAllow set that
 // currently offers the requested model. Confines routing to the grant owner's nodes
 // (allow is already owner's nodes ∩ grant.Nodes). Returns ok=false when none is on
-// air, so the grant dogfood falls through. Caller need not hold the lock.
+// air (or none is proven-live; see conciergeProvenLiveLocked), so the grant dogfood
+// falls through fast rather than burning the relay wait. Caller need not hold the lock.
 func (b *broker) pickGrantStation(allow map[string]bool, model string) (node string, ok bool) {
 	if len(allow) == 0 {
 		return "", false
 	}
+	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for id := range allow {
 		n, exists := b.nodes[id]
 		if !exists || time.Since(b.lastSeen[id]) >= nodeTTL {
 			continue
+		}
+		if !b.conciergeProvenLiveLocked(id, now) {
+			continue // heartbeat-fresh but not proven-live: skip so Ping fails fast to Groq
 		}
 		for _, o := range n.Offers {
 			if o.Model == model {
@@ -496,7 +540,9 @@ func (b *broker) pickGrantStation(allow map[string]bool, model string) (node str
 
 // pickFreeStation returns an online station + model whose ACTIVE price is free
 // right now (free window or zero-priced offer). Concierge dogfoods only free
-// supply so it never spends a wallet. Caller need not hold the lock.
+// supply so it never spends a wallet. A heartbeat-fresh node that is not proven-live
+// is skipped (see conciergeProvenLiveLocked) so a registered-but-dead station never
+// costs Ping the full relay wait. Caller need not hold the lock.
 func (b *broker) pickFreeStation() (node, model string, ok bool) {
 	now := time.Now()
 	b.mu.Lock()
@@ -504,6 +550,9 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) {
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
+		}
+		if !b.conciergeProvenLiveLocked(n.NodeID, now) {
+			continue // heartbeat-fresh but not proven-live: skip so Ping fails fast to Groq
 		}
 		for _, o := range n.Offers {
 			in, out, free, _ := o.ActivePrice(now)
