@@ -202,8 +202,10 @@ type sharedStore interface {
 	// putNode mirrors a node's full registration JSON (incl. BridgeToken) into the
 	// SHARED registry so EVERY instance can pick it AND authenticate its poll/result -
 	// not only the instance the node dialed. ttl is refreshed on each heartbeat
-	// (markSeen extends it), so a node that stops heartbeating ages out. Multi-instance
-	// scale-out only; flag-off never calls it.
+	// (markSeen extends it), so a node that stops heartbeating ages out. Written
+	// whenever a shared backend is wired - REGARDLESS of the ROGERAI_MULTI_INSTANCE
+	// bus flag - so registration state always travels with the liveness state markSeen
+	// mirrors (task #52: the flag=0 churn fix; only job DISPATCH stays flag-gated).
 	putNode(id string, reg []byte, ttl time.Duration) error
 	// getNode returns ONE shared node registration JSON by id (found == false on a miss).
 	// The cheap, targeted twin of allNodes(): the poll/heartbeat/result handlers use it to
