@@ -800,6 +800,12 @@ type model struct {
 	agentPicker       bool     // the /model picker modal is open
 	agentPickerRows   []string // candidate models in the open picker
 	agentPickerCursor int      // selected row in the picker
+	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
+	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
+	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
+	// in agentSlashCandidates(agentTabPrefix) - the carated strip entry.
+	agentTabPrefix string
+	agentTabIdx    int
 	// async, cached update check (non-blocking)
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
