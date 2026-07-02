@@ -1,0 +1,242 @@
+/* =====================================================================
+   RogerAI - broadcasts.css : the transmission log (/broadcasts.html) and
+   a single broadcast post (/broadcasts-*.html). The station log index (a
+   hairlined list of transmissions) + the post (header, the headline video
+   plate, and the narrative sections). Consumes tokens.css + base.css:
+   the eyebrow callsign, the ((.)) beacon, .man-note, .fig and .market__foot
+   are all shared from base.css. Monochrome + the ONE red beacon (--live);
+   hairlines do the work, mono for every figure/label. No new color.
+   ===================================================================== */
+
+/* ============================ HERO (index) ==================== */
+.bc-hero { padding-block: clamp(56px, 8vw, 104px) clamp(28px, 4vw, 48px); }
+.bc-hero__inner { max-width: 68ch; }
+.bc-hero__title {
+  font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  color: var(--ink-900); margin-top: var(--s-4);
+}
+.bc-hero__sub {
+  margin-top: var(--s-5); color: var(--ink-500); font-size: var(--t-lead);
+  max-width: 62ch; text-wrap: pretty;
+}
+
+/* ==================== FOUNDER'S TELEGRAM (index) ============== */
+/* a small pinned dispatch, styled as a telegram: hairline card, all mono,
+   the one red accent on the ((.)) dot + the STOP flourish. Compact. */
+.bc-telegram-wrap { padding-block: 0 clamp(28px, 4vw, 44px); }
+.bc-tg {
+  max-width: 62ch;
+  border: 1px solid var(--hairline-2); border-left: 3px solid var(--live);
+  border-radius: var(--r-md); background: var(--white);
+  padding: var(--s-5) var(--s-5) var(--s-4);
+}
+.bc-tg__head {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 4px var(--s-4); padding-bottom: var(--s-3);
+  border-bottom: 1px dashed var(--hairline-2);
+}
+.bc-tg__label {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: var(--t-xs); font-weight: var(--weight-semi);
+  text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-900);
+}
+.bc-tg__label .onair { font-size: var(--t-xs); color: var(--live); }
+.bc-tg__meta {
+  font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.bc-tg__body { margin: var(--s-4) 0 0; }
+.bc-tg__body p {
+  margin: 0; color: var(--ink-700); font-family: var(--font-mono);
+  font-size: var(--t-sm); line-height: 1.7; text-wrap: pretty;
+}
+.bc-tg__body p + p { margin-top: var(--s-3); }
+.bc-tg__signoff {
+  display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+  gap: 4px var(--s-4); margin-top: var(--s-4); font-size: var(--t-xs);
+}
+.bc-tg__callsign { color: var(--ink-500); letter-spacing: -0.01em; }
+.bc-tg__stop {
+  color: var(--live); text-transform: uppercase; letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+
+/* ============================ THE LOG (index) ================= */
+.bc-log { padding-top: 0; }
+
+/* the transmission list: a stack of hairlined rows, radio-log feel */
+.bc-list {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--hairline-2); border-top: 2px solid var(--ink-900);
+  border-radius: var(--r-md); overflow: hidden; background: var(--paper);
+}
+.bc-row { margin: 0; border-top: 1px solid var(--hairline); }
+.bc-row:first-child { border-top: 0; }
+
+/* the whole row is the link: a grid of [lead | body | go], meta stacked
+   under the lead. Newest rows read top-down like a station log. */
+.bc-row__link {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) auto;
+  grid-template-areas: "lead body go" "meta body go";
+  gap: 2px var(--s-6); align-items: baseline;
+  padding: var(--s-5) var(--s-5);
+  background: var(--white);
+  transition: background var(--d-2) var(--ease-standard);
+}
+.bc-row__link:hover { background: var(--paper-2); }
+.bc-row__link:focus-visible {
+  outline: none; box-shadow: inset 0 0 0 2px var(--live-glow);
+}
+
+.bc-row__lead {
+  grid-area: lead; display: inline-flex; align-items: center; gap: 8px;
+  white-space: nowrap;
+}
+.bc-row__lead .ember { font-size: 0.7em; line-height: 1; }
+.bc-row__no {
+  font-family: var(--font-mono); font-size: var(--t-xs); font-weight: var(--weight-semi);
+  text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-900);
+}
+
+.bc-row__meta { grid-area: meta; }
+.bc-row__date {
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.01em;
+}
+
+.bc-row__body { grid-area: body; min-width: 0; }
+.bc-row__title {
+  display: block; color: var(--ink-900); font-size: var(--t-lead);
+  font-weight: var(--weight-semi); letter-spacing: var(--tracking-tight);
+  line-height: var(--lh-snug);
+}
+.bc-row__link:hover .bc-row__title { color: var(--ink-900); }
+.bc-row__dek {
+  display: block; margin-top: 6px; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: 1.6; text-wrap: pretty; max-width: 64ch;
+}
+
+.bc-row__go {
+  grid-area: go; align-self: center; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  transition: color var(--d-2), transform var(--d-2) var(--ease-out-quint);
+}
+.bc-row__link:hover .bc-row__go { color: var(--live); transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) {
+  .bc-row__link, .bc-row__go { transition: none; }
+  .bc-row__link:hover .bc-row__go { transform: none; }
+}
+
+/* narrow: collapse to a single stacked column; drop the trailing arrow */
+@media (max-width: 640px) {
+  .bc-row__link {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "lead" "meta" "body";
+    gap: 4px; padding: var(--s-4);
+  }
+  .bc-row__go { display: none; }
+  .bc-row__meta { margin-bottom: 6px; }
+}
+
+/* ============================ POST ============================ */
+.bc-post { padding-block: clamp(40px, 6vw, 72px) var(--section-y); }
+.bc-post__wrap { max-width: 760px; }
+
+.bc-post__back {
+  display: inline-block; margin-bottom: var(--s-6);
+  font-size: var(--t-xs); color: var(--ink-400);
+  transition: color var(--d-2);
+}
+.bc-post__back:hover { color: var(--live); }
+
+/* ---- post header ---- */
+.bc-post__head { padding-bottom: var(--s-6); border-bottom: 1px solid var(--hairline); }
+.bc-post__title {
+  font-size: var(--t-h1); letter-spacing: var(--tracking-h1);
+  color: var(--ink-900); margin-top: var(--s-4); text-wrap: balance;
+}
+.bc-post__dek {
+  margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead);
+  line-height: 1.55; max-width: 62ch; text-wrap: pretty;
+}
+.bc-post__meta {
+  margin-top: var(--s-6); display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-6);
+  font-size: var(--t-xs); color: var(--ink-400);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.bc-post__meta b { color: var(--ink-700); font-weight: var(--weight-semi); }
+
+/* ---- the headline video plate ---- */
+.bc-video { margin: var(--s-10) 0 0; }
+.bc-video .fig { margin-bottom: var(--s-3); }
+.bc-video__frame {
+  position: relative; aspect-ratio: 16 / 9; width: 100%;
+  border: 1px solid var(--hairline-2); border-top: 2px solid var(--ink-900);
+  border-radius: var(--r-md); overflow: hidden; background: var(--paper-3);
+}
+/* the real player fills the plate; contain letterboxes any off-ratio frame
+   against the plate background rather than stretching it. The poster is served
+   the same way (object-fit applies to the poster image too). */
+.bc-video__player {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  object-fit: contain; background: var(--ink-900);
+}
+.bc-video__fallback { color: var(--ink-500); padding: var(--s-5); }
+.bc-video__fallback a { color: var(--live); text-decoration: underline; text-underline-offset: 2px; }
+.bc-video__cap {
+  margin-top: var(--s-3); font-size: var(--t-xs); color: var(--ink-400);
+  text-align: center; letter-spacing: 0.02em;
+}
+
+/* ---- the narrative body ---- */
+.bc-post__body { margin-top: var(--s-10); }
+.bc-post__lead {
+  color: var(--ink-700); font-size: var(--t-lead); line-height: 1.6; max-width: 68ch;
+}
+.bc-post__lead em { font-style: italic; color: var(--ink-900); }
+
+.bc-sec { padding-block: clamp(24px, 4vw, 40px); border-top: 1px solid var(--hairline); }
+.bc-sec:first-of-type { margin-top: var(--s-8); }
+.bc-sec__no {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: var(--t-xs); color: var(--live);
+  text-transform: uppercase; letter-spacing: 0.12em; font-weight: var(--weight-semi);
+}
+.bc-sec__no::before {
+  content: ""; width: 18px; height: 1px; background: var(--live);
+  display: inline-block; opacity: 0.7;
+}
+.bc-sec h2 {
+  font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
+  margin-top: var(--s-3); font-weight: var(--weight-bold); line-height: var(--lh-snug);
+}
+.bc-sec p {
+  margin-top: var(--s-4); color: var(--ink-700); font-size: var(--t-body);
+  line-height: 1.65; max-width: 70ch; text-wrap: pretty;
+}
+.bc-sec p em { font-style: italic; color: var(--ink-900); }
+.bc-sec :not(pre) > code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: var(--paper-2); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+/* the sign-off note's inline command reads as a copy line */
+.bc-post__body .man-note code {
+  font-family: var(--font-mono); font-size: 0.9em;
+  background: var(--paper); border: 1px solid var(--hairline);
+  border-radius: 6px; padding: 1px 6px; color: var(--ink-900);
+  overflow-wrap: anywhere;
+}
+
+/* ------- §0 what's-new list (the dial) - hairlined rows, mono-led ------- */
+.bc-dial { list-style: none; margin: var(--s-4) 0 0; padding: 0; }
+.bc-dial li {
+  padding: 14px 0; border-top: 1px solid var(--hairline);
+  color: var(--ink-600); font-size: var(--t-body); line-height: 1.65;
+}
+.bc-dial li:first-child { border-top: 0; padding-top: 0; }
+.bc-dial li > b { color: var(--ink-900); font-weight: var(--weight-semi); }

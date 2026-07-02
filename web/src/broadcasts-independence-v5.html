@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<!-- =====================================================================
+     BROADCAST TEMPLATE - clone this file for a new broadcast.
+     ---------------------------------------------------------------------
+     To start a new post:
+       1. cp broadcasts-independence-v5.html broadcasts-<your-slug>.html
+          (FLAT filename - the DO static host serves NO clean URLs, every
+           page is a .html at the root; do NOT use a subdirectory.)
+       2. Register it in web/build.mjs CSS_BUNDLES, mirroring this page:
+            "broadcasts-<your-slug>.html": [...CSS_MARKETING, "broadcasts.css"],
+       3. Update the <head> title/desc, the .bc-post__no counter, the date,
+          the H1, the dek, and the section bodies.
+       4. Add a <li class="bc-row"> for it at the TOP of broadcasts.html.
+     Fill every `<!-- TODO: ... -->` before publishing.
+     ===================================================================== -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Independence Release Broadcast · v5.0.0 - RogerAI" desc="RogerAI v5.0.0, the Independence Release, on the air July 4: own your GPU and your models, no lock-in, signed receipts you hold, run your own station - independent from metered Big-AI clouds." theme=external css=site -->
+</head>
+<body>
+
+  <!-- ===== running head: this page is one bound document ===== -->
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Broadcast 001</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
+  </div>
+
+  <!-- ============================ NAV ============================ -->
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <!-- ============================ POST ============================ -->
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <!-- ---- back to the log ---- -->
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <!-- ---- header ---- -->
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <span class="hero__callsign">BROADCAST 001</span>
+          <span class="hero__sep" aria-hidden="true">·</span>
+          <time datetime="2026-07-04">JULY 4</time>
+        </span>
+        <h1 class="bc-post__title">Independence Release Broadcast · v5.0.0</h1>
+        <p class="bc-post__dek">
+          Own your GPU. Own your models. Hold your own signed receipts. The v5.0.0
+          release is about independence from metered Big-AI clouds - your station,
+          your band, your terms.
+        </p>
+        <div class="bc-post__meta mono">
+          <span>Release: <b data-cli-version>v5.0.0</b></span>
+          <span>On air: <b>July 4</b></span>
+          <span>Set: <b>rogerai</b></span>
+          <span>Broker: <b>broker.rogerai.fyi</b></span>
+        </div>
+      </header>
+
+      <!-- ---- the video (headline) ---- -->
+      <figure class="bc-video" data-reveal data-reveal-delay="60">
+        <span class="fig" aria-hidden="true">FIG. 1 - THE BROADCAST</span>
+        <div class="bc-video__frame">
+          <video class="bc-video__player" controls preload="none"
+                 poster="assets/broadcasts/independence-v5-poster.webp"
+                 aria-label="Independence Release Broadcast v5.0.0">
+            <source src="assets/broadcasts/independence-v5.mp4" type="video/mp4" />
+            <p class="bc-video__fallback mono">Your browser can&rsquo;t play this video. Download the broadcast: <a href="assets/broadcasts/independence-v5.mp4">independence-v5.mp4</a>.</p>
+          </video>
+        </div>
+        <figcaption class="bc-video__cap mono">
+          The Independence Release. On the air July 4.
+        </figcaption>
+      </figure>
+
+      <!-- ---- the narrative ---- -->
+      <div class="bc-post__body">
+
+        <!-- lead -->
+        <p class="bc-post__lead" data-reveal>
+          v5.0.0 is the Independence Release, and it goes on the air July 4. The
+          whole point of RogerAI has always been that the compute already exists -
+          on your desk, in your closet, on a friend's rig - and it should answer to
+          <em>you</em>, not to a meter you do not control. This release makes that
+          concrete.
+        </p>
+
+        <!-- §0 what's new on the dial -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§0 · On the dial in v5.0.0</span>
+          <h2>What's new.</h2>
+          <ul class="bc-dial">
+            <li><b>Base Station remote control.</b> Put your live agent session on
+              the air with <code>/remote-control</code>, then pick it up from any
+              terminal, the web Base Station console, or a one-time link on your
+              phone. One session, one transcript, every surface sees the same
+              conversation, and tools still run only on your host, only after a
+              y/N confirm you can answer from any attached device.</li>
+            <li><b>Price tiers at a glance.</b> Every model on the dial now carries
+              a neutral <span class="mono">$</span> to <span class="mono">$$$$</span>
+              read, or FREE, so you can gauge a fair price for the same model in one
+              look. Operators still set their own prices; the dial just tells you how
+              they compare.</li>
+            <li><b>First-class voices.</b> Browse voice stations on the air, cue a
+              shared DJ in TUNE IN, speak through any voice with
+              <code>roger say</code>, and share your own from the VOICE BOOTH,
+              namespaced and attributed to your station.</li>
+            <li><b>One dollar to start.</b> The $1 starter credit now greets you from
+              the first screen, so you can tune in before you ever add a card.</li>
+            <li><b>Hardening across the band.</b> Faster first responses by skipping
+              unproven nodes, refund clawback that settles the ledger honestly, voice
+              and transcription guardrails, and a CyberTipline compliance surface.
+              Quiet work, but independence runs on trust.</li>
+          </ul>
+        </section>
+
+        <!-- §1 own your GPU + your models -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§1 · Own your silicon</span>
+          <h2>Your GPU, your models.</h2>
+          <p>
+            The card in your machine is already paid for. RogerAI turns it into a
+            station: run the open weights you choose - Llama, Qwen, gpt-oss, your own
+            fine-tune - and answer on your terms. Nobody rents you back access to
+            intelligence your own hardware can already run. The models are open, the
+            silicon is yours; all RogerAI adds is the dial between them.
+          </p>
+        </section>
+
+        <!-- §2 no lock-in -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§2 · No lock-in</span>
+          <h2>No lock-in.</h2>
+          <p>
+            RogerAI speaks plain, OpenAI-compatible HTTP through one small open
+            binary. Point your existing code at the broker and it just works - and the
+            day you'd rather self-host, go direct, or walk away entirely, nothing holds
+            you: no proprietary SDK, no data moat, no egress toll. An open band is a
+            door that swings both ways, and we built it to open outward.
+          </p>
+        </section>
+
+        <!-- §3 signed receipts you hold -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§3 · Signed receipts you hold</span>
+          <h2>Receipts you hold.</h2>
+          <p>
+            Every token is metered and lineage-tracked, and every request settles as
+            an Ed25519 receipt - signed by the node that served it, counter-signed by
+            the broker that verified it, kept in your wallet. You don't take our word
+            for the bill; you hold the proof. The ledger is append-only and yours to
+            audit. Trust, but verify - here you actually can.
+          </p>
+        </section>
+
+        <!-- §4 run your own station -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§4 · Run your own station</span>
+          <h2>Run your own station.</h2>
+          <p>
+            Going on air is one command - <code>roger share</code> - and your box
+            becomes a station on the dial, discoverable by call-sign, keeping 70% of
+            every token it serves (or free, if you'd rather just feed the commons).
+            Set your price, your hours, your models; mint private grant keys for your
+            own bots or your family. It's your frequency - broadcast what you want on it.
+          </p>
+        </section>
+
+        <!-- §5 independent from metered Big-AI clouds -->
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">§5 · Cut the cord</span>
+          <h2>Independent from the metered clouds.</h2>
+          <p>
+            Big AI's deal is fixed: their silicon, their meter always running, your
+            data passing through, models deprecated out from under you on their
+            schedule. Independence is the inverse - a peer-to-peer band of home GPUs,
+            run by the people who own them and answerable to the people who use them,
+            with no single company standing between you and the models. On the Fourth
+            of July, that felt worth naming. Find your frequency, and tune in.
+          </p>
+        </section>
+
+        <!-- a boxed dispatch note (reuses the shared .man-note plate) -->
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Ready to go independent? Install the set and put your GPU on air:
+          <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- ============================ FOOTER ============================ -->
+  <!-- include: footer.html anchors=/ -->
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
