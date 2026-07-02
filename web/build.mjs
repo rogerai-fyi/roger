@@ -45,6 +45,8 @@ const CSS_BUNDLES = {
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
   "voices.html":    [...CSS_MARKETING, "voices.css"],
+  "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
+  "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages

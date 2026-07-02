@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Broadcasts - the RogerAI transmission log" desc="Broadcasts from RogerAI: release notes, field dispatches, and the story of an independent, own-your-GPU band. The station log - newest transmission first." theme=external css=site -->
+</head>
+<body>
+
+  <!-- ===== running head: this page is one bound document ===== -->
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Broadcasts</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
+  </div>
+
+  <!-- ============================ NAV ============================ -->
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <!-- ============================ HERO ============================ -->
+  <section class="bc-hero">
+    <div class="wrap bc-hero__inner">
+
+      <span class="hero__eyebrow" data-reveal>
+        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        <span class="hero__callsign">ON AIR</span>
+        <span class="hero__sep" aria-hidden="true">·</span>
+        the transmission log
+      </span>
+
+      <h1 class="bc-hero__title" data-reveal data-reveal-delay="60">
+        Broadcasts.
+      </h1>
+
+      <p class="bc-hero__sub" data-reveal data-reveal-delay="120">
+        Dispatches from the band: release notes, field notes, and the running
+        story of an independent radio for GPUs - <b>own your silicon, own your
+        models</b>, keep the receipts. Every entry is one transmission, logged
+        newest first. Tune in.
+      </p>
+
+    </div>
+  </section>
+
+  <!-- ===================== FOUNDER'S TELEGRAM (pinned) ============ -->
+  <section class="bc-telegram-wrap">
+    <div class="wrap">
+      <aside class="bc-tg" data-reveal aria-label="A word from the founder">
+        <div class="bc-tg__head">
+          <span class="bc-tg__label mono">
+            <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+            TELEGRAM
+          </span>
+          <span class="bc-tg__meta mono">FROM: THE FOUNDER &middot; <time datetime="2026">2026</time></span>
+        </div>
+        <blockquote class="bc-tg__body">
+          <p>When I was growing up, I heard we would all have compute in our pockets.
+            That came true. Now we have learned to turn that compute into intelligence,
+            and that intelligence belongs to you, to everyone. The time has come to
+            band together and create a new model in the open, because real intelligence
+            is all of us building and sharing together.</p>
+          <p>The large labs are all monopolizing, and can rug-pull us at any moment.
+            However, while the open airwaves stay open and free, we all can become our
+            own frontier. Each signal, each band shared and borrowed, gives to the
+            airwaves for an open market we all can benefit from.</p>
+          <p>I hope you enjoy this product, and can find more ways to connect ideas
+            one band at a time. The band is now open - roger that.</p>
+        </blockquote>
+        <p class="bc-tg__signoff mono">
+          <span class="bc-tg__callsign">- @founder</span>
+          <span class="bc-tg__stop" aria-hidden="true">&middot; &middot; &middot; STOP &middot; &middot; &middot;</span>
+        </p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================ THE LOG ============================ -->
+  <section class="section bc-log" id="log">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§ / THE LOG · TRANSMISSIONS</span>
+        <h2>Read the log.</h2>
+        <p>The station transmission log, newest first. Each line is one broadcast -
+          its number, the date it went out, and a one-line dek. Click through to
+          the full transmission.</p>
+      </div>
+
+      <!-- ---- the transmission log ---- -->
+      <!-- To add a broadcast: clone broadcasts-independence-v5.html to a new flat
+           <slug>.html, register it in web/build.mjs (CSS_BUNDLES), then add ONE
+           <li class="bc-row"> at the TOP of this list (newest first) and bump the
+           <b class="bc-row__no"> counter (002, 003, ...). -->
+      <ol class="bc-list" data-reveal data-reveal-delay="80">
+
+        <li class="bc-row">
+          <a class="bc-row__link" href="/broadcasts-independence-v5.html">
+            <span class="bc-row__lead" aria-hidden="true">
+              <span class="ember">◉</span>
+              <b class="bc-row__no">BROADCAST 001</b>
+            </span>
+            <span class="bc-row__meta">
+              <time class="bc-row__date" datetime="2026-07-04">JULY 4 · v5.0.0</time>
+            </span>
+            <span class="bc-row__body">
+              <span class="bc-row__title">Independence Release Broadcast · v5.0.0</span>
+              <span class="bc-row__dek">Own your GPU, own your models, hold your own
+                signed receipts - the release that cuts the cord to metered
+                Big-AI clouds.</span>
+            </span>
+            <span class="bc-row__go" aria-hidden="true">tune in &rarr;</span>
+          </a>
+        </li>
+
+      </ol>
+
+      <p class="market__foot mono" id="bcFoot">
+        <span class="ember">◉</span> latest transmission &middot;
+        broadcasts are logged newest first &middot; one signal, no lock-in
+      </p>
+    </div>
+  </section>
+
+  </main>
+
+  <!-- ============================ FOOTER ============================ -->
+  <!-- include: footer.html anchors=/ -->
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
