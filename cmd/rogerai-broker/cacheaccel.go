@@ -179,10 +179,12 @@ func (b *broker) recordMonthSpend(holder string, cost float64, now time.Time) {
 // --- W4: seeded-flag fast-path (skip the per-request seed upsert tx) ---------
 //
 // Today BalanceOf runs the wallet-upsert + seed-guard transaction on EVERY paid relay
-// and EVERY /balance even for long-seeded users. A Redis SETNX "seeded:<wallet>" flag
-// lets an already-seeded wallet skip that write tx. The Postgres seed_grants ON-CONFLICT
-// stays the REAL guard: a lost/evicted Redis flag just re-runs the harmless no-op upsert,
-// so this can never double-seed or skip a genuinely-needed seed.
+// and EVERY /balance even for long-seeded users. A Redis "seeded:<wallet>" flag lets an
+// already-seeded wallet skip that write tx. The Postgres seed_grants ON-CONFLICT stays
+// the REAL guard: a lost/evicted Redis flag just re-runs the harmless no-op upsert, so
+// this can never double-seed or skip a genuinely-needed seed. The flag is set (SETNX)
+// only AFTER the seed tx COMMITS - a failed seed leaves no flag, so a store blip can
+// never poison a wallet into skipping its seed (features/money/seed_failure.feature).
 
 // seededFlagKey marks a wallet as already wallet-upserted+seeded.
 func seededFlagKey(wallet string) string { return "seeded:" + wallet }
@@ -192,24 +194,36 @@ func seededFlagKey(wallet string) string { return "seeded:" + wallet }
 const seededFlagTTL = 7 * 24 * time.Hour
 
 // ensureSeeded runs the seed/upsert path for a wallet exactly as today (b.db.BalanceOf),
-// EXCEPT when the flag is ON and a Redis "seeded:<wallet>" marker says it has already
-// been done - in which case it SKIPS the Postgres write tx (the fast path). On the first
-// time (the SETNX set it), or on any Redis trouble, it runs the real BalanceOf and the
-// Postgres ON-CONFLICT guard is authoritative. Returns nothing useful (the relay only
-// needs the side effect: the wallet row exists so the subsequent Hold can land).
-func (b *broker) ensureSeeded(wallet string) {
+// EXCEPT when the flag is ON and the Redis "seeded:<wallet>" marker says it has already
+// been done - in which case it SKIPS the Postgres write tx (the fast path). On a flag
+// miss, or on any Redis trouble, it runs the real BalanceOf and the Postgres ON-CONFLICT
+// guard is authoritative. The marker is written (SETNX, keeping a racing peer's TTL)
+// only AFTER the seed tx commits, so a failed seed can never record the wallet as
+// seeded - the retry re-runs the authoritative path on every instance.
+//
+// The returned error is the seed transaction failing (a store blip): callers MUST treat
+// it as a retryable server error and never proceed to the hold - an unseeded wallet
+// reads as (held=false, err=nil) there and would misbill the outage as 402 "insufficient
+// balance" (features/money/seed_failure.feature). A shared-store (Redis) error is NOT
+// an error here: it just falls through to the authoritative Postgres path.
+func (b *broker) ensureSeeded(wallet string) error {
 	if b.shared == nil || wallet == "" {
-		_, _ = b.db.BalanceOf(wallet, b.seedFunds) // unchanged direct path
-		return
+		_, err := b.db.BalanceOf(wallet, b.seedFunds) // unchanged direct path
+		return err
 	}
-	// SETNX: if the flag already existed (set==false), this wallet was upserted+seeded
-	// before, so skip the write tx. If we just set it (set==true) OR Redis errored, run
-	// the authoritative BalanceOf (its seed_grants ON-CONFLICT is the real guard).
-	set, err := b.shared.setIfAbsent(seededFlagKey(wallet), "1", seededFlagTTL)
-	if err == nil && !set {
-		return // already seeded -> skip the Postgres upsert/seed tx
+	// Flag hit -> this wallet already ran the upsert+seed tx: skip the Postgres write.
+	// (counterGet reads the same ctr:-namespaced key SETNX below writes, so flags set
+	// by earlier builds stay valid.)
+	if _, found, err := b.shared.counterGet(seededFlagKey(wallet)); err == nil && found {
+		return nil // already seeded -> skip the Postgres upsert/seed tx
 	}
-	_, _ = b.db.BalanceOf(wallet, b.seedFunds)
+	if _, err := b.db.BalanceOf(wallet, b.seedFunds); err != nil {
+		return err // no flag was written: the retry the 5xx invites re-seeds for real
+	}
+	// Seed tx committed: mark the wallet seeded. Best-effort - a failed/lost marker
+	// just means the next request re-runs the harmless no-op upsert.
+	_, _ = b.shared.setIfAbsent(seededFlagKey(wallet), "1", seededFlagTTL)
+	return nil
 }
 
 // --- W6: seed-remaining counter + the public /promo endpoint -----------------

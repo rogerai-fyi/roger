@@ -344,7 +344,12 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			jsonErr(w, st, msg)
 			return
 		}
-		b.ensureSeeded(payer)
+		// A seed-tx failure must never fall through to HoldFor, where the unseeded
+		// wallet would misread as a 402 (features/money/seed_failure.feature).
+		if serr := b.ensureSeeded(payer); serr != nil {
+			jsonErr(w, http.StatusInternalServerError, "wallet error")
+			return
+		}
 		held, herr := b.db.HoldFor(payer, requestID, cost)
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
