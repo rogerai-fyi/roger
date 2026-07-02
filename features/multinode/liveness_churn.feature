@@ -34,7 +34,7 @@
 # re-register; heartbeat every 10s). The node is NEVER "told to re-register" =
 # heartbeat/poll never answer 404/401/403 to the live token.
 #
-# Enforced by: cmd/rogerai-broker/liveness_churn_bdd_test.go - real broker instances
+# Enforced by: cmd/rogerai-broker/cross_instance_bdd_test.go - real broker instances
 # over REAL HTTP (httptest servers running the full route table), a REAL Valkey
 # (ROGERAI_TEST_REDIS_URL container when set - CI service / local podman - else an
 # in-process miniredis speaking the real protocol), real signed registrations, and a
@@ -117,6 +117,18 @@ Feature: Node-liveness stability under every (flag, instance-count) combination
     And a single broker with the shared backend wired and the multi-instance flag OFF
     When the broker rehydrates its node registry at startup
     Then the shared registry holds node "st-alpha" with its bridge token
+
+  # PRIVATE bands participate in the same symmetry via their SEPARATE namespace
+  # (putPrivateNode/getPrivateNode): the peer must authenticate the band's
+  # heartbeat (no churn) while the band NEVER surfaces in the peer's public
+  # discovery (private secrecy holds under the widened gate).
+  Scenario: flag=0 with two broker processes keeps a private band alive on the peer without leaking it
+    Given two broker processes A and B with the multi-instance flag OFF sharing one Valkey and one store
+    And node "st-priv" registers over HTTP on instance A as a private band
+    When the node heartbeats instance B
+    Then every heartbeat is answered 200
+    And the node is never told to re-register
+    And the node is absent from instance B's public discovery
 
   # ---------------------------------------------------------------------------
   # The scale-back gate's registration half (flag=1, two instances): heartbeats
