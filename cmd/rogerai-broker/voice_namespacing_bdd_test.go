@@ -19,11 +19,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -649,16 +651,67 @@ func TestVoiceNamespacingBDD(t *testing.T) {
 // set (the cover-gate provisions one; matches the money BDD suites — no mocks), else the
 // in-memory reference store. The owner-attribution path this suite exercises
 // (BindOwner/BindNode/AccountOfNode/OwnerByPubkey) is identical across both backends.
+//
+// ISOLATION: the Postgres run happens on a PRIVATE throwaway database forked off the shared
+// server (nsIsolatedDSN), never on the shared test database itself. `go test ./...` runs
+// this package CONCURRENTLY with internal/store against the ONE cover-gate Postgres, and
+// sharing tables raced both ways: the store suite's TRUNCATE reset wiped this suite's bound
+// owners mid-scenario ("0 voices"), and this suite's NewPostgres migrate re-seeded the
+// store's TRUNCATEd seed_counter, re-arming the anonymous $5 free seed under the store's
+// money assertions (balances 13 want 8). Same server, own database: the REAL SQL path stays
+// fully exercised with zero cross-package interference.
 func nsTestStore(t *testing.T) store.Store {
 	t.Helper()
 	if dsn := os.Getenv("ROGERAI_TEST_DATABASE_URL"); dsn != "" {
-		pg, err := store.NewPostgres(dsn)
+		if nsIsoDSN == "" {
+			nsIsoDSN = nsIsolatedDSN(t, dsn)
+		}
+		pg, err := store.NewPostgres(nsIsoDSN)
 		if err != nil {
 			t.Fatalf("open test Postgres: %v", err)
 		}
+		t.Cleanup(func() { _ = pg.Close() }) // release the pool before the DROP
 		return pg
 	}
 	return store.NewMem()
+}
+
+// nsIsoDSN caches this run's private-database DSN ("" until created / after the drop).
+var nsIsoDSN string
+
+// nsIsolatedDSN creates the suite's private database on the shared test server (with the
+// `rogerai` schema prod provisions out-of-band), registers its FORCE-drop on test cleanup,
+// and returns the DSN pointing at it.
+func nsIsolatedDSN(t *testing.T, shared string) string {
+	t.Helper()
+	admin, err := sql.Open("pgx", shared)
+	if err != nil {
+		t.Fatalf("open admin conn to the test Postgres: %v", err)
+	}
+	name := fmt.Sprintf("roger_ns_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
+		t.Fatalf("create the suite's private test database (needs CREATEDB on the test server): %v", err)
+	}
+	u, err := url.Parse(shared)
+	if err != nil {
+		t.Fatalf("parse ROGERAI_TEST_DATABASE_URL: %v", err)
+	}
+	u.Path = "/" + name
+	iso := u.String()
+	setup, err := sql.Open("pgx", iso)
+	if err == nil {
+		_, err = setup.Exec("CREATE SCHEMA IF NOT EXISTS rogerai")
+		_ = setup.Close()
+	}
+	if err != nil {
+		t.Fatalf("provision the rogerai schema in %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec("DROP DATABASE " + name + " WITH (FORCE)")
+		_ = admin.Close()
+		nsIsoDSN = ""
+	})
+	return iso
 }
 
 func sha256Seed(s string) []byte {
