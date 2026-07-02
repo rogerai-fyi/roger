@@ -72,6 +72,9 @@ func cmdRemote(cfg config, args []string) error {
 		}
 		return remoteOff(cfg, id)
 	case "link":
+		if len(args) > 1 {
+			return remoteLinkCode(cfg, args[1])
+		}
 		return remoteLinkHelp()
 	default:
 		return fmt.Errorf("unknown: roger remote %q · try: list · attach <code> · off [id] · link", sub)
@@ -206,9 +209,23 @@ func remoteOff(cfg config, id string) error {
 	return nil
 }
 
+// remoteLinkCode mints a FRESH one-time link code for a session (id) and prints the code + the
+// phone URL — for handing a live session to another device.
+func remoteLinkCode(cfg config, sessionID string) error {
+	code, short, err := client.RotateRCCode(cfg.Broker, sessionID)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("link code (one-time, expires in 10 min): %s\n", code)
+	fmt.Printf("open on a phone:  %s\n", rcLinkURL(short))
+	fmt.Println("or, from another terminal:  roger remote attach " + short)
+	return nil
+}
+
 func remoteLinkHelp() error {
 	fmt.Println("to put a session on the air, run /remote-control inside `roger` (the [0] AGENT).")
-	fmt.Println("it prints a one-time link code + a rogerai.fyi/r#<code> URL you can open on your phone.")
-	fmt.Println("then, from another terminal:  roger remote attach <code>")
+	fmt.Println("it prints a one-time link code + a rogerai.fyi/r.html#<code> URL you can open on your phone.")
+	fmt.Println("mint a fresh code for a session:  roger remote link <session-id>")
+	fmt.Println("continue a session from here:     roger remote attach <code>")
 	return nil
 }

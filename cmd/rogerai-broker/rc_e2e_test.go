@@ -132,6 +132,18 @@ func TestRCLiveE2E(t *testing.T) {
 		t.Log("note: backfill frame not observed within the window (non-fatal)")
 	}
 
+	// 5b) A FRESH link code (rotate) works to attach a new device, and retires the old one.
+	freshCode, freshShort, err := client.RotateRCCode(srv.URL, res.SessionID)
+	if err != nil {
+		t.Fatalf("RotateRCCode: %v", err)
+	}
+	if freshCode == "" || freshShort == "" {
+		t.Fatal("rotate must return a fresh code + short tail")
+	}
+	if att2, err := client.AttachRC(srv.URL, freshCode); err != nil || att2.AttachToken == "" {
+		t.Fatalf("attaching with the fresh code must succeed, got err=%v", err)
+	}
+
 	// 6) Revoke-all ends the session; a re-attach with the old code now uniform-404s.
 	if err := client.RevokeRC(srv.URL, ""); err != nil {
 		t.Fatalf("RevokeRC: %v", err)
