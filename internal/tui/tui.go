@@ -2428,6 +2428,27 @@ func (m *model) syncShareCache() {
 	}
 }
 
+// namelessVoiceBlocks is the shared nameless-voice guard for both on-air paths: a tts voice
+// needs a DJ NAME + a picked VOICE before it can go on air, because the broker 400s a nameless
+// voice offer ("voice name is empty after normalization"). When the OFF-air row at i is such a
+// voice it sets the VOICE BOOTH prompt on m.status and returns true so the caller BLOCKS before
+// firing a doomed register; stt + chat rows (and an already-live row going off) return false.
+func (m *model) namelessVoiceBlocks(i int) bool {
+	if i < 0 || i >= len(m.shareRows) {
+		return false
+	}
+	row := m.shareRows[i]
+	if row.modality != "tts" || m.shares[row.model] != nil {
+		return false
+	}
+	if vc := m.ctrl.VoiceConfigFor(row.model); vc.Name == "" || vc.Voice == "" {
+		m.status = stEmber.Render("♪ "+row.model+" needs a name + voice") +
+			stDim.Render(" - press ") + stKey.Render("p") + stDim.Render(" to set it in the VOICE BOOTH before going on air")
+		return true
+	}
+	return false
+}
+
 // toggleShareAt flips the on-air state of the provider-table row at index i: a
 // model that is off air goes ON AIR (starts an in-process agent.Session against
 // the local upstream at the saved/free price), one that is on air goes off. It
@@ -2437,19 +2458,10 @@ func (m *model) toggleShareAt(i int) {
 	if i < 0 || i >= len(m.shareRows) {
 		return
 	}
-	row := m.shareRows[i]
-	model := row.model
-	// A tts voice needs a DJ NAME + a picked VOICE before it can go on air: the broker
-	// 400s a nameless voice offer ("voice name is empty after normalization"), so we BLOCK
-	// it here with a clear prompt instead of firing a doomed register. Only a row that is
-	// currently OFF air (about to start) is gated; stt + chat rows are unaffected.
-	if row.modality == "tts" && m.shares[model] == nil {
-		if vc := m.ctrl.VoiceConfigFor(model); vc.Name == "" || vc.Voice == "" {
-			m.status = stEmber.Render("♪ "+model+" needs a name + voice") +
-				stDim.Render(" - press ") + stKey.Render("p") + stDim.Render(" to set it in the VOICE BOOTH before going on air")
-			return
-		}
+	if m.namelessVoiceBlocks(i) {
+		return
 	}
+	model := m.shareRows[i].model
 	res := m.ctrl.ToggleOnAir(model)
 	m.syncShareCache()
 	switch {
@@ -2481,6 +2493,12 @@ func (m *model) toggleShareAt(i int) {
 // new mode so the caller can route to the card. Mirrors toggleShareAt's start logic.
 func (m *model) togglePrivateAt(i int) {
 	if i < 0 || i >= len(m.shareRows) {
+		return
+	}
+	// A nameless/voiceless tts row can't go on air the PRIVATE-band way either - the broker
+	// 400s a nameless voice offer, so we BLOCK it here with the same VOICE BOOTH prompt
+	// toggleShareAt uses, before firing a doomed register.
+	if m.namelessVoiceBlocks(i) {
 		return
 	}
 	model := m.shareRows[i].model
@@ -7179,7 +7197,7 @@ func (m model) shareView(w int) string {
 	// driven by the SAME frame counter as the signal bars (sigFrame — frozen when compact).
 	if len(m.shareRows) > 0 && m.shareCursor >= 0 && m.shareCursor < len(m.shareRows) {
 		row := m.shareRows[m.shareCursor]
-		detail := m.shareRowDetail(row, m.shares[row.model], m.loggedInState())
+		detail := m.shareRowDetail(row, m.shares[row.model])
 		// The bar + a leading space cost 2 cols; the 2-col left margin costs 2 more.
 		avail := w - 4
 		if avail < 8 {
@@ -7286,7 +7304,7 @@ func sharePriceCell(txt string) string {
 //
 // A row on a hidden (private) band appends a code-only note so the banner never implies
 // it's on the open market.
-func (m model) shareRowDetail(row shareRow, live *agent.Session, loggedIn bool) string {
+func (m model) shareRowDetail(row shareRow, live *agent.Session) string {
 	on := live != nil
 	in, _ := m.sharePrice(row, live)
 
