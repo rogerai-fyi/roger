@@ -32,6 +32,7 @@ var stationReasonScrub = []*regexp.Regexp{
 	regexp.MustCompile(`\b\d{1,3}(\.\d{1,3}){3}(:\d{1,5})?`),                               // IPv4(:port)
 	regexp.MustCompile(`\[?[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4}){2,7}(%\w+)?\]?(:\d{1,5})?`), // IPv6 (bracketed/zone/port)
 	regexp.MustCompile(`\b[\w-]+(\.[\w-]+)+(:\d{1,5})?\b`),                                 // hostnames incl. host:port
+	regexp.MustCompile(`(?i)\b[a-z][\w-]*:\d{2,5}\b`),                                      // DOTLESS host:port (kokoro:8880, gpu-node:11434, localhost:8880) - a letter-led host token + a 2-5 digit port, contiguous, so it does not eat "error: 500" or "3:2"
 	regexp.MustCompile(`\b[A-Za-z]:[\\/][^\s"']+`),                                         // windows paths (back- or forward-slash)
 	// unix absolute paths (>=2 segments). Anchored on any NON-path character — not just
 	// start/whitespace — so the canonical quoted/colon/paren FastAPI forms are caught too:
