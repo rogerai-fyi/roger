@@ -549,6 +549,13 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			log.SetPrefix("[" + b.instanceID + "] ")
 			go b.syncInflight(nil) // merge peer inflight on the same cadence as liveness
 			log.Printf("multi-instance: ON (ROGERAI_MULTI_INSTANCE, instance %s) - job/result/stream rendezvous over the Valkey bus across instances", b.instanceID)
+		} else {
+			// The registry mirror + lazy-learn run whenever the shared backend is wired
+			// (task #52: registration state travels with liveness state under both flag
+			// values, so a second process can never 404 a live node into a re-register
+			// storm). Only job/result/stream DISPATCH needs the bus flag - say so, so the
+			// posture is legible during an incident.
+			log.Printf("shared-state: node-registry mirror ON (bus OFF - relay dispatch stays local; set ROGERAI_MULTI_INSTANCE=1 before running more than one instance)")
 		}
 	} else if multiInstanceEnabled() {
 		// Fail SAFE, not closed: the flag was set but there is no shared backend to

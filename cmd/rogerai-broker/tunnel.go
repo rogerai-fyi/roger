@@ -434,14 +434,25 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	b.localRegAt[reg.NodeID] = now
 	b.mu.Unlock()
 
-	// MULTI-INSTANCE registry mirror: publish this node's full registration (incl.
-	// BridgeToken) to the shared store so PEER instances can pick it AND authenticate its
-	// poll/result - the fix for the 2-instance break where a node that dialed instance A
-	// is invisible (503) / un-pollable (404) on instance B. A PRIVATE band publishes to a
-	// SEPARATE namespace (putPrivateNode) so a peer can resolve + route it WITHOUT it ever
-	// entering the public allNodes()/discover mirror. Outside b.mu (network I/O); best-effort
-	// - the registry sync re-pulls.
-	if b.multiInstance && b.shared != nil {
+	// SHARED registry mirror: publish this node's full registration (incl. BridgeToken)
+	// to the shared store so PEER instances can pick it AND authenticate its poll/result
+	// - the fix for the 2-instance break where a node that dialed instance A is invisible
+	// (503) / un-pollable (404) on instance B. A PRIVATE band publishes to a SEPARATE
+	// namespace (putPrivateNode) so a peer can resolve + route it WITHOUT it ever entering
+	// the public allNodes()/discover mirror. Outside b.mu (network I/O); best-effort - the
+	// registry sync re-pulls.
+	//
+	// GATED ON `b.shared != nil` ALONE - the SAME gate as the markSeen liveness
+	// write-through - NOT on the ROGERAI_MULTI_INSTANCE bus flag (task #52 churn root
+	// cause): with the flag OFF but a shared backend wired, liveness was mirrored while
+	// registrations were NOT, so any second broker process (scale-down drift, rolling
+	// deploy overlap) answered this node's heartbeat/poll 404 "unknown node" -> the node
+	// re-registered with a ROTATED token every ~10s, forever, and each rotation
+	// re-poisoned the other process (the alternating-401 ping-pong). Registration state
+	// and liveness state now travel together under BOTH flag values; only the job/result/
+	// stream DISPATCH bus stays behind the flag. Pinned by
+	// features/multinode/liveness_churn.feature.
+	if b.shared != nil {
 		if raw, mErr := json.Marshal(reg); mErr == nil {
 			// Clear any stale entry in the OTHER namespace first, so a private<->public flip
 			// never leaves a mirror markSeen would keep alive (each node lives in EXACTLY one
@@ -585,7 +596,9 @@ func (b *broker) expireStaleAttestations(now time.Time, ttl time.Duration) {
 			if reg, ok := b.nodes[node]; ok && reg.Confidential {
 				reg.Confidential = false
 				b.nodes[node] = reg
-				if b.multiInstance && b.shared != nil {
+				// Same gate as register's publish: whenever a shared registry exists it
+				// must carry the downgrade, or a peer keeps granting the ◆ tier.
+				if b.shared != nil {
 					if raw, err := json.Marshal(reg); err == nil {
 						toPublish = append(toPublish, republish{node, raw, reg.Private})
 					}
@@ -704,6 +717,21 @@ func (b *broker) syncLivenessOnce() {
 	// early-return below, so bans still propagate on a tick where the liveness snapshot is
 	// empty (e.g. no node has been markSeen to the shared store yet).
 	b.syncBanRev()
+	// SHARED registry mirror: pull every peer's published registration into this
+	// instance's registry + tunnel stubs, so a node that dialed a DIFFERENT process is
+	// still pickable + its poll/result authenticatable here. Two hard-won properties
+	// (task #52, both pinned by features/multinode/liveness_churn.feature):
+	//
+	//  1. It runs whenever a shared backend is wired - NOT only under the
+	//     ROGERAI_MULTI_INSTANCE bus flag - so registration state travels with liveness
+	//     state under BOTH flag values (the flag=0 two-process churn root cause).
+	//  2. It runs BEFORE the liveness early-return below. It used to run only after a
+	//     NON-EMPTY liveness snapshot - but a node whose heartbeats are 401ing never
+	//     reaches markSeen, so with every node churning (or the shared liveness wiped by
+	//     a Valkey restart/eviction) the snapshot stayed empty, the registry never
+	//     reconciled, and the token ping-pong became SELF-SUSTAINING: rotated tokens
+	//     could never converge (the v5.0.0 flag=1 launch symptom).
+	b.syncRegistry()
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return
@@ -715,13 +743,6 @@ func (b *broker) syncLivenessOnce() {
 		}
 	}
 	b.mu.Unlock()
-	// MULTI-INSTANCE registry mirror: pull every peer's published registration into
-	// this instance's registry + tunnel stubs, so a node that dialed a DIFFERENT
-	// instance is still pickable + its poll/result authenticatable here (the bus then
-	// rendezvous the job/result). Gated so single-instance stays byte-for-byte unchanged.
-	if b.multiInstance {
-		b.syncRegistry()
-	}
 }
 
 // syncLocalRegisterGrace is how long after THIS instance (re)registers a node that
@@ -888,18 +909,19 @@ func (b *broker) syncRegistry() {
 }
 
 // tunnelFor returns the node's tunnel, LAZILY learning it from the shared registry on a
-// local miss (multi-instance). This is the cross-instance re-registration-storm fix: a
-// node's poll/heartbeat/result can land (via the load balancer) on an instance that has
-// not yet synced the registry; returning 404 there makes the node misread it as "broker
+// local miss (whenever a shared backend is wired - the same gate as the registry
+// publish, NOT the bus flag; task #52). This is the re-registration-storm fix: a node's
+// poll/heartbeat/result can land (via the load balancer) on a process that has not yet
+// synced the registry; returning 404 there makes the node misread it as "broker
 // restarted" and re-register (rotating its token), over and over. Instead we fetch the
 // node's published registration from the shared store on demand and build its tunnel stub
 // right here, so the request succeeds and no re-register fires. Returns nil only when the
-// node is unknown on EVERY instance. Single-instance / no shared store: pure local read.
+// node is unknown on EVERY instance. No shared store: pure local read.
 func (b *broker) tunnelFor(node string) *nodeTunnel {
 	b.mu.Lock()
 	t := b.tunnels[node]
 	b.mu.Unlock()
-	if t != nil || !b.multiInstance || b.shared == nil {
+	if t != nil || b.shared == nil {
 		return t
 	}
 	raw, ok, err := b.shared.getNode(node)
@@ -1018,7 +1040,10 @@ func (b *broker) rehydrateNodes() {
 		} else {
 			b.tunnels[reg.NodeID].token = reg.BridgeToken
 		}
-		if b.multiInstance && b.shared != nil {
+		// Same gate as register's publish (`shared != nil`, not the bus flag): a
+		// restarted flag=0 process must re-publish too, or a peer process could
+		// never re-learn its heartbeat-only nodes (task #52).
+		if b.shared != nil {
 			if raw, mErr := json.Marshal(reg); mErr == nil {
 				// Public -> public registry; private -> the SEPARATE private namespace, so a
 				// peer re-learns a band after a redeploy without it ever leaking into /discover.
@@ -2031,9 +2056,13 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	}
 	nodeID := r.URL.Query().Get("node")
 	jobID := r.URL.Query().Get("job")
-	b.mu.Lock()
-	t := b.tunnels[nodeID]
-	b.mu.Unlock()
+	// tunnelFor, not a bare map read: the LB can land the node's stream POST on a
+	// process that has not yet synced the registry (the same window /agent/poll and
+	// /agent/result already heal by lazily learning the node from the shared registry).
+	// A bare local read 401'd the chunks there and the client got an empty stream.
+	// Pinned by features/multinode/cross_instance_relay.feature ("stream chunks posted
+	// to the instance that never saw the node").
+	t := b.tunnelFor(nodeID)
 	if t == nil || !authNode(r, t.token) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
