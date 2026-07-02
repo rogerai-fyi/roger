@@ -127,7 +127,9 @@ func (s *ffState) neverProbed() error {
 }
 
 func (s *ffState) passedCanaryFresh() error {
-	s.setTrust(s.node, func(t *trustState) { t.probed = true; t.probeOK = true; t.probeFails = 0 })
+	// A healthy proven-live node: a passed canary that also ran to COMPLETION (probeCompleted),
+	// so verifiedServing() holds after the completion-proven tightening.
+	s.setTrust(s.node, func(t *trustState) { t.probed = true; t.probeOK = true; t.probeFails = 0; t.probeCompleted = true })
 	s.stampMeasured(s.node, time.Now()) // fresh: within the ceiling
 	return nil
 }
@@ -148,6 +150,70 @@ func (s *ffState) passedButFailingStreak() error {
 
 func (s *ffState) servedRealRequestNow() error {
 	s.b.markMeasured(s.node) // the relay's free-measurement hook: stamps lastMeasured now
+	return nil
+}
+
+// recordCanary drives ONE canary result through the REAL evalCanary -> recordProbe path
+// (exactly as probeNode does), for the node currently under test. completionTokens carries
+// the node's self-reported output tokens on the receipt: >0 means the canary ran to
+// COMPLETION (probeCompleted set true), ==0 is the stall-after-first-token case (a 2xx with
+// a reasoning channel but no counted answer — ALIVE but NOT completed). No mocks: the same
+// JobResult -> evalCanary -> recordProbe seams production uses.
+func (s *ffState) recordCanary(node string, completionTokens int) {
+	fp := nextCanary(0) // deterministic challenge; expected token "banana"
+	// A stall-only reply (no counted output) still RESPONDS on the reasoning channel, so it
+	// reads ALIVE (probeOK) but never completes. A completed reply carries counted tokens.
+	var body []byte
+	if completionTokens > 0 {
+		body = []byte(`{"choices":[{"message":{"content":"` + fp.expect + `"}}]}`)
+	} else {
+		// Empty visible content + a reasoning channel: the exact gpt-oss stall symptom.
+		body = []byte(`{"choices":[{"message":{"content":"","reasoning":"thinking about it, still going"}}]}`)
+	}
+	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: completionTokens}}
+	outcome, tps, matched, completed := s.b.evalCanary(res, 50*time.Millisecond, fp)
+	s.b.recordProbe(node, outcome, 100, tps, matched, completed)
+}
+
+// passedStallCanary: a passed LIVENESS canary that did NOT complete a generation (2xx +
+// reasoning channel, zero counted output). verifiedServing() must be FALSE after the fix.
+func (s *ffState) passedStallCanary() error {
+	s.recordCanary(s.node, 0)
+	return nil
+}
+
+// passedCompletingCanaryFresh: a canary that ran to COMPLETION within the ceiling.
+// recordProbe stamps lastMeasured=now on the alive branch, so it is fresh already.
+func (s *ffState) passedCompletingCanaryFresh() error {
+	s.recordCanary(s.node, 5)
+	return nil
+}
+
+// stallCanaryButCompletedRelay: a stall-only canary (not completion-proven) BUT a real
+// COMPLETED relay just now (successCount>0 + fresh markMeasured stamp) — the busy-node
+// case conciergeProvenLiveLocked admits without a canary.
+func (s *ffState) stallCanaryButCompletedRelay() error {
+	s.recordCanary(s.node, 0) // canary alive but not completed
+	if s.b.successCount == nil {
+		s.b.successCount = map[string]int{}
+	}
+	s.b.successCount[s.node] = 1 // a quality-validated completed relay
+	s.b.markMeasured(s.node)     // fresh measurement stamp from the served request
+	return nil
+}
+
+// passedCompletingCanaryStale: a completion-proven canary whose measurement then aged past
+// the ceiling — completion-proven but STALE, so the pick must skip it.
+func (s *ffState) passedCompletingCanaryStale() error {
+	s.recordCanary(s.node, 5)
+	s.stampMeasured(s.node, time.Now().Add(-2*s.b.probe.ceiling)) // age the measurement out
+	return nil
+}
+
+// completingCanaryRecords is the WHEN for the bootstrap scenario: a fresh node's FIRST
+// canary lands and it COMPLETES, so it becomes pickable immediately.
+func (s *ffState) completingCanaryRecords() error {
+	s.recordCanary(s.node, 5)
 	return nil
 }
 
@@ -313,6 +379,15 @@ func TestConciergeFailFastBDD(t *testing.T) {
 			sc.Step(`^that station passed a canary but its last measurement is older than the probe ceiling$`, st.passedCanaryStale)
 			sc.Step(`^that station has a recent passed probe but a non-zero failure streak$`, st.passedButFailingStreak)
 			sc.Step(`^that station served a real request just now$`, st.servedRealRequestNow)
+
+			// completion-proven gate (free + grant share the handlers; they act on s.node).
+			sc.Step(`^that station passed a liveness canary but the canary did not complete a generation$`, st.passedStallCanary)
+			sc.Step(`^that node passed a liveness canary but the canary did not complete a generation$`, st.passedStallCanary)
+			sc.Step(`^that station passed a canary that ran to completion within the probe ceiling$`, st.passedCompletingCanaryFresh)
+			sc.Step(`^that node passed a canary that ran to completion within the probe ceiling$`, st.passedCompletingCanaryFresh)
+			sc.Step(`^that station has a stall-only canary but completed a real relay just now$`, st.stallCanaryButCompletedRelay)
+			sc.Step(`^that station passed a completing canary but its last measurement is older than the probe ceiling$`, st.passedCompletingCanaryStale)
+			sc.Step(`^a completing canary probe records for that station$`, st.completingCanaryRecords)
 
 			sc.Step(`^the grant owner has an on-air node offering the granted model that heartbeats fresh$`, st.grantNodeFresh)
 			sc.Step(`^that node has never passed a liveness probe$`, st.neverProbed)

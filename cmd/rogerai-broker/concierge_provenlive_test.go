@@ -34,7 +34,10 @@ func TestConciergeProvenLiveLocked(t *testing.T) {
 		return b
 	}
 
-	verified := trustState{probed: true, probeOK: true, probeFails: 0} // verifiedServing()==true
+	// verifiedServing()==true now requires a COMPLETION-PROVEN canary (probeCompleted): a
+	// passed canary that actually produced counted output, not just a stall-after-first-token
+	// 2xx. A verified fixture must therefore be completion-proven.
+	verified := trustState{probed: true, probeOK: true, probeFails: 0, probeCompleted: true}
 
 	cases := []struct {
 		name       string
@@ -84,6 +87,16 @@ func TestConciergeProvenLiveLocked(t *testing.T) {
 			name:    "verified AND fresh (measured just now): PROVEN-LIVE",
 			probeOn: true, tq: verified, withSched: true, measuredAt: now,
 			want: true,
+		},
+		{
+			// The completion-proven boundary: a canary that RESPONDED (probeOK) with a clean
+			// streak, FRESH, but did NOT complete a generation (probeCompleted=false) - the
+			// stall-after-first-token reasoning symptom. Alive is not COMPLETE: not proven-live,
+			// so it is skipped from the FIRST pick (no successCount to rescue it).
+			name:    "alive canary that never COMPLETED (stall-after-first-token), fresh: NOT proven-live",
+			probeOn: true, tq: trustState{probed: true, probeOK: true, probeFails: 0, probeCompleted: false},
+			withSched: true, measuredAt: now,
+			want: false,
 		},
 		{
 			name:    "verified AND exactly at the ceiling edge (not yet stale): PROVEN-LIVE",

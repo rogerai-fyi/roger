@@ -89,7 +89,7 @@ func (s *vsState) offlineFromStreak() error {
 }
 
 func (s *vsState) singleProbeSucceeds() error {
-	s.b.recordProbe(s.node, probePass, 100, 50, true) // one OK probe resets the streak
+	s.b.recordProbe(s.node, probePass, 100, 50, true, true) // one OK COMPLETED probe resets the streak
 	return nil
 }
 
@@ -117,7 +117,7 @@ func (s *vsState) signalIsZero() error {
 // --- the Verified (probe-canary) bit ---------------------------------------
 
 func (s *vsState) passesServingCanary() error {
-	s.b.recordProbe(s.node, probePass, 100, 50, true)
+	s.b.recordProbe(s.node, probePass, 100, 50, true, true) // passed AND completed (counted output)
 	return nil
 }
 
@@ -147,7 +147,7 @@ func (s *vsState) verifiedIndependentOfConfidential() error {
 // --- success evidence ladder -----------------------------------------------
 
 func (s *vsState) probedOKnoTraffic() error {
-	s.b.recordProbe(s.node, probePass, 100, 50, true) // canary passed; no organic success recorded
+	s.b.recordProbe(s.node, probePass, 100, 50, true, true) // canary passed + completed; no organic success recorded
 	return nil
 }
 
@@ -184,8 +184,9 @@ func (s *vsState) returnsFingerprintFailure() error {
 	// A WRONG-FAMILY answer: a DIFFERENT canary's distinctive token, ours absent => probeWrong.
 	body := json.RawMessage(`{"choices":[{"message":{"content":"penguin"}}]}`)
 	res := protocol.JobResult{Status: 200, Body: body, Receipt: protocol.UsageReceipt{CompletionTokens: 1}}
-	s.outcome, _, _ = s.b.evalCanary(res, 50*time.Millisecond, s.fp)
-	s.b.recordProbe(s.node, s.outcome, 0, 0, false)
+	var completed bool
+	s.outcome, _, _, completed = s.b.evalCanary(res, 50*time.Millisecond, s.fp)
+	s.b.recordProbe(s.node, s.outcome, 0, 0, false, completed) // wrong-family => failed => probeCompleted stays false
 	return nil
 }
 

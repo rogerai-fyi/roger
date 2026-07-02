@@ -292,12 +292,18 @@ type trustState struct {
 	lastExact     bool
 
 	// probe-fed (see probe.go)
-	probes     int
-	probeFails int     // consecutive probe failures (streak); reset on success
-	probeOK    bool    // last probe passed the canary fingerprint
-	probed     bool    // has at least one probe completed
-	ttftMs     float64 // EWMA time-to-first-token (ms) from probes
-	probeTPS   float64 // EWMA clean tok/s from probes
+	probes         int
+	probeFails     int  // consecutive probe failures (streak); reset on success
+	probeOK        bool // last probe passed the canary fingerprint (RESPONDED/alive)
+	probed         bool // has at least one probe completed
+	probeCompleted bool // a passed canary ran to COMPLETION (returned counted output tokens).
+	// probeOK marks a node that RESPONDED (2xx with content/reasoning) — it is ALIVE, but a
+	// reasoning model can return a 2xx reasoning channel and STALL without a countable answer
+	// (TTFT-alive, never finished). probeCompleted is the stricter proof the last passed canary
+	// actually PRODUCED counted output; verifiedServing() requires it so the concierge gate
+	// skips a stall-after-first-token node from the FIRST pick instead of burning the relay wait.
+	ttftMs   float64 // EWMA time-to-first-token (ms) from probes
+	probeTPS float64 // EWMA clean tok/s from probes
 }
 
 // trustScore is a 0..1 quality signal for a node: starts optimistic, knocked
@@ -310,11 +316,23 @@ func (b *broker) trustScore(nodeID string) float64 {
 	return tq.score()
 }
 
-// verifiedServing reports whether the node has a recent PASSED canary - hard
-// evidence it is actually answering correctly (not just heartbeat-alive). Feeds the
-// signal's verified-serving term and pick's reliability.
+// verifiedServing reports whether the node has a recent COMPLETION-PROVEN canary - hard
+// evidence it actually FINISHES a generation, not merely that it answered once. A reasoning
+// model (gpt-oss-120b) can return a 2xx reasoning channel and STALL without a countable
+// answer: that is TTFT-alive (probeOK) but never COMPLETED (probeCompleted=false), and it
+// used to certify verified:true with no output - so the concierge gate picked it and ate the
+// full ~30s relay wait. Requiring probeCompleted skips a stall-after-first-token node from
+// the FIRST pick. Feeds the signal's verified-serving term, /market + /discover Verified, and
+// the concierge fail-fast gate.
+//
+// Blast radius (all DISPLAY/free-surface, NOT the paid pick): besides the concierge gate, this
+// drives the /market + /discover Verified flag AND their SIGNAL (via successFor's verified-only
+// 0.9 tier and computeSignal's verified term), so a stall node now honestly reads Verified:false
+// and its no-traffic success evidence eases 0.9 -> 0.6 there. The paid pickFor spine does NOT
+// call this - it reads the raw probe fields (reliabilityFactor/verifiedFactorOf) - so a paying
+// caller's routing/failover is unchanged; only the free display/discovery signal downgrades.
 func (t trustState) verifiedServing() bool {
-	return t.probed && t.probeOK && t.probeFails == 0
+	return t.probed && t.probeOK && t.probeFails == 0 && t.probeCompleted
 }
 
 func (t trustState) score() float64 {

@@ -304,7 +304,9 @@ func TestBandOffersCarryRealMetrics(t *testing.T) {
 	b.lastSeen["priv1"] = now
 	b.mu.Unlock()
 	b.metricsMu.Lock()
-	b.trust["priv1"] = trustState{probed: true, probeOK: true, ttftMs: 250}
+	// A completion-proven canary (probeCompleted) so the offer reads Verified: verifiedServing()
+	// now requires the node actually FINISHED a generation, not just answered once.
+	b.trust["priv1"] = trustState{probed: true, probeOK: true, probeCompleted: true, ttftMs: 250}
 	b.tps["priv1"] = 120
 	b.metricsMu.Unlock()
 
