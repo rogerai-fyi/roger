@@ -395,6 +395,20 @@ func (b *broker) sessionOwner(r *http.Request) (login string, gid int64, wallet 
 	return login, gid, wallet, true
 }
 
+// sessionGitHubOwner resolves a session's login to its GitHub owner row, enforcing the
+// root invariant of features/security/apple_session_isolation.feature (audit finding #3):
+// a session login may resolve a GitHub owner ONLY for a GitHub session, and a GitHub
+// session is exactly githubID != 0. An Apple/web session (githubID == 0) never matches
+// an owner row - not even on a colliding login (the literal "apple" a no-email Apple
+// token used to produce vs the real github.com/apple operator).
+func (b *broker) sessionGitHubOwner(login string, gid int64) (store.Owner, bool) {
+	if gid == 0 {
+		return store.Owner{}, false
+	}
+	o, found, _ := b.db.OwnerByLogin(login)
+	return o, found
+}
+
 func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string, gid int64, wallet string) {
 	bal, _ := b.db.BalanceOf(wallet, b.seedFunds)
 	out := map[string]any{
@@ -403,8 +417,9 @@ func (b *broker) accountGet(w http.ResponseWriter, r *http.Request, login string
 		"balance":      round6(bal),
 		"connect":      map[string]any{"status": "none"},
 	}
-	// Enrich from the owner record if this login is a bound operator account.
-	if o, ok, _ := b.db.OwnerByLogin(login); ok {
+	// Enrich from the owner record if this login is a bound operator account
+	// (GitHub sessions only - the gid gate, A1).
+	if o, ok := b.sessionGitHubOwner(login, gid); ok {
 		out["email"] = o.Email
 		out["created_at"] = o.CreatedAt
 		status := o.ConnectStatus
@@ -428,6 +443,12 @@ func (b *broker) accountPatch(w http.ResponseWriter, r *http.Request, login stri
 	_ = json.Unmarshal(body, &req)
 	if req.Email != "" && !strings.Contains(req.Email, "@") {
 		jsonErr(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	// UpdateAccount is keyed on the GitHub login; an Apple/web session (gid==0) must never
+	// write an owner row through a login collision (A1 write leg).
+	if gid == 0 {
+		jsonErr(w, http.StatusNotFound, "no operator account for this login (run `roger login` on a node first)")
 		return
 	}
 	o, ok, err := b.db.UpdateAccount(login, req.Email)

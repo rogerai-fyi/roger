@@ -56,8 +56,11 @@ func secretHash(secret string) string {
 func (b *broker) grantsOwner(r *http.Request, body []byte) (store.Owner, bool) {
 	// 1) Web session cookie (browser). Mirrors payoutOwner's web leg: a valid session whose
 	// login is not (yet) a bound operator still returns ok so the handler emits its 403.
-	if l, _, _, sok := b.sessionOwner(r); sok {
-		if rec, found, _ := b.db.OwnerByLogin(l); found {
+	// GitHub sessions only (the gid gate, A1): an Apple WEB session must never manage a
+	// GitHub owner's keys through a login collision - Apple owners manage keys via the
+	// SIGNED leg below (their owner row has no login to collide on).
+	if l, gid, _, sok := b.sessionOwner(r); sok {
+		if rec, found := b.sessionGitHubOwner(l, gid); found {
 			return rec, true
 		}
 		return store.Owner{}, true
