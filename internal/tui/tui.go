@@ -95,6 +95,11 @@ type Hooks struct {
 	// SavedPrices seeds the editor with prices the user set in a previous session, so
 	// the provider table shows them and on-air uses them (nil = none).
 	SavedPrices map[string]Pricing
+	// SavedVoices seeds each model's on-air voice identity (dj name / default voice /
+	// speed / language / sample clip URL) from the host's config.json share_voices block,
+	// so a saved identity - including the BOOTH-less sample_url - arms the offer without
+	// a BOOTH pass (nil = none). The host owns the disk read; the TUI does no I/O.
+	SavedVoices map[string]VoiceConfig
 	// Compact seeds the "windowshade" compact mode at launch from the saved config, so
 	// the [m] choice sticks across sessions (the host owns the disk read).
 	Compact bool
@@ -974,6 +979,11 @@ type SchedWindow = node.SchedWindow
 // model goes live.
 type Pricing = node.Pricing
 
+// VoiceConfig is the per-model on-air voice identity (dj name / default voice / speed /
+// language / sample clip URL) - the same alias idiom as Pricing, so the host config's
+// share_voices block, Hooks.SavedVoices, and the controller all speak one type.
+type VoiceConfig = node.VoiceConfig
+
 // shareRow is one model in the k9s-style provider table: a locally-detected model
 // plus its share status. Live metrics are read off the session when on air. Each
 // row carries its OWN upstream (the detected server's chat URL) so a multi-endpoint
@@ -1080,6 +1090,7 @@ func NewController(broker string, hooks Hooks) *node.Controller {
 		Upstream:    hooks.ShareUpstream,
 		UpstreamKey: hooks.ShareUpstreamKey,
 		Prices:      hooks.SavedPrices,
+		Voices:      hooks.SavedVoices,
 		Hooks: node.Hooks{
 			SaveUpstream: hooks.SaveUpstream,
 			SavePrice:    hooks.SavePrice,

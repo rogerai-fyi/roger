@@ -682,7 +682,10 @@ func (m *model) commitVoiceBooth() bool {
 	}
 	m.vbErr = ""
 	voice := m.blendString()
-	m.ctrl.SetVoiceConfig(m.vbModel, node.VoiceConfig{Name: m.vbName, Voice: voice, Speed: m.vbSpeed, Language: m.vbLang})
+	// The BOOTH has no sample field (sample_url is config-file-set, share_voices); a BOOTH
+	// save must not clobber it, so carry the stored value through.
+	m.ctrl.SetVoiceConfig(m.vbModel, node.VoiceConfig{Name: m.vbName, Voice: voice, Speed: m.vbSpeed, Language: m.vbLang,
+		SampleURL: m.ctrl.VoiceConfigFor(m.vbModel).SampleURL})
 	// Persist the price (per-1M input chars) through the same pricing store the chat editor uses,
 	// so the SHARE row shows $/1k and the offer bills correctly. FREE when 0.
 	m.ctrl.SetPricing(m.vbModel, Pricing{In: perM})

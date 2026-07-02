@@ -59,11 +59,17 @@ type ShareRow struct {
 // shared voice); Speed is the default rate (0.5–2.0); Language is the display language. On on-air
 // they ride the offer (agent.Config), so a consumer gets the operator's picked voice. The zero
 // value means "not configured" — a plain chat model shares with no voice metadata.
+//
+// SampleURL is an operator-hosted short clip for the /voices picker (the app plays it instead of
+// a live synth preview). It is set via the host's saved config (config.json share_voices), not the
+// BOOTH, and is passed through UNVALIDATED - the broker owns voice-metadata validation/moderation,
+// so the node never pre-rejects what the broker accepts.
 type VoiceConfig struct {
-	Name     string
-	Voice    string
-	Speed    float64
-	Language string
+	Name      string
+	Voice     string
+	Speed     float64
+	Language  string
+	SampleURL string
 }
 
 // startAgent is the process-edge seam for launching a share (defaults to the real agent.Start). It
@@ -88,10 +94,11 @@ type Config struct {
 	ShareModel  string  // the onboarding default model (sorted first; carries the saved price)
 	SharePriceI float64 // saved onboarding price for ShareModel
 	SharePriceO float64
-	MaxOnAir    int                // 0 -> DefaultMaxOnAir
-	Upstream    string             // saved/verified upstream base or chat URL (headline default)
-	UpstreamKey string             // bearer key the saved upstream needs, if any
-	Prices      map[string]Pricing // saved per-model pricing from a previous session
+	MaxOnAir    int                    // 0 -> DefaultMaxOnAir
+	Upstream    string                 // saved/verified upstream base or chat URL (headline default)
+	UpstreamKey string                 // bearer key the saved upstream needs, if any
+	Prices      map[string]Pricing     // saved per-model pricing from a previous session
+	Voices      map[string]VoiceConfig // saved per-model voice identity (config.json share_voices)
 	Hooks       Hooks
 }
 
@@ -112,7 +119,7 @@ type Controller struct {
 	sessions map[string]*agent.Session
 	private  map[string]bool
 	prices   map[string]Pricing
-	voices   map[string]VoiceConfig // per-model SHARE VOICE BOOTH result (dj-name/voice/speed/lang)
+	voices   map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
 
 	upstream    string // headline upstream (found[0]) — fallback for rows that predate per-row upstreams
 	upstreamKey string
@@ -148,6 +155,11 @@ func New(cfg Config) *Controller {
 	}
 	for k, v := range cfg.Prices {
 		c.prices[k] = v
+	}
+	// Copy (not alias) the saved voice identities, exactly like Prices: a later
+	// SetVoiceConfig must never write back into the host's map.
+	for k, v := range cfg.Voices {
+		c.voices[k] = v
 	}
 	return c
 }
@@ -366,14 +378,15 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
-		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language,
+		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
 	})
 }
 
 // SetVoiceConfig records the SHARE VOICE BOOTH result for a model (dj-name + voice/blend + speed +
 // language). Like SetPricing it does not restart a live session — the next on-air toggle applies
-// it. Persistence is via the price hook's sibling if the host wires one; for now it is in-session
-// (the BOOTH re-derives from the offer on reload).
+// it. Saved identities seed via Config.Voices (the host's config.json share_voices block); a BOOTH
+// edit itself stays in-session (no save hook yet - the sample_url survives because the BOOTH
+// carries the stored value through its save).
 func (c *Controller) SetVoiceConfig(model string, vc VoiceConfig) {
 	c.mu.Lock()
 	c.voices[model] = vc

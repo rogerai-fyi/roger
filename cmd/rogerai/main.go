@@ -84,6 +84,7 @@ type config struct {
 	Onboarded bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
 	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
 	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
+	Voices    map[string]ShareVoice `json:"share_voices,omitempty"` // per-model voice identity (dj name / voice / speed / language / sample_url)
 	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
 	Webui     *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
@@ -100,6 +101,22 @@ type SharePrice struct {
 	PriceIn  float64       `json:"price_in,omitempty"`
 	PriceOut float64       `json:"price_out,omitempty"`
 	Windows  []SchedWindow `json:"windows,omitempty"`
+}
+
+// ShareVoice is a per-model on-air voice identity persisted in config.json
+// (share_voices, the sibling of share_prices): the /voices display name, the default
+// voice (a Kokoro id or a weighted blend string), speed, language, and an
+// operator-hosted sample clip URL for the picker. It mirrors node.VoiceConfig and
+// seeds BOTH share paths - the TUI/web-console controller (via Hooks.SavedVoices) and
+// headless `roger share` (via applyShareVoice). sample_url is passed through
+// UNVALIDATED: the broker owns voice-metadata validation/moderation, so the CLI never
+// pre-rejects what the broker accepts.
+type ShareVoice struct {
+	Name      string  `json:"name,omitempty"`
+	Voice     string  `json:"voice,omitempty"`
+	Speed     float64 `json:"speed,omitempty"`
+	Language  string  `json:"language,omitempty"`
+	SampleURL string  `json:"sample_url,omitempty"`
 }
 
 // SchedWindow mirrors tui.SchedWindow / protocol.PriceWindow for persistence.
@@ -400,6 +417,14 @@ func tuiHooks(cfg config) tui.Hooks {
 		h.SavedPrices = map[string]tui.Pricing{}
 		for mdl, p := range cfg.Prices {
 			h.SavedPrices[mdl] = tui.Pricing{In: p.PriceIn, Out: p.PriceOut, Windows: toTUIWindows(p.Windows)}
+		}
+	}
+	// Seed each model's saved voice identity (share_voices) so the on-air offer carries
+	// the operator's dj name / voice / speed / language / sample_url without a BOOTH pass.
+	if len(cfg.Voices) > 0 {
+		h.SavedVoices = map[string]tui.VoiceConfig{}
+		for mdl, v := range cfg.Voices {
+			h.SavedVoices[mdl] = tui.VoiceConfig{Name: v.Name, Voice: v.Voice, Speed: v.Speed, Language: v.Language, SampleURL: v.SampleURL}
 		}
 	}
 	return h
@@ -991,6 +1016,10 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
 		Voice: *voice, Speed: *voiceSpeed,
 	}
+	// P0-A parity for the voice identity: the saved share_voices profile (dj name /
+	// language / sample_url + default voice/speed) rides the headless offer exactly as it
+	// does the TUI's, explicit flags winning.
+	applyShareVoice(cfg, mdl, &cfgRun)
 	// Single-instance guard: detect (via a per-node-id lockfile) a `roger share`
 	// already on air for THIS node id and bow out, rather than double-registering it
 	// and breaking routing/earnings. A stale lock from a crashed daemon is reclaimed.
@@ -1168,6 +1197,26 @@ func seedSharePricing(cfg config, model string, priceIn, priceOut float64, sched
 		sched = append(sched, toProtocolWindows(saved.Windows)...)
 	}
 	return priceIn, priceOut, sched
+}
+
+// applyShareVoice fills a headless share's on-air voice identity from the saved
+// per-model share_voices profile (the seedSharePricing convention: set it in config, it
+// applies when you `share` headless). Name/Language/SampleURL have no flags and come
+// only from the profile; Voice/Speed keep an explicit --voice / --voice-speed (their
+// zero values mean "unset" by the flags' own definition, so a zero falls back to the
+// profile). A model with no profile is untouched.
+func applyShareVoice(cfg config, model string, run *agent.Config) {
+	sv, ok := cfg.Voices[model]
+	if !ok {
+		return
+	}
+	run.Name, run.Language, run.SampleURL = sv.Name, sv.Language, sv.SampleURL
+	if run.Voice == "" {
+		run.Voice = sv.Voice
+	}
+	if run.Speed == 0 {
+		run.Speed = sv.Speed
+	}
 }
 
 // softPriceWarn returns a non-blocking warning when out-price is well above the live
