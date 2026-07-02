@@ -50,6 +50,66 @@ func (p *Postgres) MarkCSAMReported(id int64) error {
 	return err
 }
 
+// MarkCSAMSubmitted: see the Store interface. Idempotent + monotonic in ONE transaction -
+// an already-submitted row keeps its original report id (the UPDATE's WHERE excludes it),
+// and we always read the row back so the caller gets the authoritative (existing) id.
+func (p *Postgres) MarkCSAMSubmitted(id int64, reportID, adminID string, now time.Time) (CSAMIncident, bool, error) {
+	if reportID == "" {
+		return CSAMIncident{}, false, errEmptyReportID
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return CSAMIncident{}, false, err
+	}
+	defer tx.Rollback()
+	// Only a still-queued row transitions; an already-reported row is left untouched
+	// (monotonic, keeps its original report id).
+	if _, err := tx.Exec(`UPDATE rogerai.csam_incidents
+		SET report_state=$2, report_id=$3, reported_at=$4, reported_by=$5
+		WHERE id=$1 AND report_state=$6`,
+		id, CSAMReported, reportID, now.Unix(), adminID, CSAMQueued); err != nil {
+		return CSAMIncident{}, false, err
+	}
+	var inc CSAMIncident
+	var rid, rby sql.NullString
+	var rat sql.NullInt64
+	err = tx.QueryRow(`SELECT id,pseudonym,COALESCE(ip,''),COALESCE(category,''),report_state,
+		COALESCE(report_id,''),reported_at,COALESCE(reported_by,''),created_at
+		FROM rogerai.csam_incidents WHERE id=$1`, id).Scan(
+		&inc.ID, &inc.Pseudonym, &inc.IP, &inc.Category, &inc.ReportState, &rid, &rat, &rby, &inc.CreatedAt)
+	if err == sql.ErrNoRows {
+		return CSAMIncident{}, false, tx.Commit()
+	}
+	if err != nil {
+		return CSAMIncident{}, false, err
+	}
+	inc.ReportID, inc.ReportedBy, inc.ReportedAt = rid.String, rby.String, rat.Int64
+	return inc, true, tx.Commit() // Content deliberately not selected: metadata only
+}
+
+func (p *Postgres) CSAMQueueStats(now time.Time) (int, int64, error) {
+	var depth int
+	var oldest sql.NullInt64
+	err := p.db.QueryRow(`SELECT COUNT(*), MIN(created_at) FROM rogerai.csam_incidents WHERE report_state=$1`, CSAMQueued).Scan(&depth, &oldest)
+	if err != nil {
+		return 0, 0, err
+	}
+	var age int64
+	if oldest.Valid {
+		age = now.Unix() - oldest.Int64
+	}
+	return depth, age, nil
+}
+
+func (p *Postgres) CSAMContentRetained(id int64) (bool, error) {
+	var n int
+	err := p.db.QueryRow(`SELECT COALESCE(octet_length(content),0) FROM rogerai.csam_incidents WHERE id=$1`, id).Scan(&n)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return n > 0, err
+}
+
 func (p *Postgres) AddReport(r Report) (int64, error) {
 	if r.CreatedAt == 0 {
 		r.CreatedAt = time.Now().Unix()
