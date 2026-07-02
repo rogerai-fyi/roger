@@ -8,6 +8,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -100,11 +101,72 @@ type Hooks struct {
 	// SaveCompact persists the compact toggle when the user presses [m], so the calm
 	// view is remembered next launch (nil = session-only; no disk I/O in the TUI).
 	SaveCompact func(bool)
+	// --- BASE STATION / remote control (v5.0.0). All nil-safe (a labeled hint degrades). ---
+	// RCEnable starts a remote-control session for THIS machine's live agent and returns a
+	// host bridge (tees agent events out, drains remote turns/confirms) + the one-time
+	// enable info to print. The host owns the signing (local user key).
+	RCEnable func(broker, name string) (RemoteBridge, RemoteInfo, error)
+	// RCList fetches the owner's remote-session roster for BASE STATION (metadata only).
+	RCList func(broker string) ([]RemoteSessionRow, error)
+	// RCRevoke ends one session (id != "") or every session (id == "").
+	RCRevoke func(broker, sessionID string) error
+	// BandList fetches the owner's private bands for the BASE STATION bands list.
+	BandList func(broker string) ([]BandRow, error)
+	// RCAttach exchanges a link code for a per-device attach token, so the TUI can view a
+	// session hosted on ANOTHER machine. Returns (attachToken, sessionID, name).
+	RCAttach func(broker, code string) (attach, sessionID, name string, err error)
+	// RCJoin mints an attach token for one of the OWNER's OWN sessions BY ID (no code — the
+	// BASE STATION roster carries no code; same-account is sufficient to view your own session).
+	RCJoin func(broker, sessionID string) (attach string, err error)
+	// RCStream opens the viewer SSE stream and calls onFrame for each frame until ctx ends
+	// or the session closes (long-lived; the TUI cancels ctx on esc/quit).
+	RCStream func(ctx context.Context, broker, sessionID, attach string, lastSeq uint64, onFrame func(protocol.RCFrame)) error
+	// RCSend posts a viewer turn/confirm to a session (interleaved input from the TUI).
+	RCSend func(broker, sessionID, attach string, in protocol.RCInbound) error
+	// Station is the owner's callsign (reused to auto-name a session "<station> · <cwd>").
+	// (Station also seeds the share flow; declared once above.)
+}
+
+// BandRow is a compact private-band summary for BASE STATION (metadata only, no secret).
+type BandRow struct {
+	ID, Display, Label, Status string
 }
 
 // GrantRow is a compact grant summary for the in-TUI /grant list.
 type GrantRow struct {
 	Name, Price, Status string
+}
+
+// RemoteBridge is the host side of a live /remote-control session: the TUI tees each local
+// agent event out via Emit, drains remote turns/confirms/backfill from Inbound (via a
+// re-armed Cmd), and ends the session via Disable. The concrete impl lives in internal/client
+// (it polls + POSTs the broker); a test supplies a fake. Frames use the shared protocol types.
+type RemoteBridge interface {
+	Emit(f protocol.RCFrame)
+	Inbound() <-chan protocol.RCInbound
+	Done() <-chan struct{} // closed when the bridge is Stopped (revoked/quit) — unparks the drain
+	SessionID() string
+	Disable() error // take the session off the air (revoke)
+	Stop()          // stop polling (session survives; used on quit)
+	Run()           // start the poll + event pumps
+}
+
+// RemoteInfo is what /remote-control prints once at enable.
+type RemoteInfo struct {
+	SessionID string
+	Name      string
+	Code      string // the full one-time link code (shown once)
+	CodeShort string // the typeable / deep-link tail ("8FK3-9MQ2")
+	LinkURL   string // rogerai.fyi/r/<short>
+}
+
+// RemoteSessionRow is one BASE STATION roster row (metadata only).
+type RemoteSessionRow struct {
+	ID          string
+	Name        string
+	CodeDisplay string
+	Online      bool
+	Revoked     bool
 }
 
 // LoginDevice is the display-ready view of a started GitHub device flow the TUI
@@ -438,6 +500,8 @@ const (
 	modeListeningPost  // THE LISTENING POST: the stt info/how-to screen, drilled into FROM the Booth (esc returns to the Booth). Info only — no preview, no chat (voice.go)
 	modeShareVoice     // SHARE VOICE BOOTH: the operator's voice-sharing wizard, reached via `p` on a tts share row — same depth as the chat price editor (voicebooth_share.go)
 	modeVoicePicker    // SHARE VOICE BOOTH picker popover: pick a Kokoro voice (local list + bundled fallback), audition free (voicebooth_share.go)
+	modePrivate        // [p] BASE STATION: your private side of the dial — remote agent sessions + private bands, a CHILD screen of THE BAND (esc returns) (rc.go)
+	modeRemoteSession  // a live remote-control session view: continue a chat running on another machine, streamed + labeled private (rc.go)
 )
 
 // Limit is the per-model spend ceiling (mirrors cmd/rogerai's config.Limit).
@@ -745,6 +809,34 @@ type model struct {
 	ghLogin   string         // linked GitHub login (set at startup if linked, or once /login succeeds); "" = anonymous
 	loggedIn  bool           // true when the broker confirms a real account wallet (gates the balance display)
 	grantList []GrantRow     // last /grant list result
+	// BASE STATION / remote control (v5.0.0). rcBridge is the live HOST bridge for THIS
+	// machine's agent (nil unless /remote-control is on); rcInfo is its one-time enable info
+	// (for re-copy); rcSessions is the roster cache for modePrivate; rcCursor/rcErr drive the
+	// section. See rc.go (tui).
+	rcBridge   RemoteBridge
+	rcInfo     RemoteInfo
+	rcSessions []RemoteSessionRow
+	rcBands    []BandRow
+	rcCursor   int
+	rcErr      string
+	rcPrevMode mode // where 'esc' returns from modePrivate / modeRemoteSession
+	// modeRemoteSession (the in-TUI viewer): the session being viewed + its streamed lines.
+	rsRow    RemoteSessionRow
+	rsAttach string   // this device's attach token for rsRow
+	rsLines  []string // the streamed remote transcript (rendered)
+	rsVP     viewport.Model
+	rsIn     textinput.Model
+	rsSeq    uint64                // last frame seq seen (Last-Event-ID reconnect)
+	rsFrames chan protocol.RCFrame // the viewer stream's frame channel (drained by a re-armed Cmd)
+	rsCancel context.CancelFunc    // cancels the viewer stream on esc/quit
+	rsGen    int                   // stream generation: a frame/end from an older session is ignored
+	// Confirm correlation (mutating-tool safety). rcConfirmID is the HOST's current pending
+	// confirm id; a remote answer must carry the matching id (a stale answer for a resolved
+	// confirm can never resolve a NEW one). On the VIEWER, rsPendingConfirm gates y/n as a
+	// confirm answer (a real flag, not a string-match) and rsConfirmID is echoed back.
+	rcConfirmID      string
+	rsPendingConfirm bool
+	rsConfirmID      string
 	// [L] confirmable login/logout panel (modeLogin). The panel never acts on arrival -
 	// only y (logout) / enter (start login) inside it does - so arrow-nav can land on it
 	// without surprises. loginReturn is the mode to restore when the panel is dismissed.
@@ -1384,6 +1476,30 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case agentEventMsg:
 		return m.onAgentEvent(msg)
+	case remoteEnabledMsg:
+		return m.onRemoteEnabled(msg)
+	case remoteInboundMsg:
+		return m.onRemoteInbound(protocol.RCInbound(msg))
+	case remoteRosterMsg:
+		return m.onRemoteRoster(msg)
+	case remoteAttachedMsg:
+		return m.onRemoteAttached(msg)
+	case remoteFrameMsg:
+		nm, cmd := m.onRemoteFrame(msg)
+		// keep streaming while the viewer is open on THIS generation
+		if mm, ok := nm.(model); ok && mm.mode == modeRemoteSession && msg.gen == mm.rsGen {
+			return nm, tea.Batch(cmd, mm.reArmRemoteStream())
+		}
+		return nm, cmd
+	case remoteViewerEndMsg:
+		// A viewer stream ended. Ignore a stale generation (an older, esc'd session tearing
+		// down) so it can't clobber a newly-opened session's live status.
+		if msg.gen == m.rsGen && m.mode == modeRemoteSession {
+			m.status = stDim.Render("stream ended · esc back")
+		}
+		return m, nil
+	case remoteHostEndMsg:
+		return m.onRemoteHostEnd()
 	case agentConfirmMsg:
 		// A side-effecting tool wants to run: pause the turn for an on-screen y/N (default
 		// DENY). The loop goroutine is blocked on the confirm's resp channel meanwhile.
@@ -1391,6 +1507,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentPendingConfirm = &c
 		m.agentLines = append(m.agentLines, "  "+stEmber.Render("? ")+stKey.Render(c.summary())+stDim.Render("   run it? [y/N]"))
 		m.status = stEmber.Render("! " + c.tool + " - y/n")
+		// BASE STATION: give this confirm a fresh id and let any attached surface answer it.
+		// The id lets the host reject a STALE remote answer (for an already-resolved confirm)
+		// so a delayed 'approve' can never resolve a DIFFERENT mutating tool.
+		m.rcConfirmID = protocol.NewRequestID()
+		m.rcEmitConfirmReq(&c, m.rcConfirmID)
 		return m, nil
 	case agentCostMsg:
 		m.agentCost += msg.cost
@@ -1700,6 +1821,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.onShareVoiceKey(k)
 	case modeVoicePicker:
 		return m.onVoicePickerKey(k)
+	case modePrivate:
+		return m.onPrivateKey(k)
+	case modeRemoteSession:
+		return m.onRemoteSessionKey(k)
 	case modeBandDetail:
 		// The expanded station log: esc/←/h/i close it back to the list; enter tunes in to
 		// the band (the cheapest station), matching the browse Enter. r re-scans.
@@ -1842,6 +1967,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// no voice is on air (the footnote/affordance is absent then), so `v` never lands on
 			// an empty voice screen.
 			return m.enterBooth()
+		case "p", "P":
+			// p = drill into BASE STATION (your private side of the dial: remote agent
+			// sessions + private bands), the same target as the "base station ▸ [p]" footnote.
+			// A CHILD screen of THE BAND (esc returns), login-gated. Mirrors [v] the DJ BOOTH.
+			return m.enterPrivate()
 		case "esc":
 			// esc clears a tuned PRIVATE frequency back to OPEN MARKET (re-scan the public
 			// band). With no freq tuned it is a harmless no-op (browse has no other esc use).
@@ -4057,6 +4187,10 @@ func (m model) View() string {
 		b.WriteString(m.shareVoiceView(w))
 	case modeVoicePicker:
 		b.WriteString(m.voicePickerView(w))
+	case modePrivate:
+		b.WriteString(m.privateView(w))
+	case modeRemoteSession:
+		b.WriteString(m.remoteSessionView(w))
 	case modeFreqEntry:
 		// The PRIVATE FREQUENCY input rides ABOVE the live band browser (the list stays
 		// visible behind it), mirroring the filter strip: a small focused input to enter a
@@ -5691,6 +5825,11 @@ func (m model) browseView(w int) string {
 	// focus) or in compact (voices fold into the header count, never a deck cell).
 	if !m.compact && !m.filterMode && strings.TrimSpace(m.filterApplied) == "" {
 		if foot := m.voiceFootnote(); foot != "" {
+			b.WriteString(foot + "\n")
+		}
+		// BASE STATION footnote (below voices): your private side of the dial. A live remote
+		// session earns the one red ◉ (it IS the LLM chat product); otherwise fully dim.
+		if foot := m.privateFootnote(); foot != "" {
 			b.WriteString(foot + "\n")
 		}
 	}
