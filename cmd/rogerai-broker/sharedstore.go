@@ -159,6 +159,15 @@ type sharedStore interface {
 	// down when ctx is cancelled (the poll returning) or cancel() is called.
 	busSubscribeJobs(ctx context.Context, nodeID string) (<-chan []byte, func(), error)
 
+	// busClaimJob atomically claims a dispatched job for SINGLE delivery. busPublishJob is a
+	// fan-out PUBLISH, so every one of a node's parallel pollers (Parallel=4) - across all
+	// instances - receives the same job. Each poller must call busClaimJob(job.ID) before
+	// serving; exactly the FIRST caller gets won=true and serves, every other gets won=false
+	// and re-polls (204). Without this a job is served N times (N-fold billing; interleaved
+	// corrupted streams). A non-nil err (claim store hiccup) lets the caller fall back to
+	// serving - degrading to today's fan-out on a rare outage rather than stranding the job.
+	busClaimJob(jobID string) (won bool, err error)
+
 	// busPublishResult publishes a serialized non-stream JobResult back on the per-job
 	// channel the ORIGINATING instance subscribed to. Best-effort delivery: a non-nil
 	// err is returned to the node-facing handler but the originating instance's own
@@ -295,6 +304,7 @@ func (m *memStore) busPublishJob(string, []byte) (int, error) { return 0, errNoS
 func (m *memStore) busSubscribeJobs(context.Context, string) (<-chan []byte, func(), error) {
 	return nil, func() {}, errNoSharedStore
 }
+func (m *memStore) busClaimJob(string) (bool, error) { return false, errNoSharedStore }
 func (m *memStore) busPublishResult(string, []byte) error { return errNoSharedStore }
 func (m *memStore) busSubscribeResult(context.Context, string) (<-chan []byte, func(), error) {
 	return nil, func() {}, errNoSharedStore
@@ -1009,6 +1019,10 @@ const (
 	busJobPrefix    = keyPrefix + "bus:job:"
 	busResultPrefix = keyPrefix + "bus:res:"
 	busStreamPrefix = keyPrefix + "bus:strm:"
+	// rogerai:bus:claim:<jobID> - the single-delivery claim key: the first poller to SET NX it
+	// wins the job; every other poller (the fan-out duplicates) re-polls. Keyed on the unique
+	// per-request job id, so it never collides with a future job.
+	busClaimPrefix = keyPrefix + "bus:claim:"
 	// BASE STATION / remote control (v5.0.0), keyed on the SESSION id:
 	//	rogerai:bus:rc:in:<sid>   - viewer -> host inbounds (the host's poll subscribes)
 	//	rogerai:bus:rc:out:<sid>  - host -> viewer frames (every viewer's stream subscribes)
@@ -1045,6 +1059,28 @@ func (v *valkeyStore) busPublishJob(nodeID string, job []byte) (int, error) {
 	}
 	v.setUp(true)
 	return int(n), nil
+}
+
+// busClaimTTL bounds how long a single-delivery claim lives. It only has to outlive the brief
+// window in which a node's pollers race to claim the same fan-out job (they all receive the
+// PUBLISH within milliseconds), but we set it comfortably past the longest serve window (the
+// 300s stream cap) so a claim can never lapse while its job is still in flight, then auto-expire
+// to reclaim the key. Job ids are unique per request, so a lingering claim never blocks a new job.
+const busClaimTTL = 5 * time.Minute
+
+func (v *valkeyStore) busClaimJob(jobID string) (bool, error) {
+	if v == nil || v.rdb == nil {
+		return false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	won, err := v.rdb.SetNX(ctx, busClaimPrefix+jobID, "1", busClaimTTL).Result()
+	if err != nil {
+		v.noteErr("busClaimJob", err)
+		return false, err
+	}
+	v.setUp(true)
+	return won, nil
 }
 
 // busSubscribe is the shared subscribe helper: it opens a pub/sub subscription on
