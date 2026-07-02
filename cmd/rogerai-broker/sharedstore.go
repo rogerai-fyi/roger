@@ -184,6 +184,21 @@ type sharedStore interface {
 	// the terminal marker (isDone=true). Torn down on ctx cancel / cancel().
 	busSubscribeStream(ctx context.Context, jobID string) (<-chan streamFrame, func(), error)
 
+	// --- BASE STATION / remote control (v5.0.0), keyed on the SESSION id ---
+	// busPublishRCIn publishes a viewer inbound (turn/confirm/backfill, serialized) so the
+	// host's poll receives it no matter which instance the host is polling.
+	busPublishRCIn(sid string, in []byte) error
+	// busSubscribeRCIn subscribes the host's poll to the session's inbound channel.
+	busSubscribeRCIn(ctx context.Context, sid string) (<-chan []byte, func(), error)
+	// busPublishRCOut publishes a host frame (serialized RCFrame) to every viewer's stream on
+	// any instance.
+	busPublishRCOut(sid string, frame []byte) error
+	// busSubscribeRCOut subscribes a viewer's stream to the session's frame channel.
+	busSubscribeRCOut(ctx context.Context, sid string) (<-chan []byte, func(), error)
+	// busNextRCSeq returns the next monotonic frame seq for a session via a shared INCR, so
+	// viewers on different instances see one consistent ordering. TTL'd so it ages out.
+	busNextRCSeq(sid string) (uint64, error)
+
 	// putNode mirrors a node's full registration JSON (incl. BridgeToken) into the
 	// SHARED registry so EVERY instance can pick it AND authenticate its poll/result -
 	// not only the instance the node dialed. ttl is refreshed on each heartbeat
@@ -287,6 +302,15 @@ func (m *memStore) busPublishStreamDone(string) error          { return errNoSha
 func (m *memStore) busSubscribeStream(context.Context, string) (<-chan streamFrame, func(), error) {
 	return nil, func() {}, errNoSharedStore
 }
+func (m *memStore) busPublishRCIn(string, []byte) error  { return errNoSharedStore }
+func (m *memStore) busPublishRCOut(string, []byte) error { return errNoSharedStore }
+func (m *memStore) busSubscribeRCIn(context.Context, string) (<-chan []byte, func(), error) {
+	return nil, func() {}, errNoSharedStore
+}
+func (m *memStore) busSubscribeRCOut(context.Context, string) (<-chan []byte, func(), error) {
+	return nil, func() {}, errNoSharedStore
+}
+func (m *memStore) busNextRCSeq(string) (uint64, error)                { return 0, errNoSharedStore }
 func (m *memStore) putNode(string, []byte, time.Duration) error        { return errNoSharedStore }
 func (m *memStore) getNode(string) ([]byte, bool, error)               { return nil, false, errNoSharedStore }
 func (m *memStore) allNodes() (map[string][]byte, error)               { return nil, errNoSharedStore }
@@ -983,7 +1007,18 @@ const (
 	busJobPrefix    = keyPrefix + "bus:job:"
 	busResultPrefix = keyPrefix + "bus:res:"
 	busStreamPrefix = keyPrefix + "bus:strm:"
+	// BASE STATION / remote control (v5.0.0), keyed on the SESSION id:
+	//	rogerai:bus:rc:in:<sid>   - viewer -> host inbounds (the host's poll subscribes)
+	//	rogerai:bus:rc:out:<sid>  - host -> viewer frames (every viewer's stream subscribes)
+	//	rogerai:rc:seq:<sid>      - a shared INCR seq so viewers on any instance order alike
+	busRCInPrefix  = keyPrefix + "bus:rc:in:"
+	busRCOutPrefix = keyPrefix + "bus:rc:out:"
+	rcSeqPrefix    = keyPrefix + "rc:seq:"
 )
+
+// rcSeqTTL keeps the shared per-session seq counter alive as long as a session could plausibly
+// be active; it ages out with the idle-GC window so a long-dead session's key never lingers.
+const rcSeqTTL = 7 * 24 * time.Hour
 
 // streamDoneMarker is the single-byte sentinel published on a job's stream channel to
 // signal end-of-stream. A real SSE chunk is never a bare 0x04, so it cannot be confused
@@ -1136,6 +1171,56 @@ func (v *valkeyStore) busSubscribeStream(ctx context.Context, jobID string) (<-c
 		}
 	}()
 	return out, cancel, nil
+}
+
+// --- BASE STATION / remote control pub-sub (v5.0.0) ---
+
+func (v *valkeyStore) busPublishRCIn(sid string, in []byte) error {
+	return v.busPublishTo(busRCInPrefix+sid, in, "busPublishRCIn")
+}
+func (v *valkeyStore) busPublishRCOut(sid string, frame []byte) error {
+	return v.busPublishTo(busRCOutPrefix+sid, frame, "busPublishRCOut")
+}
+func (v *valkeyStore) busSubscribeRCIn(ctx context.Context, sid string) (<-chan []byte, func(), error) {
+	return v.busSubscribe(ctx, busRCInPrefix+sid)
+}
+func (v *valkeyStore) busSubscribeRCOut(ctx context.Context, sid string) (<-chan []byte, func(), error) {
+	return v.busSubscribe(ctx, busRCOutPrefix+sid)
+}
+
+// busPublishTo is the shared one-shot PUBLISH used by the RC channels.
+func (v *valkeyStore) busPublishTo(channel string, payload []byte, op string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	if err := v.rdb.Publish(ctx, channel, payload).Err(); err != nil {
+		v.noteErr(op, err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// busNextRCSeq atomically increments a per-session seq (TTL'd so an ended session's key ages
+// out). A failure returns 0,err and the caller falls back to a local seq — a reconnect-replay
+// gap at worst, never a lost frame.
+func (v *valkeyStore) busNextRCSeq(sid string) (uint64, error) {
+	if v == nil || v.rdb == nil {
+		return 0, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	key := rcSeqPrefix + sid
+	n, err := v.rdb.Incr(ctx, key).Result()
+	if err != nil {
+		v.noteErr("busNextRCSeq", err)
+		return 0, err
+	}
+	v.rdb.Expire(ctx, key, rcSeqTTL)
+	v.setUp(true)
+	return uint64(n), nil
 }
 
 // openSharedStore builds the shared-state layer from ROGERAI_REDIS_URL. UNSET (the
