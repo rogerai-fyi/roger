@@ -26,7 +26,13 @@ roger voices                  # browse voices on air (TTS/STT stations, sample p
 roger say --voice <v> "hi"    # text-to-speech through a voice station, played locally
 roger balance                 # wallet credits
 roger topup 10                # buy credits (Stripe)
+roger remote                  # your private BASE STATION: continue an agent session from anywhere
 ```
+
+Inside the agent (`[0] AGENT`), `/remote-control` puts the live session on your private **Base
+Station** so you can pick it up from another terminal (`roger remote attach <code>`), the web
+console, or the app — private to your account, one-time link codes for a phone. Tools keep
+running on the host and still ask before anything mutating.
 
 `roger use` (or the TUI's "tune in") exposes `http://127.0.0.1:4141/v1` with an API key - point
 any OpenAI-compatible tool at it.

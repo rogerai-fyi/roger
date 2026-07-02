@@ -80,6 +80,30 @@
     </section>
 
     <section class="panel">
+      <h2>Remote control (Base Station)</h2>
+      <p>When you run <code>/remote-control</code> in the <code>roger</code> agent, that live
+        session becomes continuable from your other signed-in surfaces (another terminal, the
+        web Base Station, the app). It is <b>private to your account</b>: only you, signed into
+        the same account, can see or join it, and a short-lived one-time code is required to
+        link a device that is not already logged in.</p>
+      <p><b>What the broker relays, and what it does not keep.</b> While a session is on the
+        air, the broker <b>relays</b> the session's messages, tool names, and confirmations
+        between your surfaces so a second screen can follow along. Those frames pass through the
+        broker <b>in transit only</b> - they are held in a small, bounded, in-memory buffer to
+        bridge a brief reconnect and are <b>never written to disk or to our database</b>. The
+        broker stores only the session's metadata (a name, creation time, token <i>hashes</i>,
+        and revocation state), never the transcript. The conversation itself lives on the host
+        machine that is running the agent.</p>
+      <p><b>Honest about the security model.</b> The relay is carried over TLS to the broker, but
+        it is <b>not end-to-end encrypted</b>: because the broker forwards the frames, their text
+        is readable at the relay in transit (it is not retained). Tools always run on the
+        <b>host</b> machine, and only after a confirmation. End the session any time with
+        <code>/remote-control off</code> or from Base Station; revoking it drops the buffer and
+        invalidates every link and device token immediately. Deleting your account revokes all
+        remote-control sessions.</p>
+    </section>
+
+    <section class="panel">
       <h2>Cookies</h2>
       <p>We use a single cookie: a signed, http-only session cookie set by the broker after
         you log in. It is not readable by JavaScript and no access tokens are ever exposed to

@@ -163,6 +163,26 @@ func JoinRC(broker, sessionID string) (string, error) {
 	return res.AttachToken, nil
 }
 
+// RotateRCCode mints a fresh one-time link code for a session (retiring the old one), for
+// linking a new device. Signed (owner). Returns the full code + the short deep-link tail.
+func RotateRCCode(broker, sessionID string) (code, short string, err error) {
+	resp, err := signedDo(http.MethodPost, broker, "/rc/"+sessionID+"/code", nil)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %v", ErrBrokerUnreachable, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", payoutErr(resp.StatusCode, raw)
+	}
+	var res struct {
+		Code      string `json:"code"`
+		CodeShort string `json:"code_short"`
+	}
+	_ = json.Unmarshal(raw, &res)
+	return res.Code, res.CodeShort, nil
+}
+
 // RevokeRC ends one session (sessionID != "") or every session (sessionID == "") (signed).
 func RevokeRC(broker, sessionID string) error {
 	path := "/rc/revoke-all"
