@@ -377,6 +377,8 @@ func (b *broker) rcSubtree(w http.ResponseWriter, r *http.Request) {
 		b.rcSend(w, r, sid)
 	case "stream":
 		b.rcStream(w, r, sid)
+	case "join":
+		b.rcJoin(w, r, sid)
 	case "code":
 		b.rcRotateCode(w, r, sid)
 	case "disable":
@@ -384,6 +386,39 @@ func (b *broker) rcSubtree(w http.ResponseWriter, r *http.Request) {
 	default:
 		jsonErr(w, http.StatusNotFound, "no such session endpoint")
 	}
+}
+
+// rcJoin handles POST /rc/{sid}/join (OWNER, no code): mint a per-device attach token for one
+// of the caller's OWN sessions. The link code is only needed to link a NOT-logged-in device
+// (a phone via QR); an already-logged-in same-account surface (another roger, the web console)
+// attaches to its own session by id. Wrong account / unknown session gets the uniform 404.
+func (b *broker) rcJoin(w http.ResponseWriter, r *http.Request, sid string) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	wallet, deviceLabel, ok := b.rcOwnerWallet(r, nil)
+	uniform := func() { writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such session"}) }
+	if !ok {
+		uniform()
+		return
+	}
+	sess, found, _ := b.db.RCSessionByID(sid)
+	if !found || sess.Revoked || sess.OwnerWallet != wallet {
+		uniform()
+		return
+	}
+	attach := rcRandToken("rc_at_")
+	if err := b.db.PutRCAttachToken(store.RCAttachToken{
+		Hash: rcHash(attach), SessionID: sess.ID, DeviceLabel: deviceLabel,
+	}); err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": sess.ID, "name": sess.Name, "attach_token": attach})
 }
 
 // rcAuthHost verifies the Bearer host token against the session's stored hash (constant-time).
@@ -436,6 +471,9 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) {
 		_ = json.NewEncoder(w).Encode(msg)
 	case <-time.After(rcPollHold):
 		w.WriteHeader(http.StatusNoContent) // re-poll
+	case <-r.Context().Done():
+		// the host disconnected (Stop / quit); release the handler at once rather than
+		// holding it for the full poll window.
 	}
 }
 

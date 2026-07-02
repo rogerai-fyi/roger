@@ -334,11 +334,15 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "Y":
 			m.agentLines = append(m.agentLines, "  "+stLive.Render("✓ ")+stDim.Render("approved · running "+c.tool))
 			m.agentPendingConfirm = nil
+			m.rcConfirmID = "" // BASE STATION: this confirm is resolved; a late remote answer is now stale
+			m.rcEmitConfirmDone(true, "local")
 			c.resp <- true
 			return m, m.waitAgentEvent()
 		default: // n / N / esc / anything else - default DENY
 			m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+c.tool+" was not run"))
 			m.agentPendingConfirm = nil
+			m.rcConfirmID = ""
+			m.rcEmitConfirmDone(false, "local")
 			c.resp <- false
 			return m, m.waitAgentEvent()
 		}
@@ -443,6 +447,12 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// QUEUE-WHILE-BUSY (founder: "queue like Claude"): a turn is already running, so this
 		// prompt is parked and auto-sent (FIFO) when the current turn finishes. The input
 		// stays typable throughout, so the next ask can be written without waiting.
+		// BASE STATION: echo a LOCALLY-typed chat turn to any attached viewers (a slash
+		// command is a local control action, not a chat turn; a remote turn is echoed by the
+		// broker's /rc/send, so this fires ONLY for local typing).
+		if !strings.HasPrefix(p, "/") {
+			m.rcEmitLocalTurn(p)
+		}
 		if m.agentBusy {
 			m.agentQueued = append(m.agentQueued, p)
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
@@ -548,6 +558,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentTokensOut = 0
 		m.agentTPS = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
+		m.rcEmitCleared()   // BASE STATION: tell viewers, so a dropped queued turn doesn't dangle
 		note("session cleared - the agent starts fresh (still no long-term memory)")
 		return m, nil
 	case "persona", "dj":
@@ -580,9 +591,15 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		note("✓ copied the agent transcript to the clipboard")
 		m.status = copiedToast("the agent transcript")
 		return m, clipboardWrite(txt)
+	case "remote-control", "remote", "rc":
+		// Put THIS session on the air (BASE STATION) — continue it from another surface
+		// logged into your account. `/remote-control off` takes it back off the air.
+		off := len(fields) >= 2 && strings.EqualFold(fields[1], "off")
+		return m.runRemoteCommand(off)
 	case "help", "h":
 		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
 		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
+		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
 		return m, nil
 	default:
 		note("unknown: /" + cmd + " · /help for AGENT commands")
@@ -751,6 +768,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		m.agentTurnState = poseWaiting // the turn failed; the corner Ping stands back by
 		m.agentLines = append(m.agentLines, failureHint(e.Text, mdl, m.narrow())...)
 	}
+	m.rcTeeEvent(harness.Event(e)) // BASE STATION: mirror this step to any attached viewers
 	return m, m.waitAgentEvent()
 }
 

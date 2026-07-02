@@ -12,6 +12,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -336,6 +337,53 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Compact = on
 			_ = saveConfig(c)
 		},
+		// BASE STATION / remote control (v5.0.0): the host bridge + roster/stream closures,
+		// wrapping the internal/client RC funcs. *client.RCBridge satisfies tui.RemoteBridge
+		// structurally (shared protocol types), so it is returned directly.
+		RCEnable: func(broker, name string) (tui.RemoteBridge, tui.RemoteInfo, error) {
+			br, res, err := client.EnableRC(broker, name)
+			if err != nil {
+				return nil, tui.RemoteInfo{}, err
+			}
+			return br, tui.RemoteInfo{
+				SessionID: res.SessionID, Name: res.Name, Code: res.Code, CodeShort: res.CodeShort,
+				LinkURL: rcLinkURL(res.CodeShort),
+			}, nil
+		},
+		RCList: func(broker string) ([]tui.RemoteSessionRow, error) {
+			sess, err := client.ListRC(broker)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]tui.RemoteSessionRow, 0, len(sess))
+			for _, s := range sess {
+				out = append(out, tui.RemoteSessionRow{ID: s.ID, Name: s.Name, CodeDisplay: s.CodeDisplay, Online: s.Online, Revoked: s.Revoked})
+			}
+			return out, nil
+		},
+		RCRevoke: func(broker, sessionID string) error { return client.RevokeRC(broker, sessionID) },
+		BandList: func(broker string) ([]tui.BandRow, error) {
+			bands, err := client.ListBands(broker)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]tui.BandRow, 0, len(bands))
+			for _, b := range bands {
+				out = append(out, tui.BandRow{ID: b.ID, Display: b.Display, Label: b.Label, Status: b.Status})
+			}
+			return out, nil
+		},
+		RCAttach: func(broker, code string) (string, string, string, error) {
+			res, err := client.AttachRC(broker, code)
+			return res.AttachToken, res.SessionID, res.Name, err
+		},
+		RCJoin: func(broker, sessionID string) (string, error) { return client.JoinRC(broker, sessionID) },
+		RCStream: func(ctx context.Context, broker, sessionID, attach string, lastSeq uint64, onFrame func(protocol.RCFrame)) error {
+			return client.StreamRC(ctx, broker, sessionID, attach, lastSeq, onFrame)
+		},
+		RCSend: func(broker, sessionID, attach string, in protocol.RCInbound) error {
+			return client.SendRC(broker, sessionID, attach, in)
+		},
 	}
 	// Soft local on-air cap (share.max_on_air), read ONCE here at startup: the TUI shows
 	// the ON AIR n/max slots and blocks flipping another band on air at the cap. Changing
@@ -500,6 +548,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdUse(cfg, args[1:])
 	case "say", "speak":
 		return cmdSay(cfg, args[1:])
+	case "remote", "rc":
+		return cmdRemote(cfg, args[1:])
 	case "voices":
 		return cmdVoices(cfg, args[1:])
 	case "share":
@@ -1741,6 +1791,7 @@ func usage() {
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger remote                your private remote sessions: list · attach <code> · off · link
 
 providers (share your GPU):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)
