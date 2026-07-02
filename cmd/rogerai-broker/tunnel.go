@@ -433,6 +433,10 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 	}
 	b.localRegAt[reg.NodeID] = now
 	b.mu.Unlock()
+	// From here on reg (incl. its Offers array) is safe to read WITHOUT b.mu even
+	// though b.nodes now aliases it: a concurrent web-console price PATCH never
+	// mutates a published offers array in place - applyOverrideLive is copy-on-write
+	// (race pinned by TestRaceRegisterMirrorVsLiveOverride).
 
 	// SHARED registry mirror: publish this node's full registration (incl. BridgeToken)
 	// to the shared store so PEER instances can pick it AND authenticate its poll/result
@@ -791,10 +795,11 @@ func (b *broker) syncRegistry() {
 		return
 	}
 	// heals collects the fresher LOCAL registrations whose shared mirror was found stale,
-	// marshaled UNDER the lock (a live offer can be mutated in place by applyOverrideLive,
-	// so the bytes are snapshotted while holding b.mu, exactly as the attestation-lapse and
-	// rehydrate re-publishes do) and re-published after the lock is dropped (network I/O),
-	// with register's exact drop+put sequence.
+	// marshaled UNDER the lock (the b.nodes read must hold b.mu anyway, and snapshotting
+	// the bytes right there matches the attestation-lapse and rehydrate re-publishes;
+	// published offers arrays themselves are immutable - applyOverrideLive is
+	// copy-on-write) and re-published after the lock is dropped (network I/O), with
+	// register's exact drop+put sequence.
 	type heal struct {
 		id      string
 		raw     []byte
@@ -908,21 +913,31 @@ func (b *broker) syncRegistry() {
 	}
 }
 
-// tunnelFor returns the node's tunnel, LAZILY learning it from the shared registry on a
-// local miss (whenever a shared backend is wired - the same gate as the registry
-// publish, NOT the bus flag; task #52). This is the re-registration-storm fix: a node's
-// poll/heartbeat/result can land (via the load balancer) on a process that has not yet
-// synced the registry; returning 404 there makes the node misread it as "broker
-// restarted" and re-register (rotating its token), over and over. Instead we fetch the
-// node's published registration from the shared store on demand and build its tunnel stub
-// right here, so the request succeeds and no re-register fires. Returns nil only when the
-// node is unknown on EVERY instance. No shared store: pure local read.
-func (b *broker) tunnelFor(node string) *nodeTunnel {
+// tunnelFor returns the node's tunnel + a SNAPSHOT of its bridge token, LAZILY
+// learning it from the shared registry on a local miss (whenever a shared backend is
+// wired - the same gate as the registry publish, NOT the bus flag; task #52). This is
+// the re-registration-storm fix: a node's poll/heartbeat/result can land (via the
+// load balancer) on a process that has not yet synced the registry; returning 404
+// there makes the node misread it as "broker restarted" and re-register (rotating its
+// token), over and over. Instead we fetch the node's published registration from the
+// shared store on demand and build its tunnel stub right here, so the request
+// succeeds and no re-register fires. Returns nil only when the node is unknown on
+// EVERY instance. No shared store: pure local read.
+//
+// The token is returned (copied UNDER b.mu) rather than read off t.token by the
+// caller: register/syncRegistry/rehydrate rewrite t.token under b.mu, so an unlocked
+// caller read of the auth credential is a data race (pinned by
+// TestRaceNodeTokenReadVsRegister).
+func (b *broker) tunnelFor(node string) (*nodeTunnel, string) {
 	b.mu.Lock()
 	t := b.tunnels[node]
+	tok := ""
+	if t != nil {
+		tok = t.token
+	}
 	b.mu.Unlock()
 	if t != nil || b.shared == nil {
-		return t
+		return t, tok
 	}
 	raw, ok, err := b.shared.getNode(node)
 	private := false
@@ -932,13 +947,13 @@ func (b *broker) tunnelFor(node string) *nodeTunnel {
 		// storm), so we learn it here too - flagged private so it stays out of /discover.
 		praw, pok, perr := b.shared.getPrivateNode(node)
 		if perr != nil || !pok {
-			return nil
+			return nil, ""
 		}
 		raw, private = praw, true
 	}
 	var reg protocol.NodeRegistration
 	if json.Unmarshal(raw, &reg) != nil {
-		return nil
+		return nil, ""
 	}
 	if reg.NodeID == "" {
 		reg.NodeID = node
@@ -946,7 +961,7 @@ func (b *broker) tunnelFor(node string) *nodeTunnel {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if t := b.tunnels[node]; t != nil {
-		return t // another concurrent request just learned it
+		return t, t.token // another concurrent request just learned it
 	}
 	b.nodes[node] = reg
 	b.confidential[node] = reg.Confidential
@@ -966,7 +981,7 @@ func (b *broker) tunnelFor(node string) *nodeTunnel {
 	}
 	nt := &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
 	b.tunnels[node] = nt
-	return nt
+	return nt, reg.BridgeToken
 }
 
 // rehydrateNodes loads the persisted node registry into the in-memory maps at
@@ -1147,12 +1162,12 @@ func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, "missing node_id")
 		return
 	}
-	t := b.tunnelFor(m.NodeID)
+	t, tok := b.tunnelFor(m.NodeID)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, t.token) {
+	if !authNode(r, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1167,12 +1182,12 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := r.URL.Query().Get("node")
-	t := b.tunnelFor(node)
+	t, tok := b.tunnelFor(node)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, t.token) {
+	if !authNode(r, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -1229,12 +1244,12 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	node := r.URL.Query().Get("node")
-	t := b.tunnelFor(node)
+	t, tok := b.tunnelFor(node)
 	if t == nil {
 		jsonErr(w, http.StatusNotFound, "unknown node")
 		return
 	}
-	if !authNode(r, t.token) {
+	if !authNode(r, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -2062,8 +2077,8 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 	// A bare local read 401'd the chunks there and the client got an empty stream.
 	// Pinned by features/multinode/cross_instance_relay.feature ("stream chunks posted
 	// to the instance that never saw the node").
-	t := b.tunnelFor(nodeID)
-	if t == nil || !authNode(r, t.token) {
+	t, tok := b.tunnelFor(nodeID)
+	if t == nil || !authNode(r, tok) {
 		jsonErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}

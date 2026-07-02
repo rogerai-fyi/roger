@@ -180,9 +180,9 @@ func (s *pbState) absentFromPublicRegistry(node string) error {
 func (s *pbState) bBuildsTunnelOnDemand(node string) error {
 	// No sync yet: tunnelFor must lazily learn the private node from the shared private
 	// namespace so the node's own poll/result authenticates on B (no re-register storm).
-	tun := s.b.tunnelFor(node)
-	if tun == nil || tun.token != s.token {
-		return fmt.Errorf("instance B could not build node %q's tunnel on demand (tun=%v want token %q)", node, tun, s.token)
+	tun, tok := s.b.tunnelFor(node)
+	if tun == nil || tok != s.token {
+		return fmt.Errorf("instance B could not build node %q's tunnel on demand (tun=%v tok=%q want token %q)", node, tun, tok, s.token)
 	}
 	return nil
 }

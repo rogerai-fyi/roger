@@ -666,15 +666,25 @@ func (b *broker) routes() *http.ServeMux {
 //     bounding internally (relay caps the non-stream wait below CF's ~100s proxy
 //     limit, see tunnel.go), so a blanket TimeoutHandler here would double-bound it
 //     and could truncate a legitimate SSE stream.
+//   - /v1/audio/speech + /v1/audio/transcriptions - the voice money relays wait on
+//     the provider EXACTLY like the non-stream chat relay and share its
+//     Cloudflare-aware bound (audioRelayCore's nonStreamRelayWait select). Behind
+//     the blanket deadline that intended 504 "station timed out" JSON could never
+//     fire - a dead voice station surfaced as the edge-mangled generic timeout (the
+//     2026-07-02 incident; features/voice/relay_timeout.feature). Every other path
+//     in the audio handler is already bounded (non-blocking semaphore, 3s local /
+//     bus dispatch, the 90s result select), so nothing here can pin a connection.
 //   - /concierge - the public Ping chat may wait on an upstream model.
 //
 // Every OTHER route is non-streaming and gets bounded by http.TimeoutHandler.
 var streamRoutes = map[string]bool{
-	"/agent/poll":          true,
-	"/agent/stream":        true,
-	"/agent/result":        true,
-	"/v1/chat/completions": true,
-	"/concierge":           true,
+	"/agent/poll":              true,
+	"/agent/stream":            true,
+	"/agent/result":            true,
+	"/v1/chat/completions":     true,
+	"/v1/audio/speech":         true,
+	"/v1/audio/transcriptions": true,
+	"/concierge":               true,
 }
 
 // nonStreamTimeout is the response deadline applied to every NON-streaming route. It

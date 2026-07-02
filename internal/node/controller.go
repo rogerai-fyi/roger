@@ -18,6 +18,7 @@ import (
 
 	"github.com/rogerai-fyi/roger/internal/agent"
 	"github.com/rogerai-fyi/roger/internal/detect"
+	"github.com/rogerai-fyi/roger/internal/onair"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -120,6 +121,12 @@ type Controller struct {
 	private  map[string]bool
 	prices   map[string]Pricing
 	voices   map[string]VoiceConfig // per-model voice identity (config-seeded and/or BOOTH-set)
+	// locks holds each live session's ON-AIR lock release (keyed by model, like
+	// sessions). The lock is the cross-process one-broadcaster-per-node-id guard
+	// shared with the headless CLI (internal/onair; the eager-puma-54-voice
+	// double-broadcast fix) - held for the life of the session, released on every
+	// stop path below.
+	locks map[string]func()
 
 	upstream    string // headline upstream (found[0]) — fallback for rows that predate per-row upstreams
 	upstreamKey string
@@ -145,6 +152,7 @@ func New(cfg Config) *Controller {
 		private:     map[string]bool{},
 		prices:      map[string]Pricing{},
 		voices:      map[string]VoiceConfig{},
+		locks:       map[string]func(){},
 		// Seed the saved/verified upstream so the first scan probes it first and a saved
 		// keyed upstream is reused without re-prompting. savedUp/Key mirror what is already
 		// on disk so a re-detection of the same endpoint is a no-op (no SaveUpstream write).
@@ -284,6 +292,7 @@ func (c *Controller) ToggleOnAir(model string) ToggleResult {
 	if sess := c.sessions[model]; sess != nil {
 		sess.Stop()
 		delete(c.sessions, model)
+		c.releaseLockLocked(model)
 		res.WentOff = true
 		return res
 	}
@@ -343,6 +352,9 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 	if sess := c.sessions[model]; sess != nil {
 		sess.Stop()
 		delete(c.sessions, model)
+		// Release BEFORE the restart below re-acquires: a stale release closure from
+		// the old session must never be able to delete the fresh session's lock.
+		c.releaseLockLocked(model)
 	}
 	p := c.pricingForLocked(model)
 	sess, err := c.startLocked(row, p, goPrivate)
@@ -362,6 +374,10 @@ func (c *Controller) TogglePrivate(model string) PrivateResult {
 
 // startLocked launches an agent.Session for row at pricing p (caller holds the lock).
 // Same unique/stable/privacy-preserving node id the CLI uses: <station>-<model>.
+// It first claims the node id's cross-process ON-AIR lock (internal/onair, the same
+// file the headless daemon holds): if another LIVE process is broadcasting this node
+// id the start is refused with the daemon's exact error - the front-ends render it
+// verbatim - instead of double-registering and rotating that process's bridge token.
 func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.Session, error) {
 	up := row.Upstream
 	if up == "" {
@@ -369,17 +385,37 @@ func (c *Controller) startLocked(row ShareRow, p Pricing, private bool) (*agent.
 	}
 	upKey := pickUpstreamKey(up, row.UpstreamKey, c.upstream, c.upstreamKey)
 	node := agent.ShareNodeID(c.station, row.Model, 0)
+	release, err := onair.Acquire(node, c.station, row.Model)
+	if err != nil {
+		return nil, err
+	}
 	// The SHARE VOICE BOOTH result (if any) rides onto the offer so a voice goes on air as the
 	// operator's named DJ with their picked voice/blend/speed. An unconfigured model has the zero
 	// VoiceConfig, so a plain chat share carries no voice metadata (unchanged).
 	vc := c.voices[row.Model]
-	return startAgent(agent.Config{
+	sess, err := startAgent(agent.Config{
 		Broker: c.broker, Upstream: up, UpstreamKey: upKey, NodeID: node, Station: c.station,
 		Region: "home", HW: c.hw, Model: row.Model, Modality: row.Modality,
 		PriceIn: p.In, PriceOut: p.Out, Ctx: row.Ctx, CtxEstimated: row.CtxEstimated, Parallel: 4,
 		Private: private, Schedule: SchedToProtocol(p.Windows),
 		Name: vc.Name, Voice: vc.Voice, Speed: vc.Speed, Language: vc.Language, SampleURL: vc.SampleURL,
 	})
+	if err != nil {
+		release() // a failed start must not leave the node id locked
+		return nil, err
+	}
+	c.locks[row.Model] = release
+	return sess, nil
+}
+
+// releaseLockLocked releases a stopped session's on-air lock (caller holds c.mu).
+// Nil-safe for sessions the controller never locked (Adopt'ed ones - their host owns
+// the lock).
+func (c *Controller) releaseLockLocked(model string) {
+	if rel := c.locks[model]; rel != nil {
+		rel()
+		delete(c.locks, model)
+	}
 }
 
 // SetVoiceConfig records the SHARE VOICE BOOTH result for a model (dj-name + voice/blend + speed +
@@ -490,6 +526,7 @@ func (c *Controller) StopAll() {
 			sess.Stop()
 		}
 		delete(c.sessions, mdl)
+		c.releaseLockLocked(mdl)
 	}
 }
 

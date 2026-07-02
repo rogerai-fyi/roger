@@ -126,12 +126,12 @@ func TestTunnelForLazyLearnsFromShared(t *testing.T) {
 	}
 
 	// A poll/heartbeat/result on A calls tunnelFor -> it must learn n1 from the shared store.
-	tun := a.tunnelFor("n1")
+	tun, tok := a.tunnelFor("n1")
 	if tun == nil {
 		t.Fatal("tunnelFor returned nil - A would 404 the node and trigger a re-register storm")
 	}
-	if tun.token != token {
-		t.Fatalf("lazily-learned tunnel has token %q, want %q (auth would fail otherwise)", tun.token, token)
+	if tok != token {
+		t.Fatalf("lazily-learned tunnel has token %q, want %q (auth would fail otherwise)", tok, token)
 	}
 	a.mu.Lock()
 	_, nowKnown := a.nodes["n1"]
@@ -141,7 +141,7 @@ func TestTunnelForLazyLearnsFromShared(t *testing.T) {
 	}
 
 	// An unknown node still returns nil (it is unknown on every instance).
-	if a.tunnelFor("ghost") != nil {
+	if ghost, _ := a.tunnelFor("ghost"); ghost != nil {
 		t.Fatal("tunnelFor must return nil for a node unknown on every instance")
 	}
 }

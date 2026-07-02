@@ -239,7 +239,7 @@ func (s *attMirrorState) onlyInSharedStore(node string) error {
 }
 
 func (s *attMirrorState) bLearnsViaTunnelFor(node string) error {
-	if t := s.b.tunnelFor(node); t == nil {
+	if t, _ := s.b.tunnelFor(node); t == nil {
 		return fmt.Errorf("tunnelFor(%s) should learn the node from the shared store", node)
 	}
 	return nil

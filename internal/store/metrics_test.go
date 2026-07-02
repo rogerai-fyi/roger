@@ -1,8 +1,12 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,14 +32,67 @@ func parityStores(t *testing.T) map[string]Store {
 	return out
 }
 
+// storePrivateOnce guards the one-time CREATE DATABASE for the private store db.
+var storePrivateOnce sync.Once
+
+// storePrivateDSN redirects this package's Postgres tests to their OWN database
+// (<dbname>_store on the same server, created on first use with the rogerai schema).
+//
+// WHY: freshPostgres TRUNCATEs every data table, which is safe WITHIN this package
+// (tests run sequentially) but `go test ./...` runs PACKAGES in parallel against the
+// ONE shared ROGERAI_TEST_DATABASE_URL - the truncate was wiping the broker BDD
+// suites' wallets mid-scenario, surfacing as a flaky 402 "insufficient balance" in
+// the cover-gate (the multinode liveness relay). A private database keeps the clean-
+// slate semantics while making the truncate physically unable to touch any other
+// package's rows. A DSN that doesn't parse as a URL keeps the old shared-db behavior.
+func storePrivateDSN(t *testing.T, dsn string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil || u.Path == "" || u.Path == "/" {
+		return dsn
+	}
+	name := strings.TrimPrefix(u.Path, "/") + "_store"
+	storePrivateOnce.Do(func() {
+		admin, aerr := sql.Open("pgx", dsn)
+		if aerr != nil {
+			t.Fatalf("private store db: open admin: %v", aerr)
+		}
+		defer admin.Close()
+		// No CREATE DATABASE IF NOT EXISTS in Postgres: create + tolerate "already exists".
+		if _, cerr := admin.Exec(`CREATE DATABASE ` + quotePGIdent(name)); cerr != nil &&
+			!strings.Contains(cerr.Error(), "already exists") {
+			t.Fatalf("private store db: create %s: %v", name, cerr)
+		}
+	})
+	u.Path = "/" + name
+	private := u.String()
+	// The container provisions the rogerai schema out-of-band for the shared db (see
+	// scripts/cover-gate.sh); mirror that for the private one.
+	pdb, err := sql.Open("pgx", private)
+	if err != nil {
+		t.Fatalf("private store db: open: %v", err)
+	}
+	defer pdb.Close()
+	if _, err := pdb.Exec(`CREATE SCHEMA IF NOT EXISTS rogerai`); err != nil {
+		t.Fatalf("private store db: schema: %v", err)
+	}
+	return private
+}
+
+// quotePGIdent quotes a Postgres identifier (the db name comes from the trusted test
+// DSN, but quote defensively anyway).
+func quotePGIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
 // freshPostgres opens the real Postgres store and TRUNCATEs every data table so the
 // test starts from a clean slate. The DB is shared and persistent (podman container),
 // so without this, rows from a prior run leak into a later run's time window and break
 // count assertions. Go tests in a package run sequentially, so a per-test truncate is
-// safe. Every Postgres-backed parity helper routes through here.
+// safe - and it runs against this package's PRIVATE database (storePrivateDSN), so a
+// concurrently-running package's rows on the shared db are untouchable. Every
+// Postgres-backed parity helper routes through here.
 func freshPostgres(t *testing.T, dsn string) *Postgres {
 	t.Helper()
-	pg, err := NewPostgres(dsn)
+	pg, err := NewPostgres(storePrivateDSN(t, dsn))
 	if err != nil {
 		t.Fatalf("postgres: %v", err)
 	}

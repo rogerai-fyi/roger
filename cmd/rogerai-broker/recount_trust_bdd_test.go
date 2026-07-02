@@ -139,6 +139,15 @@ func (s *trState) holdsEvenWithoutSidecar() error {
 
 // --- exact vs heuristic ----------------------------------------------------
 
+// trustOf reads the node's trust row UNDER metricsMu: settleRecount runs
+// observeRecount on a goroutine that writes b.trust under that lock, so a bare map
+// read here raced it (caught by `go test -race`).
+func (s *trState) trustOf() trustState {
+	s.b.metricsMu.Lock()
+	defer s.b.metricsMu.Unlock()
+	return s.b.trust[s.node]
+}
+
 func (s *trState) modelHeuristicOnly() error { s.claim, s.recount = 1000, 400; return nil }
 
 func (s *trState) heuristicDiffersFromClaim() error {
@@ -147,8 +156,8 @@ func (s *trState) heuristicDiffersFromClaim() error {
 }
 
 func (s *trState) noDiscrepancyRecorded() error {
-	if s.b.trust[s.node].discrepancies != 0 {
-		return fmt.Errorf("a heuristic re-count must not flag a discrepancy, got %d", s.b.trust[s.node].discrepancies)
+	if s.trustOf().discrepancies != 0 {
+		return fmt.Errorf("a heuristic re-count must not flag a discrepancy, got %d", s.trustOf().discrepancies)
 	}
 	if s.held() {
 		return fmt.Errorf("a heuristic re-count must not hold the node's lots")
@@ -169,9 +178,9 @@ func (s *trState) clampedNoStrike() error {
 	if s.billed != s.recount {
 		return fmt.Errorf("billed %d, want the verified count %d (the lesser)", s.billed, s.recount)
 	}
-	if s.b.trust[s.node].discrepancies != 0 || s.held() || s.strikeCount() != before {
+	if s.trustOf().discrepancies != 0 || s.held() || s.strikeCount() != before {
 		return fmt.Errorf("a within-tolerance variance must not record a discrepancy/hold/strike (disc=%d held=%v strikes=%d->%d)",
-			s.b.trust[s.node].discrepancies, s.held(), before, s.strikeCount())
+			s.trustOf().discrepancies, s.held(), before, s.strikeCount())
 	}
 	return nil
 }
@@ -186,8 +195,8 @@ func (s *trState) exactBelowByMoreThanTolerance() error {
 
 func (s *trState) discrepancyRecordedAndHeld() error {
 	s.b.observeRecount(s.node, "", s.claim, s.recount, true)
-	if s.b.trust[s.node].discrepancies != 1 {
-		return fmt.Errorf("a past-tolerance exact over-report must record a discrepancy, got %d", s.b.trust[s.node].discrepancies)
+	if s.trustOf().discrepancies != 1 {
+		return fmt.Errorf("a past-tolerance exact over-report must record a discrepancy, got %d", s.trustOf().discrepancies)
 	}
 	if !s.held() {
 		return fmt.Errorf("a past-tolerance discrepancy must HOLD the node's lots from promotion")

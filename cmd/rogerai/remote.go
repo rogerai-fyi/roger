@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -124,7 +125,12 @@ func remoteAttach(cfg config, code string) error {
 	// A background reader lets you type turns while the stream prints. The confirm gate
 	// ensures a bare y/n is only sent as a confirm ANSWER while the host is actually asking.
 	gate := &confirmGate{}
-	go remoteInputLoop(ctx, cfg.Broker, att.SessionID, att.AttachToken, gate)
+	// os.Stdin is captured HERE, once, and passed in: the loop is fire-and-forget (a
+	// terminal read cannot be canceled portably, so it cannot be joined), and a loop
+	// re-reading the GLOBAL os.Stdin from that leaked goroutine races anyone who
+	// swaps the global later (`go test -race` caught it against the test harness's
+	// stdin restore).
+	go remoteInputLoop(ctx, cfg.Broker, att.SessionID, att.AttachToken, os.Stdin, gate)
 
 	err = client.StreamRC(ctx, cfg.Broker, att.SessionID, att.AttachToken, 0, func(f protocol.RCFrame) {
 		switch f.Kind {
@@ -165,10 +171,11 @@ func remoteAttach(cfg config, code string) error {
 	return nil
 }
 
-// remoteInputLoop reads stdin lines and sends each as a turn. A bare y/n/yes/no is sent as a
+// remoteInputLoop reads lines from `in` (the caller's stdin, captured once at spawn -
+// never the global, see remoteAttach) and sends each as a turn. A bare y/n/yes/no is sent as a
 // CONFIRM answer ONLY while the host is actually awaiting one (the gate) — carrying the confirm
 // id so a stale answer can never resolve a different tool; otherwise it is an ordinary turn.
-func remoteInputLoop(ctx context.Context, broker, sid, attach string, gate *confirmGate) {
+func remoteInputLoop(ctx context.Context, broker, sid, attach string, stdin io.Reader, gate *confirmGate) {
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -176,7 +183,7 @@ func remoteInputLoop(ctx context.Context, broker, sid, attach string, gate *conf
 			return
 		default:
 		}
-		n, err := os.Stdin.Read(buf)
+		n, err := stdin.Read(buf)
 		if err != nil {
 			return
 		}

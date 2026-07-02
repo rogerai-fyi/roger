@@ -20,8 +20,11 @@
 # DECISIONS PINNED BY THIS SPEC (await founder approval):
 #   B1  a NON-STREAM node result MUST carry an arbitrary binary body node -> broker -> consumer
 #       byte-for-byte identical (no JSON-mangling, no truncation, no base64 leaking to the client).
-#   B2  the consumer receives the broker-declared Content-Type for the modality (audio/mpeg for TTS)
-#       — the binary is delivered as audio, not as an error JSON.
+#   B2  the consumer receives an AUDIO Content-Type - the binary is delivered as audio, not as an
+#       error JSON. 2026-07-02 (founder-approved tts_content_type.feature): the header follows the
+#       ACTUAL bytes first (RIFF/WAVE -> audio/wav, MP3 -> audio/mpeg), then the requested
+#       response_format, then the audio/mpeg default - superseding the old static audio/mpeg,
+#       which mislabeled Kokoro's WAV default (the live incident).
 #   B3  the receipt STILL settles on the binary path: the consumer's wallet is debited the exact
 #       broker-counted char cost, identical to a JSON result — the return-encoding change is
 #       money-neutral.
@@ -45,7 +48,9 @@ Feature: A binary (non-stream) node result flows node -> broker -> consumer inta
       When the consumer requests speech for the text "roger that"
       Then the consumer receives HTTP 200
       And the response body is byte-for-byte the upstream's WAV
-      And the response Content-Type is "audio/mpeg"
+      # 2026-07-02 (B2, re-approved): the header follows the ACTUAL bytes - a WAV body
+      # is audio/wav, no longer the static audio/mpeg that mislabeled it.
+      And the response Content-Type is "audio/wav"
 
     Scenario: An arbitrary non-JSON binary payload is relayed unchanged
       Given the upstream returns a non-JSON binary payload
