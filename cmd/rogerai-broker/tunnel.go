@@ -1529,9 +1529,16 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			jsonErr(w, st, msg)
 			return
 		}
-		b.ensureSeeded(payer) // seed new users so the hold can land (W4: skip the upsert
-		// tx for an already-seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT
-		// stays the real guard, so a lost flag just re-runs the harmless no-op upsert)
+		// Seed new users so the hold can land (W4: skip the upsert tx for an already-
+		// seeded wallet via the Redis seeded flag; Postgres ON-CONFLICT stays the real
+		// guard, so a lost flag just re-runs the harmless no-op upsert). A seed-tx
+		// failure is the SAME retryable store failure as a hold failure below - it must
+		// never fall through to HoldFor, where the unseeded wallet would misread as a
+		// 402 "insufficient balance" (features/money/seed_failure.feature).
+		if serr := b.ensureSeeded(payer); serr != nil {
+			jsonErr(w, http.StatusInternalServerError, "wallet error")
+			return
+		}
 		held, herr := b.db.HoldFor(payer, requestID, maxCost) // tracked: the deploy-orphan sweep reclaims it if this relay is SIGKILLed mid-flight
 		if herr != nil {
 			jsonErr(w, http.StatusInternalServerError, "wallet error")
