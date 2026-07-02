@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -330,10 +331,39 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 	t.mu.Unlock()
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
-	select {
-	case t.jobs <- job:
-	case <-time.After(2 * time.Second):
-		return "", false // no poller free
+	// Multi-instance: the picked node's poller may be on a PEER instance, and its result comes
+	// back over the bus (agentResult publishes to the bus, never t.waiters, when multiInstance),
+	// so dispatch over the bus like relay()/audio.go do - otherwise resCh never fills and Ping
+	// hangs the full relayWait (30s) before falling back to Groq on every band-node pick (audit
+	// #7). busDispatchJob publishes the job (single-delivered via the agentPoll claim) and hands
+	// back the per-job result channel; forward it to resCh so the wait below is unchanged.
+	if b.multiInstance && b.shared != nil {
+		ch, cancel, derr := b.busDispatchJob(context.Background(), node, job)
+		if cancel != nil {
+			defer cancel()
+		}
+		if derr != nil {
+			return "", false // no poller on any instance / bus error -> fall through to Groq
+		}
+		go func() {
+			raw, ok := <-ch
+			if !ok {
+				return
+			}
+			var br protocol.JobResult
+			if json.Unmarshal(raw, &br) == nil {
+				select {
+				case resCh <- br:
+				default:
+				}
+			}
+		}()
+	} else {
+		select {
+		case t.jobs <- job:
+		case <-time.After(2 * time.Second):
+			return "", false // no poller free
+		}
 	}
 	select {
 	case res := <-resCh:
@@ -464,10 +494,41 @@ func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byt
 	defer func() { t.mu.Lock(); delete(t.waiters, job.ID); t.mu.Unlock() }()
 
 	c := b.concierge
-	select {
-	case t.jobs <- job:
-	case <-time.After(2 * time.Second):
-		return "", false, false // no poller free - retryable
+	// Multi-instance: dispatch over the bus (single-delivered via the agentPoll claim) so a
+	// result served on a PEER instance still reaches resCh - the local t.jobs path would hang
+	// the full relayWait (audit #7). errNoPoller stays retryable (like the local enqueue
+	// timeout); any other bus error is a real miss so the retry loop does not spin on a broken bus.
+	if b.multiInstance && b.shared != nil {
+		ch, cancel, derr := b.busDispatchJob(context.Background(), node, job)
+		if cancel != nil {
+			defer cancel()
+		}
+		if derr != nil {
+			if derr == errNoPoller {
+				return "", false, false // no poller on any instance - retryable
+			}
+			log.Printf("CONCIERGE grant-dogfood miss: relay-error (bus dispatch) model=%q node=%s: %v", model, node, derr)
+			return "", false, true
+		}
+		go func() {
+			raw, ok := <-ch
+			if !ok {
+				return
+			}
+			var br protocol.JobResult
+			if json.Unmarshal(raw, &br) == nil {
+				select {
+				case resCh <- br:
+				default:
+				}
+			}
+		}()
+	} else {
+		select {
+		case t.jobs <- job:
+		case <-time.After(2 * time.Second):
+			return "", false, false // no poller free - retryable
+		}
 	}
 	select {
 	case res := <-resCh:
