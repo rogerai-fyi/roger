@@ -320,6 +320,15 @@ type Store interface {
 	// (a redelivery returns AlreadyHandled=true and does nothing). With an explicit
 	// requestID it targets that one request's lots (legacy/precise path).
 	ChargebackLineage(disputeID, wallet, requestID string, amount float64, now time.Time) (ChargebackResult, error)
+	// RefundLineage claws back a VOLUNTARY Stripe refund with the same lineage engine as a
+	// dispute, but idempotent on the REFUND id and capped at the charge's still-unrecovered
+	// amount (so a refund after a dispute on the same charge never double-debits the
+	// consumer). chargeRefs are every ref (payment_intent + charge id) resolving to the
+	// charge; returns the clawback result and the EFFECTIVE credits debited.
+	RefundLineage(refundID string, chargeRefs []string, wallet, requestID string, refundAmount float64, now time.Time) (ChargebackResult, float64, error)
+	// NoteRecovery records money already recovered on a charge (called by the dispute path)
+	// so a later refund on the SAME charge is capped and never double-recovers.
+	NoteRecovery(chargeRefs []string, amount float64) error
 	// LinkCharge persists the mapping from a Stripe payment_intent / charge id to the
 	// (wallet, credits) of a completed checkout, so a later charge.dispute.created
 	// (which carries NONE of the checkout metadata) can resolve the wallet to claw
@@ -620,7 +629,13 @@ type Mem struct {
 	payouts  []Payout        // payout history
 	payoutID int64           // monotonic payout id
 	disputes map[string]bool // seen stripe dispute ids (idempotency)
-	settled  map[string]bool // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
+	refunds  map[string]bool // seen stripe refund ids (idempotency, separate namespace)
+	// recoveredOnCharge tracks total consumer money already recovered per stripe charge
+	// ref (dispute + refund), so a refund after a dispute on the SAME charge never debits
+	// the consumer beyond the charge amount (no double-recovery). Keyed by every known
+	// charge ref (payment_intent AND charge id) that resolves to the charge.
+	recoveredOnCharge map[string]float64
+	settled           map[string]bool // requestIDs already Settled/Finalized (idempotency: a 2nd settle is a no-op, no double-credit / lot drift)
 	// pendingHolds is the deploy-orphan backstop registry: requestID -> the still-open
 	// relay pre-auth hold (HoldFor records it; Finalize/ReleaseHoldFor clear it; the
 	// ReleaseStaleHolds sweep reclaims any left stranded by a SIGKILLed relay). Guarded by mu.
@@ -690,7 +705,8 @@ func NewMem() *Mem {
 		processed: map[string]bool{}, owners: map[string]Owner{}, policy: LoadPayoutPolicy(),
 		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		pendingHolds: map[string]pendingHold{},
-		charges:      map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
+		refunds:      map[string]bool{}, recoveredOnCharge: map[string]float64{},
+		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
@@ -1796,8 +1812,93 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 		return ChargebackResult{AlreadyHandled: true}, nil // idempotent on the stripe dispute id
 	}
 	m.disputes[disputeID] = true
+	return m.recoverLineageLocked(disputeID, KindChargeback, "dispute:", wallet, requestID, amount, 0, now), nil
+}
+
+// RefundLineage claws back a VOLUNTARY Stripe refund exactly like a dispute (the
+// operator's share of the refunded consumer's lots is clawed/reversed; the shortfall is
+// platform loss; the consumer wallet is debited), but is idempotent on the REFUND id and
+// caps the debit at the charge's still-unrecovered amount so a refund after a dispute on
+// the same charge never double-debits. chargeRefs are every ref (payment_intent + charge
+// id) that resolves to the charge; refundAmount is in credits. Returns the clawback
+// result and the EFFECTIVE amount debited (0 when already fully recovered / already seen).
+func (m *Mem) RefundLineage(refundID string, chargeRefs []string, wallet, requestID string, refundAmount float64, now time.Time) (ChargebackResult, float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.refunds[refundID] {
+		return ChargebackResult{AlreadyHandled: true}, 0, nil // idempotent on the stripe refund id
+	}
+	m.refunds[refundID] = true
+	eff := m.capToChargeLocked(chargeRefs, refundAmount)
+	if eff <= 1e-9 {
+		return ChargebackResult{}, 0, nil // already fully recovered / zero refund - no debit
+	}
+	// A refund of UNSPENT credits is reclaimed from the consumer's own positive balance
+	// (money the platform still holds), NOT a platform loss - so only the portion beyond
+	// the unspent balance and the operator clawback is a real platform loss.
+	unspent := m.wallet[wallet]
+	if unspent < 0 {
+		unspent = 0
+	}
+	res := m.recoverLineageLocked(refundID, KindRefund, "refund:", wallet, requestID, eff, unspent, now)
+	m.addRecoveredLocked(chargeRefs, eff)
+	return res, eff, nil
+}
+
+// NoteRecovery records money already recovered on a charge (called by the DISPUTE path so
+// a later refund on the same charge is capped). Additive; keyed by every charge ref.
+func (m *Mem) NoteRecovery(chargeRefs []string, amount float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.addRecoveredLocked(chargeRefs, amount)
+	return nil
+}
+
+// capToChargeLocked returns amount clamped to the charge's remaining (credits minus what
+// was already recovered). With no known charge (empty refs / unmapped) it does not cap.
+func (m *Mem) capToChargeLocked(chargeRefs []string, amount float64) float64 {
+	chargeTotal, recovered := 0.0, 0.0
+	for _, ref := range chargeRefs {
+		if c, ok := m.charges[ref]; ok && c.credits > chargeTotal {
+			chargeTotal = c.credits
+		}
+		if r := m.recoveredOnCharge[ref]; r > recovered {
+			recovered = r
+		}
+	}
+	if chargeTotal <= 0 {
+		return amount // unknown charge total: don't cap
+	}
+	room := chargeTotal - recovered
+	if room < 0 {
+		room = 0
+	}
+	if amount > room {
+		return room
+	}
+	return amount
+}
+
+func (m *Mem) addRecoveredLocked(chargeRefs []string, amount float64) {
+	base := 0.0
+	for _, ref := range chargeRefs {
+		if r := m.recoveredOnCharge[ref]; r > base {
+			base = r
+		}
+	}
+	for _, ref := range chargeRefs {
+		m.recoveredOnCharge[ref] = base + amount
+	}
+}
+
+// recoverLineageLocked is the shared consumer-clawback engine for a dispute (id=dispute
+// id, kind=KindChargeback) OR a refund (id=refund id, kind=KindRefund): it debits the
+// consumer wallet, then claws/reverses the operator's share of that consumer's OWN lots up
+// to `amount`, recording any shortfall as platform loss. Caller holds m.mu and owns
+// idempotency.
+func (m *Mem) recoverLineageLocked(id, consumerKind, consumerRefPrefix, wallet, requestID string, amount, unspentReclaim float64, now time.Time) ChargebackResult {
 	m.wallet[wallet] -= amount
-	m.appendLedgerLocked(wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix())
+	m.appendLedgerLocked(wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix())
 
 	// Lineage: target THIS consumer wallet's OWN lots (via the receipts/entries link),
 	// never unrelated operators'. With an explicit requestID we target that one request
@@ -1870,13 +1971,13 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 		case LotPaid:
 			// Already paid out: reverse the (proportional) operator share via Stripe (6.4
 			// step 4) + a payout_reversed ledger row.
-			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			m.appendLedgerLocked(l.AccountID, "operator", KindPayoutReversed, -clawGross, "reverse:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
 			res.Reversals = append(res.Reversals, Reversal{
-				DisputeID: disputeID, LotID: l.ID, AccountID: l.AccountID,
+				DisputeID: id, LotID: l.ID, AccountID: l.AccountID,
 				TransferID: transferOf(l.PayoutID), Amount: clawGross,
 			})
 		default: // held / payable: claw in place, no Stripe action.
-			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+disputeID+":"+l.RequestID, StatePosted, disputeID, now.Unix())
+			m.appendLedgerLocked(l.AccountID, "operator", KindAdjustment, -clawGross, "claw:"+id+":"+l.RequestID, StatePosted, id, now.Unix())
 			res.Clawed += clawGross
 		}
 		recovered += clawGross
@@ -1892,11 +1993,11 @@ func (m *Mem) ChargebackLineage(disputeID, wallet, requestID string, amount floa
 
 	// Any disputed amount NOT covered by this consumer's lots is a PLATFORM LOSS - the
 	// platform eats it rather than clawing unrelated, honest operators' earnings.
-	if remainder := amount - recovered; remainder > 1e-9 {
+	if remainder := amount - recovered - unspentReclaim; remainder > 1e-9 {
 		res.PlatformLoss = remainder
-		m.appendLedgerLocked("platform", "platform", KindPlatformLoss, -remainder, "loss:"+disputeID, StatePosted, disputeID, now.Unix())
+		m.appendLedgerLocked("platform", "platform", KindPlatformLoss, -remainder, "loss:"+id, StatePosted, id, now.Unix())
 	}
-	return res, nil
+	return res
 }
 
 func (m *Mem) LinkCharge(sessionID, paymentIntent, charge_, wallet string, credits float64) error {

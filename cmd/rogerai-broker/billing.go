@@ -194,10 +194,17 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				ID                string `json:"id"`
 				ClientReferenceID string `json:"client_reference_id"`
 				AmountTotal       int    `json:"amount_total"`
-				Amount            int    `json:"amount"`         // dispute objects carry `amount`
-				PaymentIntent     string `json:"payment_intent"` // session + dispute carry this
-				Charge            string `json:"charge"`         // dispute carries the charge id
-				Metadata          struct {
+				Amount            int    `json:"amount"`          // dispute objects carry `amount`
+				AmountRefunded    int    `json:"amount_refunded"` // charge.refunded: CUMULATIVE refunded
+				PaymentIntent     string `json:"payment_intent"`  // session + dispute carry this
+				Charge            string `json:"charge"`          // dispute carries the charge id
+				Refunds           struct {
+					Data []struct {
+						ID     string `json:"id"`
+						Amount int    `json:"amount"`
+					} `json:"data"`
+				} `json:"refunds"` // charge.refunded: the individual refund objects
+				Metadata struct {
 					User      string `json:"user"`
 					Credits   string `json:"credits"`
 					RequestID string `json:"request_id"`
@@ -250,6 +257,9 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				jsonErr(w, http.StatusInternalServerError, "store error")
 				return
 			}
+			// Record the dispute recovery on the charge so a later refund on the SAME
+			// charge is capped and never double-debits the consumer.
+			_ = b.db.NoteRecovery([]string{o.PaymentIntent, o.Charge}, amount)
 			b.reversePaidLots(o.ID, res.Reversals)
 			// Flag-gated transactional notice (async, best-effort): tell the consumer
 			// whose charge was disputed. No-op when RESEND_API_KEY is unset or no email.
@@ -258,6 +268,58 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 				o.ID, user, amount, res.Clawed, len(res.Reversals), res.PlatformLoss)
 		} else {
 			log.Printf("stripe: dispute %s could not resolve a wallet (pi=%s ch=%s amount=%.4f) - no clawback", o.ID, o.PaymentIntent, o.Charge, amount)
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+		return
+	}
+	if evt.Type == "charge.refunded" {
+		o := evt.Data.Object
+		// A charge.refunded object is a CHARGE: o.ID is the charge id, o.PaymentIntent the
+		// PI. Resolve the consumer wallet from the persisted checkout mapping (the charge
+		// object carries none of the checkout metadata).
+		chargeRefs := []string{o.PaymentIntent, o.ID}
+		user, _, ok, err := b.db.WalletByCharge(o.PaymentIntent)
+		if err != nil {
+			jsonErr(w, http.StatusInternalServerError, "store error")
+			return
+		}
+		if !ok {
+			if user, _, ok, err = b.db.WalletByCharge(o.Charge); err != nil {
+				jsonErr(w, http.StatusInternalServerError, "store error")
+				return
+			}
+			if !ok {
+				if user, _, ok, err = b.db.WalletByCharge(o.ID); err != nil {
+					jsonErr(w, http.StatusInternalServerError, "store error")
+					return
+				}
+			}
+		}
+		if !ok || user == "" {
+			// No mapping: acknowledge so Stripe stops retrying, but NEVER guess a wallet.
+			log.Printf("stripe: refund on charge %s (pi=%s) has no stored wallet mapping - acknowledged, NO clawback (manual follow-up)", o.ID, o.PaymentIntent)
+			writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+			return
+		}
+		// Apply each individual refund object idempotently by its refund id (the charge's
+		// amount_refunded is CUMULATIVE, so a redelivery carrying an already-seen refund is
+		// a no-op on that id and only the new refund is debited).
+		for _, rf := range o.Refunds.Data {
+			amount := float64(rf.Amount) / 100 / b.bill.creditUSD
+			if amount <= 0 {
+				continue
+			}
+			res, eff, err := b.db.RefundLineage(rf.ID, chargeRefs, user, "", amount, time.Now())
+			if err != nil {
+				jsonErr(w, http.StatusInternalServerError, "store error")
+				return
+			}
+			if res.AlreadyHandled || eff <= 0 {
+				continue
+			}
+			b.reversePaidLots(rf.ID, res.Reversals)
+			log.Printf("stripe: refund %s on %s -%.4f credits (clawed %.4f from held/payable, %d paid-lot reversal(s), platform loss %.4f)",
+				rf.ID, user, eff, res.Clawed, len(res.Reversals), res.PlatformLoss)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
 		return

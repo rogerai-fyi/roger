@@ -110,6 +110,14 @@ CREATE TABLE IF NOT EXISTS rogerai.checkout_charges (
     created_at TIMESTAMPTZ DEFAULT now());
 CREATE INDEX IF NOT EXISTS checkout_charges_pi ON rogerai.checkout_charges (payment_intent);
 CREATE INDEX IF NOT EXISTS checkout_charges_ch ON rogerai.checkout_charges (charge);
+-- recovered: total consumer money (disputes + refunds) already clawed back on this
+-- charge, so a voluntary refund after a dispute (or vice versa) never debits the
+-- consumer beyond the charge amount. Additive-migration safe (ADD COLUMN IF NOT EXISTS).
+ALTER TABLE rogerai.checkout_charges ADD COLUMN IF NOT EXISTS recovered DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- seen stripe refund ids (idempotency, separate namespace from disputes): a
+-- charge.refunded webhook redelivers at-least-once and one charge can be refunded N times.
+CREATE TABLE IF NOT EXISTS rogerai.refunds (
+    id TEXT PRIMARY KEY, wallet TEXT, amount DOUBLE PRECISION, created_at BIGINT);
 -- grant keys (GRANT-KEYS-DESIGN section 1.1): owner-issued private access keys.
 -- secret_hash UNIQUE is the auth lookup key; the secret itself is never stored.
 CREATE TABLE IF NOT EXISTS rogerai.grants (
@@ -1734,12 +1742,111 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ChargebackResult{AlreadyHandled: true}, tx.Commit() // already processed
 	}
+	out, err := p.recoverLineageTx(tx, disputeID, KindChargeback, "dispute:", wallet, requestID, amount, 0, now)
+	if err != nil {
+		return ChargebackResult{}, err
+	}
+	return out, tx.Commit()
+}
+
+// RefundLineage: see the Store interface. Idempotent on the refund id, capped at the
+// charge's still-unrecovered amount, using the shared recoverLineageTx engine.
+func (p *Postgres) RefundLineage(refundID string, chargeRefs []string, wallet, requestID string, refundAmount float64, now time.Time) (ChargebackResult, float64, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return ChargebackResult{}, 0, err
+	}
+	defer tx.Rollback()
+	ins, err := tx.Exec(`INSERT INTO rogerai.refunds(id,wallet,amount,created_at)
+		VALUES($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING`, refundID, wallet, refundAmount, now.Unix())
+	if err != nil {
+		return ChargebackResult{}, 0, err
+	}
+	if n, _ := ins.RowsAffected(); n == 0 {
+		return ChargebackResult{AlreadyHandled: true}, 0, tx.Commit() // refund already processed
+	}
+	// Cap at the charge's remaining (credits - already recovered) so a refund after a
+	// dispute on the same charge never double-debits. FOR UPDATE locks the row for the
+	// recovered increment below.
+	r1, r2 := chargeRefPair(chargeRefs)
+	eff := refundAmount
+	if r1 != "" || r2 != "" {
+		var credits, recovered float64
+		qerr := tx.QueryRow(`SELECT credits,recovered FROM rogerai.checkout_charges
+			WHERE payment_intent=$1 OR charge=$1 OR payment_intent=$2 OR charge=$2 LIMIT 1 FOR UPDATE`, r1, r2).Scan(&credits, &recovered)
+		if qerr == nil {
+			if room := credits - recovered; eff > room {
+				eff = room
+			}
+		} else if qerr != sql.ErrNoRows {
+			return ChargebackResult{}, 0, qerr
+		}
+	}
+	if eff <= 1e-9 {
+		return ChargebackResult{}, 0, tx.Commit() // already fully recovered / zero refund
+	}
+	// A refund of UNSPENT credits is reclaimed from the consumer's own positive balance
+	// (money the platform still holds), NOT a platform loss.
+	var unspent float64
+	if err := tx.QueryRow(`SELECT COALESCE(balance,0) FROM rogerai.wallet WHERE usr=$1`, wallet).Scan(&unspent); err != nil && err != sql.ErrNoRows {
+		return ChargebackResult{}, 0, err
+	}
+	if unspent < 0 {
+		unspent = 0
+	}
+	out, err := p.recoverLineageTx(tx, refundID, KindRefund, "refund:", wallet, requestID, eff, unspent, now)
+	if err != nil {
+		return ChargebackResult{}, 0, err
+	}
+	if r1 != "" || r2 != "" {
+		if _, err := tx.Exec(`UPDATE rogerai.checkout_charges SET recovered=recovered+$3
+			WHERE payment_intent=$1 OR charge=$1 OR payment_intent=$2 OR charge=$2`, r1, r2, eff); err != nil {
+			return ChargebackResult{}, 0, err
+		}
+	}
+	return out, eff, tx.Commit()
+}
+
+// NoteRecovery records dispute recovery on a charge so a later refund is capped.
+func (p *Postgres) NoteRecovery(chargeRefs []string, amount float64) error {
+	r1, r2 := chargeRefPair(chargeRefs)
+	if r1 == "" && r2 == "" {
+		return nil
+	}
+	_, err := p.db.Exec(`UPDATE rogerai.checkout_charges SET recovered=recovered+$3
+		WHERE payment_intent=$1 OR charge=$1 OR payment_intent=$2 OR charge=$2`, r1, r2, amount)
+	return err
+}
+
+// chargeRefPair returns up to the first two non-empty charge refs (payment_intent, charge
+// id) as scalar params - the webhook always passes exactly those two.
+func chargeRefPair(refs []string) (string, string) {
+	var out [2]string
+	n := 0
+	for _, r := range refs {
+		if r == "" {
+			continue
+		}
+		out[n] = r
+		if n++; n == 2 {
+			break
+		}
+	}
+	return out[0], out[1]
+}
+
+// recoverLineageTx is the shared consumer-clawback engine (dispute or refund) inside the
+// caller's transaction: debit the consumer, claw/reverse the operator share of that
+// consumer's OWN lots up to `amount`, book any shortfall as platform loss. The caller owns
+// idempotency and the commit.
+func (p *Postgres) recoverLineageTx(tx *sql.Tx, id, consumerKind, consumerRefPrefix, wallet, requestID string, amount, unspentReclaim float64, now time.Time) (ChargebackResult, error) {
 	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=balance-$2 WHERE usr=$1`, wallet, amount); err != nil {
 		return ChargebackResult{}, err
 	}
-	if err := appendLedger(tx, wallet, "consumer", KindChargeback, -amount, "dispute:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
+	if err := appendLedger(tx, wallet, "consumer", consumerKind, -amount, consumerRefPrefix+id, StatePosted, id, now.Unix()); err != nil {
 		return ChargebackResult{}, err
 	}
+	disputeID := id
 	// Lineage: target THIS consumer wallet's OWN lots (checkout_charges resolved the
 	// wallet; receipts attribute its lots), NEVER unrelated operators'. With an explicit
 	// requestID we claw that one request; otherwise the wallet's lots newest first,
@@ -1843,13 +1950,13 @@ func (p *Postgres) ChargebackLineage(disputeID, wallet, requestID string, amount
 		remaining -= c.cost * frac
 	}
 	// Unrecovered remainder is a PLATFORM LOSS (don't claw unrelated operators).
-	if remainder := amount - recovered; remainder > 1e-9 {
+	if remainder := amount - recovered - unspentReclaim; remainder > 1e-9 {
 		out.PlatformLoss = remainder
 		if err := appendLedger(tx, "platform", "platform", KindPlatformLoss, -remainder, "loss:"+disputeID, StatePosted, disputeID, now.Unix()); err != nil {
 			return ChargebackResult{}, err
 		}
 	}
-	return out, tx.Commit()
+	return out, nil
 }
 
 func (p *Postgres) LinkCharge(sessionID, paymentIntent, charge, wallet string, credits float64) error {
