@@ -111,6 +111,16 @@ type SharePrice struct {
 // headless `roger share` (via applyShareVoice). sample_url is passed through
 // UNVALIDATED: the broker owns voice-metadata validation/moderation, so the CLI never
 // pre-rejects what the broker accepts.
+//
+// The map KEY is the MODEL ID THE OFFER IS SHARED UNDER - what `roger share` resolves
+// as the model: the --model value (or the saved share.model / first-detected id), and
+// the row's model id in the TUI. A bare voice server with no /v1/models to enumerate
+// (kokoro-fastapi, most Whisper servers) is detected under a SYNTHESIZED id: "voice"
+// (tts) or "transcribe" (stt). So `roger share --model voice` reads
+// share_voices["voice"] - NOT the server family name ("kokoro") - and a rename
+// (`roger share --model roger-operator-voice`) reads the profile under that rename.
+// A missed key leaves a tts offer NAMELESS, which the broker rejects at register
+// ("voice name is empty after normalization").
 type ShareVoice struct {
 	Name      string  `json:"name,omitempty"`
 	Voice     string  `json:"voice,omitempty"`

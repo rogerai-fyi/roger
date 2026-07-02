@@ -38,8 +38,24 @@ func maybeOnboard(cfg config) config {
 	if err != nil || !ran {
 		return cfg // never block launch on a wizard hiccup / abort
 	}
-	_ = saveConfig(updated) // remember the choice so we never re-prompt
+	_ = saveOnboardConfig(updated) // remember the choice so we never re-prompt
 	return updated
+}
+
+// saveOnboardConfig persists a wizard outcome WITHOUT clobbering sections other
+// writers own. The wizard's in-memory cfg is a startup snapshot that can be minutes
+// stale by the time it saves (the operator sat in the interactive form; detection
+// scanned), so writing the whole snapshot deleted anything another process had added
+// to config.json in between (the 2026-07-02 07:58 share_voices loss - share_prices
+// and station were exposed the same way). Instead, follow the merge convention every
+// other writer already uses (saveStation, SavePrice, SaveUpstream, SaveCompact,
+// cmdShare's upstream save: re-read, mutate only the owned section, save): re-read
+// the file and apply only the sections the wizard owns - Onboarded and Share.
+func saveOnboardConfig(updated config) error {
+	c := loadConfig()
+	c.Onboarded = updated.Onboarded
+	c.Share = updated.Share
+	return saveConfig(c)
 }
 
 // wizardOpts carries non-interactive overrides (flags), so the wizard can be
@@ -65,7 +81,7 @@ func cmdOnboard(cfg config, args []string) error {
 	if err != nil {
 		return err
 	}
-	return saveConfig(updated)
+	return saveOnboardConfig(updated)
 }
 
 // runWizard drives the form. Returns (updatedConfig, ran, err). ran=false means
