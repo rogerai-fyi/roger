@@ -23,7 +23,7 @@
 # bus), report.go/syncBanRev (revoke coherence), grant.go (grant revoke), store
 # Hold/Finalize/ReleaseStaleHolds (money).
 #
-# Enforced by: cmd/rogerai-broker/cross_instance_relay_bdd_test.go - TWO broker
+# Enforced by: cmd/rogerai-broker/cross_instance_bdd_test.go - TWO broker
 # instances running the FULL route table over REAL HTTP (httptest servers), ONE REAL
 # Valkey (ROGERAI_TEST_REDIS_URL container when set - CI service / local podman -
 # else in-process miniredis speaking the real protocol), ONE shared store (real

@@ -113,6 +113,7 @@ type xiNode struct {
 	model    string
 	priceOut float64
 	station  string
+	private  bool // register as a --private band (owner-signed, separate mirror namespace)
 
 	ownerPriv ed25519.PrivateKey // set when the register is owner-signed
 	ownerPub  string
@@ -136,8 +137,8 @@ func (n *xiNode) register(t *testing.T, inst *xiInst) error {
 	t.Helper()
 	reg := protocol.NodeRegistration{
 		NodeID: n.id, PubKey: n.pub, BridgeToken: n.token, TS: time.Now().Unix(),
-		Station: n.station,
-		Offers:  []protocol.ModelOffer{{Model: n.model, PriceOut: n.priceOut, Ctx: 4096}},
+		Station: n.station, Private: n.private,
+		Offers: []protocol.ModelOffer{{Model: n.model, PriceOut: n.priceOut, Ctx: 4096}},
 	}
 	reg.SignRegistration(n.priv)
 	body, _ := json.Marshal(reg)
@@ -433,6 +434,12 @@ func (s *xiState) nodeRegistersOffering(name, instName, kind, model string) erro
 	return nil
 }
 
+func (s *xiState) nodeRegistersPrivateOn(name, instName string) error {
+	n := s.mkNode(name, "free-m", 0, true) // a private band HARD-requires an owner
+	n.private = true
+	return n.register(s.t, s.inst[instName])
+}
+
 func (s *xiState) nodeRegistersBoundToOwner(name, instName, model string) error {
 	n := s.mkNode(name, model, 0, true) // free but OWNER-SIGNED -> bound to the account
 	if err := n.register(s.t, s.inst[instName]); err != nil {
@@ -632,6 +639,37 @@ func (s *xiState) heartbeatsAlternating() error {
 func (s *xiState) heartbeatsBoth() error {
 	s.node.beat(s.t, s.inst["A"])
 	s.node.beat(s.t, s.inst["B"])
+	return nil
+}
+
+func (s *xiState) heartbeatsOn(inst string) error {
+	s.node.beat(s.t, s.inst[inst])
+	return nil
+}
+
+// absentFromDiscover asserts the node never surfaces in inst's PUBLIC /discover -
+// meaningful because the preceding heartbeat made inst LEARN the band (lazy-learn),
+// so the absence is the private filter working, not ignorance.
+func (s *xiState) absentFromDiscover(inst string) error {
+	resp, err := http.Get(s.inst[inst].url() + "/discover")
+	if err != nil {
+		return err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("/discover = %d", resp.StatusCode)
+	}
+	if bytes.Contains(body, []byte(s.node.id)) {
+		return fmt.Errorf("PRIVATE band %s leaked into instance %s's public /discover: %s", s.node.id, inst, body)
+	}
+	// The absence must not be vacuous: the instance does hold the band internally.
+	s.inst[inst].b.mu.Lock()
+	_, known := s.inst[inst].b.nodes[s.node.id]
+	s.inst[inst].b.mu.Unlock()
+	if !known {
+		return fmt.Errorf("instance %s never learned the band - the absence check would be vacuous", inst)
+	}
 	return nil
 }
 
@@ -1036,6 +1074,7 @@ func xiInitScenarios(t *testing.T) func(sc *godog.ScenarioContext) {
 		sc.Step(`^node "([^"]*)" registers over HTTP on instance ([AB])$`, st.nodeRegistersOn)
 		sc.Step(`^node "([^"]*)" registers over HTTP on instance ([AB]) offering (paid|free) model "([^"]*)"$`, st.nodeRegistersOffering)
 		sc.Step(`^node "([^"]*)" registers over HTTP on instance ([AB]) offering free model "([^"]*)" bound to an owner$`, st.nodeRegistersBoundToOwner)
+		sc.Step(`^node "([^"]*)" registers over HTTP on instance ([AB]) as a private band$`, st.nodeRegistersPrivateOn)
 		sc.Step(`^a persisted registration for node "([^"]*)" in the store$`, st.persistedRegistration)
 
 		// consumer / owner
@@ -1067,6 +1106,8 @@ func xiInitScenarios(t *testing.T) func(sc *godog.ScenarioContext) {
 		sc.Step(`^the node heartbeats every beat across more than two sweep cycles$`, st.heartbeatsSingle)
 		sc.Step(`^the node heartbeats alternating between A and B across more than two sweep cycles$`, st.heartbeatsAlternating)
 		sc.Step(`^the node heartbeats instance A and instance B$`, st.heartbeatsBoth)
+		sc.Step(`^the node heartbeats instance ([AB])$`, st.heartbeatsOn)
+		sc.Step(`^the node is absent from instance ([AB])'s public discovery$`, st.absentFromDiscover)
 		sc.Step(`^the broker runs its liveness sync sweep repeatedly$`, st.sweepRepeatedly)
 		sc.Step(`^both instances run their liveness sync sweep$`, st.sweepBoth)
 
@@ -1106,6 +1147,46 @@ func xiInitScenarios(t *testing.T) func(sc *godog.ScenarioContext) {
 		sc.Step(`^the operator has earned nothing$`, st.operatorEarnedNothing)
 		sc.Step(`^the stale-hold sweep finds no orphaned hold$`, st.sweepFindsNoOrphan)
 		sc.Step(`^the relay is rejected as unauthorized$`, st.relayUnauthorized)
+	}
+}
+
+// TestExpireStaleAttestationsRepublishesUnderFlagOff pins the widened gate at the
+// attestation-lapse republish (tunnel.go expireStaleAttestations): a confidential
+// downgrade must reach the SHARED registry whenever a shared backend is wired - with
+// the bus flag OFF too - or a peer process keeps granting the lapsed node the
+// confidential tier off the stale mirror. Before the task #52 symmetry fix this
+// republish was skipped under ROGERAI_MULTI_INSTANCE=0.
+func TestExpireStaleAttestationsRepublishesUnderFlagOff(t *testing.T) {
+	vs, err := newValkeyStore(xiRedisURL(t))
+	if err != nil {
+		t.Fatalf("valkey: %v", err)
+	}
+	t.Cleanup(func() { _ = vs.Close() })
+	b := relayBroker(store.NewMem())
+	b.shared = vs // flag OFF: b.multiInstance stays false
+	nodeID := "conf-lapse-" + xiNonce()
+	reg := protocol.NodeRegistration{NodeID: nodeID, BridgeToken: "tok", Confidential: true,
+		Offers: []protocol.ModelOffer{{Model: "free-m", Ctx: 4096}}}
+	b.nodes[nodeID] = reg
+	b.confidential[nodeID] = true
+	b.attestedAt = map[string]time.Time{nodeID: time.Now().Add(-2 * time.Hour)}
+	raw, _ := json.Marshal(reg)
+	if err := vs.putNode(nodeID, raw, livenessTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	b.expireStaleAttestations(time.Now(), time.Hour) // the lapse sweep
+
+	got, found, err := vs.getNode(nodeID)
+	if err != nil || !found {
+		t.Fatalf("shared registry lost the node (found=%v err=%v)", found, err)
+	}
+	var mirrored protocol.NodeRegistration
+	if err := json.Unmarshal(got, &mirrored); err != nil {
+		t.Fatal(err)
+	}
+	if mirrored.Confidential {
+		t.Fatal("the shared mirror still claims Confidential=true after the re-attestation lapsed - a peer process would keep granting the confidential tier (the flag=0 republish gate)")
 	}
 }
 
