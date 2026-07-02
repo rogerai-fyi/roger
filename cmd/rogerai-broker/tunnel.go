@@ -743,6 +743,20 @@ const syncLocalRegisterGrace = 15 * time.Second
 // source of truth for the bridge token (register publishes it on every register). PRIVATE
 // bands are mirrored too, in a SECOND pass from the separate private namespace and flagged
 // b.private=true, so they are resolvable + freq-routable on a peer yet never enter /discover.
+//
+// STALENESS GUARD (live /voices sample_url regression, 2026-07-02): registrations are
+// TOTALLY ORDERED by their node-signed TS (register enforces freshness, the reregistrar
+// stamps now on every re-register). A mirrored registration STRICTLY OLDER than the one
+// this instance holds is NEVER adopted - without this, a stale shared copy (left behind
+// when a register-time putNode write was lost to a Valkey blip, then kept alive
+// indefinitely by heartbeat markSeen) silently REPLACED a fresh local registration once
+// the grace lapsed: the offers regressed to the previous register (a newly-added
+// sample_url vanished from /voices while its sibling name/language survived) and the
+// whole fleet converged stale until the node happened to re-register. On detecting an
+// older mirror we RE-PUBLISH the fresher local copy (outside b.mu - network I/O), so the
+// shared registry and every peer HEAL to the newest registration instead. Equal-TS and
+// newer mirrors keep flowing unchanged - the bridge-token reconvergence fix depends on
+// adopting them. Pinned by sync_registry_staleness_test.go.
 func (b *broker) syncRegistry() {
 	if b.shared == nil {
 		return
@@ -755,8 +769,18 @@ func (b *broker) syncRegistry() {
 	if len(regs) == 0 && len(pregs) == 0 {
 		return
 	}
+	// heals collects the fresher LOCAL registrations whose shared mirror was found stale,
+	// marshaled UNDER the lock (a live offer can be mutated in place by applyOverrideLive,
+	// so the bytes are snapshotted while holding b.mu, exactly as the attestation-lapse and
+	// rehydrate re-publishes do) and re-published after the lock is dropped (network I/O),
+	// with register's exact drop+put sequence.
+	type heal struct {
+		id      string
+		raw     []byte
+		private bool
+	}
+	var heals []heal
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.private == nil {
 		b.private = map[string]bool{}
 	}
@@ -779,6 +803,13 @@ func (b *broker) syncRegistry() {
 		}
 		if reg.NodeID == "" {
 			reg.NodeID = id
+		}
+		if cur, ok := b.nodes[id]; ok && cur.TS > reg.TS {
+			// Strictly-older mirror: keep the fresher local reg + re-publish it (snapshotted here).
+			if raw, err := json.Marshal(cur); err == nil {
+				heals = append(heals, heal{id: id, raw: raw, private: cur.Private})
+			}
+			continue
 		}
 		b.nodes[id] = reg
 		// This node is in the PUBLIC registry, so it is public: clear any stale private flag
@@ -817,6 +848,13 @@ func (b *broker) syncRegistry() {
 		if reg.NodeID == "" {
 			reg.NodeID = id
 		}
+		if cur, ok := b.nodes[id]; ok && cur.TS > reg.TS {
+			// Strictly-older mirror: keep the fresher local reg + re-publish it (snapshotted here).
+			if raw, err := json.Marshal(cur); err == nil {
+				heals = append(heals, heal{id: id, raw: raw, private: cur.Private})
+			}
+			continue
+		}
 		b.nodes[id] = reg
 		b.private[id] = true
 		b.confidential[id] = reg.Confidential
@@ -832,6 +870,19 @@ func (b *broker) syncRegistry() {
 			b.tunnels[id] = &nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
 		} else {
 			b.tunnels[id].token = reg.BridgeToken
+		}
+	}
+	b.mu.Unlock()
+	// HEAL the shared registry outside the lock (network I/O): re-publish each fresher
+	// LOCAL registration over its stale mirror with register's exact drop+put sequence,
+	// so a private<->public flip never leaves a copy in the other namespace and every
+	// peer's next sync adopts the newest registration instead of the stale one.
+	for _, h := range heals {
+		_ = b.shared.dropSharedNode(h.id)
+		if h.private {
+			_ = b.shared.putPrivateNode(h.id, h.raw, livenessTTL)
+		} else {
+			_ = b.shared.putNode(h.id, h.raw, livenessTTL)
 		}
 	}
 }
