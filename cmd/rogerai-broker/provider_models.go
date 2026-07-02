@@ -213,9 +213,18 @@ func (b *broker) providerModelsSet(w http.ResponseWriter, o store.Owner, body []
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "applied": "live", "model": row})
 }
 
-// applyOverrideLive mutates the live in-memory offer for (node,model) to the override's
-// price/schedule and re-persists the node record, returning the updated row. ok=false
-// when the node is not currently in the registry (no live offer to mutate).
+// applyOverrideLive rewrites the live in-memory offer for (node,model) to the
+// override's price/schedule and re-persists the node record, returning the updated
+// row. ok=false when the node is not currently in the registry (no live offer to
+// mutate).
+//
+// COPY-ON-WRITE: the stored offers array is NEVER mutated in place. register() (the
+// shared-registry mirror marshal, the UpsertNode persist, and the effective_offers
+// echo) and this function's own post-unlock UpsertNode all read a published reg
+// AFTER dropping b.mu, so an in-place write here raced every one of those reads
+// (the #52 reviewer's race (a); pinned by TestRaceRegisterMirrorVsLiveOverride).
+// Mutating a fresh copy and republishing it keeps every already-published array
+// immutable.
 func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (providerModelRow, bool) {
 	now := time.Now()
 	b.mu.Lock()
@@ -224,6 +233,7 @@ func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (provid
 		b.mu.Unlock()
 		return providerModelRow{}, false
 	}
+	reg.Offers = append([]protocol.ModelOffer(nil), reg.Offers...)
 	var row providerModelRow
 	matched := false
 	for i := range reg.Offers {

@@ -404,12 +404,13 @@ func TestRemoteInputLoopConfirmGate(t *testing.T) {
 	defer srv.Close()
 
 	w := swapStdin(t)
+	stdin := os.Stdin // captured on the test goroutine, ordered with the swap + restore
 	gate := &confirmGate{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	loopDone := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", gate)
+		remoteInputLoop(ctx, srv.URL, "rcs_i", "at_i", stdin, gate)
 		close(loopDone)
 	}()
 
@@ -565,11 +566,12 @@ func TestTuiHooksRCClosures(t *testing.T) {
 func TestRemoteInputLoopCtxDone(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	_ = swapStdin(t) // open pipe: a read would block forever, proving the ctx exit
+	stdin := os.Stdin
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	done := make(chan struct{})
 	go func() {
-		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", &confirmGate{})
+		remoteInputLoop(ctx, "http://127.0.0.1:0", "s", "a", stdin, &confirmGate{})
 		close(done)
 	}()
 	select {

@@ -155,8 +155,8 @@ func TestReleaseStaleHoldsCrossInstancePostgres(t *testing.T) {
 	if dsn == "" {
 		t.Skip("cross-instance sweep needs ROGERAI_TEST_DATABASE_URL (a real Postgres) - skipping")
 	}
-	inst1 := freshPostgres(t, dsn) // truncates, then is instance #1
-	inst2, err := NewPostgres(dsn) // instance #2, same database
+	inst1 := freshPostgres(t, dsn)                     // truncates, then is instance #1
+	inst2, err := NewPostgres(storePrivateDSN(t, dsn)) // instance #2, SAME (private) database
 	if err != nil {
 		t.Fatalf("second instance: %v", err)
 	}

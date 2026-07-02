@@ -70,6 +70,10 @@ type epState struct {
 	crossInstance bool
 
 	savedWait time.Duration // non-zero: restore nonStreamRelayWait after the scenario
+	// stubJoin closes + joins the scenario's stub-station goroutines in the After
+	// hook, BEFORE the next scenario's reset(): an unjoined stub reading epState
+	// fields raced the next reset's write (caught by `go test -race`).
+	stubJoin []func()
 
 	// results
 	code       int
@@ -160,7 +164,10 @@ func (s *epState) run() error {
 	if err := mem.BindOwner(store.Owner{GitHubID: 42, Login: "op", Pubkey: "oppub"}); err != nil {
 		return err
 	}
+	stubDone := make(chan struct{})
+	s.stubJoin = append(s.stubJoin, func() { close(tun.jobs); <-stubDone })
 	go func() {
+		defer close(stubDone)
 		job, ok := <-tun.jobs
 		if !ok || s.noReply {
 			return
@@ -289,7 +296,12 @@ func (s *epState) runCrossInstance() error {
 		return err
 	}
 	defer cancelSub()
+	stubDone := make(chan struct{})
+	// The deferred cancel/cancelSub already end the subscription when this func
+	// returns; the After hook only needs to JOIN so no stub read outlives the scenario.
+	s.stubJoin = append(s.stubJoin, func() { <-stubDone })
 	go func() {
+		defer close(stubDone)
 		raw, ok := <-jobs
 		if !ok {
 			return
@@ -559,6 +571,11 @@ func TestVoiceErrorPassthroughBDD(t *testing.T) {
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) { st.reset(t); return ctx, nil })
 			sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+				// Join the scenario's stub goroutines BEFORE the next reset() can
+				// rewrite the state they read (the -race catch).
+				for _, join := range st.stubJoin {
+					join()
+				}
 				if st.savedWait != 0 {
 					nonStreamRelayWait = st.savedWait
 				}

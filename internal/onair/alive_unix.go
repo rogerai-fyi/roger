@@ -1,17 +1,17 @@
 //go:build !windows
 
-package main
+package onair
 
 import (
 	"os"
 	"syscall"
 )
 
-// processAlive reports whether a process with the given PID is currently running.
+// ProcessAlive reports whether a process with the given PID is currently running.
 // Signal 0 performs the kernel's permission/existence check without delivering a
 // signal: nil means the process exists (ESRCH => gone, EPERM => exists but ours to
 // not touch, still "alive").
-func processAlive(pid int) bool {
+func ProcessAlive(pid int) bool {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		return false

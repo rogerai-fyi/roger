@@ -630,14 +630,8 @@ func TestCmdOnboardNoFlags(t *testing.T) {
 }
 
 // --- on-air lock edges ---
-
-// TestLockSlugSanitizes covers lockSlug's default (replace-with-dash) branch for unsafe
-// filename characters.
-func TestLockSlugSanitizes(t *testing.T) {
-	if got := lockSlug("a b/c:d"); got != "a-b-c-d" {
-		t.Fatalf("lockSlug(%q) = %q, want a-b-c-d", "a b/c:d", got)
-	}
-}
+// (TestLockSlugSanitizes moved with lockSlug to internal/onair - see
+// onair.TestLockSlugKeepsNodeIDsFilesystemSafe, which keeps its exact case.)
 
 // TestOnAirLockEmptyStationMessage covers the "this machine" fallback in the already-on-air
 // error when the held lock has no station recorded.

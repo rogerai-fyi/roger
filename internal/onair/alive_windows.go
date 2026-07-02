@@ -1,13 +1,13 @@
 //go:build windows
 
-package main
+package onair
 
 import "syscall"
 
-// processAlive reports whether a process with the given PID is running on Windows,
+// ProcessAlive reports whether a process with the given PID is running on Windows,
 // where signal 0 isn't available. Open a query handle and check the exit code:
 // STILL_ACTIVE means it's still running. A handle that won't open is treated as gone.
-func processAlive(pid int) bool {
+func ProcessAlive(pid int) bool {
 	const (
 		processQueryLimitedInformation = 0x1000
 		stillActive                    = 259

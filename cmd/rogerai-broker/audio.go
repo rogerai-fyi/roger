@@ -91,7 +91,13 @@ func newAudioSem() chan struct{} {
 type audioSpec struct {
 	modality    string // protocol.ModalityTTS | ModalitySTT
 	path        string // upstream Path tag the node's bridge serves (/v1/audio/speech | /transcriptions)
-	contentType string // response Content-Type (audio/mpeg | application/json)
+	contentType string // response Content-Type when contentTypeOf is nil (application/json for STT)
+	// contentTypeOf, when set, derives the 200 Content-Type from the request + the
+	// node's result bytes (TTS: the station may ignore response_format, and the
+	// header must describe the audio ACTUALLY returned - the 2026-07-02 WAV-as-
+	// audio/mpeg incident; features/voice/tts_content_type.feature). nil keeps the
+	// static contentType.
+	contentTypeOf func(reqBody, resBody []byte) string
 	// screenOutput screens the node's RESULT text before returning it (STT: the
 	// transcription is text the broker hands the consumer, so it must pass the same
 	// policy as chat/TTS input - else STT is a laundering channel). TTS output is
@@ -108,11 +114,39 @@ type audioSpec struct {
 	parse func(r *http.Request, body []byte) (model string, units int, moderate, badReq string)
 }
 
+// ttsContentType picks the Content-Type for a TTS 200: the ACTUAL bytes first (the
+// station may ignore response_format - the header must describe what we really
+// return), then the REQUESTED response_format, then the historical audio/mpeg
+// default. Pinned by features/voice/tts_content_type.feature.
+func ttsContentType(reqBody, resBody []byte) string {
+	// RIFF/WAVE container (Kokoro's wav default starts exactly like this).
+	if len(resBody) >= 12 && string(resBody[:4]) == "RIFF" && string(resBody[8:12]) == "WAVE" {
+		return "audio/wav"
+	}
+	// MP3: an ID3 tag, or a bare MPEG frame-sync (0xFF + top three bits set).
+	if (len(resBody) >= 3 && string(resBody[:3]) == "ID3") ||
+		(len(resBody) >= 2 && resBody[0] == 0xFF && resBody[1]&0xE0 == 0xE0) {
+		return "audio/mpeg"
+	}
+	var req struct {
+		ResponseFormat string `json:"response_format"`
+	}
+	_ = json.Unmarshal(reqBody, &req)
+	switch strings.ToLower(strings.TrimSpace(req.ResponseFormat)) {
+	case "wav":
+		return "audio/wav"
+	case "mp3":
+		return "audio/mpeg"
+	}
+	return "audio/mpeg"
+}
+
 // audioRelay handles POST /v1/audio/speech (TTS): metered by the EXACT input characters (Unicode
 // runes) — the broker's count, never the node's claim — so the hold equals the final charge.
 func (b *broker) audioRelay(w http.ResponseWriter, r *http.Request) {
 	b.audioRelayCore(w, r, audioSpec{
 		modality: protocol.ModalityTTS, path: "/v1/audio/speech", contentType: "audio/mpeg",
+		contentTypeOf: ttsContentType,
 		parse: func(_ *http.Request, body []byte) (string, int, string, string) {
 			var req struct {
 				Model string `json:"model"`
@@ -462,7 +496,11 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 		if cost > 0 {
 			w.Header().Set("X-RogerAI-Balance", ftoa(round6(newBal)))
 		}
-		w.Header().Set("Content-Type", spec.contentType)
+		ct := spec.contentType
+		if spec.contentTypeOf != nil {
+			ct = spec.contentTypeOf(body, res.Body)
+		}
+		w.Header().Set("Content-Type", ct)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(res.Body)
 	case <-time.After(nonStreamRelayWait):

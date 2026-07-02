@@ -23,7 +23,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -593,25 +592,91 @@ func (s *xiState) rehydrates() error {
 }
 
 // --- Given/When: bans + grants ----------------------------------------------------
+// All three drive the REAL HTTP endpoints (the #52 review ask): the ban through the
+// public corroborated-report flow, the grant mint/revoke through the owner-signed
+// /grants surface - never a direct store write from the When side.
 
+// instanceBansNode ejects the node the way production does: enough DISTINCT
+// reporters name it via POST /report (category=abuse) to cross the corroborated
+// auto-eject threshold (the ROGERAI_REPORT_EJECT_AT knob, here configured to 2).
 func (s *xiState) instanceBansNode(inst string) error {
-	s.inst[inst].b.banNode(s.node.id, "abuse - xi test")
+	i := s.inst[inst]
+	i.b.reportEjectAt = 2                                        // corroborated auto-eject ON, as production configures it
+	for _, ip := range []string{"203.0.113.7", "198.51.100.9"} { // two DISTINCT reporters
+		body, _ := json.Marshal(map[string]string{
+			"category": "abuse", "node_id": s.node.id, "detail": "xi: abusive station",
+		})
+		req, _ := http.NewRequest(http.MethodPost, i.url()+"/report", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("CF-Connecting-IP", ip)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		rb, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("/report = %d: %s", resp.StatusCode, rb)
+		}
+	}
+	if !i.b.isBanned(s.node.id) {
+		return fmt.Errorf("two distinct corroborating /report POSTs did not eject the node on instance %s", inst)
+	}
 	return nil
 }
 
+// ownerHTTP sends one owner-signed request to inst (the CLI's signed-management
+// path: Ed25519 over method+path+body).
+func (s *xiState) ownerHTTP(method, path string, body []byte, inst *xiInst) (int, []byte, error) {
+	req, _ := http.NewRequest(method, inst.url()+path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	pub, ts, sig := protocol.SignRequest(s.ownerPriv, method, path, body)
+	req.Header.Set(protocol.HeaderPubkey, pub)
+	req.Header.Set(protocol.HeaderTS, strconv.FormatInt(ts, 10))
+	req.Header.Set(protocol.HeaderSig, sig)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	rb, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, rb, nil
+}
+
 func (s *xiState) ownerMintsGrant() error {
-	s.grantSecret = "rog-grant_xi_" + s.nonce
-	sum := sha256.Sum256([]byte(s.grantSecret))
-	s.grantID = "grant_xi_" + s.nonce
-	return s.db.CreateGrant(store.Grant{
-		ID: s.grantID, SecretHash: hex.EncodeToString(sum[:]), Owner: s.ownerPub,
-		Label: "xi", CreatedAt: time.Now().Unix(),
-	})
+	body, _ := json.Marshal(map[string]any{"name": "xi-" + s.nonce})
+	code, rb, err := s.ownerHTTP(http.MethodPost, "/grants", body, s.inst["A"])
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("POST /grants = %d: %s", code, rb)
+	}
+	var out struct {
+		Secret string `json:"secret"`
+		Grant  struct {
+			ID string `json:"id"`
+		} `json:"grant"`
+	}
+	if err := json.Unmarshal(rb, &out); err != nil {
+		return err
+	}
+	if out.Secret == "" || out.Grant.ID == "" {
+		return fmt.Errorf("mint response carries no secret/id: %s", rb)
+	}
+	s.grantSecret, s.grantID = out.Secret, out.Grant.ID
+	return nil
 }
 
 func (s *xiState) ownerRevokesGrant() error {
-	_, err := s.db.SetGrantRevoked(s.grantID, s.ownerPub, true)
-	return err
+	code, rb, err := s.ownerHTTP(http.MethodDelete, "/grants/"+s.grantID, nil, s.inst["A"])
+	if err != nil {
+		return err
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("DELETE /grants/%s = %d: %s", s.grantID, code, rb)
+	}
+	return nil
 }
 
 // --- When: heartbeats ---------------------------------------------------------------
@@ -1206,6 +1271,29 @@ func TestLivenessChurnBDD(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("multinode/liveness_churn scenarios failed (see godog output above)")
+	}
+}
+
+// TestFlagOffRelayBDD runs features/multinode/flag_off_relay.feature: the HONEST
+// degraded contract for two processes under ROGERAI_MULTI_INSTANCE=0 (registrations
+// mirror, dispatch does not) - a foreign-process relay must 504 cleanly with the
+// hold refunded in full while the owner process keeps serving.
+func TestFlagOffRelayBDD(t *testing.T) {
+	// Same payout-ladder pins as the store parity suites: earnings are immediately
+	// payable so the settle-exactly-once assertions read them directly.
+	t.Setenv("ROGERAI_PAYOUT_HOLD_DAYS", "0")
+	t.Setenv("ROGERAI_PAYOUT_RESERVE", "0")
+	suite := godog.TestSuite{
+		ScenarioInitializer: xiInitScenarios(t),
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/multinode/flag_off_relay.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("multinode/flag_off_relay scenarios failed (see godog output above)")
 	}
 }
 
