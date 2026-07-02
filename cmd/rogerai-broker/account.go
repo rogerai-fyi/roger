@@ -36,7 +36,9 @@ func (b *broker) accountExport(w http.ResponseWriter, r *http.Request) {
 		"github_id":    gid,
 		"wallet":       wallet,
 	}
-	if o, found, _ := b.db.OwnerByLogin(login); found {
+	// Operator enrichment is GitHub-session-only (the gid gate, A1): an Apple/web
+	// session's login must never pull another owner's ledger/payouts into its export.
+	if o, found := b.sessionGitHubOwner(login, gid); found {
 		dump["email"] = o.Email
 		dump["created_at"] = o.CreatedAt
 		dump["connect_status"] = o.ConnectStatus
@@ -133,7 +135,13 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 // account with no web login) and account wallet. ok=false when neither auth is usable. This is what
 // lets the native app delete with the device key instead of only the browser session.
 func (b *broker) deleteIdentity(r *http.Request, body []byte) (login, wallet string, ok bool) {
-	if l, _, w, sok := b.sessionOwner(r); sok {
+	if l, gid, w, sok := b.sessionOwner(r); sok {
+		if gid == 0 {
+			// An Apple/web session's login must never key DeleteAccount (A1 write leg) - a
+			// colliding login would delete a GitHub owner. Blank it; the caller's empty-login
+			// branch turns this into the Apple-only 409, never a login-keyed delete.
+			return "", w, true
+		}
 		return l, w, true
 	}
 	rid, authed, iok := b.identityOf(r, body)

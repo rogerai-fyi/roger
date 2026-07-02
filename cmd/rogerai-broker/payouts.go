@@ -121,9 +121,12 @@ func (c connect) stripeForm(method, path string, form url.Values, out any) (int,
 //
 // body is the exact request body the signature is verified over (nil for GET).
 func (b *broker) payoutOwner(r *http.Request, body []byte) (login string, o store.Owner, ok bool) {
-	// 1) Web session cookie (browser). Unchanged web path.
-	if l, _, _, sok := b.sessionOwner(r); sok {
-		if rec, found, _ := b.db.OwnerByLogin(l); found {
+	// 1) Web session cookie (browser). GitHub sessions only (the gid gate, A1 -
+	// features/security/apple_session_isolation.feature): an Apple WEB session must never
+	// reach a GitHub owner's payout/connect state through a login collision. Payouts are
+	// GitHub+KYC-only, so a gid==0 session correctly falls through to the 403 below.
+	if l, gid, _, sok := b.sessionOwner(r); sok {
+		if rec, found := b.sessionGitHubOwner(l, gid); found {
 			return l, rec, true
 		}
 		// A valid session whose login is not (yet) a bound operator: still a logged-in

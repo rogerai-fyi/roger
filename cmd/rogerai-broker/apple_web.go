@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -98,15 +99,25 @@ func (b *broker) authAppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
 		b.invalidateSeedRemaining()
 	}
-	login := claims.Email // Apple has no username; the email (or relay) is the display handle
-	if login == "" {
-		login = "apple"
-	}
+	login := appleWebLogin(claims.Email, claims.Sub)
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	b.setWebSessionWallet(w, login, 0, wallet, exp)
 	clearCookie(w, appleStateCookie)
 	clearCookie(w, appleNonceCookie)
 	http.Redirect(w, r, dashboardURL(), http.StatusFound)
+}
+
+// appleWebLogin derives the session display login for an Apple WEB session (A2 source
+// hardening, features/security/apple_session_isolation.feature): the verified email when
+// Apple sent one ('@' is impossible in a GitHub login), else "apple:"+short(sub) - the ':'
+// keeps it non-GitHub-shaped (the old literal "apple" collided with github.com/apple) and
+// the per-user sub hash keeps two no-email Apple users from colliding with each other.
+// Reuses the wallet's sub hash so the raw sub never becomes a display handle.
+func appleWebLogin(email, sub string) string {
+	if email != "" {
+		return email
+	}
+	return "apple:" + strings.TrimPrefix(walletForAppleSub(sub), "u_apple_")
 }
 
 // setCrossSiteCookie sets a short-lived (10 min) httpOnly cookie that survives a cross-site
