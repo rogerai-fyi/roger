@@ -998,6 +998,25 @@ func accountWalletForOwner(o store.Owner) (string, bool) {
 	return "", false
 }
 
+// mergeDualLinkWallet moves a funded Apple wallet into the GitHub account wallet when an owner
+// has BOTH providers linked on one pubkey (audit #6, founder decision: merge at link time).
+// accountWalletForOwner is GitHub-wins, so without this a u_apple_ balance funded before the
+// GitHub link would be stranded (unreachable through the account resolver). Idempotent: once
+// the Apple wallet is drained, MergeWallet moves 0, so a re-login just re-runs a no-op.
+func (b *broker) mergeDualLinkWallet(o store.Owner) {
+	if o.Anonymized || o.GitHubID == 0 || o.AppleSub == "" {
+		return // not a dual-link; nothing to merge
+	}
+	from := walletForAppleSub(o.AppleSub)
+	to := "u_gh_" + strconv.FormatInt(o.GitHubID, 10)
+	if moved, err := b.db.MergeWallet(from, to); err != nil {
+		log.Printf("dual-link wallet merge %s->%s failed: %v", from, to, err)
+	} else if moved > 0 {
+		b.invalidateSeedRemaining()
+		log.Printf("dual-link: merged %.2f from %s into %s", moved, from, to)
+	}
+}
+
 // isAccountWallet reports whether a resolved wallet id is a logged-in ACCOUNT wallet (GitHub
 // or Apple), versus an anonymous pubkey-derived id (no balance by design). Gates the spend
 // path (loggedInWallet) and the dashboard balance (walletLoggedIn).

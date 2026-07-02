@@ -280,10 +280,17 @@ func (b *broker) authApple(w http.ResponseWriter, r *http.Request) {
 	b.invalidateOwnerWallet(pubkey)
 	// Seed the Apple ACCOUNT wallet once (idempotent per sub across every device that binds it).
 	wallet := walletForAppleSub(claims.Sub)
-	if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
-		b.invalidateSeedRemaining()
+	o, ownerOK, _ := b.db.OwnerByPubkey(pubkey)
+	// Seed only on the FIRST provider link (o.GitHubID == 0). On a GitHub-first dual-link the
+	// u_gh_ wallet already holds the account's single seed, so we skip the redundant u_apple_
+	// seed; mergeDualLinkWallet then moves the (empty) u_apple_ across as a no-op (audit #6).
+	if !ownerOK || o.GitHubID == 0 {
+		if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
+			b.invalidateSeedRemaining()
+		}
 	}
-	if o, ok, _ := b.db.OwnerByPubkey(pubkey); ok {
+	if ownerOK {
+		b.mergeDualLinkWallet(o)
 		b.maybeSendWelcome(o)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "apple_sub": claims.Sub})
