@@ -43,7 +43,7 @@ func freshPostgres(t *testing.T, dsn string) *Postgres {
 		rogerai.wallet, rogerai.earnings, rogerai.earning_lots, rogerai.receipts,
 		rogerai.ledger, rogerai.node_owner, rogerai.nodes, rogerai.owners,
 		rogerai.processed_events, rogerai.seed_counter, rogerai.seed_grants,
-		rogerai.grants, rogerai.grant_usage, rogerai.payouts, rogerai.disputes,
+		rogerai.grants, rogerai.grant_usage, rogerai.payouts, rogerai.disputes, rogerai.refunds,
 		rogerai.pending_reversals, rogerai.account_settings, rogerai.account_recount_holds,
 		rogerai.recount_holds, rogerai.reports, rogerai.appeals, rogerai.csam_incidents,
 		rogerai.banned_nodes, rogerai.banned_owners, rogerai.owner_strikes,
