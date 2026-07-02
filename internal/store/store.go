@@ -402,6 +402,18 @@ type Store interface {
 	PendingCSAMReports(limit int) ([]CSAMIncident, error)
 	// MarkCSAMReported flips an incident's obligation to "reported" once filed.
 	MarkCSAMReported(id int64) error
+	// MarkCSAMSubmitted records that incident `id` was filed with CyberTipline report id
+	// `reportID` by admin `adminID` (the durable 2258A audit trail). Idempotent + monotonic:
+	// an already-submitted incident returns its EXISTING report id unchanged; found=false
+	// means no such incident; an empty reportID is an error. Returns metadata only (no
+	// preserved content).
+	MarkCSAMSubmitted(id int64, reportID, adminID string, now time.Time) (CSAMIncident, bool, error)
+	// CSAMQueueStats returns the count of incidents still owing a report and the age
+	// (seconds) of the oldest queued one - the backlog signal for the admin surface + boot.
+	CSAMQueueStats(now time.Time) (depth int, oldestAgeSecs int64, err error)
+	// CSAMContentRetained reports whether an incident's preserved (encrypted) content is
+	// still on file (the retention job's read; evidence outlives the report per 2258A(h)).
+	CSAMContentRetained(id int64) (bool, error)
 
 	// AddReport persists an abuse/quality report (POST /report). Returns the report id.
 	AddReport(r Report) (int64, error)

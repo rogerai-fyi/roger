@@ -119,6 +119,105 @@ func (b *broker) preserveCSAM(pseudonym, ip, category string, content []byte) {
 	log.Printf("CSAM: incident #%d PRESERVED + report QUEUED (category=%s pseudonym=%s ip=%s) - CyberTipline report owed (18 USC 2258A)", id, category, pseudonym, ip)
 }
 
+// warnCSAMBacklog logs a loud WARNING at boot (and is safe to call periodically) when the
+// CyberTipline queue is non-empty, so a growing legal backlog can never be silent. No-op on
+// a store error or an empty queue.
+func (b *broker) warnCSAMBacklog(now time.Time) {
+	depth, oldestAge, err := b.db.CSAMQueueStats(now)
+	if err != nil || depth == 0 {
+		return
+	}
+	log.Printf("CSAM: WARNING %d incident(s) still owe a CyberTipline report (oldest queued %dh) - drain via GET/POST /admin/csam (18 USC 2258A)", depth, oldestAge/3600)
+}
+
+// adminCSAMQueue handles GET /admin/csam (admin-authed): the CyberTipline drain queue -
+// the incidents still owing a report, METADATA ONLY (no preserved content / no key
+// material), plus the backlog depth + oldest-queued age.
+func (b *broker) adminCSAMQueue(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if !allow(w, r, http.MethodGet) {
+		return
+	}
+	if b.requireAdmin(w, r) {
+		return
+	}
+	incidents, err := b.db.PendingCSAMReports(500)
+	if err != nil {
+		jsonErr(w, http.StatusInternalServerError, "store error")
+		return
+	}
+	depth, oldestAge, _ := b.db.CSAMQueueStats(time.Now())
+	// Redact content defensively (PendingCSAMReports carries the ciphertext; the JSON tag
+	// already omits it, but never rely on that alone for the safety surface).
+	out := make([]store.CSAMIncident, 0, len(incidents))
+	for _, inc := range incidents {
+		inc.Content = nil
+		out = append(out, inc)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"incidents":       out,
+		"depth":           depth,
+		"oldest_age_secs": oldestAge,
+	})
+}
+
+// adminCSAMSubmitRequest is the POST /admin/csam/submit body: the incident id and the
+// CyberTipline report id obtained by filing (manually via NCMEC's portal, or a rung-2
+// API client).
+type adminCSAMSubmitRequest struct {
+	ID       int64  `json:"id"`
+	ReportID string `json:"report_id"`
+}
+
+// adminCSAMSubmit handles POST /admin/csam/submit (admin-authed): record that an incident
+// was filed with the CyberTipline, satisfying the 2258A obligation. Idempotent + monotonic
+// in the store; the admin identity is recorded for the audit trail.
+func (b *broker) adminCSAMSubmit(w http.ResponseWriter, r *http.Request) {
+	if corsCredsPreflight(w, r) {
+		return
+	}
+	corsCreds(w, r)
+	if !allow(w, r, http.MethodPost) {
+		return
+	}
+	if b.requireAdmin(w, r) {
+		return
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	var req adminCSAMSubmitRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		jsonErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if strings.TrimSpace(req.ReportID) == "" {
+		jsonErr(w, http.StatusBadRequest, "report_id required (the CyberTipline report id)")
+		return
+	}
+	inc, found, err := b.db.MarkCSAMSubmitted(req.ID, strings.TrimSpace(req.ReportID), b.adminActor(r), time.Now())
+	if err != nil {
+		jsonErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !found {
+		jsonErr(w, http.StatusNotFound, "no such incident")
+		return
+	}
+	log.Printf("CSAM: incident #%d SUBMITTED to CyberTipline (report %s) by admin %s - 2258A obligation recorded", inc.ID, inc.ReportID, inc.ReportedBy)
+	writeJSON(w, http.StatusOK, inc)
+}
+
+// adminActor names the admin identity for the audit trail: the super-admin GitHub login
+// when the browser session authed, else "broker-key" for the header-key path.
+func (b *broker) adminActor(r *http.Request) string {
+	if login, gid, _, ok := b.sessionOwner(r); ok && gid == b.adminGitHubID {
+		return "gh:" + login
+	}
+	return "broker-key"
+}
+
 // rehydrateBans loads the persisted banned-node set into the in-memory cache at startup
 // so a ban survives a restart/redeploy. Failure is non-fatal (logged): the broker still
 // boots; bans re-apply when reports cross the threshold again.

@@ -233,6 +233,11 @@ CREATE TABLE IF NOT EXISTS rogerai.csam_incidents (
     report_state TEXT NOT NULL DEFAULT 'queued', -- queued -> reported
     created_at   BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS csam_state ON rogerai.csam_incidents (report_state, id DESC);
+-- CyberTipline submission audit (18 USC 2258A): the report id filed, when, and by which
+-- admin. Additive-migration safe. report_id is the permanent proof the obligation was met.
+ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS report_id TEXT;
+ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_at BIGINT;
+ALTER TABLE rogerai.csam_incidents ADD COLUMN IF NOT EXISTS reported_by TEXT;
 -- abuse/quality reports (POST /report; may be anonymous). The per-node count drives
 -- the auto-eject ban threshold. ip is the reporter (abuse-of-reporting forensics).
 CREATE TABLE IF NOT EXISTS rogerai.reports (

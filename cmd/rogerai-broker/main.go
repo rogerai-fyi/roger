@@ -488,6 +488,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	}
 	b.rehydrateBans()
 	b.rehydrateOwnerBans()
+	b.warnCSAMBacklog(time.Now()) // loud boot warning if the CyberTipline queue is non-empty
 	// Re-hydrate the in-memory node registry from the store so a restart/redeploy
 	// does NOT wipe registrations: a still-running provider reappears once its next
 	// heartbeat re-confirms liveness, instead of being gone until a manual restart.
@@ -623,6 +624,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
 	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
 	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
+	mux.HandleFunc("/admin/csam", b.adminCSAMQueue)                                                   // admin-authed: the CyberTipline drain queue (metadata only) + backlog stats
+	mux.HandleFunc("/admin/csam/submit", b.adminCSAMSubmit)                                           // admin-authed: mark an incident submitted with its CyberTipline report id
 	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }) // cheap liveness: the process is up
 	mux.HandleFunc("/ready", b.ready)                                                                 // real readiness: DB + shared store reachable (503 if not)

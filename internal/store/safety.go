@@ -1,10 +1,14 @@
 package store
 
 import (
+	"errors"
 	"sort"
 	"strings"
 	"time"
 )
+
+// errEmptyReportID rejects a CyberTipline submission with no report id (nothing to record).
+var errEmptyReportID = errors.New("cybertipline report id required")
 
 // safety.go adds the two access-controlled safety tables the broker writes when its
 // moderation screen fires: csam_incidents (preserved child-exploitation hits, kept for
@@ -26,15 +30,21 @@ type CSAMIncident struct {
 	Pseudonym   string `json:"pseudonym"`    // opaque per-(user,node) id; never the real user
 	IP          string `json:"ip"`           // caller IP (for a CyberTipline report)
 	Category    string `json:"category"`     // matched CSAM policy category (e.g. "S4")
-	Content     []byte `json:"-"`            // broker-ENCRYPTED offending prompt (ciphertext)
+	Content     []byte `json:"-"`            // broker-ENCRYPTED offending prompt (ciphertext); never serialized
 	ReportState string `json:"report_state"` // "queued" -> "reported"
-	CreatedAt   int64  `json:"created_at"`   // unix seconds
+	// ReportID is the CyberTipline report id recorded when the incident is submitted (the
+	// permanent proof the 18 USC 2258A obligation was met); ReportedAt/ReportedBy are the
+	// submission time + the admin identity that filed it (the durable audit trail).
+	ReportID   string `json:"report_id,omitempty"`
+	ReportedAt int64  `json:"reported_at,omitempty"`
+	ReportedBy string `json:"reported_by,omitempty"`
+	CreatedAt  int64  `json:"created_at"` // unix seconds
 }
 
 // CSAM report obligation states.
 const (
 	CSAMQueued   = "queued"   // a CyberTipline report is owed (preserved, not yet filed)
-	CSAMReported = "reported" // the report has been filed
+	CSAMReported = "reported" // the report has been filed (submitted, with a CyberTipline id)
 )
 
 // Report is one abuse/quality report submitted to POST /report. Reports may be
@@ -95,6 +105,74 @@ func (m *Mem) MarkCSAMReported(id int64) error {
 		}
 	}
 	return nil
+}
+
+// MarkCSAMSubmitted records that incident `id` was filed with CyberTipline report id
+// `reportID` by admin `adminID`. Idempotent + monotonic: an already-submitted incident is
+// a no-op that returns its EXISTING report id (never a second report / never un-submits).
+// found=false means no such incident (caller 404s). An empty reportID is an error.
+func (m *Mem) MarkCSAMSubmitted(id int64, reportID, adminID string, now time.Time) (inc CSAMIncident, found bool, err error) {
+	if strings.TrimSpace(reportID) == "" {
+		return CSAMIncident{}, false, errEmptyReportID
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.csam {
+		if m.csam[i].ID != id {
+			continue
+		}
+		if m.csam[i].ReportState == CSAMReported {
+			return redactCSAM(m.csam[i]), true, nil // idempotent: keep the original report id
+		}
+		m.csam[i].ReportState = CSAMReported
+		m.csam[i].ReportID = reportID
+		m.csam[i].ReportedAt = now.Unix()
+		m.csam[i].ReportedBy = adminID
+		return redactCSAM(m.csam[i]), true, nil
+	}
+	return CSAMIncident{}, false, nil
+}
+
+// CSAMQueueStats returns the number of incidents still owing a report and the age (seconds)
+// of the OLDEST queued one - the backlog signal for the admin surface + the boot warning.
+func (m *Mem) CSAMQueueStats(now time.Time) (depth int, oldestAgeSecs int64, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var oldest int64
+	for _, inc := range m.csam {
+		if inc.ReportState != CSAMQueued {
+			continue
+		}
+		depth++
+		if oldest == 0 || inc.CreatedAt < oldest {
+			oldest = inc.CreatedAt
+		}
+	}
+	if oldest > 0 {
+		oldestAgeSecs = now.Unix() - oldest
+	}
+	return depth, oldestAgeSecs, nil
+}
+
+// CSAMContentRetained reports whether incident `id`'s preserved (encrypted) content is
+// still on file - the retention job's read (evidence must outlive the report for the legal
+// window, 18 USC 2258A(h)).
+func (m *Mem) CSAMContentRetained(id int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, inc := range m.csam {
+		if inc.ID == id {
+			return len(inc.Content) > 0, nil
+		}
+	}
+	return false, nil
+}
+
+// redactCSAM copies an incident WITHOUT its encrypted content - the admin surface returns
+// metadata only, never the preserved material or any decryption input.
+func redactCSAM(inc CSAMIncident) CSAMIncident {
+	inc.Content = nil
+	return inc
 }
 
 func (m *Mem) AddReport(r Report) (int64, error) {
