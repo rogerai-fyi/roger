@@ -735,14 +735,14 @@ func (b *broker) rcRotateCode(w http.ResponseWriter, r *http.Request, sid string
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	// Uniform 404 for BOTH a nonexistent session and a foreign/revoked one, matching the rest
+	// of the RC surface (rcAttach/rcSend/rcStream) - a cross-account caller must not be able to
+	// tell an existing-but-not-yours session from a nonexistent one (audit finding #10). The
+	// owner check short-circuits so sess is only read when found.
 	sess, found, _ := b.db.RCSessionByID(sid)
-	if !found || sess.Revoked {
-		jsonErr(w, http.StatusNotFound, "no such session")
-		return
-	}
 	wallet, _, ok := b.rcOwnerWallet(r, nil)
-	if !ok || wallet != sess.OwnerWallet {
-		jsonErr(w, http.StatusForbidden, "not your session")
+	if !(found && !sess.Revoked && ok && wallet == sess.OwnerWallet) {
+		jsonErr(w, http.StatusNotFound, "no such session")
 		return
 	}
 	code, display, tail := protocol.NewRCLinkCode()
@@ -768,15 +768,13 @@ func (b *broker) rcDisable(w http.ResponseWriter, r *http.Request, sid string) {
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	// The host (bearer) OR the owner may disable. Uniform 404 for a nonexistent session AND a
+	// foreign one (no existence oracle, audit finding #10); the auth checks short-circuit so
+	// sess is only read when found.
 	sess, found, _ := b.db.RCSessionByID(sid)
-	if !found {
-		jsonErr(w, http.StatusNotFound, "no such session")
-		return
-	}
-	// The host (bearer) OR the owner may disable.
 	wallet, _, wok := b.rcOwnerWallet(r, nil)
-	if !(b.rcAuthHost(r, sess) || (wok && wallet == sess.OwnerWallet)) {
-		jsonErr(w, http.StatusForbidden, "not your session")
+	if !(found && (b.rcAuthHost(r, sess) || (wok && wallet == sess.OwnerWallet))) {
+		jsonErr(w, http.StatusNotFound, "no such session")
 		return
 	}
 	sess.Revoked = true
