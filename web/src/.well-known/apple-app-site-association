@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": ["MNGR2HY224.fyi.rogerai.app"],
+        "paths": ["/r.html*"],
+        "components": [
+          { "/": "/r.html*", "comment": "Base Station one-time device link (code travels in the URL fragment)" }
+        ]
+      }
+    ]
+  }
+}
