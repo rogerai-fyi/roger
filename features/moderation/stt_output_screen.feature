@@ -91,7 +91,7 @@ Feature: STT transcription output is screened before it reaches the consumer
     When a consumer requests speech for text the screen flags
     Then it is still refused 451 BEFORE any node is dispatched or hold placed
 
-  Scenario: a malformed node transcription JSON is a 502, never served raw
+  Scenario: a malformed node transcription JSON is a clean 500, never served raw
     Given the node returns a body that does not parse as transcription JSON
-    Then the response is 502 and the raw body is not forwarded
+    Then the response is 500 and the raw body is not forwarded
     And the consumer's hold is released

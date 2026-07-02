@@ -25,7 +25,9 @@
 #   B3  the receipt STILL settles on the binary path: the consumer's wallet is debited the exact
 #       broker-counted char cost, identical to a JSON result — the return-encoding change is
 #       money-neutral.
-#   B4  regression: an empty node body (a genuinely dead upstream) is STILL a clean 502 to the
+#   B4  regression: an empty node body (a genuinely dead upstream) is STILL a clean failure to the
+#       consumer. 2026-07-02 (founder-approved error_passthrough.feature E2): the status is 500
+#       with the standard error body — a 5xx the edge passes through — superseding the old bare 502.
 #       consumer with the hold refunded — the fix must not turn "no bytes" into a false success.
 #
 # Step definitions come AFTER approval (RED-first), like the other money features.
@@ -61,8 +63,8 @@ Feature: A binary (non-stream) node result flows node -> broker -> consumer inta
 
   Rule: a genuinely empty upstream is still a clean failure, not a false success (B4)
 
-    Scenario: An upstream that returns no bytes is a 502 with the hold refunded
+    Scenario: An upstream that returns no bytes is a clean 500 with the hold refunded
       Given the upstream returns an empty body
       When the consumer requests speech for the text "roger that"
-      Then the consumer receives HTTP 502
+      Then the consumer receives HTTP 500
       And the consumer's wallet is not debited
