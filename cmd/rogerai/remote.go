@@ -44,10 +44,12 @@ func (g *confirmGate) take() (bool, string) {
 // rcLinkURL builds the shareable deep link for a session's short code. The code rides in the
 // URL FRAGMENT (#) so it never reaches the broker's server logs.
 func rcLinkURL(short string) string {
+	// r.html (not a bare /r): the site is a static host that serves exact paths only, so the
+	// .html is explicit. The code rides in the FRAGMENT (#) so it never reaches server logs.
 	if short == "" {
-		return "https://rogerai.fyi/r"
+		return "https://rogerai.fyi/r.html"
 	}
-	return "https://rogerai.fyi/r#" + short
+	return "https://rogerai.fyi/r.html#" + short
 }
 
 func cmdRemote(cfg config, args []string) error {

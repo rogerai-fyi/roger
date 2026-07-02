@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Base Station - RogerAI" theme=external css=chrome robots=noindex -->
+</head>
+<body class="auth">
+  <!-- include: nav.html variant=lean home=/ scrolled=1 -->
+  <div class="authwrap">
+  <main class="card" id="card" hidden>
+    <h1>Base Station</h1>
+    <p class="sub">Your private side of the dial. <b>&#9673; PRIVATE</b> &mdash; your account
+      only &middot; relayed through the broker &middot;
+      <a href="#" id="whatPrivate">not end-to-end encrypted</a>.</p>
+
+    <p class="cn-state" id="loading">Tuning in...</p>
+    <p class="cn-state" id="error" hidden>Could not reach Base Station. Try again shortly.</p>
+    <p class="cn-state" id="gate" hidden>Sign in to see your private sessions and bands.
+      <a href="/login.html">Log in</a>.</p>
+
+    <!-- ============ REMOTE SESSIONS ============ -->
+    <section class="panel" id="sessionsWrap" hidden>
+      <h2>Remote sessions</h2>
+      <p class="fine">Agent sessions live on your other machines. Run
+        <code>/remote-control</code> inside <code>roger</code> (the <code>[0] AGENT</code>) to
+        put one on the air, then continue it here.</p>
+      <div class="cn-tablewrap">
+        <table class="cn-table" id="sessionsTable" hidden>
+          <thead>
+            <tr>
+              <th scope="col" class="cn-st" aria-label="Status"></th>
+              <th scope="col">Session</th>
+              <th scope="col">State</th>
+              <th scope="col" class="num"></th>
+            </tr>
+          </thead>
+          <tbody id="sessionRows"></tbody>
+        </table>
+      </div>
+      <p class="fine" id="sessionsEmpty" hidden>No remote sessions yet.</p>
+    </section>
+
+    <!-- ============ LIVE SESSION VIEW ============ -->
+    <section class="panel" id="viewWrap" hidden>
+      <h2 id="viewTitle">Session</h2>
+      <p class="sub" id="viewBadge"><b>&#9673; PRIVATE</b> &mdash; your account only &middot;
+        broker relay &middot; tools run on the host</p>
+      <div class="rc-stream" id="stream" aria-live="polite"></div>
+      <form id="askForm" class="rc-ask" autocomplete="off">
+        <input id="ask" class="kf__in" type="text"
+          placeholder="ask from here - it runs on the host" />
+        <button class="primary" type="submit">Send</button>
+        <button class="ghost" type="button" id="closeView">Close</button>
+      </form>
+    </section>
+
+    <!-- ============ PRIVATE BANDS ============ -->
+    <section class="panel" id="bandsWrap" hidden>
+      <h2>Private bands</h2>
+      <p class="fine">Hidden stations only a frequency code can tune. Mint one with
+        <code>roger share --private</code>; manage keys under <a href="/keys.html">API keys</a>.</p>
+      <div class="cn-tablewrap">
+        <table class="cn-table" id="bandsTable" hidden>
+          <thead>
+            <tr>
+              <th scope="col" class="cn-st" aria-label="Status"></th>
+              <th scope="col">Band</th>
+              <th scope="col">Frequency</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="bandRows"></tbody>
+        </table>
+      </div>
+      <p class="fine" id="bandsEmpty" hidden>No private bands yet.</p>
+    </section>
+
+    <!-- ============ LINK A PHONE (modal-ish panel) ============ -->
+    <section class="panel" id="linkWrap" hidden>
+      <h2>Link a device</h2>
+      <p class="fine">A one-time link code to continue <b id="linkName">this session</b> on
+        another device signed into your account. It expires in 10 minutes.</p>
+      <p class="rc-code" id="linkCode">&mdash;</p>
+      <p class="fine">Open on a phone: <a id="linkURL" href="#">&mdash;</a>
+        &middot; <button class="ghost" type="button" id="copyLink">Copy link</button></p>
+    </section>
+
+    <p class="fine"><a href="/console.html">Console</a> &middot;
+      <a href="/keys.html">API keys</a> &middot; <a href="/account.html">Account</a></p>
+  </main>
+  </div>
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/private.js"></script>
+</body>
+</html>
