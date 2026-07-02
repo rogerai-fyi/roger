@@ -169,6 +169,30 @@ CREATE TABLE IF NOT EXISTS rogerai.private_bands (
     created_at   BIGINT NOT NULL);
 CREATE INDEX IF NOT EXISTS private_bands_owner ON rogerai.private_bands (owner);
 CREATE INDEX IF NOT EXISTS private_bands_node ON rogerai.private_bands (node_id);
+-- remote-control sessions (BASE STATION, v5.0.0). ROSTER ONLY — metadata, never a
+-- transcript or a frame (the broker is a content-blind relay; the HOST owns the chat).
+-- Every secret is stored as a sha256 HASH: code_hash (the link tail, rotatable),
+-- host_token_hash (the host bearer), and rc_attach_tokens.hash (per-device bearers).
+-- owner_wallet unifies CLI (signed key → owner) and web (session cookie) on the WALLET.
+CREATE TABLE IF NOT EXISTS rogerai.rc_sessions (
+    id              TEXT PRIMARY KEY,           -- rcs_<rand>
+    owner_wallet    TEXT NOT NULL,              -- u_gh_<id> / u_apple_<id>
+    name            TEXT NOT NULL DEFAULT '',   -- "hermes · RogerAI"
+    code_hash       TEXT,                       -- sha256(canonical link tail); rotatable; nullable when closed
+    code_expires    BIGINT NOT NULL DEFAULT 0,  -- unix; the attach window; 0 = closed
+    code_display    TEXT NOT NULL DEFAULT '',   -- MASKED "RC 147.520 MHz · ••••-••••" (not secret)
+    host_token_hash TEXT NOT NULL,              -- sha256 of the host bearer (issued once)
+    created_at      BIGINT NOT NULL,
+    last_host_seen  BIGINT NOT NULL DEFAULT 0,
+    revoked         BOOLEAN NOT NULL DEFAULT false);
+CREATE INDEX IF NOT EXISTS rc_sessions_owner ON rogerai.rc_sessions (owner_wallet);
+CREATE UNIQUE INDEX IF NOT EXISTS rc_sessions_code ON rogerai.rc_sessions (code_hash) WHERE code_hash IS NOT NULL;
+CREATE TABLE IF NOT EXISTS rogerai.rc_attach_tokens (
+    hash         TEXT PRIMARY KEY,              -- sha256 of the per-device attach bearer
+    session_id   TEXT NOT NULL,
+    device_label TEXT NOT NULL DEFAULT '',
+    created_at   BIGINT NOT NULL);
+CREATE INDEX IF NOT EXISTS rc_attach_session ON rogerai.rc_attach_tokens (session_id);
 -- tag paid lots with the payout that paid them, so a failed transfer can roll the
 -- exact lots back to 'payable'. Additive.
 ALTER TABLE rogerai.earning_lots ADD COLUMN IF NOT EXISTS payout_id BIGINT;

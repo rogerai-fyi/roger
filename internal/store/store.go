@@ -390,6 +390,30 @@ type Store interface {
 	// (an already-masked display is left untouched, so a re-run changes 0). Run at startup.
 	RemaskBandDisplays() (int, error)
 
+	// --- remote-control session roster (rc.go): metadata ONLY, never a transcript ----
+
+	// CreateRCSession persists a new remote-control session's roster row. Only the link-code
+	// HASH and the host-token HASH are stored (both bearer secrets, shown once at enable).
+	CreateRCSession(s RCSession) error
+	// RCSessionByID looks up a session by its "rcs_<rand>" id.
+	RCSessionByID(id string) (RCSession, bool, error)
+	// RCSessionByCodeHash is the constant-work attach lookup: a session from sha256(canonical
+	// link tail). Any miss returns ok=false so the caller can emit the uniform 404.
+	RCSessionByCodeHash(hash string) (RCSession, bool, error)
+	// RCSessionsByOwner lists a wallet's sessions (the BASE STATION roster; web + CLI unify on wallet).
+	RCSessionsByOwner(wallet string) ([]RCSession, error)
+	// UpdateRCSession rewrites a session row (rotate code / revoke / touch last-seen), keeping
+	// the code-hash index consistent when the code rotates (the old hash stops resolving).
+	UpdateRCSession(s RCSession) error
+	// PutRCAttachToken records a per-device attach bearer (hash-only), minted on a successful
+	// attach; it lives as long as the session.
+	PutRCAttachToken(t RCAttachToken) error
+	// RCAttachTokenByHash resolves an attach bearer to its session binding + device label.
+	RCAttachTokenByHash(hash string) (RCAttachToken, bool, error)
+	// RevokeRCSessions revokes every one of an owner's sessions and drops their attach tokens
+	// (revoke-all + the account-delete hook). Returns how many it revoked.
+	RevokeRCSessions(wallet string) (int, error)
+
 	// --- safety: CSAM preservation + abuse reports + node bans (safety.go) ----
 
 	// PreserveCSAM records a child-exploitation hit (18 USC 2258A): the broker-ENCRYPTED
@@ -657,6 +681,7 @@ type Mem struct {
 	charges      map[string]charge        // stripe payment_intent/charge id -> checkout mapping
 	gs           *grantStore              // grant keys + per-grant usage rollups
 	bs           *bandStore               // private bands ("frequency codes": private discovery)
+	rc           *rcStore                 // remote-control session roster (BASE STATION; metadata only)
 	nodes        map[string]NodeRecord    // persisted node registry (re-hydrated on restart)
 	overrides    map[string]OfferOverride // owner-authored price/schedule overrides, keyed node\x00model
 
@@ -718,7 +743,7 @@ func NewMem() *Mem {
 		idem: map[string]bool{}, disputes: map[string]bool{}, settled: map[string]bool{}, recountHold: map[string]int64{}, nodeAcct: map[string]string{},
 		pendingHolds: map[string]pendingHold{},
 		refunds:      map[string]bool{}, recoveredOnCharge: map[string]float64{},
-		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), nodes: map[string]NodeRecord{},
+		charges: map[string]charge{}, gs: newGrantStore(), bs: newBandStore(), rc: newRCStore(), nodes: map[string]NodeRecord{},
 		overrides: map[string]OfferOverride{},
 		banned:    map[string]string{}, bannedAt: map[string]int64{}, bannedOwners: map[string]string{}, accountHold: map[string]int64{},
 		pendingReversals: map[string]PendingReversal{},
