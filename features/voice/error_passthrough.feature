@@ -220,6 +220,9 @@ Feature: Voice relay node-side failure passthrough
       | key sk_live_a1b2c3d4 expired                                 | sk_live_        |
       | upstream [2001:db8::1]:8880 refused                          | 2001:db8        |
       | connect fe80::1%eth0 failed                                  | fe80::1         |
+      | connection refused to kokoro:8880                            | kokoro:8880     |
+      | cannot reach gpu-node:11434                                  | gpu-node:11434  |
+      | localhost:8880 is down                                       | localhost:8880  |
 
   Scenario: the reason is whitespace-collapsed and control characters are removed
     Given the station's local server answers 500 with body:
