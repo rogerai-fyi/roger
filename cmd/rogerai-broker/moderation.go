@@ -55,6 +55,13 @@ type moderation struct {
 	// Guard's S4 plus the OpenAI Moderation "sexual/minors" category; configurable via
 	// ROGERAI_CSAM_CATEGORIES (comma-separated). Matching is case-insensitive.
 	csamCats map[string]bool
+
+	// defaultCat is the category to assume for a FLAGGED verdict that carries NO category
+	// (the {"flagged":true} adapter shape). Empty (default) = no assumption, so an
+	// uncategorized flag is a plain 451 with no preserve. Set via MODERATION_DEFAULT_CATEGORY
+	// (e.g. to a csamCats code) so a flagged-only backend can still trigger the 2258A
+	// preserve+report path instead of silently skipping it (audit #13).
+	defaultCat string
 }
 
 // modResult is the outcome of a content screen. status==0 means ALLOW; a non-zero
@@ -125,6 +132,7 @@ func loadModeration() moderation {
 		m.groqModel = v
 	}
 	m.csamCats = loadCSAMCategories(os.Getenv("ROGERAI_CSAM_CATEGORIES"))
+	m.defaultCat = strings.ToLower(strings.TrimSpace(os.Getenv("MODERATION_DEFAULT_CATEGORY")))
 	// Resolve the backend. An explicit MODERATION_PROVIDER wins; otherwise infer it
 	// from what is configured (a MODERATION_URL implies "url"; else a GROQ_API_KEY
 	// implies "groq"). The result is one of "", "url", "groq".
@@ -282,15 +290,27 @@ func (m moderation) screen(text string) modResult {
 	// per-category map (true = matched) is parsed only to log WHY something was blocked;
 	// the block decision is the boolean flagged.
 	var out struct {
-		Flagged    bool            `json:"flagged"`
+		Flagged    *bool           `json:"flagged"`
 		Categories map[string]bool `json:"categories"`
 		Results    []struct {
 			Flagged    bool            `json:"flagged"`
 			Categories map[string]bool `json:"categories"`
 		} `json:"results"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	flagged := out.Flagged
+	// A 200 MUST carry a recognizable verdict (a top-level "flagged" OR a "results" array).
+	// An empty / HTML / error-JSON body (a proxy truncation, adapter outage, or API-shape
+	// drift) decodes to neither and is screen-UNAVAILABLE, NOT an implicit ALLOW: apply the
+	// require posture, mirroring the non-200 branch and screenGroq's empty-verdict fail-closed
+	// (audit #8 - the URL backend used to pass such a body straight through, sending an
+	// unscreened prompt on to the provider even under require=1).
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil || (out.Flagged == nil && out.Results == nil) {
+		if m.require {
+			return modResult{status: http.StatusServiceUnavailable, msg: "content screening unavailable"}
+		}
+		log.Printf("MODERATION: screen returned a 200 with no parseable verdict, failing open (require=false)")
+		return modResult{}
+	}
+	flagged := out.Flagged != nil && *out.Flagged
 	cats := out.Categories
 	for _, r := range out.Results {
 		if r.Flagged {
@@ -302,6 +322,15 @@ func (m moderation) screen(text string) modResult {
 	}
 	if flagged {
 		matched := matchedCategoryList(cats)
+		// A flagged verdict with NO category (the documented {"flagged":true} adapter shape, which
+		// never supplies categories) is category-INDETERMINATE, so the 18 USC 2258A preserve +
+		// CyberTipline path could never fire for it (audit #13). MODERATION_DEFAULT_CATEGORY lets an
+		// operator on such a backend name the category to assume for an uncategorized flag (e.g.
+		// their CSAM code) so preservation is not silently skipped. Unset (the default) keeps
+		// today's behavior: an uncategorized flag is a plain 451 with no preserve.
+		if len(matched) == 0 && m.defaultCat != "" {
+			matched = []string{m.defaultCat}
+		}
 		if hit := strings.Join(matched, ", "); hit != "" {
 			log.Printf("MODERATION: blocked (categories: %s)", hit)
 		}
