@@ -224,7 +224,9 @@ func fetchGrants(broker string) ([]grantJSON, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("grants require a GitHub-linked owner - run `roger login`")
+		// NEVER suggest "link GitHub" here: an Apple-funded wallet would be stranded by the
+		// GitHub-wins precedence. Grants need a linked account of EITHER kind.
+		return nil, fmt.Errorf("grants require a linked operator account - sign in (GitHub or Apple) first")
 	}
 	var out struct {
 		Grants []grantJSON `json:"grants"`
