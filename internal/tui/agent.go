@@ -125,8 +125,12 @@ func (m model) resolveAgentModel() string {
 // agentModelCandidates is the set of models the /model picker can choose from, in a
 // stable, useful order with no duplicates: the currently-resolved model first, then
 // the rest of this session's tuned-in models (the sticky last band + recent bands),
-// then any other model currently ON AIR in the discover band list. This is "the
-// model(s) I could plausibly point the agent at right now".
+// then any other CHAT model currently ON AIR in the discover band list. This is "the
+// model(s) I could plausibly point the agent at right now" - and the agent runs on
+// the chat relay, so a voice (tts/stt) band is never offered as a brain (band.isVoice,
+// the same canonical-modality read the band table groups by): picking one could only
+// fail the next turn. The session legs are chat-only by construction - a voice band
+// diverts to the preview and never opens a channel (voice.go).
 func (m model) agentModelCandidates() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -143,8 +147,8 @@ func (m model) agentModelCandidates() []string {
 		add(mdl) // every model tuned in this session
 	}
 	for _, b := range m.bands {
-		if b.online {
-			add(b.model) // any band currently on air in the discover list
+		if b.online && !b.isVoice() {
+			add(b.model) // any CHAT band currently on air in the discover list
 		}
 	}
 	return out
