@@ -5,6 +5,8 @@
        theme    = "inline" (homepage only - CSP sha256-locked bytes) | "external"
        robots   = "noindex" to add the robots meta (optional)
        og       = "1" to emit the marketing Open Graph block (optional)
+       og       = "post" to emit a per-page Open Graph block instead; pass
+                  ogtitle= ogdesc= ogurl= ogimage= (absolute URL, real PNG)
      Stylesheets are wired PER PAGE: build.mjs expands the css-bundle marker
      below into one <link> per CSS module for this page, from the
      CSS_BUNDLES manifest in build.mjs (keyed by page filename). Every page gets
@@ -74,6 +76,25 @@
   <meta name="twitter:title" content="RogerAI - a two-way radio for GPUs" />
   <meta name="twitter:description" content="Put your home GPU on air. Tune to the band. Pay per token on the CLI." />
   <meta name="twitter:image" content="https://rogerai.fyi/og.png" />
+{{/if}}
+{{#if og=post}}
+
+  <link rel="canonical" href="{{ogurl}}" />
+  <meta property="og:title" content="{{ogtitle}}" />
+  <meta property="og:description" content="{{ogdesc}}" />
+  <meta property="og:type" content="{{ogtype}}" />
+  <meta property="og:url" content="{{ogurl}}" />
+  <meta property="og:site_name" content="RogerAI" />
+  <!-- Scrapers do not rasterize SVG; ogimage must be an absolute real-PNG URL. -->
+  <meta property="og:image" content="{{ogimage}}" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1280" />
+  <meta property="og:image:height" content="720" />
+  <meta property="og:image:alt" content="{{ogtitle}}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ogtitle}}" />
+  <meta name="twitter:description" content="{{ogdesc}}" />
+  <meta name="twitter:image" content="{{ogimage}}" />
 {{/if}}
 
   <!-- favicon: the RogerAI broadcast-tower beacon mark stays the default -->

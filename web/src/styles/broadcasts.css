@@ -236,7 +236,7 @@
 .bc-dial { list-style: none; margin: var(--s-4) 0 0; padding: 0; }
 .bc-dial li {
   padding: 14px 0; border-top: 1px solid var(--hairline);
-  color: var(--ink-600); font-size: var(--t-body); line-height: 1.65;
+  color: var(--ink-700); font-size: var(--t-body); line-height: 1.65;
 }
 .bc-dial li:first-child { border-top: 0; padding-top: 0; }
 .bc-dial li > b { color: var(--ink-900); font-weight: var(--weight-semi); }
