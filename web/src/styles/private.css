@@ -1,0 +1,56 @@
+/* Base Station (private.html) — the private-side styles. Mono + one red glint, matching the
+   console/keys aesthetic. Reuses cn-table from console.css for the rosters; this file adds the
+   live-session stream, the small row buttons, the link code, and the red live dot. */
+
+/* The one red glint: a live remote session / active band dot. */
+.cn-st.is-live { color: var(--red, #ff4438); }
+
+/* small inline row buttons (Open / View / Link / Approve / Deny) */
+.rc-btn {
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.2;
+  padding: 0.15rem 0.6rem;
+  margin-left: 0.4rem;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--rule, #2a2824);
+  background: transparent;
+  color: var(--ink, #e7e3d8);
+}
+.rc-btn.primary { border-color: var(--red, #ff4438); color: var(--red, #ff4438); }
+.rc-btn.ghost { color: var(--dim, #9a968b); }
+.rc-btn:hover { border-color: var(--red, #ff4438); }
+
+/* the live session transcript */
+.rc-stream {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  border: 1px solid var(--rule, #2a2824);
+  border-radius: 4px;
+  background: var(--panel, #14120f);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.rc-line { white-space: pre-wrap; word-break: break-word; margin: 0.1rem 0; }
+.rc-user { color: var(--red, #ff4438); }
+.rc-asst { color: var(--ink, #e7e3d8); }
+.rc-tool, .rc-backfill { color: var(--dim, #9a968b); }
+.rc-confirm { color: var(--body, #cfcabb); display: flex; align-items: center; gap: 0.35rem; }
+.rc-confirm span { flex: 1; }
+.rc-err { color: var(--red, #ff4438); }
+
+/* the ask input strip */
+.rc-ask { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.rc-ask .kf__in { flex: 1; }
+
+/* the one-time link code */
+.rc-code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  color: var(--red, #ff4438);
+  margin: 0.4rem 0;
+}

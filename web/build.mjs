@@ -54,6 +54,8 @@ const CSS_BUNDLES = {
   "usage.html":     [...CSS_ACCOUNT, "metrics.css"],
   "dashboard.html": [...CSS_ACCOUNT, "dashboard.css"],
   "console.html":   [...CSS_ACCOUNT, "console.css"],
+  "private.html":   [...CSS_ACCOUNT, "console.css", "private.css"], // reuses the cn-table; rc-* is its own
+  "r.html":         [...CSS_ACCOUNT],                    // link handler: shared chrome only
   // admin.html (founder super-admin ops portal) moved to the PRIVATE rogerai-fyi/roger-admin repo.
   "login.html":     [...CSS_ACCOUNT],                    // shared account plates only
   "keys.html":      [...CSS_ACCOUNT, "metrics.css", "keys.css"], // reuses the mx-table ledger

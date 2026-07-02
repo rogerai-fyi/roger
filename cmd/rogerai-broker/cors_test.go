@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,23 @@ func assertCredsHeaders(t *testing.T, w *httptest.ResponseRecorder, wantAllow st
 		}
 	} else if gotCreds != "" {
 		t.Errorf("non-matching origin must not set Access-Control-Allow-Credentials, got %q", gotCreds)
+	}
+}
+
+// TestCorsAllowsAttachHeader locks the BASE STATION requirement: the web viewer streams and
+// sends with an X-Roger-Attach header (EventSource can't set headers, so it uses fetch), which
+// forces a CORS preflight. If the broker's Allow-Headers omits X-Roger-Attach the browser
+// blocks the whole live-session view — this pins that header into the allow list.
+func TestCorsAllowsAttachHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodOptions, "/rc/rcs_x/stream", nil)
+	r.Header.Set("Origin", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi"))
+	if !corsCredsPreflight(w, r) {
+		t.Fatal("preflight must handle the OPTIONS")
+	}
+	allow := w.Header().Get("Access-Control-Allow-Headers")
+	if !strings.Contains(allow, "X-Roger-Attach") {
+		t.Fatalf("Allow-Headers must include X-Roger-Attach (the web viewer's attach bearer), got %q", allow)
 	}
 }
 
