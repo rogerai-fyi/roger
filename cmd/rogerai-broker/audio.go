@@ -55,7 +55,19 @@ func transcriptText(body []byte) (string, bool) {
 		sb.WriteString(s.Text)
 		sb.WriteString(" ")
 	}
-	return sb.String(), true
+	if strings.TrimSpace(sb.String()) != "" {
+		return sb.String(), true
+	}
+	// No screenable text in the recognized fields. A BARE empty-text body ({"text":""}) is a
+	// legitimate silent-audio result - nothing to screen. But a body that ALSO carries other
+	// content (an off-field transcript like {"text":"","transcription":"..."}, or a "segments"
+	// whose words sit under a non-"text" sub-key) must NOT be forwarded raw+unscreened: the
+	// output screen was being skipped on empty extracted text (audit #12, the STT laundering
+	// channel). Hand the WHOLE body to the screen so every field is covered.
+	if len(keys) == 1 && hasKey("text") {
+		return "", true // genuinely silent audio: skip the screen, serve 200
+	}
+	return string(body), true // ambiguous / off-field shape -> screen the raw body
 }
 
 // audioTTSMaxChars is the per-request TTS input cap (Unicode runes). Default ~10k
