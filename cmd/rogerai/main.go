@@ -900,7 +900,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// Remember the verified upstream (and any key it needed) so a custom-port /
 		// guided-fallback / key-protected endpoint is not re-hunted or re-prompted next
 		// launch (the (e) saved-config source).
-		if (pick.BaseURL != "" && pick.BaseURL != savedUp) || (*upKey != "" && (cfg.Share == nil || *upKey != cfg.Share.UpstreamKey)) {
+		if shouldPersistShareUpstream(foundModality, pick.BaseURL, savedUp, *upKey, cfg.Share) {
 			c := loadConfig()
 			if c.Share == nil {
 				c.Share = &Share{}
@@ -1815,6 +1815,24 @@ func soleModality(m map[string]string) string {
 		}
 	}
 	return only
+}
+
+// shouldPersistShareUpstream reports whether a share's verified upstream (and any key it
+// needed) should be remembered as the saved config's headline `share.upstream`/key.
+// Enforced by features/onboarding/config_preservation.feature's saga sibling: the founder-hit
+// 2026-07-02 incident where a headless `roger share --model voice --upstream :8790` overwrote
+// the chat share's saved :8060 upstream and broke the chat share on its next launch.
+func shouldPersistShareUpstream(foundModality, baseURL, savedUp, upKey string, saved *Share) bool {
+	// ONLY a CHAT share ("" = undetected, which offers as chat). A voice daemon passes its
+	// --upstream explicitly each run, so it never needs persisting.
+	if foundModality != "" && foundModality != protocol.ModalityChat {
+		return false
+	}
+	savedKey := ""
+	if saved != nil {
+		savedKey = saved.UpstreamKey
+	}
+	return (baseURL != "" && baseURL != savedUp) || (upKey != "" && upKey != savedKey)
 }
 
 // normalizeUpstream turns a user-supplied --upstream into the OpenAI-compatible
