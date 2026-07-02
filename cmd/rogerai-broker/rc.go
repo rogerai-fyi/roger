@@ -351,13 +351,49 @@ func (b *broker) rcRevokeAll(w http.ResponseWriter, r *http.Request) {
 // rcEndSession pushes a terminal `ended` frame to viewers and drops the hub. The roster row's
 // revoked flag is set by the caller (disable / revoke-all / account delete).
 func (b *broker) rcEndSession(sid string) {
-	b.rcMu.Lock()
-	h := b.rcHubs[sid]
-	b.rcMu.Unlock()
-	if h != nil {
-		h.publish(protocol.RCFrame{Kind: protocol.RCKindEnded})
-	}
+	// The terminal frame must reach viewers on EVERY instance, so fan it out through the same
+	// path host frames take (bus in multi-instance, local hub otherwise).
+	b.rcFanOut(sid, b.rcHubFor(sid), protocol.RCFrame{Kind: protocol.RCKindEnded})
 	b.rcDropHub(sid)
+}
+
+// rcMultiInstance reports whether cross-instance RC relay is active (the flag AND a live bus).
+func (b *broker) rcMultiInstance() bool { return b.multiInstance && b.shared != nil }
+
+// rcFanOut delivers a host frame to viewers. Multi-instance: assign a SHARED seq (so viewers on
+// any instance order identically) and publish to the bus. Single-instance: the local hub
+// assigns the seq, records the ring, and notifies local viewers. In multi-instance a viewer
+// re-backfills on connect, so we don't serve ring replay cross-instance (the broker never
+// persists the transcript).
+func (b *broker) rcFanOut(sid string, h *rcHub, f protocol.RCFrame) {
+	if !b.rcMultiInstance() {
+		h.publish(f)
+		return
+	}
+	if seq, err := b.shared.busNextRCSeq(sid); err == nil {
+		f.Seq = seq
+	}
+	if f.TS == 0 {
+		f.TS = time.Now().Unix()
+	}
+	raw, _ := json.Marshal(f)
+	_ = b.shared.busPublishRCOut(sid, raw)
+}
+
+// rcDeliverInbound routes a viewer inbound (turn/confirm/backfill) to the host. Multi-instance:
+// publish to the session's inbound bus channel (the host's poll — on any instance — is
+// subscribed). Single-instance: hand it to the local hub's poll channel (non-blocking; an
+// offline host simply misses it, exactly as before).
+func (b *broker) rcDeliverInbound(sid string, h *rcHub, in protocol.RCInbound) {
+	if b.rcMultiInstance() {
+		raw, _ := json.Marshal(in)
+		_ = b.shared.busPublishRCIn(sid, raw)
+		return
+	}
+	select {
+	case h.in <- in:
+	default:
+	}
 }
 
 // rcSubtree dispatches /rc/{sid}/{send|stream|poll|events|code|disable}.
@@ -466,6 +502,40 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) {
 	_ = b.db.UpdateRCSession(sess)
 	h := b.rcHubFor(sid)
 	h.markHost(true)
+
+	// MULTI-INSTANCE: a viewer's inbound may have been published on a PEER instance, so for the
+	// life of this long-poll also subscribe to the session's inbound bus channel. The local
+	// h.in is still drained (mixed-mode safety across a flag flip). On a bus-subscribe error we
+	// fall through to a 204 re-poll (no inbound is lost — the sender's publish reports 0
+	// subscribers and the viewer's send simply doesn't reach an offline host, as before).
+	if b.rcMultiInstance() {
+		busIn, cancel, err := b.shared.busSubscribeRCIn(r.Context(), sid)
+		if err != nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		defer cancel()
+		select {
+		case msg := <-h.in:
+			_ = json.NewEncoder(w).Encode(msg)
+		case raw, ok := <-busIn:
+			if !ok {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			var in protocol.RCInbound
+			if json.Unmarshal(raw, &in) != nil {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(in)
+		case <-time.After(rcPollHold):
+			w.WriteHeader(http.StatusNoContent)
+		case <-r.Context().Done():
+		}
+		return
+	}
+
 	select {
 	case msg := <-h.in:
 		_ = json.NewEncoder(w).Encode(msg)
@@ -498,7 +568,7 @@ func (b *broker) rcEvents(w http.ResponseWriter, r *http.Request, sid string) {
 		if len(f.Text) > rcMaxFrameLen {
 			f.Text = f.Text[:rcMaxFrameLen]
 		}
-		h.publish(f)
+		b.rcFanOut(sid, h, f)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -541,13 +611,9 @@ func (b *broker) rcSend(w http.ResponseWriter, r *http.Request, sid string) {
 	h := b.rcHubFor(sid)
 	// Echo a user frame for a turn so every viewer sees who typed what.
 	if in.Kind == protocol.RCInTurn && in.Text != "" {
-		h.publish(protocol.RCFrame{Kind: protocol.RCKindUser, Origin: label, Text: in.Text})
+		b.rcFanOut(sid, h, protocol.RCFrame{Kind: protocol.RCKindUser, Origin: label, Text: in.Text})
 	}
-	select {
-	case h.in <- in:
-	default:
-		// Host not draining (offline): still acknowledged; the echoed frame stands.
-	}
+	b.rcDeliverInbound(sid, h, in)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -582,22 +648,57 @@ func (b *broker) rcStream(w http.ResponseWriter, r *http.Request, sid string) {
 	}
 	h := b.rcHubFor(sid)
 	viewerID := label + ":" + rcRandToken("")
-	ch, unsub := h.subscribe(viewerID, since)
-	defer unsub()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	ctx := r.Context()
+
+	// MULTI-INSTANCE: the host may be posting frames to a PEER instance, so subscribe to the
+	// session's frame bus channel. Cross-instance we don't serve ring replay (the host
+	// re-backfills on connect); Last-Event-ID is best-effort. Single-instance keeps the local
+	// hub ring + viewer channel exactly as before.
+	if b.rcMultiInstance() {
+		busOut, cancel, err := b.shared.busSubscribeRCOut(ctx, sid)
+		if err != nil {
+			return
+		}
+		defer cancel()
+		// Ask the host for a snapshot addressed to this viewer (over the inbound bus).
+		b.rcDeliverInbound(sid, h, protocol.RCInbound{Kind: protocol.RCInBackfill, Viewer: viewerID, TS: time.Now().Unix()})
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case raw, ok := <-busOut:
+				if !ok {
+					return
+				}
+				var f protocol.RCFrame
+				if json.Unmarshal(raw, &f) != nil {
+					continue
+				}
+				if f.Kind == protocol.RCKindBackfill && f.Viewer != "" && f.Viewer != viewerID {
+					continue
+				}
+				rcWriteSSE(w, flusher, f)
+				if f.Kind == protocol.RCKindEnded {
+					return
+				}
+			}
+		}
+	}
+
+	ch, unsub := h.subscribe(viewerID, since)
+	defer unsub()
 	// Ask the host for a transcript snapshot addressed to this viewer (content-blind: the
 	// broker never has the history; the host serves it).
 	select {
 	case h.in <- protocol.RCInbound{Kind: protocol.RCInBackfill, Viewer: viewerID, TS: time.Now().Unix()}:
 	default:
 	}
-
-	ctx := r.Context()
 	for {
 		select {
 		case <-ctx.Done():
@@ -607,16 +708,21 @@ func (b *broker) rcStream(w http.ResponseWriter, r *http.Request, sid string) {
 			if f.Kind == protocol.RCKindBackfill && f.Viewer != "" && f.Viewer != viewerID {
 				continue
 			}
-			buf, _ := json.Marshal(f)
-			_, _ = w.Write([]byte("id: " + strconv.FormatUint(f.Seq, 10) + "\ndata: "))
-			_, _ = w.Write(buf)
-			_, _ = w.Write([]byte("\n\n"))
-			flusher.Flush()
+			rcWriteSSE(w, flusher, f)
 			if f.Kind == protocol.RCKindEnded {
 				return
 			}
 		}
 	}
+}
+
+// rcWriteSSE writes one RCFrame as an SSE event (id: <seq>\ndata: <json>\n\n) and flushes.
+func rcWriteSSE(w http.ResponseWriter, flusher http.Flusher, f protocol.RCFrame) {
+	buf, _ := json.Marshal(f)
+	_, _ = w.Write([]byte("id: " + strconv.FormatUint(f.Seq, 10) + "\ndata: "))
+	_, _ = w.Write(buf)
+	_, _ = w.Write([]byte("\n\n"))
+	flusher.Flush()
 }
 
 // rcRotateCode handles POST /rc/{sid}/code (owner): mint a fresh link code (10-min window),
