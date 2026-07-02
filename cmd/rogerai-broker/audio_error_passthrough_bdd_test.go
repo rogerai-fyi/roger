@@ -205,8 +205,12 @@ func (s *epState) run() error {
 	if s.grant {
 		s.grantID = "g_ep"
 		sum := sha256.Sum256([]byte("rog-grant_ep"))
+		// The grant is issued BY the node's operator and scoped to their node "v1" (the scenario
+		// "scoped to @op/voice-a"). It must be owner-scoped so it legitimately reaches v1 - a grant
+		// owned by a party that owns no node has an empty nodeAllow and is refused (BLOCKER #2's
+		// isolation, enforced by grant_node_isolation_test.go).
 		if err := mem.CreateGrant(store.Grant{
-			ID: s.grantID, SecretHash: hex.EncodeToString(sum[:]), Owner: userPubHex, Free: true,
+			ID: s.grantID, SecretHash: hex.EncodeToString(sum[:]), Owner: "oppub", Nodes: []string{"v1"}, Free: true,
 		}); err != nil {
 			return err
 		}
