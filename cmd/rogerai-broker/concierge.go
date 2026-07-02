@@ -302,6 +302,12 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 		"max_tokens":  c.maxTokens,
 		"temperature": 0.6,
 		"stream":      false,
+		// gpt-oss reasoning models at default effort burn the whole max_tokens
+		// budget on hidden analysis and return EMPTY content (finish=length), so
+		// the dogfood rung serves nothing and Ping degrades to Groq every time.
+		// Low effort keeps the short concierge replies inside budget (~1.5s live).
+		// Band nodes we shape; the Groq fallback payload stays unshaped.
+		"reasoning_effort": "low",
 	}
 	rawBody, _ := json.Marshal(payload)
 
@@ -395,6 +401,12 @@ func (b *broker) dogfoodGrantRelay(messages []chatMsg) (reply string, served boo
 		"max_tokens":  c.maxTokens,
 		"temperature": 0.6,
 		"stream":      false,
+		// gpt-oss reasoning models at default effort burn the whole max_tokens
+		// budget on hidden analysis and return EMPTY content (finish=length), so
+		// the dogfood rung serves nothing and Ping degrades to Groq every time.
+		// Low effort keeps the short concierge replies inside budget (~1.5s live).
+		// Band nodes we shape; the Groq fallback payload stays unshaped.
+		"reasoning_effort": "low",
 	}
 	rawBody, _ := json.Marshal(payload)
 
