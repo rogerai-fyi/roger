@@ -861,7 +861,7 @@ github.com/rogerai-fyi/roger/internal/client/rc.go:300:			Done				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:303:			Run				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:310:			Stop				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:321:			Disable				100.0%
-github.com/rogerai-fyi/roger/internal/client/rc.go:329:			pollLoop			81.5%
+github.com/rogerai-fyi/roger/internal/client/rc.go:329:			pollLoop			85.2%
 github.com/rogerai-fyi/roger/internal/client/rc.go:376:			eventPump			100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:398:			postEvents			100.0%
 github.com/rogerai-fyi/roger/internal/client/say.go:41:			Speak				95.2%
