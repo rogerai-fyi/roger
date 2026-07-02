@@ -497,10 +497,10 @@ func TestGrantShowRevokeNotFound(t *testing.T) {
 	}
 	// A forbidden /grants fetch -> the login-required error surfaces through findGrant.
 	forbidden := jsonServer(t, http.StatusForbidden, `{}`, nil)
-	if err := GrantShow(forbidden, "x"); err == nil || !strings.Contains(err.Error(), "roger login") {
+	if err := GrantShow(forbidden, "x"); err == nil || !strings.Contains(err.Error(), "linked operator account") {
 		t.Errorf("GrantShow(403) = %v, want the login-required error", err)
 	}
-	if err := GrantRevoke(forbidden, "x"); err == nil || !strings.Contains(err.Error(), "roger login") {
+	if err := GrantRevoke(forbidden, "x"); err == nil || !strings.Contains(err.Error(), "linked operator account") {
 		t.Errorf("GrantRevoke(403) = %v, want the login-required error", err)
 	}
 }
@@ -578,10 +578,10 @@ func TestWithTopupHintMonthlyLimitPassthrough(t *testing.T) {
 func TestGrantListErrorBranches(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	forbidden := jsonServer(t, http.StatusForbidden, `{}`, nil)
-	if err := GrantList(forbidden); err == nil || !strings.Contains(err.Error(), "roger login") {
+	if err := GrantList(forbidden); err == nil || !strings.Contains(err.Error(), "linked operator account") {
 		t.Errorf("GrantList(403) = %v, want the login-required error", err)
 	}
-	if _, err := GrantListRows(forbidden); err == nil || !strings.Contains(err.Error(), "roger login") {
+	if _, err := GrantListRows(forbidden); err == nil || !strings.Contains(err.Error(), "linked operator account") {
 		t.Errorf("GrantListRows(403) = %v, want the login-required error", err)
 	}
 	// An empty grant list -> the "no grants yet" line (a clean nil, not an error).

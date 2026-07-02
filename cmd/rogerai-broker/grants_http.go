@@ -45,6 +45,35 @@ func secretHash(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// grantsOwner resolves the owner behind a grant-MANAGEMENT request: a logged-in web session,
+// OR a signed request whose pubkey is bound to ANY non-anonymized account owner — GitHub OR
+// Apple, exactly the set accountWalletForOwner resolves (founder contract, roger-ios
+// docs/EXTERNAL-READINESS.md §2 / features/grants/apple_owner_management.feature). Grant
+// management needs a funded ACCOUNT, not payout-grade KYC — payoutOwner (GitHub-only) is
+// deliberately untouched and still gates actual payouts. NOTE: an Apple-bound owner must
+// never be told to "just link GitHub" — accountWalletForOwner is GitHub-wins, so linking
+// would flip a funded u_apple_ wallet to u_gh_ and strand the Apple balance.
+func (b *broker) grantsOwner(r *http.Request, body []byte) (store.Owner, bool) {
+	// 1) Web session cookie (browser). Mirrors payoutOwner's web leg: a valid session whose
+	// login is not (yet) a bound operator still returns ok so the handler emits its 403.
+	if l, _, _, sok := b.sessionOwner(r); sok {
+		if rec, found, _ := b.db.OwnerByLogin(l); found {
+			return rec, true
+		}
+		return store.Owner{}, true
+	}
+	// 2) Signed request: MUST verify, and the pubkey MUST be bound to a non-anonymized
+	// account owner (GitHub or Apple). A signed-but-unbound keypair stays anonymous: 401.
+	if _, authed, iok := b.identityOf(r, body); iok && authed {
+		if rec, found := b.requireOwner(r); found {
+			if _, walletOK := accountWalletForOwner(rec); walletOK {
+				return rec, true
+			}
+		}
+	}
+	return store.Owner{}, false
+}
+
 // grants is the collection handler (POST create, GET list). The per-grant
 // handler (grantByID) covers GET/PATCH/DELETE on /grants/{id}.
 func (b *broker) grants(w http.ResponseWriter, r *http.Request) {
@@ -61,13 +90,13 @@ func (b *broker) grants(w http.ResponseWriter, r *http.Request) {
 	// Ed25519 signature over these exact bytes (r.Body is single-use), and POST
 	// threads them on to grantCreate.
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-	_, owner, ok := b.payoutOwner(r, body)
+	owner, ok := b.grantsOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `roger login` or sign in on the web")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - sign in in the app, run `roger login`, or sign in on the web")
 		return
 	}
-	if owner.GitHubID == 0 || owner.Pubkey == "" {
-		jsonErr(w, http.StatusForbidden, "creating grants requires a GitHub-linked operator account")
+	if (owner.GitHubID == 0 && owner.AppleSub == "") || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "creating grants requires a linked operator account (GitHub or Apple sign-in)")
 		return
 	}
 	switch r.Method {
@@ -154,13 +183,13 @@ func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
 	// exact bytes (nil for GET/DELETE); the PATCH path reuses them. Auth is the
 	// same dual-path resolver as the collection handler (cookie OR signed CLI).
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-	_, owner, ok := b.payoutOwner(r, body)
+	owner, ok := b.grantsOwner(r, body)
 	if !ok {
-		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - run `roger login` or sign in on the web")
+		jsonErr(w, http.StatusUnauthorized, "log in to manage keys - sign in in the app, run `roger login`, or sign in on the web")
 		return
 	}
-	if owner.GitHubID == 0 || owner.Pubkey == "" {
-		jsonErr(w, http.StatusForbidden, "managing grants requires a GitHub-linked operator account")
+	if (owner.GitHubID == 0 && owner.AppleSub == "") || owner.Pubkey == "" {
+		jsonErr(w, http.StatusForbidden, "managing grants requires a linked operator account (GitHub or Apple sign-in)")
 		return
 	}
 	switch r.Method {
