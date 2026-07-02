@@ -515,6 +515,18 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) {
 			return
 		}
 		defer cancel()
+		// Drain one inbound a viewer sent during the poll gap: while no poll was subscribed the
+		// PUBLISH reached 0 receivers (dropped), so busPublishRCIn buffered it (audit #5). We
+		// SUBSCRIBE first (above) THEN pop: Redis serializes our SUBSCRIBE ahead of this pop, so
+		// any earlier publish is already listed (we pop it) and any later one arrives live on
+		// busIn - lossless, no duplicate. One per poll (the client re-polls for the rest).
+		if raw, ok, _ := b.shared.busPopRCIn(sid); ok {
+			var in protocol.RCInbound
+			if json.Unmarshal(raw, &in) == nil {
+				_ = json.NewEncoder(w).Encode(in)
+				return
+			}
+		}
 		select {
 		case msg := <-h.in:
 			_ = json.NewEncoder(w).Encode(msg)

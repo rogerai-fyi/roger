@@ -208,6 +208,11 @@ type sharedStore interface {
 	// viewers on different instances see one consistent ordering. TTL'd so it ages out.
 	busNextRCSeq(sid string) (uint64, error)
 
+	// busPopRCIn removes+returns ONE viewer inbound that busPublishRCIn buffered because it was
+	// published while the host had no live poll subscribed (a PUBLISH to 0 subscribers, which
+	// pub/sub drops). ok=false when the gap buffer is empty. The host's poll drains one per round.
+	busPopRCIn(sid string) (in []byte, ok bool, err error)
+
 	// putNode mirrors a node's full registration JSON (incl. BridgeToken) into the
 	// SHARED registry so EVERY instance can pick it AND authenticate its poll/result -
 	// not only the instance the node dialed. ttl is refreshed on each heartbeat
@@ -323,6 +328,7 @@ func (m *memStore) busSubscribeRCOut(context.Context, string) (<-chan []byte, fu
 	return nil, func() {}, errNoSharedStore
 }
 func (m *memStore) busNextRCSeq(string) (uint64, error)                { return 0, errNoSharedStore }
+func (m *memStore) busPopRCIn(string) ([]byte, bool, error)            { return nil, false, errNoSharedStore }
 func (m *memStore) putNode(string, []byte, time.Duration) error        { return errNoSharedStore }
 func (m *memStore) getNode(string) ([]byte, bool, error)               { return nil, false, errNoSharedStore }
 func (m *memStore) allNodes() (map[string][]byte, error)               { return nil, errNoSharedStore }
@@ -1030,11 +1036,19 @@ const (
 	busRCInPrefix  = keyPrefix + "bus:rc:in:"
 	busRCOutPrefix = keyPrefix + "bus:rc:out:"
 	rcSeqPrefix    = keyPrefix + "rc:seq:"
+	// rogerai:bus:rc:inbuf:<sid> - a short-TTL LIST that retains a viewer inbound published
+	// while the host was BETWEEN polls (a PUBLISH to 0 subscribers, which pub/sub drops). The
+	// host's next poll drains it one-per-poll, so a turn/confirm sent in the poll gap is not lost.
+	busRCInBufPrefix = keyPrefix + "bus:rc:inbuf:"
 )
 
 // rcSeqTTL keeps the shared per-session seq counter alive as long as a session could plausibly
 // be active; it ages out with the idle-GC window so a long-dead session's key never lingers.
 const rcSeqTTL = 7 * 24 * time.Hour
+
+// rcInboundBufTTL bounds how long a gap-buffered viewer inbound is retained: it only has to
+// outlive the host's re-poll / brief reconnect, then age out so a dead session leaves nothing.
+const rcInboundBufTTL = 2 * time.Minute
 
 // streamDoneMarker is the single-byte sentinel published on a job's stream channel to
 // signal end-of-stream. A real SSE chunk is never a bare 0x04, so it cannot be confused
@@ -1214,7 +1228,48 @@ func (v *valkeyStore) busSubscribeStream(ctx context.Context, jobID string) (<-c
 // --- BASE STATION / remote control pub-sub (v5.0.0) ---
 
 func (v *valkeyStore) busPublishRCIn(sid string, in []byte) error {
-	return v.busPublishTo(busRCInPrefix+sid, in, "busPublishRCIn")
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+	defer cancel()
+	n, err := v.rdb.Publish(ctx, busRCInPrefix+sid, in).Result()
+	if err != nil {
+		v.noteErr("busPublishRCIn", err)
+		return err
+	}
+	if n == 0 {
+		// Nobody heard it: the host is between polls (its subscription is torn down after each
+		// long-poll). Retain the inbound on a short-TTL list so the next poll can drain it,
+		// instead of dropping it as pub/sub does (audit #5). The single-instance h.in buffer
+		// (cap 64) already covers the non-bus path.
+		key := busRCInBufPrefix + sid
+		if perr := v.rdb.RPush(ctx, key, in).Err(); perr != nil {
+			v.noteErr("busPublishRCIn", perr)
+			return perr
+		}
+		v.rdb.Expire(ctx, key, rcInboundBufTTL)
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) busPopRCIn(sid string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	raw, err := v.rdb.LPop(ctx, busRCInBufPrefix+sid).Bytes()
+	if err == redis.Nil {
+		return nil, false, nil // empty buffer (the common steady-state case)
+	}
+	if err != nil {
+		v.noteErr("busPopRCIn", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return raw, true, nil
 }
 func (v *valkeyStore) busPublishRCOut(sid string, frame []byte) error {
 	return v.busPublishTo(busRCOutPrefix+sid, frame, "busPublishRCOut")
