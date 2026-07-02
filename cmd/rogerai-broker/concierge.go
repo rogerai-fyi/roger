@@ -533,10 +533,14 @@ func (b *broker) pickGrantStation(allow map[string]bool, model string) (node str
 	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	bannedNode := b.bannedOwnerNodeSet() // owner-ban set (nil when none) - parity with pickFor
 	for id := range allow {
 		n, exists := b.nodes[id]
 		if !exists || time.Since(b.lastSeen[id]) >= nodeTTL {
 			continue
+		}
+		if b.isBanned(id) || bannedNode[id] {
+			continue // report-banned or banned-owner node: never dogfood Ping to it (parity with pickFor)
 		}
 		if !b.conciergeProvenLiveLocked(id, now) {
 			continue // heartbeat-fresh but not proven-live: skip so Ping fails fast to Groq
@@ -559,9 +563,13 @@ func (b *broker) pickFreeStation() (node, model string, ok bool) {
 	now := time.Now()
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	bannedNode := b.bannedOwnerNodeSet() // owner-ban set (nil when none) - parity with pickFor
 	for _, n := range b.nodes {
 		if time.Since(b.lastSeen[n.NodeID]) >= nodeTTL {
 			continue
+		}
+		if b.isBanned(n.NodeID) || bannedNode[n.NodeID] {
+			continue // report-banned or banned-owner node: never dogfood Ping to it (parity with pickFor)
 		}
 		if !b.conciergeProvenLiveLocked(n.NodeID, now) {
 			continue // heartbeat-fresh but not proven-live: skip so Ping fails fast to Groq
