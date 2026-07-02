@@ -16,10 +16,13 @@ import (
 // register. Founder decision: the TUI BLOCKS a nameless voice on-air with a clear prompt
 // (no broker round-trip). stt + chat rows are unaffected.
 
-// TestToggleShareBlocksNamelessVoice: pressing enter/a on a tts row with no name (or no
-// voice) must NOT register — the row stays OFF air and the status prompts the VOICE BOOTH.
+// TestToggleShareBlocksNamelessVoice: putting a nameless (or voiceless) tts row on air must
+// NOT register - the row stays OFF air and the status prompts the VOICE BOOTH. Both on-air
+// paths are gated: `toggleShareAt` (enter/a, the OPEN-MARKET toggle) AND `togglePrivateAt`
+// (the PRIVATE-band toggle), which shares the same guard so a nameless voice can't slip on
+// air the hidden-band way either. Both must block before any doomed broker register.
 func TestToggleShareBlocksNamelessVoice(t *testing.T) {
-	cases := []struct {
+	voices := []struct {
 		name  string
 		voice node.VoiceConfig // set on the controller before the toggle
 	}{
@@ -27,46 +30,60 @@ func TestToggleShareBlocksNamelessVoice(t *testing.T) {
 		{"a voice but still no name", node.VoiceConfig{Voice: "af_heart", Speed: 1.0}},
 		{"a name but no voice picked", node.VoiceConfig{Name: "Night Owl"}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// A broker that would 400 a nameless voice (and 200 anything else) — but the guard
-			// must fire FIRST, so this handler should never see a register for this row.
-			registered := false
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if strings.Contains(r.URL.Path, "register") {
-					registered = true
+	// Both on-air toggles carry the SAME nameless-voice guard. togglePrivateAt is login-gated,
+	// so the harness logs the controller in first - proving the GUARD (not the login gate)
+	// blocks the nameless row.
+	toggles := []struct {
+		name   string
+		toggle func(m *model, i int)
+	}{
+		{"toggleShareAt", func(m *model, i int) { m.toggleShareAt(i) }},
+		{"togglePrivateAt", func(m *model, i int) { m.togglePrivateAt(i) }},
+	}
+	for _, tg := range toggles {
+		for _, tc := range voices {
+			t.Run(tg.name+"/"+tc.name, func(t *testing.T) {
+				// A broker that would 400 a nameless voice (and 200 anything else) - but the guard
+				// must fire FIRST, so this handler should never see a register for this row.
+				registered := false
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.Contains(r.URL.Path, "register") {
+						registered = true
+					}
+					_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+				}))
+				defer srv.Close()
+
+				mm := New(srv.URL, "tester")
+				mm.width, mm.height = 100, 30
+				mm.mode = modeShare
+				mm.loggedIn = true // so the private-band gate isn't the reason for the block
+				mm.ctrl.SetLoggedIn(true)
+				mm.setShareRows([]shareRow{{model: "kokoro-82m", modality: "tts", ctx: 4096}})
+				if tc.voice.Name != "" || tc.voice.Voice != "" {
+					mm.ctrl.SetVoiceConfig("kokoro-82m", tc.voice)
 				}
-				_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
-			}))
-			defer srv.Close()
+				mm.syncShareCache()
+				mm.shareCursor = 0
 
-			mm := New(srv.URL, "tester")
-			mm.width, mm.height = 100, 30
-			mm.mode = modeShare
-			mm.setShareRows([]shareRow{{model: "kokoro-82m", modality: "tts", ctx: 4096}})
-			if tc.voice.Name != "" || tc.voice.Voice != "" {
-				mm.ctrl.SetVoiceConfig("kokoro-82m", tc.voice)
-			}
-			mm.syncShareCache()
-			mm.shareCursor = 0
+				tg.toggle(&mm, 0)
+				mm.syncShareCache()
 
-			mm.toggleShareAt(0)
-			mm.syncShareCache()
-
-			if mm.shares["kokoro-82m"] != nil {
-				t.Errorf("a nameless tts row must stay OFF air, not register")
-			}
-			if registered {
-				t.Errorf("a nameless tts row must not fire a broker register (block before the round-trip)")
-			}
-			st := stripANSI(mm.status)
-			if !strings.Contains(st, "needs a name") || !strings.Contains(strings.ToLower(st), "voice booth") {
-				t.Errorf("status should prompt the VOICE BOOTH before going on air, got %q", st)
-			}
-			if !strings.Contains(st, "p") {
-				t.Errorf("status should name the p affordance, got %q", st)
-			}
-		})
+				if mm.shares["kokoro-82m"] != nil {
+					t.Errorf("a nameless tts row must stay OFF air, not register")
+				}
+				if registered {
+					t.Errorf("a nameless tts row must not fire a broker register (block before the round-trip)")
+				}
+				st := stripANSI(mm.status)
+				if !strings.Contains(st, "needs a name") || !strings.Contains(strings.ToLower(st), "voice booth") {
+					t.Errorf("status should prompt the VOICE BOOTH before going on air, got %q", st)
+				}
+				if !strings.Contains(st, "p") {
+					t.Errorf("status should name the p affordance, got %q", st)
+				}
+			})
+		}
 	}
 }
 

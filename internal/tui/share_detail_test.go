@@ -28,7 +28,6 @@ func TestShareRowDetail_Text(t *testing.T) {
 		row       shareRow
 		voice     node.VoiceConfig // set on the controller for the row's model when Voice/Name non-empty
 		price     node.Pricing     // saved price for the row (FREE by default)
-		loggedIn  bool
 		onAir     bool
 		wantExact string   // when set, the whole detail must equal this
 		wantHas   []string // substrings that must appear (used for on-air rows)
@@ -121,7 +120,7 @@ func TestShareRowDetail_Text(t *testing.T) {
 			}
 			mm.syncShareCache()
 
-			got := mm.shareRowDetail(tc.row, live, tc.loggedIn)
+			got := mm.shareRowDetail(tc.row, live)
 			if tc.wantExact != "" && got != tc.wantExact {
 				t.Errorf("shareRowDetail mismatch:\n got: %q\nwant: %q", got, tc.wantExact)
 			}
@@ -156,7 +155,7 @@ func TestShareRowDetail_PrivateBand(t *testing.T) {
 	mm.syncShareCache()
 	mm.sharePrivate["gpt-oss-20b"] = true // as the controller reports a hidden band
 
-	got := mm.shareRowDetail(shareRow{model: "gpt-oss-20b", ctx: 8192}, sess, false)
+	got := mm.shareRowDetail(shareRow{model: "gpt-oss-20b", ctx: 8192}, sess)
 	low := strings.ToLower(got)
 	if !strings.Contains(low, "hidden") && !strings.Contains(low, "private") && !strings.Contains(low, "code") {
 		t.Errorf("private-band detail should note it's hidden / code-only:\n%s", got)
@@ -168,7 +167,7 @@ func TestShareRowDetail_PrivateBand(t *testing.T) {
 func TestShareRowDetail_Fold(t *testing.T) {
 	mm := New("http://broker.local", "tester")
 	mm.syncShareCache()
-	got := mm.shareRowDetail(shareRow{model: "kokoro-82m", modality: "tts"}, nil, false)
+	got := mm.shareRowDetail(shareRow{model: "kokoro-82m", modality: "tts"}, nil)
 	if got != glyphs.Fold(got) {
 		t.Errorf("detail is not fold-idempotent (a raw glyph leaked): %q vs folded %q", got, glyphs.Fold(got))
 	}
