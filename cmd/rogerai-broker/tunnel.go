@@ -1222,6 +1222,16 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
+			// SINGLE DELIVERY: busPublishJob is a fan-out PUBLISH, so every one of this node's
+			// parallel pollers (across instances) just received this same job. Claim it so exactly
+			// ONE poller serves it; a poller that loses the claim re-polls (204) instead of serving
+			// a duplicate (N-fold billing + interleaved corrupted streams). On a claim-store error
+			// we fall through and serve, degrading to today's fan-out on a rare outage rather than
+			// stranding the job (no poller would serve it -> the consumer 504s).
+			if won, cerr := b.shared.busClaimJob(job.ID); cerr == nil && !won {
+				w.WriteHeader(http.StatusNoContent) // another poller won this job
+				return
+			}
 			_ = json.NewEncoder(w).Encode(job)
 		case <-time.After(25 * time.Second):
 			w.WriteHeader(http.StatusNoContent) // re-poll
