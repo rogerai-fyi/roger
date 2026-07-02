@@ -77,6 +77,13 @@ type Store interface {
 	EntriesByAccount(accountID string, since, until int64) ([]Entry, error)
 	// AddCredits tops a user up (Stripe webhook in P1).
 	AddCredits(user string, amount float64) (float64, error)
+
+	// MergeWallet atomically moves the entire balance (and its unspent seed portion) from one
+	// wallet to another, writing paired adjustment ledger rows so the derived balance stays
+	// consistent. Used at dual-link time so a funded u_apple_ balance is not stranded when a
+	// GitHub link flips the account wallet to u_gh_. Idempotent: a second call after the source
+	// is drained moves 0. Returns the amount moved.
+	MergeWallet(from, to string) (moved float64, err error)
 	// MarkProcessed records an idempotency key (e.g. a Stripe session id) and
 	// reports whether it was newly added (true) vs already seen (false) - makes
 	// the Stripe webhook safe against at-least-once redelivery (no double-credit).
@@ -1200,6 +1207,33 @@ func (m *Mem) AddCredits(user string, amount float64) (float64, error) {
 	m.wallet[user] += amount
 	m.appendLedgerLocked(user, "consumer", KindTopup, amount, "", StatePosted, "", 0)
 	return m.wallet[user], nil
+}
+
+func (m *Mem) MergeWallet(from, to string) (float64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if from == to {
+		return 0, nil
+	}
+	amt := m.wallet[from]
+	if amt == 0 {
+		return 0, nil // idempotent: nothing to move (already merged, or empty)
+	}
+	m.wallet[from] = 0
+	m.wallet[to] += amt
+	// The unspent SEED portion must travel with the balance, or the operator free-vs-paid
+	// earning split would treat merged seed money as real (P0-1). seed_remaining is separate
+	// from the ledger, so moving it does not affect DeriveBalance.
+	if s := m.seedRemain[from]; s != 0 {
+		m.seedRemain[to] += s
+		m.seedRemain[from] = 0
+	}
+	// Paired KindAdjustment rows (already a walletKind) keep the derived balance consistent on
+	// both wallets. No idem key: the amt==0 guard above IS the idempotency, and a genuine
+	// re-merge of newly-arrived funds must always post.
+	m.appendLedgerLocked(from, "consumer", KindAdjustment, -amt, "", StatePosted, "merge:"+to, 0)
+	m.appendLedgerLocked(to, "consumer", KindAdjustment, amt, "", StatePosted, "merge:"+from, 0)
+	return amt, nil
 }
 
 func (m *Mem) MarkProcessed(key string) (bool, error) {

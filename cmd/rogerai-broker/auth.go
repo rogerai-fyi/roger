@@ -100,16 +100,23 @@ func (b *broker) authGitHub(w http.ResponseWriter, r *http.Request) {
 	// github id (the "seed:<wallet>" idem key guards re-login). Seed credits attach to
 	// the account wallet, NOT to anonymous keypairs - those have no balance by design.
 	wallet := "u_gh_" + strconv.FormatInt(gu.ID, 10)
-	_, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds)
-	if seeded {
-		// W6: a seed grant just landed, so refresh the seed-remaining promo mirror.
-		b.invalidateSeedRemaining()
+	// Re-fetch the (post-BindOwner) owner so o reflects BOTH provider links on a dual-link.
+	o, ownerOK, _ := b.db.OwnerByPubkey(pubkey)
+	// Seed the account wallet only on the FIRST provider link (o.AppleSub == "", or the owner
+	// isn't visible yet - the original always-seed fallback). On a dual-link (Apple already
+	// bound) the seed instead travels across via mergeDualLinkWallet below, so we skip the
+	// redundant u_gh_ seed and the account still gets exactly ONE seed (audit #6).
+	if !ownerOK || o.AppleSub == "" {
+		if _, seeded, _ := b.db.SeedOnce(wallet, b.seedFunds); seeded {
+			b.invalidateSeedRemaining() // W6: refresh the seed-remaining promo mirror.
+		}
 	}
-	// Welcome the owner exactly once - the moment we first have an email for the account
-	// (GitHub may have just handed us a public one at this first bind). Re-fetch the
-	// merged owner so we pass the persisted name/email/welcomed stamp; maybeSendWelcome
-	// claims atomically so a re-login (or a racing PATCH) can never double-send.
-	if o, ok, _ := b.db.OwnerByPubkey(pubkey); ok {
+	if ownerOK {
+		// Carry a funded Apple balance into the GitHub wallet so GitHub-wins precedence never
+		// strands it (founder decision). No-op unless this is a dual-link with a funded Apple wallet.
+		b.mergeDualLinkWallet(o)
+		// Welcome the owner exactly once - the moment we first have an email for the account.
+		// maybeSendWelcome claims atomically so a re-login (or a racing PATCH) can never double-send.
 		b.maybeSendWelcome(o)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "github_login": gu.Login, "github_id": gu.ID})

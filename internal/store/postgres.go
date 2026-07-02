@@ -833,6 +833,44 @@ func (p *Postgres) AddCredits(user string, amount float64) (float64, error) {
 	return bal, tx.Commit()
 }
 
+func (p *Postgres) MergeWallet(from, to string) (float64, error) {
+	if from == to {
+		return 0, nil
+	}
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	// Lock the source row and read both balance + unspent seed. A missing row / zero balance
+	// is an idempotent no-op (already merged, or never funded).
+	var amt, seed float64
+	err = tx.QueryRow(`SELECT balance, seed_remaining FROM rogerai.wallet WHERE usr=$1 FOR UPDATE`, from).Scan(&amt, &seed)
+	if err == sql.ErrNoRows || (err == nil && amt == 0) {
+		return 0, tx.Commit()
+	}
+	if err != nil {
+		return 0, err
+	}
+	// Zero the source (balance + its seed portion) and add both onto the destination. The seed
+	// portion travels with the balance so the operator free-vs-paid earning split stays correct.
+	if _, err := tx.Exec(`UPDATE rogerai.wallet SET balance=0, seed_remaining=0 WHERE usr=$1`, from); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO rogerai.wallet(usr,balance,seed_remaining) VALUES($1,$2,$3)
+		ON CONFLICT (usr) DO UPDATE SET balance=rogerai.wallet.balance+$2, seed_remaining=rogerai.wallet.seed_remaining+$3`, to, amt, seed); err != nil {
+		return 0, err
+	}
+	// Paired KindAdjustment rows keep the derived balance consistent on both wallets.
+	if err := appendLedger(tx, from, "consumer", KindAdjustment, -amt, "", StatePosted, "merge:"+to, 0); err != nil {
+		return 0, err
+	}
+	if err := appendLedger(tx, to, "consumer", KindAdjustment, amt, "", StatePosted, "merge:"+from, 0); err != nil {
+		return 0, err
+	}
+	return amt, tx.Commit()
+}
+
 func (p *Postgres) MarkProcessed(key string) (bool, error) {
 	res, err := p.db.Exec(`INSERT INTO rogerai.processed_events(key) VALUES($1) ON CONFLICT (key) DO NOTHING`, key)
 	if err != nil {
