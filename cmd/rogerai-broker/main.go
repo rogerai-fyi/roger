@@ -115,6 +115,11 @@ type broker struct {
 	// not stack N-deep across the small instances). audioSem is nil when disabled.
 	ttsMaxChars int
 	audioSem    chan struct{}
+	// Remote-control (BASE STATION, v5.0.0): the per-session in-memory rendezvous hubs. The
+	// durable roster lives in the store; the hub carries only transient relay state (the
+	// host inbound channel, viewer fan-out, a bounded replay ring). See rc.go.
+	rcMu        sync.Mutex
+	rcHubs      map[string]*rcHub
 	bill        billing
 	conn        connect
 	mod         moderation
@@ -624,6 +629,11 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/admin/unhold", b.adminUnhold)                                                    // admin-authed (broker-key): clear a recount hold + forgive strikes after review
 	mux.HandleFunc("/admin/unban-node", b.adminUnbanNode)                                             // admin-authed: lift a node ban (the node recovery path)
 	mux.HandleFunc("/admin/appeals", b.adminAppeals)                                                  // admin-authed: the open self-serve appeal review queue
+	mux.HandleFunc("/rc/enable", b.rcEnable)                                                          // host: create a remote-control session (BASE STATION)
+	mux.HandleFunc("/rc/sessions", b.rcSessions)                                                      // owner: the remote-control roster (metadata only)
+	mux.HandleFunc("/rc/attach", b.rcAttach)                                                          // remote surface: attach with the link code (uniform-404)
+	mux.HandleFunc("/rc/revoke-all", b.rcRevokeAll)                                                   // owner: end every remote-control session
+	mux.HandleFunc("/rc/", b.rcSubtree)                                                               // /rc/{sid}/{poll|events|send|stream|code|disable}
 	mux.HandleFunc("/admin/csam", b.adminCSAMQueue)                                                   // admin-authed: the CyberTipline drain queue (metadata only) + backlog stats
 	mux.HandleFunc("/admin/csam/submit", b.adminCSAMSubmit)                                           // admin-authed: mark an incident submitted with its CyberTipline report id
 	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
