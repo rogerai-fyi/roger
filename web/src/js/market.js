@@ -19,6 +19,60 @@
 (function () {
   "use strict";
 
+  /* ---------- money meter readout (pure) ------------------------- */
+  // The RATE / REPLY line under the band panel reads the SAME live channels as
+  // the rows above - never hardcoded figures (the launch page once shipped a
+  // made-up "$0.18 - $0.55" while every on-air band was free). Readout:
+  //   { kind:"quiet" }                              nothing on air -> keep the
+  //                                                 neutral no-figures copy
+  //   { kind:"free",   rate:"FREE",         reply:"$0.00" }
+  //   { kind:"priced", rate:"$0.18 - $0.55" reply:"~$0.00000876", mid }
+  // Rate spans the ON-AIR bands' out-prices ($/1M, each band at its cheapest
+  // station, straight from /market min_price); the reply example prices
+  // REPLY_TOK output tokens at the mid rate. Idle stations never drive it.
+  var REPLY_TOK = 24;
+
+  function fmtPrice(p) {
+    if (!p) return "free";
+    return "$" + (p < 1 ? p.toFixed(2) : p.toFixed(2));
+  }
+  // usd delegates to RogerFmt (the ONE canonical money renderer, Go-parity 3
+  // significant figures sub-cent) and only falls back to the same local rule
+  // dashboard.js uses if fmt.js didn't load - a real cost never reads "$0.00".
+  function usd(n) {
+    if (typeof window !== "undefined" && window.RogerFmt) return window.RogerFmt.usd(n);
+    if (!n || !isFinite(n)) return "$0.00";
+    if (n >= 0.01) return "$" + n.toFixed(2);
+    var p = n.toPrecision(3);
+    if (/e/i.test(p)) p = n.toFixed(20).replace(/0+$/, "");
+    else p = p.replace(/0+$/, "").replace(/\.$/, "");
+    return "$" + p;
+  }
+  function meterReadout(channels) {
+    var live = (channels || []).filter(function (c) { return c && c.live; });
+    if (!live.length) return { kind: "quiet" };
+    var min = Infinity, max = 0;
+    live.forEach(function (c) {
+      var p = +c.price;
+      if (!isFinite(p) || p < 0) p = 0;   // unpriced/junk folds to free, never invented
+      if (p < min) min = p;
+      if (p > max) max = p;
+    });
+    if (max <= 0) return { kind: "free", rate: "FREE", reply: usd(0) };
+    var mid = (min + max) / 2;
+    var rate = min === max ? fmtPrice(max) : fmtPrice(min) + " - " + fmtPrice(max);
+    return { kind: "priced", rate: rate, reply: "~" + usd(mid * REPLY_TOK / 1e6), mid: mid };
+  }
+
+  // Node test seam (mirrors dashboard.js): in a non-DOM runtime, export the pure
+  // bits and skip all DOM/fetch below. The browser path runs exactly as before.
+  if (typeof document === "undefined") {
+    if (typeof module !== "undefined" && module.exports) {
+      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice };
+    }
+    return;
+  }
+
   var listEl = document.getElementById("marketList");
   if (!listEl) return;
 
@@ -27,6 +81,8 @@
   var footEl = document.getElementById("marketFoot");
   var refreshBtn = document.getElementById("marketRefresh");
   var section = document.getElementById("market");
+  var meterRateEl = document.getElementById("meterRate");
+  var meterReplyEl = document.getElementById("meterReply");
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var BROKER = "https://broker.rogerai.fyi";
@@ -207,13 +263,34 @@
           '<a href="models.html">sweep the dial &rarr;</a>' +
         '</span>' +
       '</li>';
+    paintMeter({ kind: "quiet" });
+  }
+
+  /* ---------- the money meter (RATE / REPLY under the band) ------ */
+  // Hydrates the meter from the live readout; quiet/unreachable restores the
+  // neutral static copy (honest words, no figures - the HTML ships the same
+  // fallback for no-JS). WALLET is mechanism, not a number: it stays put.
+  function paintMeter(r) {
+    if (!meterRateEl || !meterReplyEl) return;
+    var K = '<span class="meter__k">';
+    meterRateEl.title = "";
+    meterReplyEl.title = "";
+    if (!r || r.kind === "quiet") {
+      meterRateEl.innerHTML = K + 'RATE</span><b>live market</b>, set by operators';
+      meterReplyEl.innerHTML = K + 'REPLY</span><b>priced per token</b>, in and out';
+    } else if (r.kind === "free") {
+      meterRateEl.title = "every band on air is at $0 / 1M right now";
+      meterRateEl.innerHTML = K + 'RATE</span><b class="ember">FREE</b> right now - every band on the house';
+      meterReplyEl.innerHTML = K + 'REPLY</span><b>' + r.reply + '</b> / ' + REPLY_TOK + ' tok out';
+    } else {
+      meterRateEl.title = "out-price range across the bands on air, each at its cheapest station";
+      meterReplyEl.title = REPLY_TOK + " output tokens at the band's mid rate";
+      meterRateEl.innerHTML = K + 'RATE</span><b>' + r.rate + '</b> / 1M tok';
+      meterReplyEl.innerHTML = K + 'REPLY</span><b>' + r.reply + '</b> / ' + REPLY_TOK + ' tok out';
+    }
   }
 
   /* ---------- render -------------------------------------------- */
-  function fmtPrice(p) {
-    if (!p) return "free";
-    return "$" + (p < 1 ? p.toFixed(2) : p.toFixed(2));
-  }
   // fmtTier renders the broker's per-MODEL neutral $-tier (0..4) for the model's BEST price:
   // "$".."$$$$" + a "good price" chip on tier 1 ONLY. Mirrors the bands.js / TUI / broker
   // contract so every surface reads alike. The broker already folds FREE/unknown into tier 0
@@ -364,6 +441,7 @@
         if (channels.length && nOnline > 0) {
           clearTimeout(to);
           paint(channels, true);
+          paintMeter(meterReadout(channels));   // ALL on-air bands, not just the 6 painted rows
           setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · live from /market", "live");
           setFoot('live from <span class="ember">broker.rogerai.fyi/market</span> · signal 0-100 · prices in $ / 1M · auto-refresh 30s');
           startShimmer();
@@ -379,6 +457,7 @@
             if (offers.length > 0 && live > 0) {
               var ch = aggregate(offers);
               paint(ch, true);
+              paintMeter(meterReadout(ch));
               var nOn = ch.filter(function (c) { return c.live; }).length;
               setStatus(nOn + " band" + (nOn === 1 ? "" : "s") + " on air · from /discover", "live");
               setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');

@@ -347,10 +347,13 @@
         </p>
       </div>
 
-      <!-- the money meter line (replaces the 3 cards) -->
+      <!-- the money meter line (replaces the 3 cards). RATE + REPLY hydrate from the
+           SAME live /market read as the band above (market.js) - real figures only.
+           The static copy below is the no-JS / broker-down fallback: neutral on
+           purpose, never made-up numbers. -->
       <div class="meter" aria-label="What it costs">
-        <span><span class="meter__k">RATE</span><b>$0.18 - $0.55</b> / 1M tok</span>
-        <span><span class="meter__k">REPLY</span><b>~$0.0001</b> / 24 tok out</span>
+        <span id="meterRate"><span class="meter__k">RATE</span><b>live market</b>, set by operators</span>
+        <span id="meterReply"><span class="meter__k">REPLY</span><b>priced per token</b>, in and out</span>
         <span><span class="meter__k">WALLET</span><b>debited live</b>, per token</span>
       </div>
     </div>
@@ -539,6 +542,7 @@
   <script src="js/radiomap.js" defer></script>
   <script src="js/teaser.js" defer></script>
   <script src="js/terminal.js" defer></script>
+  <script src="js/fmt.js" defer></script><!-- canonical $ renderer; before market.js (meter REPLY) -->
   <script src="js/market.js" defer></script>
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
