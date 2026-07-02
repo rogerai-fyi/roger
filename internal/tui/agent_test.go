@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rogerai-fyi/roger/internal/harness"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // TestZeroEntersAgentMode: pressing 0 in BROWSE jumps to the [0] AGENT mode, and the
@@ -391,6 +393,92 @@ func TestSlashModelManyOpensPickerAndSelects(t *testing.T) {
 	}
 	if agentModelOf(fm) != want {
 		t.Errorf("selecting row 2 should re-point the agent at %q, got %q", want, agentModelOf(fm))
+	}
+}
+
+// TestSlashModelPickerChatOnly: the /model picker chooses the agent's BRAIN, so it
+// offers CHAT bands only. A voice (tts/stt) station can never serve the chat relay -
+// picking one could only fail the next turn - so it must never appear, no matter how
+// it is named. The filter rides the band's canonical modality (canonModality mirrors
+// the broker's offerModality; band.isVoice is the band-table canon), never a
+// model-name guess. E2E on v5.0.0: the picker listed gpt-oss-120b, voice, whisper-1.
+func TestSlashModelPickerChatOnly(t *testing.T) {
+	cases := []struct {
+		name       string
+		offers     offersMsg
+		wantPicker bool     // whether bare /model opens the modal picker
+		wantRows   []string // the exact picker rows when it opens
+		wantModel  string   // the agent's model after /model (auto-select); "" = none
+	}{
+		{
+			name: "chat + tts + stt on air: only the chat band is offered (auto-selects)",
+			offers: offersMsg{
+				{NodeID: "n1", Model: "gpt-oss-120b", PriceOut: 0.3, Online: true},
+				{NodeID: "n2", Model: "voice", Modality: protocol.ModalityTTS, Online: true},
+				{NodeID: "n3", Model: "whisper-1", Modality: protocol.ModalitySTT, Online: true},
+			},
+			wantPicker: false,
+			wantModel:  "gpt-oss-120b",
+		},
+		{
+			name: "two chat bands + a voice: the picker lists ONLY the chat ones",
+			offers: offersMsg{
+				{NodeID: "n1", Model: "gpt-oss-20b", PriceOut: 0.3, Online: true},
+				{NodeID: "n2", Model: "voice", Modality: protocol.ModalityTTS, Online: true},
+				{NodeID: "n3", Model: "llama-3.3-70b-instruct", PriceOut: 0.41, Online: true},
+			},
+			wantPicker: true,
+			wantRows:   []string{"gpt-oss-20b", "llama-3.3-70b-instruct"},
+		},
+		{
+			name: "explicit chat + legacy empty modality both stay offered (back-compat canon)",
+			offers: offersMsg{
+				{NodeID: "n1", Model: "explicit-chat", Modality: protocol.ModalityChat, PriceOut: 0.3, Online: true},
+				{NodeID: "n2", Model: "legacy-empty", PriceOut: 0.41, Online: true},
+			},
+			wantPicker: true,
+			wantRows:   []string{"explicit-chat", "legacy-empty"},
+		},
+		{
+			name: "voice-only air: no candidate at all (the tune-in hint, never a voice brain)",
+			offers: offersMsg{
+				{NodeID: "n2", Model: "voice", Modality: protocol.ModalityTTS, Online: true},
+				{NodeID: "n3", Model: "whisper-1", Modality: protocol.ModalitySTT, Online: true},
+			},
+			wantPicker: false,
+			wantModel:  "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var tm tea.Model = New("http://broker.local", "tester")
+			tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+			tm, _ = tm.Update(tc.offers)
+			tm, _ = tm.Update(keyMsg("0")) // enter AGENT (nothing tuned in this session)
+			tm = typeLine(tm, "/model")
+			gm := asModel(tm)
+			if gm.agentPicker != tc.wantPicker {
+				t.Fatalf("picker open = %v, want %v (rows=%v)", gm.agentPicker, tc.wantPicker, gm.agentPickerRows)
+			}
+			if tc.wantPicker && !reflect.DeepEqual(gm.agentPickerRows, tc.wantRows) {
+				t.Errorf("picker rows = %v, want chat-only %v", gm.agentPickerRows, tc.wantRows)
+			}
+			if !tc.wantPicker && agentModelOf(gm) != tc.wantModel {
+				t.Errorf("agent model after /model = %q, want %q", agentModelOf(gm), tc.wantModel)
+			}
+			if !tc.wantPicker && tc.wantModel == "" {
+				if out := stripANSI(gm.View()); !strings.Contains(out, "no model tuned in") {
+					t.Errorf("voice-only air should show the no-model hint, not offer a voice:\n%s", out)
+				}
+			}
+			// A voice station must never surface as an agent brain - not as a picker row
+			// and not as an auto-selected model.
+			for _, mdl := range append(append([]string{}, gm.agentPickerRows...), agentModelOf(gm)) {
+				if mdl == "voice" || mdl == "whisper-1" {
+					t.Errorf("voice station %q offered as an agent brain", mdl)
+				}
+			}
+		})
 	}
 }
 
