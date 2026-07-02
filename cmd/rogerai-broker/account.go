@@ -111,6 +111,16 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusInternalServerError, "store error")
 		return
 	}
+	// Remote-control: end + revoke every live session for this wallet (BASE STATION), so a
+	// deleted account leaves no attachable session or valid attach token behind.
+	if list, lerr := b.db.RCSessionsByOwner(wallet); lerr == nil {
+		for _, s := range list {
+			if s.Active() {
+				b.rcEndSession(s.ID)
+			}
+		}
+	}
+	_, _ = b.db.RevokeRCSessions(wallet)
 	// Revoke the web session regardless (so the now-anonymized account can't be read).
 	// Clear BOTH the session cookie and the signed-in hint - otherwise the deleted user's
 	// browser keeps the stale roger_signed_in flag and goes on probing /account (401).
