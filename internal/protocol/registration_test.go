@@ -52,6 +52,51 @@ func TestSignVerifyRegistration(t *testing.T) {
 	}
 }
 
+// TestRegistrationSignatureIgnoresCapabilities pins the rollout-safety invariant behind a real
+// 401 outage: the optional, later-added ModelOffer.Capabilities (vision labelling) is EXCLUDED
+// from the possession proof, so a node and a broker on different binary versions - one that has
+// the field, one that predates it - still agree on the signed bytes. Regression: removing the
+// field's omitempty made the offer serialize differently across versions and the broker upgrade
+// began rejecting validly-signed nodes with "registration signature invalid".
+func TestRegistrationSignatureIgnoresCapabilities(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	// Signed the OLD way: an offer with no capabilities at all.
+	reg := NodeRegistration{NodeID: "n1", PubKey: hex.EncodeToString(pub), TS: 123,
+		Offers: []ModelOffer{{Model: "qwen", PriceIn: 1, PriceOut: 2}}}
+	reg.SignRegistration(priv)
+	if !reg.VerifyRegistration() {
+		t.Fatal("baseline (no capabilities) must verify")
+	}
+	// A newer binary fills capabilities on the SAME signed registration -> must STILL verify,
+	// and must NOT mutate the caller's offers (regSigningBytes deep-copies).
+	for _, caps := range [][]string{{"vision"}, {}, nil} {
+		reg.Offers[0].Capabilities = caps
+		if !reg.VerifyRegistration() {
+			t.Fatalf("capabilities=%v must not affect the registration signature", caps)
+		}
+		if !equalStrs(reg.Offers[0].Capabilities, caps) {
+			t.Fatalf("VerifyRegistration mutated the offer's capabilities: got %v want %v", reg.Offers[0].Capabilities, caps)
+		}
+	}
+	// A tampered PRICED field still breaks it (the proof still covers the real offer terms).
+	reg.Offers[0].PriceOut = 999
+	if reg.VerifyRegistration() {
+		t.Error("a mutated price must still fail verification")
+	}
+}
+
+func equalStrs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestAttestationReportData locks the report_data binding: SHA-512 over pubkey-bytes
 // then nonce-bytes (exactly 64 bytes), deterministic, key- and nonce-sensitive, and
 // nil on malformed hex (so a bad input simply fails the quote check).

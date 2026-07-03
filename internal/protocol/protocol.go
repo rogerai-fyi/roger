@@ -32,11 +32,12 @@ type ModelOffer struct {
 	Unit string `json:"unit,omitempty"`
 	// Capabilities are OPTIONAL chat sub-capabilities beyond plain text - canonical + normalized
 	// (lowercased, deduped, unknown values dropped by Normalize; never trusted raw from the wire).
-	// "vision" = the model accepts image_url content. A non-nil EMPTY slice = known text-only; nil
-	// (JSON null / absent) = the node could not determine it. NO omitempty on purpose: [] must
-	// survive the wire distinct from nil, else "text-only" collapses into "undetermined" and the
-	// app wrongly name-guesses. A list keeps it extensible. See docs/BROKER-VISION-CAPABILITY.md.
-	Capabilities []string `json:"capabilities"`
+	// "vision" = the model accepts image_url content; empty/absent = text-only or undetermined.
+	// omitempty is REQUIRED: this field is EXCLUDED from the registration possession-proof
+	// (regSigningBytes clears it), and a nil value must serialize to NO key so a node that predates
+	// this field and one that carries it produce byte-identical signed bytes - otherwise a broker
+	// upgrade rejects validly-signed nodes with a 401 (the rollout-break this reverts).
+	Capabilities []string `json:"capabilities,omitempty"`
 	PriceIn      float64  `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
 	PriceOut     float64  `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
 	Ctx          int      `json:"ctx"`
@@ -275,11 +276,23 @@ type NodeRegistration struct {
 	Sig string `json:"sig,omitempty"`
 }
 
-// regSigningBytes is the canonical form a node signs to prove it owns PubKey
-// (the Sig field itself is excluded).
+// regSigningBytes is the canonical form a node signs to prove it owns PubKey (the Sig field
+// itself is excluded). It also EXCLUDES each offer's Capabilities: that is an optional, later-
+// added DISPLAY attribute (vision labelling), not part of key possession, so signing over it
+// would make the proof version-fragile - a broker/node binary mismatch on whether the field is
+// present would change the bytes and reject a valid signature (a 401 rollout-break). Clearing it
+// on a DEEP-COPIED offers slice keeps r (and the stored registration) untouched.
 func (r NodeRegistration) regSigningBytes() []byte {
 	c := r
 	c.Sig = ""
+	if len(c.Offers) > 0 {
+		offers := make([]ModelOffer, len(c.Offers))
+		copy(offers, c.Offers)
+		for i := range offers {
+			offers[i].Capabilities = nil
+		}
+		c.Offers = offers
+	}
 	b, _ := json.Marshal(c)
 	return b
 }

@@ -3,32 +3,34 @@ package protocol
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
-// TestCapabilitiesSurviveJSON pins that a known-text-only [] survives a marshal/unmarshal round
-// trip DISTINCT from an undetermined nil - the bug a live E2E caught: json:"...,omitempty" dropped
-// [] on the wire, so the broker saw "text-only" as "undetermined" and the app name-guessed.
-func TestCapabilitiesSurviveJSON(t *testing.T) {
-	cases := []struct {
-		name string
-		caps []string
-	}{
-		{"text-only [] must survive", []string{}},
-		{"vision must survive", []string{"vision"}},
-		{"undetermined nil stays nil", nil},
+// TestCapabilitiesJSONShape pins the omitempty wire shape that keeps the registration
+// possession-proof stable across binary versions: a real capability (["vision"]) survives, while
+// nil AND [] both serialize to NO "capabilities" key. If nil emitted a key, a node that predates
+// the field and one that carries it would sign different bytes and the broker would 401 them
+// (the outage this reverts). The app treats vision/[]/absent identically for non-vision models.
+func TestCapabilitiesJSONShape(t *testing.T) {
+	roundTrip := func(in []string) []string {
+		b, _ := json.Marshal(ModelOffer{Model: "m", Capabilities: in})
+		var o ModelOffer
+		_ = json.Unmarshal(b, &o)
+		return o.Capabilities
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			b, _ := json.Marshal(ModelOffer{Model: "m", Capabilities: c.caps})
-			var got ModelOffer
-			if err := json.Unmarshal(b, &got); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(got.Capabilities, c.caps) {
-				t.Fatalf("round-trip caps = %#v, want %#v (json: %s)", got.Capabilities, c.caps, b)
-			}
-		})
+	if got := roundTrip([]string{"vision"}); !reflect.DeepEqual(got, []string{"vision"}) {
+		t.Errorf("a real capability must survive, got %#v", got)
+	}
+	if got := roundTrip([]string{}); got != nil {
+		t.Errorf("empty [] must serialize to absent (nil round-trip), got %#v", got)
+	}
+	if got := roundTrip(nil); got != nil {
+		t.Errorf("nil stays absent, got %#v", got)
+	}
+	// The KEY must be absent for a nil value, so old + new binaries produce byte-identical offers.
+	if b, _ := json.Marshal(ModelOffer{Model: "m"}); strings.Contains(string(b), "capabilities") {
+		t.Errorf("nil capabilities must omit the key entirely: %s", b)
 	}
 }
 

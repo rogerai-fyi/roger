@@ -683,7 +683,13 @@ func classifyCapabilities(f *Found, base string) {
 		if meta[m] || visionFromID(m) {
 			f.Capabilities[m] = []string{protocol.CapVision}
 		} else {
-			f.Capabilities[m] = []string{} // known text-only: the app hides the photo button, no heuristic
+			// Classified text-only ([]). NOTE: this positive signal does NOT reach the app today -
+			// ModelOffer.Capabilities carries omitempty (required to keep it out of the registration
+			// possession-proof, see regSigningBytes), so an empty [] collapses to absent on the
+			// node->broker wire. Only ["vision"] survives; for a non-vision model the app falls back
+			// to its own name heuristic. Restoring the text-only signal needs a channel outside the
+			// signed offer (TODO).
+			f.Capabilities[m] = []string{}
 		}
 	}
 }

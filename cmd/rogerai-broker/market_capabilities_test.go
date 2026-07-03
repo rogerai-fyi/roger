@@ -8,6 +8,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -15,14 +16,21 @@ import (
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
+// marketCapsFor registers one offer per provider then reads the /market capabilities. Each offer
+// is ROUND-TRIPPED THROUGH JSON first, so the test reflects the real node->broker WIRE (omitempty:
+// a text-only [] collapses to nil) instead of the pre-marshal Go struct - which was the earlier
+// false-green blind spot.
 func marketCapsFor(t *testing.T, model string, offers ...[]string) []string {
 	t.Helper()
 	b := relayBroker(store.NewMem())
 	for i, caps := range offers {
 		pub, _, _ := ed25519.GenerateKey(nil)
 		id := "n" + string(rune('a'+i))
-		b.nodes[id] = protocol.NodeRegistration{NodeID: id, PubKey: hex.EncodeToString(pub),
-			Offers: []protocol.ModelOffer{{Model: model, Capabilities: caps}}}
+		wire, _ := json.Marshal(protocol.NodeRegistration{NodeID: id, PubKey: hex.EncodeToString(pub),
+			Offers: []protocol.ModelOffer{{Model: model, Capabilities: caps}}})
+		var reg protocol.NodeRegistration // FRESH: an absent "capabilities" key stays nil (the wire shape)
+		_ = json.Unmarshal(wire, &reg)
+		b.nodes[id] = reg
 		b.lastSeen[id] = time.Now()
 	}
 	res, _ := b.computeMarket().(map[string]any)
@@ -38,12 +46,15 @@ func marketCapsFor(t *testing.T, model string, offers ...[]string) []string {
 
 func TestMarketCapabilitiesUnion(t *testing.T) {
 	// One provider reports vision, another text-only -> the model is vision-capable (union).
+	// "vision" survives the wire; the text-only [] collapses to nil but the union still wins.
 	if got := marketCapsFor(t, "m", []string{"vision"}, []string{}); len(got) != 1 || got[0] != "vision" {
 		t.Errorf("mixed providers: /market caps = %v, want [vision] (routable to a vision node)", got)
 	}
-	// All providers text-only -> [] (the app hides the photo button, no guessing).
-	if got := marketCapsFor(t, "m", []string{}, []string{}); got == nil || len(got) != 0 {
-		t.Errorf("all-text-only: /market caps = %v, want [] (known text-only)", got)
+	// All providers text-only -> absent on the WIRE: [] collapses to nil (ModelOffer omitempty,
+	// required for the registration possession-proof), so the app name-heuristics. This documents
+	// the accepted trade-off; restoring a positive text-only signal is a follow-up off the offer.
+	if got := marketCapsFor(t, "m", []string{}, []string{}); got != nil {
+		t.Errorf("all-text-only over the wire: /market caps = %v, want nil (text-only [] collapses to absent)", got)
 	}
 	// No provider declared (old nodes / undetermined) -> omitted (nil) so the app falls back.
 	if got := marketCapsFor(t, "m", nil, nil); got != nil {
