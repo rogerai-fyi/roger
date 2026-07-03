@@ -37,10 +37,10 @@ type offerView struct {
 	// channel (the "504 no station is serving <voice>" bug). Always canonical (offerModality):
 	// a pre-voice offer's empty modality is normalized to "chat", never a bare "".
 	Modality string `json:"modality,omitempty"`
-	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"] = accepts images); a
-	// non-nil [] = known text-only, null = undetermined. No omitempty so [] survives the wire
-	// distinct from null. The app shows the photo button on "vision", hides on [], name-guesses on null.
-	Capabilities []string `json:"capabilities"`
+	// Capabilities are the offer's chat sub-capabilities (["vision"] = accepts images); absent =
+	// text-only or undetermined. omitempty: the app treats "vision"->show photo button, absent->
+	// name-heuristic (it handles all three of vision/[]/absent identically for non-vision models).
+	Capabilities []string `json:"capabilities,omitempty"`
 	In           float64  `json:"price_in"`  // active (time-of-use) price right now
 	Out          float64  `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
@@ -228,9 +228,8 @@ type marketView struct {
 	Modality string `json:"modality,omitempty"`
 	// Capabilities is the UNION across this model's on-air providers: a model is vision-capable
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
-	// non-nil [] if all report text-only, null if none declared (the app then name-guesses). No
-	// omitempty so [] survives the wire distinct from null.
-	Capabilities []string `json:"capabilities"`
+	// omitted otherwise (the app name-guesses for a model with no declared vision provider).
+	Capabilities []string `json:"capabilities,omitempty"`
 	Providers    int      `json:"providers"`    // online nodes offering this model
 	InFlight     int      `json:"in_flight"`    // active requests across those nodes
 	MinPrice     float64  `json:"min_price"`    // cheapest active input price (credits/1M)
@@ -271,10 +270,14 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 // from live node state (online providers, in-flight load, cheapest active price, best
 // measured throughput, mean success, and a 0..100 signal). Pure read of broker state,
 // so its serialized result is safe to cache briefly.
-// marketCapabilities collapses a model's per-provider capability union into the aggregated
-// value: the sorted union when any provider declared a capability, [] when providers declared
-// only text-only, and nil (omit) when none declared - so the app trusts a positive/negative
-// signal and falls back to its name guess only when the whole band is silent.
+// marketCapabilities collapses a model's per-provider capability union into the aggregated value:
+// the sorted union when any provider declared a capability, [] when providers declared only
+// text-only, nil (omit) when none declared. IN PRACTICE today only "vision" reaches the app: a
+// node's text-only [] collapses to absent on the offer wire (ModelOffer omitempty, required for
+// the registration possession-proof), so `seen` is effectively true only when some provider
+// reported vision. The app shows the photo button on "vision" and name-heuristics otherwise -
+// correct for the non-vision models on air. (Restoring the text-only signal = TODO, off the
+// signed offer.) The [] path is kept so it lights up the moment that channel exists.
 func marketCapabilities(union map[string]bool, seen bool) []string {
 	if !seen {
 		return nil
