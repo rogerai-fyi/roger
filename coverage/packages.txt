@@ -4,15 +4,15 @@
   92.7%  github.com/rogerai-fyi/roger/internal/agent
   90.3%  github.com/rogerai-fyi/roger/internal/audio
   95.3%  github.com/rogerai-fyi/roger/internal/client
-  91.6%  github.com/rogerai-fyi/roger/internal/detect
+  91.4%  github.com/rogerai-fyi/roger/internal/detect
  100.0%  github.com/rogerai-fyi/roger/internal/glyphs
   99.6%  github.com/rogerai-fyi/roger/internal/harness
   98.5%  github.com/rogerai-fyi/roger/internal/node
   97.2%  github.com/rogerai-fyi/roger/internal/onair
  100.0%  github.com/rogerai-fyi/roger/internal/pricetier
-  95.2%  github.com/rogerai-fyi/roger/internal/protocol
+  95.0%  github.com/rogerai-fyi/roger/internal/protocol
   91.9%  github.com/rogerai-fyi/roger/internal/store
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer
   92.4%  github.com/rogerai-fyi/roger/internal/tui
   98.9%  github.com/rogerai-fyi/roger/internal/update
-  95.2%  github.com/rogerai-fyi/roger/internal/webui
+  95.6%  github.com/rogerai-fyi/roger/internal/webui
