@@ -249,6 +249,11 @@ func (b *broker) rcSessions(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusForbidden, "remote control requires a logged-in account")
 		return
 	}
+	// Self-clean the roster on read (the lazy GC this list was always meant to run): an ENDED
+	// (revoked) session and any host silent past RCIdleGC are dropped, so ending a session makes
+	// it actually disappear from every surface (TUI + app) instead of lingering as "ended", and
+	// long-dead sessions age out. Best-effort - a prune error must not fail the list.
+	_, _ = b.db.PruneRCSessions(wallet, time.Now().Add(-store.RCIdleGC).Unix())
 	list, err := b.db.RCSessionsByOwner(wallet)
 	if err != nil {
 		jsonErr(w, http.StatusInternalServerError, "store error")

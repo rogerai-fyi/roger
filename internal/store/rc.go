@@ -183,3 +183,29 @@ func (m *Mem) RevokeRCSessions(wallet string) (int, error) {
 	}
 	return n, nil
 }
+
+// PruneRCSessions hard-deletes an owner's revoked sessions and any idle since before idleCutoff
+// (unix), cleaning the code-hash + attach indexes. Live/recently-offline rows are kept.
+func (m *Mem) PruneRCSessions(wallet string, idleCutoff int64) (int, error) {
+	m.rc.mu.Lock()
+	defer m.rc.mu.Unlock()
+	dead := map[string]bool{}
+	for id, s := range m.rc.sessions {
+		if s.OwnerWallet != wallet {
+			continue
+		}
+		if s.Revoked || s.LastHostSeen < idleCutoff {
+			if s.CodeHash != "" {
+				delete(m.rc.byCodeHash, s.CodeHash)
+			}
+			delete(m.rc.sessions, id)
+			dead[id] = true
+		}
+	}
+	for h, t := range m.rc.attach {
+		if dead[t.SessionID] {
+			delete(m.rc.attach, h)
+		}
+	}
+	return len(dead), nil
+}

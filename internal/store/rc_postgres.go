@@ -127,3 +127,25 @@ func (p *Postgres) RevokeRCSessions(wallet string) (int, error) {
 	n, _ := res.RowsAffected()
 	return int(n), tx.Commit()
 }
+
+// PruneRCSessions hard-deletes an owner's revoked sessions + those idle since before idleCutoff
+// (unix). Attach tokens cascade via the same USING-delete; live/recent rows are kept.
+func (p *Postgres) PruneRCSessions(wallet string, idleCutoff int64) (int, error) {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM rogerai.rc_attach_tokens a
+		USING rogerai.rc_sessions s
+		WHERE a.session_id=s.id AND s.owner_wallet=$1 AND (s.revoked=true OR s.last_host_seen < $2)`, wallet, idleCutoff); err != nil {
+		return 0, err
+	}
+	res, err := tx.Exec(`DELETE FROM rogerai.rc_sessions
+		WHERE owner_wallet=$1 AND (revoked=true OR last_host_seen < $2)`, wallet, idleCutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), tx.Commit()
+}
