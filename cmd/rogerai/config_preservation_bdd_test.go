@@ -215,6 +215,21 @@ func (s *cpState) roundTripsByteIdentical() error {
 	return nil
 }
 
+// ── C6: clearing a known omitempty field persists ─────────────────────────────────────────
+
+func (s *cpState) compactOn() error { s.writeRaw(`{"broker":"b","compact":true}`); return nil }
+func (s *cpState) turnCompactOff() error {
+	c := loadConfig()
+	c.Compact = false
+	return saveConfig(c)
+}
+func (s *cpState) reloadedCompactOff() error {
+	if loadConfig().Compact {
+		return fmt.Errorf("compact mode is still ON after being cleared - the merge re-preserved the stale value")
+	}
+	return nil
+}
+
 func TestConfigPreservationBDD(t *testing.T) {
 	st := &cpState{}
 	suite := godog.TestSuite{
@@ -246,6 +261,10 @@ func TestConfigPreservationBDD(t *testing.T) {
 			sc.Step(`^a config with broker, user, station, share, share_prices, share_voices, and compact set$`, st.fullConfig)
 			sc.Step(`^it is loaded and saved with no change$`, st.loadedAndSavedNoChange)
 			sc.Step(`^every field round-trips byte-identically to before$`, st.roundTripsByteIdentical)
+			// C6
+			sc.Step(`^a config\.json with compact mode ON$`, st.compactOn)
+			sc.Step(`^the binary loads it, turns compact mode OFF, and saves$`, st.turnCompactOff)
+			sc.Step(`^the reloaded config has compact mode OFF$`, st.reloadedCompactOff)
 		},
 		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/onboarding/config_preservation.feature"}, TestingT: t, Strict: true},
 	}

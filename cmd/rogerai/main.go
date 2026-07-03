@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -251,12 +252,27 @@ func saveConfig(c config) error {
 		return nil
 	}
 	out := map[string]json.RawMessage{}
-	for k, v := range theirs { // start from the current on-disk state (unknown keys + concurrent edits)
-		out[k] = v
+	for k, tv := range theirs {
+		if !knownConfigKeys[k] {
+			out[k] = tv // a genuinely-unknown key (no struct field): always preserve (C1)
+			continue
+		}
+		switch mv, inMine := mine[k]; {
+		case inMine && !rawEqual(mv, configBaseline[k]):
+			out[k] = mv // this process changed a known field -> our value wins
+		case inMine:
+			out[k] = tv // unchanged by us -> keep the disk value (preserves a concurrent edit)
+		case !rawEqual(tv, configBaseline[k]):
+			out[k] = tv // we cleared it to zero, but a concurrent writer changed it -> keep theirs
+		default:
+			// A known field we cleared to its zero value (so omitempty dropped it from `mine`),
+			// unchanged on disk since our baseline -> honor the clear by omitting it from `out`.
+			// (A struct-only write would drop it too; the earlier code wrongly re-preserved it.)
+		}
 	}
-	for k, v := range mine {
-		if !rawEqual(v, configBaseline[k]) || theirs[k] == nil {
-			out[k] = v // this process changed the field (or it is absent on disk) -> our value wins
+	for k, mv := range mine {
+		if _, ok := out[k]; !ok {
+			out[k] = mv // a field this process set that was not on disk before
 		}
 	}
 	b, _ := json.MarshalIndent(out, "", "  ")
@@ -303,18 +319,42 @@ func readRawConfig(path string) map[string]json.RawMessage {
 	return m
 }
 
+// knownConfigKeys is the set of JSON keys the `config` struct owns (including omitempty fields,
+// which vanish from a marshaled map when zero). Derived from the struct type so a field cleared
+// to its zero value is still recognized as KNOWN (and clearable) rather than mistaken for an
+// unknown key to preserve. Computed once at init.
+var knownConfigKeys = func() map[string]bool {
+	m := map[string]bool{}
+	t := reflect.TypeOf(config{})
+	for i := 0; i < t.NumField(); i++ {
+		tag := t.Field(i).Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		if name := strings.Split(tag, ",")[0]; name != "" {
+			m[name] = true
+		}
+	}
+	return m
+}()
+
 // configNeedsMerge reports whether the on-disk config carries state the plain struct write
-// would drop: an UNKNOWN key (C1), or a field a concurrent writer changed that this process
-// left untouched (C3). When false, the canonical struct marshal is safe + byte-identical (C5).
+// would drop: a genuinely-UNKNOWN key (C1), or a field a concurrent writer changed that this
+// process left untouched (C3). When false, the canonical struct marshal is safe - which also
+// correctly DROPS a known field this process cleared to zero (C5 byte-identical common path).
 func configNeedsMerge(mine, theirs map[string]json.RawMessage) bool {
 	for k := range theirs {
-		if _, known := mine[k]; !known {
+		if !knownConfigKeys[k] {
 			return true // an unknown key would be dropped by a struct-only write
 		}
 	}
 	for k, tv := range theirs {
+		// A field we left untouched (mine == baseline, including a field we never had, so both
+		// are nil) that disk changed -> a concurrent edit to preserve. rawEqual is nil-aware, so
+		// this correctly DISTINGUISHES "we never set it" (nil == nil, preserve theirs) from "we
+		// cleared it" (nil != a non-zero baseline, honor our clear on the fast path).
 		if rawEqual(mine[k], configBaseline[k]) && !rawEqual(tv, configBaseline[k]) {
-			return true // I did not change this field but disk did -> preserve the concurrent edit
+			return true
 		}
 	}
 	return false
