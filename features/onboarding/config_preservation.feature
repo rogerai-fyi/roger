@@ -78,3 +78,12 @@ Feature: config.json durability
     Given a config with broker, user, station, share, share_prices, share_voices, and compact set
     When it is loaded and saved with no change
     Then every field round-trips byte-identically to before
+
+  # ── C6: a known field cleared to its zero value actually persists the clear ─────────────
+  # (regression: a merge that only preserves must not re-preserve a field the user turned OFF -
+  #  e.g. compact-mode expand saving compact=false, an omitempty field.)
+
+  Scenario: clearing a known omitempty field persists the cleared value
+    Given a config.json with compact mode ON
+    When the binary loads it, turns compact mode OFF, and saves
+    Then the reloaded config has compact mode OFF
