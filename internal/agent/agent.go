@@ -59,11 +59,14 @@ type Config struct {
 	Schedule     []protocol.PriceWindow
 	// Voice: the offer's modality + display metadata (set only when sharing a voice/audio model,
 	// from the detected server; empty modality = chat, so a normal LLM share is unchanged).
-	Modality  string // "" / "chat" | "tts" | "stt"
-	Name      string // display name for the /voices picker (e.g. "1950s Operator")
-	Language  string
-	SampleURL string
-	LatencyMS int
+	Modality string // "" / "chat" | "tts" | "stt"
+	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"]) from the detected
+	// server; empty/nil for a plain text model. See docs/BROKER-VISION-CAPABILITY.md.
+	Capabilities []string
+	Name         string // display name for the /voices picker (e.g. "1950s Operator")
+	Language     string
+	SampleURL    string
+	LatencyMS    int
 	// Voice/Speed: the operator's chosen DEFAULT voice (a single Kokoro id OR a blend string,
 	// from the SHARE VOICE BOOTH) + default speed. The node injects them into a /v1/audio/speech
 	// request that OMITS `voice` (see serve), so a consumer gets the operator's picked voice.
@@ -351,7 +354,8 @@ func Start(cfg Config) (*Session, error) {
 		cfg.Parallel = 4
 	}
 
-	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
+	offer := protocol.ModelOffer{Model: cfg.Model, Modality: cfg.Modality, Capabilities: cfg.Capabilities,
+		PriceIn: cfg.PriceIn, PriceOut: cfg.PriceOut,
 		Ctx: cfg.Ctx, CtxEstimated: cfg.CtxEstimated, Schedule: cfg.Schedule,
 		Name: cfg.Name, Language: cfg.Language, SampleURL: cfg.SampleURL, LatencyMS: cfg.LatencyMS,
 		Voice: cfg.Voice, Speed: cfg.Speed}

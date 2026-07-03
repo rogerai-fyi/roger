@@ -36,9 +36,13 @@ type offerView struct {
 	// VOICE station apart from a chat station and never (wrongly) offer a voice band as a chat
 	// channel (the "504 no station is serving <voice>" bug). Always canonical (offerModality):
 	// a pre-voice offer's empty modality is normalized to "chat", never a bare "".
-	Modality string  `json:"modality,omitempty"`
-	In       float64 `json:"price_in"`  // active (time-of-use) price right now
-	Out      float64 `json:"price_out"` // active price right now
+	Modality string `json:"modality,omitempty"`
+	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"] = accepts images); []
+	// = known text-only, omitted = undetermined. Node-declared, canonicalized at register. The
+	// app shows the photo button on "vision", hides on [], falls back to a name guess when absent.
+	Capabilities []string `json:"capabilities,omitempty"`
+	In           float64  `json:"price_in"`  // active (time-of-use) price right now
+	Out          float64  `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
 	// graded vs the same-model external reference (preferred) or the live per-model
 	// median. Computed server-side (assignPriceTiers) so every surface renders alike.
@@ -135,7 +139,8 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		pin, pout, free, _ := o.ActivePrice(now)
 		out = append(out, offerView{
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
-			In: pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
+			Capabilities: protocol.CanonicalCapabilities(o.Capabilities), // canonicalized at read, never raw wire
+			In:           pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,
 			TTFTMs: ttft, Quality: quality,
@@ -220,17 +225,21 @@ type marketView struct {
 	// offerModality-normalized - a pre-voice empty modality reads "chat", never a bare "") so
 	// the aggregated market row can never present a VOICE station (tts/stt) as a usable CHAT
 	// model in a client picker. A model's offers share one modality; the first seen sets it.
-	Modality    string  `json:"modality,omitempty"`
-	Providers   int     `json:"providers"`    // online nodes offering this model
-	InFlight    int     `json:"in_flight"`    // active requests across those nodes
-	MinPrice    float64 `json:"min_price"`    // cheapest active input price (credits/1M)
-	PriceTier   int     `json:"price_tier"`   // 0..4 neutral $-tier for the model's BEST (cheapest) active out-price (0 = FREE/unknown); mirrors the cheapest offer's /discover tier
-	BestTPS     float64 `json:"best_tps"`     // fastest measured output tok/s
-	BestTTFTMs  float64 `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
-	Quality     float64 `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
-	SuccessRate float64 `json:"success_rate"` // mean time-decayed success across providers (0..1)
-	Verified    bool    `json:"verified"`     // at least one provider has a recent PASSED canary
-	Signal      int     `json:"signal"`       // 0..100 demand/quality signal
+	Modality string `json:"modality,omitempty"`
+	// Capabilities is the UNION across this model's on-air providers: a model is vision-capable
+	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
+	// [] if all report text-only, omitted if none declared (the app then falls back to a guess).
+	Capabilities []string `json:"capabilities,omitempty"`
+	Providers    int      `json:"providers"`    // online nodes offering this model
+	InFlight     int      `json:"in_flight"`    // active requests across those nodes
+	MinPrice     float64  `json:"min_price"`    // cheapest active input price (credits/1M)
+	PriceTier    int      `json:"price_tier"`   // 0..4 neutral $-tier for the model's BEST (cheapest) active out-price (0 = FREE/unknown); mirrors the cheapest offer's /discover tier
+	BestTPS      float64  `json:"best_tps"`     // fastest measured output tok/s
+	BestTTFTMs   float64  `json:"ttft_ms"`      // best (lowest) probe-measured TTFT across providers (ms; 0 = unmeasured)
+	Quality      float64  `json:"quality"`      // mean broker-measured trust/quality across providers (0..1)
+	SuccessRate  float64  `json:"success_rate"` // mean time-decayed success across providers (0..1)
+	Verified     bool     `json:"verified"`     // at least one provider has a recent PASSED canary
+	Signal       int      `json:"signal"`       // 0..100 demand/quality signal
 	// Terms is the per-factor breakdown (supply/speed/latency/verified/success/trust
 	// + congestion discount) so the website can explain the meter.
 	Terms signalTerms `json:"terms"`
@@ -261,6 +270,22 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 // from live node state (online providers, in-flight load, cheapest active price, best
 // measured throughput, mean success, and a 0..100 signal). Pure read of broker state,
 // so its serialized result is safe to cache briefly.
+// marketCapabilities collapses a model's per-provider capability union into the aggregated
+// value: the sorted union when any provider declared a capability, [] when providers declared
+// only text-only, and nil (omit) when none declared - so the app trusts a positive/negative
+// signal and falls back to its name guess only when the whole band is silent.
+func marketCapabilities(union map[string]bool, seen bool) []string {
+	if !seen {
+		return nil
+	}
+	out := make([]string, 0, len(union))
+	for c := range union {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (b *broker) computeMarket() any {
 	type acc struct {
 		modality      string // canonical modality of this model's offers (offerModality; first seen sets it)
@@ -277,9 +302,11 @@ func (b *broker) computeMarket() any {
 		qualitySum    float64
 		successSum    float64 // sum of per-node time-decayed success evidence
 		successSeen   int
-		bestRecency   float64 // freshest heartbeat recency across providers
-		anyVerified   bool    // at least one provider has a recent PASSED canary
-		bestStaleness float64 // freshest measurement-confidence across providers (0.7..1.0)
+		bestRecency   float64         // freshest heartbeat recency across providers
+		anyVerified   bool            // at least one provider has a recent PASSED canary
+		bestStaleness float64         // freshest measurement-confidence across providers (0.7..1.0)
+		capsUnion     map[string]bool // union of chat sub-capabilities across providers
+		capsSeen      bool            // any provider DECLARED capabilities (so [] means text-only, not unknown)
 	}
 	now := time.Now()
 	agg := map[string]*acc{}
@@ -324,8 +351,14 @@ func (b *broker) computeMarket() any {
 			if a == nil {
 				// The SAME canonical modality the per-offer feed carries (offerView):
 				// offerModality normalizes a pre-voice empty modality to "chat".
-				a = &acc{modality: offerModality(o.Modality)}
+				a = &acc{modality: offerModality(o.Modality), capsUnion: map[string]bool{}}
 				agg[o.Model] = a
+			}
+			if caps := protocol.CanonicalCapabilities(o.Capabilities); caps != nil { // declared vs undetermined (nil)
+				a.capsSeen = true
+				for _, c := range caps { // canonicalized: unknown wire values already dropped
+					a.capsUnion[c] = true
+				}
 			}
 			a.providers++
 			a.inflight += inflight
@@ -388,7 +421,8 @@ func (b *broker) computeMarket() any {
 		ref, _ := b.refOut(model)
 		tier := priceTier(a.minOut, ref, a.outPrices)
 		out = append(out, marketView{
-			Model: model, Modality: a.modality, Providers: a.providers, InFlight: a.inflight,
+			Model: model, Modality: a.modality, Capabilities: marketCapabilities(a.capsUnion, a.capsSeen),
+			Providers: a.providers, InFlight: a.inflight,
 			MinPrice: a.minPrice, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),
 			SuccessRate: round6(successRate),

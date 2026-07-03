@@ -45,6 +45,10 @@ type Found struct {
 	// Modality is the per-model kind: "chat" (default), "tts", or "stt" — filled by
 	// classifyModalities from the served endpoints + an id heuristic. See VOICE-AUDIO-DESIGN.md.
 	Modality map[string]string
+	// Capabilities are the per-model chat sub-capabilities (e.g. ["vision"]) — filled by
+	// classifyCapabilities from the served /v1/models metadata + an id heuristic. See
+	// docs/BROKER-VISION-CAPABILITY.md.
+	Capabilities map[string][]string
 }
 
 // Status is the tri-state result of probing a single endpoint: a 401/403 means an
@@ -175,6 +179,7 @@ func ProbeKey(rawURL, key string) (Found, Status) {
 		mergeOllamaNative(&f, base)
 		enrichCtx(&f, base)
 		classifyModalities(&f, base)
+		classifyCapabilities(&f, base)
 		return f, Reachable
 	case probeAuth:
 		return Found{BaseURL: base}, NeedsKey
@@ -243,6 +248,7 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			// served window instead of falling back to the 32768 last-resort default.
 			enrichCtx(&f, base)
 			classifyModalities(&f, base)
+			classifyCapabilities(&f, base)
 			found = append(found, f)
 		case probeAuth:
 			// Present but key-protected and no env key fit: surface it so the caller can
@@ -587,6 +593,86 @@ func classifyModalities(f *Found, base string) {
 			f.Modality[m] = protocol.ModalitySTT
 		default:
 			f.Modality[m] = protocol.ModalityChat
+		}
+	}
+}
+
+// visionMarkers are id substrings that mark a chat model as image-capable — the SAME hint set
+// the iOS app uses as its fallback, so the broker's guess matches the app's. A hint, not a hard
+// rule (like modalityFromID); the served metadata (visionFromMeta) wins when a server reports it.
+var visionMarkers = []string{
+	"-vl", "vl-", "vlm", "llava", "pixtral", "gpt-4o", "gpt-4-turbo", "gpt-4.1", "gpt-5", "o3", "o4",
+	"vision", "internvl", "minicpm-v", "moondream", "molmo", "gemma-3", "gemma3", "qwen2.5-omni",
+	"qwen2-vl", "qwen2.5-vl", "phi-3.5-vision", "phi-4-multimodal", "idefics", "cogvlm", "glm-4v",
+}
+
+func visionFromID(id string) bool {
+	s := strings.ToLower(id)
+	for _, m := range visionMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// visionFromMeta best-effort reads the server's /v1/models to see which models it REPORTS as
+// image-capable (authoritative when present): an entry whose modalities / input_modalities list
+// contains "image"/"vision", or a truthy "vision"/"supports_vision" field. Servers that don't
+// expose it simply yield an empty map and the id heuristic decides.
+func visionFromMeta(base, key string) map[string]bool {
+	out := map[string]bool{}
+	resp, err := authGet(base+"/models", key)
+	if err != nil || resp == nil {
+		return out
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out
+	}
+	var d struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&d) != nil {
+		return out
+	}
+	for _, m := range d.Data {
+		id := ""
+		if raw, ok := m["id"]; ok {
+			_ = json.Unmarshal(raw, &id)
+		}
+		if id == "" {
+			continue
+		}
+		// Scan the whole entry's lowercased JSON for an image/vision modality signal. Cheap and
+		// robust across vLLM/llama.cpp/LM Studio shapes without hard-coding each field name.
+		blob, _ := json.Marshal(m)
+		s := strings.ToLower(string(blob))
+		if strings.Contains(s, `"image"`) || strings.Contains(s, `"vision":true`) ||
+			strings.Contains(s, `"supports_vision":true`) || strings.Contains(s, `"multimodal":true`) {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// classifyCapabilities fills f.Capabilities per CHAT model: ["vision"] when the served metadata
+// or the id heuristic marks it image-capable, else [] (a positive "text only" for the app to
+// trust over its own name guess). Voice (tts/stt) models get no capabilities. Endpoint-probed +
+// id-hinted, so the same model classifies identically on CPU and GPU. See BROKER-VISION-CAPABILITY.md.
+func classifyCapabilities(f *Found, base string) {
+	if f.Capabilities == nil {
+		f.Capabilities = map[string][]string{}
+	}
+	meta := visionFromMeta(base, f.Key)
+	for _, m := range f.Models {
+		if f.Modality != nil && f.Modality[m] != "" && f.Modality[m] != protocol.ModalityChat {
+			continue // a voice/stt model has no chat sub-capabilities
+		}
+		if meta[m] || visionFromID(m) {
+			f.Capabilities[m] = []string{protocol.CapVision}
+		} else {
+			f.Capabilities[m] = []string{} // known text-only: the app hides the photo button, no heuristic
 		}
 	}
 }
