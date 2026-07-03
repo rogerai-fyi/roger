@@ -228,23 +228,38 @@ func TestShareTTSProfileKeyIsTheSharedModelID(t *testing.T) {
 			wantName:     "roger-operator",
 		},
 		{
-			name:         "key kokoro (the server family) does not apply to model id voice",
+			// Founder-approved 2026-07-02 relaxation: a SOLE saved voice profile is recovered for
+			// a drifted id (the server-family key "kokoro" here) - there is only one identity in
+			// play, so nothing can bleed. Prevents the "voice came back as raw 'voice', no sample".
+			name:         "sole profile under the server-family key is recovered for the drifted id",
 			found:        bareKokoroFound(),
 			voices:       map[string]ShareVoice{"kokoro": operatorProfile},
 			model:        "voice",
 			wantModality: protocol.ModalityTTS,
-			wantName:     "",
+			wantName:     "roger-operator",
 		},
 		{
-			name:         "a rename key does not apply when sharing the synthesized id",
+			name:         "sole profile under a rename key is recovered when sharing the synthesized id",
 			found:        bareKokoroFound(),
 			voices:       map[string]ShareVoice{"roger-operator-voice": operatorProfile},
+			model:        "voice",
+			wantModality: protocol.ModalityTTS,
+			wantName:     "roger-operator",
+		},
+		{
+			// The anti-bleed guard STILL holds with 2+ profiles: no exact match => no guess.
+			name:  "two profiles with no exact match do not guess (bleed guard holds)",
+			found: bareKokoroFound(),
+			voices: map[string]ShareVoice{
+				"kokoro":      operatorProfile,
+				"other-voice": {Name: "Wrong DJ", SampleURL: "https://cdn.example/wrong.mp3"},
+			},
 			model:        "voice",
 			wantModality: protocol.ModalityTTS,
 			wantName:     "",
 		},
 		{
-			name:  "sibling profiles do not bleed across model ids",
+			name:  "sibling profiles do not bleed when an exact key matches",
 			found: bareKokoroFound(),
 			voices: map[string]ShareVoice{
 				"voice":       operatorProfile,

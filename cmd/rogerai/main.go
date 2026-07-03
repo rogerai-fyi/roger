@@ -1385,7 +1385,21 @@ func seedSharePricing(cfg config, model string, priceIn, priceOut float64, sched
 func applyShareVoice(cfg config, model string, run *agent.Config) {
 	sv, ok := cfg.Voices[model]
 	if !ok {
-		return
+		// Founder-approved (2026-07-02) sole-profile recovery: a headless voice share whose
+		// DETECTED model id no longer matches the key the profile was saved under (the bare
+		// server re-registered the voice as the default "voice", or an operator's `--model`
+		// rename went the other way) would otherwise go back on air with NO name/sample - the
+		// recurring "voice came back as raw 'voice'" drop. When this IS a voice offer and EXACTLY
+		// ONE voice profile is saved (one identity in play, so nothing can bleed), adopt it. An
+		// ambiguous multi-profile config or a chat offer is left untouched (never guess) - the
+		// anti-bleed guard TestShareTTSProfileKeyIsTheSharedModelID still holds there.
+		only, key, found := soleShareVoice(cfg.Voices)
+		if !found || (run.Modality != protocol.ModalityTTS && run.Modality != protocol.ModalitySTT) {
+			return
+		}
+		// Surface the recovery so a genuine key mismatch is visible, not silently masked.
+		fmt.Fprintf(os.Stderr, "voice: model id %q has no saved profile; recovering the sole share_voices identity %q (saved under %q) - save it under %q to match exactly\n", model, only.Name, key, model)
+		sv = only
 	}
 	run.Name, run.Language, run.SampleURL = sv.Name, sv.Language, sv.SampleURL
 	if run.Voice == "" {
@@ -1394,6 +1408,19 @@ func applyShareVoice(cfg config, model string, run *agent.Config) {
 	if run.Speed == 0 {
 		run.Speed = sv.Speed
 	}
+}
+
+// soleShareVoice returns the ONE saved voice profile (and its key) when exactly one is configured,
+// so a headless voice share can recover its identity after a model-id drift; ok=false otherwise -
+// it never guesses among several. Mirrors soleModality.
+func soleShareVoice(voices map[string]ShareVoice) (sv ShareVoice, key string, ok bool) {
+	if len(voices) != 1 {
+		return ShareVoice{}, "", false
+	}
+	for k, v := range voices {
+		return v, k, true
+	}
+	return ShareVoice{}, "", false
 }
 
 // softPriceWarn returns a non-blocking warning when out-price is well above the live
