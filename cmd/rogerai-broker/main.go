@@ -702,12 +702,25 @@ const nonStreamTimeout = 30 * time.Second
 func streamSafeHandler(mux http.Handler) http.Handler {
 	bounded := http.TimeoutHandler(mux, nonStreamTimeout, `{"error":{"message":"request timed out"}}`)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if streamRoutes[r.URL.Path] {
-			mux.ServeHTTP(w, r) // long-lived: no response deadline
+		if isStreamRoute(r.URL.Path) {
+			mux.ServeHTTP(w, r) // long-lived: no response deadline, keeps the raw http.Flusher
 			return
 		}
 		bounded.ServeHTTP(w, r)
 	})
+}
+
+// isStreamRoute reports whether a path is a long-lived streaming / long-poll route that MUST skip
+// the response deadline (and keep the raw ResponseWriter's http.Flusher, which http.TimeoutHandler's
+// wrapper does not provide). Static routes are in streamRoutes; the REMOTE-CONTROL viewer SSE and
+// host long-poll live under a DYNAMIC /rc/{sid}/{stream|poll} path - the session id can't be a
+// static key - so match them by pattern. Bug fixed: /rc/{sid}/stream fell through to TimeoutHandler
+// and 500'd with "streaming unsupported" (the Base Station "couldn't open the live stream (500)").
+func isStreamRoute(p string) bool {
+	if streamRoutes[p] {
+		return true
+	}
+	return strings.HasPrefix(p, "/rc/") && (strings.HasSuffix(p, "/stream") || strings.HasSuffix(p, "/poll"))
 }
 
 // lockedPrice returns the price to BILL for this user+node+model. The first time
