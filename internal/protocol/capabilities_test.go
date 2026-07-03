@@ -1,9 +1,36 @@
 package protocol
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
+
+// TestCapabilitiesSurviveJSON pins that a known-text-only [] survives a marshal/unmarshal round
+// trip DISTINCT from an undetermined nil - the bug a live E2E caught: json:"...,omitempty" dropped
+// [] on the wire, so the broker saw "text-only" as "undetermined" and the app name-guessed.
+func TestCapabilitiesSurviveJSON(t *testing.T) {
+	cases := []struct {
+		name string
+		caps []string
+	}{
+		{"text-only [] must survive", []string{}},
+		{"vision must survive", []string{"vision"}},
+		{"undetermined nil stays nil", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b, _ := json.Marshal(ModelOffer{Model: "m", Capabilities: c.caps})
+			var got ModelOffer
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.Capabilities, c.caps) {
+				t.Fatalf("round-trip caps = %#v, want %#v (json: %s)", got.Capabilities, c.caps, b)
+			}
+		})
+	}
+}
 
 func TestCanonicalCapabilities(t *testing.T) {
 	cases := []struct {

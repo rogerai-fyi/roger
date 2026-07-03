@@ -1114,6 +1114,13 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	// agent POSTs to. Auto-detected upstreams already carry the full path (this
 	// is idempotent for them).
 	up = normalizeUpstream(up)
+	// Capabilities fallback for the --upstream path: it skips the auto-detect block, so a vision
+	// model shared via --upstream would go on air with NO "vision" label. Classify here too from
+	// the model id + the endpoint's /v1/models. A no-op on the auto path (already set) and for a
+	// voice offer (only chat models carry sub-capabilities). See docs/BROKER-VISION-CAPABILITY.md.
+	if foundCapabilities == nil && (foundModality == "" || foundModality == protocol.ModalityChat) {
+		foundCapabilities = detect.CapabilitiesForModel(strings.TrimSuffix(up, "/chat/completions"), mdl, *upKey)
+	}
 
 	// Resolve the PUBLIC station callsign and derive the broker node id from it. A
 	// `--node` value is the owner naming/renaming their station: persist it so it sticks
