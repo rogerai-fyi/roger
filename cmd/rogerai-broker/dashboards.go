@@ -145,10 +145,31 @@ func (b *broker) me(w http.ResponseWriter, r *http.Request) {
 		"user":         user,
 		"github_login": login, // "" for a signed-CLI read; set for a logged-in browser
 		"logged_in":    true,
+		"providers":    b.linkedProviders(r, login), // ["github"], ["apple"], or both - for the app's link-another-sign-in UI
 		"balance":      round6(bal),
 		"spend":        round6(spend),
 		"recent":       recent,
 	})
+}
+
+// linkedProviders reports which sign-in providers this account has linked ("github" and/or
+// "apple"), so the app's "Link another sign-in" can show a check on the linked one and target
+// the missing one. Provider-agnostic: it resolves the owner by the request's SIGNING PUBKEY
+// (the iOS app + CLI path, which works for a github-only, apple-only, or dual-linked account)
+// and falls back to the web-session github login for a browser. Order is stable (github, apple).
+func (b *broker) linkedProviders(r *http.Request, login string) []string {
+	o, ok := b.requireOwner(r)
+	if !ok && login != "" {
+		o, _, _ = b.db.OwnerByLogin(login)
+	}
+	provs := []string{}
+	if o.GitHubID != 0 {
+		provs = append(provs, "github")
+	}
+	if o.AppleSub != "" {
+		provs = append(provs, "apple")
+	}
+	return provs
 }
 
 // earnings handles GET /earnings?node=<id>: a node owner's dashboard - accrued
