@@ -1,5 +1,5 @@
   92.3%  github.com/rogerai-fyi/roger/cmd/rogerai
-  90.6%  github.com/rogerai-fyi/roger/cmd/rogerai-broker
+  90.5%  github.com/rogerai-fyi/roger/cmd/rogerai-broker
   94.7%  github.com/rogerai-fyi/roger/cmd/tokenizer-sidecar
   92.7%  github.com/rogerai-fyi/roger/internal/agent
   90.3%  github.com/rogerai-fyi/roger/internal/audio
@@ -11,8 +11,8 @@
   97.2%  github.com/rogerai-fyi/roger/internal/onair
  100.0%  github.com/rogerai-fyi/roger/internal/pricetier
   95.2%  github.com/rogerai-fyi/roger/internal/protocol
-  93.1%  github.com/rogerai-fyi/roger/internal/store
+  92.8%  github.com/rogerai-fyi/roger/internal/store
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer
   92.3%  github.com/rogerai-fyi/roger/internal/tui
   98.9%  github.com/rogerai-fyi/roger/internal/update
-  95.6%  github.com/rogerai-fyi/roger/internal/webui
+  95.2%  github.com/rogerai-fyi/roger/internal/webui
