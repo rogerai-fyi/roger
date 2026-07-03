@@ -12,6 +12,7 @@ import (
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,10 +29,16 @@ type ModelOffer struct {
 	Modality string `json:"modality,omitempty"`
 	// Unit is the billing unit, CANONICAL for the modality (token|char|byte) — set by
 	// Normalize, never trusted from the wire, so a node cannot mis-state how it is metered.
-	Unit     string  `json:"unit,omitempty"`
-	PriceIn  float64 `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
-	PriceOut float64 `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
-	Ctx      int     `json:"ctx"`
+	Unit string `json:"unit,omitempty"`
+	// Capabilities are OPTIONAL chat sub-capabilities beyond plain text - canonical + normalized
+	// (lowercased, deduped, unknown values dropped by Normalize; never trusted raw from the wire).
+	// "vision" = the model accepts image_url content. Empty slice = known text-only; the key is
+	// omitted only when the node could not determine it. A list keeps it extensible (audio-in,
+	// tool-calling, json-mode) without a schema change. See docs/BROKER-VISION-CAPABILITY.md.
+	Capabilities []string `json:"capabilities,omitempty"`
+	PriceIn      float64  `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
+	PriceOut     float64  `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
+	Ctx          int      `json:"ctx"`
 	// CtxEstimated is true when Ctx is the last-resort default (no upstream reported a
 	// real per-model window), so the UI can render it as an estimate (~32k, dim) instead
 	// of a detected value (131k, solid). Truth-in-labeling, like TokenizerExact on the
@@ -89,6 +96,38 @@ func (o *ModelOffer) Normalize() {
 		o.Modality = ModalityChat
 	}
 	o.Unit = canonicalUnit(o.Modality)
+	o.Capabilities = CanonicalCapabilities(o.Capabilities)
+}
+
+// CapVision marks a chat model that accepts image_url content (the photo path).
+const CapVision = "vision"
+
+// knownCapabilities is the CLOSED set of chat sub-capabilities the broker recognizes. A value
+// outside it is dropped (never trusted raw), the same discipline canonicalUnit applies to units.
+var knownCapabilities = map[string]bool{CapVision: true}
+
+// CanonicalCapabilities lowercases, dedupes, drops unknown values, and returns a stable-sorted
+// slice - or nil for an empty/nil input so the JSON key is omitted (undetermined) rather than
+// emitted as [] (a positive "text only" claim). Capabilities are node-declared (the broker
+// cannot re-probe a node's model), so they are canonicalized, not derived.
+func CanonicalCapabilities(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, c := range in {
+		c = strings.ToLower(strings.TrimSpace(c))
+		if knownCapabilities[c] && !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	if out == nil {
+		return []string{} // a non-nil INPUT that yielded nothing is a real "text only" -> emit []
+	}
+	return out
 }
 
 // ValidModality reports whether the offer's modality is one the broker accepts. The enum is

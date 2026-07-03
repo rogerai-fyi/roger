@@ -981,7 +981,8 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	up := *upstream
 	explicitUpstream := up != "" // the user passed --upstream, so detection (which classifies) is skipped
 	mdl := *model
-	var foundModality string // detected modality of the shared model (tts/stt); "" = chat
+	var foundModality string       // detected modality of the shared model (tts/stt); "" = chat
+	var foundCapabilities []string // detected chat sub-capabilities (e.g. ["vision"]); nil = undetermined
 	ctxLen := *ctx
 	// ctxEstimated tracks whether ctxLen is the real detected window or the last-resort
 	// default. A user-pinned --ctx (ctxLen>0 here) is authoritative, never estimated.
@@ -1054,6 +1055,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		if foundModality == "" {
 			foundModality = soleModality(pick.Modality)
 		}
+		foundCapabilities = pick.Capabilities[mdl] // ["vision"] / [] from the detected server; nil if unknown
 		// Auto-detect --ctx from the upstream when the user didn't pin it: detect.ResolveCtx
 		// prefers the REAL per-model window (Ollama /api/show + /api/ps, llama.cpp /props,
 		// LM Studio /api/v0/models, then /v1/models) and only falls back to the estimated
@@ -1184,7 +1186,8 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
 		// node leaking its exact rig.
 		NodeID: nodeID, Station: station, Region: *region, HW: detectHWClass(), Model: mdl, Modality: foundModality,
-		PriceIn: *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
+		Capabilities: foundCapabilities,
+		PriceIn:      *priceIn, PriceOut: *priceOut, Ctx: ctxLen, CtxEstimated: ctxEstimated, Parallel: *parallel,
 		Confidential: *confidential, Private: *private, Schedule: sched,
 		// A tts share's DEFAULT voice/speed (a single id or a blend string) rides the offer so the
 		// node injects it when a request omits `voice`. Only meaningful for tts (harmless otherwise).
