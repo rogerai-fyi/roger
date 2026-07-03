@@ -10,7 +10,7 @@
   98.5%  github.com/rogerai-fyi/roger/internal/node
   97.2%  github.com/rogerai-fyi/roger/internal/onair
  100.0%  github.com/rogerai-fyi/roger/internal/pricetier
-  95.5%  github.com/rogerai-fyi/roger/internal/protocol
+  95.7%  github.com/rogerai-fyi/roger/internal/protocol
   91.9%  github.com/rogerai-fyi/roger/internal/store
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer
   92.4%  github.com/rogerai-fyi/roger/internal/tui
