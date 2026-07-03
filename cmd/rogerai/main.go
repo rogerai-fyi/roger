@@ -201,10 +201,24 @@ func defaultUser() string {
 	return "anon"
 }
 
+// configBaseline is an IMMUTABLE per-key raw-JSON snapshot of what this process last
+// loaded/saved - the base for saveConfig's 3-way merge (config_preservation.feature C3): a
+// field this process did NOT change is left as whatever is on disk now, so a concurrent
+// writer's edit to a different field survives. Raw bytes (not a struct) so a later mutation of
+// c's inner maps can't corrupt it, and it is refreshed after every save so the common
+// load-once, mutate-then-save-many-times pattern compares against the right baseline.
+var configBaseline map[string]json.RawMessage
+
 func loadConfig() config {
 	c := config{Broker: defaultBroker, User: defaultUser()}
 	if b, err := os.ReadFile(configPath()); err == nil {
-		json.Unmarshal(b, &c)
+		if uerr := json.Unmarshal(b, &c); uerr != nil {
+			// C4: a corrupt / half-written config.json must not crash or silently wipe the
+			// user's real settings - preserve the unreadable file as a backup and fall back
+			// to defaults. .corrupt (not a blind overwrite) keeps the bytes for recovery.
+			_ = os.Rename(configPath(), configPath()+".corrupt")
+			c = config{Broker: defaultBroker, User: defaultUser()}
+		}
 	}
 	if v := os.Getenv("ROGER_BROKER"); v != "" {
 		c.Broker = v
@@ -212,20 +226,130 @@ func loadConfig() config {
 	if v := os.Getenv("ROGER_USER"); v != "" {
 		c.User = v
 	}
+	configBaseline = toRawConfig(c)
 	return c
 }
 
+// saveConfig persists c durably (features/onboarding/config_preservation.feature):
+//   - C2 atomic: write a temp file in the same dir, fsync, rename over the target.
+//   - C1 preserve unknown keys: a key on disk this binary has no struct field for survives.
+//   - C3 merge concurrent writers: overlay ONLY the fields this process changed vs its load
+//     baseline; a field another process changed meanwhile is kept.
+//   - C5 unchanged for the common single-writer path: it writes the struct in canonical field
+//     order, byte-identical to before, taking the merge path only when it is actually needed.
 func saveConfig(c config) error {
-	_ = os.MkdirAll(filepath.Dir(configPath()), 0700)
-	b, _ := json.MarshalIndent(c, "", "  ")
-	if err := os.WriteFile(configPath(), b, 0600); err != nil {
+	mine := toRawConfig(c)
+	theirs := readRawConfig(configPath())
+	if !configNeedsMerge(mine, theirs) {
+		// Fast path: nothing unknown on disk and no concurrent change to a field we left alone,
+		// so our canonical struct bytes are authoritative (C5 byte-identical).
+		b, _ := json.MarshalIndent(c, "", "  ")
+		if err := atomicWriteConfig(configPath(), b); err != nil {
+			return err
+		}
+		configBaseline = mine // the state we just wrote is the baseline for the next save
+		return nil
+	}
+	out := map[string]json.RawMessage{}
+	for k, v := range theirs { // start from the current on-disk state (unknown keys + concurrent edits)
+		out[k] = v
+	}
+	for k, v := range mine {
+		if !rawEqual(v, configBaseline[k]) || theirs[k] == nil {
+			out[k] = v // this process changed the field (or it is absent on disk) -> our value wins
+		}
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	if err := atomicWriteConfig(configPath(), b); err != nil {
 		return err
 	}
-	// WriteFile does NOT re-apply the mode to a file that already exists, so a config
-	// created by an older build (before it held secrets like upstream_key) could linger
-	// world-readable. Force 0600 now that it can contain a bearer credential at rest.
-	_ = os.Chmod(configPath(), 0600)
+	configBaseline = out // the merged on-disk state is the baseline for the next save
 	return nil
+}
+
+// rawEqual compares two raw-JSON values for SEMANTIC equality (ignoring whitespace and object
+// key order), so an indented on-disk value and a compact in-memory one for the same data are
+// treated as equal - otherwise every unchanged field would look "concurrently changed".
+func rawEqual(a, b json.RawMessage) bool {
+	canon := func(r json.RawMessage) string {
+		if len(r) == 0 {
+			return ""
+		}
+		var v any
+		if json.Unmarshal(r, &v) != nil {
+			return string(r)
+		}
+		out, _ := json.Marshal(v) // compact + map keys sorted -> canonical
+		return string(out)
+	}
+	return canon(a) == canon(b)
+}
+
+// toRawConfig marshals a config to a per-key raw-JSON map (canonical bytes per field).
+func toRawConfig(c config) map[string]json.RawMessage {
+	m := map[string]json.RawMessage{}
+	b, _ := json.Marshal(c)
+	_ = json.Unmarshal(b, &m)
+	return m
+}
+
+// readRawConfig reads the on-disk config as a per-key raw-JSON map; a missing or corrupt file
+// yields an empty map (best-effort: the corrupt case is handled by loadConfig's C4 backup).
+func readRawConfig(path string) map[string]json.RawMessage {
+	m := map[string]json.RawMessage{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+// configNeedsMerge reports whether the on-disk config carries state the plain struct write
+// would drop: an UNKNOWN key (C1), or a field a concurrent writer changed that this process
+// left untouched (C3). When false, the canonical struct marshal is safe + byte-identical (C5).
+func configNeedsMerge(mine, theirs map[string]json.RawMessage) bool {
+	for k := range theirs {
+		if _, known := mine[k]; !known {
+			return true // an unknown key would be dropped by a struct-only write
+		}
+	}
+	for k, tv := range theirs {
+		if rawEqual(mine[k], configBaseline[k]) && !rawEqual(tv, configBaseline[k]) {
+			return true // I did not change this field but disk did -> preserve the concurrent edit
+		}
+	}
+	return false
+}
+
+// atomicWriteConfig writes b to path via a same-dir temp file + fsync + rename, so a crash
+// mid-write never leaves a truncated/corrupt config (C2). The file stays 0600 (it can hold a
+// bearer credential at rest).
+func atomicWriteConfig(path string, b []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once renamed
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
 
 // loadOrCreateStation returns this install's friendly, NON-SENSITIVE broadcast
