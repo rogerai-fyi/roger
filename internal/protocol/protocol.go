@@ -124,9 +124,9 @@ func CanonicalCapabilities(in []string) []string {
 		}
 	}
 	sort.Strings(out)
-	if out == nil {
-		return []string{} // a non-nil INPUT that yielded nothing is a real "text only" -> emit []
-	}
+	// out was make([]string, 0, ...) so it is never nil: a non-nil INPUT that yielded no known
+	// capability returns a non-nil []string{} - a real "text only" - while a nil input returned
+	// nil above (undetermined). That distinction is exactly what the caller needs.
 	return out
 }
 
