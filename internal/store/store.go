@@ -420,6 +420,12 @@ type Store interface {
 	// RevokeRCSessions revokes every one of an owner's sessions and drops their attach tokens
 	// (revoke-all + the account-delete hook). Returns how many it revoked.
 	RevokeRCSessions(wallet string) (int, error)
+	// PruneRCSessions HARD-DELETES an owner's dead roster rows so the roster self-cleans: a
+	// REVOKED ("ended") session and any whose host has been silent since before idleCutoff
+	// (unix). Live and recently-offline sessions are kept. Returns how many were removed. The
+	// roster list runs this so an ended session actually disappears instead of lingering as
+	// "ended", and a long-dead one ages out (RCIdleGC). Returns how many were removed.
+	PruneRCSessions(wallet string, idleCutoff int64) (int, error)
 
 	// --- safety: CSAM preservation + abuse reports + node bans (safety.go) ----
 
