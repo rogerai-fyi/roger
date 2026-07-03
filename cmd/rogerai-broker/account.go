@@ -58,6 +58,16 @@ func (b *broker) accountExport(w http.ResponseWriter, r *http.Request) {
 		}
 		dump["receipts"] = rec
 	}
+	// Remote-control roster (BASE STATION): a GDPR export lists the owner's sessions as
+	// metadata only - id, name, timestamps, revoked. The RCSession type carries NO transcript
+	// (code/token hashes are json:"-"), so the content-blind promise holds: no frame text,
+	// prompt, or assistant message can appear here (features/remote/rc_content_blind.feature C3).
+	if sessions, err := b.db.RCSessionsByOwner(wallet); err == nil {
+		if sessions == nil {
+			sessions = []store.RCSession{}
+		}
+		dump["remote_control_sessions"] = sessions
+	}
 	w.Header().Set("Content-Disposition", `attachment; filename="rogerai-export.json"`)
 	writeJSON(w, http.StatusOK, dump)
 }
