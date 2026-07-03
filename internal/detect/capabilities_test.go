@@ -50,3 +50,16 @@ func TestClassifyCapabilities(t *testing.T) {
 		t.Errorf("an stt model must have no chat capabilities, got %v", f.Capabilities["whisper-1"])
 	}
 }
+
+// CapabilitiesForModel is the explicit-`--upstream` path's single-model classifier: it must
+// return a NON-NIL [] for a text model (known text-only, survives the wire) and ["vision"] for a
+// vision id, from the id heuristic alone when the metadata probe is unreachable.
+func TestCapabilitiesForModel(t *testing.T) {
+	if got := CapabilitiesForModel("http://127.0.0.1:0", "qwen2.5-vl-7b", ""); len(got) != 1 || got[0] != "vision" {
+		t.Errorf("vision id => %v, want [vision]", got)
+	}
+	got := CapabilitiesForModel("http://127.0.0.1:0", "gpt-oss-20b", "")
+	if got == nil || len(got) != 0 {
+		t.Errorf("text-only id => %#v, want non-nil [] (known text-only, not undetermined)", got)
+	}
+}

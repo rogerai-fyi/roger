@@ -656,6 +656,17 @@ func visionFromMeta(base, key string) map[string]bool {
 	return out
 }
 
+// CapabilitiesForModel classifies ONE chat model's sub-capabilities from the served /v1/models
+// metadata (base = the .../v1 root) + the id heuristic - for the explicit --upstream share path,
+// which skips full detection yet still knows the model id. Returns ["vision"] when image-capable,
+// else [] (a chat model is always classifiable from its id, so this never returns nil/undetermined).
+func CapabilitiesForModel(base, model, key string) []string {
+	if visionFromMeta(base, key)[model] || visionFromID(model) {
+		return []string{protocol.CapVision}
+	}
+	return []string{}
+}
+
 // classifyCapabilities fills f.Capabilities per CHAT model: ["vision"] when the served metadata
 // or the id heuristic marks it image-capable, else [] (a positive "text only" for the app to
 // trust over its own name guess). Voice (tts/stt) models get no capabilities. Endpoint-probed +

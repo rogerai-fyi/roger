@@ -32,10 +32,11 @@ type ModelOffer struct {
 	Unit string `json:"unit,omitempty"`
 	// Capabilities are OPTIONAL chat sub-capabilities beyond plain text - canonical + normalized
 	// (lowercased, deduped, unknown values dropped by Normalize; never trusted raw from the wire).
-	// "vision" = the model accepts image_url content. Empty slice = known text-only; the key is
-	// omitted only when the node could not determine it. A list keeps it extensible (audio-in,
-	// tool-calling, json-mode) without a schema change. See docs/BROKER-VISION-CAPABILITY.md.
-	Capabilities []string `json:"capabilities,omitempty"`
+	// "vision" = the model accepts image_url content. A non-nil EMPTY slice = known text-only; nil
+	// (JSON null / absent) = the node could not determine it. NO omitempty on purpose: [] must
+	// survive the wire distinct from nil, else "text-only" collapses into "undetermined" and the
+	// app wrongly name-guesses. A list keeps it extensible. See docs/BROKER-VISION-CAPABILITY.md.
+	Capabilities []string `json:"capabilities"`
 	PriceIn      float64  `json:"price_in"`  // credits per 1,000,000 input units (tokens or chars; see Unit)
 	PriceOut     float64  `json:"price_out"` // credits per 1,000,000 output units (tokens or audio-bytes)
 	Ctx          int      `json:"ctx"`

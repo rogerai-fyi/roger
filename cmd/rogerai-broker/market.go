@@ -37,10 +37,10 @@ type offerView struct {
 	// channel (the "504 no station is serving <voice>" bug). Always canonical (offerModality):
 	// a pre-voice offer's empty modality is normalized to "chat", never a bare "".
 	Modality string `json:"modality,omitempty"`
-	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"] = accepts images); []
-	// = known text-only, omitted = undetermined. Node-declared, canonicalized at register. The
-	// app shows the photo button on "vision", hides on [], falls back to a name guess when absent.
-	Capabilities []string `json:"capabilities,omitempty"`
+	// Capabilities are the offer's chat sub-capabilities (e.g. ["vision"] = accepts images); a
+	// non-nil [] = known text-only, null = undetermined. No omitempty so [] survives the wire
+	// distinct from null. The app shows the photo button on "vision", hides on [], name-guesses on null.
+	Capabilities []string `json:"capabilities"`
 	In           float64  `json:"price_in"`  // active (time-of-use) price right now
 	Out          float64  `json:"price_out"` // active price right now
 	// PriceTier is the neutral buyer-facing $-tier: 0 = FREE/unknown, 1..4 = $..$$$$,
@@ -228,8 +228,9 @@ type marketView struct {
 	Modality string `json:"modality,omitempty"`
 	// Capabilities is the UNION across this model's on-air providers: a model is vision-capable
 	// if it can be ROUTED to any provider that reports vision. ["vision"] if any provider does,
-	// [] if all report text-only, omitted if none declared (the app then falls back to a guess).
-	Capabilities []string `json:"capabilities,omitempty"`
+	// non-nil [] if all report text-only, null if none declared (the app then name-guesses). No
+	// omitempty so [] survives the wire distinct from null.
+	Capabilities []string `json:"capabilities"`
 	Providers    int      `json:"providers"`    // online nodes offering this model
 	InFlight     int      `json:"in_flight"`    // active requests across those nodes
 	MinPrice     float64  `json:"min_price"`    // cheapest active input price (credits/1M)
