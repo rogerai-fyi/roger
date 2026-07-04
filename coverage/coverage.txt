@@ -143,7 +143,9 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:705:	relayWait			10
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:716:	conciergeCORS			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:740:	clientIP			88.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:757:	lastUserText			75.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:767:	isUnsafe			100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:780:	conciergeReplyText		100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:811:	normalizeHouseDashes		100.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/concierge.go:823:	isUnsafe			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/dashboards.go:15:	balance				93.8%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/dashboards.go:54:	accountLimit			90.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/dashboards.go:108:	walletLoggedIn			100.0%
