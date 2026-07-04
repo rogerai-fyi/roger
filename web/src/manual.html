@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v5.0.1</b></span>
+          <span>Version: <b data-cli-version>v5.0.2</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -918,7 +918,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.0.1</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v5.0.2</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1198,6 +1198,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v5.0.2</span><span class="man-plate__v">Operator alerts and steadier broadcasts. When <code>ADMIN_EMAIL</code> is set, the founder now gets ops-alert emails (provider drift, zero providers, DB/Valkey trouble, the first live top-up, ban, dispute and report, and the CSAM SLA clock). Vision-capable chat models are labeled end-to-end in <code>/market capabilities</code>, <code>/me</code> reports your linked GitHub/Apple sign-ins, config saves are durable (unknown keys preserved, atomic write, and clearing a field is honored), and the Base Station roster self-cleans ended and long-idle sessions. Fixes: Ping no longer leaks gpt-oss reasoning into public replies, Base Station live-stream no longer 500s, node registration no longer 401s, and a headless voice share recovers its identity on node-id drift.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.0.1</span><span class="man-plate__v">Hardening and fixes. One broadcaster per node id on every surface (a second <code>roger share</code> or TUI now refuses cleanly instead of fighting for the frequency), voice shares keep their name and sample, and stations fail honestly (a dead voice band times out with a clear message; a seed hiccup retries instead of a false "add funds"). Plus a security pass across job delivery, grant scope, and moderation.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.0.0</span><span class="man-plate__v">Remote control + BASE STATION - run <code>/remote-control</code> in the agent to put a live session on the air, then continue it from another terminal (<code>roger remote attach</code>), the web console (Base Station), or the app. Private to your account, one-time link codes for a phone, broker-relayed (not end-to-end encrypted); tools still run on the host and still confirm first.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v4.15.0</span><span class="man-plate__v">Voices, first-class - cue shared DJ voices in TUNE IN, share your own in the VOICE BOOTH (pick/blend/speed/preview), namespaced + attributed by operator; public roster at <code>/voices</code>.</span></div>
