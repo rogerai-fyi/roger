@@ -955,10 +955,24 @@ func (v *valkeyStore) liveInstances() (int, error) {
 		return 0, err
 	}
 	live := 0
+	var stale []string
 	for i := range ids {
 		if n, err := cmds[i].Result(); err == nil && n > 0 {
 			live++
+		} else if err == nil {
+			// EXISTS returned 0: the presence key aged out. Prune the dead id so the set does
+			// not accumulate a new random instance id on every restart/deploy (the whole set
+			// only wholesale-expires once EVERY instance stops marking). The count above is
+			// already correct; this just keeps SMembers bounded to the live fleet.
+			stale = append(stale, ids[i])
 		}
+	}
+	if len(stale) > 0 {
+		members := make([]any, len(stale))
+		for i, id := range stale {
+			members[i] = id
+		}
+		_ = v.rdb.SRem(ctx, instancesSetKey, members...).Err() // best-effort; count is unaffected
 	}
 	v.setUp(true)
 	return live, nil

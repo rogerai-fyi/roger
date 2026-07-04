@@ -47,6 +47,16 @@ func TestValkeyInstancePresence(t *testing.T) {
 	if n, err := v.liveInstances(); err != nil || n != 1 {
 		t.Fatalf("liveInstances(after expiry) = %d, %v; want 1, nil", n, err)
 	}
+	// The expired id must be PRUNED from the set (not left to accumulate across restarts).
+	members, err := mr.SMembers(instancesSetKey)
+	if err != nil {
+		t.Fatalf("SMembers: %v", err)
+	}
+	for _, m := range members {
+		if m == "a" {
+			t.Errorf("expired instance 'a' still in the set %v; want pruned", members)
+		}
+	}
 }
 
 // TestValkeyInstancePresenceBackendDown: with the backend gone, both presence ops return an
