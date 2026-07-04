@@ -35,6 +35,12 @@
   content: ""; position: absolute; left: 0; right: 0; bottom: -0.04em;
   height: 3px; background: var(--live);
 }
+/* the speed beat: a smaller, muted line under the main statement (still part of the H1) */
+.hero__fast {
+  display: inline-block; margin-top: 0.12em;
+  font-size: 0.58em; font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-display); color: var(--ink-500);
+}
 .hero__sub {
   margin-top: var(--s-6); max-width: 56ch;
   font-size: var(--t-lead); color: var(--ink-500); line-height: 1.5;
