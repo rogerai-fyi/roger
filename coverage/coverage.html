@@ -115,7 +115,7 @@
 				
 				<option value="file29">github.com/rogerai-fyi/roger/cmd/rogerai-broker/pricetier.go (100.0%)</option>
 				
-				<option value="file30">github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go (94.0%)</option>
+				<option value="file30">github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go (94.3%)</option>
 				
 				<option value="file31">github.com/rogerai-fyi/roger/cmd/rogerai-broker/provider_models.go (89.2%)</option>
 				
@@ -123,7 +123,7 @@
 				
 				<option value="file33">github.com/rogerai-fyi/roger/cmd/rogerai-broker/ratelimit.go (93.5%)</option>
 				
-				<option value="file34">github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go (77.7%)</option>
+				<option value="file34">github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go (77.2%)</option>
 				
 				<option value="file35">github.com/rogerai-fyi/roger/cmd/rogerai-broker/recount.go (95.1%)</option>
 				
@@ -141,7 +141,7 @@
 				
 				<option value="file42">github.com/rogerai-fyi/roger/cmd/rogerai-broker/strikes.go (99.0%)</option>
 				
-				<option value="file43">github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go (89.4%)</option>
+				<option value="file43">github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go (89.6%)</option>
 				
 				<option value="file44">github.com/rogerai-fyi/roger/cmd/rogerai-broker/voicename.go (100.0%)</option>
 				
@@ -281,7 +281,7 @@
 				
 				<option value="file112">github.com/rogerai-fyi/roger/internal/tui/rc.go (98.0%)</option>
 				
-				<option value="file113">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.3%)</option>
+				<option value="file113">github.com/rogerai-fyi/roger/internal/tui/tui.go (90.4%)</option>
 				
 				<option value="file114">github.com/rogerai-fyi/roger/internal/tui/voice.go (96.8%)</option>
 				
@@ -1871,8 +1871,8 @@ func (a *attestRegistry) pruneLocked() <span class="cov4" title="16">{
 //   - A node that claims confidential but fails verification:
 //   - require=false -&gt; (false, nil): NO badge, registration still succeeds as standard.
 //   - require=true  -&gt; (false, err): registration REJECTED.
-func (a *attestRegistry) verifyRegistration(ctx context.Context, reg protocol.NodeRegistration) (bool, error) <span class="cov9" title="735">{
-        if a == nil || !reg.Confidential </span><span class="cov9" title="720">{
+func (a *attestRegistry) verifyRegistration(ctx context.Context, reg protocol.NodeRegistration) (bool, error) <span class="cov9" title="740">{
+        if a == nil || !reg.Confidential </span><span class="cov9" title="725">{
                 return false, nil // no policy, or no claim -&gt; no badge (honest)
         }</span>
         <span class="cov4" title="15">measurement, err := a.verifyQuote(ctx, reg)
@@ -2002,7 +2002,7 @@ func transcriptText(body []byte) (string, bool) <span class="cov5" title="20">{
                 return "", false // not the transcription shape -&gt; never forwarded raw
         }</span>
         <span class="cov5" title="19">hasKey := func(name string) bool </span><span class="cov5" title="22">{
-                for k := range keys </span><span class="cov6" title="23">{ // Go's struct unmarshal is case-insensitive; match it
+                for k := range keys </span><span class="cov5" title="22">{ // Go's struct unmarshal is case-insensitive; match it
                         if strings.EqualFold(k, name) </span><span class="cov5" title="20">{
                                 return true
                         }</span>
@@ -3836,8 +3836,8 @@ func (b *broker) invalidateOwnerWallet(pub string) <span class="cov5" title="16"
 // read-through (immutable TOFU binding). Miss/flag-off falls back to the authoritative
 // Postgres AccountOfNode via resolve and populates the cache (negative result cached as
 // "-"). The bind write invalidates the entry.
-func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool)) (string, bool) <span class="cov10" title="341">{
-        if b.shared == nil || node == "" </span><span class="cov9" title="298">{
+func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool)) (string, bool) <span class="cov10" title="340">{
+        if b.shared == nil || node == "" </span><span class="cov9" title="297">{
                 return resolve()
         }</span>
         <span class="cov6" title="43">if v, found, err := b.shared.cacheGet(accountKeyForNode(node)); err == nil &amp;&amp; found </span><span class="cov4" title="9">{
@@ -3862,11 +3862,11 @@ func (b *broker) cachedAccountOfNode(node string, resolve func() (string, bool))
 // hot-path global locks. A per-candidate AccountOfNode under metricsMu was the routing cliff
 // this fixes - the moment one owner was banned, every relay pick + market/discover recompute
 // serialized on N store round-trips under the global lock. nil db (tests) -&gt; ("",false).
-func (b *broker) cachedOwnerOf(node string) (string, bool) <span class="cov8" title="155">{
+func (b *broker) cachedOwnerOf(node string) (string, bool) <span class="cov8" title="154">{
         if b.db == nil || node == "" </span><span class="cov4" title="8">{
                 return "", false
         }</span>
-        <span class="cov8" title="147">return b.cachedAccountOfNode(node, func() (string, bool) </span><span class="cov8" title="145">{
+        <span class="cov8" title="146">return b.cachedAccountOfNode(node, func() (string, bool) </span><span class="cov8" title="144">{
                 acct, ok, _ := b.db.AccountOfNode(node)
                 return acct, ok
         }</span>)
@@ -4800,17 +4800,17 @@ func conciergeCORS(w http.ResponseWriter) <span class="cov5" title="28">{
 // Preferring CF-Connecting-IP closes the old spoof: previously X-Forwarded-For was
 // trusted first, so a client could forge the IP that keys the rate limiter and the
 // preserved abuse record. Behind CF, XFF is no longer the leading source.
-func clientIP(r *http.Request) string <span class="cov10" title="673">{
+func clientIP(r *http.Request) string <span class="cov10" title="678">{
         if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" </span><span class="cov9" title="594">{
                 return cf
         }</span>
-        <span class="cov7" title="79">if xff := r.Header.Get("X-Forwarded-For"); xff != "" </span><span class="cov5" title="27">{
+        <span class="cov7" title="84">if xff := r.Header.Get("X-Forwarded-For"); xff != "" </span><span class="cov5" title="27">{
                 if i := strings.IndexByte(xff, ','); i &gt;= 0 </span><span class="cov1" title="1">{
                         return strings.TrimSpace(xff[:i])
                 }</span>
                 <span class="cov5" title="26">return strings.TrimSpace(xff)</span>
         }
-        <span class="cov6" title="52">if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil </span><span class="cov6" title="52">{
+        <span class="cov6" title="57">if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil </span><span class="cov6" title="57">{
                 return host
         }</span>
         <span class="cov0" title="0">return r.RemoteAddr</span>
@@ -6513,7 +6513,7 @@ func fmtCostHeader(cost float64) string <span class="cov5" title="116">{
 }
 
 // writeJSON / jsonErr standardize every JSON response (content-type + error shape).
-func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov9" title="12430">{
+func writeJSON(w http.ResponseWriter, code int, v any) <span class="cov9" title="14612">{
         w.Header().Set("Content-Type", "application/json")
         w.WriteHeader(code)
         _ = json.NewEncoder(w).Encode(v)
@@ -6544,13 +6544,13 @@ func corsPreflight(w http.ResponseWriter, r *http.Request) bool <span class="cov
 }
 
 // allow guards a handler's HTTP method, writing 405 if it doesn't match.
-func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov10" title="12497">{
+func allow(w http.ResponseWriter, r *http.Request, method string) bool <span class="cov10" title="14684">{
         if r.Method != method </span><span class="cov3" title="12">{
                 w.Header().Set("Allow", method)
                 jsonErr(w, http.StatusMethodNotAllowed, "method not allowed")
                 return false
         }</span>
-        <span class="cov9" title="12485">return true</span>
+        <span class="cov9" title="14672">return true</span>
 }
 </pre>
 		
@@ -6658,9 +6658,17 @@ type broker struct {
         bandOf       map[string]string    // node id -&gt; band id (the private channel it serves)
         attestedAt   map[string]time.Time // when each node last passed TEE attestation (for re-attest lapse)
         localRegAt   map[string]time.Time // when THIS instance last (re)registered a node, so syncRegistry briefly trusts our own fresh bridge token over a possibly-stale shared read (multi-instance token reconvergence)
-        attest       *attestRegistry      // TEE attestation policy + backends + nonce store
-        tps          map[string]float64   // EWMA output tokens/sec per node (measured)
-        quotes       map[string]priceQuote
+        // localPollAt records when THIS instance last served a node's /agent/poll long-poll -
+        // i.e. it currently HOSTS the node's live poll and is its authoritative prober. Only the
+        // poll-host may probe-kill a node to OFFLINE on /discover: a PEER that merely mirrors the
+        // node via the shared registry/liveness must NOT apply its own (cross-instance, non-
+        // authoritative) probe-fail streak, or a live node heartbeating on the host flickers to
+        // OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
+        // union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
+        localPollAt map[string]time.Time
+        attest      *attestRegistry    // TEE attestation policy + backends + nonce store
+        tps         map[string]float64 // EWMA output tokens/sec per node (measured)
+        quotes      map[string]priceQuote
         // refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
         // model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
         // Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -7072,7 +7080,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
                 nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
                 lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
                 private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
-                attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, attest: loadAttestRegistry(),
+                attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
                 quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
                 pubOfUser: map[string]string{},
                 inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
@@ -7446,12 +7454,12 @@ func multiInstanceEnabled() bool <span class="cov8" title="285">{
 // shared inflight hash. Derived from the broker key seed is unnecessary (it is not a
 // secret), so a fresh random hex is enough; reset-on-restart is fine (a crashed
 // instance's stale inflight field ages out via inflightTTL).
-func newInstanceID() string <span class="cov7" title="136">{
+func newInstanceID() string <span class="cov7" title="146">{
         var b [8]byte
         if _, err := rand.Read(b[:]); err != nil </span><span class="cov0" title="0">{
                 return strconv.FormatInt(time.Now().UnixNano(), 16)
         }</span>
-        <span class="cov7" title="136">return hex.EncodeToString(b[:])</span>
+        <span class="cov7" title="146">return hex.EncodeToString(b[:])</span>
 }
 
 // resolveBrokerKey returns the broker's stable signing identity from the hex
@@ -7512,7 +7520,7 @@ func (b *broker) pseudonym(user, node string) string <span class="cov7" title="1
 //     pubkey can't be turned into a spendable impersonation; and
 //  2. spend handlers additionally require authed==true (see relay), so even a
 //     non-derived legacy id can never spend.
-func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) <span class="cov10" title="1192">{
+func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok bool) <span class="cov10" title="1197">{
         pub := r.Header.Get(protocol.HeaderPubkey)
         sig := r.Header.Get(protocol.HeaderSig)
         tsStr := r.Header.Get(protocol.HeaderTS)
@@ -7536,19 +7544,19 @@ func (b *broker) identityOf(r *http.Request, body []byte) (id string, authed, ok
         // who learns a victim's pubkey could compute the victim's id and present it in a
         // plain X-Roger-User header to spend an unsigned-but-impersonating request. Reject
         // any legacy header that looks like a derived id so the reservation holds.
-        <span class="cov9" title="639">if u := r.Header.Get(protocol.HeaderUser); u != "" </span><span class="cov3" title="7">{
+        <span class="cov9" title="644">if u := r.Header.Get(protocol.HeaderUser); u != "" </span><span class="cov3" title="7">{
                 if reservedID(u) </span><span class="cov2" title="3">{
                         return "", false, false
                 }</span>
                 <span class="cov2" title="4">return u, false, true</span>
         }
-        <span class="cov9" title="632">if a := r.Header.Get("Authorization"); len(a) &gt; 7 &amp;&amp; a[:7] == "Bearer " </span><span class="cov1" title="1">{
+        <span class="cov9" title="637">if a := r.Header.Get("Authorization"); len(a) &gt; 7 &amp;&amp; a[:7] == "Bearer " </span><span class="cov1" title="1">{
                 if reservedID(a[7:]) </span><span class="cov1" title="1">{
                         return "", false, false
                 }</span>
                 <span class="cov0" title="0">return a[7:], false, true</span>
         }
-        <span class="cov9" title="631">return "anon", false, true</span>
+        <span class="cov9" title="636">return "anon", false, true</span>
 }
 
 // walletOf maps a VERIFIED (signed) request's pubkey-derived id to the wallet that
@@ -7671,7 +7679,7 @@ func (b *broker) bindUserPub(id, pub string) <span class="cov8" title="541">{
         <span class="cov8" title="541">b.authMu.Unlock()</span>
 }
 
-func round6(f float64) float64 <span class="cov9" title="726">{
+func round6(f float64) float64 <span class="cov9" title="751">{
         return float64(int64(f*1e6+0.5)) / 1e6
 }</span>
 
@@ -7781,17 +7789,29 @@ type offerView struct {
 // node is scheduled for a near-term demand probe (async; this read uses current data)
 // - the public path opts in; the band resolve/relay liveness probe opts out so it
 // stays a cheap read. The returned slice is appended to `out`.
-func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView <span class="cov4" title="67">{
+func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView <span class="cov4" title="78">{
         age := time.Since(b.lastSeen[n.NodeID])
         live := age &lt; nodeTTL // heartbeat-fresh (drives recovery probing below)
+        // The probe-dead veto below is only AUTHORITATIVE on the instance that hosts this node's
+        // live poll (a recent local /agent/poll, stamped in agentPoll) - the one that can actually
+        // probe it. In single-instance mode (no shared store) the poll is always local, so the veto
+        // always applies (behavior unchanged). A MULTI-INSTANCE PEER that merely mirrors the node
+        // via the shared registry/liveness must NOT probe-kill it with its own non-authoritative
+        // streak: a cross-instance probe can time out or never land, so probeFails climbs on the
+        // non-host and a node heartbeating on the host flickers OFFLINE here - the residual
+        // /discover flicker the registry union (task #52) did NOT fix. b.mu is held by the caller,
+        // so b.localPollAt is safe to read. Pinned by features/multinode/discover_liveness.feature.
+        authoritative := b.shared == nil ||
+                (!b.localPollAt[n.NodeID].IsZero() &amp;&amp; now.Sub(b.localPollAt[n.NodeID]) &lt; nodeTTL)
         b.metricsMu.Lock()
         tq := b.trust[n.NodeID]
         // A node that heartbeats but has failed a SUSTAINED streak of liveness probes is not
         // actually serving its model (dead/unloaded upstream) - surface it as OFFLINE so a
         // consumer never tunes into a dead channel and eats repeated 504s. It still heartbeats,
         // so the proberLoop keeps probing it (gated on `live` below); one OK probe resets the
-        // streak and it flips back online. See probeDeadStreak.
-        online := live &amp;&amp; tq.probeFails &lt; probeDeadStreak
+        // streak and it flips back online. See probeDeadStreak. The veto is applied only by the
+        // node's authoritative poll host (see above); a peer keeps it online on heartbeat liveness.
+        online := live &amp;&amp; (!authoritative || tq.probeFails &lt; probeDeadStreak)
         tps := b.tps[n.NodeID]
         inflight := b.inflight[n.NodeID]
         sr, srSeen := b.success[n.NodeID]
@@ -7804,27 +7824,27 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
         if tq.probed &amp;&amp; tq.probeOK </span><span class="cov3" title="21">{
                 radius = ucbRadius(prefBalanced.weights().c, b.totalReqs.Load(), tq.recounts, tq.probes, b.successCount[n.NodeID])
         }</span>
-        <span class="cov4" title="67">if probeOnBrowse &amp;&amp; live &amp;&amp; b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov1" title="1">{
+        <span class="cov4" title="78">if probeOnBrowse &amp;&amp; live &amp;&amp; b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov1" title="1">{
                 b.demandProbeSoonLocked(n.NodeID, now) // probe even a probe-dead node so it can recover
         }</span>
-        <span class="cov4" title="67">b.metricsMu.Unlock()
+        <span class="cov4" title="78">b.metricsMu.Unlock()
 
         recency := recencyOf(age)
         successRate := successFor(sr, srSeen, verified)
         terms := signalTerms{}
-        if online </span><span class="cov4" title="56">{
+        if online </span><span class="cov4" title="64">{
                 terms = computeSignal(signalInput{
                         providers: 1, inflight: inflight, bestTPS: tps, ttftMs: ttft,
                         successRate: successRate, trust: quality, recency: recency, verified: verified,
                         staleness: staleness,
                 })
         }</span>
-        <span class="cov4" title="67">successSeen := srSeen || verified
-        for _, o := range n.Offers </span><span class="cov4" title="68">{
+        <span class="cov4" title="78">successSeen := srSeen || verified
+        for _, o := range n.Offers </span><span class="cov4" title="79">{
                 if deny != nil &amp;&amp; deny(o.Model) </span><span class="cov1" title="1">{
                         continue</span>
                 }
-                <span class="cov4" title="67">pin, pout, free, _ := o.ActivePrice(now)
+                <span class="cov4" title="78">pin, pout, free, _ := o.ActivePrice(now)
                 out = append(out, offerView{
                         NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
                         Capabilities: protocol.CanonicalCapabilities(o.Capabilities), // canonicalized at read, never raw wire
@@ -7838,7 +7858,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
                         InFlight: inflight, Capacity: capacity, Radius: round6(radius),
                 })</span>
         }
-        <span class="cov4" title="67">return out</span>
+        <span class="cov4" title="78">return out</span>
 }
 
 // discover handles GET /discover: all model offers with live status, measured
@@ -7877,11 +7897,11 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) <span class="c
 // state (no money/ledger mutation), so its serialized result is safe to cache for a
 // short window. The only side effect is demand-probe scheduling, which is a best-effort
 // hint and still fires on every cache miss.
-func (b *broker) computeDiscover() any <span class="cov3" title="42">{
+func (b *broker) computeDiscover() any <span class="cov4" title="53">{
         b.mu.Lock()
         now := time.Now()
         var out []offerView
-        for _, n := range b.nodes </span><span class="cov4" title="53">{
+        for _, n := range b.nodes </span><span class="cov4" title="64">{
                 // Ejected/banned nodes are removed from the public market view too (not just
                 // pick), so a reported node disappears from /discover.
                 if b.isBanned(n.NodeID) </span><span class="cov1" title="2">{
@@ -7889,21 +7909,21 @@ func (b *broker) computeDiscover() any <span class="cov3" title="42">{
                 }
                 // Private bands are HIDDEN from the public market: a freq-code node is only
                 // reachable via /bands/resolve, never enumerable here.
-                <span class="cov3" title="51">if b.private[n.NodeID] </span><span class="cov2" title="7">{
+                <span class="cov4" title="62">if b.private[n.NodeID] </span><span class="cov2" title="7">{
                         continue</span>
                 }
                 // Per-offer enrichment (signal/terms/success/verified/ctx/in-flight + the
                 // smart-router selection fields) is the SAME machinery a private band uses; it
                 // lives in the shared enrichOffersForNode (b.mu held here, deny=nil for the public
                 // path, demand-probe scheduling on while browsing).
-                <span class="cov3" title="44">out = b.enrichOffersForNode(out, n, now, nil, true)</span>
+                <span class="cov4" title="55">out = b.enrichOffersForNode(out, n, now, nil, true)</span>
         }
-        <span class="cov3" title="42">b.mu.Unlock()
+        <span class="cov4" title="53">b.mu.Unlock()
         // Classify each offer's neutral $-tier (external reference preferred, else the live
         // per-model median over this set) before returning, so /discover carries it.
         b.assignPriceTiers(out)
         sort.Slice(out, func(i, j int) bool </span><span class="cov2" title="13">{ return out[i].In &lt; out[j].In }</span>)
-        <span class="cov3" title="42">return map[string]any{"offers": out}</span>
+        <span class="cov4" title="53">return map[string]any{"offers": out}</span>
 }
 
 // marketView is the per-model market summary surfaced by GET /market.
@@ -7966,8 +7986,8 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) <span class="cov
 // reported vision. The app shows the photo button on "vision" and name-heuristics otherwise -
 // correct for the non-vision models on air. (Restoring the text-only signal = TODO, off the
 // signed offer.) The [] path is kept so it lights up the moment that channel exists.
-func marketCapabilities(union map[string]bool, seen bool) []string <span class="cov3" title="24">{
-        if !seen </span><span class="cov3" title="22">{
+func marketCapabilities(union map[string]bool, seen bool) []string <span class="cov3" title="25">{
+        if !seen </span><span class="cov3" title="23">{
                 return nil
         }</span>
         <span class="cov1" title="2">out := make([]string, 0, len(union))
@@ -7978,7 +7998,7 @@ func marketCapabilities(union map[string]bool, seen bool) []string <span class="
         return out</span>
 }
 
-func (b *broker) computeMarket() any <span class="cov3" title="30">{
+func (b *broker) computeMarket() any <span class="cov3" title="33">{
         type acc struct {
                 modality      string // canonical modality of this model's offers (offerModality; first seen sets it)
                 providers     int
@@ -8005,21 +8025,21 @@ func (b *broker) computeMarket() any <span class="cov3" title="30">{
 
         b.mu.Lock()
         b.metricsMu.Lock()
-        for _, n := range b.nodes </span><span class="cov3" title="49">{
-                if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov1" title="2">{
+        for _, n := range b.nodes </span><span class="cov3" title="52">{
+                if time.Since(b.lastSeen[n.NodeID]) &gt;= nodeTTL </span><span class="cov2" title="4">{
                         continue</span>
                 }
                 // Banned/ejected nodes drop out of the aggregated market signal too. metricsMu
                 // is already held here, so read b.banned directly (no re-lock via isBanned).
-                <span class="cov3" title="47">if b.banned[n.NodeID] </span><span class="cov1" title="1">{
+                <span class="cov3" title="48">if b.banned[n.NodeID] </span><span class="cov1" title="1">{
                         continue</span>
                 }
                 // Private bands are hidden from the aggregated market signal too (b.mu is held
                 // here, so b.private is safe to read directly).
-                <span class="cov3" title="46">if b.private[n.NodeID] </span><span class="cov1" title="3">{
+                <span class="cov3" title="47">if b.private[n.NodeID] </span><span class="cov1" title="3">{
                         continue</span>
                 }
-                <span class="cov3" title="43">recency := recencyOf(time.Since(b.lastSeen[n.NodeID]))
+                <span class="cov3" title="44">recency := recencyOf(time.Since(b.lastSeen[n.NodeID]))
                 tps := b.tps[n.NodeID]
                 inflight := b.inflight[n.NodeID]
                 sr, srSeen := b.success[n.NodeID]
@@ -8038,69 +8058,69 @@ func (b *broker) computeMarket() any <span class="cov3" title="30">{
                 if b.probe.enabled() &amp;&amp; staleness &lt; 1.0 </span><span class="cov0" title="0">{
                         b.demandProbeSoonLocked(n.NodeID, now)
                 }</span>
-                <span class="cov3" title="43">for _, o := range n.Offers </span><span class="cov3" title="44">{
+                <span class="cov3" title="44">for _, o := range n.Offers </span><span class="cov3" title="45">{
                         a := agg[o.Model]
-                        if a == nil </span><span class="cov3" title="24">{
+                        if a == nil </span><span class="cov3" title="25">{
                                 // The SAME canonical modality the per-offer feed carries (offerView):
                                 // offerModality normalizes a pre-voice empty modality to "chat".
                                 a = &amp;acc{modality: offerModality(o.Modality), capsUnion: map[string]bool{}}
                                 agg[o.Model] = a
                         }</span>
-                        <span class="cov3" title="44">if caps := protocol.CanonicalCapabilities(o.Capabilities); caps != nil </span><span class="cov1" title="2">{ // declared vs undetermined (nil)
+                        <span class="cov3" title="45">if caps := protocol.CanonicalCapabilities(o.Capabilities); caps != nil </span><span class="cov1" title="2">{ // declared vs undetermined (nil)
                                 a.capsSeen = true
                                 for _, c := range caps </span><span class="cov1" title="2">{ // canonicalized: unknown wire values already dropped
                                         a.capsUnion[c] = true
                                 }</span>
                         }
-                        <span class="cov3" title="44">a.providers++
+                        <span class="cov3" title="45">a.providers++
                         a.inflight += inflight
                         in, out, _, _ := o.ActivePrice(now)
-                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="26">{
+                        if !a.havePrice || in &lt; a.minPrice </span><span class="cov3" title="27">{
                                 a.minPrice, a.havePrice = in, true
                         }</span>
                         // Track the cheapest active OUT-price (the model's BEST price - the tier numerator)
                         // and the spread of priced OUT-offers (the internal-median baseline, online only,
                         // &gt; 0 - exactly the peers assignPriceTiers uses for the per-offer tier).
-                        <span class="cov3" title="44">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="25">{
+                        <span class="cov3" title="45">if !a.haveOut || out &lt; a.minOut </span><span class="cov3" title="26">{
                                 a.minOut, a.haveOut = out, true
                         }</span>
-                        <span class="cov3" title="44">if out &gt; 0 </span><span class="cov3" title="28">{
+                        <span class="cov3" title="45">if out &gt; 0 </span><span class="cov3" title="28">{
                                 a.outPrices = append(a.outPrices, out)
                         }</span>
-                        <span class="cov3" title="44">if tps &gt; a.bestTPS </span><span class="cov2" title="13">{
+                        <span class="cov3" title="45">if tps &gt; a.bestTPS </span><span class="cov2" title="13">{
                                 a.bestTPS = tps
                         }</span>
-                        <span class="cov3" title="44">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
+                        <span class="cov3" title="45">if ttft &gt; 0 &amp;&amp; (!a.haveTTFT || ttft &lt; a.bestTTFT) </span><span class="cov2" title="11">{
                                 a.bestTTFT, a.haveTTFT = ttft, true
                         }</span>
-                        <span class="cov3" title="44">if recency &gt; a.bestRecency </span><span class="cov3" title="27">{
+                        <span class="cov3" title="45">if recency &gt; a.bestRecency </span><span class="cov3" title="28">{
                                 a.bestRecency = recency
                         }</span>
-                        <span class="cov3" title="44">if staleness &gt; a.bestStaleness </span><span class="cov3" title="24">{
+                        <span class="cov3" title="45">if staleness &gt; a.bestStaleness </span><span class="cov3" title="25">{
                                 a.bestStaleness = staleness // freshest measurement across providers
                         }</span>
-                        <span class="cov3" title="44">if verified </span><span class="cov1" title="1">{
+                        <span class="cov3" title="45">if verified </span><span class="cov1" title="1">{
                                 a.anyVerified = true
                         }</span>
-                        <span class="cov3" title="44">a.qualitySum += quality
+                        <span class="cov3" title="45">a.qualitySum += quality
                         a.successSum += nodeSuccess
                         a.successSeen++</span>
                 }
         }
-        <span class="cov3" title="30">b.metricsMu.Unlock()
+        <span class="cov3" title="33">b.metricsMu.Unlock()
         b.mu.Unlock()
 
         out := make([]marketView, 0, len(agg))
-        for model, a := range agg </span><span class="cov3" title="24">{
+        for model, a := range agg </span><span class="cov3" title="25">{
                 successRate := 0.6 // neutral when somehow no provider contributed
-                if a.successSeen &gt; 0 </span><span class="cov3" title="24">{
+                if a.successSeen &gt; 0 </span><span class="cov3" title="25">{
                         successRate = a.successSum / float64(a.successSeen)
                 }</span>
-                <span class="cov3" title="24">quality := 1.0 // optimistic until measured
-                if a.providers &gt; 0 </span><span class="cov3" title="24">{
+                <span class="cov3" title="25">quality := 1.0 // optimistic until measured
+                if a.providers &gt; 0 </span><span class="cov3" title="25">{
                         quality = a.qualitySum / float64(a.providers)
                 }</span>
-                <span class="cov3" title="24">terms := computeSignal(signalInput{
+                <span class="cov3" title="25">terms := computeSignal(signalInput{
                         providers: a.providers, inflight: a.inflight, bestTPS: a.bestTPS, ttftMs: a.bestTTFT,
                         successRate: successRate, trust: quality, recency: a.bestRecency, verified: a.anyVerified,
                         staleness: a.bestStaleness,
@@ -8123,8 +8143,8 @@ func (b *broker) computeMarket() any <span class="cov3" title="30">{
                         Terms:       terms,
                 })</span>
         }
-        <span class="cov3" title="30">sort.Slice(out, func(i, j int) bool </span><span class="cov2" title="4">{ return out[i].Signal &gt; out[j].Signal }</span>)
-        <span class="cov3" title="30">return map[string]any{"market": out}</span>
+        <span class="cov3" title="33">sort.Slice(out, func(i, j int) bool </span><span class="cov2" title="4">{ return out[i].Signal &gt; out[j].Signal }</span>)
+        <span class="cov3" title="33">return map[string]any{"market": out}</span>
 }
 
 // signalInput is the full per-channel evidence the multi-factor signal scores. It
@@ -8189,7 +8209,7 @@ const (
 // 1 - clamp(age/nodeTTL). 1 = just heartbeat'd, 0 = at the TTL edge (about to age
 // out). Continuous so the meter sags smoothly instead of staying pinned until it
 // snaps to 0 at TTL.
-func recencyOf(age time.Duration) float64 <span class="cov4" title="110">{
+func recencyOf(age time.Duration) float64 <span class="cov4" title="122">{
         return clamp01(1 - float64(age)/float64(nodeTTL))
 }</span>
 
@@ -8198,24 +8218,24 @@ func recencyOf(age time.Duration) float64 <span class="cov4" title="110">{
 //   - otherwise, NOT the old constant 1.0: a node with a recent PASSED canary counts
 //     as positive (probed-OK-no-traffic = good evidence, verifiedOK), while a node
 //     with NO evidence at all sits at a NEUTRAL 0.6 (unproven, not assumed perfect).
-func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15783">{
+func successFor(sr float64, srSeen, verifiedOK bool) float64 <span class="cov8" title="15795">{
         if srSeen </span><span class="cov6" title="1807">{
                 return clamp01(sr)
         }</span>
-        <span class="cov8" title="13976">if verifiedOK </span><span class="cov8" title="13574">{
+        <span class="cov8" title="13988">if verifiedOK </span><span class="cov8" title="13574">{
                 return 0.9 // probed OK, no organic traffic yet: strong positive, just shy of proven
         }</span>
-        <span class="cov5" title="402">return 0.6</span> // no evidence either way: neutral, not optimistic-1.0
+        <span class="cov5" title="414">return 0.6</span> // no evidence either way: neutral, not optimistic-1.0
 }
 
-func clamp01(x float64) float64 <span class="cov10" title="146986">{
-        if x &lt; 0 </span><span class="cov2" title="8">{
+func clamp01(x float64) float64 <span class="cov10" title="147061">{
+        if x &lt; 0 </span><span class="cov2" title="10">{
                 return 0
         }</span>
-        <span class="cov9" title="146978">if x &gt; 1 </span><span class="cov6" title="2764">{
+        <span class="cov9" title="147051">if x &gt; 1 </span><span class="cov6" title="2764">{
                 return 1
         }</span>
-        <span class="cov9" title="144214">return x</span>
+        <span class="cov9" title="144287">return x</span>
 }
 
 // computeSignal scores a channel 0..100 from full multi-factor evidence and returns
@@ -8223,12 +8243,12 @@ func clamp01(x float64) float64 <span class="cov10" title="146986">{
 // in supply, speed, success, trust, verified, recency, and latency (lower TTFT is
 // better), and discounted by congestion - so it stays a glanceable health bar, not
 // a price.
-func computeSignal(in signalInput) signalTerms <span class="cov4" title="109">{
+func computeSignal(in signalInput) signalTerms <span class="cov4" title="118">{
         if in.providers == 0 </span><span class="cov1" title="1">{
                 return signalTerms{}
         }</span>
         // Supply: saturates around ~5 providers.
-        <span class="cov4" title="108">supply := clamp01(float64(in.providers) / 5.0)
+        <span class="cov4" title="117">supply := clamp01(float64(in.providers) / 5.0)
         // Speed: measured tok/s, saturating around 300 t/s.
         speed := clamp01(in.bestTPS / 300.0)
         // Latency: 1 - clamp(ttftMs/2000). Unmeasured TTFT (0) is treated as NEUTRAL
@@ -8240,13 +8260,13 @@ func computeSignal(in signalInput) signalTerms <span class="cov4" title="109">{
         // Verified-serving: a recent PASSED canary is hard positive evidence the node is
         // actually answering correctly right now. Heartbeat-only nodes get 0 here, so a
         // probed-OK node scores materially above an unverified one at equal everything.
-        <span class="cov4" title="108">verified := 0.0
+        <span class="cov4" title="117">verified := 0.0
         if in.verified </span><span class="cov3" title="20">{
                 verified = 1.0
         }</span>
         // Time-decayed success: caller already decays toward neutral with age (see
         // successFor); clamp here.
-        <span class="cov4" title="108">success := clamp01(in.successRate)
+        <span class="cov4" title="117">success := clamp01(in.successRate)
         trust := clamp01(in.trust)
         // Recency multiplies the whole blend: a channel whose newest heartbeat is aging
         // toward the TTL is a weaker signal than one that just checked in. Continuous, so
@@ -8259,13 +8279,13 @@ func computeSignal(in signalInput) signalTerms <span class="cov4" title="109">{
         // touches ONLY speed/latency/verified (the probe-measured terms); supply, success,
         // trust, recency are unaffected. A fresh measurement restores it to 1.0 at once.
         staleness := 1.0
-        if in.staleness &gt; 0 </span><span class="cov4" title="84">{
+        if in.staleness &gt; 0 </span><span class="cov4" title="93">{
                 staleness = clamp01(in.staleness)
         }</span>
 
         // Per-term point contributions (post-weight, pre-congestion, scaled to 100). The
         // measured terms (speed/latency/verified) carry the staleness confidence factor.
-        <span class="cov4" title="108">t := signalTerms{
+        <span class="cov4" title="117">t := signalTerms{
                 Supply:   100 * wSupply * supply,
                 Speed:    100 * wSpeed * speed * staleness,
                 Latency:  100 * wLatency * latency * staleness,
@@ -8295,10 +8315,10 @@ func computeSignal(in signalInput) signalTerms <span class="cov4" title="109">{
         if s &lt; 0 </span><span class="cov0" title="0">{
                 s = 0
         }</span>
-        <span class="cov4" title="108">if s &gt; 100 </span><span class="cov0" title="0">{
+        <span class="cov4" title="117">if s &gt; 100 </span><span class="cov0" title="0">{
                 s = 100
         }</span>
-        <span class="cov4" title="108">t.Total = s
+        <span class="cov4" title="117">t.Total = s
         return t</span>
 }
 </pre>
@@ -10468,8 +10488,8 @@ import (
 // station may charge. Defaults: $100/1M out, $50/1M in (well above any real model's
 // going rate, so only a typo or a deterrent price trips them). Env-overridable for
 // the operator.
-func maxPriceOutCeiling() float64 <span class="cov10" title="757">{ return envFloat("ROGERAI_MAX_PRICE_OUT", 100) }</span>
-func maxPriceInCeiling() float64  <span class="cov10" title="757">{ return envFloat("ROGERAI_MAX_PRICE_IN", 50) }</span>
+func maxPriceOutCeiling() float64 <span class="cov10" title="762">{ return envFloat("ROGERAI_MAX_PRICE_OUT", 100) }</span>
+func maxPriceInCeiling() float64  <span class="cov10" title="762">{ return envFloat("ROGERAI_MAX_PRICE_IN", 50) }</span>
 
 // consumerDefaultMaxOut is the broker-side DEFAULT consumer out-price cap (per 1M
 // tokens) applied to a relay request that carries NO X-Roger-Max-Price-Out. It is the
@@ -10499,22 +10519,22 @@ func effectiveRelayMaxOut(reqMaxOut float64) float64 <span class="cov7" title="1
 // --private as an escape: the ceiling is GLOBAL (it binds private + confidential bands
 // too; --private only hides a station from the public market, it is not a price bypass).
 // Returns "" when every price is within bounds.
-func registerPriceCeiling(offers []protocol.ModelOffer) string <span class="cov9" title="754">{
+func registerPriceCeiling(offers []protocol.ModelOffer) string <span class="cov9" title="759">{
         outCap, inCap := maxPriceOutCeiling(), maxPriceInCeiling()
-        check := func(in, out float64) string </span><span class="cov10" title="757">{
+        check := func(in, out float64) string </span><span class="cov10" title="762">{
                 if out &gt; outCap </span><span class="cov4" title="12">{
                         return fmt.Sprintf("output price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", out, outCap)
                 }</span>
-                <span class="cov9" title="745">if in &gt; inCap </span><span class="cov1" title="1">{
+                <span class="cov9" title="750">if in &gt; inCap </span><span class="cov1" title="1">{
                         return fmt.Sprintf("input price $%.2f/1M exceeds the $%.2f/1M public ceiling - lower the price below the ceiling (it applies to every band, public or private)", in, inCap)
                 }</span>
-                <span class="cov9" title="744">return ""</span>
+                <span class="cov9" title="749">return ""</span>
         }
-        <span class="cov9" title="754">for _, o := range offers </span><span class="cov9" title="755">{
+        <span class="cov9" title="759">for _, o := range offers </span><span class="cov9" title="760">{
                 if msg := check(o.PriceIn, o.PriceOut); msg != "" </span><span class="cov4" title="11">{
                         return msg
                 }</span>
-                <span class="cov9" title="744">for _, win := range o.Schedule </span><span class="cov2" title="3">{
+                <span class="cov9" title="749">for _, win := range o.Schedule </span><span class="cov2" title="3">{
                         if win.Free </span><span class="cov1" title="1">{
                                 continue</span>
                         }
@@ -10523,7 +10543,7 @@ func registerPriceCeiling(offers []protocol.ModelOffer) string <span class="cov9
                         }</span>
                 }
         }
-        <span class="cov9" title="741">return ""</span>
+        <span class="cov9" title="746">return ""</span>
 }
 
 // validateOfferInput checks an owner-authored (web Console) price + schedule before it
@@ -10589,7 +10609,7 @@ const tierEps = 1e-9
 
 // tierExternal grades a band against a same-model COMMERCIAL reference (discount depth):
 // $ = a deep discount, $$$$ ≈ paying the commercial price. Inclusive on the low side.
-func tierExternal(r float64) int <span class="cov8" title="45">{
+func tierExternal(r float64) int <span class="cov7" title="45">{
         switch </span>{
         case r &lt;= 0.25+tierEps:<span class="cov6" title="19">
                 return 1</span>
@@ -10642,8 +10662,8 @@ func medianOut(prices []float64) (float64, bool) <span class="cov6" title="24">{
 // onlinePeersOut is the model's ONLINE out-prices (the band itself included); it is used
 // only for the internal fallback. The external reference takes precedence so a band
 // cannot dodge the signal by flooding cheap peers.
-func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int <span class="cov10" title="127">{
-        if priceOut &lt;= 0 </span><span class="cov7" title="39">{
+func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int <span class="cov10" title="139">{
+        if priceOut &lt;= 0 </span><span class="cov8" title="51">{
                 return 0 // FREE
         }</span>
         <span class="cov9" title="88">if refOut &gt; 0 </span><span class="cov7" title="36">{
@@ -10666,14 +10686,14 @@ func priceTier(priceOut, refOut float64, onlinePeersOut []float64) int <span cla
 // Mutates in place: offline offers are still classified (against the live median / ref);
 // FREE (price 0) and thin/no-data offers get tier 0. Concurrency-safe (b.refOut locks
 // b.refMu, which is independent of the b.mu the callers hold).
-func (b *broker) assignPriceTiers(offers []offerView) <span class="cov8" title="54">{
+func (b *broker) assignPriceTiers(offers []offerView) <span class="cov8" title="65">{
         peers := map[string][]float64{}
-        for _, o := range offers </span><span class="cov8" title="56">{
+        for _, o := range offers </span><span class="cov8" title="67">{
                 if o.Online &amp;&amp; o.Out &gt; 0 </span><span class="cov7" title="28">{
                         peers[o.Model] = append(peers[o.Model], o.Out)
                 }</span>
         }
-        <span class="cov8" title="54">for i := range offers </span><span class="cov8" title="56">{
+        <span class="cov8" title="65">for i := range offers </span><span class="cov8" title="67">{
                 ref, _ := b.refOut(offers[i].Model)
                 offers[i].PriceTier = priceTier(offers[i].Out, ref, peers[offers[i].Model])
         }</span>
@@ -10748,7 +10768,7 @@ var canaryFingerprints = []canaryFingerprint{
 // nextCanary returns the fingerprint for round n (round-robin over the set). Taking
 // the round number keeps selection deterministic + testable and guarantees every
 // fingerprint is exercised over a full cycle (no RNG-skew that could starve one).
-func nextCanary(round uint64) canaryFingerprint <span class="cov4" title="41">{
+func nextCanary(round uint64) canaryFingerprint <span class="cov4" title="42">{
         return canaryFingerprints[int(round%uint64(len(canaryFingerprints)))]
 }</span>
 
@@ -10818,7 +10838,7 @@ func loadProbe() probeConfig <span class="cov6" title="281">{
         <span class="cov6" title="281">return c</span>
 }
 
-func (c probeConfig) enabled() bool <span class="cov10" title="7761">{ return c.interval &gt; 0 }</span>
+func (c probeConfig) enabled() bool <span class="cov10" title="7783">{ return c.interval &gt; 0 }</span>
 
 // measurementStale reports whether a node's last measurement (probe or real traffic)
 // is old enough to count as "not recently verified": older than the ceiling, the
@@ -10889,11 +10909,11 @@ type probeState struct {
 
 // probeSched returns the per-node schedule map, lazily initialised. Caller holds
 // metricsMu.
-func (b *broker) probeSchedLocked() map[string]*probeState <span class="cov4" title="39">{
+func (b *broker) probeSchedLocked() map[string]*probeState <span class="cov4" title="40">{
         if b.probeSched == nil </span><span class="cov2" title="4">{
                 b.probeSched = map[string]*probeState{}
         }</span>
-        <span class="cov4" title="39">return b.probeSched</span>
+        <span class="cov4" title="40">return b.probeSched</span>
 }
 
 // markMeasured records that a node's performance was just established for FREE by a
@@ -10950,8 +10970,8 @@ func (b *broker) demandProbeSoonLocked(nodeID string, now time.Time) <span class
 // probe) reads at full confidence here - it has no probe evidence to discount; the
 // signal's neutral handling of unmeasured speed/latency already covers that case.
 // Caller holds metricsMu.
-func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float64 <span class="cov5" title="113">{
-        if !b.probe.enabled() </span><span class="cov5" title="87">{
+func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float64 <span class="cov5" title="125">{
+        if !b.probe.enabled() </span><span class="cov5" title="99">{
                 return 1.0
         }</span>
         <span class="cov4" title="26">st := b.probeSched[nodeID]
@@ -10972,11 +10992,11 @@ func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float6
 func (b *broker) proberLoop(stop &lt;-chan struct{}) <span class="cov1" title="1">{
         t := time.NewTicker(b.probe.interval)
         defer t.Stop()
-        for </span><span class="cov1" title="2">{
+        for </span><span class="cov2" title="3">{
                 select </span>{
                 case &lt;-stop:<span class="cov1" title="1">
                         return</span>
-                case &lt;-t.C:<span class="cov1" title="1">
+                case &lt;-t.C:<span class="cov1" title="2">
                         b.probeOnce()</span>
                 }
         }
@@ -10990,15 +11010,15 @@ func (b *broker) proberLoop(stop &lt;-chan struct{}) <span class="cov1" title="1
 const probeJitter = 5 * time.Second
 
 // jitterWindow is the effective per-round jitter span for this config.
-func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="22">{
+func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="23">{
         w := probeJitter
-        if half := c.interval / 2; half &lt; w </span><span class="cov3" title="15">{
+        if half := c.interval / 2; half &lt; w </span><span class="cov3" title="16">{
                 w = half
         }</span>
-        <span class="cov4" title="22">if w &lt; 0 </span><span class="cov1" title="1">{
+        <span class="cov4" title="23">if w &lt; 0 </span><span class="cov1" title="1">{
                 w = 0
         }</span>
-        <span class="cov4" title="22">return w</span>
+        <span class="cov4" title="23">return w</span>
 }
 
 // probeOnce snapshots the online, idle nodes and probes a per-owner-capped sample
@@ -11006,7 +11026,7 @@ func (c probeConfig) jitterWindow() time.Duration <span class="cov4" title="22">
 // paying traffic. The per-owner cap + per-round rotation mean a large owner is
 // sampled a few nodes at a time instead of all at once; per-probe jitter spreads
 // the round so there is no synchronized burst.
-func (b *broker) probeOnce() <span class="cov3" title="17">{
+func (b *broker) probeOnce() <span class="cov3" title="18">{
         round := atomic.AddUint64(&amp;b.probe.round, 1) - 1
         fp := nextCanary(round)
 
@@ -11069,7 +11089,7 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
                 }
                 <span class="cov3" title="11">cands = append(cands, cand{node: n, model: model})</span> // owner resolved below, OUTSIDE the locks
         }
-        <span class="cov3" title="17">b.metricsMu.Unlock()
+        <span class="cov3" title="18">b.metricsMu.Unlock()
         b.mu.Unlock()
 
         // Resolve each candidate's owner via the cached binding OUTSIDE metricsMu/mu: a
@@ -11086,16 +11106,16 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
         // Stable order so the per-owner rotation is deterministic across rounds: nodes of
         // the same owner are visited in node-id order, and the round number rotates the
         // window so a different slice of a big owner's fleet is probed each round.
-        <span class="cov3" title="17">sort.Slice(cands, func(i, j int) bool </span><span class="cov3" title="8">{
+        <span class="cov3" title="18">sort.Slice(cands, func(i, j int) bool </span><span class="cov2" title="5">{
                 if cands[i].owner != cands[j].owner </span><span class="cov1" title="1">{
                         return cands[i].owner &lt; cands[j].owner
                 }</span>
-                <span class="cov2" title="7">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
+                <span class="cov2" title="4">return cands[i].node.NodeID &lt; cands[j].node.NodeID</span>
         })
 
         // Per-owner cap with rotation: for each owner, take perOwner nodes starting at a
         // round-dependent offset, so over successive rounds the whole fleet is covered.
-        <span class="cov3" title="17">byOwner := map[string][]cand{}
+        <span class="cov3" title="18">byOwner := map[string][]cand{}
         var owners []string
         for _, c := range cands </span><span class="cov3" title="11">{
                 if _, seen := byOwner[c.owner]; !seen </span><span class="cov2" title="7">{
@@ -11103,7 +11123,7 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
                 }</span>
                 <span class="cov3" title="11">byOwner[c.owner] = append(byOwner[c.owner], c)</span>
         }
-        <span class="cov3" title="17">var targets []target
+        <span class="cov3" title="18">var targets []target
         for _, ow := range owners </span><span class="cov2" title="7">{
                 group := byOwner[ow]
                 cap := b.probe.perOwner
@@ -11126,7 +11146,7 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
         // node sits through without real traffic doubles its personal interval up to the
         // ceiling, so a persistently-idle node collapses toward the ~15m cap. markMeasured
         // (real traffic) and demandProbeSoonLocked (browse/route) reset this.
-        <span class="cov3" title="17">b.metricsMu.Lock()
+        <span class="cov3" title="18">b.metricsMu.Lock()
         for _, t := range targets </span><span class="cov3" title="8">{
                 st := sched[t.node.NodeID]
                 if st == nil </span><span class="cov0" title="0">{
@@ -11138,7 +11158,7 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
                         st.backoff++
                 }</span>
         }
-        <span class="cov3" title="17">b.metricsMu.Unlock()
+        <span class="cov3" title="18">b.metricsMu.Unlock()
 
         // Probe nodes concurrently: each probeNode blocks waiting for its result, so
         // running them in parallel keeps one slow/dead node from stalling the round.
@@ -11166,7 +11186,7 @@ func (b *broker) probeOnce() <span class="cov3" title="17">{
 // for this round (so the challenge changes round to round - a node cannot hard-code
 // the answer). User="probe" marks it unbilled; settleRequest/earnings are never
 // touched on this path.
-func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp canaryFingerprint) <span class="cov3" title="12">{
+func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp canaryFingerprint) <span class="cov3" title="18">{
         b.mu.Lock()
         t := b.tunnels[node.NodeID]
         mi := b.multiInstance &amp;&amp; b.shared != nil
@@ -11177,7 +11197,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
                 return
         }</span>
 
-        <span class="cov2" title="7">body, _ := json.Marshal(map[string]any{
+        <span class="cov3" title="13">body, _ := json.Marshal(map[string]any{
                 "model":       model,
                 "messages":    []map[string]string{{"role": "user", "content": fp.prompt}},
                 "temperature": 0,
@@ -11192,7 +11212,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
         job := protocol.Job{ID: protocol.NewRequestID(), User: "probe", Body: body}
         start := time.Now()
 
-        if mi </span><span class="cov1" title="1">{
+        if mi </span><span class="cov2" title="7">{
                 // MULTI-INSTANCE: the provider may be long-polling a PEER instance, so dispatch +
                 // await over the Valkey bus exactly as relay/relayStream do. A local-only
                 // t.jobs send would enqueue into a stub channel nobody drains whenever the poller
@@ -11206,7 +11226,7 @@ func (b *broker) probeNode(node protocol.NodeRegistration, model string, fp cana
                 if dcancel != nil </span><span class="cov1" title="1">{
                         defer dcancel()
                 }</span>
-                <span class="cov1" title="1">if derr != nil </span><span class="cov0" title="0">{
+                <span class="cov2" title="7">if derr != nil </span><span class="cov2" title="6">{
                         // A dispatch that never reached the node is NOT evidence about the node's
                         // quality, so SKIP this round (don't touch trust) rather than record a failure.
                         // Both cases are transient and self-correct next interval:
@@ -11716,7 +11736,7 @@ func (b *broker) providerModelsSet(w http.ResponseWriter, o store.Owner, body []
 // (the #52 reviewer's race (a); pinned by TestRaceRegisterMirrorVsLiveOverride).
 // Mutating a fresh copy and republishing it keeps every already-published array
 // immutable.
-func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (providerModelRow, bool) <span class="cov10" title="69058">{
+func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (providerModelRow, bool) <span class="cov10" title="61217">{
         now := time.Now()
         b.mu.Lock()
         reg, known := b.nodes[ov.NodeID]
@@ -11724,14 +11744,14 @@ func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (provid
                 b.mu.Unlock()
                 return providerModelRow{}, false
         }</span>
-        <span class="cov9" title="69057">reg.Offers = append([]protocol.ModelOffer(nil), reg.Offers...)
+        <span class="cov9" title="61216">reg.Offers = append([]protocol.ModelOffer(nil), reg.Offers...)
         var row providerModelRow
         matched := false
-        for i := range reg.Offers </span><span class="cov9" title="69057">{
+        for i := range reg.Offers </span><span class="cov9" title="61216">{
                 if reg.Offers[i].Model != ov.Model </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov9" title="69057">reg.Offers[i].PriceIn = ov.PriceIn
+                <span class="cov9" title="61216">reg.Offers[i].PriceIn = ov.PriceIn
                 reg.Offers[i].PriceOut = ov.PriceOut
                 reg.Offers[i].Schedule = ov.Schedule
                 ain, aout, afree, _ := reg.Offers[i].ActivePrice(now)
@@ -11743,7 +11763,7 @@ func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (provid
                 }
                 matched = true</span>
         }
-        <span class="cov9" title="69057">conf := b.confidential[ov.NodeID]
+        <span class="cov9" title="61216">conf := b.confidential[ov.NodeID]
         seen := b.lastSeen[ov.NodeID]
         b.nodes[ov.NodeID] = reg
         b.mu.Unlock()
@@ -11752,16 +11772,16 @@ func (b *broker) applyOverrideLive(owner string, ov store.OfferOverride) (provid
                 // stored and will seed the offer if/when the node advertises it.
                 return providerModelRow{}, false
         }</span>
-        <span class="cov9" title="69057">if b.db != nil </span><span class="cov9" title="69057">{
+        <span class="cov9" title="61216">if b.db != nil </span><span class="cov9" title="61216">{
                 _ = b.db.UpsertNode(store.NodeRecord{NodeID: ov.NodeID, Reg: reg, Confidential: conf, LastSeen: seen.Unix()})
         }</span>
-        <span class="cov9" title="69057">return row, true</span>
+        <span class="cov9" title="61216">return row, true</span>
 }
 
 // scheduleOrEmpty returns a non-nil slice so the JSON is always a [] (never null),
 // which keeps the web editor's "no windows" rendering simple.
-func scheduleOrEmpty(s []protocol.PriceWindow) []protocol.PriceWindow <span class="cov10" title="69058">{
-        if s == nil </span><span class="cov9" title="69056">{
+func scheduleOrEmpty(s []protocol.PriceWindow) []protocol.PriceWindow <span class="cov10" title="61217">{
+        if s == nil </span><span class="cov9" title="61215">{
                 return []protocol.PriceWindow{}
         }</span>
         <span class="cov1" title="2">return s</span>
@@ -11928,13 +11948,13 @@ type tokenBucket struct {
         last   time.Time
 }
 
-func envFloat(key string, def float64) float64 <span class="cov10" title="5445">{
+func envFloat(key string, def float64) float64 <span class="cov10" title="5475">{
         if v := os.Getenv(key); v != "" </span><span class="cov4" title="32">{
                 if f, err := strconv.ParseFloat(v, 64); err == nil </span><span class="cov4" title="32">{
                         return f
                 }</span>
         }
-        <span class="cov9" title="5413">return def</span>
+        <span class="cov9" title="5443">return def</span>
 }
 
 // envStr returns the env var or def when unset/empty.
@@ -11945,7 +11965,7 @@ func envStr(key, def string) string <span class="cov8" title="838">{
         <span class="cov8" title="828">return def</span>
 }
 
-func loadRateLimiter() *rateLimiter <span class="cov8" title="1074">{
+func loadRateLimiter() *rateLimiter <span class="cov8" title="1084">{
         return &amp;rateLimiter{
                 buckets: map[string]*tokenBucket{},
                 rpm:     envFloat("ROGERAI_RATE_RPM", 120),
@@ -12573,8 +12593,8 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) <spa
                 <span class="cov2" title="3">select </span>{
                 case msg := &lt;-h.in:<span class="cov0" title="0">
                         _ = json.NewEncoder(w).Encode(msg)</span>
-                case raw, ok := &lt;-busIn:<span class="cov2" title="3">
-                        if !ok </span><span class="cov1" title="1">{
+                case raw, ok := &lt;-busIn:<span class="cov1" title="2">
+                        if !ok </span><span class="cov0" title="0">{
                                 w.WriteHeader(http.StatusNoContent)
                                 return
                         }</span>
@@ -12586,9 +12606,9 @@ func (b *broker) rcPoll(w http.ResponseWriter, r *http.Request, sid string) <spa
                         <span class="cov1" title="2">_ = json.NewEncoder(w).Encode(in)</span>
                 case &lt;-time.After(rcPollHold):<span class="cov0" title="0">
                         w.WriteHeader(http.StatusNoContent)</span>
-                case &lt;-r.Context().Done():<span class="cov0" title="0"></span>
+                case &lt;-r.Context().Done():<span class="cov1" title="1"></span>
                 }
-                <span class="cov1" title="2">return</span>
+                <span class="cov2" title="3">return</span>
         }
 
         <span class="cov2" title="4">select </span>{
@@ -13193,30 +13213,30 @@ func (b *broker) trustScore(nodeID string) float64 <span class="cov4" title="44"
 // and its no-traffic success evidence eases 0.9 -&gt; 0.6 there. The paid pickFor spine does NOT
 // call this - it reads the raw probe fields (reliabilityFactor/verifiedFactorOf) - so a paying
 // caller's routing/failover is unchanged; only the free display/discovery signal downgrades.
-func (t trustState) verifiedServing() bool <span class="cov5" title="153">{
+func (t trustState) verifiedServing() bool <span class="cov5" title="165">{
         return t.probed &amp;&amp; t.probeOK &amp;&amp; t.probeFails == 0 &amp;&amp; t.probeCompleted
 }</span>
 
-func (t trustState) score() float64 <span class="cov10" title="15817">{
+func (t trustState) score() float64 <span class="cov10" title="15829">{
         s := 1.0
         // L1: each discrepancy as a fraction of re-counts pulls the score down.
         if t.recounts &gt; 0 &amp;&amp; t.discrepancies &gt; 0 </span><span class="cov2" title="3">{
                 s -= float64(t.discrepancies) / float64(t.recounts)
         }</span>
         // Probe: a failing canary, or a recent failure streak, pulls it down hard.
-        <span class="cov10" title="15817">if t.probed &amp;&amp; !t.probeOK </span><span class="cov2" title="8">{
+        <span class="cov10" title="15829">if t.probed &amp;&amp; !t.probeOK </span><span class="cov3" title="16">{
                 s -= 0.5
         }</span>
-        <span class="cov10" title="15817">if t.probeFails &gt; 0 </span><span class="cov3" title="12">{
+        <span class="cov10" title="15829">if t.probeFails &gt; 0 </span><span class="cov3" title="20">{
                 s -= 0.2 * float64(t.probeFails)
         }</span>
-        <span class="cov10" title="15817">if s &lt; 0 </span><span class="cov2" title="8">{
+        <span class="cov10" title="15829">if s &lt; 0 </span><span class="cov3" title="16">{
                 s = 0
         }</span>
-        <span class="cov10" title="15817">if s &gt; 1 </span><span class="cov0" title="0">{
+        <span class="cov10" title="15829">if s &gt; 1 </span><span class="cov0" title="0">{
                 s = 1
         }</span>
-        <span class="cov10" title="15817">return s</span>
+        <span class="cov10" title="15829">return s</span>
 }
 
 // completionText extracts the assistant completion text from an OpenAI
@@ -13888,15 +13908,15 @@ var refPriceSyncInterval = 12 * time.Hour
 // normalizeModelName collapses an OpenRouter "vendor/model" id and an operator's
 // free-text model name to one lookup key: lowercased, the vendor prefix before the last
 // "/" dropped, any ":variant" suffix (":free", ":nitro") dropped, trimmed.
-func normalizeModelName(s string) string <span class="cov10" title="490">{
+func normalizeModelName(s string) string <span class="cov10" title="502">{
         s = strings.ToLower(strings.TrimSpace(s))
         if i := strings.LastIndex(s, "/"); i &gt;= 0 </span><span class="cov9" title="316">{
                 s = s[i+1:]
         }</span>
-        <span class="cov10" title="490">if i := strings.IndexByte(s, ':'); i &gt;= 0 </span><span class="cov2" title="2">{
+        <span class="cov10" title="502">if i := strings.IndexByte(s, ':'); i &gt;= 0 </span><span class="cov2" title="2">{
                 s = s[:i]
         }</span>
-        <span class="cov10" title="490">return strings.TrimSpace(s)</span>
+        <span class="cov10" title="502">return strings.TrimSpace(s)</span>
 }
 
 // parseOpenRouterModels parses the public GET /api/v1/models payload into a normalized
@@ -13949,7 +13969,7 @@ var openRouterFetch = func(ctx context.Context) ([]byte, error) <span class="cov
 
 // refOut returns the same-model external reference OUT-price ($/1M) and whether one is
 // known: the freshest synced value, else the static seed. Concurrency-safe.
-func (b *broker) refOut(model string) (float64, bool) <span class="cov8" title="153">{
+func (b *broker) refOut(model string) (float64, bool) <span class="cov8" title="165">{
         key := normalizeModelName(model)
         b.refMu.RLock()
         v, ok := b.refPrices[key]
@@ -13957,10 +13977,10 @@ func (b *broker) refOut(model string) (float64, bool) <span class="cov8" title="
         if ok &amp;&amp; v &gt; 0 </span><span class="cov5" title="23">{
                 return v, true
         }</span>
-        <span class="cov8" title="130">if s, ok := refPriceSeed[key]; ok &amp;&amp; s &gt; 0 </span><span class="cov4" title="10">{
+        <span class="cov8" title="142">if s, ok := refPriceSeed[key]; ok &amp;&amp; s &gt; 0 </span><span class="cov4" title="10">{
                 return s, true
         }</span>
-        <span class="cov7" title="120">return 0, false</span>
+        <span class="cov8" title="132">return 0, false</span>
 }
 
 // syncRefPricesOnce fetches + parses the external model prices and MERGES them into the
@@ -14281,12 +14301,12 @@ func (b *broker) bumpBanRev() <span class="cov7" title="74">{
 // peer propagates too. A no-op when no shared backend is wired. On a store read error it
 // leaves the rev unrecorded so the re-pull retries next tick (fail-safe: never silently drop
 // a ban). The store reads run OUTSIDE metricsMu (no DB call under the hot-path lock).
-func (b *broker) syncBanRev() <span class="cov9" title="250">{
+func (b *broker) syncBanRev() <span class="cov9" title="263">{
         if b.shared == nil </span><span class="cov1" title="1">{
                 return
         }</span>
-        <span class="cov9" title="249">rev, found, err := b.shared.counterGet(banRevKey)
-        if err != nil || !found </span><span class="cov9" title="231">{
+        <span class="cov9" title="262">rev, found, err := b.shared.counterGet(banRevKey)
+        if err != nil || !found </span><span class="cov9" title="244">{
                 return // no ban has ever been issued (clean miss) or a transient backend error
         }</span>
         <span class="cov5" title="18">b.metricsMu.Lock()
@@ -14318,7 +14338,7 @@ func (b *broker) syncBanRev() <span class="cov9" title="250">{
 }
 
 // isBanned reports whether a node is ejected from routing. Concurrency-safe.
-func (b *broker) isBanned(nodeID string) bool <span class="cov10" title="321">{
+func (b *broker) isBanned(nodeID string) bool <span class="cov10" title="332">{
         b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.banned[nodeID]
@@ -14695,10 +14715,10 @@ func extendOutRange(out, rangeMin, rangeMax float64, haveRange bool) (float64, f
         if !(out &gt; 0) </span><span class="cov7" title="3723">{ // exact negation of the original `if out &gt; 0` guard (NaN-safe: NaN is ignored)
                 return rangeMin, rangeMax, haveRange
         }</span>
-        <span class="cov8" title="11900">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5416">{
+        <span class="cov8" title="11900">if !haveRange || out &lt; rangeMin </span><span class="cov7" title="5405">{
                 rangeMin = out
         }</span>
-        <span class="cov8" title="11900">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="6044">{
+        <span class="cov8" title="11900">if !haveRange || out &gt; rangeMax </span><span class="cov8" title="6055">{
                 rangeMax = out
         }</span>
         <span class="cov8" title="11900">return rangeMin, rangeMax, true</span>
@@ -14732,7 +14752,7 @@ func explorationRadius(tq trustState, c float64, totalReqs int64, successCount i
 // else 1. DISPLAY/prior only - never score-trusted; washed out by the first real
 // observedConcurrentTPS measurement. Coarse substring match; an unparseable string
 // is the safe default of 1.
-func hwConcurrencyClass(hw string) int <span class="cov8" title="15738">{
+func hwConcurrencyClass(hw string) int <span class="cov8" title="15749">{
         h := strings.ToLower(hw)
         // Nodes now advertise a PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple /
         // cpu) instead of a raw rig string; map those directly. Legacy raw strings still
@@ -14749,9 +14769,9 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15738">{
         }
         // A discrete GPU is present if ANY accelerator marker matches (synonyms for the
         // SAME card count once - we test presence, not how many synonyms hit).
-        <span class="cov2" title="9">gpuMarkers := []string{"rtx", "geforce", "radeon", "instinct", "tesla", "a100", "h100", "mi300", "mi250", "gpu", "cuda", "rocm", "quadro", "nvidia", "amd radeon"}
+        <span class="cov3" title="20">gpuMarkers := []string{"rtx", "geforce", "radeon", "instinct", "tesla", "a100", "h100", "mi300", "mi250", "gpu", "cuda", "rocm", "quadro", "nvidia", "amd radeon"}
         hasGPU := false
-        for _, m := range gpuMarkers </span><span class="cov4" title="93">{
+        for _, m := range gpuMarkers </span><span class="cov5" title="258">{
                 if strings.Contains(h, m) </span><span class="cov1" title="3">{
                         hasGPU = true
                         break</span>
@@ -14759,7 +14779,7 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15738">{
         }
         // Multi-accelerator is signalled ONLY by an explicit count/multiplier (dual / quad
         // / 2x / 4x / "4 x"), never by multiple synonyms matching one physical card.
-        <span class="cov2" title="9">multi := strings.Contains(h, "dual") || strings.Contains(h, "quad") ||
+        <span class="cov3" title="20">multi := strings.Contains(h, "dual") || strings.Contains(h, "quad") ||
                 strings.Contains(h, "x4") || strings.Contains(h, "4x") ||
                 strings.Contains(h, "x2") || strings.Contains(h, "2x") ||
                 strings.Contains(h, "4 x") || strings.Contains(h, "2 x")
@@ -14768,7 +14788,7 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15738">{
                 return 4</span>
         case hasGPU:<span class="cov1" title="2">
                 return 2</span>
-        default:<span class="cov2" title="6">
+        default:<span class="cov3" title="17">
                 return 1</span>
         }
 }
@@ -14777,12 +14797,12 @@ func hwConcurrencyClass(hw string) int <span class="cov8" title="15738">{
 // observedConcurrentTPS UNDER LOAD when we have it (incentive-compatible - a node
 // can't win a bigger allotment from an idle canary), else a conservative hw-class
 // prior. Clamped to [1, maxSlots].
-func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15732">{
+func capacityOf(concurrentTPS float64, hw string) int <span class="cov8" title="15743">{
         if concurrentTPS &gt; 0 </span><span class="cov1" title="1">{
                 c := int(math.Round(concurrentTPS / tpsPerSlot))
                 return clampInt(c, 1, maxSlots)
         }</span>
-        <span class="cov8" title="15731">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
+        <span class="cov8" title="15742">return clampInt(hwConcurrencyClass(hw), 1, maxSlots)</span>
 }
 
 // loadFactor is the capacity-normalized congestion discount (spec 1.1d):
@@ -14820,14 +14840,14 @@ func ucb(v, radius float64) float64 <span class="cov8" title="15616">{
 }</span>
 
 // clampInt clamps n to [lo, hi].
-func clampInt(n, lo, hi int) int <span class="cov8" title="15735">{
+func clampInt(n, lo, hi int) int <span class="cov8" title="15746">{
         if n &lt; lo </span><span class="cov1" title="1">{
                 return lo
         }</span>
-        <span class="cov8" title="15734">if n &gt; hi </span><span class="cov1" title="1">{
+        <span class="cov8" title="15745">if n &gt; hi </span><span class="cov1" title="1">{
                 return hi
         }</span>
-        <span class="cov8" title="15733">return n</span>
+        <span class="cov8" title="15744">return n</span>
 }
 
 // scoredCand is a fully scored Tier-A candidate ready for band selection. score is
@@ -14854,7 +14874,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
         <span class="cov8" title="13729">best := 0
         for i := 1; i &lt; len(cands); i++ </span><span class="cov9" title="23182">{
                 if cands[i].score &gt; cands[best].score ||
-                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1408">{
+                        (cands[i].score == cands[best].score &amp;&amp; cands[i].idx &lt; cands[best].idx) </span><span class="cov6" title="1378">{
                         best = i
                 }</span>
         }
@@ -14887,7 +14907,7 @@ func selectP2C(cands []scoredCand, beta float64, rng *rand.Rand) int <span class
                 all := make([]scoredCand, len(cands))
                 copy(all, cands)
                 for i := 1; i &lt; len(all); i++ </span><span class="cov7" title="4900">{
-                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1279">{
+                        for j := i; j &gt; 0 &amp;&amp; all[j].score &gt; all[j-1].score; j-- </span><span class="cov6" title="1255">{
                                 all[j], all[j-1] = all[j-1], all[j]
                         }</span>
                 }
@@ -15337,13 +15357,13 @@ const sharedOpTimeout = 750 * time.Millisecond
 // CALLER decides what to do with the error (the broker logs a warning and falls back
 // to in-memory - it never crashes). Returns the store even when the ping fails so a
 // later recovery is possible, but reports the error so startup can log + degrade.
-func newValkeyStore(url string) (*valkeyStore, error) <span class="cov7" title="209">{
+func newValkeyStore(url string) (*valkeyStore, error) <span class="cov7" title="219">{
         opt, err := redis.ParseURL(url)
         if err != nil </span><span class="cov1" title="1">{
                 return nil, err
         }</span>
         // Keep timeouts tight: this is a hot-path cache, not a primary store.
-        <span class="cov7" title="208">opt.DialTimeout = 2 * time.Second
+        <span class="cov7" title="218">opt.DialTimeout = 2 * time.Second
         opt.ReadTimeout = sharedOpTimeout
         opt.WriteTimeout = sharedOpTimeout
         opt.MaxRetries = 1
@@ -15354,11 +15374,11 @@ func newValkeyStore(url string) (*valkeyStore, error) <span class="cov7" title="
                 vs.setUp(false)
                 return vs, err
         }</span>
-        <span class="cov7" title="206">vs.setUp(true)
+        <span class="cov7" title="216">vs.setUp(true)
         return vs, nil</span>
 }
 
-func (v *valkeyStore) setUp(up bool) <span class="cov10" title="2133">{
+func (v *valkeyStore) setUp(up bool) <span class="cov10" title="2224">{
         v.mu.Lock()
         v.up = up
         v.mu.Unlock()
@@ -15372,29 +15392,29 @@ func (v *valkeyStore) healthy() bool <span class="cov3" title="9">{
 
 // noteErr records reachability and rate-limits the warning log so a backend outage
 // does not spam the broker log on every request.
-func (v *valkeyStore) noteErr(op string, err error) <span class="cov8" title="518">{
+func (v *valkeyStore) noteErr(op string, err error) <span class="cov8" title="523">{
         if err == nil || err == redis.Nil </span><span class="cov1" title="2">{
                 v.setUp(true)
                 return
         }</span>
-        <span class="cov8" title="516">v.opErrors.Add(1)
+        <span class="cov8" title="521">v.opErrors.Add(1)
         v.mu.Lock()
         v.up = false
         logNow := time.Since(v.lastLog) &gt; 30*time.Second
-        if logNow </span><span class="cov4" title="28">{
+        if logNow </span><span class="cov5" title="31">{
                 v.lastLog = time.Now()
         }</span>
-        <span class="cov8" title="516">v.mu.Unlock()
-        if logNow </span><span class="cov4" title="28">{
+        <span class="cov8" title="521">v.mu.Unlock()
+        if logNow </span><span class="cov5" title="31">{
                 log.Printf("shared-state: valkey %s failed, using in-memory fallback: %v", op, err)
         }</span>
 }
 
-func (v *valkeyStore) Close() error <span class="cov7" title="210">{
+func (v *valkeyStore) Close() error <span class="cov7" title="220">{
         if v == nil || v.rdb == nil </span><span class="cov1" title="2">{
                 return nil
         }</span>
-        <span class="cov7" title="208">return v.rdb.Close()</span>
+        <span class="cov7" title="218">return v.rdb.Close()</span>
 }
 
 // tokenBucketScript is an atomic Redis token-bucket. It mirrors the exact refill +
@@ -15469,13 +15489,13 @@ func (v *valkeyStore) rateAllow(key string, rpm, burst float64, now time.Time) (
 // livenessKey is the prefixed hash holding node -&gt; last_seen unix-ms across instances.
 const livenessField = "ls"
 
-func livenessKey(node string) string <span class="cov7" title="189">{ return keyPrefix + "node:" + node }</span>
+func livenessKey(node string) string <span class="cov7" title="209">{ return keyPrefix + "node:" + node }</span>
 
-func (v *valkeyStore) markSeen(node string, now time.Time) error <span class="cov5" title="67">{
+func (v *valkeyStore) markSeen(node string, now time.Time) error <span class="cov6" title="74">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return errNoSharedStore
         }</span>
-        <span class="cov5" title="67">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov6" title="74">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         key := livenessKey(node)
         pipe := v.rdb.Pipeline()
@@ -15507,64 +15527,64 @@ func (v *valkeyStore) markSeen(node string, now time.Time) error <span class="co
                 v.noteErr("markSeen", err)
                 return err
         }</span>
-        <span class="cov5" title="66">v.setUp(true)
+        <span class="cov6" title="73">v.setUp(true)
         return nil</span>
 }
 
-func (v *valkeyStore) liveness() (map[string]time.Time, error) <span class="cov7" title="242">{
+func (v *valkeyStore) liveness() (map[string]time.Time, error) <span class="cov7" title="255">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return nil, errNoSharedStore
         }</span>
-        <span class="cov7" title="242">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="255">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         ids, err := v.rdb.SMembers(ctx, keyPrefix+"nodes").Result()
         if err != nil </span><span class="cov6" title="96">{
                 v.noteErr("liveness", err)
                 return nil, err
         }</span>
-        <span class="cov6" title="146">if len(ids) == 0 </span><span class="cov4" title="30">{
+        <span class="cov6" title="159">if len(ids) == 0 </span><span class="cov4" title="30">{
                 v.setUp(true)
                 return map[string]time.Time{}, nil
         }</span>
         // Batch the per-node HGETs into ONE pipeline (one round-trip) instead of N sequential
         // round-trips: same result, but the sync-loop latency no longer grows linearly with
         // the node count (each saved round-trip is a full Valkey RTT in production).
-        <span class="cov6" title="116">pipe := v.rdb.Pipeline()
+        <span class="cov6" title="129">pipe := v.rdb.Pipeline()
         cmds := make([]*redis.StringCmd, len(ids))
-        for i, id := range ids </span><span class="cov6" title="121">{
+        for i, id := range ids </span><span class="cov6" title="134">{
                 cmds[i] = pipe.HGet(ctx, livenessKey(id), livenessField)
         }</span>
         // Exec surfaces the first command error; a per-key redis.Nil (expired since the
         // SMEMBERS listing) is reported on that command, not as a fatal Exec error - so we
         // ignore a redis.Nil from Exec and inspect each command below, skipping the misses.
-        <span class="cov6" title="116">if _, err := pipe.Exec(ctx); err != nil &amp;&amp; err != redis.Nil </span><span class="cov0" title="0">{
+        <span class="cov6" title="129">if _, err := pipe.Exec(ctx); err != nil &amp;&amp; err != redis.Nil </span><span class="cov0" title="0">{
                 v.noteErr("liveness", err)
                 return nil, err
         }</span>
-        <span class="cov6" title="116">out := make(map[string]time.Time, len(ids))
-        for i, id := range ids </span><span class="cov6" title="121">{
+        <span class="cov6" title="129">out := make(map[string]time.Time, len(ids))
+        for i, id := range ids </span><span class="cov6" title="134">{
                 ms, err := cmds[i].Int64()
                 if err == redis.Nil </span><span class="cov1" title="1">{
                         continue</span> // expired since the set listing - skip
                 }
-                <span class="cov6" title="120">if err != nil </span><span class="cov0" title="0">{
+                <span class="cov6" title="133">if err != nil </span><span class="cov0" title="0">{
                         v.noteErr("liveness", err)
                         return out, err
                 }</span>
-                <span class="cov6" title="120">out[id] = time.UnixMilli(ms)</span>
+                <span class="cov6" title="133">out[id] = time.UnixMilli(ms)</span>
         }
-        <span class="cov6" title="116">v.setUp(true)
+        <span class="cov6" title="129">v.setUp(true)
         return out, nil</span>
 }
 
 // regKey holds a node's full registration JSON, shared so any instance can mirror it.
-func regKey(node string) string <span class="cov8" title="856">{ return keyPrefix + "reg:" + node }</span>
+func regKey(node string) string <span class="cov8" title="886">{ return keyPrefix + "reg:" + node }</span>
 
-func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error <span class="cov7" title="317">{
+func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error <span class="cov7" title="322">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return errNoSharedStore
         }</span>
-        <span class="cov7" title="317">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="322">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         pipe := v.rdb.Pipeline()
         pipe.Set(ctx, regKey(id), reg, ttl)
@@ -15574,7 +15594,7 @@ func (v *valkeyStore) putNode(id string, reg []byte, ttl time.Duration) error <s
                 v.noteErr("putNode", err)
                 return err
         }</span>
-        <span class="cov7" title="316">v.setUp(true)
+        <span class="cov7" title="321">v.setUp(true)
         return nil</span>
 }
 
@@ -15596,45 +15616,45 @@ func (v *valkeyStore) getNode(id string) ([]byte, bool, error) <span class="cov4
         return raw, true, nil</span>
 }
 
-func (v *valkeyStore) allNodes() (map[string][]byte, error) <span class="cov7" title="274">{
+func (v *valkeyStore) allNodes() (map[string][]byte, error) <span class="cov7" title="287">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return nil, errNoSharedStore
         }</span>
-        <span class="cov7" title="274">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="287">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         ids, err := v.rdb.SMembers(ctx, keyPrefix+"regset").Result()
         if err != nil </span><span class="cov6" title="96">{
                 v.noteErr("allNodes", err)
                 return nil, err
         }</span>
-        <span class="cov7" title="178">if len(ids) == 0 </span><span class="cov4" title="22">{
+        <span class="cov7" title="191">if len(ids) == 0 </span><span class="cov4" title="22">{
                 v.setUp(true)
                 return map[string][]byte{}, nil
         }</span>
         // Batch the per-node GETs into ONE pipeline (one round-trip) instead of N sequential
         // round-trips - the registry mirror sync no longer scales its latency with node count.
-        <span class="cov6" title="156">pipe := v.rdb.Pipeline()
+        <span class="cov6" title="169">pipe := v.rdb.Pipeline()
         cmds := make([]*redis.StringCmd, len(ids))
-        for i, id := range ids </span><span class="cov6" title="160">{
+        for i, id := range ids </span><span class="cov7" title="173">{
                 cmds[i] = pipe.Get(ctx, regKey(id))
         }</span>
-        <span class="cov6" title="156">if _, err := pipe.Exec(ctx); err != nil &amp;&amp; err != redis.Nil </span><span class="cov0" title="0">{
+        <span class="cov6" title="169">if _, err := pipe.Exec(ctx); err != nil &amp;&amp; err != redis.Nil </span><span class="cov0" title="0">{
                 v.noteErr("allNodes", err)
                 return nil, err
         }</span>
-        <span class="cov6" title="156">out := make(map[string][]byte, len(ids))
-        for i, id := range ids </span><span class="cov6" title="160">{
+        <span class="cov6" title="169">out := make(map[string][]byte, len(ids))
+        for i, id := range ids </span><span class="cov7" title="173">{
                 raw, err := cmds[i].Bytes()
                 if err == redis.Nil </span><span class="cov1" title="1">{
                         continue</span> // reg expired since the set listing - skip
                 }
-                <span class="cov6" title="159">if err != nil </span><span class="cov0" title="0">{
+                <span class="cov7" title="172">if err != nil </span><span class="cov0" title="0">{
                         v.noteErr("allNodes", err)
                         return out, err
                 }</span>
-                <span class="cov6" title="159">out[id] = raw</span>
+                <span class="cov7" title="172">out[id] = raw</span>
         }
-        <span class="cov6" title="156">v.setUp(true)
+        <span class="cov6" title="169">v.setUp(true)
         return out, nil</span>
 }
 
@@ -15642,7 +15662,7 @@ func (v *valkeyStore) allNodes() (map[string][]byte, error) <span class="cov7" t
 // Both live under a SEPARATE namespace from the public regKey/regset, so a private node is
 // mirrored for cross-instance routing yet can NEVER surface in the public allNodes() the
 // /discover mirror enumerates. Same shape as the public pair; only the prefix differs.
-func pregKey(node string) string <span class="cov8" title="394">{ return keyPrefix + "preg:" + node }</span>
+func pregKey(node string) string <span class="cov8" title="406">{ return keyPrefix + "preg:" + node }</span>
 
 const pregsetKey = keyPrefix + "pregset"
 
@@ -15660,7 +15680,7 @@ func (v *valkeyStore) putPrivateNode(id string, reg []byte, ttl time.Duration) e
                 v.noteErr("putPrivateNode", err)
                 return err
         }</span>
-        <span class="cov4" title="13">v.setUp(true)
+        <span class="cov3" title="13">v.setUp(true)
         return nil</span>
 }
 
@@ -15682,18 +15702,18 @@ func (v *valkeyStore) getPrivateNode(id string) ([]byte, bool, error) <span clas
         return raw, true, nil</span>
 }
 
-func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) <span class="cov7" title="259">{
+func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) <span class="cov7" title="272">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return nil, errNoSharedStore
         }</span>
-        <span class="cov7" title="259">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="272">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         ids, err := v.rdb.SMembers(ctx, pregsetKey).Result()
         if err != nil </span><span class="cov6" title="96">{
                 v.noteErr("allPrivateNodes", err)
                 return nil, err
         }</span>
-        <span class="cov6" title="163">if len(ids) == 0 </span><span class="cov6" title="153">{
+        <span class="cov7" title="176">if len(ids) == 0 </span><span class="cov6" title="166">{
                 v.setUp(true)
                 return map[string][]byte{}, nil
         }</span>
@@ -15725,11 +15745,11 @@ func (v *valkeyStore) allPrivateNodes() (map[string][]byte, error) <span class="
 // dropSharedNode removes a node from BOTH the public (reg/regset) and private (preg/pregset)
 // shared registries in one pipeline. Called by register before re-publishing so a private&lt;-&gt;
 // public flip never leaves a stale mirror in the other namespace.
-func (v *valkeyStore) dropSharedNode(id string) error <span class="cov7" title="295">{
+func (v *valkeyStore) dropSharedNode(id string) error <span class="cov7" title="300">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return errNoSharedStore
         }</span>
-        <span class="cov7" title="295">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="300">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         pipe := v.rdb.Pipeline()
         pipe.Del(ctx, regKey(id))
@@ -15740,7 +15760,7 @@ func (v *valkeyStore) dropSharedNode(id string) error <span class="cov7" title="
                 v.noteErr("dropSharedNode", err)
                 return err
         }</span>
-        <span class="cov7" title="294">v.setUp(true)
+        <span class="cov7" title="299">v.setUp(true)
         return nil</span>
 }
 
@@ -15818,7 +15838,7 @@ func (v *valkeyStore) inflightByNode(selfInstanceID string) (map[string]int, err
                         return out, err
                 }</span>
                 <span class="cov3" title="10">sum := 0
-                for inst, val := range fields </span><span class="cov4" title="13">{
+                for inst, val := range fields </span><span class="cov3" title="13">{
                         if inst == selfInstanceID </span><span class="cov2" title="4">{
                                 continue</span> // exclude self: the caller adds its exact local count
                         }
@@ -15875,7 +15895,7 @@ func (v *valkeyStore) cacheSet(key string, val []byte, ttl time.Duration) error 
         }</span>
         <span class="cov6" title="100">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
-        if err := v.rdb.Set(ctx, cacheKeyPrefix+key, val, ttl).Err(); err != nil </span><span class="cov4" title="13">{
+        if err := v.rdb.Set(ctx, cacheKeyPrefix+key, val, ttl).Err(); err != nil </span><span class="cov3" title="13">{
                 v.noteErr("cacheSet", err)
                 return err
         }</span>
@@ -15905,14 +15925,14 @@ func (v *valkeyStore) cacheDel(key string) error <span class="cov4" title="22">{
 // collide with another project or with the rl:/node:/cache: keys.
 const counterKeyPrefix = keyPrefix + "ctr:"
 
-func (v *valkeyStore) counterGet(key string) (float64, bool, error) <span class="cov7" title="295">{
+func (v *valkeyStore) counterGet(key string) (float64, bool, error) <span class="cov7" title="308">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return 0, false, errNoSharedStore
         }</span>
-        <span class="cov7" title="295">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+        <span class="cov7" title="308">ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
         defer cancel()
         val, err := v.rdb.Get(ctx, counterKeyPrefix+key).Float64()
-        if err == redis.Nil </span><span class="cov7" title="169">{
+        if err == redis.Nil </span><span class="cov7" title="182">{
                 v.setUp(true)
                 return 0, false, nil // clean miss -&gt; caller reconciles from Postgres
         }</span>
@@ -16015,18 +16035,18 @@ var streamDoneMarker = []byte{0x04}
 // so a slow publish on the node-facing handler can never wedge a poller/streamer.
 const busPublishTimeout = sharedOpTimeout
 
-func (v *valkeyStore) busPublishJob(nodeID string, job []byte) (int, error) <span class="cov4" title="25">{
+func (v *valkeyStore) busPublishJob(nodeID string, job []byte) (int, error) <span class="cov5" title="31">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return 0, errNoSharedStore
         }</span>
-        <span class="cov4" title="25">ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
+        <span class="cov5" title="31">ctx, cancel := context.WithTimeout(context.Background(), busPublishTimeout)
         defer cancel()
         n, err := v.rdb.Publish(ctx, busJobPrefix+nodeID, job).Result()
         if err != nil </span><span class="cov1" title="1">{
                 v.noteErr("busPublishJob", err)
                 return 0, err
         }</span>
-        <span class="cov4" title="24">v.setUp(true)
+        <span class="cov4" title="30">v.setUp(true)
         return int(n), nil</span>
 }
 
@@ -16058,11 +16078,11 @@ func (v *valkeyStore) busClaimJob(jobID string) (bool, error) <span class="cov4"
 // subscription closes. The buffered out channel (depth 64) absorbs a burst of stream
 // chunks without blocking the redis receive loop; if a slow consumer fills it we drop
 // the receive loop on the next ctx check (the consumer's own timeout is the backstop).
-func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (&lt;-chan []byte, func(), error) <span class="cov5" title="66">{
+func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (&lt;-chan []byte, func(), error) <span class="cov6" title="77">{
         if v == nil || v.rdb == nil </span><span class="cov0" title="0">{
                 return nil, func() </span>{<span class="cov0" title="0">}</span>, errNoSharedStore
         }
-        <span class="cov5" title="66">subCtx, cancel := context.WithCancel(ctx)
+        <span class="cov6" title="77">subCtx, cancel := context.WithCancel(ctx)
         ps := v.rdb.Subscribe(subCtx, channel)
         // Wait for the subscription to be confirmed so a Publish racing the Subscribe is not
         // missed: Receive blocks for the subscribe confirmation. Bound it so a hung backend
@@ -16070,20 +16090,20 @@ func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (&lt;-ch
         recvCtx, recvCancel := context.WithTimeout(subCtx, sharedOpTimeout)
         _, err := ps.Receive(recvCtx)
         recvCancel()
-        if err != nil </span><span class="cov3" title="6">{
+        if err != nil </span><span class="cov3" title="11">{
                 cancel()
                 _ = ps.Close()
                 v.noteErr("busSubscribe", err)
                 return nil, func() </span>{<span class="cov0" title="0">}</span>, err
         }
-        <span class="cov5" title="60">v.setUp(true)
+        <span class="cov5" title="66">v.setUp(true)
         out := make(chan []byte, 64)
         ch := ps.Channel()
-        go func() </span><span class="cov5" title="60">{
+        go func() </span><span class="cov5" title="66">{
                 defer close(out)
-                for </span><span class="cov6" title="118">{
+                for </span><span class="cov6" title="124">{
                         select </span>{
-                        case &lt;-subCtx.Done():<span class="cov5" title="60">
+                        case &lt;-subCtx.Done():<span class="cov5" title="66">
                                 return</span>
                         case msg, ok := &lt;-ch:<span class="cov5" title="58">
                                 if !ok </span><span class="cov0" title="0">{
@@ -16097,14 +16117,14 @@ func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (&lt;-ch
                         }
                 }
         }()
-        <span class="cov5" title="60">closeFn := func() </span><span class="cov5" title="60">{
+        <span class="cov5" title="66">closeFn := func() </span><span class="cov5" title="66">{
                 cancel()
                 _ = ps.Close()
         }</span>
-        <span class="cov5" title="60">return out, closeFn, nil</span>
+        <span class="cov5" title="66">return out, closeFn, nil</span>
 }
 
-func (v *valkeyStore) busSubscribeJobs(ctx context.Context, nodeID string) (&lt;-chan []byte, func(), error) <span class="cov4" title="26">{
+func (v *valkeyStore) busSubscribeJobs(ctx context.Context, nodeID string) (&lt;-chan []byte, func(), error) <span class="cov5" title="31">{
         return v.busSubscribe(ctx, busJobPrefix+nodeID)
 }</span>
 
@@ -16122,7 +16142,7 @@ func (v *valkeyStore) busPublishResult(jobID string, result []byte) error <span 
         return nil</span>
 }
 
-func (v *valkeyStore) busSubscribeResult(ctx context.Context, jobID string) (&lt;-chan []byte, func(), error) <span class="cov4" title="28">{
+func (v *valkeyStore) busSubscribeResult(ctx context.Context, jobID string) (&lt;-chan []byte, func(), error) <span class="cov5" title="34">{
         return v.busSubscribe(ctx, busResultPrefix+jobID)
 }</span>
 
@@ -16404,13 +16424,13 @@ func (b *broker) serveCachedJSON(w http.ResponseWriter, key string, ttl time.Dur
 // leader and receive the identical bytes WITHOUT recomputing - this is the dogpile fix
 // (B1). The cache SET is best-effort (a failure only means the next window recomputes).
 func (b *broker) computeCachedJSON(key string, ttl time.Duration, compute func() any) []byte <span class="cov5" title="36">{
-        v, _, _ := b.cacheFlight.Do(key, func() (any, error) </span><span class="cov4" title="13">{
+        v, _, _ := b.cacheFlight.Do(key, func() (any, error) </span><span class="cov3" title="13">{
                 body, err := json.Marshal(compute())
                 if err != nil </span><span class="cov0" title="0">{
                         return []byte(nil), nil
                 }</span>
                 // Populate for the next caller. A SET failure is non-fatal (we already serve).
-                <span class="cov4" title="13">_ = b.shared.cacheSet(key, body, cacheTTLJitter(ttl))
+                <span class="cov3" title="13">_ = b.shared.cacheSet(key, body, cacheTTLJitter(ttl))
                 return body, nil</span>
         })
         <span class="cov5" title="36">body, _ := v.([]byte)
@@ -16773,11 +16793,11 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) <span class="c
 // isOwnerBanned reports whether an owner account is durably banned. Reads the in-memory
 // cache (re-hydrated at startup + refreshed on a ban) so the hot relay/pick path never
 // hits the DB. Concurrency-safe.
-func (b *broker) isOwnerBanned(accountID string) bool <span class="cov9" title="322">{
+func (b *broker) isOwnerBanned(accountID string) bool <span class="cov9" title="321">{
         if accountID == "" </span><span class="cov1" title="1">{
                 return false
         }</span>
-        <span class="cov9" title="321">b.metricsMu.Lock()
+        <span class="cov9" title="320">b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
         return b.bannedOwners[accountID]</span>
 }
@@ -16980,8 +17000,8 @@ func freeRegWindowDur() time.Duration <span class="cov5" title="278">{
 // free node must be able to keep refreshing). Returns true (allowed) when the ceiling
 // is disabled (freeRegPerIP &lt;= 0) or ip is empty. The per-IP timestamp slice is pruned
 // to the sliding window on each call so it cannot grow without bound.
-func (b *broker) allowFreeReg(ip string, isNew bool) bool <span class="cov6" title="591">{
-        if b.freeRegPerIP &lt;= 0 || ip == "" || !isNew </span><span class="cov6" title="584">{
+func (b *broker) allowFreeReg(ip string, isNew bool) bool <span class="cov6" title="596">{
+        if b.freeRegPerIP &lt;= 0 || ip == "" || !isNew </span><span class="cov6" title="589">{
                 return true
         }</span>
         <span class="cov2" title="7">now := time.Now()
@@ -17047,11 +17067,11 @@ type streamSink struct {
 
 // register handles POST /nodes/register: a node announces itself + its offers
 // (and an optional confidential attestation). Idempotent; refreshes on reconnect.
-func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="cov6" title="746">{
+func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="cov6" title="751">{
         if !allow(w, r, http.MethodPost) </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov6" title="746">body, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;20))
+        <span class="cov6" title="751">body, _ := io.ReadAll(io.LimitReader(r.Body, 1&lt;&lt;20))
         var reg protocol.NodeRegistration
         if err := json.Unmarshal(body, &amp;reg); err != nil </span><span class="cov0" title="0">{
                 jsonErr(w, http.StatusBadRequest, "bad registration")
@@ -17060,15 +17080,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // Proof of possession: the registrant must sign with the private key matching
         // the pub_key it claims, and the registration must be fresh (anti-replay). This
         // stops anyone from registering under a key (or a node id) they do not own.
-        <span class="cov6" title="746">if reg.NodeID == "" || reg.PubKey == "" </span><span class="cov0" title="0">{
+        <span class="cov6" title="751">if reg.NodeID == "" || reg.PubKey == "" </span><span class="cov0" title="0">{
                 jsonErr(w, http.StatusBadRequest, "node_id and pub_key required")
                 return
         }</span>
-        <span class="cov6" title="746">if !reg.VerifyRegistration() </span><span class="cov1" title="1">{
+        <span class="cov6" title="751">if !reg.VerifyRegistration() </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusUnauthorized, "registration signature invalid (prove possession of pub_key)")
                 return
         }</span>
-        <span class="cov6" title="745">if skew := time.Since(time.Unix(reg.TS, 0)); skew &gt; 5*time.Minute || skew &lt; -5*time.Minute </span><span class="cov1" title="1">{
+        <span class="cov6" title="750">if skew := time.Since(time.Unix(reg.TS, 0)); skew &gt; 5*time.Minute || skew &lt; -5*time.Minute </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
                 return
         }</span>
@@ -17083,7 +17103,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // and does NOT suggest --private as an escape (the ceiling is global; --private only hides
         // a station from the public market, it is not a price bypass). (Pinned by
         // TestRegisterCeilingGlobalAllBands + features/pricing/price_ceiling.feature.)
-        <span class="cov6" title="744">if msg := registerPriceCeiling(reg.Offers); msg != "" </span><span class="cov2" title="8">{
+        <span class="cov6" title="749">if msg := registerPriceCeiling(reg.Offers); msg != "" </span><span class="cov2" title="8">{
                 jsonErr(w, http.StatusBadRequest, msg)
                 return
         }</span>
@@ -17095,7 +17115,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // to that account anyway, so an authenticated owner's free supply is account-scoped
         // (account grant keys resolve a bound free node; earning lots + the per-owner cap
         // span it). Anonymous free supply (no/invalid owner sig) stays UNBOUND as before.
-        <span class="cov6" title="736">gated := offersPriced(reg.Offers) || reg.Private // priced/private =&gt; login HARD-required
+        <span class="cov6" title="741">gated := offersPriced(reg.Offers) || reg.Private // priced/private =&gt; login HARD-required
         var regOwner store.Owner                         // set when this register resolves to an owner (priced, private, OR a signed-in free owner)
         // Resolve owner identity once. A signature, when offered, MUST verify (identityOf
         // returns sok=false on an invalid one); `authed` means a VERIFIED owner-signed
@@ -17105,11 +17125,11 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
                 jsonErr(w, http.StatusUnauthorized, "invalid request signature")
                 return
         }</span>
-        <span class="cov6" title="736">owner, ownerOK := store.Owner{}, false
+        <span class="cov6" title="741">owner, ownerOK := store.Owner{}, false
         if sok &amp;&amp; authed </span><span class="cov5" title="140">{
                 owner, ownerOK = b.requireOwner(r)
         }</span>
-        <span class="cov6" title="736">_ = uid
+        <span class="cov6" title="741">_ = uid
         if gated </span><span class="cov4" title="79">{
                 // Priced/private MUST be a GitHub-linked owner: reject unsigned/unauthed/unlinked.
                 if !authed </span><span class="cov1" title="3">{
@@ -17134,7 +17154,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // grant keys can find it. ownerOK is true only for a VERIFIED owner-signed request
         // that resolves to a GitHub-linked account; an anonymous free register leaves
         // regOwner zero and falls through to the UNBOUND path below.
-        <span class="cov6" title="732">if ownerOK </span><span class="cov5" title="139">{
+        <span class="cov6" title="737">if ownerOK </span><span class="cov5" title="139">{
                 regOwner = owner
                 // DURABLE OWNER BAN (anti-rotation): a banned operator must not be able to return
                 // under a fresh node id / callsign / grant key. Now that a free owner-signed node
@@ -17157,7 +17177,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // nonce binding, and allowlisted launch measurement ALL verify. verifyRegistration
         // returns an error ONLY when ROGERAI_TEE_REQUIRE is set and a claimed quote fails -
         // then we reject the registration rather than silently downgrade it to standard.
-        <span class="cov6" title="730">confidential, attErr := b.attest.verifyRegistration(r.Context(), reg)
+        <span class="cov6" title="735">confidential, attErr := b.attest.verifyRegistration(r.Context(), reg)
         if attErr != nil </span><span class="cov1" title="2">{
                 jsonErr(w, http.StatusForbidden, attErr.Error())
                 return
@@ -17168,7 +17188,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // that FAILED attestation under require=0 would be mirrored Confidential=true and
         // a peer instance would grant it the ◆ tier. The signature was already verified
         // above, so mutating the struct after the check is safe.
-        <span class="cov6" title="728">reg.Confidential = confidential
+        <span class="cov6" title="733">reg.Confidential = confidential
         // Owner-authored web-Console price/schedule overrides take PRECEDENCE over (seed)
         // the node-supplied offers, and survive this re-register because we re-apply them
         // here on every register, before reg.Offers lands in b.nodes + is persisted. Done
@@ -17195,7 +17215,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
                         return
                 }</span>
         }
-        <span class="cov6" title="701">b.mu.Lock()
+        <span class="cov6" title="706">b.mu.Lock()
         // CROSS-OWNER STATION UNIQUENESS (anti-impersonation): a station is a PER-MACHINE public
         // broadcast callsign; the auto-generated one is ~unique but RENAMEABLE, so two DIFFERENT
         // owners could claim the same public @&lt;station&gt;. Reject a public-voice registration whose
@@ -17215,7 +17235,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // share a normalized slug (deterministic ids; an operator can't shadow themselves). Run
         // under the lock since it reads the owner's other live nodes. Excludes this node id so
         // an idempotent re-register is not a self-collision.
-        <span class="cov6" title="700">if regOwner.Pubkey != "" </span><span class="cov5" title="108">{
+        <span class="cov6" title="705">if regOwner.Pubkey != "" </span><span class="cov5" title="108">{
                 if msg := b.duplicateVoiceName(regOwner.Pubkey, reg.NodeID, reg.Offers); msg != "" </span><span class="cov1" title="2">{
                         b.mu.Unlock()
                         jsonErr(w, http.StatusConflict, msg)
@@ -17224,7 +17244,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         }
         // TOFU identity binding: a node_id belongs to the first pub_key that claims it;
         // later registrations for that id must use the SAME key (no takeover).
-        <span class="cov6" title="698">if prev, ok := b.nodes[reg.NodeID]; ok &amp;&amp; prev.PubKey != reg.PubKey </span><span class="cov1" title="1">{
+        <span class="cov6" title="703">if prev, ok := b.nodes[reg.NodeID]; ok &amp;&amp; prev.PubKey != reg.PubKey </span><span class="cov1" title="1">{
                 b.mu.Unlock()
                 jsonErr(w, http.StatusForbidden, "node_id already bound to a different key")
                 return
@@ -17245,7 +17265,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // idempotent re-register of an existing free node refreshes without being rejected.
         // Owner-bound registers (priced/private/free-owner-signed) skip this - they are
         // bounded by the per-owner cap instead.
-        <span class="cov6" title="697">if regOwner.Pubkey == "" </span><span class="cov6" title="591">{
+        <span class="cov6" title="702">if regOwner.Pubkey == "" </span><span class="cov6" title="596">{
                 _, known := b.nodes[reg.NodeID]
                 if !b.allowFreeReg(clientIP(r), !known) </span><span class="cov1" title="2">{
                         b.mu.Unlock()
@@ -17254,7 +17274,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
                         return
                 }</span>
         }
-        <span class="cov6" title="695">if regOwner.Pubkey != "" &amp;&amp; b.maxNodesPerOwner &gt; 0 </span><span class="cov3" title="15">{
+        <span class="cov6" title="700">if regOwner.Pubkey != "" &amp;&amp; b.maxNodesPerOwner &gt; 0 </span><span class="cov3" title="15">{
                 if b.ownerOnAirCount(regOwner.Pubkey, reg.NodeID) &gt;= b.maxNodesPerOwner </span><span class="cov2" title="4">{
                         b.mu.Unlock()
                         jsonErr(w, http.StatusTooManyRequests, fmt.Sprintf(
@@ -17262,7 +17282,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
                         return
                 }</span>
         }
-        <span class="cov6" title="691">now := time.Now()
+        <span class="cov6" title="696">now := time.Now()
         b.nodes[reg.NodeID] = reg
         b.lastSeen[reg.NodeID] = now
         b.confidential[reg.NodeID] = confidential
@@ -17274,22 +17294,22 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         if b.private == nil </span><span class="cov2" title="5">{
                 b.private = map[string]bool{}
         }</span>
-        <span class="cov6" title="691">if b.bandOf == nil </span><span class="cov2" title="5">{
+        <span class="cov6" title="696">if b.bandOf == nil </span><span class="cov2" title="5">{
                 b.bandOf = map[string]string{}
         }</span>
-        <span class="cov6" title="691">b.private[reg.NodeID] = reg.Private
-        if !reg.Private </span><span class="cov6" title="663">{
+        <span class="cov6" title="696">b.private[reg.NodeID] = reg.Private
+        if !reg.Private </span><span class="cov6" title="668">{
                 delete(b.bandOf, reg.NodeID)
         }</span>
-        <span class="cov6" title="691">if b.attestedAt == nil </span><span class="cov4" title="90">{
+        <span class="cov6" title="696">if b.attestedAt == nil </span><span class="cov4" title="95">{
                 b.attestedAt = map[string]time.Time{}
         }</span>
-        <span class="cov6" title="691">if confidential </span><span class="cov1" title="3">{
+        <span class="cov6" title="696">if confidential </span><span class="cov1" title="3">{
                 b.attestedAt[reg.NodeID] = now // start the re-attestation clock
-        }</span> else<span class="cov6" title="688"> {
+        }</span> else<span class="cov6" title="693"> {
                 delete(b.attestedAt, reg.NodeID)
         }</span>
-        <span class="cov6" title="691">if t := b.tunnels[reg.NodeID]; t == nil </span><span class="cov5" title="134">{
+        <span class="cov6" title="696">if t := b.tunnels[reg.NodeID]; t == nil </span><span class="cov5" title="139">{
                 b.tunnels[reg.NodeID] = &amp;nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
         }</span> else<span class="cov6" title="557"> {
                 t.token = reg.BridgeToken
@@ -17299,10 +17319,10 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // unlock). After the grace, syncRegistry reconciles even this node from the shared
         // registry so a token rotated on ANOTHER instance reconverges here instead of pinning
         // a stale token forever -&gt; 401s (the multi-instance token-oscillation bug).
-        <span class="cov6" title="691">if b.localRegAt == nil </span><span class="cov5" title="115">{
+        <span class="cov6" title="696">if b.localRegAt == nil </span><span class="cov5" title="120">{
                 b.localRegAt = map[string]time.Time{}
         }</span>
-        <span class="cov6" title="691">b.localRegAt[reg.NodeID] = now
+        <span class="cov6" title="696">b.localRegAt[reg.NodeID] = now
         b.mu.Unlock()
         // From here on reg (incl. its Offers array) is safe to read WITHOUT b.mu even
         // though b.nodes now aliases it: a concurrent web-console price PATCH never
@@ -17327,15 +17347,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // and liveness state now travel together under BOTH flag values; only the job/result/
         // stream DISPATCH bus stays behind the flag. Pinned by
         // features/multinode/liveness_churn.feature.
-        if b.shared != nil </span><span class="cov5" title="288">{
-                if raw, mErr := json.Marshal(reg); mErr == nil </span><span class="cov5" title="288">{
+        if b.shared != nil </span><span class="cov5" title="293">{
+                if raw, mErr := json.Marshal(reg); mErr == nil </span><span class="cov5" title="293">{
                         // Clear any stale entry in the OTHER namespace first, so a private&lt;-&gt;public flip
                         // never leaves a mirror markSeen would keep alive (each node lives in EXACTLY one
                         // namespace). Then publish to the correct one.
                         _ = b.shared.dropSharedNode(reg.NodeID)
                         if reg.Private </span><span class="cov2" title="9">{
                                 _ = b.shared.putPrivateNode(reg.NodeID, raw, livenessTTL)
-                        }</span> else<span class="cov5" title="279"> {
+                        }</span> else<span class="cov5" title="284"> {
                                 _ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
                         }</span>
                 }
@@ -17347,7 +17367,7 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // makes the node's idempotent re-register safe to repeat without re-leaking). A free
         // cap of 1 active band per owner is enforced via CountActiveBands vs BandQuota inside
         // mintBandForNode. We never log the raw code (only band_id / cosmetic display).
-        <span class="cov6" title="691">bandID, bandCode, bandDisplay := "", "", ""
+        <span class="cov6" title="696">bandID, bandCode, bandDisplay := "", "", ""
         if reg.Private </span><span class="cov3" title="28">{
                 existing, found, _ := b.db.BandByNode(reg.NodeID)
                 if found &amp;&amp; existing.Owner == regOwner.Pubkey &amp;&amp; !existing.Revoked </span><span class="cov1" title="2">{
@@ -17374,14 +17394,14 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         // instead of wiping it (older providers that don't auto-re-register would 404
         // forever otherwise). Best-effort: a persistence error must not fail the live
         // registration (the node is already serving from memory) - log and continue.
-        <span class="cov6" title="690">if b.db != nil </span><span class="cov6" title="689">{
+        <span class="cov6" title="695">if b.db != nil </span><span class="cov6" title="694">{
                 if err := b.db.UpsertNode(store.NodeRecord{
                         NodeID: reg.NodeID, Reg: reg, Confidential: confidential, LastSeen: now.Unix(),
                 }); err != nil </span><span class="cov0" title="0">{
                         log.Printf("persist node %s failed: %v (registration still live in memory)", reg.NodeID, err)
                 }</span>
         }
-        <span class="cov6" title="690">log.Printf("registered node %s (%d offers, %s, private=%v)", reg.NodeID, len(reg.Offers), reg.HW, reg.Private)
+        <span class="cov6" title="695">log.Printf("registered node %s (%d offers, %s, private=%v)", reg.NodeID, len(reg.Offers), reg.HW, reg.Private)
         // Return the EFFECTIVE offers (reg.Offers was rewritten in place by
         // applyOfferOverrides), so the CLI/agent shows the broker-EFFECTIVE price - one
         // source of truth for the published price. `overrides` names which models carry an
@@ -17396,14 +17416,14 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) <span class="c
         if len(overriddenModels) &gt; 0 </span><span class="cov1" title="2">{
                 resp["overrides"] = overriddenModels
         }</span>
-        <span class="cov6" title="690">if reg.Private </span><span class="cov3" title="27">{
+        <span class="cov6" title="695">if reg.Private </span><span class="cov3" title="27">{
                 resp["band_id"] = bandID
                 resp["band_display"] = bandDisplay // cosmetic, not secret
                 if bandCode != "" </span><span class="cov3" title="25">{
                         resp["band_code"] = bandCode // the SECRET, returned ONCE at mint only
                 }</span>
         }
-        <span class="cov6" title="690">writeJSON(w, http.StatusOK, resp)</span>
+        <span class="cov6" title="695">writeJSON(w, http.StatusOK, resp)</span>
 }
 
 // attestChallenge handles POST /nodes/challenge: issues a single-use, short-lived
@@ -17502,7 +17522,7 @@ const persistThrottle = 20 * time.Second
 // flushed at most once per persistThrottle per node (TouchNode is a no-op for an
 // unknown/unpersisted node), keeping the DB write rate low while still giving a
 // re-hydrated node a recent last_seen across a restart window.
-func (b *broker) markSeen(node string) <span class="cov9" title="11003">{
+func (b *broker) markSeen(node string) <span class="cov9" title="13190">{
         now := time.Now()
         b.mu.Lock()
         b.lastSeen[node] = now
@@ -17513,22 +17533,22 @@ func (b *broker) markSeen(node string) <span class="cov9" title="11003">{
         // Best-effort: a failure is logged+swallowed inside markSeen on the store and never
         // affects in-memory liveness (which remains exact + authoritative on this instance).
         flushShared := b.shared != nil &amp;&amp; b.sharedFlushDue(node, now)
-        if flushShared </span><span class="cov4" title="47">{
+        if flushShared </span><span class="cov4" title="52">{
                 _ = b.shared.markSeen(node, now)
         }</span>
-        <span class="cov9" title="11003">if b.db == nil </span><span class="cov0" title="0">{
+        <span class="cov9" title="13190">if b.db == nil </span><span class="cov0" title="0">{
                 return // no durable store (e.g. a minimal test broker): in-memory liveness is enough
         }</span>
-        <span class="cov9" title="11003">b.metricsMu.Lock()
-        if b.lastPersist == nil </span><span class="cov4" title="53">{
+        <span class="cov9" title="13190">b.metricsMu.Lock()
+        if b.lastPersist == nil </span><span class="cov4" title="58">{
                 b.lastPersist = map[string]time.Time{}
         }</span>
-        <span class="cov9" title="11003">flush := now.Sub(b.lastPersist[node]) &gt;= persistThrottle
-        if flush </span><span class="cov4" title="58">{
+        <span class="cov9" title="13190">flush := now.Sub(b.lastPersist[node]) &gt;= persistThrottle
+        if flush </span><span class="cov4" title="63">{
                 b.lastPersist[node] = now
         }</span>
-        <span class="cov9" title="11003">b.metricsMu.Unlock()
-        if flush </span><span class="cov4" title="58">{
+        <span class="cov9" title="13190">b.metricsMu.Unlock()
+        if flush </span><span class="cov4" title="63">{
                 if err := b.db.TouchNode(node, now); err != nil </span><span class="cov0" title="0">{
                         log.Printf("touch node %s last_seen failed: %v", node, err)
                 }</span>
@@ -17539,16 +17559,16 @@ func (b *broker) markSeen(node string) <span class="cov9" title="11003">{
 // per-node throttle (separate from lastPersist so it works even when b.db is nil,
 // e.g. the in-memory store). It returns true at most once per persistThrottle per
 // node, keeping the Valkey HSET rate low while still refreshing well inside nodeTTL.
-func (b *broker) sharedFlushDue(node string, now time.Time) bool <span class="cov5" title="104">{
+func (b *broker) sharedFlushDue(node string, now time.Time) bool <span class="cov5" title="114">{
         b.metricsMu.Lock()
         defer b.metricsMu.Unlock()
-        if b.lastSharedSeen == nil </span><span class="cov4" title="46">{
+        if b.lastSharedSeen == nil </span><span class="cov4" title="51">{
                 b.lastSharedSeen = map[string]time.Time{}
         }</span>
-        <span class="cov5" title="104">if now.Sub(b.lastSharedSeen[node]) &lt; persistThrottle </span><span class="cov4" title="57">{
+        <span class="cov5" title="114">if now.Sub(b.lastSharedSeen[node]) &lt; persistThrottle </span><span class="cov4" title="62">{
                 return false
         }</span>
-        <span class="cov4" title="47">b.lastSharedSeen[node] = now
+        <span class="cov4" title="52">b.lastSharedSeen[node] = now
         return true</span>
 }
 
@@ -17586,7 +17606,7 @@ func (b *broker) syncLiveness(stop &lt;-chan struct{}) <span class="cov2" title=
 // syncLivenessOnce pulls the shared liveness snapshot once and merges every peer's
 // newer last_seen into this instance (and, in multi-instance mode, mirrors the shared
 // registry). Split out of the ticker loop so the merge is testable deterministically.
-func (b *broker) syncLivenessOnce() <span class="cov5" title="240">{
+func (b *broker) syncLivenessOnce() <span class="cov5" title="253">{
         // Cross-instance BAN propagation: re-pull the durable banned sets when a peer changed
         // them (cheap rev-counter check; no-op when unchanged). FIRST, before the liveness
         // early-return below, so bans still propagate on a tick where the liveness snapshot is
@@ -17611,13 +17631,13 @@ func (b *broker) syncLivenessOnce() <span class="cov5" title="240">{
         if err != nil || len(snap) == 0 </span><span class="cov5" title="125">{
                 return
         }</span>
-        <span class="cov5" title="115">b.mu.Lock()
-        for node, ts := range snap </span><span class="cov5" title="117">{
-                if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) </span><span class="cov4" title="32">{
+        <span class="cov5" title="128">b.mu.Lock()
+        for node, ts := range snap </span><span class="cov5" title="130">{
+                if cur, ok := b.lastSeen[node]; !ok || ts.After(cur) </span><span class="cov4" title="38">{
                         b.lastSeen[node] = ts
                 }</span>
         }
-        <span class="cov5" title="115">b.mu.Unlock()</span>
+        <span class="cov5" title="128">b.mu.Unlock()</span>
 }
 
 // syncLocalRegisterGrace is how long after THIS instance (re)registers a node that
@@ -17653,14 +17673,14 @@ const syncLocalRegisterGrace = 15 * time.Second
 // shared registry and every peer HEAL to the newest registration instead. Equal-TS and
 // newer mirrors keep flowing unchanged - the bridge-token reconvergence fix depends on
 // adopting them. Pinned by sync_registry_staleness_test.go.
-func (b *broker) syncRegistry() <span class="cov5" title="258">{
+func (b *broker) syncRegistry() <span class="cov5" title="271">{
         if b.shared == nil </span><span class="cov0" title="0">{
                 return
         }</span>
         // Pull BOTH the public registry and the SEPARATE private-band namespace before taking
         // the lock (network I/O). Proceed if EITHER is non-empty - a fleet with only private
         // bands must still mirror them (don't early-return on an empty public registry).
-        <span class="cov5" title="258">regs, _ := b.shared.allNodes()
+        <span class="cov5" title="271">regs, _ := b.shared.allNodes()
         pregs, _ := b.shared.allPrivateNodes()
         if len(regs) == 0 &amp;&amp; len(pregs) == 0 </span><span class="cov5" title="107">{
                 return
@@ -17671,7 +17691,7 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
         // published offers arrays themselves are immutable - applyOverrideLive is
         // copy-on-write) and re-published after the lock is dropped (network I/O), with
         // register's exact drop+put sequence.
-        <span class="cov5" title="151">type heal struct {
+        <span class="cov5" title="164">type heal struct {
                 id      string
                 raw     []byte
                 private bool
@@ -17681,7 +17701,7 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
         if b.private == nil </span><span class="cov0" title="0">{
                 b.private = map[string]bool{}
         }</span>
-        <span class="cov5" title="151">for id, raw := range regs </span><span class="cov5" title="143">{
+        <span class="cov5" title="164">for id, raw := range regs </span><span class="cov5" title="156">{
                 // Trust our OWN just-(re)registered token over the shared read for a short grace
                 // window: the shared key is written right after register's unlock, so an in-flight
                 // sync that read the shared registry a moment before that write must not clobber the
@@ -17691,24 +17711,24 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
                 if at, ok := b.localRegAt[id]; ok &amp;&amp; time.Since(at) &lt; syncLocalRegisterGrace </span><span class="cov4" title="47">{
                         continue</span>
                 }
-                <span class="cov4" title="96">var reg protocol.NodeRegistration
+                <span class="cov5" title="109">var reg protocol.NodeRegistration
                 if json.Unmarshal(raw, &amp;reg) != nil </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov4" title="96">if reg.Private </span><span class="cov0" title="0">{
+                <span class="cov5" title="109">if reg.Private </span><span class="cov0" title="0">{
                         continue</span>
                 }
-                <span class="cov4" title="96">if reg.NodeID == "" </span><span class="cov0" title="0">{
+                <span class="cov5" title="109">if reg.NodeID == "" </span><span class="cov0" title="0">{
                         reg.NodeID = id
                 }</span>
-                <span class="cov4" title="96">if cur, ok := b.nodes[id]; ok &amp;&amp; cur.TS &gt; reg.TS </span><span class="cov1" title="3">{
+                <span class="cov5" title="109">if cur, ok := b.nodes[id]; ok &amp;&amp; cur.TS &gt; reg.TS </span><span class="cov1" title="3">{
                         // Strictly-older mirror: keep the fresher local reg + re-publish it (snapshotted here).
                         if raw, err := json.Marshal(cur); err == nil </span><span class="cov1" title="3">{
                                 heals = append(heals, heal{id: id, raw: raw, private: cur.Private})
                         }</span>
                         <span class="cov1" title="3">continue</span>
                 }
-                <span class="cov4" title="93">b.nodes[id] = reg
+                <span class="cov5" title="106">b.nodes[id] = reg
                 // This node is in the PUBLIC registry, so it is public: clear any stale private flag
                 // from a prior mirror (a node that flipped private-&gt;public must stop being hidden).
                 b.private[id] = false
@@ -17724,9 +17744,9 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
                                 b.attestedAt[id] = time.Now()
                         }</span>
                 }
-                <span class="cov4" title="93">if b.tunnels[id] == nil </span><span class="cov3" title="29">{
+                <span class="cov5" title="106">if b.tunnels[id] == nil </span><span class="cov4" title="34">{
                         b.tunnels[id] = &amp;nodeTunnel{jobs: make(chan protocol.Job, 64), waiters: map[string]chan protocol.JobResult{}, token: reg.BridgeToken}
-                }</span> else<span class="cov4" title="64"> {
+                }</span> else<span class="cov4" title="72"> {
                         b.tunnels[id].token = reg.BridgeToken
                 }</span>
         }
@@ -17734,7 +17754,7 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
         // and flagged b.private[id]=true so the node is resolvable + freq-routable on this
         // instance yet stays OUT of /discover + the public market + a public pick (those all gate
         // on b.private). The band CODE is never here - only the node reg (offers + bridge token).
-        <span class="cov5" title="151">for id, raw := range pregs </span><span class="cov2" title="9">{
+        <span class="cov5" title="164">for id, raw := range pregs </span><span class="cov2" title="9">{
                 if at, ok := b.localRegAt[id]; ok &amp;&amp; time.Since(at) &lt; syncLocalRegisterGrace </span><span class="cov0" title="0">{
                         continue</span>
                 }
@@ -17769,7 +17789,7 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
                         b.tunnels[id].token = reg.BridgeToken
                 }</span>
         }
-        <span class="cov5" title="151">b.mu.Unlock()
+        <span class="cov5" title="164">b.mu.Unlock()
         // HEAL the shared registry outside the lock (network I/O): re-publish each fresher
         // LOCAL registration over its stale mirror with register's exact drop+put sequence,
         // so a private&lt;-&gt;public flip never leaves a copy in the other namespace and every
@@ -17799,15 +17819,15 @@ func (b *broker) syncRegistry() <span class="cov5" title="258">{
 // caller: register/syncRegistry/rehydrate rewrite t.token under b.mu, so an unlocked
 // caller read of the auth credential is a data race (pinned by
 // TestRaceNodeTokenReadVsRegister).
-func (b *broker) tunnelFor(node string) (*nodeTunnel, string) <span class="cov9" title="11037">{
+func (b *broker) tunnelFor(node string) (*nodeTunnel, string) <span class="cov9" title="13219">{
         b.mu.Lock()
         t := b.tunnels[node]
         tok := ""
-        if t != nil </span><span class="cov9" title="11028">{
+        if t != nil </span><span class="cov9" title="13210">{
                 tok = t.token
         }</span>
-        <span class="cov9" title="11037">b.mu.Unlock()
-        if t != nil || b.shared == nil </span><span class="cov9" title="11031">{
+        <span class="cov9" title="13219">b.mu.Unlock()
+        if t != nil || b.shared == nil </span><span class="cov9" title="13213">{
                 return t, tok
         }</span>
         <span class="cov2" title="6">raw, ok, err := b.shared.getNode(node)
@@ -17960,18 +17980,18 @@ func (b *broker) rehydrateNodes() <span class="cov5" title="284">{
 // offersPriced reports whether any offer advertises a nonzero price (in its base
 // price or in any scheduled window) - i.e. the node intends to EARN. A purely free
 // node (all prices zero, only Free windows) is not gated on login.
-func offersPriced(offers []protocol.ModelOffer) bool <span class="cov6" title="736">{
-        for _, o := range offers </span><span class="cov6" title="737">{
+func offersPriced(offers []protocol.ModelOffer) bool <span class="cov6" title="741">{
+        for _, o := range offers </span><span class="cov6" title="742">{
                 if o.PriceIn &gt; 0 || o.PriceOut &gt; 0 </span><span class="cov4" title="51">{
                         return true
                 }</span>
-                <span class="cov6" title="686">for _, w := range o.Schedule </span><span class="cov0" title="0">{
+                <span class="cov6" title="691">for _, w := range o.Schedule </span><span class="cov0" title="0">{
                         if !w.Free &amp;&amp; (w.In &gt; 0 || w.Out &gt; 0) </span><span class="cov0" title="0">{
                                 return true
                         }</span>
                 }
         }
-        <span class="cov6" title="685">return false</span>
+        <span class="cov6" title="690">return false</span>
 }
 
 // offersTTS reports whether any offer is a TTS (public voice) offer. Only a TTS offer becomes a
@@ -17999,8 +18019,8 @@ func offersTTS(offers []protocol.ModelOffer) bool <span class="cov4" title="54">
 // It returns the model names whose offer was actually overridden, so the register
 // RESPONSE can tell the node which of its prices the broker is now publishing on its
 // behalf (the CLI surfaces "broker override active" off this list).
-func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.ModelOffer) []string <span class="cov6" title="728">{
-        if b.db == nil || owner == "" </span><span class="cov6" title="592">{
+func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.ModelOffer) []string <span class="cov6" title="733">{
+        if b.db == nil || owner == "" </span><span class="cov6" title="597">{
                 return nil
         }</span>
         <span class="cov5" title="136">var overridden []string
@@ -18021,11 +18041,11 @@ func (b *broker) applyOfferOverrides(owner, node string, offers []protocol.Model
 // Authenticated by the node's Bearer BridgeToken (like agentPoll/agentResult): an
 // unsigned or forged node_id can no longer keep a node "online" or refresh another
 // node's TTL. The body is bounded (a heartbeat is a few bytes of JSON).
-func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) <span class="cov9" title="10967">{
+func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) <span class="cov9" title="13144">{
         if !allow(w, r, http.MethodPost) </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov9" title="10967">var m struct {
+        <span class="cov9" title="13144">var m struct {
                 NodeID string `json:"node_id"`
         }
         _ = json.NewDecoder(io.LimitReader(r.Body, 4&lt;&lt;10)).Decode(&amp;m)
@@ -18033,36 +18053,46 @@ func (b *broker) heartbeat(w http.ResponseWriter, r *http.Request) <span class="
                 jsonErr(w, http.StatusBadRequest, "missing node_id")
                 return
         }</span>
-        <span class="cov9" title="10965">t, tok := b.tunnelFor(m.NodeID)
+        <span class="cov9" title="13142">t, tok := b.tunnelFor(m.NodeID)
         if t == nil </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusNotFound, "unknown node")
                 return
         }</span>
-        <span class="cov9" title="10964">if !authNode(r, tok) </span><span class="cov1" title="3">{
+        <span class="cov9" title="13141">if !authNode(r, tok) </span><span class="cov1" title="3">{
                 jsonErr(w, http.StatusUnauthorized, "unauthorized")
                 return
         }</span>
-        <span class="cov9" title="10961">b.markSeen(m.NodeID)
+        <span class="cov9" title="13138">b.markSeen(m.NodeID)
         writeJSON(w, http.StatusOK, map[string]bool{"ok": true})</span>
 }
 
 // agentPoll handles GET /agent/poll?node=&lt;id&gt;: a node long-polls (held up to 25s)
 // for a relayed job. Authenticated by the node's Bearer BridgeToken. 204 = re-poll.
-func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) <span class="cov4" title="33">{
+func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) <span class="cov4" title="38">{
         if !allow(w, r, http.MethodGet) </span><span class="cov0" title="0">{
                 return
         }</span>
-        <span class="cov4" title="33">node := r.URL.Query().Get("node")
+        <span class="cov4" title="38">node := r.URL.Query().Get("node")
         t, tok := b.tunnelFor(node)
         if t == nil </span><span class="cov1" title="1">{
                 jsonErr(w, http.StatusNotFound, "unknown node")
                 return
         }</span>
-        <span class="cov4" title="32">if !authNode(r, tok) </span><span class="cov1" title="2">{
+        <span class="cov4" title="37">if !authNode(r, tok) </span><span class="cov1" title="2">{
                 jsonErr(w, http.StatusUnauthorized, "unauthorized")
                 return
         }</span>
-        <span class="cov3" title="30">b.markSeen(node)
+        <span class="cov4" title="35">b.markSeen(node)
+        // Record that THIS instance now hosts the node's live poll, so it is the node's
+        // AUTHORITATIVE prober: only the poll host applies the probe-dead veto on /discover. A
+        // PEER that merely mirrors the node (shared registry/liveness) must NOT flicker a live
+        // node OFFLINE with its own non-authoritative probe-fail streak. See enrichOffersForNode.
+        b.mu.Lock()
+        if b.localPollAt == nil </span><span class="cov3" title="31">{
+                b.localPollAt = map[string]time.Time{}
+        }</span>
+        <span class="cov4" title="35">b.localPollAt[node] = time.Now()
+        b.mu.Unlock()
 
         // MULTI-INSTANCE (Stage 2): a job for this node may have been dispatched on a PEER
         // instance, so subscribe to the node's bus channel for the life of this long-poll.
@@ -18073,9 +18103,9 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) <span class="
         // dispatcher's publish would have reported 0 subscribers and failed that relay
         // cleanly). The local t.jobs channel is still drained too, so a flag flip / mixed
         // fleet can never strand a job already sitting in the in-memory queue.
-        if b.multiInstance &amp;&amp; b.shared != nil </span><span class="cov3" title="23">{
+        if b.multiInstance &amp;&amp; b.shared != nil </span><span class="cov3" title="28">{
                 busJobs, cancel, err := b.shared.busSubscribeJobs(r.Context(), node)
-                if err != nil </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov2" title="5">{
                         w.WriteHeader(http.StatusNoContent) // bus unavailable: re-poll
                         return
                 }</span>
@@ -18680,21 +18710,21 @@ var errNoPoller = fmt.Errorf("no poller listening")
 // errNoPoller so the relay reports "node busy" exactly as a full local queue would; any
 // other bus error returns that error so the relay fails the request cleanly. On any
 // error the subscription is torn down before returning.
-func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol.Job) (&lt;-chan []byte, func(), error) <span class="cov3" title="26">{
+func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol.Job) (&lt;-chan []byte, func(), error) <span class="cov4" title="32">{
         raw, err := json.Marshal(job)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, nil, err
         }</span>
-        <span class="cov3" title="26">resCh, cancel, err := b.shared.busSubscribeResult(ctx, job.ID)
+        <span class="cov4" title="32">resCh, cancel, err := b.shared.busSubscribeResult(ctx, job.ID)
         if err != nil </span><span class="cov1" title="3">{
                 return nil, nil, err
         }</span>
-        <span class="cov3" title="23">delivered, perr := b.shared.busPublishJob(nodeID, raw)
+        <span class="cov3" title="29">delivered, perr := b.shared.busPublishJob(nodeID, raw)
         if perr != nil </span><span class="cov0" title="0">{
                 cancel()
                 return nil, nil, perr
         }</span>
-        <span class="cov3" title="23">if delivered == 0 </span><span class="cov2" title="4">{
+        <span class="cov3" title="29">if delivered == 0 </span><span class="cov3" title="10">{
                 cancel()
                 return nil, nil, errNoPoller
         }</span>
@@ -19092,8 +19122,8 @@ func (b *broker) observeOrganicTTFT(nodeID string, ttftMs float64) <span class="
 // offerModality normalizes an offer's or request's modality: an empty value is the chat
 // back-compat default, so a pre-voice node (no modality) still matches a chat request. Used by
 // pickFor's isolation gate so voice + chat never cross-route.
-func offerModality(m string) string <span class="cov10" title="31385">{
-        if m == "" </span><span class="cov9" title="31135">{
+func offerModality(m string) string <span class="cov10" title="31397">{
+        if m == "" </span><span class="cov9" title="31147">{
                 return protocol.ModalityChat
         }</span>
         <span class="cov5" title="250">return m</span>
@@ -19471,7 +19501,7 @@ func (b *broker) updateTPS(node string, sample float64) <span class="cov4" title
 
 // authNode checks a node-facing request's Bearer token against the node's
 // registered BridgeToken (empty token never authorizes).
-func authNode(r *http.Request, token string) bool <span class="cov9" title="11030">{
+func authNode(r *http.Request, token string) bool <span class="cov9" title="13212">{
         return token != "" &amp;&amp; r.Header.Get("Authorization") == "Bearer "+token
 }</span>
 
@@ -19697,21 +19727,21 @@ func (b *broker) screenVoiceOffers(offers []protocol.ModelOffer, station string)
 // before attribution/resolution. Empty in =&gt; empty out (the caller then treats the node as
 // station-less: no public voice). Unlike slugVoiceName it does NOT NFKC-fold or cap length — a
 // callsign is ASCII adjective-animal-number by construction.
-func slugStation(s string) string <span class="cov7" title="997">{
+func slugStation(s string) string <span class="cov7" title="1001">{
         var b strings.Builder
         prevDash := false
-        for _, r := range strings.ToLower(s) </span><span class="cov8" title="2056">{
-                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="1938">{
+        for _, r := range strings.ToLower(s) </span><span class="cov8" title="2046">{
+                if (r &gt;= 'a' &amp;&amp; r &lt;= 'z') || (r &gt;= '0' &amp;&amp; r &lt;= '9') </span><span class="cov8" title="1929">{
                         b.WriteRune(r)
                         prevDash = false
                         continue</span>
                 }
-                <span class="cov5" title="118">if !prevDash </span><span class="cov5" title="109">{
+                <span class="cov5" title="117">if !prevDash </span><span class="cov5" title="108">{
                         b.WriteByte('-')
                         prevDash = true
                 }</span>
         }
-        <span class="cov7" title="997">return strings.Trim(b.String(), "-")</span>
+        <span class="cov7" title="1001">return strings.Trim(b.String(), "-")</span>
 }
 
 // parseNamespacedVoice splits a NAMESPACED voice id "@&lt;station&gt;/&lt;slug&gt;" into its station + voice
@@ -19787,7 +19817,7 @@ func (b *broker) resolveNamespacedVoice(station, voiceSlug, modality string) (ra
 
         // Phase 2 (off b.mu): the station is resolved via operatorStation (which reads the owner
         // binding + the node's signed reg.Station), matching the requested station.
-        for _, c := range cands </span><span class="cov5" title="65">{
+        for _, c := range cands </span><span class="cov5" title="64">{
                 if st, sok := b.operatorStation(c.nodeID); sok &amp;&amp; st == station </span><span class="cov5" title="59">{
                         return c.model, c.nodeID, true
                 }</span>
@@ -20017,22 +20047,22 @@ func (b *broker) computeVoices() any <span class="cov8" title="48">{
 // that predates the field has none, so no public voice). The station is AUTHORITATIVE from the
 // signed registration (regSigningBytes covers it, so it can't be forged/stripped) — the node id's
 // prefix is deliberately NOT parsed back out (slugify is lossy). NO address is touched.
-func (b *broker) operatorStation(nodeID string) (string, bool) <span class="cov10" title="132">{
+func (b *broker) operatorStation(nodeID string) (string, bool) <span class="cov10" title="131">{
         pub, ok := b.cachedOwnerOf(nodeID)
         if !ok || pub == "" </span><span class="cov3" title="3">{
                 return "", false // UNBOUND (anonymous): not publicly listable
         }</span>
-        <span class="cov9" title="129">if b.isOwnerBanned(pub) </span><span class="cov3" title="4">{
+        <span class="cov9" title="128">if b.isOwnerBanned(pub) </span><span class="cov3" title="4">{
                 return "", false // a banned operator's voices never appear
         }</span>
-        <span class="cov9" title="125">b.mu.Lock()
+        <span class="cov9" title="124">b.mu.Lock()
         st := b.nodes[nodeID].Station
         b.mu.Unlock()
         st = slugStation(st)
         if st == "" </span><span class="cov1" title="1">{
                 return "", false // no station carried =&gt; no public namespace for this node
         }</span>
-        <span class="cov9" title="124">return st, true</span>
+        <span class="cov9" title="123">return st, true</span>
 }
 </pre>
 		
@@ -20921,19 +20951,19 @@ func saveConfig(c config) error <span class="cov6" title="91">{
 // rawEqual compares two raw-JSON values for SEMANTIC equality (ignoring whitespace and object
 // key order), so an indented on-disk value and a compact in-memory one for the same data are
 // treated as equal - otherwise every unchanged field would look "concurrently changed".
-func rawEqual(a, b json.RawMessage) bool <span class="cov7" title="197">{
-        canon := func(r json.RawMessage) string </span><span class="cov8" title="394">{
+func rawEqual(a, b json.RawMessage) bool <span class="cov7" title="191">{
+        canon := func(r json.RawMessage) string </span><span class="cov8" title="382">{
                 if len(r) == 0 </span><span class="cov3" title="5">{
                         return ""
                 }</span>
-                <span class="cov8" title="389">var v any
+                <span class="cov8" title="377">var v any
                 if json.Unmarshal(r, &amp;v) != nil </span><span class="cov0" title="0">{
                         return string(r)
                 }</span>
-                <span class="cov8" title="389">out, _ := json.Marshal(v) // compact + map keys sorted -&gt; canonical
+                <span class="cov8" title="377">out, _ := json.Marshal(v) // compact + map keys sorted -&gt; canonical
                 return string(out)</span>
         }
-        <span class="cov7" title="197">return canon(a) == canon(b)</span>
+        <span class="cov7" title="191">return canon(a) == canon(b)</span>
 }
 
 // toRawConfig marshals a config to a per-key raw-JSON map (canonical bytes per field).
@@ -20983,7 +21013,7 @@ func configNeedsMerge(mine, theirs map[string]json.RawMessage) bool <span class=
                         return true // an unknown key would be dropped by a struct-only write
                 }</span>
         }
-        <span class="cov6" title="90">for k, tv := range theirs </span><span class="cov7" title="100">{
+        <span class="cov6" title="90">for k, tv := range theirs </span><span class="cov7" title="97">{
                 // A field we left untouched (mine == baseline, including a field we never had, so both
                 // are nil) that disk changed -&gt; a concurrent edit to preserve. rawEqual is nil-aware, so
                 // this correctly DISTINGUISHES "we never set it" (nil == nil, preserve theirs) from "we
@@ -23885,7 +23915,7 @@ const (
 )
 
 // Link reports the current truthful link state to the broker (see LinkState).
-func (s *Session) Link() LinkState <span class="cov4" title="13">{ return LinkState(s.link.Load()) }</span>
+func (s *Session) Link() LinkState <span class="cov4" title="14">{ return LinkState(s.link.Load()) }</span>
 
 // setLink records the latest observed broker link state (called from the heartbeat
 // loop on every beat).
@@ -23924,7 +23954,7 @@ func newReregistrar(broker string, reg protocol.NodeRegistration, priv ed25519.P
 // (workers call this every iteration so a refreshed token after a re-register is
 // picked up immediately; the generation is passed back into recover so the
 // single-flight gate knows which re-register a 404 is reacting to).
-func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="810">{
+func (rr *reregistrar) curToken() (string, uint64) <span class="cov10" title="808">{
         rr.mu.Lock()
         defer rr.mu.Unlock()
         return rr.token, rr.gen
@@ -24141,13 +24171,13 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
         poll := &amp;http.Client{Timeout: 35 * time.Second} // must exceed the broker's hold
         up := &amp;http.Client{Timeout: 120 * time.Second}
         pollURL := cfg.Broker + "/agent/poll?node=" + url.QueryEscape(cfg.NodeID)
-        for </span><span class="cov9" title="793">{
+        for </span><span class="cov9" title="791">{
                 select </span>{
                 case &lt;-sess.stop:<span class="cov3" title="5">
                         return</span> // /share went off air
-                default:<span class="cov9" title="788"></span>
+                default:<span class="cov9" title="786"></span>
                 }
-                <span class="cov9" title="788">token, gen := sess.rereg.curToken()
+                <span class="cov9" title="786">token, gen := sess.rereg.curToken()
                 req, _ := http.NewRequest(http.MethodGet, pollURL, nil)
                 req.Header.Set("Authorization", "Bearer "+token)
                 resp, err := poll.Do(req)
@@ -24157,7 +24187,7 @@ func pollLoop(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, se
                         time.Sleep(2 * time.Second)
                         continue</span>
                 }
-                <span class="cov9" title="784">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="777">{
+                <span class="cov9" title="782">if resp.StatusCode == http.StatusNoContent </span><span class="cov9" title="775">{
                         resp.Body.Close() // long-poll timed out with no work - re-poll immediately
                         continue</span>
                 }
@@ -27993,7 +28023,7 @@ func (rb *RCBridge) Run() <span class="cov2" title="3">{
 
 // Stop halts polling + pumping and cancels any in-flight request (the session stays alive on
 // the broker; used on TUI quit).
-func (rb *RCBridge) Stop() <span class="cov4" title="10">{
+func (rb *RCBridge) Stop() <span class="cov4" title="11">{
         rb.stopOnce.Do(func() </span><span class="cov3" title="5">{
                 rb.stopped.Store(true)
                 close(rb.stop)
@@ -28014,18 +28044,18 @@ func (rb *RCBridge) Disable() error <span class="cov1" title="1">{
 // a normal re-poll; a transport error backs off; ctx/stop ends it.
 func (rb *RCBridge) pollLoop() <span class="cov2" title="3">{
         backoff := time.Second
-        for </span><span class="cov8" title="96">{
+        for </span><span class="cov8" title="97">{
                 select </span>{
                 case &lt;-rb.stop:<span class="cov0" title="0">
                         return</span>
-                default:<span class="cov8" title="96"></span>
+                default:<span class="cov8" title="97"></span>
                 }
-                <span class="cov8" title="96">req, _ := http.NewRequestWithContext(rb.ctx, http.MethodGet, rb.broker+"/rc/"+rb.sessionID+"/poll", nil)
+                <span class="cov8" title="97">req, _ := http.NewRequestWithContext(rb.ctx, http.MethodGet, rb.broker+"/rc/"+rb.sessionID+"/poll", nil)
                 req.Header.Set("Authorization", "Bearer "+rb.hostToken)
                 resp, err := rcNoTimeout.Do(req)
-                if err != nil </span><span class="cov2" title="2">{
+                if err != nil </span><span class="cov1" title="1">{
                         select </span>{
-                        case &lt;-rb.stop:<span class="cov2" title="2">
+                        case &lt;-rb.stop:<span class="cov1" title="1">
                                 return</span>
                         case &lt;-time.After(backoff):<span class="cov0" title="0"></span>
                         }
@@ -28034,13 +28064,13 @@ func (rb *RCBridge) pollLoop() <span class="cov2" title="3">{
                         }</span>
                         <span class="cov0" title="0">continue</span>
                 }
-                <span class="cov8" title="94">backoff = time.Second
-                if resp.StatusCode == http.StatusUnauthorized </span><span class="cov1" title="1">{
+                <span class="cov8" title="96">backoff = time.Second
+                if resp.StatusCode == http.StatusUnauthorized </span><span class="cov2" title="2">{
                         resp.Body.Close()
                         rb.Stop() // the session was revoked; stop cleanly
                         return
                 }</span>
-                <span class="cov8" title="93">if resp.StatusCode == http.StatusNoContent </span><span class="cov8" title="91">{
+                <span class="cov8" title="94">if resp.StatusCode == http.StatusNoContent </span><span class="cov8" title="92">{
                         resp.Body.Close()
                         continue</span>
                 }
@@ -30932,8 +30962,8 @@ func (c *Controller) atLimitLocked() bool <span class="cov7" title="35">{ return
 
 func (c *Controller) onAirCountLocked() int <span class="cov8" title="66">{
         n := 0
-        for _, s := range c.sessions </span><span class="cov6" title="24">{
-                if s != nil </span><span class="cov6" title="23">{
+        for _, s := range c.sessions </span><span class="cov7" title="26">{
+                if s != nil </span><span class="cov7" title="25">{
                         n++
                 }</span>
         }
@@ -31014,9 +31044,9 @@ type Totals struct {
         Earnings  float64 `json:"earnings"`
 }
 
-func linkLabel(s agent.LinkState) string <span class="cov7" title="10">{
+func linkLabel(s agent.LinkState) string <span class="cov7" title="11">{
         switch s </span>{
-        case agent.LinkOnAir:<span class="cov2" title="2">
+        case agent.LinkOnAir:<span class="cov4" title="3">
                 return "on-air"</span>
         case agent.LinkReconnecting:<span class="cov1" title="1">
                 return "reconnecting"</span>
@@ -31049,7 +31079,7 @@ func (c *Controller) Snapshot() Snapshot <span class="cov7" title="9">{
                         PriceOut:     p.Out,
                         Scheduled:    len(p.Windows) &gt; 0,
                 }
-                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov5" title="6">{
+                if sess := c.sessions[r.Model]; sess != nil </span><span class="cov6" title="7">{
                         rv.OnAir = true
                         rv.Link = linkLabel(sess.Link())
                         in, out := sess.Price()
@@ -31555,7 +31585,7 @@ func pad3(n int) string <span class="cov7" title="1009">{
                 n = 0
         }</span>
         <span class="cov7" title="1009">s := itoa3(n)
-        for len(s) &lt; 3 </span><span class="cov5" title="111">{
+        for len(s) &lt; 3 </span><span class="cov5" title="124">{
                 s = "0" + s
         }</span>
         <span class="cov7" title="1009">return s</span>
@@ -31563,17 +31593,17 @@ func pad3(n int) string <span class="cov7" title="1009">{
 
 // itoa3 is a tiny non-negative int -&gt; string (avoids importing strconv here for one use).
 func itoa3(n int) string <span class="cov8" title="2012">{
-        if n == 0 </span><span class="cov1" title="2">{
+        if n == 0 </span><span class="cov2" title="5">{
                 return "0"
         }</span>
-        <span class="cov8" title="2010">var buf [12]byte
+        <span class="cov8" title="2007">var buf [12]byte
         i := len(buf)
-        for n &gt; 0 </span><span class="cov9" title="5924">{
+        for n &gt; 0 </span><span class="cov9" title="5908">{
                 i--
                 buf[i] = byte('0' + n%10)
                 n /= 10
         }</span>
-        <span class="cov8" title="2010">return string(buf[i:])</span>
+        <span class="cov8" title="2007">return string(buf[i:])</span>
 }
 </pre>
 		
@@ -33379,8 +33409,8 @@ func sortProvider(rows []ProviderModelMetric) <span class="cov7" title="6">{
 }
 
 func sortUsage(rows []UsageModelMetric) <span class="cov7" title="6">{
-        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov7" title="7">{
-                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov7" title="6">{
+        sort.SliceStable(rows, func(i, j int) bool </span><span class="cov8" title="8">{
+                if rows[i].SpendUSD != rows[j].SpendUSD </span><span class="cov7" title="7">{
                         return rows[i].SpendUSD &gt; rows[j].SpendUSD
                 }</span>
                 <span class="cov1" title="1">return rows[i].Model &lt; rows[j].Model</span>
@@ -38771,8 +38801,8 @@ func (m *Mem) EarningRollups(accountID string) (byModel, byNode []EarningRollup,
                 for k, a := range t </span><span class="cov4" title="12">{
                         out = append(out, EarningRollup{Key: k, Amount: a.amount, Lots: a.lots})
                 }</span>
-                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="7">{
-                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="6">{
+                <span class="cov3" title="6">sort.Slice(out, func(i, j int) bool </span><span class="cov3" title="6">{
+                        if out[i].Amount != out[j].Amount </span><span class="cov3" title="5">{
                                 return out[i].Amount &gt; out[j].Amount
                         }</span>
                         <span class="cov1" title="1">return out[i].Key &lt; out[j].Key</span>
@@ -50774,7 +50804,7 @@ func (m model) liveShares() []*agent.Session <span class="cov2" title="27">{
                         out = append(out, s)
                 }</span>
         }
-        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="293">{ return out[i].Model() &lt; out[j].Model() }</span>)
+        <span class="cov2" title="27">sort.Slice(out, func(i, j int) bool </span><span class="cov4" title="308">{ return out[i].Model() &lt; out[j].Model() }</span>)
         <span class="cov2" title="27">return out</span>
 }
 
@@ -50796,7 +50826,7 @@ func (m model) onAirPanel(w int) string <span class="cov2" title="21">{
         <span class="cov2" title="19">anyOnAir, anyReconnecting := false, false
         for _, s := range live </span><span class="cov3" title="90">{
                 switch s.Link() </span>{
-                case agent.LinkOnAir:<span class="cov3" title="77">
+                case agent.LinkOnAir:<span class="cov3" title="71">
                         anyOnAir = true</span>
                 case agent.LinkReconnecting:<span class="cov1" title="2">
                         anyReconnecting = true</span>
@@ -50904,7 +50934,7 @@ func (m model) compactOnAirLine(w int) string <span class="cov1" title="6">{
         var totReqs int64
         var totEarn float64
         for _, s := range live </span><span class="cov3" title="43">{
-                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="41">{
+                if s.Link() == agent.LinkOnAir </span><span class="cov3" title="39">{
                         anyOnAir = true
                 }</span>
                 <span class="cov3" title="43">r, _ := s.Served()
@@ -51538,11 +51568,11 @@ func (m model) editorLivePreview() string <span class="cov2" title="11">{
         aIn, aOut, free, scheduled := offer.ActivePrice(now)
         // Name the source so the operator knows WHY: which window, FREE, or the flat base.
         src := "base"
-        if scheduled </span><span class="cov1" title="1">{
+        if scheduled </span><span class="cov2" title="9">{
                 // Find the first matching window to label it HH:MM-HH:MM (first match wins,
                 // same as ActivePrice).
-                for _, w := range offer.Schedule </span><span class="cov1" title="1">{
-                        if w.Matches(now) </span><span class="cov1" title="1">{
+                for _, w := range offer.Schedule </span><span class="cov2" title="9">{
+                        if w.Matches(now) </span><span class="cov2" title="9">{
                                 src = "window " + w.Start + "-" + w.End + " UTC"
                                 break</span>
                         }
@@ -51556,7 +51586,7 @@ func (m model) editorLivePreview() string <span class="cov2" title="11">{
                 prefix = "now: "
                 // Compact the source label too (drop "window "/" UTC").
                 switch </span>{
-                case scheduled &amp;&amp; !free:<span class="cov0" title="0">
+                case scheduled &amp;&amp; !free:<span class="cov1" title="4">
                         src = "win"</span>
                 case free &amp;&amp; scheduled:<span class="cov0" title="0">
                         src = "win"</span>
