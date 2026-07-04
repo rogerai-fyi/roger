@@ -1192,6 +1192,16 @@ func (b *broker) agentPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.markSeen(node)
+	// Record that THIS instance now hosts the node's live poll, so it is the node's
+	// AUTHORITATIVE prober: only the poll host applies the probe-dead veto on /discover. A
+	// PEER that merely mirrors the node (shared registry/liveness) must NOT flicker a live
+	// node OFFLINE with its own non-authoritative probe-fail streak. See enrichOffersForNode.
+	b.mu.Lock()
+	if b.localPollAt == nil {
+		b.localPollAt = map[string]time.Time{}
+	}
+	b.localPollAt[node] = time.Now()
+	b.mu.Unlock()
 
 	// MULTI-INSTANCE (Stage 2): a job for this node may have been dispatched on a PEER
 	// instance, so subscribe to the node's bus channel for the life of this long-poll.

@@ -96,14 +96,26 @@ type offerView struct {
 func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistration, now time.Time, deny func(string) bool, probeOnBrowse bool) []offerView {
 	age := time.Since(b.lastSeen[n.NodeID])
 	live := age < nodeTTL // heartbeat-fresh (drives recovery probing below)
+	// The probe-dead veto below is only AUTHORITATIVE on the instance that hosts this node's
+	// live poll (a recent local /agent/poll, stamped in agentPoll) - the one that can actually
+	// probe it. In single-instance mode (no shared store) the poll is always local, so the veto
+	// always applies (behavior unchanged). A MULTI-INSTANCE PEER that merely mirrors the node
+	// via the shared registry/liveness must NOT probe-kill it with its own non-authoritative
+	// streak: a cross-instance probe can time out or never land, so probeFails climbs on the
+	// non-host and a node heartbeating on the host flickers OFFLINE here - the residual
+	// /discover flicker the registry union (task #52) did NOT fix. b.mu is held by the caller,
+	// so b.localPollAt is safe to read. Pinned by features/multinode/discover_liveness.feature.
+	authoritative := b.shared == nil ||
+		(!b.localPollAt[n.NodeID].IsZero() && now.Sub(b.localPollAt[n.NodeID]) < nodeTTL)
 	b.metricsMu.Lock()
 	tq := b.trust[n.NodeID]
 	// A node that heartbeats but has failed a SUSTAINED streak of liveness probes is not
 	// actually serving its model (dead/unloaded upstream) - surface it as OFFLINE so a
 	// consumer never tunes into a dead channel and eats repeated 504s. It still heartbeats,
 	// so the proberLoop keeps probing it (gated on `live` below); one OK probe resets the
-	// streak and it flips back online. See probeDeadStreak.
-	online := live && tq.probeFails < probeDeadStreak
+	// streak and it flips back online. See probeDeadStreak. The veto is applied only by the
+	// node's authoritative poll host (see above); a peer keeps it online on heartbeat liveness.
+	online := live && (!authoritative || tq.probeFails < probeDeadStreak)
 	tps := b.tps[n.NodeID]
 	inflight := b.inflight[n.NodeID]
 	sr, srSeen := b.success[n.NodeID]
