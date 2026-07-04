@@ -281,6 +281,19 @@ type broker struct {
 	freeRegPerIP  int           // max NEW free node registrations per CF-IP per window (0 disables)
 	freeRegWindow time.Duration // the sliding window for the per-IP free-reg cap
 
+	// --- founder ops alerts (alerts.go) ---------------------------------------
+	// adminEmails is the parsed ADMIN_EMAIL recipient list; EMPTY => alerting is entirely
+	// OFF (fail-safe, zero behavior change). alertFiring tracks each condition's fired state
+	// for ONSET dedup (fire once on clear->fire, re-fire only after it clears); alertOnAirSeen
+	// tracks every model ever seen on air so the drop-to-0-providers transition is detectable.
+	// Both reset on restart (acceptable for an ops page). csamSLAHours is the CyberTipline
+	// filing SLA past which a still-queued incident pages the founder. All guarded by alertMu.
+	adminEmails    []string
+	alertMu        sync.Mutex
+	alertFiring    map[string]bool
+	alertOnAirSeen map[string]bool
+	csamSLAHours   int
+
 	// maxNodesPerOwner is the HARD server backstop: the max number of SIMULTANEOUSLY
 	// on-air nodes a single owner account may have live (within nodeTTL) across all of
 	// their machines. Enforced at register (the (limit+1)th owner-bound node is
@@ -383,6 +396,7 @@ func runServe(ln net.Listener, fee, seed float64, lock time.Duration, stop <-cha
 	go b.pruneStaleNodesSweep(stop)   // remove long-dead node registrations (old hostname ids that never re-register)
 	go b.refPriceSync(stop)           // refresh same-model external reference prices for the buyer-facing $-tier
 	go b.releaseStaleHoldsSweep(stop) // reclaim relay pre-auth holds stranded by a SIGKILLed redeploy (deploy-orphan backstop)
+	go b.alertCheckerLoop(stop)       // page the founder (ADMIN_EMAIL) on state-derived ops conditions (0-providers, db/valkey down, CSAM SLA); no-op when ADMIN_EMAIL is unset
 
 	log.Printf("rogerai-broker %s: addr=%s fee=%.0f%% (node-dials-out long-poll tunnel)", version, ln.Addr(), fee*100)
 
@@ -482,6 +496,12 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		strikeCorroborateKinds: strikeCorroborateKinds(),
 		recountHoldDays:        recountHoldDays(),
 		holdTTL:                holdTTL(),
+		// Founder ops alerts: ADMIN_EMAIL (comma-separated) => page the founder on
+		// operationally important events; unset => alerting entirely OFF (zero behavior change).
+		adminEmails:    parseAdminEmails(os.Getenv("ADMIN_EMAIL")),
+		alertFiring:    map[string]bool{},
+		alertOnAirSeen: map[string]bool{},
+		csamSLAHours:   csamSLAHoursEnv(),
 		// Admin surface is gated on the STABLE broker secret (BROKER_PRIVATE_KEY hex). An
 		// ephemeral/unset key leaves adminKey empty => the key path is CLOSED.
 		adminKey: validAdminKey(os.Getenv("BROKER_PRIVATE_KEY")),

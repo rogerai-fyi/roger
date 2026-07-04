@@ -185,6 +185,10 @@ func (b *broker) billing(w http.ResponseWriter, r *http.Request) {
 	}
 	bal, _ := b.db.BalanceOf(user, b.seedFunds)
 	derived, _ := b.db.DeriveBalance(user)
+	// Founder ops alert: the existing verify-vs-balance drift check. When a wallet's cached
+	// balance diverges from its re-derived ledger sum (a money invariant broke), page the
+	// founder once (onset dedup, clears when it reconciles). No-op when ADMIN_EMAIL is unset.
+	b.checkDriftAlert(user, bal, derived)
 	topups, _ := b.db.LedgerOf(user, []string{store.KindTopup}, recentLimit(r))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"balance":        round6(bal),
