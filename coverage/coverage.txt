@@ -372,7 +372,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:405:		rcSubtree			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:436:		rcJoin				55.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:466:		rcAuthHost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:477:		rcAuthViewer			72.7%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				66.7%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				72.2%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:568:		rcEvents			64.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:595:		rcSend				79.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:639:		rcStream			71.9%
