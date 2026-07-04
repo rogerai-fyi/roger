@@ -58,9 +58,17 @@ type broker struct {
 	bandOf       map[string]string    // node id -> band id (the private channel it serves)
 	attestedAt   map[string]time.Time // when each node last passed TEE attestation (for re-attest lapse)
 	localRegAt   map[string]time.Time // when THIS instance last (re)registered a node, so syncRegistry briefly trusts our own fresh bridge token over a possibly-stale shared read (multi-instance token reconvergence)
-	attest       *attestRegistry      // TEE attestation policy + backends + nonce store
-	tps          map[string]float64   // EWMA output tokens/sec per node (measured)
-	quotes       map[string]priceQuote
+	// localPollAt records when THIS instance last served a node's /agent/poll long-poll -
+	// i.e. it currently HOSTS the node's live poll and is its authoritative prober. Only the
+	// poll-host may probe-kill a node to OFFLINE on /discover: a PEER that merely mirrors the
+	// node via the shared registry/liveness must NOT apply its own (cross-instance, non-
+	// authoritative) probe-fail streak, or a live node heartbeating on the host flickers to
+	// OFFLINE on the peer (the residual multi-instance /discover flicker after the registry
+	// union). Guarded by b.mu. See enrichOffersForNode + features/multinode/discover_liveness.
+	localPollAt map[string]time.Time
+	attest      *attestRegistry    // TEE attestation policy + backends + nonce store
+	tps         map[string]float64 // EWMA output tokens/sec per node (measured)
+	quotes      map[string]priceQuote
 	// refPrices is the synced same-model external reference OUT-price ($/1M) by NORMALIZED
 	// model name — the preferred price-tier baseline (see refprices.go / pricetier.go).
 	// Best-effort refreshed; guarded by its own refMu (independent of mu/metricsMu) so a
@@ -472,7 +480,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
-		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, attest: loadAttestRegistry(),
+		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
