@@ -129,6 +129,19 @@ type sharedStore interface {
 	// caller keeps the last merged peer-sum, degrading to local-only capacity).
 	inflightByNode(selfInstanceID string) (map[string]int, error)
 
+	// markInstance records THIS broker process's presence heartbeat so peers (and the ops
+	// panel's topology block) can count the live instance fleet. It (re)writes a per-instance
+	// presence key under instanceTTL and tracks the id in a prefixed set, refreshed each sync
+	// tick. Best-effort/non-fatal: a non-nil err just means the panel degrades to a self-only
+	// count this round. Only invoked in multi-instance mode (the single-instance count is 1).
+	markInstance(instanceID string, now time.Time) error
+
+	// liveInstances returns the number of DISTINCT broker instances whose presence key is
+	// still live (unexpired) in the shared store - the fleet size the ops panel renders a
+	// redundancy posture from. A non-nil err means the snapshot is unavailable this round, and
+	// the caller falls back to a self-only count of 1 (this instance is always live).
+	liveInstances() (int, error)
+
 	// --- PRE-SCALE Stage 2: the cross-instance job/result/stream RENDEZVOUS bus. ---
 	//
 	// These back the multi-instance relay path (ROGERAI_MULTI_INSTANCE=1). They are a
@@ -301,6 +314,8 @@ func (m *memStore) Close() error  { return nil }
 
 func (m *memStore) markInflight(string, string, int, time.Time) error { return errNoSharedStore }
 func (m *memStore) inflightByNode(string) (map[string]int, error)     { return nil, errNoSharedStore }
+func (m *memStore) markInstance(string, time.Time) error              { return errNoSharedStore }
+func (m *memStore) liveInstances() (int, error)                       { return 0, errNoSharedStore }
 
 // The rendezvous-bus primitives are all "unavailable" no-ops on memStore: the
 // multi-instance flag is only ever ON with a valkeyStore, so the in-memory path never
@@ -878,6 +893,75 @@ func (v *valkeyStore) inflightByNode(selfInstanceID string) (map[string]int, err
 	}
 	v.setUp(true)
 	return out, nil
+}
+
+// --- instance presence: the live broker-fleet heartbeat (ops topology). ---
+//
+// Each instance write-throughs its OWN presence under a per-instance key with instanceTTL and
+// tracks its id in a prefixed set, so any instance (and the admin ops panel) can count the live
+// fleet without an un-prefixed SCAN over the SHARED keyspace. Modeled on the liveness/inflight
+// write-through: forward-only freshness via a TTL, so a crashed instance ages out of the count.
+func instanceKey(id string) string { return keyPrefix + "inst:" + id }
+
+const instancesSetKey = keyPrefix + "instances"
+
+// instanceTTL bounds how long an instance's presence survives without a refresh. Generous
+// relative to the 5s sync tick so a brief GC pause never drops a live instance, while a truly
+// dead instance ages out within a minute (the panel then shows the reduced fleet).
+const instanceTTL = 60 * time.Second
+
+func (v *valkeyStore) markInstance(instanceID string, now time.Time) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.Set(ctx, instanceKey(instanceID), now.UnixMilli(), instanceTTL)
+	pipe.SAdd(ctx, instancesSetKey, instanceID)
+	pipe.PExpire(ctx, instancesSetKey, instanceTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("markInstance", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) liveInstances() (int, error) {
+	if v == nil || v.rdb == nil {
+		return 0, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	ids, err := v.rdb.SMembers(ctx, instancesSetKey).Result()
+	if err != nil {
+		v.noteErr("liveInstances", err)
+		return 0, err
+	}
+	if len(ids) == 0 {
+		v.setUp(true)
+		return 0, nil
+	}
+	// Batch the per-instance EXISTS into ONE pipeline: an id still in the set whose presence
+	// key has expired is a dead instance - count only the ids whose key is still live.
+	pipe := v.rdb.Pipeline()
+	cmds := make([]*redis.IntCmd, len(ids))
+	for i, id := range ids {
+		cmds[i] = pipe.Exists(ctx, instanceKey(id))
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		v.noteErr("liveInstances", err)
+		return 0, err
+	}
+	live := 0
+	for i := range ids {
+		if n, err := cmds[i].Result(); err == nil && n > 0 {
+			live++
+		}
+	}
+	v.setUp(true)
+	return live, nil
 }
 
 // cacheKeyPrefix namespaces the response cache under the shared keyspace so it never
