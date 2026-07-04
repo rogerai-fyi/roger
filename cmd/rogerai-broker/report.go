@@ -336,6 +336,8 @@ func (b *broker) banNode(nodeID, reason string) {
 			b.bumpBanRev()
 		}
 		log.Printf("ban: node=%s EJECTED from routing (%s)", nodeID, reason)
+		// Founder ops alert: page on the FIRST ban of this lifetime (safety escalation).
+		b.alertFirstBan("node", nodeID, reason)
 	}
 }
 
@@ -480,6 +482,13 @@ func (b *broker) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("report: category=%s node=%q request=%q ip=%s", cat, nodeID, strings.TrimSpace(req.RequestID), ip)
+
+	// Founder ops alert: page on the FIRST safety report (abuse/CSAM) of this lifetime.
+	// Low-signal categories (quality/spam) downrank via trust and are not a safety
+	// escalation, so they do not page. Deduped on a constant key (first ever only).
+	if cat == "abuse" || cat == "csam" {
+		b.alertFirstReport(cat, nodeID)
+	}
 
 	// Per-node CORROBORATED auto-eject: a node is suspended only once enough DISTINCT
 	// reporters (distinct reporter IPs) name it WITHIN the decay window - never on a raw

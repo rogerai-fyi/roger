@@ -264,6 +264,8 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 			// Flag-gated transactional notice (async, best-effort): tell the consumer
 			// whose charge was disputed. No-op when RESEND_API_KEY is unset or no email.
 			b.emailDisputeOpened(b.emailOf(user), amount, o.ID)
+			// Founder ops alert: page on the FIRST chargeback dispute of this lifetime.
+			b.alertFirstDispute(o.ID, amount)
 			log.Printf("stripe: dispute %s on %s -%.4f credits (clawed %.4f from held/payable, %d paid-lot reversal(s), platform loss %.4f)",
 				o.ID, user, amount, res.Clawed, len(res.Reversals), res.PlatformLoss)
 		} else {
@@ -349,6 +351,11 @@ func (b *broker) webhook(w http.ResponseWriter, r *http.Request) {
 			}
 			if credited {
 				log.Printf("stripe: credited %s +%.4f -> %.4f (session %s)", user, credits, newBal, o.ID)
+				// Founder ops alert: page on the FIRST REAL (live-mode) top-up - the
+				// billing-works-end-to-end milestone. Test-mode top-ups never page.
+				if strings.HasPrefix(b.bill.secretKey, "sk_live") {
+					b.alertFirstLiveTopup(user, credits, newBal)
+				}
 			} else {
 				log.Printf("stripe: duplicate session %s ignored", o.ID)
 			}

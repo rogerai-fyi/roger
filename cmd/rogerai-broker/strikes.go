@@ -197,6 +197,8 @@ func (b *broker) banOwner(accountID, reason, evidenceJSON string) {
 			b.bumpBanRev()
 		}
 		log.Printf("BAN owner=%s EJECTED (durable, anti-rotation): %s - blocked at register + relay pick + settle for ALL current/future nodes", accountID, reason)
+		// Founder ops alert: page on the FIRST ban of this lifetime (safety escalation).
+		b.alertFirstBan("account", accountID, reason)
 	}
 }
 
