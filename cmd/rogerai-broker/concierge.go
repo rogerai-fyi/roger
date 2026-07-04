@@ -370,7 +370,7 @@ func (b *broker) dogfoodRelay(messages []chatMsg) (reply string, served bool) {
 		if res.Status < 200 || res.Status >= 300 {
 			return "", false
 		}
-		return completionText(res.Body), true
+		return conciergeReplyText(res.Body), true
 	case <-time.After(c.relayWait()):
 		return "", false
 	}
@@ -536,7 +536,7 @@ func (b *broker) grantRelayOnce(t *nodeTunnel, model, node string, rawBody []byt
 			log.Printf("CONCIERGE grant-dogfood miss: relay-error (status %d) model=%q node=%s", res.Status, model, node)
 			return "", false, true
 		}
-		return completionText(res.Body), true, true
+		return conciergeReplyText(res.Body), true, true
 	case <-time.After(c.relayWait()):
 		log.Printf("CONCIERGE grant-dogfood miss: relay-error (result timeout) model=%q node=%s", model, node)
 		return "", false, true
@@ -678,7 +678,7 @@ func (b *broker) groqCall(messages []chatMsg) (reply string, ok bool) {
 		return "", false
 	}
 	rb, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return completionText(rb), true
+	return conciergeReplyText(rb), true
 }
 
 // defaultRelayTimeout is the result-wait used when relayTimeout was never configured
@@ -761,6 +761,62 @@ func lastUserText(msgs []chatMsg) string {
 		}
 	}
 	return ""
+}
+
+// conciergeReplyText extracts ONLY the user-facing answer from an OpenAI chat-completions
+// body for the PUBLIC Ping surface. Unlike completionText (which counts content AND
+// reasoning together for the anti-fraud recount/void path - everything the node generated),
+// this returns just the VISIBLE reply and never concatenates the model's private analysis:
+//
+//   - `content` when it has non-whitespace text (the clean answer);
+//   - else the `reasoning` field (some reasoning models put the whole answer there with
+//     empty content - preserve that as a fallback, never as an addition);
+//   - else the legacy `text` field as a last resort.
+//
+// Concatenating content+reasoning leaked gpt-oss's chain-of-thought into Ping's reply (the
+// real bug: a clean greeting followed by "We need to respond in character... Politely
+// decline."). It also normalizes the founder's public-copy house style: any em/en dash
+// becomes a spaced hyphen and accidental double spaces collapse, so every Ping reply is clean.
+func conciergeReplyText(body []byte) string {
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				Content   string `json:"content"`
+				Reasoning string `json:"reasoning"`
+			} `json:"message"`
+			Text string `json:"text"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(body, &resp) != nil {
+		return ""
+	}
+	var out bytes.Buffer
+	for _, c := range resp.Choices {
+		switch {
+		case strings.TrimSpace(c.Message.Content) != "":
+			out.WriteString(c.Message.Content) // the visible answer - never appended to
+		case strings.TrimSpace(c.Message.Reasoning) != "":
+			out.WriteString(c.Message.Reasoning) // fallback ONLY when content is empty
+		case strings.TrimSpace(c.Text) != "":
+			out.WriteString(c.Text) // legacy completions shape, last resort
+		}
+	}
+	return normalizeHouseDashes(out.String())
+}
+
+// normalizeHouseDashes enforces the founder's public-copy rule (NO em dashes): it replaces
+// every em dash (U+2014) and en dash (U+2013) with a spaced hyphen and collapses the
+// accidental double spaces that leaves (or that an already-spaced dash produced), so the
+// public Ping reply reads in the house " - " style.
+func normalizeHouseDashes(s string) string {
+	if !strings.ContainsRune(s, '—') && !strings.ContainsRune(s, '–') {
+		return s
+	}
+	s = strings.NewReplacer("—", " - ", "–", " - ").Replace(s)
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	return s
 }
 
 // isUnsafe is the blatant-keyword precheck (stopgap; see concierge doc comment).
