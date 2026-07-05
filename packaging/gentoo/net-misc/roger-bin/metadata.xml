@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>lramos85@gmail.com</email>
+		<name>Luis Ramos</name>
+	</maintainer>
+	<longdescription lang="en">
+		RogerAI is a two-way radio for GPUs: the `roger` client discovers models on the
+		broker, opens a local OpenAI-compatible endpoint, and lets you share your own
+		LLM/voice models. This package installs the prebuilt release binary.
+	</longdescription>
+	<upstream>
+		<remote-id type="github">rogerai-fyi/roger</remote-id>
+	</upstream>
+</pkgmetadata>
