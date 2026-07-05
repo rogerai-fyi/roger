@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -195,15 +194,14 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	// Per-IP rate limit on this UNAUTHENTICATED public surface (keyed on the validated
-	// CF-Connecting-IP, see clientIP). /discover is no-auth and enumerates the whole
-	// market, so it gets the same per-IP discipline as the concierge and the anon relay
-	// to keep a single source from hammering it.
-	if ok, retry := b.anonRL.allow(clientIP(r)); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(retry))
-		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
-		return
-	}
+	// NO per-IP anon rate-limit gate here (deliberately, matching /market). /discover is a
+	// PUBLIC READ: a client reads `.offers` off the body, so a 429 error body (with no offers)
+	// renders as an EMPTY market - the release-day "dial flickers to empty" incident. The one
+	// expensive thing this endpoint does - the full-market recompute - is ALREADY collapsed to
+	// <=1 per publicMarketTTL across all instances by the shared read-through cache below, so
+	// every extra same-IP read is just a cheap cache GET + memcpy and needs no throttle. The
+	// anon limiter still guards the real cost/abuse surfaces (relay/audio/tunnel), just not this
+	// read. Regression: discover_ratelimit_test.go + features/discovery/market.feature.
 	cors(w) // public market data - let the website (rogerai.fyi) fetch it
 
 	// Hot-path cache (flag-gated, behind ROGERAI_REDIS_URL). /discover recomputes every

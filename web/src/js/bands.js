@@ -1103,6 +1103,19 @@
 
   /* ---- fetch + refresh (REAL DATA ONLY) ------------------------- */
   var inflight = false;
+  var lastLiveReal = [];           // last real bands that had >=1 live row (held over a transient error)
+  var retryAfterMs = 0;            // a 429's Retry-After hint (ms), applied to the NEXT poll only
+
+  // parseRetryAfter reads an integer-seconds Retry-After header and returns it in ms (0 if
+  // absent/non-numeric), so a transient 429 can pace the next poll to what the server asked.
+  function parseRetryAfter(res) {
+    if (!res || !res.headers) return 0;
+    var raw = "";
+    try { raw = res.headers.get ? res.headers.get("Retry-After") : ""; } catch (_) { raw = ""; }
+    var secs = parseInt(raw, 10);
+    return isFinite(secs) && secs > 0 ? secs * 1000 : 0;
+  }
+
   function ingest(realBands, broker) {
     reachedBroker = broker;
     var liveModels = realBands.filter(function (b) { return b.live; }).map(function (b) { return b.model; });
@@ -1121,18 +1134,26 @@
     var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
     var opt = { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" };
 
-    var mP = fetch(BROKER + "/market", opt).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
-    var dP = fetch(BROKER + "/discover", opt).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    // Capture each endpoint's ok separately (not just its body) so a transient non-200 (a 429
+    // "slow down", a 5xx) is distinguishable from a genuine 200-with-empty-body. A non-200
+    // carries no `.market`/`.offers`; reading it as "empty" is exactly the "flickers to empty"
+    // bug. On a transient failure we HOLD the last-known live bands instead of dropping them.
+    var mP = fetch(BROKER + "/market", opt)
+      .then(function (r) { if (!r.ok) { retryAfterMs = retryAfterMs || parseRetryAfter(r); return { ok: false, data: null }; } return r.json().then(function (d) { return { ok: true, data: d }; }); })
+      .catch(function () { return { ok: false, data: null }; });
+    var dP = fetch(BROKER + "/discover", opt)
+      .then(function (r) { if (!r.ok) { retryAfterMs = retryAfterMs || parseRetryAfter(r); return { ok: false, data: null }; } return r.json().then(function (d) { return { ok: true, data: d }; }); })
+      .catch(function () { return { ok: false, data: null }; });
 
     Promise.all([mP, dP]).then(function (res) {
       clearTimeout(to);
       inflight = false;
-      var mData = res[0], dData = res[1];
+      var mData = res[0].data, dData = res[1].data;
+      var anyOK = res[0].ok || res[1].ok; // at least one endpoint answered 200 with a body
       var marketRows = (mData && Array.isArray(mData.market)) ? mData.market : [];
       var offers = (dData && Array.isArray(dData.offers)) ? dData.offers : [];
       var mBands = fromMarket(marketRows);
       var dBands = fromDiscover(offers);
-      var broker = (mData != null) || (dData != null);
 
       var merged;
       if (mBands.length) merged = merge(mBands, dBands);
@@ -1140,11 +1161,21 @@
       else merged = [];
 
       var liveN = merged.filter(function (b) { return b.live; }).length;
-      ingest(merged, broker);
+
+      // Transient: NEITHER endpoint returned a usable 200 body. Don't blank the live bands - if
+      // we have a last-known live set, HOLD it (re-ingest so the on-air rows stay put).
+      if (!anyOK && liveN === 0 && lastLiveReal.length) {
+        ingest(lastLiveReal, true);
+        setStatus("holding the last band read · re-tuning…", "live");
+        return;
+      }
+
+      if (liveN > 0) lastLiveReal = merged; // remember the freshest live set for a future hold
+      ingest(merged, anyOK);
 
       if (liveN > 0) {
         setStatus(liveN + " model" + (liveN === 1 ? "" : "s") + " on air · live from the broker", "live");
-      } else if (broker) {
+      } else if (anyOK) {
         setStatus("the band is quiet - no models on air right now", "quiet");
       } else {
         setStatus("couldn't reach the broker just now - retrying", "off");
@@ -1152,8 +1183,14 @@
     }).catch(function () {
       clearTimeout(to);
       inflight = false;
-      ingest([], false);
-      setStatus("couldn't reach the broker just now - retrying", "off");
+      // Unexpected error: HOLD the last-known live bands rather than blanking, if any.
+      if (lastLiveReal.length) {
+        ingest(lastLiveReal, true);
+        setStatus("holding the last band read · re-tuning…", "live");
+      } else {
+        ingest([], false);
+        setStatus("couldn't reach the broker just now - retrying", "off");
+      }
     });
   }
 
@@ -1197,7 +1234,11 @@
   function schedule() {
     if (REDUCED) return;
     clearTimeout(pollTimer);
-    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, POLL_MS);
+    // Honor a 429's Retry-After for the NEXT poll only (never faster than the base cadence),
+    // then reset so a one-off throttle doesn't slow the steady state.
+    var wait = Math.max(POLL_MS, retryAfterMs || 0);
+    retryAfterMs = 0;
+    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, wait);
   }
   document.addEventListener("visibilitychange", function () {
     visible = !document.hidden;

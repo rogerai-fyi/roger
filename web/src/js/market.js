@@ -64,11 +64,46 @@
     return { kind: "priced", rate: rate, reply: "~" + usd(mid * REPLY_TOK / 1e6), mid: mid };
   }
 
+  /* ---------- transient-error resilience (defense in depth) ------------
+     RELEASE-DAY root cause: the broker's public reads (/market, /discover)
+     could answer a transient HTTP 429 ("slow down"); a 429 error body carries
+     NO `.market` / `.offers`, so the old code read an empty list and painted
+     the "band is quiet" empty state - an on-air market blinked to EMPTY (the
+     "dial flickers to empty" incident). The broker fix removes that gate, but
+     as defense in depth the client must ALSO never blank on a transient non-200:
+     if neither endpoint returned a usable 200 body this poll AND we have a
+     last-known market, we HOLD it rather than blanking. Only a broker that is
+     REACHABLE and genuinely returns an EMPTY list paints the honest quiet state.
+     A 200-with-live-market always renders fresh. */
+  function decideRender(poll) {
+    poll = poll || {};
+    if ((+poll.liveCount || 0) > 0) return "live";      // fresh live data - always render it
+    // No live market this poll. If BOTH public reads failed to return a usable 200 body
+    // (a transient error - 429, 5xx, a network blip), keep the last-known market on screen
+    // instead of blanking; fall back to an honest "unreachable" only when we have nothing.
+    if (!poll.marketOK && !poll.discoverOK) {
+      return (+poll.prevCount || 0) > 0 ? "hold" : "quiet-unreachable";
+    }
+    // At least one endpoint answered 200 but with an empty/no-live list: an honest quiet market.
+    return "quiet-empty";
+  }
+
+  // parseRetryAfter reads a Retry-After header (integer seconds; a non-numeric/absent value
+  // yields 0) and returns it in MILLISECONDS, so a 429 can pace the next poll to what the
+  // server asked for. HTTP-date form is not emitted by the broker, so only seconds is parsed.
+  function parseRetryAfter(res) {
+    if (!res || typeof res.headers === "undefined" || !res.headers) return 0;
+    var raw = "";
+    try { raw = res.headers.get ? res.headers.get("Retry-After") : ""; } catch (_) { raw = ""; }
+    var secs = parseInt(raw, 10);
+    return isFinite(secs) && secs > 0 ? secs * 1000 : 0;
+  }
+
   // Node test seam (mirrors dashboard.js): in a non-DOM runtime, export the pure
   // bits and skip all DOM/fetch below. The browser path runs exactly as before.
   if (typeof document === "undefined") {
     if (typeof module !== "undefined" && module.exports) {
-      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice };
+      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter };
     }
     return;
   }
@@ -97,6 +132,7 @@
   var shimmer = 0;
   var visible = false;
   var inflight = false;
+  var retryAfterMs = 0;            // a 429's Retry-After hint (ms) applied to the NEXT poll only
 
   /* ---------- tiny DOM helpers ----------------------------------- */
   function el(tag, cls, html) {
@@ -424,16 +460,35 @@
   function setFoot(html) { if (footEl) footEl.innerHTML = html; }
 
   /* ---------- fetch + refresh ----------------------------------- */
+  // holdLastKnown keeps the last-known market painted on a TRANSIENT failure (a non-200 such
+  // as 429, or an unreachable broker) instead of blanking it - defense in depth for the
+  // "flickers to empty" incident. It leaves the existing rows on screen (the rAF shimmer keeps
+  // running) and only refreshes the status line.
+  function holdLastKnown() {
+    var live = rendered.filter(function (c) { return c && c.live; }).length;
+    setStatus("holding the last band read · re-tuning…", "live");
+    setFoot('holding the last read from <span class="ember">broker.rogerai.fyi</span> · ' +
+      (live ? live + ' band' + (live === 1 ? '' : 's') + ' shown' : 'retrying') + ' · auto-refresh 30s');
+    startShimmer();
+  }
+
   function load() {
     if (inflight) return;
     inflight = true;
     var ctrl = ("AbortController" in window) ? new AbortController() : null;
     var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
 
-    // authoritative /market first (per-band signal 0-100); /discover is the
-    // aggregation fallback; an honest "quiet" empty state is the last resort.
+    // authoritative /market first (per-band signal 0-100); /discover is the aggregation
+    // fallback; a last-known HOLD (transient non-200) or an honest "quiet" empty state is the
+    // last resort. A non-200 is NOT thrown to the blank-the-UI path - it is treated as "no
+    // usable body" and its Retry-After hint is captured to pace the next poll.
+    var marketOK = false, discoverOK = false;
     fetch(MARKET, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
-      .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+      .then(function (r) {
+        if (!r.ok) { retryAfterMs = retryAfterMs || parseRetryAfter(r); return null; }
+        marketOK = true;
+        return r.json();
+      })
       .then(function (data) {
         var rows = (data && Array.isArray(data.market)) ? data.market : [];
         var channels = fromMarket(rows);
@@ -447,22 +502,36 @@
           startShimmer();
           return;
         }
-        // /market empty -> try /discover aggregation
-        return fetch(DISCOVER, { cache: "no-store" })
-          .then(function (r) { return r.ok ? r.json() : null; })
+        // /market empty (or a non-200) -> try /discover aggregation
+        return fetch(DISCOVER, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+          .then(function (r) {
+            if (!r.ok) { retryAfterMs = retryAfterMs || parseRetryAfter(r); return null; }
+            discoverOK = true;
+            return r.json();
+          })
           .then(function (d) {
             clearTimeout(to);
             var offers = (d && Array.isArray(d.offers)) ? d.offers : [];
             var live = offers.length ? offers.filter(function (o) { return o && o.online !== false; }).length : 0;
-            if (offers.length > 0 && live > 0) {
+            var action = decideRender({ liveCount: live, marketOK: marketOK, discoverOK: discoverOK, prevCount: rendered.length });
+            if (action === "live") {
               var ch = aggregate(offers);
               paint(ch, true);
               paintMeter(meterReadout(ch));
               var nOn = ch.filter(function (c) { return c.live; }).length;
               setStatus(nOn + " band" + (nOn === 1 ? "" : "s") + " on air · from /discover", "live");
               setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
+              startShimmer();
+            } else if (action === "hold") {
+              // transient non-200 on BOTH reads, but we have a last-known market: KEEP it.
+              holdLastKnown();
+            } else if (action === "quiet-unreachable") {
+              // both reads failed and nothing to hold: honest "couldn't reach" state.
+              paintQuiet();
+              setStatus("couldn't reach the broker just now", "off");
+              setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
             } else {
-              // broker reachable but empty: honest quiet state, no fake rows
+              // broker reachable but genuinely empty: honest quiet state, no fake rows
               paintQuiet();
               setStatus("the band is quiet right now - no stations on air yet", "demo");
               setFoot('broker reachable · <span class="ember">no stations on air yet</span> · this is a preview, not a live band');
@@ -471,10 +540,15 @@
       })
       .catch(function () {
         clearTimeout(to);
-        // unreachable -> honest quiet state, never a fabricated band
-        paintQuiet();
-        setStatus("couldn't reach the broker just now", "off");
-        setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
+        // network error / abort: HOLD the last-known market rather than blanking; only fall to
+        // the honest "unreachable" state when there is nothing to hold.
+        if (decideRender({ liveCount: 0, marketOK: false, discoverOK: false, prevCount: rendered.length }) === "hold") {
+          holdLastKnown();
+        } else {
+          paintQuiet();
+          setStatus("couldn't reach the broker just now", "off");
+          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
+        }
       })
       .then(function () { inflight = false; });
   }
@@ -482,7 +556,11 @@
   function schedule() {
     if (REDUCED) return;          // no background polling under reduced-motion
     clearTimeout(pollTimer);
-    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, POLL_MS);
+    // Honor a 429's Retry-After for the NEXT poll only (never faster than the base cadence),
+    // then reset so a one-off throttle doesn't slow the steady state.
+    var wait = Math.max(POLL_MS, retryAfterMs || 0);
+    retryAfterMs = 0;
+    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, wait);
   }
 
   if (refreshBtn) {

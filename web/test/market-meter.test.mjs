@@ -89,3 +89,41 @@ test("fmtPrice: the shared price renderer the meter range reuses stays free-awar
   assert.equal(R.fmtPrice(0), "free");
   assert.equal(R.fmtPrice(0.3), "$0.30");
 });
+
+// --- transient-error resilience: never blank the market on a non-200 (the "flickers to
+// empty" incident). decideRender is the pure decision the fetch path uses. -----------------
+
+test("decideRender: fresh live data always renders", () => {
+  assert.equal(R.decideRender({ liveCount: 3, marketOK: true, discoverOK: true, prevCount: 0 }), "live");
+  // even a transient non-200 alongside live offers (shouldn't happen, but) renders the live data
+  assert.equal(R.decideRender({ liveCount: 1, marketOK: false, discoverOK: false, prevCount: 5 }), "live");
+});
+
+test("decideRender: a transient non-200 on BOTH reads HOLDS a last-known market (never blanks)", () => {
+  // This is the release-day bug: a 429 body has no offers -> liveCount 0, neither read OK.
+  // With a previous market on screen we HOLD it rather than paint the empty state.
+  assert.equal(R.decideRender({ liveCount: 0, marketOK: false, discoverOK: false, prevCount: 6 }), "hold");
+});
+
+test("decideRender: a transient failure with NOTHING to hold falls to the honest unreachable state", () => {
+  assert.equal(R.decideRender({ liveCount: 0, marketOK: false, discoverOK: false, prevCount: 0 }), "quiet-unreachable");
+});
+
+test("decideRender: a REACHABLE broker that genuinely returns empty shows the honest quiet state", () => {
+  // A 200 with an empty list is NOT transient - it is an honest empty market, even if we had a
+  // last-known one (the market really did go quiet).
+  assert.equal(R.decideRender({ liveCount: 0, marketOK: true, discoverOK: false, prevCount: 6 }), "quiet-empty");
+  assert.equal(R.decideRender({ liveCount: 0, marketOK: false, discoverOK: true, prevCount: 6 }), "quiet-empty");
+  assert.equal(R.decideRender({}), "quiet-unreachable"); // defensive: no info == treat as unreachable, nothing held
+});
+
+test("parseRetryAfter: integer seconds -> ms; absent/garbage -> 0", () => {
+  const mk = (v) => ({ headers: { get: (k) => (k === "Retry-After" ? v : null) } });
+  assert.equal(R.parseRetryAfter(mk("5")), 5000);
+  assert.equal(R.parseRetryAfter(mk("1")), 1000);
+  assert.equal(R.parseRetryAfter(mk("0")), 0);      // 0/negative is not a useful delay
+  assert.equal(R.parseRetryAfter(mk("nope")), 0);
+  assert.equal(R.parseRetryAfter(mk(null)), 0);
+  assert.equal(R.parseRetryAfter({}), 0);           // no headers
+  assert.equal(R.parseRetryAfter(null), 0);         // no response at all
+});

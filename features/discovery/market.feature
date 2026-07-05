@@ -82,3 +82,31 @@ Feature: Discovery — the public marketplace
       | whisper-listener    | stt        | stt  |
       | gpt-oss-20b         | chat       | chat |
       | legacy-model        |            | chat |
+
+  # RELEASE-DAY regression ("the dial flickers to empty"). /discover + /voices are PUBLIC READS.
+  # They must NEVER answer with HTTP 429: a client reads `.offers` / `.voices` off the body, and
+  # a 429 error body carries neither, so the whole market renders EMPTY - an on-air band blinks to
+  # "quiet". The expensive full-market recompute is ALREADY collapsed to <=1 per publicMarketTTL by
+  # the shared read-through cache (serveCachedJSON), so the old per-IP anon-rate-limit gate on these
+  # reads only ever harmed availability. It is REMOVED: the public reads adopt /market's cache-only
+  # posture. The anon limiter itself STAYS - it still guards the relay/audio/tunnel cost surfaces.
+  # GROUND TRUTH: market.go discover() + voices.go voices() no longer call b.anonRL; /market never did.
+  Rule: A public read is never rate-limited to empty (cache-only throttle posture)
+
+    Scenario: Repeated same-IP /discover reads stay 200 with offers, even with the anon bucket drained
+      Given a live offer is on air for "gpt-oss-20b"
+      And the anon per-IP bucket for this consumer is already drained
+      When the same consumer GETs /discover 60 times in a burst
+      Then every response is 200 with the offers list (never a 429, never an empty market)
+
+    Scenario: Repeated same-IP /voices reads stay 200 with voices, even with the anon bucket drained
+      Given a bound voice is on air
+      And the anon per-IP bucket for this consumer is already drained
+      When the same consumer GETs /voices 60 times in a burst
+      Then every voices response is 200 with the voices list (never a 429)
+
+    Scenario: /discover and /market share the cache-only throttle posture (neither anon-gates)
+      Given a live offer is on air for "gpt-oss-20b"
+      And the anon per-IP bucket for this consumer is already drained
+      When the same consumer GETs /discover and /market
+      Then neither is rate-limited (both 200) - one cache-only posture across the public reads
