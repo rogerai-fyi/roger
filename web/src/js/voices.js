@@ -41,6 +41,18 @@
   var visible = false;
   var inflight = false;
   var loadedOnce = false;
+  var lastCount = 0;               // rows in the last successfully-painted roster
+  var retryAfterMs = 0;            // a 429's Retry-After hint (ms), applied to the NEXT poll only
+
+  // parseRetryAfter reads an integer-seconds Retry-After header and returns it in ms (0 if
+  // absent/non-numeric), so a transient 429 can pace the next poll to what the server asked.
+  function parseRetryAfter(res) {
+    if (!res || !res.headers) return 0;
+    var raw = "";
+    try { raw = res.headers.get ? res.headers.get("Retry-After") : ""; } catch (_) { raw = ""; }
+    var secs = parseInt(raw, 10);
+    return isFinite(secs) && secs > 0 ? secs * 1000 : 0;
+  }
 
   /* ---------- tiny DOM helpers ----------------------------------- */
   function el(tag, cls, html) {
@@ -173,30 +185,54 @@
     var to = setTimeout(function () { if (ctrl) ctrl.abort(); }, 8000);
 
     fetch(VOICES, { signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
-      .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
-      .then(function (data) {
+      .then(function (r) {
         clearTimeout(to);
         loadedOnce = true;
+        // A transient non-200 (e.g. a 429 "slow down") carries NO `.voices` - reading it as an
+        // empty roster is exactly the "flickers to empty" bug. Do NOT blank: if we have a
+        // last-known roster, HOLD it; capture Retry-After to pace the next poll.
+        if (!r.ok) {
+          retryAfterMs = parseRetryAfter(r);
+          if (lastCount > 0) {
+            setStatus("holding the last roster · re-reading…", "live");
+          } else {
+            paintQuiet();
+            setStatus("couldn't reach the broker just now", "off");
+            setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
+          }
+          return null;
+        }
+        return r.json();
+      })
+      .then(function (data) {
+        if (data === null) return; // handled above (transient non-200 hold / quiet)
         var rows = (data && Array.isArray(data.voices)) ? data.voices : [];
         var voices = normalize(rows);
         if (voices.length) {
           paint(voices);
+          lastCount = voices.length;
           var n = voices.length;
           setStatus(n + " voice" + (n === 1 ? "" : "s") + " on air · live from /voices", "live");
           setFoot('live from <span class="ember">broker.rogerai.fyi/voices</span> · metered by the character · prices in $ / 1k chars · auto-refresh 30s');
         } else {
-          // broker reachable but empty: honest quiet roster, no fake voices
+          // broker reachable but genuinely empty: honest quiet roster, no fake voices
           paintQuiet();
+          lastCount = 0;
           setStatus("the band is quiet right now - no voices on air yet", "quiet");
           setFoot('broker reachable · <span class="ember">no voices on air yet</span> · put your TTS rig on air with <code class="mono">roger share</code>');
         }
       })
       .catch(function () {
         clearTimeout(to);
-        // unreachable -> honest quiet roster, never a fabricated voice
-        paintQuiet();
-        setStatus("couldn't reach the broker just now", "off");
-        setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
+        // network error / abort: HOLD the last-known roster rather than blanking; fall to the
+        // honest "unreachable" state only when there is nothing to hold.
+        if (lastCount > 0) {
+          setStatus("holding the last roster · re-reading…", "live");
+        } else {
+          paintQuiet();
+          setStatus("couldn't reach the broker just now", "off");
+          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
+        }
       })
       .then(function () { inflight = false; });
   }
@@ -204,7 +240,11 @@
   function schedule() {
     if (REDUCED) return;          // no background polling under reduced-motion
     clearTimeout(pollTimer);
-    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, POLL_MS);
+    // Honor a 429's Retry-After for the NEXT poll only (never faster than the base cadence),
+    // then reset so a one-off throttle doesn't slow the steady state.
+    var wait = Math.max(POLL_MS, retryAfterMs || 0);
+    retryAfterMs = 0;
+    pollTimer = setTimeout(function () { if (visible) load(); schedule(); }, wait);
   }
 
   if (refreshBtn) {

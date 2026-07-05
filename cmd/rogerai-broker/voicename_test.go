@@ -318,21 +318,23 @@ func TestVoicesHTTPHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("rate limit returns 429 with Retry-After", func(t *testing.T) {
+	t.Run("public read is NOT anon-gated (never 429, even drained)", func(t *testing.T) {
+		// CORRECTED intent: /voices is a PUBLIC READ and no longer carries the per-IP anon gate
+		// (it mirrored /discover's release-day "flickers to empty" bug - a 429 body has no
+		// `.voices`, so the picker blanked). Even with the anon bucket drained, every read stays
+		// 200. The anon limiter still guards the relay/audio/tunnel surfaces, just not this read.
 		b := nsUnitBroker(t)
-		b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1} // 1 token, then blocked
-		w1 := httptest.NewRecorder()
-		b.voices(w1, httptest.NewRequest(http.MethodGet, "/voices", nil))
-		if w1.Code != http.StatusOK {
-			t.Fatalf("first GET = %d, want 200", w1.Code)
-		}
-		w2 := httptest.NewRecorder()
-		b.voices(w2, httptest.NewRequest(http.MethodGet, "/voices", nil))
-		if w2.Code != http.StatusTooManyRequests {
-			t.Errorf("second GET = %d, want 429", w2.Code)
-		}
-		if w2.Header().Get("Retry-After") == "" {
-			t.Error("429 must carry a Retry-After header")
+		b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+		b.anonRL.allow(clientIP(httptest.NewRequest(http.MethodGet, "/voices", nil))) // drain it
+		for i := 0; i < 5; i++ {
+			w := httptest.NewRecorder()
+			b.voices(w, httptest.NewRequest(http.MethodGet, "/voices", nil))
+			if w.Code == http.StatusTooManyRequests {
+				t.Fatalf("GET /voices #%d = 429; a public read must not be anon-gated", i+1)
+			}
+			if w.Code != http.StatusOK {
+				t.Fatalf("GET /voices #%d = %d, want 200", i+1, w.Code)
+			}
 		}
 	})
 

@@ -101,12 +101,15 @@ func TestClientIPPrefersCFConnectingIP(t *testing.T) {
 	}
 }
 
-// TestAnonPerIPRateLimit asserts the unauthenticated public surface (/discover, a
-// no-auth path) is bounded PER CF-IP: a single IP trips the per-IP limit once its
-// bucket drains, while a different source IP keeps its own allowance. The per-IP key is
-// the validated CF-Connecting-IP (clientIP). This is the same bucket discipline applied
-// to the anon relay path and the concierge.
-func TestAnonPerIPRateLimit(t *testing.T) {
+// TestDiscoverNotAnonGated pins the CORRECTED intent (was TestAnonPerIPRateLimit): /discover
+// is a PUBLIC READ and is NO LONGER anon-rate-limited. The old per-IP anon gate here returned
+// 429 under normal same-IP polling, and clients misread that error body as an EMPTY market
+// (the release-day "dial flickers to empty" incident). The shared short-TTL read cache is the
+// only guard the endpoint needs. So even with the anon bucket DRAINED to empty - and regardless
+// of the source IP or a spoofed X-Forwarded-For - every /discover read must stay 200. (The anon
+// LIMITER mechanism itself, still used by the relay/audio/tunnel surfaces, is covered in
+// money/caps.feature; it just no longer gates this read.)
+func TestDiscoverNotAnonGated(t *testing.T) {
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
 	b := &broker{
 		priv:         brokerPriv,
@@ -122,9 +125,12 @@ func TestAnonPerIPRateLimit(t *testing.T) {
 		trust:        map[string]trustState{},
 		quotes:       map[string]priceQuote{},
 		banned:       map[string]bool{},
-		// Tiny anon bucket so a couple of requests trip it deterministically.
-		anonRL: &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 2},
+		// A tiny bucket, then DRAINED below: if /discover still consulted it, the next request
+		// would already 429. It must not.
+		anonRL: &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1},
 	}
+	// Drain IP A's bucket outright, so any residual gate would 429 immediately.
+	b.anonRL.allow("198.51.100.1")
 
 	doDiscover := func(ip string) int {
 		r := httptest.NewRequest(http.MethodGet, "/discover", nil)
@@ -134,29 +140,24 @@ func TestAnonPerIPRateLimit(t *testing.T) {
 		return w.Code
 	}
 
-	// IP A: burst of 2 passes the per-IP limiter, the 3rd trips it (429).
-	if c := doDiscover("198.51.100.1"); c == http.StatusTooManyRequests {
-		t.Fatalf("discover req 1 from IP A unexpectedly 429")
+	// Hammer the drained IP well past what the old burst-of-2 gate allowed: never a 429.
+	for i := 0; i < 10; i++ {
+		if c := doDiscover("198.51.100.1"); c == http.StatusTooManyRequests {
+			t.Fatalf("discover req %d from one IP = 429; /discover is a public read and must not be anon-gated", i+1)
+		}
 	}
-	if c := doDiscover("198.51.100.1"); c == http.StatusTooManyRequests {
-		t.Fatalf("discover req 2 from IP A unexpectedly 429")
-	}
-	if c := doDiscover("198.51.100.1"); c != http.StatusTooManyRequests {
-		t.Errorf("discover req 3 from IP A = %d, want 429 (per-IP bucket drained)", c)
-	}
-	// IP B has its OWN bucket and is still allowed despite IP A being limited.
+	// A different IP is likewise unaffected.
 	if c := doDiscover("198.51.100.2"); c == http.StatusTooManyRequests {
-		t.Errorf("discover req from a DIFFERENT IP B = 429, want its own per-IP bucket")
+		t.Errorf("discover from a different IP = 429, want 200 (no anon gate)")
 	}
-	// A spoofed X-Forwarded-For must NOT let IP A escape its bucket when CF is present:
-	// clientIP keys on CF-Connecting-IP, so IP A is still limited regardless of XFF.
+	// A spoofed X-Forwarded-For changes nothing - the endpoint never consults the bucket at all.
 	r := httptest.NewRequest(http.MethodGet, "/discover", nil)
 	r.Header.Set("CF-Connecting-IP", "198.51.100.1")
-	r.Header.Set("X-Forwarded-For", "9.9.9.9") // attacker tries to dodge the bucket
+	r.Header.Set("X-Forwarded-For", "9.9.9.9")
 	w := httptest.NewRecorder()
 	b.discover(w, r)
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("IP A with a spoofed XFF = %d, want 429 (CF-Connecting-IP keys the bucket, XFF ignored)", w.Code)
+	if w.Code == http.StatusTooManyRequests {
+		t.Errorf("IP A with a spoofed XFF = 429, want 200 (/discover is not anon-gated)")
 	}
 }
 
