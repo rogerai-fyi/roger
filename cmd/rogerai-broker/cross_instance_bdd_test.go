@@ -283,6 +283,10 @@ type xiState struct {
 
 	node *xiNode
 
+	// duNodes holds the multiple nodes a discovery-union scenario registers (the
+	// single-node harness keeps s.node; the union suite needs a fleet).
+	duNodes []*xiNode
+
 	// consumer
 	consumerPriv   ed25519.PrivateKey
 	consumerWallet string
@@ -311,6 +315,7 @@ func (s *xiState) reset(t *testing.T) {
 	_, s.brokerPr, _ = ed25519.GenerateKey(nil)
 	s.inst = map[string]*xiInst{}
 	s.node = nil
+	s.duNodes = nil
 	s.consumerPriv = nil
 	s.consumerWallet = ""
 	s.startBalance = 0
