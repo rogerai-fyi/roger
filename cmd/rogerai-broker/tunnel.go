@@ -26,7 +26,10 @@ import (
 // so it re-confirms liveness against the re-hydrated registration within seconds of
 // the broker coming back, WITHOUT re-registering. 45s tolerates ~4 missed beats /
 // the redeploy gap while staying truthful (a genuinely dead node still ages out).
-const nodeTTL = 45 * time.Second
+// nodeTTL is a package var (not a const) ONLY so a test can shrink it to drive the
+// liveness/flicker soaks fast (same test seam as syncTickInterval); production reads
+// the 45s default unchanged.
+var nodeTTL = 45 * time.Second
 
 // defaultMaxNodesPerOwner is the HARD per-owner on-air cap: how many nodes a single
 // owner account may have SIMULTANEOUSLY on air (live within nodeTTL) across all of
@@ -624,7 +627,9 @@ func (b *broker) expireStaleAttestations(now time.Time, ttl time.Duration) {
 // hot heartbeat/poll path. The in-memory lastSeen is updated EVERY beat (liveness is
 // always exact in memory); the durable copy only needs to be recent enough that a
 // re-hydrate after a restart lands within the TTL grace, so we coalesce DB writes.
-const persistThrottle = 20 * time.Second
+// persistThrottle is a package var (not a const) ONLY so a test can shrink it alongside
+// nodeTTL for the flicker soaks; production reads the 20s default unchanged.
+var persistThrottle = 20 * time.Second
 
 // markSeen refreshes a node's liveness on a heartbeat/poll. The in-memory lastSeen
 // is bumped every call (so pick/discover are always exact); the durable last_seen is
@@ -637,13 +642,19 @@ func (b *broker) markSeen(node string) {
 	b.lastSeen[node] = now
 	b.mu.Unlock()
 	// Shared-state write-through (PRE-SCALE Stage 1): mirror the heartbeat to Valkey so
-	// PEER broker instances can observe this node's freshness. Coalesced on the SAME
-	// throttle gate as the durable DB touch below, so the shared write rate stays low.
-	// Best-effort: a failure is logged+swallowed inside markSeen on the store and never
-	// affects in-memory liveness (which remains exact + authoritative on this instance).
-	flushShared := b.shared != nil && b.sharedFlushDue(node, now)
-	if flushShared {
-		_ = b.shared.markSeen(node, now)
+	// PEER broker instances can observe this node's freshness. Coalesced on its own
+	// throttle (sharedFlushThrottle, kept well UNDER nodeTTL so a peer's mirrored last_seen
+	// cannot age past TTL from a single missed write). CRITICAL (the cross-instance
+	// /discover flicker fix): the throttle stamp is advanced ONLY on a SUCCESSFUL durable
+	// write (commitSharedFlush). A FAILED write leaves it unadvanced so the very NEXT
+	// heartbeat retries at once instead of waiting a full throttle window - a transient
+	// Valkey blip that used to freeze the shared last_seen (aging it past nodeTTL on the
+	// peer and flipping the node offline there) now self-heals on the next beat. Best-effort:
+	// a failure never affects in-memory liveness (exact + authoritative on this instance).
+	if b.shared != nil && b.sharedFlushDue(node, now) {
+		if err := b.shared.markSeen(node, now); err == nil {
+			b.commitSharedFlush(node, now)
+		}
 	}
 	if b.db == nil {
 		return // no durable store (e.g. a minimal test broker): in-memory liveness is enough
@@ -664,21 +675,40 @@ func (b *broker) markSeen(node string) {
 	}
 }
 
-// sharedFlushDue coalesces the shared-state liveness write-through on its own
-// per-node throttle (separate from lastPersist so it works even when b.db is nil,
-// e.g. the in-memory store). It returns true at most once per persistThrottle per
-// node, keeping the Valkey HSET rate low while still refreshing well inside nodeTTL.
+// sharedFlushThrottle bounds the shared (Valkey) last_seen write-through rate. It is kept
+// well UNDER nodeTTL (a third) so that even a missed or FAILED write cannot age a peer's
+// mirrored last_seen past nodeTTL before the next refresh lands - the margin half of the
+// cross-instance /discover flicker fix (the other half is retry-on-failure in markSeen). It
+// is SEPARATE from persistThrottle (the DB TouchNode coalesce) so tightening the shared
+// cadence never changes the single-instance DB write rate - single-instance never reaches
+// this path (b.shared is nil). Derived from nodeTTL so a test that scales nodeTTL scales it too.
+func sharedFlushThrottle() time.Duration { return nodeTTL / 3 }
+
+// sharedFlushDue reports whether node's shared last_seen is due for a write-through, on its
+// own per-node throttle (separate from lastPersist so it works even when b.db is nil, e.g.
+// the in-memory store). It is a PURE predicate: it does NOT advance the stamp. The stamp is
+// advanced by commitSharedFlush ONLY after a SUCCESSFUL durable write, so a FAILED write is
+// retried on the very next heartbeat instead of being suppressed for a full throttle window
+// (the throttle-advance-on-failed-write bug that froze a peer's liveness -> the flicker).
 func (b *broker) sharedFlushDue(node string, now time.Time) bool {
 	b.metricsMu.Lock()
 	defer b.metricsMu.Unlock()
 	if b.lastSharedSeen == nil {
 		b.lastSharedSeen = map[string]time.Time{}
 	}
-	if now.Sub(b.lastSharedSeen[node]) < persistThrottle {
-		return false
+	return now.Sub(b.lastSharedSeen[node]) >= sharedFlushThrottle()
+}
+
+// commitSharedFlush records that node's shared last_seen was durably written at now,
+// opening a fresh throttle window. Called ONLY after a successful shared.markSeen so a
+// failed write leaves the previous (earlier) stamp in place and the next heartbeat retries.
+func (b *broker) commitSharedFlush(node string, now time.Time) {
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if b.lastSharedSeen == nil {
+		b.lastSharedSeen = map[string]time.Time{}
 	}
 	b.lastSharedSeen[node] = now
-	return true
 }
 
 // syncTickInterval is the cross-instance liveness/inflight sync cadence. It is a package
