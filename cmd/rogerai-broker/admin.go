@@ -76,6 +76,53 @@ func (b *broker) liveMarket(now time.Time) map[string]any {
 	}
 }
 
+// instancesLive reports the number of DISTINCT live broker instances. In single-instance mode
+// it is always 1 (this process). In multi-instance mode it counts the live presence heartbeats
+// in the shared store, falling back to 1 (this instance is always live) when the store is
+// unreachable or reports none - so the ops panel never renders a bogus 0-live-instances fleet.
+func (b *broker) instancesLive() int {
+	if !b.multiInstance || b.shared == nil {
+		return 1
+	}
+	n, err := b.shared.liveInstances()
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
+
+// infra is the topology/redundancy block of /admin/live: the cross-instance posture the ops
+// panel renders (fleet size + redundancy, bus mode, shared-store reachability). A pure,
+// non-blocking read of broker state — every backend touch is bounded and degrades to a safe
+// fallback (never panics, never blocks). db/version/uptime_seconds stay in the health block
+// (reused, not duplicated). instances_live is read FIRST so its shared-store read refreshes
+// reachability before shared_store.reachable is snapshotted.
+func (b *broker) infra() map[string]any {
+	live := b.instancesLive()
+	role := "none"
+	reachable := false
+	if b.shared != nil {
+		reachable = b.shared.healthy()
+		kind := "memory"
+		if _, ok := b.shared.(*valkeyStore); ok {
+			kind = "valkey"
+		}
+		mode := "accelerator"
+		if b.multiInstance {
+			mode = "accelerator+bus"
+		}
+		role = kind + " " + mode
+	}
+	return map[string]any{
+		"multi_instance": b.multiInstance,
+		"instances_live": live,
+		"shared_store": map[string]any{
+			"reachable": reachable,
+			"role":      role,
+		},
+	}
+}
+
 // adminLive handles GET /admin/live: the broker's LIVE operational snapshot — the in-memory
 // state that exists ONLY in this process and so can't be read from Postgres by roger-admin:
 // readiness/health, the live marketplace counts, the cross-instance dispatch counters, and the
@@ -132,6 +179,7 @@ func (b *broker) adminLive(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"now":              now.Unix(),
 		"health":           health,
+		"infra":            b.infra(),
 		"marketplace_live": b.liveMarket(now),
 		"seed_funded":      seeded,
 		"seed_limit":       seedLimit,

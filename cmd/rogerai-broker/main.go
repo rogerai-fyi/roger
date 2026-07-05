@@ -570,6 +570,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 			b.multiInstance = true
 			b.instanceID = newInstanceID()
 			b.peerInflight = map[string]int{}
+			// Announce this instance's presence immediately so the ops panel counts the full
+			// live fleet from the first read (before the first sync tick refreshes it).
+			// Best-effort: a shared-store hiccup just defers presence to the next tick.
+			_ = b.shared.markInstance(b.instanceID, time.Now())
 			// Tag EVERY log line with this instance's id so logs from the 2+ instances
 			// (interleaved in the aggregated DO log stream) are attributable at a glance -
 			// the team no longer has to guess which instance emitted a relay/bus line. This

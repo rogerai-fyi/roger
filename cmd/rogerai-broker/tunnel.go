@@ -2572,6 +2572,12 @@ func (b *broker) mergeSharedInflight() {
 	if b.shared == nil {
 		return
 	}
+	// Refresh this instance's presence heartbeat on the same multi-instance cadence as the
+	// inflight merge, so a live instance keeps its presence key alive (instanceTTL) and the ops
+	// panel's fleet count stays current. Best-effort: a failure just defers to the next tick.
+	if b.multiInstance && b.instanceID != "" {
+		_ = b.shared.markInstance(b.instanceID, time.Now())
+	}
 	snap, err := b.shared.inflightByNode(b.instanceID)
 	if err != nil {
 		return
