@@ -1105,6 +1105,13 @@
   var inflight = false;
   var lastLiveReal = [];           // last real bands that had >=1 live row (held over a transient error)
   var retryAfterMs = 0;            // a 429's Retry-After hint (ms), applied to the NEXT poll only
+  // BOUNDED HOLD: the transient-error hold is not indefinite. A short blip holds the last-known
+  // live bands, but a broker that stays unreachable would otherwise paint them "on air" forever.
+  // After HOLD_MAX consecutive holds we stop holding and tell the honest truth; any 200-with-data
+  // resets the streak so a recovered broker returns to live and a fresh blip holds again. At the
+  // 30s cadence HOLD_MAX=12 bounds the hold to ~6 min. (Mirrors market.js decideRender / HOLD_MAX.)
+  var HOLD_MAX = 12;
+  var holdStreak = 0;              // consecutive holds so far
 
   // parseRetryAfter reads an integer-seconds Retry-After header and returns it in ms (0 if
   // absent/non-numeric), so a transient 429 can pace the next poll to what the server asked.
@@ -1163,13 +1170,24 @@
       var liveN = merged.filter(function (b) { return b.live; }).length;
 
       // Transient: NEITHER endpoint returned a usable 200 body. Don't blank the live bands - if
-      // we have a last-known live set, HOLD it (re-ingest so the on-air rows stay put).
+      // we have a last-known live set, HOLD it (re-ingest so the on-air rows stay put) - but only
+      // for a BOUNDED number of consecutive polls, so a long-dead broker is not painted on-air
+      // indefinitely. Past HOLD_MAX holds we drop to the honest "couldn't reach" state.
       if (!anyOK && liveN === 0 && lastLiveReal.length) {
-        ingest(lastLiveReal, true);
-        setStatus("holding the last band read · re-tuning…", "live");
+        holdStreak++;
+        if (holdStreak <= HOLD_MAX) {
+          ingest(lastLiveReal, true);
+          setStatus("holding the last band read · re-tuning…", "live");
+          return;
+        }
+        lastLiveReal = [];              // bounded hold expired: stop resurrecting a dead broker
+        ingest([], false);
+        setStatus("couldn't reach the broker just now - retrying", "off");
         return;
       }
 
+      // Any poll that reaches here is live or reachable-but-empty: the failure streak is broken.
+      holdStreak = 0;
       if (liveN > 0) lastLiveReal = merged; // remember the freshest live set for a future hold
       ingest(merged, anyOK);
 
@@ -1183,11 +1201,14 @@
     }).catch(function () {
       clearTimeout(to);
       inflight = false;
-      // Unexpected error: HOLD the last-known live bands rather than blanking, if any.
-      if (lastLiveReal.length) {
+      // Unexpected error: HOLD the last-known live bands rather than blanking, if any - but
+      // bounded, exactly like the transient path above, so a dead broker stops being held.
+      if (lastLiveReal.length && holdStreak < HOLD_MAX) {
+        holdStreak++;
         ingest(lastLiveReal, true);
         setStatus("holding the last band read · re-tuning…", "live");
       } else {
+        if (lastLiveReal.length) lastLiveReal = [];   // bounded hold expired
         ingest([], false);
         setStatus("couldn't reach the broker just now - retrying", "off");
       }

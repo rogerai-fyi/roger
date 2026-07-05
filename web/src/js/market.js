@@ -74,7 +74,16 @@
      if neither endpoint returned a usable 200 body this poll AND we have a
      last-known market, we HOLD it rather than blanking. Only a broker that is
      REACHABLE and genuinely returns an EMPTY list paints the honest quiet state.
-     A 200-with-live-market always renders fresh. */
+     A 200-with-live-market always renders fresh.
+
+     BOUNDED HOLD: the hold is not indefinite. A short blip holds, but a broker
+     that stays unreachable would otherwise paint the last-known stations "on air"
+     forever. After HOLD_MAX consecutive holds we DEGRADE from `hold` to the honest
+     `quiet-unreachable` so a long-dead broker is not painted on-air indefinitely.
+     The caller threads the consecutive-hold count in as poll.holdStreak (reset to 0
+     on any 200-with-data poll), keeping decideRender pure - no timers, no clock. At
+     the 30s poll cadence HOLD_MAX=12 bounds the hold to ~6 min before it goes honest. */
+  var HOLD_MAX = 12;
   function decideRender(poll) {
     poll = poll || {};
     if ((+poll.liveCount || 0) > 0) return "live";      // fresh live data - always render it
@@ -82,7 +91,10 @@
     // (a transient error - 429, 5xx, a network blip), keep the last-known market on screen
     // instead of blanking; fall back to an honest "unreachable" only when we have nothing.
     if (!poll.marketOK && !poll.discoverOK) {
-      return (+poll.prevCount || 0) > 0 ? "hold" : "quiet-unreachable";
+      if ((+poll.prevCount || 0) <= 0) return "quiet-unreachable";   // nothing to hold
+      // bounded: once the held state has persisted HOLD_MAX consecutive polls, stop
+      // painting a dead broker on-air and tell the honest truth.
+      return (+poll.holdStreak || 0) >= HOLD_MAX ? "quiet-unreachable" : "hold";
     }
     // At least one endpoint answered 200 but with an empty/no-live list: an honest quiet market.
     return "quiet-empty";
@@ -103,7 +115,7 @@
   // bits and skip all DOM/fetch below. The browser path runs exactly as before.
   if (typeof document === "undefined") {
     if (typeof module !== "undefined" && module.exports) {
-      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter };
+      module.exports = { meterReadout: meterReadout, fmtPrice: fmtPrice, decideRender: decideRender, parseRetryAfter: parseRetryAfter, HOLD_MAX: HOLD_MAX };
     }
     return;
   }
@@ -133,6 +145,7 @@
   var visible = false;
   var inflight = false;
   var retryAfterMs = 0;            // a 429's Retry-After hint (ms) applied to the NEXT poll only
+  var holdStreak = 0;              // consecutive holds so far; a 200-with-data resets it. Bounds the hold (see decideRender / HOLD_MAX)
 
   /* ---------- tiny DOM helpers ----------------------------------- */
   function el(tag, cls, html) {
@@ -495,6 +508,7 @@
         var nOnline = channels.filter(function (c) { return c.live; }).length;
         if (channels.length && nOnline > 0) {
           clearTimeout(to);
+          holdStreak = 0;                        // 200-with-data: a recovered broker returns to live
           paint(channels, true);
           paintMeter(meterReadout(channels));   // ALL on-air bands, not just the 6 painted rows
           setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · live from /market", "live");
@@ -513,7 +527,8 @@
             clearTimeout(to);
             var offers = (d && Array.isArray(d.offers)) ? d.offers : [];
             var live = offers.length ? offers.filter(function (o) { return o && o.online !== false; }).length : 0;
-            var action = decideRender({ liveCount: live, marketOK: marketOK, discoverOK: discoverOK, prevCount: rendered.length });
+            var action = decideRender({ liveCount: live, marketOK: marketOK, discoverOK: discoverOK, prevCount: rendered.length, holdStreak: holdStreak });
+            holdStreak = action === "hold" ? holdStreak + 1 : 0;   // count consecutive holds; any other outcome resets
             if (action === "live") {
               var ch = aggregate(offers);
               paint(ch, true);
@@ -523,7 +538,7 @@
               setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
               startShimmer();
             } else if (action === "hold") {
-              // transient non-200 on BOTH reads, but we have a last-known market: KEEP it.
+              // transient non-200 on BOTH reads, but we have a last-known market: KEEP it (bounded).
               holdLastKnown();
             } else if (action === "quiet-unreachable") {
               // both reads failed and nothing to hold: honest "couldn't reach" state.
@@ -541,8 +556,10 @@
       .catch(function () {
         clearTimeout(to);
         // network error / abort: HOLD the last-known market rather than blanking; only fall to
-        // the honest "unreachable" state when there is nothing to hold.
-        if (decideRender({ liveCount: 0, marketOK: false, discoverOK: false, prevCount: rendered.length }) === "hold") {
+        // the honest "unreachable" state when there is nothing to hold OR the bounded hold expired.
+        var action = decideRender({ liveCount: 0, marketOK: false, discoverOK: false, prevCount: rendered.length, holdStreak: holdStreak });
+        holdStreak = action === "hold" ? holdStreak + 1 : 0;
+        if (action === "hold") {
           holdLastKnown();
         } else {
           paintQuiet();
