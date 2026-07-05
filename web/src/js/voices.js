@@ -43,6 +43,12 @@
   var loadedOnce = false;
   var lastCount = 0;               // rows in the last successfully-painted roster
   var retryAfterMs = 0;            // a 429's Retry-After hint (ms), applied to the NEXT poll only
+  // BOUNDED HOLD: the transient-error hold is not indefinite. A short blip holds the last-known
+  // roster, but a broker that stays unreachable would otherwise paint it "on air" forever. After
+  // HOLD_MAX consecutive holds we drop to the honest unreachable state; any 200 (reachable) resets
+  // the streak. At the 30s cadence HOLD_MAX=12 bounds the hold to ~6 min. (Mirrors market.js.)
+  var HOLD_MAX = 12;
+  var holdStreak = 0;              // consecutive holds so far
 
   // parseRetryAfter reads an integer-seconds Retry-After header and returns it in ms (0 if
   // absent/non-numeric), so a transient 429 can pace the next poll to what the server asked.
@@ -193,9 +199,11 @@
         // last-known roster, HOLD it; capture Retry-After to pace the next poll.
         if (!r.ok) {
           retryAfterMs = parseRetryAfter(r);
-          if (lastCount > 0) {
+          if (lastCount > 0 && holdStreak < HOLD_MAX) {
+            holdStreak++;                       // bounded: keep the last roster for a while
             setStatus("holding the last roster · re-reading…", "live");
           } else {
+            if (lastCount > 0) lastCount = 0;   // bounded hold expired: stop holding a dead roster
             paintQuiet();
             setStatus("couldn't reach the broker just now", "off");
             setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
@@ -206,6 +214,7 @@
       })
       .then(function (data) {
         if (data === null) return; // handled above (transient non-200 hold / quiet)
+        holdStreak = 0;            // a 200 (reachable) breaks the failure streak
         var rows = (data && Array.isArray(data.voices)) ? data.voices : [];
         var voices = normalize(rows);
         if (voices.length) {
@@ -225,10 +234,12 @@
       .catch(function () {
         clearTimeout(to);
         // network error / abort: HOLD the last-known roster rather than blanking; fall to the
-        // honest "unreachable" state only when there is nothing to hold.
-        if (lastCount > 0) {
+        // honest "unreachable" state when there is nothing to hold OR the bounded hold expired.
+        if (lastCount > 0 && holdStreak < HOLD_MAX) {
+          holdStreak++;
           setStatus("holding the last roster · re-reading…", "live");
         } else {
+          if (lastCount > 0) lastCount = 0;   // bounded hold expired
           paintQuiet();
           setStatus("couldn't reach the broker just now", "off");
           setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');

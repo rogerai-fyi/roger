@@ -117,6 +117,66 @@ test("decideRender: a REACHABLE broker that genuinely returns empty shows the ho
   assert.equal(R.decideRender({}), "quiet-unreachable"); // defensive: no info == treat as unreachable, nothing held
 });
 
+// --- bounded hold: a genuinely dead broker must NOT paint the last-known market on-air
+// forever. After HOLD_MAX consecutive holds the held state DEGRADES to the honest
+// quiet-unreachable; a single 200-with-data resets the streak so a recovered broker returns
+// to live and a fresh blip holds again. The streak is threaded in as poll.holdStreak so
+// decideRender stays a pure function (no timers, no wall clock). --------------------------
+
+// drive() runs decideRender across a poll sequence exactly as the page's poll loop maintains
+// the consecutive-hold streak: reset to 0 on a live (200-with-data) poll, increment on each
+// hold, leave it otherwise (a degraded/quiet poll clears the held rows so prevCount -> 0).
+function drive(steps) {
+  let streak = 0;
+  return steps.map((s) => {
+    const action = R.decideRender({ ...s, holdStreak: streak });
+    if (action === "live") streak = 0;
+    else if (action === "hold") streak += 1;
+    return action;
+  });
+}
+
+const blip = { liveCount: 0, marketOK: false, discoverOK: false, prevCount: 6 };
+const good = { liveCount: 4, marketOK: true, discoverOK: true, prevCount: 6 };
+
+test("bounded hold: a single non-200 after a good read still HOLDS (no regression)", () => {
+  assert.deepEqual(drive([good, blip]), ["live", "hold"]);
+  // a short streak of blips keeps holding, well under the threshold
+  assert.deepEqual(drive([good, blip, blip, blip]), ["live", "hold", "hold", "hold"]);
+});
+
+test("bounded hold: HOLD_MAX consecutive non-200 polls DEGRADE hold -> quiet-unreachable", () => {
+  const K = R.HOLD_MAX;
+  assert.ok(Number.isFinite(K) && K >= 2, "HOLD_MAX is a finite threshold");
+  // K holds, then the (K+1)-th consecutive failure degrades to the honest unreachable state.
+  const steps = [good];
+  for (let i = 0; i < K + 1; i++) steps.push(blip);
+  const out = drive(steps);
+  for (let i = 1; i <= K; i++) assert.equal(out[i], "hold", `blip #${i} still holds`);
+  // one past the threshold: a long-dead broker is no longer painted on-air.
+  assert.equal(out[K + 1], "quiet-unreachable");
+});
+
+test("bounded hold: a 200-with-data before the threshold RESETS the streak (holds again on the next blip)", () => {
+  const K = R.HOLD_MAX;
+  // Drive right UP TO the threshold (K holds), then recover, then blip once more. Without the
+  // reset the streak would be K and the next blip would DEGRADE - so a passing "hold" here proves
+  // the 200-with-data cleared the streak.
+  const steps = [good];
+  for (let i = 0; i < K; i++) steps.push(blip);     // K holds: at the threshold, not past it
+  steps.push(good);                                 // recovered: 200-with-data resets the streak
+  steps.push(blip);                                 // a fresh blip
+  const out = drive(steps);
+  for (let i = 1; i <= K; i++) assert.equal(out[i], "hold", `pre-recovery blip #${i} holds`);
+  assert.equal(out[out.length - 2], "live");
+  assert.equal(out[out.length - 1], "hold", "post-recovery blip holds again - streak was reset");
+});
+
+test("bounded hold: a REACHABLE-but-empty broker still shows quiet-empty (never over-corrected to unreachable)", () => {
+  // even deep into a hold streak, a genuine 200-with-empty is an honest quiet market, not a degrade.
+  assert.equal(R.decideRender({ liveCount: 0, marketOK: true, discoverOK: false, prevCount: 6, holdStreak: 99 }), "quiet-empty");
+});
+
 test("parseRetryAfter: integer seconds -> ms; absent/garbage -> 0", () => {
   const mk = (v) => ({ headers: { get: (k) => (k === "Retry-After" ? v : null) } });
   assert.equal(R.parseRetryAfter(mk("5")), 5000);
