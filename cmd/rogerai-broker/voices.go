@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -47,11 +46,12 @@ func (b *broker) voices(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	if ok, retry := b.anonRL.allow(clientIP(r)); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(retry))
-		jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
-		return
-	}
+	// NO per-IP anon rate-limit gate here (deliberately, matching /discover + /market). /voices
+	// is a PUBLIC READ: a client reads `.voices` off the body, so a 429 error body (with no
+	// voices) renders as an EMPTY picker. Its only expensive work is collapsed to <=1 per
+	// publicMarketTTL by the shared cache below, so extra same-IP reads are cheap cache hits and
+	// need no throttle. The anon limiter still guards the relay/audio/tunnel cost surfaces.
+	// Regression: discover_ratelimit_test.go + features/discovery/market.feature.
 	cors(w)
 	b.serveCachedJSON(w, "voices", publicMarketTTL, b.computeVoices)
 }

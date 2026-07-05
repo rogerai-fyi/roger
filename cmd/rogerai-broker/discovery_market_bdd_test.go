@@ -14,7 +14,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -34,6 +36,8 @@ type dmState struct {
 	market []marketView // last /market payload
 
 	computeCalls int // counts compute() runs for the cache scenario
+
+	codes []int // HTTP status codes from the public-read burst scenarios
 }
 
 func (s *dmState) reset() {
@@ -43,6 +47,11 @@ func (s *dmState) reset() {
 	s.b.probeSched = map[string]*probeState{}
 	s.b.localCache = map[string]localCacheEntry{}
 	s.offers, s.market, s.computeCalls = nil, nil, 0
+	s.codes = nil
+	// A deliberately tiny anon bucket (1 token) so the public-read posture scenarios prove the
+	// gate is GONE: if a public read still consulted it, the 2nd same-IP hit would 429.
+	s.b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+	s.b.probe = probeConfig{}
 }
 
 // addNode registers a public node on air for one model at input price `in`, last seen
@@ -300,6 +309,120 @@ func (s *dmState) offerCarriesModality(want string) error {
 	return nil
 }
 
+// --- Public-read never-rate-limited-to-empty (release-day regression) -------
+
+func (s *dmState) liveOfferOnAir(model string) error {
+	s.addNode("n-live", model, 0.20, 0)
+	return nil
+}
+
+func (s *dmState) boundVoiceOnAir() error {
+	s.b.nodes["n-voice"] = protocol.NodeRegistration{NodeID: "n-voice", Station: "bownux",
+		Offers: []protocol.ModelOffer{{Model: "roger-operator-voice", Modality: protocol.ModalityTTS, Name: "Operator", PriceIn: 20}}}
+	s.b.lastSeen["n-voice"] = s.now
+	if s.b.bannedOwners == nil {
+		s.b.bannedOwners = map[string]bool{}
+	}
+	// Bind the owner so operatorStation lists the voice (Q2: attributable operators only).
+	if s.b.db == nil {
+		s.b.db = store.NewMem()
+	}
+	_ = s.b.db.BindOwner(store.Owner{GitHubID: 1, Login: "bownux", Pubkey: "pub-n-voice"})
+	_ = s.b.db.BindNode("n-voice", "pub-n-voice")
+	return nil
+}
+
+// anonBucketDrained empties the anon per-IP bucket for the test consumer so any residual gate
+// on a public read would 429 on the very next request.
+func (s *dmState) anonBucketDrained() error {
+	s.b.anonRL.allow(dmConsumerIP)
+	return nil
+}
+
+const dmConsumerIP = "203.0.113.7"
+
+func (s *dmState) dmGet(h func(http.ResponseWriter, *http.Request), path string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodGet, path, nil)
+	r.Header.Set("CF-Connecting-IP", dmConsumerIP)
+	w := httptest.NewRecorder()
+	h(w, r)
+	return w
+}
+
+func (s *dmState) burstDiscover(n int) error {
+	s.codes = s.codes[:0]
+	for i := 0; i < n; i++ {
+		w := s.dmGet(s.b.discover, "/discover")
+		s.codes = append(s.codes, w.Code)
+		if w.Code == http.StatusOK {
+			var resp struct {
+				Offers []offerView `json:"offers"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				return fmt.Errorf("GET /discover #%d: bad JSON: %v", i+1, err)
+			}
+			if len(resp.Offers) == 0 {
+				return fmt.Errorf("GET /discover #%d returned an EMPTY market while an offer is on air", i+1)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *dmState) burstVoices(n int) error {
+	s.codes = s.codes[:0]
+	for i := 0; i < n; i++ {
+		w := s.dmGet(s.b.voices, "/voices")
+		s.codes = append(s.codes, w.Code)
+		if w.Code == http.StatusOK {
+			var resp struct {
+				Voices []voiceView `json:"voices"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				return fmt.Errorf("GET /voices #%d: bad JSON: %v", i+1, err)
+			}
+			if len(resp.Voices) == 0 {
+				return fmt.Errorf("GET /voices #%d returned an EMPTY voice list while a voice is on air", i+1)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *dmState) allResponses200NoEmpty() error {
+	for i, c := range s.codes {
+		if c == http.StatusTooManyRequests {
+			return fmt.Errorf("response #%d = 429; a public read must never rate-limit to empty", i+1)
+		}
+		if c != http.StatusOK {
+			return fmt.Errorf("response #%d = %d, want 200", i+1, c)
+		}
+	}
+	if len(s.codes) == 0 {
+		return fmt.Errorf("no responses recorded")
+	}
+	return nil
+}
+
+func (s *dmState) discoverAndMarketOnce() error {
+	s.codes = s.codes[:0]
+	s.codes = append(s.codes, s.dmGet(s.b.discover, "/discover").Code)
+	s.codes = append(s.codes, s.dmGet(s.b.market, "/market").Code)
+	return nil
+}
+
+func (s *dmState) neitherRateLimited() error {
+	if len(s.codes) != 2 {
+		return fmt.Errorf("want a /discover + /market pair, got %d responses", len(s.codes))
+	}
+	for i, c := range s.codes {
+		if c != http.StatusOK {
+			return fmt.Errorf("public read #%d = %d, want 200 (shared cache-only posture)", i+1, c)
+		}
+	}
+	return nil
+}
+
 func TestDiscoveryMarketBDD(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
@@ -329,6 +452,15 @@ func TestDiscoveryMarketBDD(t *testing.T) {
 			sc.Step(`^"([^"]*)" carries price_tier (\d+)$`, st.marketTierIs)
 			sc.Step(`^a node on air for "([^"]*)" with modality "([^"]*)"$`, st.nodeOnAirWithModality)
 			sc.Step(`^that offer carries modality "([^"]*)"$`, st.offerCarriesModality)
+			sc.Step(`^a live offer is on air for "([^"]*)"$`, st.liveOfferOnAir)
+			sc.Step(`^a bound voice is on air$`, st.boundVoiceOnAir)
+			sc.Step(`^the anon per-IP bucket for this consumer is already drained$`, st.anonBucketDrained)
+			sc.Step(`^the same consumer GETs /discover (\d+) times in a burst$`, st.burstDiscover)
+			sc.Step(`^the same consumer GETs /voices (\d+) times in a burst$`, st.burstVoices)
+			sc.Step(`^every response is 200 with the offers list \(never a 429, never an empty market\)$`, st.allResponses200NoEmpty)
+			sc.Step(`^every voices response is 200 with the voices list \(never a 429\)$`, st.allResponses200NoEmpty)
+			sc.Step(`^the same consumer GETs /discover and /market$`, st.discoverAndMarketOnce)
+			sc.Step(`^neither is rate-limited \(both 200\) - one cache-only posture across the public reads$`, st.neitherRateLimited)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
