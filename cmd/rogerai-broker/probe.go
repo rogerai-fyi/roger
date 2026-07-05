@@ -279,6 +279,23 @@ func (b *broker) measurementStalenessLocked(nodeID string, now time.Time) float6
 	return b.probe.stalenessFactor(now.Sub(st.lastMeasured))
 }
 
+// probeEvidenceRecentLocked reports whether the node has POSITIVE serving evidence - a
+// PASSED probe or a real served request, both stamped on probeState.lastMeasured - within
+// the last nodeTTL. It is the FLICKER guard on the /discover online veto (market.go): a
+// node whose canary fails only intermittently still passes/serves inside the window, so it
+// keeps this true and is NOT yanked offline by a transient probe streak; a node with no
+// positive evidence for a full nodeTTL returns false and, if it is also at a dead streak,
+// is treated as genuinely dead-upstream. A never-measured node (nil/zero lastMeasured) has
+// no recent evidence -> false, so the approved dead-node contract (a node that has never
+// served shows OFFLINE) is preserved. Caller holds metricsMu.
+func (b *broker) probeEvidenceRecentLocked(nodeID string, now time.Time) bool {
+	st := b.probeSched[nodeID]
+	if st == nil || st.lastMeasured.IsZero() {
+		return false
+	}
+	return now.Sub(st.lastMeasured) < nodeTTL
+}
+
 // proberLoop ticks at the FLOOR interval - the scheduling resolution - and probes the
 // nodes whose adaptive next-due has arrived. Started from main when the probe is
 // enabled. Each round is jittered (see probeOnce) so a fleet that all came on air

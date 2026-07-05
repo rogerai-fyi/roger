@@ -113,9 +113,30 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	// actually serving its model (dead/unloaded upstream) - surface it as OFFLINE so a
 	// consumer never tunes into a dead channel and eats repeated 504s. It still heartbeats,
 	// so the proberLoop keeps probing it (gated on `live` below); one OK probe resets the
-	// streak and it flips back online. See probeDeadStreak. The veto is applied only by the
-	// node's authoritative poll host (see above); a peer keeps it online on heartbeat liveness.
-	online := live && (!authoritative || tq.probeFails < probeDeadStreak)
+	// streak and it flips back online. See probeDeadStreak.
+	//
+	// The probe-dead veto is gated by TWO independent liveness signals, so a heartbeat-live
+	// node is hidden only when it is genuinely dead by BOTH - this is the COMBINED fix for
+	// the "8-online <-> 0-online" /discover flicker (PR #12 + PR #13):
+	//
+	//   1. AUTHORITATIVE (PR #12): only the instance HOSTING the node's live poll can
+	//      authoritatively probe it. A multi-instance PEER that merely mirrors the node must
+	//      NOT probe-kill it with its own non-authoritative streak (a cross-instance probe can
+	//      time out or never land), so on a peer the veto never applies. Single-instance
+	//      (shared == nil) is always authoritative -> behavior unchanged.
+	//   2. RECENT SERVING EVIDENCE (PR #13): even on the poll host, a node with a PASSED probe
+	//      or real traffic (probeState.lastMeasured) within nodeTTL is FLICKERING, not dead -
+	//      its canary fails only intermittently. probeEvidenceRecentLocked keeps it ONLINE so a
+	//      transient streak can't yank a heartbeat-live node out of /discover (and, frozen into
+	//      the shared /discover cache for its TTL, present a market-wide 0-online).
+	//
+	// So a node is vetoed OFFLINE only if it is the poll host's own node AND has a dead streak
+	// AND has shown NO positive serving evidence for a full nodeTTL (the approved dead-node
+	// contract: a node that never served, or stopped serving for nodeTTL, shows OFFLINE). The
+	// pick path (pickFor) still excludes any probe-dead node from ROUTING regardless, so no
+	// relay is ever dispatched into a 504 while such a node lingers on the display.
+	probeDead := authoritative && tq.probeFails >= probeDeadStreak && !b.probeEvidenceRecentLocked(n.NodeID, now)
+	online := live && !probeDead
 	tps := b.tps[n.NodeID]
 	inflight := b.inflight[n.NodeID]
 	sr, srSeen := b.success[n.NodeID]
