@@ -9,14 +9,20 @@ package client
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/glyphs"
@@ -375,33 +381,341 @@ func TopupURL(broker, user string, usd float64) (string, error) {
 type ProxyOptions struct {
 	Broker, User string
 	Confidential bool
-	MinTPS       float64   // X-Roger-Min-TPS floor (0 = none)
-	MaxPriceIn   float64   // X-Roger-Max-Price cap on input price (0 = none)
-	MaxPriceOut  float64   // X-Roger-Max-Price-Out cap on output price (0 = none)
-	Freq         string    // X-Roger-Freq private band code (empty = open market)
-	Pref         string    // X-Roger-Pref routing knob: cheap/balanced/fast/reliable (empty = balanced)
-	Alert        AlertFunc // surfaced when failover is exhausted (nil = silent)
+	MinTPS       float64 // X-Roger-Min-TPS floor (0 = none)
+	MaxPriceIn   float64 // X-Roger-Max-Price cap on input price (0 = none)
+	MaxPriceOut  float64 // X-Roger-Max-Price-Out cap on output price (0 = none)
+	Freq         string  // X-Roger-Freq private band code (empty = open market)
+	Pref         string  // X-Roger-Pref routing knob: cheap/balanced/fast/reliable (empty = balanced)
+	// Model is the TUNED band's model. It is the /v1/models identity AND the rewrite
+	// target: every incoming request's `model` field is rewritten to this before relay,
+	// so an agent's arbitrary default ("gpt-4o", "sonnet") just works. Empty = legacy
+	// single-user mode (no rewrite; the body's own model is honored) - kept so `roger use`
+	// and the pre-existing relay tests behave exactly as before.
+	Model string
+	// SessionKey is the per-session bearer secret. When set, every proxy route enforces
+	// `Authorization: Bearer <SessionKey>` with a constant-time compare. Empty = auth
+	// disabled (the legacy single-user path; production callers generate one via
+	// NewSessionKey so a guest agent / other local process can't spend the wallet).
+	SessionKey string
+	// Budget is the per-session spend cap in dollars (1 credit = $1). The proxy accumulates
+	// each response's billed X-RogerAI-Cost and hard-stops the NEXT request with a 402 once
+	// the running total reaches the cap. 0 = no local cap (unlimited); the guest-operator
+	// launch sets DefaultSessionBudget.
+	Budget float64
+	Alert  AlertFunc // surfaced when failover is exhausted (nil = silent)
 }
 
-// ProxyHandler returns the local OpenAI-compatible handler that relays to the
-// broker with transparent provider failover (used by `roger use` and by the
-// TUI's "tune in"). Bots see one stable endpoint; under the hood a dropped
-// provider is routed around automatically.
-func ProxyHandler(opts ProxyOptions) http.Handler {
-	httpClient := &http.Client{Timeout: 120 * time.Second}
-	policy := defaultPolicy()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-		// Per-request criteria, derived from how the user opened this endpoint.
-		var model struct {
+// DefaultSessionBudget is the per-session spend cap the guest-operator launch applies by
+// default (founder ruling, 2026-07-06: $2.00, raisable). It is NOT imposed on the legacy
+// single-user `roger use` path (which passes Budget 0 = unlimited) so that flow is unchanged.
+const DefaultSessionBudget = 2.00
+
+// proxyBodyCap is the request-body ceiling. A body over it is rejected with an OpenAI-shaped
+// 413 (never silently truncated-and-relayed).
+const proxyBodyCap = 4 << 20 // 4 MiB
+
+// Stream bounds for the relay client (founder ruling 7): drop the blanket 120s
+// http.Client.Timeout that cut legitimate long streams; bound only the TCP dial and the
+// response-header wait, letting a healthy body/stream trickle to the broker's own 300s
+// ceiling. Package vars so a test can inject small values and run fast.
+var (
+	proxyDialTimeout           = 10 * time.Second
+	proxyResponseHeaderTimeout = 30 * time.Second
+)
+
+// newRelayClient builds the relay http.Client with NO blanket Timeout (which would cover the
+// body read and cut long streams); it bounds the dial + response-header wait via a Transport.
+func newRelayClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: proxyDialTimeout}).DialContext,
+			ResponseHeaderTimeout: proxyResponseHeaderTimeout,
+			ExpectContinueTimeout: time.Second,
+		},
+	}
+}
+
+// NewSessionKey mints a per-session bearer secret (256-bit, hex). Stable for the session so a
+// running guest agent's generated config keeps working across a band re-tune (ruling 6).
+func NewSessionKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failing is catastrophic; fail closed with an unusable key rather than a
+		// predictable one (a blank key would DISABLE auth).
+		return "unavailable-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b)
+}
+
+// ProxyOptionsHolder is a concurrency-safe LIVE snapshot of ProxyOptions the handler reads
+// per request, so a re-tune re-points the SAME endpoint atomically (ruling 9). It also owns
+// the per-session spend accumulator (survives a re-tune) and the connected flag (a
+// disconnected proxy refuses to spend, ruling 5).
+type ProxyOptionsHolder struct {
+	mu        sync.RWMutex
+	opts      ProxyOptions
+	connected bool
+	created   int64
+
+	budgetMu sync.Mutex
+	spent    float64
+	lastCost float64 // last observed per-response cost, reserved at admission (see admit)
+}
+
+// NewProxyOptionsHolder wraps a fixed ProxyOptions as a live source (starts connected).
+func NewProxyOptionsHolder(opts ProxyOptions) *ProxyOptionsHolder {
+	return &ProxyOptionsHolder{opts: opts, connected: true, created: time.Now().Unix()}
+}
+
+// Get returns a consistent snapshot of the current options (never a half-updated mix).
+func (h *ProxyOptionsHolder) Get() ProxyOptions {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.opts
+}
+
+// Connected reports whether a band is currently tuned (false => refuse relays, ruling 5).
+func (h *ProxyOptionsHolder) Connected() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.connected
+}
+
+// SetBand re-points the live band routing/model/caps on a (re)tune, KEEPING the session key,
+// budget, and running spend stable (rulings 6 + 9) and marking the proxy connected again.
+func (h *ProxyOptionsHolder) SetBand(b ProxyOptions) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	b.SessionKey = h.opts.SessionKey // the bearer key is STABLE for the session
+	b.Budget = h.opts.Budget         // the spend cap carries across a re-tune
+	h.opts = b
+	h.connected = true
+}
+
+// Disconnect marks the proxy as serving no band; subsequent relays are refused (ruling 5).
+func (h *ProxyOptionsHolder) Disconnect() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.connected = false
+}
+
+// SetBudget raises/lowers the live session spend cap (the /budget knob). connected/key/spend
+// are untouched.
+func (h *ProxyOptionsHolder) SetBudget(usd float64) {
+	h.mu.Lock()
+	h.opts.Budget = usd
+	h.mu.Unlock()
+}
+
+// ResetSpend zeroes the session spend accumulator (a fresh session).
+func (h *ProxyOptionsHolder) ResetSpend() {
+	h.budgetMu.Lock()
+	h.spent, h.lastCost = 0, 0
+	h.budgetMu.Unlock()
+}
+
+// Spent returns the accumulated session spend in dollars.
+func (h *ProxyOptionsHolder) Spent() float64 {
+	h.budgetMu.Lock()
+	defer h.budgetMu.Unlock()
+	return h.spent
+}
+
+// admit reserves a budget slot for one request. It refuses (ok=false -> 402) when admitting
+// this request could take the session PAST the cap - i.e. when spent + the last-observed
+// per-response cost would exceed the budget - so a request that would push over is stopped
+// BEFORE dispatch (no hold, no spend), while a request that lands exactly ON the cap is still
+// served. The first request (no cost seen yet) is always admitted. On ok it returns a release
+// closure the caller MUST invoke exactly once with the request's billed cost; the budget mutex
+// is held from the check THROUGH the release so N concurrent requests cannot each read "under
+// budget" and all slip through (the check+accumulate is atomic - the parallel-subagent
+// invariant). The budget mutex is thus held across the upstream relay attempt(s) up to the
+// point the response headers (with X-RogerAI-Cost) arrive, when the relay calls release BEFORE
+// streaming the body - so the body/stream runs unlocked, but the dial + header-wait (and, on
+// the failover path, the retries) ARE serialized. This serialization is intentional: with a
+// hard per-session cap and per-call cost unknown until a response, it is the only way to bound
+// concurrent spend to floor(budget/cost) on a cold start (budget.feature "at most 4 served") -
+// a slower but spend-SAFE gate. Callers of Spent()/ResetSpend() therefore block behind an
+// in-flight relay's header phase; keep those off any hot render path.
+func (h *ProxyOptionsHolder) admit(budget float64) (release func(cost float64), ok bool) {
+	h.budgetMu.Lock()
+	// Reserve the last-observed per-call cost: refuse when admitting this request COULD take the
+	// session past the cap. This is required by budget.feature (NOT reducible to a plain
+	// `spent >= budget` ceiling): e.g. streaming at $0.40 under a $1.00 cap must refuse the 3rd
+	// request at spent $0.80 (0.80 + 0.40 > 1.00), and the non-streaming path still serves the
+	// 4th at exactly $1.00 (0.75 + 0.25 = 1.00). lastCost only ever holds a positive observed
+	// cost, so a session with spend>0 always reserves a real amount (never fails open).
+	if budget > 0 && h.spent+h.lastCost > budget+1e-9 {
+		h.budgetMu.Unlock()
+		return nil, false
+	}
+	var once sync.Once
+	return func(cost float64) {
+		once.Do(func() {
+			h.spent += cost
+			if cost > 0 {
+				h.lastCost = cost // reserve this much for the NEXT request's admission
+			}
+			h.budgetMu.Unlock()
+		})
+	}, true
+}
+
+// openAIError writes an OpenAI-shaped JSON error envelope: {"error":{"message","type","code"}}
+// with the given status and application/json (agents JSON-decode every non-2xx and branch on
+// error.type, so it is a contract - ruling 3). json encoding keeps the body valid even when
+// the message carries quotes/newlines. code "" is omitted.
+func openAIError(w http.ResponseWriter, status int, typ, code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	e := map[string]any{"message": msg, "type": typ}
+	if code != "" {
+		e["code"] = code
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": e})
+}
+
+// bearerOK constant-time-compares the request's Authorization against "Bearer <key>". It uses
+// crypto/subtle.ConstantTimeCompare (never == / no prefix match) so a local attacker cannot
+// time-oracle the key byte by byte. A missing/short/wrong-scheme header is refused.
+func bearerOK(authHeader, key string) bool {
+	const p = "Bearer "
+	if !strings.HasPrefix(authHeader, p) {
+		return false
+	}
+	got := authHeader[len(p):]
+	return subtle.ConstantTimeCompare([]byte(got), []byte(key)) == 1
+}
+
+// writeModelsList answers a GET /v1/models probe in OpenAI list shape reflecting the
+// CURRENTLY-tuned band only (one entry, ruling 4). owned_by "rogerai".
+func writeModelsList(w http.ResponseWriter, model string, created int64) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"object": "list",
+		"data": []map[string]any{{
+			"id":       model,
+			"object":   "model",
+			"created":  created,
+			"owned_by": "rogerai",
+		}},
+	})
+}
+
+// rewriteModel replaces the top-level "model" field of a chat body with the tuned band's
+// model, preserving every other field's VALUE unchanged (map[string]json.RawMessage keeps each
+// value's raw JSON, so numbers/tools/stream/unknown fields survive exactly; only top-level key
+// ORDER may differ after the re-marshal, which is semantically irrelevant). A body that is
+// not a JSON object (malformed, empty, an array, null) is rejected: ok=false -> the caller
+// 400s BEFORE any relay/hold so a broken client never spends. When target=="" (legacy
+// single-user) the body is returned unchanged and the body's own model is reported.
+func rewriteModel(body []byte, target string) (out []byte, model string, ok bool) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil || m == nil {
+		return nil, "", false
+	}
+	if target == "" {
+		var mm struct {
 			Model string `json:"model"`
 		}
-		_ = json.Unmarshal(body, &model)
-		crit := Criteria{Model: model.Model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
-		relayWithFailover(w, opts, crit, body, httpClient, policy)
+		_ = json.Unmarshal(body, &mm)
+		return body, mm.Model, true
+	}
+	enc, _ := json.Marshal(target)
+	m["model"] = enc
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, "", false
+	}
+	return out, target, true
+}
+
+// ProxyHandler returns the local OpenAI-compatible handler over a FIXED options snapshot. It
+// is the stable entry point for the legacy single-user path (`roger use`) and the relay tests.
+func ProxyHandler(opts ProxyOptions) http.Handler {
+	return ProxyHandlerLive(NewProxyOptionsHolder(opts))
+}
+
+// ProxyHandlerLive returns the OpenAI-compatible handler reading its options LIVE from the
+// holder on every request, so a re-tune re-points the SAME endpoint (ruling 9). It hardens the
+// proxy per §5: an OpenAI-list /v1/models probe, per-request model rewrite, per-session bearer
+// auth, a per-session spend budget, OpenAI-shaped JSON on every originated error, a 413 body
+// cap, Retry-After passthrough, dial/header stream bounds, and a "no band tuned" refusal.
+func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
+	httpClient := newRelayClient()
+	policy := defaultPolicy()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/v1/models", func(w http.ResponseWriter, r *http.Request) {
+		opts := h.Get()
+		if opts.SessionKey != "" && !bearerOK(r.Header.Get("Authorization"), opts.SessionKey) {
+			openAIError(w, http.StatusUnauthorized, "authentication_error", "", "missing or invalid API key")
+			return
+		}
+		if r.Method != http.MethodGet {
+			openAIError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "unknown url: "+r.Method+" "+r.URL.Path)
+			return
+		}
+		writeModelsList(w, opts.Model, h.created)
+	})
+
+	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
+		opts := h.Get()
+		// Ruling 5: a disconnected proxy (endpoint bound, no band tuned) refuses to spend,
+		// never serves a stale band.
+		if !h.Connected() {
+			openAIError(w, http.StatusServiceUnavailable, "api_error", "no_band_tuned", "no band tuned - open a channel first")
+			return
+		}
+		// Auth precedes spend (ruling 3): a missing/wrong bearer never reaches the broker.
+		if opts.SessionKey != "" && !bearerOK(r.Header.Get("Authorization"), opts.SessionKey) {
+			openAIError(w, http.StatusUnauthorized, "authentication_error", "", "missing or invalid API key")
+			return
+		}
+		// Body cap (ruling 8): over 4 MiB -> OpenAI-shaped 413, never silent truncation.
+		body, over := readCappedBody(r.Body, proxyBodyCap)
+		if over {
+			openAIError(w, http.StatusRequestEntityTooLarge, "invalid_request_error", "request_too_large", "request body exceeds the 4 MiB limit")
+			return
+		}
+		// Model rewrite + malformed-body guard (ruling 2): rewrite `model` to the band's, keep
+		// every other field; a non-object body is a 400 before any relay/hold.
+		rewritten, model, ok := rewriteModel(body, opts.Model)
+		if !ok {
+			openAIError(w, http.StatusBadRequest, "invalid_request_error", "", "request body is not valid JSON")
+			return
+		}
+		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
+		// Per-session spend budget (ruling 1/2): hard-stop the NEXT request once spent >= cap.
+		release, admitted := h.admit(opts.Budget)
+		if !admitted {
+			openAIError(w, http.StatusPaymentRequired, "insufficient_quota", "budget_exceeded", "session spend budget reached - raise it with /budget to continue")
+			return
+		}
+		// release must fire exactly once; the relay fires it with the billed cost right at the
+		// response headers. The deferred release(0) is a no-op backstop (sync.Once) that
+		// guarantees the budget slot is freed even on an unexpected relay return path.
+		defer release(0)
+		relayWithFailover(r.Context(), w, opts, crit, rewritten, httpClient, policy, release)
+	})
+
+	// Catch-all: every other route (/, /v1/embeddings, /v1/responses, /healthz, …) is an
+	// OpenAI-shaped JSON 404, never Go's plain-text "404 page not found" that crashes SDK
+	// JSON decoders (ruling 3).
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		openAIError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "unknown url: "+r.URL.Path)
 	})
 	return mux
+}
+
+// readCappedBody reads up to limit+1 bytes; if the extra byte is present the body EXCEEDED the
+// cap (over=true) so the caller 413s. A body of exactly limit bytes is returned whole.
+func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
+	b, _ := io.ReadAll(io.LimitReader(r, limit+1))
+	if int64(len(b)) > limit {
+		return nil, true
+	}
+	return b, false
 }
 
 // relayWithFailover runs the bounded retry/failover loop for one client request.
@@ -409,7 +723,17 @@ func ProxyHandler(opts ProxyOptions) http.Handler {
 // re-queries /discover, picks an alternative that still meets the criteria,
 // pins it, and retries with backoff - excluding every provider that already
 // failed. On total exhaustion it returns a clear 502 and fires opts.Alert.
-func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy) {
+// onServed, when non-nil, is invoked EXACTLY once with the request's billed cost (in dollars,
+// from X-RogerAI-Cost) the moment a response is settled - on success right before the body is
+// streamed, or with 0 on total failover exhaustion. The proxy handler uses it to accumulate
+// the per-session spend and release the budget slot before the (possibly long) body stream.
+func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy, onServed func(cost float64)) {
+	if onServed == nil {
+		onServed = func(float64) {}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	failed := map[string]bool{}
 	pin := "" // "" = let the broker choose; otherwise a failover-selected node
 	var lastErr error
@@ -419,7 +743,10 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 		if attempt > 0 {
 			time.Sleep(policy.backoff(attempt))
 		}
-		req, _ := http.NewRequest(http.MethodPost, opts.Broker+"/v1/chat/completions", bytes.NewReader(body))
+		// Thread the caller's request context so a client disconnect / cancel propagates
+		// upstream (ruling 7: bound by dial + response-header timeouts AND the request context;
+		// a healthy body still streams to the broker's own ceiling).
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, opts.Broker+"/v1/chat/completions", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		// Sign the request with the local user key: the broker derives the spending
 		// wallet from the verified pubkey (X-Roger-User is sent only as a legacy,
@@ -467,6 +794,11 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 			if attempt > 0 && opts.Alert != nil && resp.StatusCode < 400 {
 				opts.Alert(fmt.Sprintf("recovered: re-routed to %s after %d attempt(s)", provider, attempt))
 			}
+			// Bill the session budget from the settled cost header, and release the budget
+			// slot, BEFORE streaming the (possibly long) body - so only the header phase is
+			// serialized. A response with no cost header accumulates nothing (fail-safe).
+			cost, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
+			onServed(cost)
 			copyRelayResponse(w, resp)
 			resp.Body.Close()
 			return
@@ -497,7 +829,10 @@ func relayWithFailover(w http.ResponseWriter, opts ProxyOptions, crit Criteria, 
 	if opts.Alert != nil {
 		opts.Alert(msg)
 	}
-	http.Error(w, msg, http.StatusBadGateway)
+	// Exhaustion bills nothing; free the budget slot, then return an OpenAI-shaped 502 (SDKs
+	// JSON-decode the body and crash on Go's plain text) - ruling 3.
+	onServed(0)
+	openAIError(w, http.StatusBadGateway, "api_error", "upstream_unavailable", msg)
 }
 
 // failoverError builds the user-facing message when no provider could serve the
@@ -538,7 +873,10 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response) {
 		ct = "application/json"
 	}
 	w.Header().Set("Content-Type", ct)
-	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS"} {
+	// Deny-by-default allowlist: the safe meter headers plus Retry-After (so a 429'd agent can
+	// back off - ruling 7). Hop-by-hop / connection-scoped / cookie / server headers are NEVER
+	// forwarded (RFC 7230 §6.1); keep this list tight.
+	for _, h := range []string{"X-RogerAI-Provider", "X-RogerAI-Cost", "X-RogerAI-Balance", "X-RogerAI-Receipt", "X-RogerAI-Price", "X-RogerAI-TPS", "Retry-After"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}
@@ -761,16 +1099,21 @@ func Use(broker, user, model string, opt UseOptions) error {
 	fmt.Printf("  %s locking strongest @%s · %s · %.2f $/M ... ok\n", glyphOnAir, locked.CheapNode, tpsLabel(locked.CheapTPS), locked.Min)
 	fmt.Printf("  %s lineage handshake %s weights·shard·token ... ok\n", glyphOnAir, glyphVerify)
 	fmt.Printf("  %s CHANNEL OPEN %s via @%s%s\n", glyphOnAir, model, locked.CheapNode, verified)
+	// A per-session bearer key (the hardened proxy enforces Authorization on every route), the
+	// tuned band's model (the proxy rewrites any incoming model to it), and NO session spend cap
+	// (Budget 0 = unlimited - `roger use` is a single-user, hands-on flow; the guest-operator
+	// launch is where DefaultSessionBudget applies).
+	sessionKey := NewSessionKey()
 	// The clean, aligned BASE URL / API KEY / MODEL plate (matches the TUI plate).
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
-	fmt.Printf("  %-9s %s\n", "API KEY", "roger-local")
+	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
 	if opt.MaxIn > 0 || maxOut > 0 || opt.MinTPS > 0 {
 		fmt.Printf("  %-9s max-in=%g  max-out=%g $/1M   min-tps=%g t/s\n", "LIMITS", opt.MaxIn, maxOut, opt.MinTPS)
 	}
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
-	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
-	opts := ProxyOptions{Broker: broker, User: user, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
+	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
 	return useServe(addr, ProxyHandler(opts))
@@ -847,13 +1190,14 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("\n  %s scanning frequency ... ok\n", glyphOnAir)
 	fmt.Printf("  %s locking @%s · %s · %.2f $/M ... ok\n", glyphOnAir, br.CheapNode, tpsLabel(br.CheapTPS), br.Min)
 	fmt.Printf("  %s CHANNEL OPEN (private) %s via @%s\n", glyphOnAir, model, br.CheapNode)
+	sessionKey := NewSessionKey()
 	fmt.Printf("\n  %-9s http://%s/v1\n", "BASE URL", addr)
-	fmt.Printf("  %-9s %s\n", "API KEY", "roger-local")
+	fmt.Printf("  %-9s %s\n", "API KEY", sessionKey)
 	fmt.Printf("  %-9s %s\n", "MODEL", model)
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
-	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=roger-local   (Ctrl-C to stop)\n", addr)
-	opts := ProxyOptions{Broker: broker, User: user, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, Alert: func(s string) {
+	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
 	return useServe(addr, ProxyHandler(opts))
