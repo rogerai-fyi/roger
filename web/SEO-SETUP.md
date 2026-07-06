@@ -33,18 +33,21 @@ A real case study lost ~90% of Bing traffic for weeks by ignoring this.
 ---
 
 ## 3. Cloudflare Web Analytics  (privacy-first traffic numbers - cookieless, no banner)
-The CSP already allows it (in this PR). Two clicks:
+This needs a CSP change AND an edge apply - and they must go together (the `edge-drift` CI check
+fails if `_headers` and the live edge disagree). That's why the CSP is NOT pre-baked into the PR.
+When you're ready:
 1. **Cloudflare dashboard -> Analytics & Logs -> Web Analytics -> Add a site** -> `rogerai.fyi`.
    Choose the **Automatic setup** (it injects the beacon at the edge - no code needed).
-2. **Apply the CSP change to the edge** so the beacon isn't blocked. After PR #18 is merged, run:
+2. **Allow the beacon in the CSP.** In `web/src/_headers`, add `https://static.cloudflareinsights.com`
+   to `script-src` and `https://cloudflareinsights.com` to `connect-src`. Then apply it to the edge:
    ```
-   cd web && node scripts/cf-edge.mjs --apply     # needs your Cloudflare API token in the env
+   CF_API_TOKEN=... node web/scripts/cf-edge.mjs --apply
    ```
-   (This mirrors `web/src/_headers` to the Cloudflare edge - see `web/EDGE.md`. If your edge-drift
-   CI already applies `_headers` on merge, just merge and skip this.)
+   (This mirrors `web/src/_headers` to the Cloudflare edge - see `web/EDGE.md`. Commit the `_headers`
+   change so the `edge-drift` check stays green.)
 3. Verify: open the site, then check the Web Analytics dashboard shows a visit within a minute. If
-   the browser console logs a CSP block for `static.cloudflareinsights.com`, the edge CSP wasn't
-   updated yet - re-run step 2.
+   the browser console logs a CSP block for `static.cloudflareinsights.com`, the edge apply in step 2
+   didn't run.
 
 > Prefer GA4 instead? Not recommended here (it needs a GDPR cookie-consent banner + more CSP
 > surface + Google tracking, off-brand for a content-blind product). If you truly want it, tell me
