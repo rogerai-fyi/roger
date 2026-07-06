@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<!-- Field-guide broadcast 003. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
+     links. Assets: an inline theme-adaptive SVG VRAM chart + a Flux-generated hero (brandlocked).
+     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="How much VRAM do you need to run an LLM? (2026)" desc="A clear, chart-first guide to LLM VRAM: how much video memory each model size needs at 4-bit, what actually fills it, which GPU to buy, and what to do when a model is bigger than your card." theme=external og=post ogtype=article ogtitle="How much VRAM do you need to run an LLM?" ogdesc="A chart-first guide to LLM VRAM by model size, what fills it, which GPU to buy, and what to do when the model is bigger than your card." ogurl="https://rogerai.fyi/broadcasts-vram-for-llm.html" ogimage="https://rogerai.fyi/assets/broadcasts/vram-hero.png" -->
+</head>
+<body>
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 003 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-06">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">How much VRAM do you need to run an LLM?</h1>
+        <p class="bc-post__dek">
+          Video memory is the real limit when you run a model locally - not clock speed. Here is
+          the chart, the math behind it, and what to do when a model is bigger than your card.
+        </p>
+      </header>
+
+      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+        <img src="assets/broadcasts/vram-hero.png" width="1280" height="560" style="display:block;width:100%;height:auto;border-radius:6px;"
+             alt="A graphics card drawn as a vintage two-way radio with a red VRAM gauge, in the RogerAI operating-manual style." loading="lazy" />
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - THE VRAM GAUGE</figcaption>
+      </figure>
+
+      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+        <b>Quick answer.</b> A 4-bit (Q4) model needs roughly <b>0.6&nbsp;GB of VRAM per billion
+        parameters</b>, plus a few GB for context. So an 8&nbsp;GB card runs a 7-8B model, 12-16&nbsp;GB
+        runs 13-14B, 24&nbsp;GB runs a 32B or gpt-oss-20B, and a 70B needs 48&nbsp;GB+ (multiple GPUs) -
+        or you route it to a bigger GPU over RogerAI.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          If you want to run a large language model on your own machine, the first question is
+          always the same: will it fit? The answer is almost entirely about VRAM - the memory on
+          your GPU - because the whole model has to live there to run fast. This guide gives you the
+          number, then the reasoning.
+        </p>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; The chart</span>
+          <h2>How much VRAM does each model size need?</h2>
+          <p>
+            At 4-bit quantization - the sweet spot most people run - here is roughly what each model
+            class needs. Red bars are models that don't fit on a single consumer GPU.
+          </p>
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 470" role="img" style="width:100%;height:auto"
+                 aria-label="Chart: approximate VRAM needed to run common LLMs at 4-bit quantization, by model size, with consumer GPU tiers marked. 3B ~3GB, 7B ~5GB, 8B ~6GB, 13-14B ~9GB, 32B ~20GB, gpt-oss-20B ~13GB, 70B ~42GB, gpt-oss-120B ~63GB.">
+              <style>
+                .c-hair{stroke:currentColor;opacity:.18}.c-tier{stroke:currentColor;opacity:.30;stroke-dasharray:2 4}
+                .c-bar{fill:currentColor;opacity:.82}.c-over{fill:#E0231C}
+                .c-lbl{font-family:"JetBrains Mono",monospace;font-size:15px;fill:currentColor}
+                .c-val{font-family:"JetBrains Mono",monospace;font-size:14px;fill:currentColor}
+                .c-live{font-family:"JetBrains Mono",monospace;font-size:14px;fill:#E0231C}
+                .c-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+                .c-t{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.55}
+              </style>
+              <text x="24" y="34" class="c-cap">FIG. 2 - VRAM BY MODEL SIZE (4-BIT)</text>
+              <line x1="24" y1="48" x2="796" y2="48" class="c-hair"/>
+              <text x="24" y="72" class="c-t">dashed = common GPU VRAM tiers</text>
+              <g>
+                <line x1="315" y1="80" x2="315" y2="404" class="c-tier"/><text x="315" y="424" text-anchor="middle" class="c-t">8GB</text>
+                <line x1="347.5" y1="80" x2="347.5" y2="404" class="c-tier"/><text x="347.5" y="440" text-anchor="middle" class="c-t">12</text>
+                <line x1="380" y1="80" x2="380" y2="404" class="c-tier"/><text x="380" y="424" text-anchor="middle" class="c-t">16</text>
+                <line x1="445" y1="80" x2="445" y2="404" class="c-tier"/><text x="445" y="424" text-anchor="middle" class="c-t">24GB</text>
+                <line x1="640" y1="80" x2="640" y2="404" class="c-tier"/><text x="640" y="424" text-anchor="middle" class="c-t">48GB</text>
+              </g>
+              <text x="234" y="102" text-anchor="end" class="c-lbl">3B</text><rect x="250" y="90" width="24.4" height="17" rx="2" class="c-bar"/><text x="282" y="103" class="c-val">~3 GB</text>
+              <text x="234" y="144" text-anchor="end" class="c-lbl">7B</text><rect x="250" y="132" width="40.6" height="17" rx="2" class="c-bar"/><text x="298" y="145" class="c-val">~5 GB</text>
+              <text x="234" y="186" text-anchor="end" class="c-lbl">8B</text><rect x="250" y="174" width="48.75" height="17" rx="2" class="c-bar"/><text x="306" y="187" class="c-val">~6 GB</text>
+              <text x="234" y="228" text-anchor="end" class="c-lbl">13-14B</text><rect x="250" y="216" width="73" height="17" rx="2" class="c-bar"/><text x="331" y="229" class="c-val">~9 GB</text>
+              <text x="234" y="270" text-anchor="end" class="c-lbl">32B</text><rect x="250" y="258" width="162.5" height="17" rx="2" class="c-bar"/><text x="420" y="271" class="c-val">~20 GB</text>
+              <text x="234" y="312" text-anchor="end" class="c-lbl">gpt-oss-20B</text><rect x="250" y="300" width="105.6" height="17" rx="2" class="c-bar"/><text x="363" y="313" class="c-val">~13 GB</text>
+              <text x="234" y="354" text-anchor="end" class="c-lbl">70B</text><rect x="250" y="342" width="341" height="17" rx="2" class="c-over"/><text x="599" y="355" class="c-live">~42 GB</text>
+              <text x="234" y="396" text-anchor="end" class="c-lbl">gpt-oss-120B</text><rect x="250" y="384" width="512" height="17" rx="2" class="c-over"/><text x="602" y="397" class="c-val" fill="#FBFBFA">~63 GB</text>
+              <line x1="24" y1="404" x2="796" y2="404" class="c-hair"/>
+              <text x="24" y="458" class="c-t">~0.6 GB VRAM per 1B params (4-bit) + a few GB for context. Red = more than one consumer GPU.</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 2 - Approximate VRAM by model size (4-bit).</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The math</span>
+          <h2>What actually fills your VRAM?</h2>
+          <p>
+            Two things share your GPU memory. First, the <b>weights</b> - the model itself. At full
+            (16-bit) precision that is ~2&nbsp;GB per billion parameters; 4-bit quantization cuts it
+            to ~0.6&nbsp;GB, which is why almost everyone runs quantized. Second, the <b>KV cache</b> -
+            the running memory of your conversation - which grows with context length. A long chat or
+            a big document can add several GB, so leave headroom above the model size in the chart.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Quantization</span>
+          <h2>Does quantization hurt quality?</h2>
+          <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+            <img src="assets/broadcasts/quantization.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+                 alt="A large model being compressed into a smaller dense block, RogerAI operating-manual illustration." loading="lazy" />
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 - QUANTIZATION SHRINKS THE MODEL, NOT ITS SKILL</figcaption>
+          </figure>
+          <p>
+            Barely, at the levels people use. <b>Q4</b> (4-bit) is the popular default and keeps almost
+            all of a model's quality while cutting memory ~4x versus 16-bit. <b>Q5/Q6</b> are a touch
+            sharper if you have the VRAM; <b>Q8</b> is near-lossless but twice the memory of Q4. Below
+            Q4 the drop-off gets real. Start at Q4, move up only if a bigger quant still fits.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; Buying</span>
+          <h2>Which GPU should you get for local LLMs?</h2>
+          <ul class="bc-dial">
+            <li><b>8&nbsp;GB</b> (e.g. RTX 3060/4060) - comfortable with 7-8B models. A great, cheap start.</li>
+            <li><b>12-16&nbsp;GB</b> (4070/4060&nbsp;Ti&nbsp;16G) - the value sweet spot; 13-14B with room for context.</li>
+            <li><b>24&nbsp;GB</b> (3090/4090) - runs a 32B or a fast gpt-oss-20B; the enthusiast pick.</li>
+            <li><b>48&nbsp;GB+</b> (dual 24&nbsp;GB, or a pro card) - 70B-class and gpt-oss-120B quantized.</li>
+          </ul>
+          <p>
+            VRAM matters more than raw speed here: a card that can't fit the model spills to system
+            RAM and crawls. See what real operators are serving, and on what hardware, on the
+            <a href="/models.html">RogerAI model directory</a>.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; When it won't fit</span>
+          <h2>What if the model is bigger than your GPU?</h2>
+          <p>
+            Three options. <b>Quantize harder</b> (Q4 or a smaller variant) if a little quality loss is
+            fine. <b>Offload</b> some layers to system RAM - it works but is slow. Or the one that keeps
+            full quality without new hardware: <b>route the request to a bigger GPU</b> without leaving
+            your workflow. <code>roger use gpt-oss-120b</code> gives you a local OpenAI-compatible proxy
+            backed by a community GPU that can fit it - with free models on the
+            <a href="/bands.html">band</a> right now. And if you have VRAM to spare, put it on the air
+            with <code>roger share</code>. The full walkthrough is in the
+            <a href="/manual.html">operating manual</a>.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <dl class="bc-faq">
+            <dt><b>How much VRAM do I need to run a 7B model?</b></dt>
+            <dd>About 5-6&nbsp;GB at 4-bit, so an 8&nbsp;GB GPU runs a 7-8B model comfortably with room for context.</dd>
+            <dt><b>How much VRAM for a 70B model?</b></dt>
+            <dd>Roughly 42&nbsp;GB at 4-bit, which is beyond a single consumer GPU. You need two 24&nbsp;GB cards, a pro card, or you route the request to a bigger GPU over RogerAI.</dd>
+            <dt><b>Is VRAM or GPU speed more important for LLMs?</b></dt>
+            <dd>VRAM. If the model doesn't fit in video memory it spills to system RAM and runs many times slower, no matter how fast the chip is. Fit first, then speed.</dd>
+            <dt><b>Does quantization reduce quality?</b></dt>
+            <dd>Only slightly at the common 4-bit (Q4) level, which cuts memory about 4x versus 16-bit while keeping almost all quality. Q5/Q6 are sharper; below Q4 the loss becomes noticeable.</dd>
+            <dt><b>Can I run a big model without a big GPU?</b></dt>
+            <dd>Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: <code>roger use &lt;model&gt;</code> proxies over the same OpenAI API, free models included.</dd>
+            <dt><b>How do I calculate VRAM for a model?</b></dt>
+            <dd>Rule of thumb at 4-bit: ~0.6&nbsp;GB per billion parameters for the weights, plus a few GB for the KV cache (more for long contexts). Double the per-param figure for 8-bit.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Model too big for your card? Route it to a bigger GPU - install the set and tune in:
+          <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"How much VRAM do I need to run a 7B model?","acceptedAnswer":{"@type":"Answer","text":"About 5-6 GB at 4-bit, so an 8 GB GPU runs a 7-8B model comfortably with room for context."}},{"@type":"Question","name":"How much VRAM for a 70B model?","acceptedAnswer":{"@type":"Answer","text":"Roughly 42 GB at 4-bit, which is beyond a single consumer GPU. You need two 24 GB cards, a pro card, or you route the request to a bigger GPU over RogerAI."}},{"@type":"Question","name":"Is VRAM or GPU speed more important for LLMs?","acceptedAnswer":{"@type":"Answer","text":"VRAM. If the model doesn't fit in video memory it spills to system RAM and runs many times slower, no matter how fast the chip is. Fit first, then speed."}},{"@type":"Question","name":"Does quantization reduce quality?","acceptedAnswer":{"@type":"Answer","text":"Only slightly at the common 4-bit (Q4) level, which cuts memory about 4x versus 16-bit while keeping almost all quality. Q5/Q6 are sharper; below Q4 the loss becomes noticeable."}},{"@type":"Question","name":"Can I run a big model without a big GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes - offload to system RAM (slow), or keep your workflow and route to a community GPU that can fit it: roger use <model> proxies over the same OpenAI API, free models included."}},{"@type":"Question","name":"How do I calculate VRAM for a model?","acceptedAnswer":{"@type":"Answer","text":"Rule of thumb at 4-bit: ~0.6 GB per billion parameters for the weights, plus a few GB for the KV cache. Double the per-param figure for 8-bit."}}]}</script>
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
