@@ -164,12 +164,13 @@ function cacheBust(html) {
 
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
 const ORIGIN = "https://rogerai.fyi";
-// Private/app + non-canonical pages kept OUT of the sitemap (mirror the head's robots=noindex set).
-const NOINDEX = new Set([
-  "account.html", "billing.html", "console.html", "dashboard.html", "keys.html", "payouts.html",
-  "usage.html", "private.html", "r.html", "login.html", "404.html", "bands.html",
-]);
 const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
+
+// A page is excluded from the sitemap iff its RENDERED HTML marks itself noindex. Deriving this
+// from the built output (not a hand-maintained list) means the sitemap can never drift from the
+// actual robots directive - a stale list shipped noindex pages and triggered GSC "Submitted URL
+// marked noindex" warnings.
+const isNoindex = (html) => /<meta[^>]+name=["']robots["'][^>]*noindex/i.test(html);
 
 // Inject a self-referential <link rel="canonical"> for any page that doesn't already emit one
 // (the og=1 / og=post head blocks emit their own). EXACTLY ONE canonical per page - a duplicate or
@@ -180,10 +181,9 @@ function ensureCanonical(html, page) {
 }
 
 // sitemap.xml of the indexable pages (lastmod = the source file's mtime).
-function writeSitemap(pages) {
-  const idx = pages
-    .filter((p) => !NOINDEX.has(p))
-    .sort((a, b) => (a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b)));
+function writeSitemap(indexablePages) {
+  const idx = [...indexablePages].sort((a, b) =>
+    a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b));
   const urls = idx
     .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
     .join("\n");
@@ -200,6 +200,7 @@ function build() {
 
   // pages: top-level *.html in src/
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  const indexable = [];
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
@@ -209,10 +210,11 @@ function build() {
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeFileSync(join(DIST, page), out);
+    if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
 
   copyAssets(SRC);
-  const n = writeSitemap(pages);
+  const n = writeSitemap(indexable);
 
   console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) -> ${relative(ROOT, DIST)}/`);
 }
