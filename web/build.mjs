@@ -47,6 +47,7 @@ const CSS_BUNDLES = {
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
+  "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
@@ -162,25 +163,61 @@ function cacheBust(html) {
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
 }
 
+// ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
+const ORIGIN = "https://rogerai.fyi";
+const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
+
+// A page is excluded from the sitemap iff its RENDERED HTML marks itself noindex. Deriving this
+// from the built output (not a hand-maintained list) means the sitemap can never drift from the
+// actual robots directive - a stale list shipped noindex pages and triggered GSC "Submitted URL
+// marked noindex" warnings.
+const isNoindex = (html) => /<meta[^>]+name=["']robots["'][^>]*noindex/i.test(html);
+
+// Inject a self-referential <link rel="canonical"> for any page that doesn't already emit one
+// (the og=1 / og=post head blocks emit their own). EXACTLY ONE canonical per page - a duplicate or
+// wrong canonical makes Bing treat every page as a copy of the homepage (a real case-study bug).
+function ensureCanonical(html, page) {
+  if (/rel=["']canonical["']/.test(html)) return html;
+  return html.replace(/<\/title>/, `</title>\n  <link rel="canonical" href="${canonicalURL(page)}" />`);
+}
+
+// sitemap.xml of the indexable pages (lastmod = the source file's mtime).
+function writeSitemap(indexablePages) {
+  const idx = [...indexablePages].sort((a, b) =>
+    a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b));
+  const urls = idx
+    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
+    .join("\n");
+  writeFileSync(
+    join(DIST, "sitemap.xml"),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`,
+  );
+  return idx.length;
+}
+
 function build() {
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
 
   // pages: top-level *.html in src/
   const pages = readdirSync(SRC).filter((f) => f.endsWith(".html"));
+  const indexable = [];
   for (const page of pages) {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
+    out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
     writeFileSync(join(DIST, page), out);
+    if (!isNoindex(out)) indexable.push(page);   // sitemap tracks the ACTUAL robots directive
   }
 
   copyAssets(SRC);
+  const n = writeSitemap(indexable);
 
-  console.log(`built ${pages.length} page(s) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();

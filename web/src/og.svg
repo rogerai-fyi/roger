@@ -24,13 +24,21 @@
   <text x="80" y="92" class="tag" font-size="26" letter-spacing="4" fill="#6b6a63">FIG. 1 - RADIO STATION</text>
   <text x="1120" y="92" class="tag" font-size="26" letter-spacing="2" text-anchor="end" fill="#6b6a63">rogerai.fyi</text>
 
-  <!-- the beacon eye  (( o ))  - the on-air pulse, red center -->
-  <g transform="translate(160,258)">
-    <text x="0" y="40" class="eye" font-size="120" fill="#15140F">((</text>
-    <circle cx="150" cy="0" r="34" class="live"/>
-    <circle cx="150" cy="0" r="58" fill="none" stroke="#E0231C" stroke-width="3" opacity="0.45"/>
-    <circle cx="150" cy="0" r="84" fill="none" stroke="#E0231C" stroke-width="2" opacity="0.2"/>
-    <text x="222" y="40" class="eye" font-size="120" fill="#15140F">))</text>
+  <!-- the beacon eye  (( o ))  - the on-air pulse. VECTOR (not font text) so the red dot is
+       dead-centered and the mark renders identically everywhere, no font dependency. Everything
+       is symmetric about x=310, y=258. -->
+  <g>
+    <!-- red beacon + concentric on-air rings, centered on (310,258) -->
+    <circle cx="310" cy="258" r="34" class="live"/>
+    <circle cx="310" cy="258" r="58" fill="none" stroke="#E0231C" stroke-width="3" opacity="0.45"/>
+    <circle cx="310" cy="258" r="84" fill="none" stroke="#E0231C" stroke-width="2" opacity="0.2"/>
+    <!-- the two-way brackets (( )) - stroked arcs, mirror-symmetric about x=310 -->
+    <g fill="none" stroke="#15140F" stroke-width="13" stroke-linecap="round">
+      <path d="M 210 212 Q 180 258 210 304"/>   <!-- left inner  ( -->
+      <path d="M 168 196 Q 132 258 168 320"/>   <!-- left outer  ( -->
+      <path d="M 410 212 Q 440 258 410 304"/>   <!-- right inner ) -->
+      <path d="M 452 196 Q 488 258 452 320"/>   <!-- right outer ) -->
+    </g>
   </g>
 
   <!-- wordmark -->
