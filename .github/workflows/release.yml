@@ -58,32 +58,49 @@ jobs:
       - name: coverage gate (90% bar, aim 95%)
         run: scripts/cover-gate.sh
 
+  # GoReleaser cross-compiles, publishes the GitHub Release + raw binary assets (the exact
+  # names web/install.sh fetches), and pushes the Homebrew cask + Scoop manifest to the tap
+  # and bucket repos. The git TAG is still the single source of truth for main.Version - see
+  # the ldflags in .goreleaser.yaml. (Tag v4.11.0 -> 4.11.0.)
   release:
     needs: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GoReleaser needs full history + tags for changelog + version
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
-      - name: cross-compile roger
-        run: |
-          mkdir -p dist
-          # The git TAG is the single source of truth for the binary version: stamp it into
-          # main.Version so `roger version` + the upgrade check always match the release, even
-          # if the source `var Version` fallback was forgotten. (Tag v4.11.0 -> 4.11.0.)
-          ver="${GITHUB_REF_NAME#v}"
-          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            os=${t%/*}; arch=${t#*/}; ext=; [ "$os" = windows ] && ext=.exe
-            out="dist/roger-$os-$arch$ext"
-            echo "building $out (version $ver)"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.Version=$ver" -o "$out" ./cmd/rogerai
-          done
-          (cd dist && sha256sum * > checksums.txt)
-          ls -la dist
-      - name: publish release
-        uses: softprops/action-gh-release@v2
+      - name: release (goreleaser)
+        uses: goreleaser/goreleaser-action@v6
         with:
-          files: dist/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          # Publishes the GitHub Release + assets into THIS repo.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-repo push of the Homebrew cask + Scoop manifest. A PAT (or fine-grained
+          # token) with contents:write on rogerai-fyi/homebrew-tap AND rogerai-fyi/scoop-bucket.
+          # The default GITHUB_TOKEN can't push to other repos, so this is required for the
+          # brew/scoop steps. Missing it fails only those steps, not the published release.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+  # winget: opens a PR to microsoft/winget-pkgs after the release publishes.
+  # ONE-TIME prereqs (see packaging/README): the package id RogerAI.Roger must already exist
+  # (first manifest submitted manually via wingetcreate) and secrets.WINGET_TOKEN must hold a
+  # classic PAT (public_repo) whose account has a fork of microsoft/winget-pkgs.
+  # Enable by setting repo variable PUBLISH_WINGET=true. Skips pre-releases (tags with a `-`).
+  winget:
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_WINGET == 'true' && !contains(github.ref_name, '-') }}
+    steps:
+      - name: submit to winget
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: RogerAI.Roger
+          # Portable .exe installers (amd64 + arm64) attached to this release.
+          installers-regex: 'roger-windows-\w+\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
