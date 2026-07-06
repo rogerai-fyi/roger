@@ -47,6 +47,7 @@ const CSS_BUNDLES = {
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
+  "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
