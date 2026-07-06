@@ -162,6 +162,38 @@ function cacheBust(html) {
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
 }
 
+// ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
+const ORIGIN = "https://rogerai.fyi";
+// Private/app + non-canonical pages kept OUT of the sitemap (mirror the head's robots=noindex set).
+const NOINDEX = new Set([
+  "account.html", "billing.html", "console.html", "dashboard.html", "keys.html", "payouts.html",
+  "usage.html", "private.html", "r.html", "login.html", "404.html", "bands.html",
+]);
+const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
+
+// Inject a self-referential <link rel="canonical"> for any page that doesn't already emit one
+// (the og=1 / og=post head blocks emit their own). EXACTLY ONE canonical per page - a duplicate or
+// wrong canonical makes Bing treat every page as a copy of the homepage (a real case-study bug).
+function ensureCanonical(html, page) {
+  if (/rel=["']canonical["']/.test(html)) return html;
+  return html.replace(/<\/title>/, `</title>\n  <link rel="canonical" href="${canonicalURL(page)}" />`);
+}
+
+// sitemap.xml of the indexable pages (lastmod = the source file's mtime).
+function writeSitemap(pages) {
+  const idx = pages
+    .filter((p) => !NOINDEX.has(p))
+    .sort((a, b) => (a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b)));
+  const urls = idx
+    .map((p) => `  <url><loc>${canonicalURL(p)}</loc><lastmod>${statSync(join(SRC, p)).mtime.toISOString().slice(0, 10)}</lastmod></url>`)
+    .join("\n");
+  writeFileSync(
+    join(DIST, "sitemap.xml"),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`,
+  );
+  return idx.length;
+}
+
 function build() {
   rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
@@ -172,6 +204,7 @@ function build() {
     const raw = readFileSync(join(SRC, page), "utf8");
     let out = resolveIncludes(raw, 0);
     out = emitCssBundle(out, page);     // expand the per-page stylesheet bundle
+    out = ensureCanonical(out, page);   // exactly one self-referential canonical per page
     out = cacheBust(out);               // content-version js/css urls so the CDN can't serve stale
     if (/<!--\s*include:/.test(out)) throw new Error(`unresolved include in ${page}`);
     if (/<!--\s*css-bundle\s*-->/.test(out)) throw new Error(`unresolved css-bundle in ${page}`);
@@ -179,8 +212,9 @@ function build() {
   }
 
   copyAssets(SRC);
+  const n = writeSitemap(pages);
 
-  console.log(`built ${pages.length} page(s) -> ${relative(ROOT, DIST)}/`);
+  console.log(`built ${pages.length} page(s) + sitemap.xml (${n} urls) -> ${relative(ROOT, DIST)}/`);
 }
 
 build();
