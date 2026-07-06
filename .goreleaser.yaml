@@ -1,0 +1,108 @@
+# GoReleaser - one config drives the cross-compile + GitHub Release, and pushes
+# a Homebrew cask and a Scoop manifest that reference the very same assets.
+#
+#   local dry-run (no publish):  TAP_GITHUB_TOKEN=dummy goreleaser release --snapshot --clean --skip=publish
+#   validate the config:         goreleaser check
+#
+# CI runs `goreleaser release --clean` on a tag push (see .github/workflows/release.yml),
+# AFTER the coverage gate is green. The git TAG is the single source of truth for the
+# version - GoReleaser stamps it into main.Version, exactly like the old hand-rolled step.
+#
+# IMPORTANT: the primary archive is `format: binary`, so the uploaded assets stay RAW binaries
+# named `roger-<os>-<arch>` (+ .exe) with a matching checksums.txt - byte-for-byte what
+# web/install.sh already fetches. A Windows-only zip is added ALONGSIDE (Scoop needs an
+# archive). Switching the raw assets to tarballs would break that installer, so we don't.
+version: 2
+
+project_name: roger
+
+# Two builds only so the archives below can single out Windows for a zip (Scoop needs a
+# real archive, not a bare binary). Both are byte-identical settings otherwise.
+# Match the old release.yml exactly: strip symbols + stamp the tag into main.Version.
+# {{.Version}} is the tag WITHOUT the leading v (v5.0.1 -> 5.0.1), same as ${GITHUB_REF_NAME#v}.
+builds:
+  - id: roger-unix
+    main: ./cmd/rogerai
+    binary: roger
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.Version={{.Version}}"]
+  - id: roger-win
+    main: ./cmd/rogerai
+    binary: roger
+    env: [CGO_ENABLED=0]
+    goos: [windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.Version={{.Version}}"]
+
+archives:
+  # RAW binaries for every platform - keeps the asset names and the install.sh download
+  # path identical to today (roger-linux-amd64, roger-windows-amd64.exe, ...).
+  - id: raw
+    ids: [roger-unix, roger-win]
+    formats: [binary]
+    name_template: "roger-{{ .Os }}-{{ .Arch }}"
+  # A Windows-only zip, ADDITIONALLY, purely so Scoop has an archive to point at.
+  # Produces roger-windows-amd64.zip alongside the .exe (both in the release + checksums).
+  - id: winzip
+    ids: [roger-win]
+    formats: [zip]
+    name_template: "roger-{{ .Os }}-{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+release:
+  github:
+    owner: rogerai-fyi
+    name: roger
+  # GoReleaser generates the release notes itself from the `changelog` block below
+  # (GitHub compare API) - the equivalent of the old action's generate_release_notes.
+  # keep-existing: don't clobber a release body if one already exists for the tag.
+  mode: keep-existing
+
+changelog:
+  use: github
+  sort: asc
+
+# ---- Homebrew Cask (macOS) -----------------------------------------------------------
+# Generates Casks/roger.rb and pushes it to rogerai-fyi/homebrew-tap on each release.
+#   brew install --cask rogerai-fyi/tap/roger
+# A cask (not a formula) is correct for a pre-built binary: Homebrew strips the macOS
+# quarantine xattr on install, so the unsigned binary runs without a Gatekeeper prompt.
+homebrew_casks:
+  - name: roger
+    ids: [raw]
+    repository:
+      owner: rogerai-fyi
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: "https://rogerai.fyi"
+    description: "RogerAI - a two-way radio for GPUs. Consume and share LLM/voice models over the broker."
+    # NOTE: no `rogerai` legacy-alias symlink here. We ship a raw per-arch binary (staged as
+    # roger-darwin-<arch>, not `roger`), so a static `binary "roger", target: "rogerai"` would
+    # dangle. `roger` is the command; install.sh still provides the alias for curl installs.
+    # Don't auto-commit to the tap for pre-releases (v5.1.0-beta.1 etc.).
+    skip_upload: auto
+
+# ---- Scoop (Windows) -----------------------------------------------------------------
+# Generates bucket/roger.json and pushes it to rogerai-fyi/scoop-bucket on each release.
+#   scoop bucket add rogerai https://github.com/rogerai-fyi/scoop-bucket
+#   scoop install roger
+scoops:
+  - name: roger
+    ids: [winzip]
+    repository:
+      owner: rogerai-fyi
+      name: scoop-bucket
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: bucket
+    homepage: "https://rogerai.fyi"
+    description: "RogerAI - a two-way radio for GPUs."
+    license: "PolyForm-Perimeter-1.0.0"
+    skip_upload: auto
