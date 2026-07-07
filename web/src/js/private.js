@@ -41,7 +41,7 @@
       case "confirm_done": return { cls: "rc-tool", text: "✓ " + (f.approve ? "approved" : "denied") + " from " + (f.origin || "") };
       // A guest-operator handoff (or the DJ-back return): render it dim so the viewer never sees
       // the stream go dead mid-handoff. Operator-aware + content-blind (only the guest name + the
-      // fixed line ride the frame — no band/model/spend); a status with neither renders nothing.
+      // fixed line ride the frame - no band/model/spend); a status with neither renders nothing.
       case "status": {
         var st = f.operator ? "◉ guest has the mic: " + f.operator : (f.text || "");
         return st.trim() ? { cls: "rc-status", text: st } : null;

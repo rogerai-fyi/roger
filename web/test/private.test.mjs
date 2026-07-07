@@ -71,7 +71,7 @@ test("frameLine: empty assistant/backfill text renders nothing (null)", () => {
 // Guest Operators iteration-2 finding: the web console used to DROP RCKindStatus frames, so a
 // handoff looked dead in the browser (only iOS rendered "guest has the mic"). A status frame now
 // renders as a dim rc-status line: operator-aware for a guest handoff, the plain text for the
-// DJ-back transition, nothing when it carries neither (content-blind — only the guest name).
+// DJ-back transition, nothing when it carries neither (content-blind - only the guest name).
 test("frameLine: a status frame renders the handoff transition as a dim rc-status line", () => {
   const V = loadCore();
   assert.deepEqual(
