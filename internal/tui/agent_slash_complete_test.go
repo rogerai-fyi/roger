@@ -66,7 +66,7 @@ func lineAbovePrompt(t *testing.T, tm tea.Model) string {
 }
 
 // allCommandsStrip is the full sorted registry as the strip renders it on a bare "/".
-const allCommandsStrip = "/clear · /commands · /copy · /help · /model · /persona · /remote-control"
+const allCommandsStrip = "/clear · /commands · /copy · /help · /model · /operator · /persona · /remote-control"
 
 // TestAgentSlashStripMatrix drives the strip with real typed keys: which commands it
 // suggests for what input, and when it hides. Matching is case-insensitive and

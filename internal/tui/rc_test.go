@@ -17,6 +17,8 @@ type fakeBridge struct {
 	sid     string
 	ran     bool
 	stopped bool
+	parked  string // the guest-operator interlock ("" = unparked)
+	snap    string
 }
 
 func newFakeBridge() *fakeBridge {
@@ -29,6 +31,8 @@ func (b *fakeBridge) SessionID() string                  { return b.sid }
 func (b *fakeBridge) Disable() error                     { b.stop(); return nil }
 func (b *fakeBridge) Stop()                              { b.stop() }
 func (b *fakeBridge) Run()                               { b.ran = true }
+func (b *fakeBridge) Park(op, snapshot string)           { b.parked, b.snap = op, snapshot }
+func (b *fakeBridge) Unpark()                            { b.parked, b.snap = "", "" }
 func (b *fakeBridge) stop() {
 	if !b.stopped {
 		b.stopped = true
