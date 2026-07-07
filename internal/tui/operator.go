@@ -317,15 +317,24 @@ func operatorBrandRow(row operator.BrandRow) string {
 	var b strings.Builder
 	col := 0
 	for _, sp := range row.Spans {
-		to := sp.To
+		// Clamp BOTH bounds (defense in depth, pre-push audit minor): the shipped
+		// data is golden-pinned in range, but a hand-edited plate must degrade to
+		// plain text - never panic the PATCHING screen.
+		from, to := sp.From, sp.To
+		if from > len(runes) {
+			from = len(runes)
+		}
 		if to > len(runes) {
 			to = len(runes)
 		}
-		if sp.From > col {
-			b.WriteString(string(runes[col:sp.From]))
+		if from > col {
+			b.WriteString(string(runes[col:from]))
+			col = from
 		}
-		b.WriteString(operatorInkStyle(sp.Ink).Render(string(runes[sp.From:to])))
-		col = to
+		if to > from {
+			b.WriteString(operatorInkStyle(sp.Ink).Render(string(runes[from:to])))
+			col = to
+		}
 	}
 	if col < len(runes) {
 		b.WriteString(string(runes[col:]))

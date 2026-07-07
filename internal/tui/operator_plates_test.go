@@ -329,6 +329,24 @@ func TestPatchViewCompactStyles(t *testing.T) {
 	}
 }
 
+// TestBrandRowOutOfRangeSpansSafe: defense in depth (pre-push audit minor) - a
+// span pointing past the row's runes must clamp, never panic, and never drop the
+// row's text. Unreachable with the shipped golden-pinned data; pinned so a future
+// hand-edited plate can't crash the PATCHING screen.
+func TestBrandRowOutOfRangeSpansSafe(t *testing.T) {
+	rows := []operator.BrandRow{
+		{Text: "ok", Spans: []operator.BrandSpan{{From: 5, To: 9, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+		{Text: "ok", Spans: []operator.BrandSpan{{From: 0, To: 99, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+		{Text: "ok", Spans: []operator.BrandSpan{{From: 1, To: 1, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+	}
+	for i, row := range rows {
+		got := stripANSI(operatorBrandRow(row))
+		if got != "ok" {
+			t.Fatalf("case %d: out-of-range spans must clamp and keep the text, got %q", i, got)
+		}
+	}
+}
+
 // equalLines is a tiny slice comparison (no reflect import churn).
 func equalLines(got, want []string) bool {
 	if len(got) != len(want) {
