@@ -36,6 +36,17 @@ const (
 	RCInBackfill  = "backfill"  // ask the host for a transcript snapshot for Viewer
 )
 
+// RESERVED operator wire names (Guest Operators Phase 2, founder ruling 7, 2026-07-07).
+// v1 attaches NO behavior to any of these: a guest-operator handoff is announced with plain
+// RCKindStatus frames (carrying RCFrame.Operator additively). The names are reserved NOW so
+// old hosts and future surfaces can never collide on them later (the persistent-state
+// lesson: additive, idempotent wire evolution).
+const (
+	RCKindOperatorStatus = "operator_status"  // future dedicated operator-state frame kind
+	RCInOperatorHandoff  = "operator_handoff" // future remote-initiated handoff inbound kind
+	RCInOperatorRecall   = "operator_recall"  // future remote "give the DJ the mic back" inbound kind
+)
+
 // RCFrame is one broker-relayed event on a remote-control session. NEVER persisted at rest;
 // it lives only in transit and in the broker's bounded transient replay ring.
 type RCFrame struct {
@@ -50,6 +61,7 @@ type RCFrame struct {
 	Approve   *bool  `json:"approve,omitempty"`    // confirm_done: the answer (pointer distinguishes unset)
 	Viewer    string `json:"viewer,omitempty"`     // backfill: the ONE addressed viewer id (others skip)
 	HostUp    *bool  `json:"host_up,omitempty"`    // status: host reachable? (pointer distinguishes unset)
+	Operator  string `json:"operator,omitempty"`   // status: the guest operator at the desk (Phase 2, additive; "" = the DJ)
 }
 
 // RCInbound is what a remote surface (or the broker itself, for backfill) sends TO the host.

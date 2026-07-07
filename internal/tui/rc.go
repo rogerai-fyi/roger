@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/harness"
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -170,6 +171,14 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 	switch in.Kind {
 	case protocol.RCInTurn:
 		if strings.TrimSpace(in.Text) == "" {
+			return m, rearm
+		}
+		// Guest-operator staging guard (audit regression): from the moment a handoff is
+		// staged until the exec callback returns, a remote turn is dropped with the
+		// "guest has the mic" status auto-frame - the bridge itself parks only at exec
+		// time, so this covers the staging window. Never queued, never replayed.
+		if m.operatorHandoff != nil {
+			m.rcEmit(client.OperatorStatusFrame(m.operatorHandoff.det.Guest.Name))
 			return m, rearm
 		}
 		// Ensure the agent runtime exists (a remote turn can arrive before the local user

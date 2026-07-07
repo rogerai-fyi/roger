@@ -36,6 +36,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/node"
+	"github.com/rogerai-fyi/roger/internal/operator"
 	"github.com/rogerai-fyi/roger/internal/pricetier"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
@@ -154,6 +155,12 @@ type RemoteBridge interface {
 	Disable() error // take the session off the air (revoke)
 	Stop()          // stop polling (session survives; used on quit)
 	Run()           // start the poll + event pumps
+	// Guest-operator interlock (Phase 2): while parked, inbound turns/confirms are
+	// dropped AT THE BRIDGE with a status auto-frame and backfill is answered from the
+	// snapshot - the host's event loop is suspended under tea.ExecProcess. Unpark on a
+	// dead/stopped bridge is a no-op.
+	Park(operator, snapshot string)
+	Unpark()
 }
 
 // RemoteInfo is what /remote-control prints once at enable.
@@ -683,15 +690,15 @@ type model struct {
 	// once (first tune-in) and re-pointed on every (re)tune via SetBand, keeping the stable
 	// per-session bearer key (proxyKey) so a running guest's config survives a re-tune; a
 	// disconnect flips it to "refuse - no band tuned". nil until the proxy is bound.
-	proxyHolder *client.ProxyOptionsHolder
-	proxyKey    string
-	confidentialOnly  bool
-	balance           float64
-	haveBal           bool
-	monthlyCap        float64 // per-account monthly spend cap ($); 0 = unlimited
-	monthlySpend      float64 // month-to-date captured spend ($)
-	status            string
-	alert             *alertBox
+	proxyHolder      *client.ProxyOptionsHolder
+	proxyKey         string
+	confidentialOnly bool
+	balance          float64
+	haveBal          bool
+	monthlyCap       float64 // per-account monthly spend cap ($); 0 = unlimited
+	monthlySpend     float64 // month-to-date captured spend ($)
+	status           string
+	alert            *alertBox
 	// pricing UX state
 	limits *LimitStore
 	bands  []band // offers grouped by model (the band list, 3.1)
@@ -811,6 +818,13 @@ type model struct {
 	agentPicker       bool     // the /model picker modal is open
 	agentPickerRows   []string // candidate models in the open picker
 	agentPickerCursor int      // selected row in the picker
+	// Guest Operators (Phase 2, THE DESK): the async desk-scan result, the /operator
+	// picker modal, and the live handoff state. See operator.go.
+	operatorDetections []operator.Detection // detected guest CLIs (registry order)
+	operatorPicker     bool                 // the /operator hand-the-mic modal is open
+	operatorRows       []operatorRow        // picker rows (DJ + detected + at most one suggestion)
+	operatorCursor     int                  // selected picker row (never the suggestion)
+	operatorHandoff    *operatorHandoff     // non-nil from staging until the exec returns
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
@@ -1499,6 +1513,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case agentEventMsg:
 		return m.onAgentEvent(msg)
+	case operatorDetectedMsg: // an async desk scan landed (Guest Operators)
+		return m.onOperatorDetected(msg)
+	case operatorExecMsg: // the staged PATCHING paint elapsed - issue the exec
+		return m.onOperatorExec()
+	case operatorDoneMsg: // the guest returned the terminal (every child outcome)
+		return m.onOperatorDone(msg)
 	case remoteEnabledMsg:
 		return m.onRemoteEnabled(msg)
 	case remoteInboundMsg:
