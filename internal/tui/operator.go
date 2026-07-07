@@ -676,9 +676,13 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// stranded on a guest that never took the mic (iteration-1 finding #4).
 	if m.mode != modeAgent || m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
 		m.operatorHandoff = nil
-		if m.mode != modeAgent {
+		switch {
+		case m.mode != modeAgent:
 			m.rcNote("handoff aborted - you left the desk mid-patch · /operator from AGENT to try again")
-		} else {
+		case len(m.agentQueued) > 0:
+			// A turn is WAITING in the queue, not one the DJ picked up - say so honestly.
+			m.rcNote("handoff aborted - a queued turn is waiting · /operator once the desk is clear")
+		default:
 			m.rcNote("handoff aborted - the DJ picked up a turn while patching · /operator again once it finishes")
 		}
 		m.status = stDim.Render("back at the desk · the DJ is standing by")

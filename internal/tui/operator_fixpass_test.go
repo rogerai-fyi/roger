@@ -172,3 +172,35 @@ func TestExecTimeAbortEmitsDJBackFrame(t *testing.T) {
 		}
 	})
 }
+
+// TestExecTimeAbortQueuedTurnHonestCopy pins iteration-2 finding (honest copy): the busy
+// exec-time abort branch printed "the DJ picked up a turn while patching" for the
+// len(agentQueued)>0 case too - but a QUEUED turn is one WAITING, not one the DJ picked up.
+// The queued case now gets its own honest line (and still emits the corrective DJ-back frame
+// like every other abort).
+func TestExecTimeAbortQueuedTurnHonestCopy(t *testing.T) {
+	m, _, execs := opRegressionSeed(t)
+	fb := newFakeBridge()
+	m.rcBridge = fb
+	var tm tea.Model
+	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the pre-launch plate -> staged
+	// A turn was QUEUED during the staging beat (not in flight): the DJ is idle but a turn waits.
+	mm := asModel(tm)
+	mm.agentQueued = append(mm.agentQueued, queuedPrompt{text: "later please"})
+	tm, _ = mm.Update(operatorExecMsg{})
+	got := asModel(tm)
+	if got.operatorHandoff != nil || len(*execs) != 0 {
+		t.Fatal("a queued turn must abort the exec-time handoff")
+	}
+	view := stripANSI(strings.Join(got.agentLines, "\n"))
+	if strings.Contains(view, "the DJ picked up a turn") {
+		t.Fatalf("a queued turn is WAITING, not one the DJ picked up - the copy must not claim it did:\n%s", view)
+	}
+	if !strings.Contains(view, "queued turn") {
+		t.Fatalf("the queued-case abort should name the waiting queued turn honestly:\n%s", view)
+	}
+	if !djBackEmitted(fb) {
+		t.Fatalf("the queued-case abort emitted no DJ-back frame (frames: %+v)", fb.emitted)
+	}
+}
