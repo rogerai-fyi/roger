@@ -317,9 +317,9 @@ func (m model) operatorPickerView(w int) string {
 		case row.disabled:
 			b.WriteString(truncVisible("  "+stDim.Render("   "+pad(row.label, 12)+" ✕ "+row.reason), w) + "\n")
 		case i == m.operatorCursor:
-			b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+pad(row.label, 12))+" "+operatorRowGlyph(row)+stDim.Render(operatorRowDetail(row)), w) + "\n")
+			b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+pad(row.label, 12))+" "+stDim.Render(operatorRowDetail(row)), w) + "\n")
 		default:
-			b.WriteString(truncVisible("  "+stDim.Render("   "+pad(row.label, 12)+" ")+operatorRowGlyph(row)+stDim.Render(operatorRowDetail(row)), w) + "\n")
+			b.WriteString(truncVisible("  "+stDim.Render("   "+pad(row.label, 12)+" ")+stDim.Render(operatorRowDetail(row)), w) + "\n")
 		}
 	}
 	hint := "↑↓ pick · ⏎ hand the mic · r re-scan the desk · esc keep the DJ"
@@ -332,21 +332,12 @@ func (m model) operatorPickerView(w int) string {
 
 // operatorBrandBlock renders a guest's optional brand plate for the PATCHING screen.
 // The finished plates ride the Guest.Brand data seam (GUEST-OPERATOR-PLATES.md,
-// "ONE HUE, ONE BEAT"); the legacy single-accent BrandPlate string stays supported.
-// "" when the registry carries no plate - the seam costs nothing until the art lands.
+// "ONE HUE, ONE BEAT"). "" when the registry carries no plate.
 func operatorBrandBlock(g operator.Guest, w int) string {
 	if g.Brand != nil {
 		return operatorBrandArtBlock(*g.Brand, w)
 	}
-	if g.BrandPlate == "" {
-		return ""
-	}
-	st := operatorBrandStyle(g.BrandAccent)
-	var b strings.Builder
-	for _, line := range strings.Split(strings.TrimRight(g.BrandPlate, "\n"), "\n") {
-		b.WriteString(truncVisible("  "+st.Render(line), w) + "\n")
-	}
-	return b.String()
+	return ""
 }
 
 // operatorBrandArtBlock renders a BrandArt plate per the doc's §7 fallback matrix:
@@ -435,23 +426,6 @@ func operatorInkStyle(ink operator.BrandInk) lipgloss.Style {
 		st = st.Bold(true)
 	}
 	return st
-}
-
-// operatorBrandStyle maps a registry accent to a render style (the house stKey when "").
-// Accents are data ("#fab387" / an ANSI-256 index); NO_COLOR stripping still applies.
-func operatorBrandStyle(accent string) lipgloss.Style {
-	if accent == "" {
-		return stKey
-	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(accent))
-}
-
-// operatorRowGlyph is the optional per-brand picker-row glyph (one cell + a space), "".
-func operatorRowGlyph(row operatorRow) string {
-	if row.det.Guest.BrandGlyph == "" {
-		return ""
-	}
-	return operatorBrandStyle(row.det.Guest.BrandAccent).Render(row.det.Guest.BrandGlyph) + " "
 }
 
 // operatorRowDetail is the dim descriptor cell for a selectable picker row.
@@ -864,9 +838,8 @@ func (m model) operatorPatchView(w int) string {
 		}
 		b.WriteString(truncVisible(line, w) + "\n")
 	}
-	// PER-BRAND PLATE SEAM: the design pass lands each operator's wordmark as data-only
-	// registry changes (Guest.BrandPlate/BrandAccent); the default is the text-only house
-	// style (the name on the mic-to line below carries it until the art exists).
+	// PER-BRAND PLATE: each operator's wordmark rides the data-only Guest.Brand registry
+	// field; nil falls back to the text-only house style (the name on the mic-to line below).
 	if brand := operatorBrandBlock(h.det.Guest, w); brand != "" {
 		b.WriteString(brand + "\n")
 	}

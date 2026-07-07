@@ -6,7 +6,7 @@ package operator
 // code blocks (span boundaries machine-verified against the doc before landing);
 // these tests exist so a stray edit can never corrupt a shipped wordmark: every
 // row's exact bytes, every span boundary, every hue pair, and the §6 "no picker
-// glyphs" ruling are pinned here. Data-only against the Phase 2 BrandPlate seam -
+// glyphs" ruling are pinned here. Data-only against the Guest.Brand (BrandArt) seam -
 // transition logic is untouched and untested here (handoff specs own it).
 
 import (
@@ -305,14 +305,7 @@ func TestRegistryCarriesBrandArts(t *testing.T) {
 	}
 }
 
-// TestNoPickerGlyphs pins §6, on the record: NO per-guest brand glyphs in THE DESK
-// roster or the /operator picker - the BrandGlyph seam stays EMPTY for all guests
-// (the desk is the host's furniture; identity gets its moment on the PATCHING
-// plate - one hue, one beat, once).
-func TestNoPickerGlyphs(t *testing.T) {
-	for _, g := range Registry() {
-		if g.BrandGlyph != "" {
-			t.Fatalf("%s: the picker stays mono - no brand glyph (doc §6), got %q", g.Name, g.BrandGlyph)
-		}
-	}
-}
+// §6 "no picker glyphs" is now enforced structurally: the vestigial single-accent
+// BrandGlyph seam was deleted (iteration-2 minimization), so there is no field a guest
+// could ever carry a picker glyph on, and the picker renderer has no glyph slot. The
+// identity moment lives only on the PATCHING plate - one hue, one beat, once.
