@@ -21,7 +21,7 @@
 
   // ---- PURE core (unit-tested) ----------------------------------------------
 
-  // stateLabel maps a roster session to its {dot, label} — the one red glint is the live dot.
+  // stateLabel maps a roster session to its {dot, label} - the one red glint is the live dot.
   function stateLabel(s) {
     if (s.revoked) return { dot: "·", label: "ended", live: false };
     if (s.online) return { dot: "◉", label: "live", live: true };
@@ -29,7 +29,7 @@
   }
 
   // frameLine turns one RCFrame into a {cls, text} the stream renders. Never trusts a frame to
-  // be safe HTML — the caller sets textContent, so this returns plain strings.
+  // be safe HTML - the caller sets textContent, so this returns plain strings.
   function frameLine(f) {
     switch (f.kind) {
       case "user": return { cls: "rc-user", text: "▸ (" + (f.origin || "someone") + ") " + (f.text || "") };
@@ -48,7 +48,7 @@
       }
       case "backfill": return f.text && f.text.trim() ? { cls: "rc-backfill", text: f.text } : null;
       case "error": return { cls: "rc-err", text: "✗ " + (f.text || "") };
-      case "ended": return { cls: "rc-tool", text: "— session ended on the host —", ended: true };
+      case "ended": return { cls: "rc-tool", text: "- session ended on the host -", ended: true };
       default: return null;
     }
   }
