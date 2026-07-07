@@ -276,6 +276,13 @@ type RCBridge struct {
 	parkMu       sync.Mutex
 	parkOperator string // "" = not parked; otherwise the guest at the desk
 	parkSnapshot string // the transcript snapshot backfill is answered with while parked
+	// Operator frame enrichment (rc_enrichment.feature): the public model the guest runs
+	// on and a LIVE spend reader (ProxyOptionsHolder.Spent), so the parked auto-frames
+	// report the guest's spend SO FAR at emit time, never a stale park-time snapshot.
+	// There is deliberately NO band label here (founder ruling 2): the private-band Freq
+	// code is a secret and must never ride a frame in any field.
+	parkModel string
+	parkSpend func() float64
 }
 
 // NewRCBridge builds a host bridge over an already-enabled session (its id + one-time
@@ -295,13 +302,17 @@ func NewRCBridge(broker, sessionID, hostToken string) *RCBridge {
 // Park engages the guest-operator interlock: called by the host BEFORE the exec command
 // is issued. operator names the guest for the status auto-frames; snapshot is the
 // transcript a mid-handoff backfill is answered with (the host cannot serve it itself -
-// its event loop is suspended). Nil-safe.
-func (rb *RCBridge) Park(operator, snapshot string) {
+// its event loop is suspended). model is the tuned band's public model identity and
+// spend a LIVE session-spend reader (may be nil => $0) - both enrich the parked status
+// auto-frames (rc_enrichment.feature): spend is read at EMIT time so a parked frame
+// reports the guest's spend so far, not the $0 the handoff started with. Nil-safe.
+func (rb *RCBridge) Park(operator, snapshot, model string, spend func() float64) {
 	if rb == nil {
 		return
 	}
 	rb.parkMu.Lock()
 	rb.parkOperator, rb.parkSnapshot = operator, snapshot
+	rb.parkModel, rb.parkSpend = model, spend
 	rb.parkMu.Unlock()
 }
 
@@ -314,6 +325,7 @@ func (rb *RCBridge) Unpark() {
 	}
 	rb.parkMu.Lock()
 	rb.parkOperator, rb.parkSnapshot = "", ""
+	rb.parkModel, rb.parkSpend = "", nil
 	rb.parkMu.Unlock()
 }
 
@@ -347,21 +359,37 @@ func (rb *RCBridge) parkIntercept(in protocol.RCInbound) bool {
 		snap := rb.parkSnapshot
 		rb.parkMu.Unlock()
 		rb.Emit(protocol.RCFrame{Kind: protocol.RCKindBackfill, Viewer: in.Viewer, Text: snap})
-		rb.Emit(OperatorStatusFrame(op))
+		rb.Emit(rb.parkedStatusFrame(op))
 	case protocol.RCInTurn:
-		rb.Emit(OperatorStatusFrame(op))
+		rb.Emit(rb.parkedStatusFrame(op))
 	}
 	return true // confirm/interrupt (and anything else) drop silently while parked
 }
 
+// parkedStatusFrame builds the enriched parked auto-frame through the ONE shared
+// constructor, reading the LIVE spend at emit time (rc_enrichment.feature E2).
+func (rb *RCBridge) parkedStatusFrame(op string) protocol.RCFrame {
+	rb.parkMu.Lock()
+	model, spendFn := rb.parkModel, rb.parkSpend
+	rb.parkMu.Unlock()
+	spend := 0.0
+	if spendFn != nil {
+		spend = spendFn()
+	}
+	return OperatorStatusFrame(op, model, spend)
+}
+
 // OperatorStatusFrame is the ONE constructor for the "guest has the mic" status frame:
-// plain RCKindStatus carrying the operator name additively (RCFrame.Operator) - old
-// viewers render or ignore it; the reserved operator_* kinds stay behavior-free in v1
-// (ruling 7). Exported so the TUI's handoff-start announcement and the bridge's parked
-// auto-frames can never drift apart.
-func OperatorStatusFrame(operator string) protocol.RCFrame {
+// plain RCKindStatus carrying the operator name plus the model/spend enrichment
+// additively (RCFrame.Operator/Model/Spend, all omitempty) - old viewers render or
+// ignore them; the reserved operator_* kinds stay behavior-free in v1 (ruling 7). The
+// Text stays the FIXED operator-only template: enrichment is metadata on the frame,
+// never interpolated into Text (and no band label exists at all - founder ruling 2:
+// the private-band Freq secret must never appear on any frame field). Exported so the
+// TUI's handoff-start announcement and the bridge's parked auto-frames can never drift.
+func OperatorStatusFrame(operator, model string, spend float64) protocol.RCFrame {
 	return protocol.RCFrame{
-		Kind: protocol.RCKindStatus, Operator: operator,
+		Kind: protocol.RCKindStatus, Operator: operator, Model: model, Spend: spend,
 		Text: "guest has the mic: " + operator + " - the DJ answers when the handoff ends",
 	}
 }
