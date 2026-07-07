@@ -268,10 +268,14 @@ func (m model) operatorPickerView(w int) string {
 	return b.String()
 }
 
-// operatorBrandBlock renders a guest's optional ASCII wordmark for the PATCHING screen,
-// each line width-clamped and tinted with the brand accent (house key style when unset).
+// operatorBrandBlock renders a guest's optional brand plate for the PATCHING screen.
+// The finished plates ride the Guest.Brand data seam (GUEST-OPERATOR-PLATES.md,
+// "ONE HUE, ONE BEAT"); the legacy single-accent BrandPlate string stays supported.
 // "" when the registry carries no plate - the seam costs nothing until the art lands.
 func operatorBrandBlock(g operator.Guest, w int) string {
+	if g.Brand != nil {
+		return operatorBrandArtBlock(*g.Brand, w)
+	}
 	if g.BrandPlate == "" {
 		return ""
 	}
@@ -281,6 +285,82 @@ func operatorBrandBlock(g operator.Guest, w int) string {
 		b.WriteString(truncVisible("  "+st.Render(line), w) + "\n")
 	}
 	return b.String()
+}
+
+// operatorBrandArtBlock renders a BrandArt plate per the doc's §7 fallback matrix:
+// full styled art on a capable terminal; the one-line text lockup under
+// ROGERAI_ASCII (never a folded/garbled wordmark - aider's pure-ASCII plate is the
+// one that survives intact) or when the terminal is too narrow (shipped brand art
+// is never cropped or re-wrapped, it is SWAPPED). NO_COLOR needs no branch here:
+// lipgloss strips the SGR from the same art.
+func operatorBrandArtBlock(art operator.BrandArt, w int) string {
+	if (glyphs.ASCII() && !art.ASCIIArt) || w < art.Width+2 {
+		lockup := art.Lockup
+		lockup.Text = glyphs.Fold(lockup.Text) // · and … fold rune-for-rune; spans stay column-true
+		return truncVisible("  "+operatorBrandRow(lockup), w) + "\n"
+	}
+	var b strings.Builder
+	for _, row := range art.Rows {
+		b.WriteString(truncVisible("  "+operatorBrandRow(row), w) + "\n")
+	}
+	return b.String()
+}
+
+// operatorBrandRow inks one plate row: whole-row Ink when it has no spans,
+// otherwise each [From,To) rune span in its ink with uncovered columns plain
+// (they are spaces in every shipped plate).
+func operatorBrandRow(row operator.BrandRow) string {
+	if len(row.Spans) == 0 {
+		return operatorInkStyle(row.Ink).Render(row.Text)
+	}
+	runes := []rune(row.Text)
+	var b strings.Builder
+	col := 0
+	for _, sp := range row.Spans {
+		to := sp.To
+		if to > len(runes) {
+			to = len(runes)
+		}
+		if sp.From > col {
+			b.WriteString(string(runes[col:sp.From]))
+		}
+		b.WriteString(operatorInkStyle(sp.Ink).Render(string(runes[sp.From:to])))
+		col = to
+	}
+	if col < len(runes) {
+		b.WriteString(string(runes[col:]))
+	}
+	return b.String()
+}
+
+// operatorInkStyle maps a registry ink to a house style: named tokens hit the
+// shared palette (InkRed is deliberately cRed NON-bold - a glint, not a surface),
+// custom hues become adaptive dark/light pairs, the zero ink renders plain.
+func operatorInkStyle(ink operator.BrandInk) lipgloss.Style {
+	switch ink.Token {
+	case operator.InkDim:
+		return stDim
+	case operator.InkBrand:
+		return stBrand
+	case operator.InkKey:
+		return stKey
+	case operator.InkRed:
+		return lipgloss.NewStyle().Foreground(cRed)
+	case operator.InkRedBold:
+		return stRed
+	}
+	if ink.Dark == "" {
+		return lipgloss.NewStyle()
+	}
+	light := ink.Light
+	if light == "" {
+		light = ink.Dark
+	}
+	st := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: light, Dark: ink.Dark})
+	if ink.Bold {
+		st = st.Bold(true)
+	}
+	return st
 }
 
 // operatorBrandStyle maps a registry accent to a render style (the house stKey when "").
@@ -496,6 +576,14 @@ func (m model) operatorPatchView(w int) string {
 	mdl := ""
 	if m.proxyHolder != nil {
 		mdl = m.proxyHolder.Get().Model
+	}
+	// The windowshade keeps the handoff to ONE static line (plates doc §1b: compact
+	// is prefers-reduced-motion; at one line the guest's name IS the brand). Shared
+	// template for every guest; truncVisible clamps so the band name truncates first.
+	if m.compact {
+		line := "  " + stRed.Render(beaconDot()) + " " + stDim.Render("patching ") +
+			stKey.Render(h.det.Guest.Name) + stDim.Render(glyphs.Fold(" through on "+mdl+"…"))
+		return truncVisible(line, w) + "\n"
 	}
 	var b strings.Builder
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · handing off") +
