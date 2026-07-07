@@ -198,7 +198,9 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	}
 	m.agentIn.Focus()
 	m.status = stDim.Render("AGENT ready · esc exits")
-	return m, textinput.Blink
+	// Async desk scan (Guest Operators): LookPath + bounded version probes off the event
+	// loop, landing as operatorDetectedMsg - the same pattern as onSharesDetected.
+	return m, tea.Batch(textinput.Blink, operatorScanCmd())
 }
 
 // refreshAgentModel re-resolves the agent's model (open channel, else this session's
@@ -302,6 +304,15 @@ const eventCost = harness.EventKind(1000)
 // other keys feed the prompt input. Because this owns its keys (and never consults
 // presetForKey), a typed `0` is a literal digit, NEVER a re-entry into AGENT.
 func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A live guest-operator handoff (staging or execing) owns the terminal: no key
+	// reaches the TUI until the exec callback returns the desk.
+	if m.operatorHandoff != nil {
+		return m, nil
+	}
+	// The /operator picker owns every key while open (same modal contract as /model).
+	if m.operatorPicker {
+		return m.onOperatorPickerKey(k)
+	}
 	// The /model picker owns every key while open (arrow + enter to choose, esc to
 	// cancel) so a digit/preset/left-right is NEVER stolen out from under it.
 	if m.agentPicker {
@@ -582,7 +593,7 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 // TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
 // Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
 // typable but are not suggested.
-var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/persona", "/remote-control"}
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/persona", "/remote-control"}
 
 // agentSlashCandidates returns the agentCommands entries the input's command word
 // prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
@@ -684,6 +695,10 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		note("✓ copied the agent transcript to the clipboard")
 		m.status = copiedToast("the agent transcript")
 		return m, clipboardWrite(txt)
+	case "operator", "mic", "guest", "op":
+		// Hand the mic to a guest operator (an installed agent CLI) on the open channel
+		// (Guest Operators Phase 2). Aliases /mic /guest /op are typable, never suggested.
+		return m.runOperatorCommand(fields[1:])
 	case "remote-control", "remote", "rc":
 		// Put THIS session on the air (BASE STATION) — continue it from another surface
 		// logged into your account. `/remote-control off` takes it back off the air.
@@ -695,6 +710,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
 		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
+		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
 		return m, nil
 	default:
 		note("unknown: /" + cmd + " · /help for AGENT commands")
@@ -1033,6 +1049,11 @@ func previewClip(s string) string {
 // safe (it leans on the shared styles, which strip color under NO_COLOR, and clips
 // every line to width).
 func (m model) agentView(w int) string {
+	// A guest-operator handoff in staging owns the whole screen: the ONE staged
+	// PATCHING YOU THROUGH paint before the exec (anti-blank, operator.go).
+	if m.operatorHandoff != nil {
+		return m.operatorPatchView(w)
+	}
 	var b strings.Builder
 	mdl := ""
 	root := "."
@@ -1093,6 +1114,12 @@ func (m model) agentView(w int) string {
 	m.agentVP.SetContent(content)
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
+	}
+	// The /operator hand-the-mic picker (Guest Operators Phase 2): same modal shape as
+	// the /model picker directly below.
+	if m.operatorPicker {
+		b.WriteString(m.operatorPickerView(w))
+		return b.String()
 	}
 	// The /model picker: a small modal list of selectable models (recent / last-tuned +
 	// on-air bands). The cursor row is reverse-video with a carat, matching the band /

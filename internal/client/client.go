@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/glyphs"
@@ -459,6 +460,11 @@ type ProxyOptionsHolder struct {
 
 	budgetMu sync.Mutex
 	spent    float64
+
+	// calls counts completion requests dispatched to the relay this session (Guest
+	// Operators ruling 4, additive): the honest source for the return summary's
+	// "N calls" figure - the child's own claims are never trusted.
+	calls atomic.Int64
 }
 
 // NewProxyOptionsHolder wraps a fixed ProxyOptions as a live source (starts connected).
@@ -512,6 +518,12 @@ func (h *ProxyOptionsHolder) ResetSpend() {
 	h.spent = 0
 	h.budgetMu.Unlock()
 }
+
+// Calls returns how many completion requests this session dispatched to the relay.
+func (h *ProxyOptionsHolder) Calls() int64 { return h.calls.Load() }
+
+// ResetCalls zeroes the session call counter (a fresh guest-operator handoff).
+func (h *ProxyOptionsHolder) ResetCalls() { h.calls.Store(0) }
 
 // Spent returns the accumulated session spend in dollars.
 func (h *ProxyOptionsHolder) Spent() float64 {
@@ -713,6 +725,10 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			defer release(0)
 			onServed = release
 		}
+		// Count the dispatched call (ruling 4): admitted requests only, so the summary's
+		// "N calls" matches what actually reached the relay - a 401/402/400 refusal is not
+		// a call the guest made on the band.
+		h.calls.Add(1)
 		// h.addSpend as onStreamCost: a streamed response carries no cost header - its billed
 		// cost arrives as the `: rogerai-cost=` SSE comment at stream END, accumulated after
 		// the budget slot was already released (the ceiling's crossing stream completes; the

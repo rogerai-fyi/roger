@@ -72,15 +72,7 @@ func EnableRC(broker, name string) (*RCBridge, RCEnableResult, error) {
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return nil, RCEnableResult{}, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	rb := &RCBridge{
-		broker: broker, sessionID: res.SessionID, hostToken: res.HostToken,
-		out:     make(chan protocol.RCFrame, 256),
-		inbound: make(chan protocol.RCInbound, 64),
-		stop:    make(chan struct{}),
-		ctx:     ctx, cancel: cancel,
-	}
-	return rb, res, nil
+	return NewRCBridge(broker, res.SessionID, res.HostToken), res, nil
 }
 
 // ListRC fetches the owner's remote-control roster (signed).
@@ -274,6 +266,104 @@ type RCBridge struct {
 	cancel                       context.CancelFunc
 	stopOnce                     sync.Once
 	stopped                      atomic.Bool
+
+	// The guest-operator PARK interlock (Guest Operators Phase 2, rc_interlock.feature).
+	// tea.ExecProcess suspends the TUI event loop but THESE goroutines keep pumping, so
+	// the interlock lives here: while parked, inbound turns/confirms are DROPPED at the
+	// bridge (a status auto-frame tells the sender the guest has the mic) and backfill is
+	// answered from the park-time transcript snapshot. NOTHING is queued - a parked turn
+	// must never burst-replay into the DJ on return (a replayed turn bills).
+	parkMu       sync.Mutex
+	parkOperator string // "" = not parked; otherwise the guest at the desk
+	parkSnapshot string // the transcript snapshot backfill is answered with while parked
+}
+
+// NewRCBridge builds a host bridge over an already-enabled session (its id + one-time
+// HOST TOKEN). EnableRC wraps this after /rc/enable; it is exported so any host surface
+// holding a token can run the same bridge. The caller starts it with Run().
+func NewRCBridge(broker, sessionID, hostToken string) *RCBridge {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &RCBridge{
+		broker: broker, sessionID: sessionID, hostToken: hostToken,
+		out:     make(chan protocol.RCFrame, 256),
+		inbound: make(chan protocol.RCInbound, 64),
+		stop:    make(chan struct{}),
+		ctx:     ctx, cancel: cancel,
+	}
+}
+
+// Park engages the guest-operator interlock: called by the host BEFORE the exec command
+// is issued. operator names the guest for the status auto-frames; snapshot is the
+// transcript a mid-handoff backfill is answered with (the host cannot serve it itself -
+// its event loop is suspended). Nil-safe.
+func (rb *RCBridge) Park(operator, snapshot string) {
+	if rb == nil {
+		return
+	}
+	rb.parkMu.Lock()
+	rb.parkOperator, rb.parkSnapshot = operator, snapshot
+	rb.parkMu.Unlock()
+}
+
+// Unpark releases the interlock in the exec return callback. Nothing parked replays -
+// dropped inbound is gone for good (the sender was told immediately). A no-op on an
+// unparked, stopped, or nil bridge (a revoke-all can kill the bridge mid-handoff).
+func (rb *RCBridge) Unpark() {
+	if rb == nil {
+		return
+	}
+	rb.parkMu.Lock()
+	rb.parkOperator, rb.parkSnapshot = "", ""
+	rb.parkMu.Unlock()
+}
+
+// Parked reports whether the guest-operator interlock is engaged (and for whom).
+func (rb *RCBridge) Parked() (operator string, parked bool) {
+	if rb == nil {
+		return "", false
+	}
+	rb.parkMu.Lock()
+	defer rb.parkMu.Unlock()
+	return rb.parkOperator, rb.parkOperator != ""
+}
+
+// parkIntercept handles one inbound while parked, AT THE BRIDGE (the TUI's Update loop is
+// suspended under tea.ExecProcess). Returns true when the inbound was consumed here:
+//   - turn:     DROPPED + a status auto-frame ("guest has the mic") so the sender knows
+//     immediately; never queued, never replayed on return.
+//   - confirm:  DROPPED silently - no DJ confirm can be pending (the handoff preconditions
+//     require an idle DJ loop), so any confirm arriving parked is stale by definition.
+//   - interrupt: DROPPED - there is no in-flight DJ turn to cancel.
+//   - backfill: answered with the park-time transcript snapshot + the status frame, so a
+//     viewer attaching mid-handoff sees a live, honest session, not a blank stream.
+func (rb *RCBridge) parkIntercept(in protocol.RCInbound) bool {
+	op, parked := rb.Parked()
+	if !parked {
+		return false
+	}
+	switch in.Kind {
+	case protocol.RCInBackfill:
+		rb.parkMu.Lock()
+		snap := rb.parkSnapshot
+		rb.parkMu.Unlock()
+		rb.Emit(protocol.RCFrame{Kind: protocol.RCKindBackfill, Viewer: in.Viewer, Text: snap})
+		rb.Emit(OperatorStatusFrame(op))
+	case protocol.RCInTurn:
+		rb.Emit(OperatorStatusFrame(op))
+	}
+	return true // confirm/interrupt (and anything else) drop silently while parked
+}
+
+// OperatorStatusFrame is the ONE constructor for the "guest has the mic" status frame:
+// plain RCKindStatus carrying the operator name additively (RCFrame.Operator) - old
+// viewers render or ignore it; the reserved operator_* kinds stay behavior-free in v1
+// (ruling 7). Exported so the TUI's handoff-start announcement and the bridge's parked
+// auto-frames can never drift apart.
+func OperatorStatusFrame(operator string) protocol.RCFrame {
+	return protocol.RCFrame{
+		Kind: protocol.RCKindStatus, Operator: operator,
+		Text: "guest has the mic: " + operator + " - the DJ answers when the handoff ends",
+	}
 }
 
 // SessionID reports the bridge's session id (for the roster / disable).
@@ -362,6 +452,11 @@ func (rb *RCBridge) pollLoop() {
 		resp.Body.Close()
 		var in protocol.RCInbound
 		if json.Unmarshal(raw, &in) == nil && in.Kind != "" {
+			// Guest-operator interlock: while parked, the inbound is consumed AT THE
+			// BRIDGE (dropped/answered) and never reaches the suspended host loop.
+			if rb.parkIntercept(in) {
+				continue
+			}
 			select {
 			case rb.inbound <- in:
 			case <-rb.stop:
