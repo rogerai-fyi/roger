@@ -367,7 +367,11 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// the TUI off AGENT mid-staging - never exec the guest under another modal.
 	if m.mode != modeAgent || m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
 		m.operatorHandoff = nil
-		m.rcNote("handoff aborted - the DJ picked up a turn while patching · /operator again once it finishes")
+		if m.mode != modeAgent {
+			m.rcNote("handoff aborted - you left the desk mid-patch · /operator from AGENT to try again")
+		} else {
+			m.rcNote("handoff aborted - the DJ picked up a turn while patching · /operator again once it finishes")
+		}
 		m.status = stDim.Render("back at the desk · the DJ is standing by")
 		return m, nil
 	}
