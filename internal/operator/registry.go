@@ -48,7 +48,13 @@ type Guest struct {
 	// house default.
 	BrandPlate  string // multi-line ASCII wordmark for the PATCHING YOU THROUGH screen
 	BrandAccent string // accent color (hex like "#fab387" or ANSI-256 index) for plate + glyph
-	BrandGlyph  string // single-cell picker-row glyph
+	BrandGlyph  string // single-cell picker-row glyph - stays "" for EVERY guest (plates doc §6)
+
+	// Brand is the finished per-row plate the design pass landed (brand.go, from
+	// GUEST-OPERATOR-PLATES.md): styled spans, adaptive hues, the ASCII/narrow
+	// lockup. nil = the text-only house default. Supersedes the single-accent
+	// BrandPlate string above (kept for seam compatibility, unused by the registry).
+	Brand *BrandArt
 }
 
 // Registry is the ONE source of who can ever appear at the desk (MVP set, design doc §4/§6).
@@ -56,24 +62,28 @@ type Guest struct {
 // wire, and a naive launch silently falls back to the user's REAL Anthropic account - the
 // exact failure §4 measured. Order is the desk display order.
 func Registry() []Guest {
+	plates := BrandArts() // the §1-§3 plates ride as data; claude/codex stay dormant in BrandArts()
 	return []Guest{
 		{
 			Name: "opencode", Bin: "opencode", Provider: "openai",
 			InstallHint: "curl -fsSL https://opencode.ai/install | bash",
 			KnownGood:   "1.17.11", // proven end-to-end on the dev box, 2026-07-06
 			Strategy:    StrategyScratchConfig,
+			Brand:       plates["opencode"],
 		},
 		{
 			Name: "hermes", Bin: "hermes", Provider: "openai",
 			InstallHint: "pip install hermes-agent",
 			KnownGood:   "0.16.0", // proven end-to-end on the dev box, 2026-07-06
 			Strategy:    StrategyScratchHome,
+			Brand:       plates["hermes"],
 		},
 		{
 			Name: "aider", Bin: "aider", Provider: "openai",
 			InstallHint: "uv tool install aider-chat",
 			KnownGood:   "0.86.2", // verified at GREEN stage (founder ruling 6): installed + run live 2026-07-06
 			Strategy:    StrategyEnvFlags,
+			Brand:       plates["aider"],
 		},
 	}
 }

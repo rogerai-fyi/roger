@@ -139,11 +139,13 @@ var asciiFold = map[rune]rune{
 // Fold replaces non-ASCII art/signal runes with ASCII stand-ins WHEN ASCII() is in
 // effect; otherwise it returns s unchanged. Used to keep the Ping beacon art legible
 // on a legacy Windows console without touching the (rune-exact) animation tables.
+// The one-rune ellipsis expands to three dots first (asciiFold is rune-to-rune, so
+// the 1->3 case is a string-level pre-pass; GUEST-OPERATOR-PLATES.md §7).
 func Fold(s string) string {
 	if !ASCII() {
 		return s
 	}
-	return foldASCII(s)
+	return foldASCII(strings.ReplaceAll(s, "…", "..."))
 }
 
 // foldASCII applies the asciiFold map to every rune of s. Exposed (unconditionally)
