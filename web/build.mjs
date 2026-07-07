@@ -49,6 +49,7 @@ const CSS_BUNDLES = {
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
   "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
   "broadcasts-vram-for-llm.html":    [...CSS_MARKETING, "broadcasts.css"], // broadcast 003 · SEO field guide (VRAM)
+  "broadcasts-share-gpu-earn.html":  [...CSS_MARKETING, "broadcasts.css"], // broadcast 004 · SEO field guide (share/earn)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
