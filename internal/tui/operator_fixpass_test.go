@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/operator"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -171,4 +173,105 @@ func TestExecTimeAbortEmitsDJBackFrame(t *testing.T) {
 			t.Fatalf("the band-drop abort emitted no DJ-back frame (frames: %+v)", fb.emitted)
 		}
 	})
+}
+
+// TestPickerHeaderHonestWhenDisconnected pins iteration-2 finding #5: with NO channel open
+// the /operator picker header must not claim "the guest runs on <model>, through your open
+// channel" (the gate then refuses on select) - it points the user to tune in first instead.
+func TestPickerHeaderHonestWhenDisconnected(t *testing.T) {
+	m, holder, _ := opRegressionSeed(t)
+	holder.Disconnect() // no band tuned - the model string survives but there is no channel
+	m.operatorPicker = true
+	m.operatorRows = m.buildOperatorRows()
+	v := stripANSI(m.operatorPickerView(120))
+	if strings.Contains(v, "through your open channel") || strings.Contains(v, "runs on "+holder.Get().Model) {
+		t.Fatalf("disconnected picker must not claim an open channel or a running model:\n%s", v)
+	}
+	if !strings.Contains(v, "tune in first") {
+		t.Fatalf("disconnected picker should tell the user to tune in first:\n%s", v)
+	}
+	// Sanity: connected, the honest claim returns.
+	m2, holder2, _ := opRegressionSeed(t)
+	_ = holder2
+	m2.operatorPicker = true
+	m2.operatorRows = m2.buildOperatorRows()
+	if cv := stripANSI(m2.operatorPickerView(120)); !strings.Contains(cv, "through your open channel") {
+		t.Fatalf("connected picker should still make the honest running-on claim:\n%s", cv)
+	}
+}
+
+// TestHandoffPlateRowsClipGracefully pins iteration-2 finding #6: the HAND-OFF CHECK plate
+// rows must clip through the graceful (ellipsis) treatment at a narrow width - never a
+// jarring mid-word hard cut like "takes the mic on your open ch".
+func TestHandoffPlateRowsClipGracefully(t *testing.T) {
+	g := plateGuest(t, "opencode")
+	det := operator.Detection{Guest: g, Path: "/fake/opencode", Version: g.KnownGood}
+	m := asModel(agentReady(t))
+	m.operatorPlate = &operatorPlate{det: det, workdir: "/tmp/wd", budgetIdx: 0}
+	for _, line := range strings.Split(stripANSI(m.operatorPlateView(60)), "\n") {
+		if w := len([]rune(line)); w > 60 {
+			t.Fatalf("a plate row overflows 60 cols (%d): %q", w, line)
+		}
+		// the guest row is the one the finding caught clipping mid-word.
+		if strings.Contains(line, "guest") && strings.Contains(line, "opencode") {
+			if strings.Contains(line, "on your open ch") && !strings.Contains(line, "…") {
+				t.Fatalf("the guest row hard-clips mid-word with no ellipsis:\n%q", line)
+			}
+		}
+	}
+}
+
+// TestPatchViewCopyMatchesDoc pins iteration-2 finding #7: the LIVE PATCHING plate copy
+// matches the GUEST-OPERATOR-PLATES.md §3d mock - the "on band" row names the station
+// ("via @<node>") and keeps the "·" separator; the "wire" row restores its " - " separator.
+func TestPatchViewCopyMatchesDoc(t *testing.T) {
+	g := plateGuest(t, "opencode")
+	det := operator.Detection{Guest: g, Path: "/fake/opencode", Version: g.KnownGood}
+	m := asModel(agentReady(t))
+	m.endpoint = "http://host/v1"
+	m.connected = &offer{NodeID: "rocket", Model: "qwen3-32b-fp8"}
+	m.proxyHolder = client.NewProxyOptionsHolder(client.ProxyOptions{Model: "qwen3-32b-fp8"})
+	m.operatorHandoff = &operatorHandoff{det: det}
+	v := stripANSI(m.operatorPatchView(120))
+	if !strings.Contains(v, "via @rocket") {
+		t.Fatalf("the on-band row must name the station via @<node>:\n%s", v)
+	}
+	if !strings.Contains(v, "your open channel · usual relay pricing") {
+		t.Fatalf("the on-band row must keep the '·' separators:\n%s", v)
+	}
+	if !strings.Contains(v, "config generated in a scratch dir - your own setup is untouched") {
+		t.Fatalf("the wire row must restore its ' - ' separator:\n%s", v)
+	}
+}
+
+// TestExecTimeAbortQueuedTurnHonestCopy pins iteration-2 finding (honest copy): the busy
+// exec-time abort branch printed "the DJ picked up a turn while patching" for the
+// len(agentQueued)>0 case too - but a QUEUED turn is one WAITING, not one the DJ picked up.
+// The queued case now gets its own honest line (and still emits the corrective DJ-back frame
+// like every other abort).
+func TestExecTimeAbortQueuedTurnHonestCopy(t *testing.T) {
+	m, _, execs := opRegressionSeed(t)
+	fb := newFakeBridge()
+	m.rcBridge = fb
+	var tm tea.Model
+	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the pre-launch plate -> staged
+	// A turn was QUEUED during the staging beat (not in flight): the DJ is idle but a turn waits.
+	mm := asModel(tm)
+	mm.agentQueued = append(mm.agentQueued, queuedPrompt{text: "later please"})
+	tm, _ = mm.Update(operatorExecMsg{})
+	got := asModel(tm)
+	if got.operatorHandoff != nil || len(*execs) != 0 {
+		t.Fatal("a queued turn must abort the exec-time handoff")
+	}
+	view := stripANSI(strings.Join(got.agentLines, "\n"))
+	if strings.Contains(view, "the DJ picked up a turn") {
+		t.Fatalf("a queued turn is WAITING, not one the DJ picked up - the copy must not claim it did:\n%s", view)
+	}
+	if !strings.Contains(view, "queued turn") {
+		t.Fatalf("the queued-case abort should name the waiting queued turn honestly:\n%s", view)
+	}
+	if !djBackEmitted(fb) {
+		t.Fatalf("the queued-case abort emitted no DJ-back frame (frames: %+v)", fb.emitted)
+	}
 }

@@ -136,7 +136,12 @@ func BrandArts() map[string]*BrandArt {
 				{Text: "\\__,_|_\\__,_\\___|_|", Ink: inkGreen},
 				{Text: "ai pair programming in your terminal", Ink: BrandInk{Token: InkDim}},
 			},
-			Width:    21, // the wordmark (the doc sets the narrow threshold at 23, not the tagline's 38)
+			// The tagline (36 cells) is the WIDEST art row, so IT gates the narrow swap -
+			// not the 21-cell wordmark. Threshold 2+36=38: below it the plate swaps whole to
+			// the "aider" lockup rather than hard-truncating the tagline mid-word (truncVisible
+			// cuts with no ellipsis - a clipped "ai pair programming i" reads as broken and
+			// breaks §7's "shipped art is never cropped" promise). Iteration-2 fix (carried c).
+			Width:    36,
 			Lockup:   BrandRow{Text: "aider", Ink: inkGreen},
 			ASCIIArt: true,
 		},

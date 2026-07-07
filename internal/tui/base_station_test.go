@@ -477,6 +477,19 @@ func TestOnRemoteFrameKinds(t *testing.T) {
 			}
 		}},
 		{"error", protocol.RCFrame{Kind: protocol.RCKindError, Text: "boom"}, "boom", nil},
+		// Guest Operators iteration-2 finding: the desktop viewer used to DROP RCKindStatus
+		// frames, so a handoff looked dead. A status frame now renders as a dim line -
+		// operator-aware for a guest handoff, the plain text for the DJ-back transition,
+		// and nothing when the frame carries neither (content-blind: only the guest name).
+		{"status names the operator", protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "opencode", Text: "guest has the mic: opencode - the DJ answers when the handoff ends"}, "guest has the mic: opencode", func(t *testing.T, gm model) {
+			// content-blind + tidy: the operator-aware line is the short handoff line, not
+			// the frame's full sentence (no band/model/spend rides the frame anyway).
+			if last := stripANSI(gm.rsLines[len(gm.rsLines)-1]); strings.Contains(last, "answers when the handoff ends") {
+				t.Errorf("the viewer line should be the short operator-aware line, got %q", last)
+			}
+		}},
+		{"status DJ back has no operator", protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"}, "the DJ is back at the desk", nil},
+		{"status with neither text nor operator is skipped", protocol.RCFrame{Kind: protocol.RCKindStatus}, "", nil},
 		{"ended clears + reports", protocol.RCFrame{Kind: protocol.RCKindEnded}, "session ended on the host", func(t *testing.T, gm model) {
 			if gm.rsPendingConfirm {
 				t.Error("ended must clear a pending confirm")

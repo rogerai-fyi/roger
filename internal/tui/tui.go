@@ -5128,6 +5128,17 @@ func truncVisible(s string, n int) string {
 	return ansi.Truncate(s, n, "")
 }
 
+// truncVisibleTail is truncVisible with a graceful "…" tail (folded to "..." under ASCII):
+// a line that is actually cut ends in an ellipsis so the clip reads as intentional, never a
+// jarring mid-word hard cut. A line that fits is returned untouched. Used by the hand-off
+// plates so a narrow terminal degrades cleanly.
+func truncVisibleTail(s string, n int) string {
+	if lipgloss.Width(s) <= n || n <= 0 {
+		return s
+	}
+	return ansi.Truncate(s, n, glyphs.Fold("…"))
+}
+
 // header is the PERSISTENT status bar, always visible: the brand lockup with the
 // live-red on-air eye + the current state. It COMPACTS to a thin one-line bar
 // once a channel is open (so you never lose "what am I on + my balance"), and the

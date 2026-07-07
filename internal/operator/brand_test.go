@@ -6,13 +6,27 @@ package operator
 // code blocks (span boundaries machine-verified against the doc before landing);
 // these tests exist so a stray edit can never corrupt a shipped wordmark: every
 // row's exact bytes, every span boundary, every hue pair, and the §6 "no picker
-// glyphs" ruling are pinned here. Data-only against the Phase 2 BrandPlate seam -
+// glyphs" ruling are pinned here. Data-only against the Guest.Brand (BrandArt) seam -
 // transition logic is untouched and untested here (handoff specs own it).
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+// TestBrandLockupsHaveNoRawEllipsis is PREVENTIVE (iteration-2 finding): glyphs.Fold expands
+// a raw "…" to "..." (one rune -> three cells) under ASCII, which would silently shift a
+// lockup's column-based spans and misalign the wordmark. No shipped lockup may carry one - a
+// future guest that wants an ellipsis must spell it out. This guards the whole registry,
+// including the dormant claude/codex drafts.
+func TestBrandLockupsHaveNoRawEllipsis(t *testing.T) {
+	for name, art := range BrandArts() {
+		if strings.Contains(art.Lockup.Text, "…") {
+			t.Errorf("%s lockup %q carries a raw ellipsis '…' - glyphs.Fold expands it to '...' and shifts the spans; spell it out instead", name, art.Lockup.Text)
+		}
+	}
+}
 
 // The doc's hue registrations (§8): dark canonical / light collapse pairs.
 var (
@@ -113,11 +127,11 @@ func TestBrandArtsExactBytes(t *testing.T) {
 }
 
 // TestBrandArtWidths pins each plate's narrow-swap width (§7: full art renders
-// whenever termWidth >= 2 + artWidth; opencode 42, hermes 51, aider 21 (the figlet
-// wordmark, NOT the longer tagline - the doc sets aider's threshold at 23), claude
-// 18, codex 15).
+// whenever termWidth >= 2 + artWidth; opencode 42, hermes 51, aider 36 (the tagline
+// is the WIDEST row, so it gates the swap - iteration-2 fix so the tagline never
+// clips), claude 18, codex 15).
 func TestBrandArtWidths(t *testing.T) {
-	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 21, "claude": 18, "codex": 15}
+	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 36, "claude": 18, "codex": 15}
 	arts := BrandArts()
 	for name, w := range want {
 		if got := arts[name].Width; got != w {
@@ -291,14 +305,7 @@ func TestRegistryCarriesBrandArts(t *testing.T) {
 	}
 }
 
-// TestNoPickerGlyphs pins §6, on the record: NO per-guest brand glyphs in THE DESK
-// roster or the /operator picker - the BrandGlyph seam stays EMPTY for all guests
-// (the desk is the host's furniture; identity gets its moment on the PATCHING
-// plate - one hue, one beat, once).
-func TestNoPickerGlyphs(t *testing.T) {
-	for _, g := range Registry() {
-		if g.BrandGlyph != "" {
-			t.Fatalf("%s: the picker stays mono - no brand glyph (doc §6), got %q", g.Name, g.BrandGlyph)
-		}
-	}
-}
+// §6 "no picker glyphs" is now enforced structurally: the vestigial single-accent
+// BrandGlyph seam was deleted (iteration-2 minimization), so there is no field a guest
+// could ever carry a picker glyph on, and the picker renderer has no glyph slot. The
+// identity moment lives only on the PATCHING plate - one hue, one beat, once.

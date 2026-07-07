@@ -42,18 +42,9 @@ type Guest struct {
 	NeedsSetup bool
 	SetupNote  string
 
-	// Per-brand presence seam (founder direction 2026-07-06): a dedicated design pass
-	// will land each operator's wordmark as DATA-ONLY registry changes - the transition
-	// logic never changes. All three are optional; empty means the tasteful text-only
-	// house default.
-	BrandPlate  string // multi-line ASCII wordmark for the PATCHING YOU THROUGH screen
-	BrandAccent string // accent color (hex like "#fab387" or ANSI-256 index) for plate + glyph
-	BrandGlyph  string // single-cell picker-row glyph - stays "" for EVERY guest (plates doc §6)
-
 	// Brand is the finished per-row plate the design pass landed (brand.go, from
-	// GUEST-OPERATOR-PLATES.md): styled spans, adaptive hues, the ASCII/narrow
-	// lockup. nil = the text-only house default. Supersedes the single-accent
-	// BrandPlate string above (kept for seam compatibility, unused by the registry).
+	// GUEST-OPERATOR-PLATES.md): styled spans, adaptive hues, the ASCII/narrow lockup
+	// rendered on the PATCHING YOU THROUGH screen. nil = the text-only house default.
 	Brand *BrandArt
 }
 
