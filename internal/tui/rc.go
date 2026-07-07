@@ -625,6 +625,17 @@ func (m model) onRemoteFrame(msg remoteFrameMsg) (tea.Model, tea.Cmd) {
 			v = "approved"
 		}
 		m.rsLines = append(m.rsLines, "  "+stDim.Render("✓ "+v+" from "+f.Origin))
+	case protocol.RCKindStatus:
+		// A guest-operator handoff (or the DJ-back return) - render it so the viewer never
+		// sees the stream go dead mid-handoff. Operator-aware + content-blind: only the guest
+		// name and the fixed line ride the frame (no band/model/spend), matching the web console.
+		line := f.Text
+		if f.Operator != "" {
+			line = glyphOnAir + " guest has the mic: " + f.Operator
+		}
+		if strings.TrimSpace(line) != "" {
+			m.rsLines = append(m.rsLines, stDim.Render(line))
+		}
 	case protocol.RCKindBackfill:
 		if strings.TrimSpace(f.Text) != "" {
 			m.rsLines = append([]string{stDim.Render(f.Text)}, m.rsLines...)

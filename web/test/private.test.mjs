@@ -67,3 +67,21 @@ test("frameLine: empty assistant/backfill text renders nothing (null)", () => {
   assert.equal(V.frameLine({ kind: "backfill", text: "" }), null);
   assert.equal(V.frameLine({ kind: "unknown_kind" }), null);
 });
+
+// Guest Operators iteration-2 finding: the web console used to DROP RCKindStatus frames, so a
+// handoff looked dead in the browser (only iOS rendered "guest has the mic"). A status frame now
+// renders as a dim rc-status line: operator-aware for a guest handoff, the plain text for the
+// DJ-back transition, nothing when it carries neither (content-blind — only the guest name).
+test("frameLine: a status frame renders the handoff transition as a dim rc-status line", () => {
+  const V = loadCore();
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "opencode", text: "guest has the mic: opencode - the DJ answers when the handoff ends" }),
+    { cls: "rc-status", text: "◉ guest has the mic: opencode" },
+  );
+  assert.deepEqual(
+    V.frameLine({ kind: "status", text: "the DJ is back at the desk" }),
+    { cls: "rc-status", text: "the DJ is back at the desk" },
+  );
+  assert.equal(V.frameLine({ kind: "status" }), null);
+  assert.equal(V.frameLine({ kind: "status", text: "" }), null);
+});

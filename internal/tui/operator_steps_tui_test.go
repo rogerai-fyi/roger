@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cucumber/godog"
 	"github.com/rogerai-fyi/roger/internal/client"
@@ -90,6 +91,9 @@ type opBDD struct {
 	retCalls     int64
 	retSpend     float64
 	firstDir     string
+
+	// a standalone remote-control VIEWER model (the desktop half that renders relayed frames)
+	viewer model
 
 	// RC interlock (a REAL client.RCBridge against a stub RC broker)
 	rcSrv    *httptest.Server
@@ -1343,6 +1347,43 @@ func (s *opBDD) viewersReceiveGuestHasMicStatus() error {
 	return fmt.Errorf("no 'guest has the mic' status frame (frames: %+v)", s.framesSnapshot())
 }
 
+// --- desktop remote VIEWER (iteration-2 status-frame render finding) --------------------
+
+// viewerAttached stands up a standalone desktop RC viewer in the live-session mode, on a
+// fresh generation - the surface that renders broker-relayed frames into its transcript.
+func (s *opBDD) viewerAttached() error {
+	s.viewer = bsSeed()
+	s.viewer.mode = modeRemoteSession
+	s.viewer.rsGen = 1
+	s.viewer.rsVP = viewport.New(80, 10)
+	return nil
+}
+
+// viewerReceivesOperatorStatus feeds the REAL guest-has-the-mic status frame (the ONE
+// constructor the host + bridge share) through the viewer's real onRemoteFrame.
+func (s *opBDD) viewerReceivesOperatorStatus(op string) error {
+	nm, _ := s.viewer.onRemoteFrame(remoteFrameMsg{gen: s.viewer.rsGen, f: client.OperatorStatusFrame(op)})
+	s.viewer = asModel(nm)
+	return nil
+}
+
+// viewerReceivesDJBack feeds the DJ-back status frame the desk emits on return.
+func (s *opBDD) viewerReceivesDJBack() error {
+	nm, _ := s.viewer.onRemoteFrame(remoteFrameMsg{gen: s.viewer.rsGen,
+		f: protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"}})
+	s.viewer = asModel(nm)
+	return nil
+}
+
+// viewerTranscriptShows asserts the rendered viewer transcript carries the text (the frame
+// was not silently dropped).
+func (s *opBDD) viewerTranscriptShows(text string) error {
+	if joined := stripANSI(strings.Join(s.viewer.rsLines, "\n")); strings.Contains(joined, text) {
+		return nil
+	}
+	return fmt.Errorf("the viewer transcript does not show %q (lines: %q)", text, s.viewer.rsLines)
+}
+
 func (s *opBDD) noAgentTurnFires(text string) error {
 	if err := s.turnNotQueuedForDJ(); err != nil {
 		return err
@@ -1897,6 +1938,10 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 	sc.Step(`^v1 attaches no behavior to any of them$`, st.reservedKindsNoBehavior)
 	sc.Step(`^the handoff to "([^"]*)" begins and the guest works for a while$`, st.handoffBeginsAndGuestWorks)
 	sc.Step(`^no frame carries any guest terminal output$`, st.noFrameCarriesGuestOutput)
+	sc.Step(`^a desktop remote-control viewer attached to a live session$`, st.viewerAttached)
+	sc.Step(`^a status frame announces the guest "([^"]*)" has the mic$`, st.viewerReceivesOperatorStatus)
+	sc.Step(`^a status frame announces the DJ is back at the desk$`, st.viewerReceivesDJBack)
+	sc.Step(`^the viewer transcript shows "([^"]*)"$`, st.viewerTranscriptShows)
 
 	// ── iteration-1 fix-pass regressions (2026-07) ─────────────────────────────
 	sc.Step(`^a viewer sends a turn "([^"]*)" that the busy host queues$`, st.viewerTurnQueuedWhileBusy)

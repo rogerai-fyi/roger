@@ -37,7 +37,7 @@
 .rc-line { white-space: pre-wrap; word-break: break-word; margin: 0.1rem 0; }
 .rc-user { color: var(--red, #ff4438); }
 .rc-asst { color: var(--ink, #e7e3d8); }
-.rc-tool, .rc-backfill { color: var(--dim, #9a968b); }
+.rc-tool, .rc-backfill, .rc-status { color: var(--dim, #9a968b); }
 .rc-confirm { color: var(--body, #cfcabb); display: flex; align-items: center; gap: 0.35rem; }
 .rc-confirm span { flex: 1; }
 .rc-err { color: var(--red, #ff4438); }

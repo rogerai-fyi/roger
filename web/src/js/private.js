@@ -39,6 +39,13 @@
       case "tool_result": return { cls: "rc-tool", text: "✓ " + (f.tool || "") };
       case "confirm_req": return { cls: "rc-confirm", text: "? " + (f.tool || "") + " - approve? (runs on the host)", confirm: f.confirm_id || "" };
       case "confirm_done": return { cls: "rc-tool", text: "✓ " + (f.approve ? "approved" : "denied") + " from " + (f.origin || "") };
+      // A guest-operator handoff (or the DJ-back return): render it dim so the viewer never sees
+      // the stream go dead mid-handoff. Operator-aware + content-blind (only the guest name + the
+      // fixed line ride the frame — no band/model/spend); a status with neither renders nothing.
+      case "status": {
+        var st = f.operator ? "◉ guest has the mic: " + f.operator : (f.text || "");
+        return st.trim() ? { cls: "rc-status", text: st } : null;
+      }
       case "backfill": return f.text && f.text.trim() ? { cls: "rc-backfill", text: f.text } : null;
       case "error": return { cls: "rc-err", text: "✗ " + (f.text || "") };
       case "ended": return { cls: "rc-tool", text: "— session ended on the host —", ended: true };
