@@ -241,6 +241,7 @@ func TestMaterializeRejectsUnsafeValues(t *testing.T) {
 		{"newline in base URL", func(s *Session) { s.BaseURL = "http://x/v1\napi_key: stolen" }},
 		{"backslash in model", func(s *Session) { s.Model = `m\"` }},
 		{"yaml colon-space in model", func(s *Session) { s.Model = "m: evil" }},
+		{"yaml comment hash in model", func(s *Session) { s.Model = "m #evil" }}, // " #" starts a YAML comment in a plain scalar
 		{"control byte in base URL", func(s *Session) { s.BaseURL = "http://x/v1\x07" }},
 	}
 	for _, tc := range cases {

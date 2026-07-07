@@ -502,7 +502,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rcEmitLocalTurn(p)
 		}
 		if m.agentBusy {
-			m.agentQueued = append(m.agentQueued, p)
+			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
 			return m, nil
@@ -510,7 +510,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(p, "/") {
 			return m.runAgentCommand(p)
 		}
-		nm, cmd := m.submitAgentPrompt(p)
+		nm, cmd := m.submitAgentPrompt(queuedPrompt{text: p})
 		return nm, cmd
 	}
 	// Input stays typable even while a turn runs, so the user can compose + queue the next
@@ -521,15 +521,29 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, c
 }
 
-// submitAgentPrompt starts ONE agent turn for prompt p: it echoes the ask, re-resolves
+// queuedPrompt is one parked prompt plus its ORIGIN. Origin matters at drain time: a
+// LOCAL "/command" runs inline exactly as if typed when idle, but a REMOTE-queued "/..."
+// is ALWAYS submitted as a chat turn - the same treatment the idle path gives a remote
+// turn (rc.go injects via submitAgentPrompt, never runAgentCommand). Ruling 7: no v1
+// remote handoff or host-side control, and the busy queue must not be a back door to it
+// (iteration-1 finding #1: a remote-queued "/operator opencode" used to exec a guest on
+// the HOST terminal at drain).
+type queuedPrompt struct {
+	text   string
+	remote bool
+}
+
+// submitAgentPrompt starts ONE agent turn for prompt q: it echoes the ask, re-resolves
 // the model, flips the busy/streaming state, and launches the loop goroutine + the drain.
-// It assumes p is a chat turn (not a slash command - those are handled by the caller / by
+// It assumes q is a chat turn (not a slash command - those are handled by the caller / by
 // startQueuedPrompt). If a previous (force-stopped) turn's goroutine is still unwinding it
 // CANNOT start safely on the shared loop, so the prompt is re-queued to run when that
-// goroutine finally exits (agentDoneMsg) - this is what makes force-stop race-free.
-func (m model) submitAgentPrompt(p string) (model, tea.Cmd) {
+// goroutine finally exits (agentDoneMsg) - this is what makes force-stop race-free. The
+// re-queue keeps q's origin, so a re-queued remote "/..." still never slash-dispatches.
+func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
+	p := q.text
 	if m.agent != nil && m.agent.running.Load() {
-		m.agentQueued = append([]string{p}, m.agentQueued...) // jump the queue: it was next
+		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...) // jump the queue: it was next
 		m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
 		return m, nil
 	}
@@ -547,18 +561,20 @@ func (m model) submitAgentPrompt(p string) (model, tea.Cmd) {
 	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
 }
 
-// startQueuedPrompt sends one dequeued item: a slash-command runs inline (it starts no
-// turn), anything else starts a turn. Used by dequeueAgentPrompts so a queued /clear or
-// /model behaves the same as if typed when idle.
-func (m model) startQueuedPrompt(p string) (model, tea.Cmd) {
-	if strings.HasPrefix(p, "/") {
-		nm, c := m.runAgentCommand(p)
+// startQueuedPrompt sends one dequeued item: a LOCALLY-typed slash-command runs inline
+// (it starts no turn), anything else starts a turn - so a locally queued /clear or /model
+// behaves the same as if typed when idle. A REMOTE-origin entry NEVER slash-dispatches:
+// it is always submitted as a chat turn, matching the idle-path treatment of remote turns
+// (iteration-1 finding #1 - the busy queue must not remote-exec host commands).
+func (m model) startQueuedPrompt(q queuedPrompt) (model, tea.Cmd) {
+	if !q.remote && strings.HasPrefix(q.text, "/") {
+		nm, c := m.runAgentCommand(q.text)
 		if mm, ok := nm.(model); ok { // runAgentCommand always returns a model value
 			return mm, c
 		}
 		return m, c
 	}
-	return m.submitAgentPrompt(p)
+	return m.submitAgentPrompt(q)
 }
 
 // dequeueAgentPrompts drains queued prompts FIFO when a turn finishes: it runs leading

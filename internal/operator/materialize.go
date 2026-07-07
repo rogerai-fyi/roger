@@ -151,9 +151,9 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 
 // safeConfigValue reports whether v can be interpolated verbatim into the generated
 // JSON/YAML configs: no control bytes (incl. newlines), no quotes/backslashes/backticks,
-// and no YAML ": " plain-scalar hazard.
+// and no YAML plain-scalar hazards (": " starts a mapping, " #" starts a comment).
 func safeConfigValue(v string) bool {
-	if strings.Contains(v, ": ") {
+	if strings.Contains(v, ": ") || strings.Contains(v, " #") {
 		return false
 	}
 	for _, r := range v {

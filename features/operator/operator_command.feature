@@ -145,3 +145,25 @@ Feature: The /operator command and the hand-the-mic picker
     Given detected guests "opencode"
     When the user runs "/operator OpenCode"
     Then the handoff to "opencode" begins
+
+  # ── iteration-1 fix-pass regressions (2026-07) ──────────────────────────────────
+
+  Scenario: /operator <name> direct-jump to a guest that requires setup prints the setup note, no exec
+    # Finding #5: the picker enforced the NeedsSetup gate but the /operator <name>
+    # direct-jump went straight to the handoff. ONE gate now lives in
+    # startOperatorHandoff and covers both paths (the picker copy is deleted).
+    Given a detected guest "claudeish" that requires setup
+    When the user runs "/operator claudeish"
+    Then no handoff is staged and no child process was launched
+    And the transcript shows the setup note for "claudeish"
+
+  Scenario: /operator <name> direct-jump to an unverified guest carries the picker's unproven-version note
+    # Direct-jump parity with the picker row detail: the picker dims "version X
+    # unproven" for a guest whose version probe failed; the direct jump says the same
+    # honest thing in the transcript before handing off (it still hands off - unproven
+    # is a disclosure, not a block, exactly like the picker's enter).
+    Given a detected guest "opencode" whose version probe failed
+    When the user runs "/operator opencode"
+    And the handoff to "opencode" begins
+    And the guest returns
+    Then the transcript notes "version unknown unproven"
