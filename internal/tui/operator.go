@@ -321,6 +321,9 @@ func operatorBrandRow(row operator.BrandRow) string {
 		// data is golden-pinned in range, but a hand-edited plate must degrade to
 		// plain text - never panic the PATCHING screen.
 		from, to := sp.From, sp.To
+		if from < 0 {
+			from = 0
+		}
 		if from > len(runes) {
 			from = len(runes)
 		}

@@ -338,6 +338,9 @@ func TestBrandRowOutOfRangeSpansSafe(t *testing.T) {
 		{Text: "ok", Spans: []operator.BrandSpan{{From: 5, To: 9, Ink: operator.BrandInk{Token: operator.InkDim}}}},
 		{Text: "ok", Spans: []operator.BrandSpan{{From: 0, To: 99, Ink: operator.BrandInk{Token: operator.InkDim}}}},
 		{Text: "ok", Spans: []operator.BrandSpan{{From: 1, To: 1, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+		{Text: "ok", Spans: []operator.BrandSpan{{From: -3, To: 1, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+		{Text: "ok", Spans: []operator.BrandSpan{{From: -2, To: -1, Ink: operator.BrandInk{Token: operator.InkDim}}}},
+		{Text: "ok", Spans: []operator.BrandSpan{{From: 2, To: 0, Ink: operator.BrandInk{Token: operator.InkDim}}}},
 	}
 	for i, row := range rows {
 		got := stripANSI(operatorBrandRow(row))
