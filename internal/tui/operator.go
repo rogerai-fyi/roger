@@ -777,8 +777,11 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// cmd is returned - inbound remote turns are dropped at the bridge with a status
 	// auto-frame (never queued, never replayed), backfill is answered from this snapshot.
 	if m.rcBridge != nil {
-		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name))
-		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText())
+		// Enrichment from the LIVE holder (rc_enrichment.feature): the exec-time model and
+		// the freshly-reset spend ($0 - ResetSpend just ran); the bridge keeps the live
+		// Spent reader so parked auto-frames report the guest's spend so far at emit time.
+		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
+		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
 	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, os.Environ())
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })

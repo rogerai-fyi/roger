@@ -178,7 +178,14 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 		// "guest has the mic" status auto-frame - the bridge itself parks only at exec
 		// time, so this covers the staging window. Never queued, never replayed.
 		if m.operatorHandoff != nil {
-			m.rcEmit(client.OperatorStatusFrame(m.operatorHandoff.det.Guest.Name))
+			// Staging window: the guest hasn't run yet (spend is $0 by definition - the
+			// accumulator is only reset at exec, so the live figure here could still be a
+			// PREVIOUS session's total and must not ride the frame). Model from the live holder.
+			mdl := ""
+			if m.proxyHolder != nil {
+				mdl = m.proxyHolder.Get().Model
+			}
+			m.rcEmit(client.OperatorStatusFrame(m.operatorHandoff.det.Guest.Name, mdl, 0))
 			return m, rearm
 		}
 		// A pre-launch plate is a LOCAL decision surface: a turn arriving while it is up
@@ -628,10 +635,22 @@ func (m model) onRemoteFrame(msg remoteFrameMsg) (tea.Model, tea.Cmd) {
 	case protocol.RCKindStatus:
 		// A guest-operator handoff (or the DJ-back return) - render it so the viewer never
 		// sees the stream go dead mid-handoff. Operator-aware + content-blind: only the guest
-		// name and the fixed line ride the frame (no band/model/spend), matching the web console.
+		// name plus the model/spend metadata ride the frame, matching the web console.
+		// Enriched copy (founder ruling 3): "<op> has the mic on <model> · $<spend>",
+		// degrading piecewise - no model drops "on <model>", zero spend drops "· $",
+		// neither degrades to the pre-enrichment line (an old host's frames).
 		line := f.Text
 		if f.Operator != "" {
 			line = glyphOnAir + " guest has the mic: " + f.Operator
+			if f.Model != "" || f.Spend > 0 {
+				line = glyphOnAir + " " + f.Operator + " has the mic"
+				if f.Model != "" {
+					line += " on " + f.Model
+				}
+				if f.Spend > 0 {
+					line += " · " + fmt.Sprintf("$%.2f", f.Spend)
+				}
+			}
 		}
 		if strings.TrimSpace(line) != "" {
 			m.rsLines = append(m.rsLines, stDim.Render(line))

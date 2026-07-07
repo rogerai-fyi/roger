@@ -103,6 +103,11 @@ type opBDD struct {
 	bridge   *client.RCBridge
 	framesMu sync.Mutex
 	frames   []protocol.RCFrame
+
+	// operator frame enrichment (rc_enrichment.feature)
+	builtFrameJSON []byte            // wire JSON of the constructor-built frame (E4)
+	cmpStart       *protocol.RCFrame // the handoff-start frame under comparison (E6)
+	cmpParked      *protocol.RCFrame // the parked-turn auto-frame under comparison (E6)
 }
 
 // seamExec is the recording exec seam: it captures the composed child command (and
@@ -1365,7 +1370,7 @@ func (s *opBDD) viewerAttached() error {
 // viewerReceivesOperatorStatus feeds the REAL guest-has-the-mic status frame (the ONE
 // constructor the host + bridge share) through the viewer's real onRemoteFrame.
 func (s *opBDD) viewerReceivesOperatorStatus(op string) error {
-	nm, _ := s.viewer.onRemoteFrame(remoteFrameMsg{gen: s.viewer.rsGen, f: client.OperatorStatusFrame(op)})
+	nm, _ := s.viewer.onRemoteFrame(remoteFrameMsg{gen: s.viewer.rsGen, f: client.OperatorStatusFrame(op, "", 0)})
 	s.viewer = asModel(nm)
 	return nil
 }
@@ -1964,4 +1969,7 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── AGENT [0] desk-entry redesign: focus, auto-tune, badges ───────────────
 	initializeDeskEntryScenarios(st, sc)
+
+	// ── operator frame enrichment (rc_enrichment.feature) ─────────────────────
+	initializeEnrichmentSteps(st, sc)
 }
