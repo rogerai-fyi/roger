@@ -632,7 +632,7 @@ func (s *opBDD) djTurnInFlight() error {
 func (s *opBDD) djTurnInFlightAndQueued() error {
 	s.mutate(func(m *model) {
 		m.agentBusy = true
-		m.agentQueued = append(m.agentQueued, "parked ask")
+		m.agentQueued = append(m.agentQueued, queuedPrompt{text: "parked ask"})
 	})
 	return nil
 }
@@ -903,7 +903,9 @@ func (s *opBDD) guestReturnsPlain() error {
 
 func (s *opBDD) resetPreambleRan() error {
 	got := s.resetBuf.String()
-	for _, seq := range []string{"\x1b[<u", "\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1006l", "\x1b[?2004l"} {
+	// \x1b[?1004l (focus reporting off) joined the preamble in the iteration-1 fix pass:
+	// a guest can leave focus-event reporting on, spraying ESC[I/ESC[O into the prompt.
+	for _, seq := range []string{"\x1b[<u", "\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1006l", "\x1b[?1004l", "\x1b[?2004l"} {
 		if !strings.Contains(got, seq) {
 			return fmt.Errorf("terminal reset preamble missing %q (got %q)", seq, got)
 		}
@@ -1554,6 +1556,111 @@ func (s *opBDD) noFrameCarriesGuestOutput() error {
 	return nil
 }
 
+// --- iteration-1 fix-pass steps (2026-07) ----------------------------------------------------
+
+// viewerTurnQueuedWhileBusy drives a REAL remote turn through the unparked bridge into
+// the busy host and pins that it landed on the DJ queue (the finding-#1 setup).
+func (s *opBDD) viewerTurnQueuedWhileBusy(text string) error {
+	s.rcQueue <- protocol.RCInbound{Kind: protocol.RCInTurn, Text: text, Origin: "phone"}
+	var in protocol.RCInbound
+	select {
+	case in = <-s.bridge.Inbound():
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("the bridge never delivered the remote turn")
+	}
+	s.update(remoteInboundMsg(in))
+	if got := len(s.model().agentQueued); got != 1 {
+		return fmt.Errorf("the busy host queued %d entries, want 1", got)
+	}
+	return nil
+}
+
+// djTurnFinishesQueueDrains delivers the turn-done message; the Update loop dequeues the
+// parked prompt exactly like production (dequeueAgentPrompts via agentDoneMsg).
+func (s *opBDD) djTurnFinishesQueueDrains() error {
+	s.update(agentDoneMsg{})
+	return nil
+}
+
+func (s *opBDD) noHandoffStagedNoChild() error {
+	if s.model().operatorHandoff != nil {
+		return fmt.Errorf("a handoff was staged")
+	}
+	return s.noChildLaunched()
+}
+
+func (s *opBDD) answeredAsChatTurn(text string) error {
+	m := s.model()
+	if !m.agentBusy {
+		return fmt.Errorf("no chat turn started for the drained remote text")
+	}
+	if !strings.Contains(s.view(), "▸ "+text) {
+		return fmt.Errorf("the transcript lacks the chat-turn echo for %q:\n%s", text, s.view())
+	}
+	return nil
+}
+
+// handoffStagedNotExeced opens the staging window (the PATCHING plate is up, the exec
+// tick has not fired) - the exact window findings #3 and #4 live in.
+func (s *opBDD) handoffStagedNotExeced(name string) error {
+	if err := s.userRuns("/operator " + name); err != nil {
+		return err
+	}
+	s.acceptPlateIfUp() // the Phase 3 plate interposes; staging begins on the local y
+	h := s.model().operatorHandoff
+	if h == nil || h.execing {
+		return fmt.Errorf("the handoff is not in the staging window")
+	}
+	return nil
+}
+
+func (s *opBDD) djSlipsInStagingElapses() error {
+	s.mutate(func(m *model) { m.agentBusy = true })
+	s.update(operatorExecMsg{})
+	return nil
+}
+
+func (s *opBDD) handoffAbortedNoChild() error {
+	if s.model().operatorHandoff != nil {
+		return fmt.Errorf("the handoff is still staged after the abort")
+	}
+	return s.noChildLaunched()
+}
+
+func (s *opBDD) bandDropsDuringStaging() error {
+	s.holder.Disconnect()
+	return nil
+}
+
+func (s *opBDD) stagingBeatElapses() error {
+	s.update(operatorExecMsg{})
+	return nil
+}
+
+func (s *opBDD) bracketedPasteReenabled() error {
+	for _, msg := range s.collected {
+		if strings.Contains(fmt.Sprintf("%T", msg), "enableBracketedPaste") {
+			return nil
+		}
+	}
+	return fmt.Errorf("bracketed paste was not re-enabled in the return cmd set (msgs: %v)", s.collectedTypes())
+}
+
+// detectedGuestUnverified seeds a desk detection whose version probe failed (Unverified,
+// empty version) - the picker dims "version unknown unproven" for it.
+func (s *opBDD) detectedGuestUnverified(name string) error {
+	g, err := registryGuest(name)
+	if err != nil {
+		return err
+	}
+	s.tuiPaths[g.Bin] = "/fake/" + g.Bin
+	s.mutate(func(m *model) {
+		m.operatorDetections = append(m.operatorDetections,
+			operator.Detection{Guest: g, Path: "/fake/" + g.Bin, Unverified: true})
+	})
+	return nil
+}
+
 // --- suite wiring ---------------------------------------------------------------------------
 
 // initializeOperatorScenarios registers every step of the founder-approved Phase 2 spec
@@ -1790,6 +1897,19 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 	sc.Step(`^v1 attaches no behavior to any of them$`, st.reservedKindsNoBehavior)
 	sc.Step(`^the handoff to "([^"]*)" begins and the guest works for a while$`, st.handoffBeginsAndGuestWorks)
 	sc.Step(`^no frame carries any guest terminal output$`, st.noFrameCarriesGuestOutput)
+
+	// ── iteration-1 fix-pass regressions (2026-07) ─────────────────────────────
+	sc.Step(`^a viewer sends a turn "([^"]*)" that the busy host queues$`, st.viewerTurnQueuedWhileBusy)
+	sc.Step(`^the DJ turn finishes and the queue drains$`, st.djTurnFinishesQueueDrains)
+	sc.Step(`^no handoff is staged and no child process was launched$`, st.noHandoffStagedNoChild)
+	sc.Step(`^"([^"]*)" was answered as a chat turn$`, st.answeredAsChatTurn)
+	sc.Step(`^the handoff to "([^"]*)" is staged but not yet execed$`, st.handoffStagedNotExeced)
+	sc.Step(`^a DJ turn slips in and the staging beat elapses$`, st.djSlipsInStagingElapses)
+	sc.Step(`^the handoff is aborted with no child process launched$`, st.handoffAbortedNoChild)
+	sc.Step(`^the band drops during the staging beat$`, st.bandDropsDuringStaging)
+	sc.Step(`^the staging beat elapses$`, st.stagingBeatElapses)
+	sc.Step(`^bracketed paste is re-enabled in the return command set$`, st.bracketedPasteReenabled)
+	sc.Step(`^a detected guest "([^"]*)" whose version probe failed$`, st.detectedGuestUnverified)
 
 	// ── Phase 3: THE DESK view · band gate · pre-launch plate ─────────────────
 	initializePhase3Steps(st, sc)

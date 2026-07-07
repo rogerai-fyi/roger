@@ -150,10 +150,20 @@ func Materialize(g Guest, s Session) (Launch, func() error, error) {
 }
 
 // safeConfigValue reports whether v can be interpolated verbatim into the generated
-// JSON/YAML configs: no control bytes (incl. newlines), no quotes/backslashes/backticks,
-// and no YAML ": " plain-scalar hazard.
+// JSON/YAML configs: it must START alphanumeric (a leading YAML indicator - "#" comment,
+// "&" anchor, "*" alias, "-" sequence, etc. - silently nulls or hijacks the key:
+// fail-open, the class two pre-push audits flagged), with no control bytes (incl.
+// newlines), no quotes/backslashes/backticks, and no in-value YAML plain-scalar hazards
+// (": " starts a mapping, " #" starts a comment). Broker band values (model slugs,
+// http(s) base URLs) always start alphanumeric.
 func safeConfigValue(v string) bool {
-	if strings.Contains(v, ": ") {
+	if v == "" {
+		return false // Materialize rejects empties earlier; fail closed here too
+	}
+	if c := v[0]; !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+		return false
+	}
+	if strings.Contains(v, ": ") || strings.Contains(v, " #") {
 		return false
 	}
 	for _, r := range v {

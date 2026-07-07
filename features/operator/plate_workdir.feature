@@ -90,6 +90,15 @@ Feature: The plate's workdir confirm
     Then the home-directory second gate is shown
     And no child process is launched
 
+  Scenario: b at the second gate is ignored — the ceiling is locked while the gate asks (review pin 2026-07-07)
+    Given the session workdir is the user's home directory
+    When the user runs "/operator opencode"
+    And the user presses "y"
+    And the user presses "b"
+    Then the home-directory second gate is shown
+    And the plate shows the session budget "$2.00"
+    And no child process is launched
+
   Scenario: Boundary — a child directory of $HOME single-confirms (FOUNDER FLAG W1)
     Given the session workdir is a directory inside the user's home
     When the user runs "/operator opencode"

@@ -112,3 +112,41 @@ Feature: While a guest has the mic, remote control parks — never deaf, never a
     # and the guest session is not the DJ loop). Only the status transitions are visible.
     When the handoff to "opencode" begins and the guest works for a while
     Then no frame carries any guest terminal output
+
+  Scenario: A remote-queued /operator never hands off the mic; it is answered as a chat turn
+    # Iteration-1 fix-pass finding #1 (MAJOR/SECURITY, 2026-07): a remote turn queued while
+    # the DJ was busy (rc.go) used to slash-dispatch at drain time (startQueuedPrompt), so
+    # "/operator opencode" sent from a phone could exec a guest on the HOST terminal the
+    # moment the turn ended - ruling 7 forbids any v1 remote handoff, and the IDLE path
+    # already treats a remote "/..." as a plain chat turn (submitAgentPrompt, never
+    # runAgentCommand). Queue entries now carry their origin; a remote-origin entry NEVER
+    # slash-dispatches. This also means a remote-queued /clear no longer clears the host -
+    # the asymmetry removal is intended (remote text is chat, local text is control).
+    Given a DJ turn is in flight
+    When a viewer sends a turn "/operator opencode" that the busy host queues
+    And the DJ turn finishes and the queue drains
+    Then no handoff is staged and no child process was launched
+    And "/operator opencode" was answered as a chat turn
+
+  Scenario: An exec-time abort tells viewers the DJ is back at the desk
+    # Iteration-1 fix-pass finding #4 (2026-07): during the staging beat a remote turn is
+    # answered "guest has the mic" (the staging guard, rc.go), but the exec-time abort
+    # paths emitted no corrective frame - the remote surface was stranded believing a
+    # guest held a mic it never took. Every abort branch now emits the DJ-back status
+    # frame (nil-safe: no bridge, no frame).
+    Given the handoff to "opencode" is staged but not yet execed
+    When a DJ turn slips in and the staging beat elapses
+    Then the handoff is aborted with no child process launched
+    And a frame of kind "status" is emitted announcing the DJ is back
+
+  Scenario: A band-gate abort during the staging beat also announces the DJ is back (Phase 3 review regression 2026-07-07)
+    # The Phase 3 agent-ready gate re-check is an abort branch like every other: a
+    # re-tune that shrinks the channel window inside the staging beat must not strand
+    # remote viewers on "guest has the mic" - the abort emits the corrective DJ-back
+    # status frame too (nil-safe: no bridge, no frame).
+    Given the handoff to "opencode" is staged but not yet execed
+    When the channel is re-tuned to a station with a context window of 8192 tokens during the staging beat
+    And the staging beat elapses
+    Then the handoff is aborted with no child process launched
+    And the transcript notes the band changed under the patch
+    And a frame of kind "status" is emitted announcing the DJ is back
