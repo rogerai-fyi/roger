@@ -21,12 +21,14 @@
 # guest subagents cannot each read "under budget" and all slip through (design doc §8 rate
 # limits notes parallel-subagent CLIs).
 #
-# FOUNDER RULINGS NEEDED (see report):
-#   - DEFAULT budget value. Design doc §5 says "e.g. $2, raisable". Proposed default $2.00.
-#   - Boundary semantics: is the budget a CEILING you may reach but not cross? Proposed:
-#     admit while spent < budget; refuse once spent >= budget (spending exactly TO the budget
-#     is allowed, the request that would push OVER — or the first after reaching it — is the
-#     one refused). Confirm the exact inequality.
+# FOUNDER RULINGS (approved 2026-07-06; boundary re-approved 2026-07-07):
+#   - DEFAULT budget value: $2.00, raisable (design doc §5).
+#   - Boundary semantics (founder ruling 2026-07-07 — the LITERAL CEILING): admit while
+#     cumulative spent < budget; refuse once spent >= budget. The call that CROSSES the budget
+#     completes (the spend may tip slightly over); the NEXT call is refused with the OpenAI
+#     402. This supersedes the earlier pre-emptive "spent + last-cost would exceed" draft;
+#     the streaming scenario below was rewritten to the ceiling accordingly (founder-approved
+#     spec edit, 2026-07-07).
 #   - 402 error `type`: "insufficient_quota" (OpenAI's billing type) vs a custom
 #     "budget_exceeded". Proposed code "budget_exceeded", type "insufficient_quota".
 #   - Does the budget-402 message tell the user how to raise it (the /budget knob)?
@@ -96,7 +98,12 @@ Feature: Local proxy per-session spend budget
     Given a stub broker that streams an SSE response then sets X-RogerAI-Cost to $0.40
     When 2 streaming chat requests are made
     Then the accumulated session spend is $0.80
-    And a 3rd streaming request past a $1.00 budget is refused 402
+    # Founder ruling 2026-07-07 (literal ceiling): $0.80 is still UNDER the $1.00 budget, so
+    # the 3rd call is ADMITTED and completes - the crossing call may tip the spend over.
+    When a 3rd streaming chat request is made
+    Then the status is 200
+    And the accumulated session spend is $1.20
+    And a 4th streaming request past the $1.00 budget is refused 402
 
   Scenario: A response with no cost header accumulates nothing (fail-safe, not fail-open on spend)
     Given a stub broker that returns 200 with NO X-RogerAI-Cost header

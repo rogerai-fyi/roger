@@ -828,10 +828,18 @@ func (s *proxyState) nStreamingRequests(n int) error {
 	return nil
 }
 
-func (s *proxyState) thirdStreamingRefused(budget string) error {
+// oneStreamingRequest fires a single streaming chat (the ceiling's crossing call).
+func (s *proxyState) oneStreamingRequest() error {
+	s.doChat(`{"model":"m","stream":true}`)
+	return nil
+}
+
+// nextStreamingRefused: under the literal ceiling (founder ruling 2026-07-07) the request
+// AFTER the budget has been reached/crossed is the one refused 402.
+func (s *proxyState) nextStreamingRefused(budget string) error {
 	rec := s.doChat(`{"model":"m","stream":true}`)
 	if rec.Code != http.StatusPaymentRequired {
-		return fmt.Errorf("3rd streaming request status = %d, want 402 (past the %s budget)", rec.Code, budget)
+		return fmt.Errorf("post-ceiling streaming request status = %d, want 402 (spent >= the %s budget)", rec.Code, budget)
 	}
 	return nil
 }
@@ -1641,7 +1649,8 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^a stub broker that bills \$([0-9.]+) per non-streaming response$`, func(a string) error { return st.brokerBillsNonStreaming("$" + a) })
 			sc.Step(`^a stub broker that streams an SSE response then sets X-RogerAI-Cost to \$([0-9.]+)$`, func(a string) error { return st.brokerStreamsThenCost("$" + a) })
 			sc.Step(`^(\d+) streaming chat requests are made$`, st.nStreamingRequests)
-			sc.Step(`^a 3rd streaming request past a \$([0-9.]+) budget is refused 402$`, func(a string) error { return st.thirdStreamingRefused("$" + a) })
+			sc.Step(`^a 3rd streaming chat request is made$`, st.oneStreamingRequest)
+			sc.Step(`^a 4th streaming request past the \$([0-9.]+) budget is refused 402$`, func(a string) error { return st.nextStreamingRefused("$" + a) })
 			sc.Step(`^a stub broker that returns 200 with NO X-RogerAI-Cost header$`, st.brokerNoCostHeader)
 			sc.Step(`^the accumulated session spend is unchanged$`, st.spendUnchanged)
 			sc.Step(`^the request still returns 200$`, st.requestStillReturns200)

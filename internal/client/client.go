@@ -459,7 +459,6 @@ type ProxyOptionsHolder struct {
 
 	budgetMu sync.Mutex
 	spent    float64
-	lastCost float64 // last observed per-response cost, reserved at admission (see admit)
 }
 
 // NewProxyOptionsHolder wraps a fixed ProxyOptions as a live source (starts connected).
@@ -510,7 +509,7 @@ func (h *ProxyOptionsHolder) SetBudget(usd float64) {
 // ResetSpend zeroes the session spend accumulator (a fresh session).
 func (h *ProxyOptionsHolder) ResetSpend() {
 	h.budgetMu.Lock()
-	h.spent, h.lastCost = 0, 0
+	h.spent = 0
 	h.budgetMu.Unlock()
 }
 
@@ -521,31 +520,21 @@ func (h *ProxyOptionsHolder) Spent() float64 {
 	return h.spent
 }
 
-// admit reserves a budget slot for one request. It refuses (ok=false -> 402) when admitting
-// this request could take the session PAST the cap - i.e. when spent + the last-observed
-// per-response cost would exceed the budget - so a request that would push over is stopped
-// BEFORE dispatch (no hold, no spend), while a request that lands exactly ON the cap is still
-// served. The first request (no cost seen yet) is always admitted. On ok it returns a release
-// closure the caller MUST invoke exactly once with the request's billed cost; the budget mutex
-// is held from the check THROUGH the release so N concurrent requests cannot each read "under
-// budget" and all slip through (the check+accumulate is atomic - the parallel-subagent
-// invariant). The budget mutex is thus held across the upstream relay attempt(s) up to the
-// point the response headers (with X-RogerAI-Cost) arrive, when the relay calls release BEFORE
-// streaming the body - so the body/stream runs unlocked, but the dial + header-wait (and, on
-// the failover path, the retries) ARE serialized. This serialization is intentional: with a
-// hard per-session cap and per-call cost unknown until a response, it is the only way to bound
-// concurrent spend to floor(budget/cost) on a cold start (budget.feature "at most 4 served") -
-// a slower but spend-SAFE gate. Callers of Spent()/ResetSpend() therefore block behind an
-// in-flight relay's header phase; keep those off any hot render path.
+// admit gates one request on the session budget - the LITERAL CEILING (founder ruling
+// 2026-07-07): admit while cumulative spent < budget; refuse (ok=false -> 402) once
+// spent >= budget. The call that CROSSES the budget completes (the spend may tip slightly
+// over); the NEXT call is the one refused. On ok it returns a release closure the caller MUST
+// invoke exactly once with the request's billed cost; the budget mutex is held from the check
+// THROUGH the release so N concurrent requests cannot each read "under budget" and all slip
+// through (the check+accumulate is atomic - the parallel-subagent invariant, budget.feature
+// "at most 4 served"). The mutex is thus held across the upstream dial + header-wait (release
+// fires when the response headers with X-RogerAI-Cost arrive, BEFORE the body streams), so the
+// body/stream runs unlocked but admissions are serialized - a slower but spend-SAFE gate.
+// Callers of Spent()/ResetSpend() block behind an in-flight relay's header phase; keep those
+// off any hot render path.
 func (h *ProxyOptionsHolder) admit(budget float64) (release func(cost float64), ok bool) {
 	h.budgetMu.Lock()
-	// Reserve the last-observed per-call cost: refuse when admitting this request COULD take the
-	// session past the cap. This is required by budget.feature (NOT reducible to a plain
-	// `spent >= budget` ceiling): e.g. streaming at $0.40 under a $1.00 cap must refuse the 3rd
-	// request at spent $0.80 (0.80 + 0.40 > 1.00), and the non-streaming path still serves the
-	// 4th at exactly $1.00 (0.75 + 0.25 = 1.00). lastCost only ever holds a positive observed
-	// cost, so a session with spend>0 always reserves a real amount (never fails open).
-	if budget > 0 && h.spent+h.lastCost > budget+1e-9 {
+	if budget > 0 && h.spent >= budget-1e-9 {
 		h.budgetMu.Unlock()
 		return nil, false
 	}
@@ -553,9 +542,6 @@ func (h *ProxyOptionsHolder) admit(budget float64) (release func(cost float64), 
 	return func(cost float64) {
 		once.Do(func() {
 			h.spent += cost
-			if cost > 0 {
-				h.lastCost = cost // reserve this much for the NEXT request's admission
-			}
 			h.budgetMu.Unlock()
 		})
 	}, true
