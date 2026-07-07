@@ -11,8 +11,22 @@ package operator
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+// TestBrandLockupsHaveNoRawEllipsis is PREVENTIVE (iteration-2 finding): glyphs.Fold expands
+// a raw "…" to "..." (one rune -> three cells) under ASCII, which would silently shift a
+// lockup's column-based spans and misalign the wordmark. No shipped lockup may carry one - a
+// future guest that wants an ellipsis must spell it out. This guards the whole registry,
+// including the dormant claude/codex drafts.
+func TestBrandLockupsHaveNoRawEllipsis(t *testing.T) {
+	for name, art := range BrandArts() {
+		if strings.Contains(art.Lockup.Text, "…") {
+			t.Errorf("%s lockup %q carries a raw ellipsis '…' - glyphs.Fold expands it to '...' and shifts the spans; spell it out instead", name, art.Lockup.Text)
+		}
+	}
+}
 
 // The doc's hue registrations (§8): dark canonical / light collapse pairs.
 var (
