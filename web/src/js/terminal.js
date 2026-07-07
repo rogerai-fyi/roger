@@ -209,7 +209,7 @@
     // `roger` - boot the dial: type the command, acquire the carrier (animated
     // sweep), reveal the preset bank, then read the live band.
     roger: {
-      label: "roger", title: "roger — the dial",
+      label: "roger", title: "roger - the dial",
       build: function () {
         return compile(function (c) {
           c.type([], "roger", AFTER_TYPE);
@@ -241,7 +241,7 @@
     // wallet debit live, and see the one-stable-endpoint failover heal a dropped
     // station under the hood. NOT in-TUI chat - that's what makes it != AGENT.
     tunein: {
-      label: "tune in", title: "roger — tune in",
+      label: "tune in", title: "roger - tune in",
       build: function () {
         return compile(function (c) {
           var band = bandHeadTUI().concat(stations.map(stationRow));
@@ -306,7 +306,7 @@
     // task. The multi-step, multi-tool loop is what makes it != TUNE IN (which just
     // hands an endpoint to YOUR tools). Each turn is metered + co-signed.
     agent: {
-      label: "agent", title: "roger — agent",
+      label: "agent", title: "roger - agent",
       build: function () {
         return compile(function (c) {
           var agentHead = [
@@ -363,7 +363,7 @@
     // ON AIR -> the broker CANARY verifies you -> live requests stream in -> earnings +
     // the on-air slots. Richer + longer than a single go-live.
     share: {
-      label: "share", title: "roger — share",
+      label: "share", title: "roger - share",
       build: function () {
         return compile(function (c) {
           // from the dial, press [2] SHARE to become a provider.
@@ -478,7 +478,7 @@
     // to the bank via Stripe Connect. Completes the arc: borrow -> automate -> lend ->
     // get paid. (Grounds: cmd/rogerai payoutStatus output; 120-day hold · $25 · monthly.)
     payouts: {
-      label: "payouts", title: "roger — payouts",
+      label: "payouts", title: "roger - payouts",
       build: function () {
         return compile(function (c) {
           // the on-air earnings surface, balance ticking up, with the payout hint.
@@ -523,17 +523,17 @@
     // through opencode, use Hermes from anywhere, serve your local LLM to your bots.
     // A MEDIA tape (muted/looping mp4 + gif), not an ASCII replay - so it carries
     // `media:true` + the <video> id instead of a frame builder.
-    using: { label: "using", title: "roger — using it", media: true, el: "termUsing" },
+    using: { label: "using", title: "roger - using it", media: true, el: "termUsing" },
 
     // `hosting` - the animated STORY tape (ComfyUI): the companion to the `share` tape,
     // told in the house cartoon voice - run your own model locally (Ollama / LM Studio),
     // expose it OpenAI-compatibly (even as a TTS voice), and put it on the air to be
     // discovered, served, metered and earning. Also a media tape.
-    hosting: { label: "hosting", title: "roger — hosting", media: true, el: "termHosting" },
+    hosting: { label: "hosting", title: "roger - hosting", media: true, el: "termHosting" },
 
     // `ping` - the live Ping World screensaver (the real `roger --ping`), captured
     // straight from internal/tui. Also a media tape.
-    ping: { label: "ping", title: "roger — ping", media: true, el: "termPing" }
+    ping: { label: "ping", title: "roger - ping", media: true, el: "termPing" }
   };
 
   /* ---- engine -------------------------------------------------------- */
