@@ -301,8 +301,14 @@ func (m model) operatorPickerView(w int) string {
 	if m.proxyHolder != nil {
 		mdl = m.proxyHolder.Get().Model
 	}
+	// Honest header: only claim an open channel when one is actually tuned. Disconnected, the
+	// model string survives in the holder but a select would refuse (Phase 1 ruling 5) - so
+	// point the user to tune in first instead of promising a channel that is not there (#5).
 	tail := ""
-	if mdl != "" {
+	switch {
+	case m.proxyHolder == nil || !m.proxyHolder.Connected():
+		tail = " - tune in first · a guest runs on your open channel"
+	case mdl != "":
 		tail = " - the guest runs on " + mdl + ", through your open channel"
 	}
 	b.WriteString("\n" + truncVisible("  "+stSelText.Render("hand the mic")+stDim.Render(tail), w) + "\n")
@@ -831,27 +837,35 @@ func (m model) operatorPatchView(w int) string {
 	var b strings.Builder
 	b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · handing off") +
 		"      " + stRed.Render(glyphs.Fold("((•))")) + "  " + stBrand.Render("PATCHING YOU THROUGH…") + "\n\n")
+	// detail carries its OWN leading separator (the doc §3d mock varies them: a "  " gap on
+	// mic-to/on-band, a " - " on wire) so each row reads exactly like the approved mockup.
 	step := func(label, val, detail string) {
 		line := "  " + stRed.Render(glyphOnAir) + " " + stDim.Render(pad(label, 8)) + stKey.Render(val)
 		if detail != "" {
-			line += stDim.Render("  " + detail)
+			line += stDim.Render(detail)
 		}
-		b.WriteString(truncVisible(line, w) + "\n")
+		b.WriteString(truncVisibleTail(line, w) + "\n")
 	}
 	// PER-BRAND PLATE: each operator's wordmark rides the data-only Guest.Brand registry
 	// field; nil falls back to the text-only house style (the name on the mic-to line below).
 	if brand := operatorBrandBlock(h.det.Guest, w); brand != "" {
 		b.WriteString(brand + "\n")
 	}
-	step("mic to", h.det.Guest.Name, "(guest operator)")
-	step("on band", mdl, "your open channel · usual relay pricing")
-	step("wire", "config generated in a scratch dir", "your own setup is untouched")
+	step("mic to", h.det.Guest.Name, "  (guest operator)")
+	// on band: name the station (via @<node>) and keep the "·" separators (doc §3d).
+	onBand := "  "
+	if m.connected != nil && m.connected.NodeID != "" {
+		onBand += "via @" + m.connected.NodeID + " · "
+	}
+	onBand += "your open channel · usual relay pricing"
+	step("on band", mdl, onBand)
+	step("wire", "config generated in a scratch dir", " - your own setup is untouched")
 	row := func(label, value string) string {
 		return "      " + stDim.Render(pad(label, 9)) + stKey.Render(value)
 	}
-	b.WriteString("\n" + truncVisible(row("BASE URL", m.endpoint), w) + "\n")
-	b.WriteString(truncVisible(row("MODEL", mdl), w) + "\n\n")
-	b.WriteString(truncVisible("  "+stDim.Render("the radio steps aside while the guest is on the mic · exit the guest to come back"), w) + "\n")
+	b.WriteString("\n" + truncVisibleTail(row("BASE URL", m.endpoint), w) + "\n")
+	b.WriteString(truncVisibleTail(row("MODEL", mdl), w) + "\n\n")
+	b.WriteString(truncVisibleTail("  "+stDim.Render("the radio steps aside while the guest is on the mic · exit the guest to come back"), w) + "\n")
 	return b.String()
 }
 
@@ -879,10 +893,11 @@ func (m model) operatorPlateView(w int) string {
 		if detail != "" {
 			line += stDim.Render("  " + detail)
 		}
-		b.WriteString(truncVisible(line, w) + "\n")
+		// graceful clip (#6): a narrow terminal ends a cut row in "…", never a mid-word hard cut.
+		b.WriteString(truncVisibleTail(line, w) + "\n")
 	}
 	warn := func(s string) {
-		b.WriteString(truncVisible("  "+stEmber.Render("! ")+stEmber.Render(s), w) + "\n")
+		b.WriteString(truncVisibleTail("  "+stEmber.Render("! ")+stEmber.Render(s), w) + "\n")
 	}
 	// guest - the Detection (name + probed version).
 	gv := guest
@@ -914,7 +929,7 @@ func (m model) operatorPlateView(w int) string {
 	if m.haveBal {
 		row("balance", dollars(m.balance), "")
 	} else {
-		b.WriteString(truncVisible("  "+stRed.Render(glyphOnAir)+" "+stDim.Render(pad("balance", 9))+stDim.Render("-"), w) + "\n")
+		b.WriteString(truncVisibleTail("  "+stRed.Render(glyphOnAir)+" "+stDim.Render(pad("balance", 9))+stDim.Render("-"), w) + "\n")
 	}
 	// budget - the plate-cycled ceiling (ruling B1); "no ceiling" is impossible to miss.
 	bv := operatorBudgetLadder[p.budgetIdx]
@@ -943,17 +958,17 @@ func (m model) operatorPlateView(w int) string {
 		warn(guest + " version " + v + " is unproven at this desk - the wiring may have drifted")
 	}
 	if p.det.Guest.Name == "aider" {
-		b.WriteString(truncVisible("  "+stDim.Render("· ")+stDim.Render("aider runs with --no-auto-commits pinned - it never commits to your git on its own"), w) + "\n")
+		b.WriteString(truncVisibleTail("  "+stDim.Render("· ")+stDim.Render("aider runs with --no-auto-commits pinned - it never commits to your git on its own"), w) + "\n")
 	}
 	// The expectation line (ruling P1, exact copy): the guest runs on the BAND's model -
 	// its brand never implies its vendor's quality.
-	b.WriteString(truncVisible("  "+stDim.Render("heads up · "+guest+" runs on "+mdl+" here - community band quality, not "+guest+"'s house models"), w) + "\n")
+	b.WriteString(truncVisibleTail("  "+stDim.Render("heads up · "+guest+" runs on "+mdl+" here - community band quality, not "+guest+"'s house models"), w) + "\n")
 	// The y/N gate - or the ember $HOME second gate (W1) once the first y landed.
 	if p.homeGate {
-		b.WriteString("\n" + truncVisible("  "+stEmber.Render("? ")+stEmber.Render("this is your whole home directory - hand "+guest+" the keys to all of it?"), w) + "\n")
-		b.WriteString(truncVisible("  "+stKey.Render("[ enter / y ]")+stDim.Render(" yes, work in "+p.workdir+"   ")+stKey.Render("[ esc / n ]")+stDim.Render(" back out   deny=default"), w) + "\n")
+		b.WriteString("\n" + truncVisibleTail("  "+stEmber.Render("? ")+stEmber.Render("this is your whole home directory - hand "+guest+" the keys to all of it?"), w) + "\n")
+		b.WriteString(truncVisibleTail("  "+stKey.Render("[ enter / y ]")+stDim.Render(" yes, work in "+p.workdir+"   ")+stKey.Render("[ esc / n ]")+stDim.Render(" back out   deny=default"), w) + "\n")
 	} else {
-		b.WriteString("\n" + truncVisible("  "+stKey.Render("[ enter / y ]")+stDim.Render(" patch "+guest+" through   ")+stKey.Render("[ esc / n ]")+stDim.Render(" keep the DJ   ")+stKey.Render("b")+stDim.Render(" budget   deny=default"), w) + "\n")
+		b.WriteString("\n" + truncVisibleTail("  "+stKey.Render("[ enter / y ]")+stDim.Render(" patch "+guest+" through   ")+stKey.Render("[ esc / n ]")+stDim.Render(" keep the DJ   ")+stKey.Render("b")+stDim.Render(" budget   deny=default"), w) + "\n")
 	}
 	return b.String()
 }
