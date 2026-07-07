@@ -825,6 +825,8 @@ type model struct {
 	operatorRows       []operatorRow        // picker rows (DJ + detected + at most one suggestion)
 	operatorCursor     int                  // selected picker row (never the suggestion)
 	operatorHandoff    *operatorHandoff     // non-nil from staging until the exec returns
+	operatorPlate      *operatorPlate       // the Phase 3 pre-launch confirm plate; nil = no plate up
+	agentLandingLines  int                  // transcript length that still counts as the AGENT landing (entry chrome only)
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick

@@ -391,6 +391,15 @@ func (s *opBDD) argvIsExactly(want string) error {
 }
 
 func (s *opBDD) argvPins(frag string) error {
+	// TUI scenarios (a plate-accepted exec) pin the REAL child command's argv; pure
+	// materialization scenarios pin the Launch argv.
+	if len(s.execCmds) > 0 {
+		last := s.execCmds[len(s.execCmds)-1]
+		if got := strings.Join(last.Args, " "); !strings.Contains(got, frag) {
+			return fmt.Errorf("child argv %q does not pin %q", got, frag)
+		}
+		return nil
+	}
 	if got := strings.Join(s.launch.Argv, " "); !strings.Contains(got, frag) {
 		return fmt.Errorf("argv %q does not pin %q", got, frag)
 	}
@@ -633,6 +642,21 @@ func (s *opBDD) scratchDirMode0700() error {
 }
 
 func (s *opBDD) childWorkdirIsLaunchWorkdir() error {
+	// TUI scenarios (a plate-accepted exec) verify the REAL child command's cwd is the
+	// scenario's confirmed workdir; pure scenarios compose the command directly.
+	if s.tm != nil {
+		if len(s.execCmds) == 0 {
+			s.fireExec()
+		}
+		if len(s.execCmds) == 0 {
+			return fmt.Errorf("no exec was issued (transcript: %s)", s.view())
+		}
+		last := s.execCmds[len(s.execCmds)-1]
+		if last.Dir != s.launchWorkdir {
+			return fmt.Errorf("child dir = %q, want the confirmed workdir %q", last.Dir, s.launchWorkdir)
+		}
+		return nil
+	}
 	c := operator.Command(s.launch, "/fake/bin", s.sess.Workdir, []string{"HOME=/keep"})
 	if c.Dir != s.sess.Workdir {
 		return fmt.Errorf("child dir = %q, want the launch workdir %q", c.Dir, s.sess.Workdir)

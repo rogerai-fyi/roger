@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/operator"
+	"github.com/rogerai-fyi/roger/internal/pricetier"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -42,7 +44,34 @@ var (
 	// GUARANTEED painted before the exec cmd is issued (anti-blank - the exec must never
 	// cut from a stale screen to a foreign TUI).
 	operatorStageDelay = 450 * time.Millisecond
+	// operatorWorkdir resolves the workdir a guest is confirmed into on the pre-launch
+	// plate and execed with (agentRoot - the process cwd - in production; the BDD points
+	// it at scenario sandboxes so a plate never shows the developer's real cwd).
+	operatorWorkdir = agentRoot
 )
+
+// operatorCtxFloor is the agent-ready hard floor (design doc §6): a coding agent on a
+// sub-16k window fails on its FIRST prompts - context overflow read as "RogerAI is
+// broken" - so the handoff is refused BEFORE any spend. The gate reads the OPEN
+// CHANNEL's station (m.connected), because that is the station the guest is actually
+// patched into. An UNKNOWN window (ctx 0) warns on the plate instead of blocking
+// (ruling G2: real /discover feeds carry offers without ctx, and blocking on missing
+// metadata would gate healthy 70B bands off the desk).
+const operatorCtxFloor = 16384
+
+// operatorBudgetLadder is the plate's preset spend ceilings (ruling B1): the $2.00
+// default -> $5.00 -> $10.00 -> uncapped (holder Budget 0, the Phase 1 semantic),
+// wrapping back to the default. Non-sticky (ruling B2): every fresh plate starts at
+// index 0, and the choice arms the holder ONLY on an explicit accept.
+var operatorBudgetLadder = []float64{client.DefaultSessionBudget, 5, 10, 0}
+
+// operatorBudgetLabel renders a ladder value ("$2.00" / "uncapped").
+func operatorBudgetLabel(v float64) string {
+	if v <= 0 {
+		return "uncapped"
+	}
+	return dollars(v)
+}
 
 // operatorStaleAge: scratch dirs older than this are crash leftovers, swept at the next
 // desk scan (a crash of roger itself is the only path that leaks one).
@@ -65,23 +94,40 @@ type operatorExecMsg struct{}                              // the staged paint e
 type operatorDoneMsg struct{ err error }                   // the ExecProcess return callback
 
 // operatorHandoff is the live handoff state: staging (the PATCHING plate is up) until
-// execing flips, then the guest has the terminal until operatorDoneMsg.
+// execing flips, then the guest has the terminal until operatorDoneMsg. budget and
+// workdir carry the pre-launch plate's confirmed choices into the exec.
 type operatorHandoff struct {
 	det     operator.Detection
+	budget  float64 // the plate-armed spend ceiling (0 = uncapped, the Phase 1 semantic)
+	workdir string  // the plate-confirmed workdir the guest is execed in
 	launch  operator.Launch
 	cleanup func() error
 	start   time.Time
 	execing bool
 }
 
-// operatorRow is one picker row: the resident DJ, a detected guest, or the single dim
-// not-installed suggestion at the bottom (which the cursor skips).
+// operatorPlate is the Phase 3 pre-launch confirm plate: everything the user is
+// deciding on, captured at open time. NOTHING is armed until the explicit y - cancel
+// leaves no trace (no scratch, no budget change, no spend).
+type operatorPlate struct {
+	det        operator.Detection
+	workdir    string // resolved absolute workdir captured at open (operatorWorkdir seam)
+	budgetIdx  int    // index into operatorBudgetLadder (non-sticky: a fresh plate is 0)
+	homeGate   bool   // the exactly-$HOME second gate is up (ruling W1: double-y)
+	fromPicker bool   // n/esc returns to the picker (cursor restored), not the prompt
+}
+
+// operatorRow is one picker row: the resident DJ, a detected guest (possibly disabled
+// by the agent-ready band gate), or the single dim not-installed suggestion at the
+// bottom (which the cursor skips).
 type operatorRow struct {
 	label      string
 	det        operator.Detection
 	isDJ       bool
 	suggestion bool
 	hint       string
+	disabled   bool   // the band gate is shut for this guest (enter prints the reason)
+	reason     string // the honest disabled reason ("needs a 16k+ band")
 }
 
 // --- detection ------------------------------------------------------------------------
@@ -142,7 +188,7 @@ func (m model) runOperatorCommand(args []string) (tea.Model, tea.Cmd) {
 				}
 				m.rcNote(d.Guest.Name + " · version " + v + " unproven")
 			}
-			return m.startOperatorHandoff(d)
+			return m.startOperatorHandoff(d, false)
 		}
 	}
 	for _, g := range operator.Registry() {
@@ -163,8 +209,15 @@ func (m model) runOperatorCommand(args []string) (tea.Model, tea.Cmd) {
 func (m model) buildOperatorRows() []operatorRow {
 	rows := []operatorRow{{label: "DJ", isDJ: true}}
 	seen := map[string]bool{}
+	gateShut := m.operatorBandTooSmall() // the DJ row above is NEVER gated
 	for _, d := range m.operatorDetections {
-		rows = append(rows, operatorRow{label: d.Guest.Name, det: d})
+		r := operatorRow{label: d.Guest.Name, det: d}
+		if gateShut && !d.Guest.NeedsSetup {
+			// The agent-ready band gate (§6): still listed - the desk is honest about who
+			// exists - but disabled with the real reason; enter prints it, never a plate.
+			r.disabled, r.reason = true, "needs a 16k+ band"
+		}
+		rows = append(rows, r)
 		seen[d.Guest.Name] = true
 	}
 	if len(m.operatorDetections) < 2 {
@@ -226,9 +279,11 @@ func (m model) onOperatorPickerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rcNote("the DJ keeps the mic")
 			return m, nil
 		}
-		// The NeedsSetup gate lives in startOperatorHandoff (ONE gate for the picker
-		// AND the /operator <name> direct-jump - iteration-1 finding #5).
-		return m.startOperatorHandoff(row.det)
+		// Every guest pick funnels through startOperatorHandoff: it owns the setup-note
+		// path (ONE gate for the picker AND the direct-jump - iteration-1 finding #5),
+		// the channel/DJ-idle preconditions, the agent-ready band gate (a disabled
+		// row's enter prints the honest refusal there), and the pre-launch plate.
+		return m.startOperatorHandoff(row.det, true)
 	case "esc":
 		closePicker()
 		m.rcNote("the DJ keeps the mic")
@@ -255,6 +310,12 @@ func (m model) operatorPickerView(w int) string {
 		switch {
 		case row.suggestion:
 			b.WriteString(truncVisible("  "+stDim.Render("   "+pad(row.label, 12)+" not at the desk · get it: "+row.hint), w) + "\n")
+		case row.disabled && i == m.operatorCursor:
+			// Gated by the agent-ready floor: still cursor-able (enter prints the honest
+			// reason), rendered dim with the refusal so the row explains itself.
+			b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+pad(row.label, 12))+" "+stDim.Render("✕ "+row.reason+" - this channel's window is too small"), w) + "\n")
+		case row.disabled:
+			b.WriteString(truncVisible("  "+stDim.Render("   "+pad(row.label, 12)+" ✕ "+row.reason), w) + "\n")
 		case i == m.operatorCursor:
 			b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+pad(row.label, 12))+" "+operatorRowGlyph(row)+stDim.Render(operatorRowDetail(row)), w) + "\n")
 		default:
@@ -411,15 +472,79 @@ func operatorRowDetail(row operatorRow) string {
 	return d
 }
 
+// --- the agent-ready band gate (Phase 3, design doc §6) --------------------------------
+
+// operatorChannelCtx reads the OPEN CHANNEL's station window (m.connected - the station
+// the guest is actually patched into), never the band's best station. (0, false) when
+// nothing is connected or the station reports no window.
+func (m model) operatorChannelCtx() (ctx int, estimated bool) {
+	if m.connected == nil {
+		return 0, false
+	}
+	return m.connected.Ctx, m.connected.CtxEstimated
+}
+
+// operatorCtxLabel renders a window with the house ~ estimate honesty ("8k" / "~8k").
+// It TRUNCATES to the familiar window name (spec-pinned: 32768 -> "32k", 131072 ->
+// "131k") where the band-table fmtCtx rounds (32768 -> "33k") - the desk speaks the
+// name users know their models by.
+func operatorCtxLabel(ctx int, est bool) string {
+	label := "-"
+	switch {
+	case ctx >= 1000:
+		label = fmt.Sprintf("%dk", ctx/1000)
+	case ctx > 0:
+		label = fmt.Sprintf("%d", ctx)
+	}
+	if est && ctx > 0 {
+		return "~" + label
+	}
+	return label
+}
+
+// operatorBandTooSmall: the gate is shut only when the window is KNOWN (detected or
+// estimated) and under the floor. Unknown (ctx 0) is a plate warn, never a block (G2).
+func (m model) operatorBandTooSmall() bool {
+	ctx, _ := m.operatorChannelCtx()
+	return ctx > 0 && ctx < operatorCtxFloor
+}
+
+// operatorWindowLabel names a window for a refusal, with the ~ honesty - and with the
+// 16000-16383 corner named EXACTLY: truncation would collapse it onto "16k", the floor's
+// own name, and a refusal must never read "the window is 16k, needs 16k+" (review
+// regression, band_gate.feature "Boundary honesty").
+func operatorWindowLabel(ctx int, est bool) string {
+	label := operatorCtxLabel(ctx, est)
+	if strings.TrimPrefix(label, "~") == "16k" && ctx < operatorCtxFloor {
+		label = fmt.Sprintf("%d tokens", ctx)
+		if est {
+			label = "~" + label
+		}
+	}
+	return label
+}
+
+// operatorRefuseSmallBand prints the honest refusal (the adversarial pin: blame the
+// BAND, never the radio): name the window and the floor, point at re-tuning to a larger
+// band - a local note, never a chat turn, and never the word "error".
+func (m *model) operatorRefuseSmallBand() {
+	ctx, est := m.operatorChannelCtx()
+	m.agentLines = append(m.agentLines,
+		stRed.Render("✕ ")+stEmber.Render("this band is too small for a guest - the window is "+operatorWindowLabel(ctx, est)+", a coding agent needs 16k+"),
+		stDim.Render("· ")+stDim.Render("re-tune to a larger band: press ")+stKey.Render("[1]")+stDim.Render(" to work the dial, then hand off again with ")+stKey.Render("/operator"))
+}
+
 // --- the handoff ----------------------------------------------------------------------
 
-// startOperatorHandoff gates the handoff on the channel actually carrying it, then puts
-// up ONE staged PATCHING YOU THROUGH paint before the exec is issued (anti-blank).
-func (m model) startOperatorHandoff(d operator.Detection) (tea.Model, tea.Cmd) {
-	// Installed-but-not-configured (reserved for the future claude row): a setup note,
-	// never an exec. THE one NeedsSetup gate - it covers the picker's enter AND the
-	// /operator <name> direct-jump (iteration-1 finding #5: the direct-jump used to
-	// skip the picker's copy of this check).
+// startOperatorHandoff runs every desk-side precondition (setup, channel up, DJ idle,
+// the agent-ready band gate) and opens the PRE-LAUNCH PLATE (Phase 3). Staging - and
+// with it any scratch config, budget change, or spend - begins only when the plate is
+// accepted with an explicit local y.
+func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.Model, tea.Cmd) {
+	// Installed-but-not-configured (reserved for the future claude row): a setup note on
+	// EVERY path to the desk - never a plate, never an exec. THE one NeedsSetup gate -
+	// it covers the picker's enter AND the /operator <name> direct-jump (iteration-1
+	// finding #5: the direct-jump used to skip the picker's copy of this check).
 	if d.Guest.NeedsSetup {
 		note := d.Guest.SetupNote
 		if note == "" {
@@ -446,10 +571,85 @@ func (m model) startOperatorHandoff(d operator.Detection) (tea.Model, tea.Cmd) {
 		m.rcNote("prompts are queued for the DJ - let the queue drain, then hand off")
 		return m, nil
 	}
+	// The agent-ready band gate (§6): a known window under the 16k floor is refused
+	// BEFORE any plate or staging - never fail on prompt one.
+	if m.operatorBandTooSmall() {
+		m.operatorPicker = false
+		m.operatorRows = nil
+		m.operatorRefuseSmallBand()
+		return m, nil
+	}
 	m.operatorPicker = false
 	m.operatorRows = nil
-	m.operatorHandoff = &operatorHandoff{det: d}
-	m.status = stDim.Render("patching you through to " + d.Guest.Name + "…")
+	m.operatorPlate = &operatorPlate{det: d, workdir: operatorWorkdir(), fromPicker: fromPicker}
+	m.status = stDim.Render("hand-off check · y patches " + d.Guest.Name + " through · n keeps the DJ")
+	return m, nil
+}
+
+// operatorWorkdirIsHome reports whether dir is EXACTLY the user's home directory,
+// honoring the LIVE HOME env (ruling W1: the boundary is exactly $HOME - a child dir
+// like ~/ai/proj single-confirms).
+func operatorWorkdirIsHome(dir string) bool {
+	h, err := os.UserHomeDir()
+	if err != nil || h == "" {
+		return false
+	}
+	return filepath.Clean(dir) == filepath.Clean(h)
+}
+
+// onOperatorPlateKey owns EVERY key while the pre-launch plate is up (the house
+// confirm idiom, DENY default): y/enter accepts (twice on exactly-$HOME), n/esc
+// cancels back to where the pick came from, b cycles the budget ladder, everything
+// else is swallowed - a stray key never accepts, and mode keys never leak underneath.
+func (m model) onOperatorPlateKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.operatorPlate
+	switch k.String() {
+	case "y", "enter":
+		if operatorWorkdirIsHome(p.workdir) && !p.homeGate {
+			// The scariest default: a bare $HOME workdir. The first y opens the ember
+			// second gate instead of patching (W1 double-y); only a second explicit y runs.
+			p.homeGate = true
+			return m, nil
+		}
+		return m.acceptOperatorPlate()
+	case "n", "esc":
+		m.operatorPlate = nil
+		m.status = stDim.Render("back at the desk · the DJ is standing by")
+		if p.fromPicker {
+			// Back to the picker, cursor restored onto the guest that was being considered.
+			m.operatorPicker = true
+			m.operatorRows = m.buildOperatorRows()
+			m.operatorCursor = 0
+			for i, r := range m.operatorRows {
+				if r.label == p.det.Guest.Name {
+					m.operatorCursor = i
+					break
+				}
+			}
+			return m, nil
+		}
+		m.rcNote("the DJ keeps the mic")
+		return m, nil
+	case "b":
+		// Ruling B1: b cycles the preset ceilings $2 -> $5 -> $10 -> uncapped -> $2.
+		// Display-only until y (B2 non-sticky: cancel discards the choice).
+		if !p.homeGate {
+			p.budgetIdx = (p.budgetIdx + 1) % len(operatorBudgetLadder)
+		}
+		return m, nil
+	default:
+		return m, nil // the plate is modal - deny stays the default
+	}
+}
+
+// acceptOperatorPlate turns the confirmed plate into a staged handoff: ONE PATCHING
+// YOU THROUGH paint, then the exec. The plate's budget and workdir ride the handoff;
+// the holder is armed at exec time (nothing is spent if staging aborts).
+func (m model) acceptOperatorPlate() (tea.Model, tea.Cmd) {
+	p := m.operatorPlate
+	m.operatorPlate = nil
+	m.operatorHandoff = &operatorHandoff{det: p.det, budget: operatorBudgetLadder[p.budgetIdx], workdir: p.workdir}
+	m.status = stDim.Render("patching you through to " + p.det.Guest.Name + "…")
 	// One beat of staging: the plate paints, THEN operatorExecMsg issues the exec.
 	return m, tea.Tick(operatorStageDelay, func(time.Time) tea.Msg { return operatorExecMsg{} })
 }
@@ -497,11 +697,28 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		m.rcEmitDJBack()
 		return m, nil
 	}
-	// LIVE options at exec time - never the options frozen at first bind.
+	// Agent-ready gate re-check AT EXEC TIME (the Phase 1 live-options discipline): a
+	// re-tune during the staging beat can put a too-small station on the channel; the
+	// exec is aborted with the honest reason instead of failing on prompt one.
+	if m.operatorBandTooSmall() {
+		ctx, est := m.operatorChannelCtx()
+		m.operatorHandoff = nil
+		m.agentLines = append(m.agentLines,
+			stRed.Render("✕ ")+stEmber.Render("the band changed under the patch - the channel window is now "+operatorWindowLabel(ctx, est)+", too small for a guest (needs 16k+)"))
+		m.status = stDim.Render("back at the desk · the DJ is standing by")
+		m.rcEmitDJBack() // an abort branch like every other - never strand "guest has the mic"
+		return m, nil
+	}
+	// LIVE options at exec time - never the options frozen at first bind. The workdir is
+	// the one the user confirmed on the plate.
 	opts := m.proxyHolder.Get()
+	wd := h.workdir
+	if wd == "" {
+		wd = operatorWorkdir() // defensive: a handoff always carries the plate's workdir
+	}
 	sess := operator.Session{
 		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
-		Workdir: agentRoot(), ScratchRoot: operatorScratchRoot,
+		Workdir: wd, ScratchRoot: operatorScratchRoot,
 	}
 	launch, cleanup, err := operator.Materialize(h.det.Guest, sess)
 	if err != nil {
@@ -511,10 +728,11 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		m.rcEmitDJBack()
 		return m, nil
 	}
-	// Fresh money state per handoff (ruling 4): the $2 default budget, zero spend, zero
-	// calls - the summary and the 402 ceiling are THIS guest's numbers. The bearer key
-	// is NOT rotated (a re-tune mid-session keeps the guest's config working).
-	m.proxyHolder.SetBudget(client.DefaultSessionBudget)
+	// Fresh money state per handoff (ruling 4): the PLATE-ARMED ceiling (the $2 default
+	// unless b raised it; 0 = uncapped, ruling B1), zero spend, zero calls - the summary
+	// and the 402 ceiling are THIS guest's numbers. The bearer key is NOT rotated (a
+	// re-tune mid-session keeps the guest's config working).
+	m.proxyHolder.SetBudget(h.budget)
 	m.proxyHolder.ResetSpend()
 	m.proxyHolder.ResetCalls()
 	h.launch, h.cleanup, h.start, h.execing = launch, cleanup, time.Now(), true
@@ -657,5 +875,228 @@ func (m model) operatorPatchView(w int) string {
 	b.WriteString("\n" + truncVisible(row("BASE URL", m.endpoint), w) + "\n")
 	b.WriteString(truncVisible(row("MODEL", mdl), w) + "\n\n")
 	b.WriteString(truncVisible("  "+stDim.Render("the radio steps aside while the guest is on the mic · exit the guest to come back"), w) + "\n")
+	return b.String()
+}
+
+// --- the pre-launch plate (Phase 3, design doc §6) --------------------------------------
+
+// operatorPlateView renders the ONE confirm plate between picking a guest and PATCHING
+// YOU THROUGH. Every figure comes from its real source (detection / live proxy options /
+// the open channel's station offer / the fetched balance) - never fabricated. The same
+// accept/deny idiom as the TUNE IN cost confirm: [ enter / y ] accepts, [ esc / n ]
+// denies, DENY is the default. NO_COLOR / narrow safe (shared styles + per-line clamp).
+func (m model) operatorPlateView(w int) string {
+	p := m.operatorPlate
+	if p == nil {
+		return ""
+	}
+	guest := p.det.Guest.Name
+	mdl := ""
+	if m.proxyHolder != nil {
+		mdl = m.proxyHolder.Get().Model
+	}
+	var b strings.Builder
+	b.WriteString("\n" + truncVisible("  "+stSelBar.Render("▌")+" "+stBrand.Render("HAND-OFF CHECK")+stDim.Render(" · confirm before "+guest+" takes the mic"), w) + "\n")
+	row := func(label, val, detail string) {
+		line := "  " + stRed.Render(glyphOnAir) + " " + stDim.Render(pad(label, 9)) + stKey.Render(val)
+		if detail != "" {
+			line += stDim.Render("  " + detail)
+		}
+		b.WriteString(truncVisible(line, w) + "\n")
+	}
+	warn := func(s string) {
+		b.WriteString(truncVisible("  "+stEmber.Render("! ")+stEmber.Render(s), w) + "\n")
+	}
+	// guest - the Detection (name + probed version).
+	gv := guest
+	if p.det.Version != "" {
+		gv += " " + p.det.Version
+	}
+	row("guest", gv, "takes the mic on your open channel")
+	// band - the live proxy options model + the open channel's station callsign.
+	bandDetail := ""
+	if m.connected != nil && m.connected.NodeID != "" {
+		bandDetail = "via @" + m.connected.NodeID
+	}
+	row("band", mdl, bandDetail)
+	// t/s · ctx · price · tier - the open channel's station offer (~ = estimated; the
+	// tier reads through the shared canonical pricetier renderer).
+	if o := m.connected; o != nil {
+		sig := fmt.Sprintf("%.0f t/s", o.TPS) + " · ctx " + operatorCtxLabel(o.Ctx, o.CtxEstimated) +
+			" · " + dollars(o.PriceIn) + "·" + dollars(o.PriceOut) + " /1M"
+		tier := ""
+		if bars, chip := pricetier.Render(o.PriceTier, o.PriceOut); bars != "" && bars != "FREE" {
+			tier = bars
+			if chip != "" {
+				tier += " " + chip
+			}
+		}
+		row("signal", sig, tier)
+	}
+	// balance - the fetched figure; unknown renders an honest dim "-", never $0.00.
+	if m.haveBal {
+		row("balance", dollars(m.balance), "")
+	} else {
+		b.WriteString(truncVisible("  "+stRed.Render(glyphOnAir)+" "+stDim.Render(pad("balance", 9))+stDim.Render("-"), w) + "\n")
+	}
+	// budget - the plate-cycled ceiling (ruling B1); "no ceiling" is impossible to miss.
+	bv := operatorBudgetLadder[p.budgetIdx]
+	row("budget", "session budget "+operatorBudgetLabel(bv), "b raises the ceiling")
+	if bv <= 0 {
+		warn("no ceiling - the guest can spend your whole balance")
+	} else if m.haveBal && bv > m.balance {
+		warn("this ceiling is above your balance (" + dollars(m.balance) + ")")
+	}
+	// workdir - the resolved absolute directory the guest reads and writes in.
+	row("workdir", p.workdir, "")
+	if operatorWorkdirIsHome(p.workdir) {
+		warn("the workdir is your home directory - accepting asks twice")
+	}
+	// Honesty warns: unknown window (G2), the missing tool-call signal (G1 - unknown on
+	// every band today), an unproven guest version, aider's pinned git safety.
+	if ctx, _ := m.operatorChannelCtx(); ctx <= 0 {
+		warn("context window unknown on this band - the guest may hit the wall mid-task")
+	}
+	warn("tool-call support unproven on this band - the guest may fall back to plain text")
+	if p.det.Unverified {
+		v := p.det.Version
+		if v == "" {
+			v = "unknown"
+		}
+		warn(guest + " version " + v + " is unproven at this desk - the wiring may have drifted")
+	}
+	if p.det.Guest.Name == "aider" {
+		b.WriteString(truncVisible("  "+stDim.Render("· ")+stDim.Render("aider runs with --no-auto-commits pinned - it never commits to your git on its own"), w) + "\n")
+	}
+	// The expectation line (ruling P1, exact copy): the guest runs on the BAND's model -
+	// its brand never implies its vendor's quality.
+	b.WriteString(truncVisible("  "+stDim.Render("heads up · "+guest+" runs on "+mdl+" here - community band quality, not "+guest+"'s house models"), w) + "\n")
+	// The y/N gate - or the ember $HOME second gate (W1) once the first y landed.
+	if p.homeGate {
+		b.WriteString("\n" + truncVisible("  "+stEmber.Render("? ")+stEmber.Render("this is your whole home directory - hand "+guest+" the keys to all of it?"), w) + "\n")
+		b.WriteString(truncVisible("  "+stKey.Render("[ enter / y ]")+stDim.Render(" yes, work in "+p.workdir+"   ")+stKey.Render("[ esc / n ]")+stDim.Render(" back out   deny=default"), w) + "\n")
+	} else {
+		b.WriteString("\n" + truncVisible("  "+stKey.Render("[ enter / y ]")+stDim.Render(" patch "+guest+" through   ")+stKey.Render("[ esc / n ]")+stDim.Render(" keep the DJ   ")+stKey.Render("b")+stDim.Render(" budget   deny=default"), w) + "\n")
+	}
+	return b.String()
+}
+
+// --- THE DESK on the AGENT landing (Phase 3, design doc §3a/§3f) -------------------------
+
+// deskGuests returns the detections in DESK display order: registry order first, then
+// any non-registry detections (the future claude row) in detection order.
+func deskGuests(ds []operator.Detection) []operator.Detection {
+	if len(ds) == 0 {
+		return nil
+	}
+	out := make([]operator.Detection, 0, len(ds))
+	used := make([]bool, len(ds))
+	for _, g := range operator.Registry() {
+		for i := range ds {
+			if !used[i] && ds[i].Guest.Name == g.Name {
+				out = append(out, ds[i])
+				used[i] = true
+			}
+		}
+	}
+	for i := range ds {
+		if !used[i] {
+			out = append(out, ds[i])
+		}
+	}
+	return out
+}
+
+// deskStripLine is the one-line reminder under the AGENT heading (§3a line 2):
+//
+//	◉ the DJ has the mic  ·  at the desk: opencode · aider  ·  /operator hands off
+//
+// It renders ONLY when >=1 guest is detected - the zero-guest screen stays byte-identical
+// (the permanent regression) - and SURVIVES the transcript filling up (ruling S1): once
+// the roster collapses, this line is what says /operator exists. Returns the exact
+// inserted substring (one clamped line + newline), or "".
+func (m model) deskStripLine(w int) string {
+	ds := deskGuests(m.operatorDetections)
+	if len(ds) == 0 {
+		return ""
+	}
+	names := make([]string, len(ds))
+	for i, d := range ds {
+		names[i] = d.Guest.Name
+	}
+	line := "  " + stRed.Render(glyphOnAir) + " " + stDim.Render("the DJ has the mic  ·  at the desk: ") +
+		stKey.Render(strings.Join(names, " · ")) + stDim.Render("  ·  ") + stKey.Render("/operator") + stDim.Render(" hands off")
+	return truncVisible(line, w) + "\n"
+}
+
+// deskCompactCount is the windowshade fold of the strip (§3f): the bare " · N at the
+// desk" segment appended to the compact AGENT heading. "" with zero guests, so the
+// compact heading too stays byte-identical.
+func (m model) deskCompactCount() string {
+	n := len(m.operatorDetections)
+	if n == 0 {
+		return ""
+	}
+	return stDim.Render(" · ") + stDim.Render(fmt.Sprintf("%d at the desk", n))
+}
+
+// deskRosterBlock is THE DESK roster (§3a): a STATIC PREVIEW of who can take the mic,
+// rendered on the LANDING state only (>=1 guest, empty transcript, no turn running, no
+// modal up, full view) - it collapses once the conversation starts, exactly like the
+// empty-band CTA. No carat, no reverse-video row: carats mean "interactive" in this
+// house, and picking happens in the /operator modal, never here. Returns the exact
+// inserted substring (clamped lines), or "".
+func (m model) deskRosterBlock(w int) string {
+	ds := deskGuests(m.operatorDetections)
+	if len(ds) == 0 || m.compact {
+		return ""
+	}
+	if len(m.agentLines) != m.agentLandingLines || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
+		return "" // any line beyond the entry chrome = the conversation started
+	}
+	if m.operatorPicker || m.agentPicker || m.agentPendingConfirm != nil || m.operatorPlate != nil || m.operatorHandoff != nil {
+		return ""
+	}
+	mdl := ""
+	if m.proxyHolder != nil && m.proxyHolder.Connected() {
+		mdl = m.proxyHolder.Get().Model
+	}
+	sub := "who can take the mic"
+	if mdl != "" {
+		sub += " on " + mdl
+	}
+	var b strings.Builder
+	b.WriteString("\n" + truncVisible("  "+stSelBar.Render("▌")+" "+stBrand.Render("THE DESK")+"    "+stDim.Render(sub), w) + "\n")
+	b.WriteString(truncVisible("    "+stDim.Render(pad("operator", 13)+pad("wire", 11)+"status"), w) + "\n")
+	// The resident DJ row is always first, with the red on-air mark (the connected band
+	// row treatment): whenever this TUI is painting, the DJ has the mic.
+	b.WriteString(truncVisible("  "+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")
+	for _, d := range ds {
+		status := "guest · on PATH · patches into your open channel"
+		if d.Guest.NeedsSetup {
+			status = "guest · needs a key first - /operator " + d.Guest.Name + " shows how"
+		} else if d.Unverified {
+			v := d.Version
+			if v == "" {
+				v = "unknown"
+			}
+			status += " · version " + v + " unproven"
+		}
+		b.WriteString(truncVisible("    "+stKey.Render(pad(d.Guest.Name, 12))+" "+stDim.Render(pad("hands off", 10)+" "+status), w) + "\n")
+	}
+	// At most ONE dim not-installed suggestion, at the bottom, only while the desk is
+	// sparse - a healthy desk advertises nothing (the buildOperatorRows rule).
+	if len(ds) < 2 {
+		seen := map[string]bool{}
+		for _, d := range ds {
+			seen[d.Guest.Name] = true
+		}
+		for _, g := range operator.Registry() {
+			if !seen[g.Name] {
+				b.WriteString(truncVisible("    "+stDim.Render(pad(g.Name, 12)+" "+pad("-", 10)+" not at the desk · get it: "+g.InstallHint), w) + "\n")
+				break
+			}
+		}
+	}
 	return b.String()
 }

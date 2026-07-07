@@ -181,6 +181,12 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 			m.rcEmit(client.OperatorStatusFrame(m.operatorHandoff.det.Guest.Name))
 			return m, rearm
 		}
+		// A pre-launch plate is a LOCAL decision surface: a turn arriving while it is up
+		// cancels the plate (never a blind exec under a busy DJ) and the turn proceeds.
+		if m.operatorPlate != nil {
+			m.operatorPlate = nil
+			m.rcNote("the DJ picked up a turn - the hand-off plate was set aside · /operator to try again")
+		}
 		// Ensure the agent runtime exists (a remote turn can arrive before the local user
 		// re-enters [0] AGENT). Inject through the SAME single-owner path local typing uses.
 		if m.agent == nil {
