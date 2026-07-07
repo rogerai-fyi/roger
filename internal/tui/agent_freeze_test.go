@@ -130,8 +130,8 @@ func TestAgentQueueWhileBusy(t *testing.T) {
 	// Enter while busy queues the prompt and clears the input.
 	qm, _ := am.onAgentKey(tea.KeyMsg{Type: tea.KeyEnter})
 	am = asModel(qm)
-	if len(am.agentQueued) != 1 || am.agentQueued[0] != "hello there" {
-		t.Fatalf("enter-while-busy should queue the prompt, got %v", am.agentQueued)
+	if len(am.agentQueued) != 1 || am.agentQueued[0] != (queuedPrompt{text: "hello there"}) {
+		t.Fatalf("enter-while-busy should queue the prompt (local origin), got %v", am.agentQueued)
 	}
 	if am.agentIn.Value() != "" {
 		t.Errorf("queuing should clear the input, got %q", am.agentIn.Value())
@@ -187,12 +187,12 @@ func TestAgentSubmitWaitsForLingeringGoroutine(t *testing.T) {
 	am := agentSeed(t, "")
 	am.agent.running.Store(true) // a force-stopped turn's goroutine is still unwinding
 
-	nm, _ := am.submitAgentPrompt("do a thing")
+	nm, _ := am.submitAgentPrompt(queuedPrompt{text: "do a thing"})
 	if nm.agentBusy {
 		t.Error("submitting while the prior goroutine is alive must NOT start a racing turn")
 	}
-	if len(nm.agentQueued) != 1 || nm.agentQueued[0] != "do a thing" {
-		t.Errorf("the prompt should be re-queued, got %v", nm.agentQueued)
+	if len(nm.agentQueued) != 1 || nm.agentQueued[0] != (queuedPrompt{text: "do a thing"}) {
+		t.Errorf("the prompt should be re-queued with its origin kept, got %v", nm.agentQueued)
 	}
 }
 
@@ -202,8 +202,8 @@ func TestStartQueuedPromptRoutesCommands(t *testing.T) {
 	am := agentSeed(t, "")
 	am.agentLines = []string{"old line"}
 
-	// A slash command runs inline and starts NO turn (/clear wipes the transcript).
-	cm, _ := am.startQueuedPrompt("/clear")
+	// A LOCAL slash command runs inline and starts NO turn (/clear wipes the transcript).
+	cm, _ := am.startQueuedPrompt(queuedPrompt{text: "/clear"})
 	if cm.agentBusy {
 		t.Error("a queued slash command must not start a turn")
 	}
@@ -212,7 +212,7 @@ func TestStartQueuedPromptRoutesCommands(t *testing.T) {
 	}
 
 	// A plain prompt starts a turn.
-	pm, _ := am.startQueuedPrompt("do a thing")
+	pm, _ := am.startQueuedPrompt(queuedPrompt{text: "do a thing"})
 	if !pm.agentBusy {
 		t.Error("a queued chat prompt should start a turn")
 	}

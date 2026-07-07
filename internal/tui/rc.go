@@ -187,10 +187,14 @@ func (m model) onRemoteInbound(in protocol.RCInbound) (tea.Model, tea.Cmd) {
 			m.agent = m.newAgentRuntime()
 		}
 		if m.agentBusy || m.agent.running.Load() {
-			m.agentQueued = append(m.agentQueued, in.Text) // FIFO, drained when the turn ends
+			// FIFO, drained when the turn ends. Tagged remote: at drain it is ALWAYS
+			// submitted as a chat turn, never slash-dispatched - a remote "/operator"
+			// (or /clear) must not control the host through the busy queue (ruling 7;
+			// iteration-1 finding #1), exactly matching the idle path directly below.
+			m.agentQueued = append(m.agentQueued, queuedPrompt{text: in.Text, remote: true})
 			return m, rearm
 		}
-		nm, cmd := m.submitAgentPrompt(in.Text)
+		nm, cmd := m.submitAgentPrompt(queuedPrompt{text: in.Text, remote: true})
 		return nm, tea.Batch(cmd, rearm)
 	case protocol.RCInConfirm:
 		// Answer the pending confirm through its own resp channel (mirrors onAgentKey). The
@@ -270,6 +274,13 @@ func (m model) rcEmitConfirmReq(c *agentConfirm, id string) {
 // doesn't dangle as an unanswered echo on their side).
 func (m model) rcEmitCleared() {
 	m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindError, Text: "— host cleared the session —"})
+}
+
+// rcEmitDJBack tells viewers the DJ holds the mic again - after a guest-operator return
+// AND after any exec-time abort (the staging guard may have told a remote "guest has the
+// mic"; without this corrective frame an aborted handoff strands that surface). Nil-safe.
+func (m model) rcEmitDJBack() {
+	m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"})
 }
 
 // rcEmitConfirmDone tells viewers a confirm was answered and by whom.

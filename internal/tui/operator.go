@@ -14,7 +14,6 @@ import (
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/operator"
-	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -56,7 +55,8 @@ const operatorStaleAge = 24 * time.Hour
 // the mouse on (m.mouseOff is respected).
 const operatorResetSeq = "\x1b[<u" + // pop the kitty keyboard protocol
 	"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" + // all mouse reporting off
-	"\x1b[?2004l" // exit bracketed paste
+	"\x1b[?1004l" + // focus reporting off (a guest can leave it spraying ESC[I/ESC[O)
+	"\x1b[?2004l" // exit bracketed paste (re-armed via tea.EnableBracketedPaste after)
 
 // --- messages -------------------------------------------------------------------------
 
@@ -132,6 +132,16 @@ func (m model) runOperatorCommand(args []string) (tea.Model, tea.Cmd) {
 	want := strings.ToLower(args[0])
 	for _, d := range m.operatorDetections {
 		if strings.ToLower(d.Guest.Name) == want {
+			// Direct-jump parity with the picker row detail: an unverified guest gets
+			// the same dim unproven-version disclosure before the handoff (it still
+			// hands off - unproven is honesty, not a block, same as picker enter).
+			if d.Unverified {
+				v := d.Version
+				if v == "" {
+					v = "unknown"
+				}
+				m.rcNote(d.Guest.Name + " · version " + v + " unproven")
+			}
 			return m.startOperatorHandoff(d)
 		}
 	}
@@ -212,22 +222,13 @@ func (m model) onOperatorPickerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		row := m.operatorRows[m.operatorCursor]
 		closePicker()
-		switch {
-		case row.isDJ:
+		if row.isDJ {
 			m.rcNote("the DJ keeps the mic")
 			return m, nil
-		case row.det.Guest.NeedsSetup:
-			// Installed-but-not-configured (reserved for the future claude row): a setup
-			// note, never an exec.
-			note := row.det.Guest.SetupNote
-			if note == "" {
-				note = row.label + " needs setup before it can take the mic"
-			}
-			m.rcNote(note)
-			return m, nil
-		default:
-			return m.startOperatorHandoff(row.det)
 		}
+		// The NeedsSetup gate lives in startOperatorHandoff (ONE gate for the picker
+		// AND the /operator <name> direct-jump - iteration-1 finding #5).
+		return m.startOperatorHandoff(row.det)
 	case "esc":
 		closePicker()
 		m.rcNote("the DJ keeps the mic")
@@ -415,6 +416,18 @@ func operatorRowDetail(row operatorRow) string {
 // startOperatorHandoff gates the handoff on the channel actually carrying it, then puts
 // up ONE staged PATCHING YOU THROUGH paint before the exec is issued (anti-blank).
 func (m model) startOperatorHandoff(d operator.Detection) (tea.Model, tea.Cmd) {
+	// Installed-but-not-configured (reserved for the future claude row): a setup note,
+	// never an exec. THE one NeedsSetup gate - it covers the picker's enter AND the
+	// /operator <name> direct-jump (iteration-1 finding #5: the direct-jump used to
+	// skip the picker's copy of this check).
+	if d.Guest.NeedsSetup {
+		note := d.Guest.SetupNote
+		if note == "" {
+			note = d.Guest.Name + " needs setup before it can take the mic"
+		}
+		m.rcNote(note)
+		return m, nil
+	}
 	// No band tuned: a disconnected proxy REFUSES to spend (Phase 1 ruling 5), so a
 	// launch now would only hand the guest a wall of 502s - block it at the desk.
 	if m.proxyHolder == nil || !m.proxyHolder.Connected() {
@@ -450,6 +463,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	}
 	if m.proxyHolder == nil { // defensive: staging outlived the proxy
 		m.operatorHandoff = nil
+		m.rcEmitDJBack()
 		return m, nil
 	}
 	// Re-check the DJ-idle preconditions AT EXEC TIME (audit regression): the bridge
@@ -457,6 +471,9 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// and bill - under the suspended TUI, into the guest's freshly reset accumulator.
 	// The mode check covers global keys (ctrl+c quit-confirm, alt+m, a preset) pulling
 	// the TUI off AGENT mid-staging - never exec the guest under another modal.
+	// Every abort below rcEmitDJBack()s: the staging guard answered remote turns with
+	// "guest has the mic", so an abort must correct the record or the remote surface is
+	// stranded on a guest that never took the mic (iteration-1 finding #4).
 	if m.mode != modeAgent || m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
 		m.operatorHandoff = nil
 		if m.mode != modeAgent {
@@ -465,6 +482,19 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 			m.rcNote("handoff aborted - the DJ picked up a turn while patching · /operator again once it finishes")
 		}
 		m.status = stDim.Render("back at the desk · the DJ is standing by")
+		m.rcEmitDJBack()
+		return m, nil
+	}
+	// Re-check the CHANNEL at exec time too (iteration-1 finding #3): the desk gate ran
+	// before the 450ms staging beat, and a band drop inside it would launch the guest
+	// into a wall of 502/503s (a disconnected proxy refuses to spend - Phase 1 ruling 5).
+	if !m.proxyHolder.Connected() {
+		m.operatorHandoff = nil
+		m.agentLines = append(m.agentLines,
+			stRed.Render("✕ ")+stEmber.Render("the channel dropped while patching - no band to carry the guest"),
+			stDim.Render("· ")+stDim.Render("tune back in: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then /operator again"))
+		m.status = stDim.Render("back at the desk · the DJ is standing by")
+		m.rcEmitDJBack()
 		return m, nil
 	}
 	// LIVE options at exec time - never the options frozen at first bind.
@@ -478,6 +508,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		m.operatorHandoff = nil
 		m.agentLines = append(m.agentLines, stRed.Render("✕ ")+stEmber.Render("couldn't hand the mic off: "+err.Error()))
 		m.status = stDim.Render("back at the desk · the DJ is standing by")
+		m.rcEmitDJBack()
 		return m, nil
 	}
 	// Fresh money state per handoff (ruling 4): the $2 default budget, zero spend, zero
@@ -517,10 +548,14 @@ func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
 	// revoke-all mid-handoff Stops the bridge; Unpark/Emit are no-ops then.
 	if m.rcBridge != nil {
 		m.rcBridge.Unpark()
-		m.rcEmit(protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"})
+		m.rcEmitDJBack()
 	}
 	guest := h.det.Guest.Name
-	cmds := []tea.Cmd{fetchBalance(m.broker, m.user)}
+	// The defensive reset just wrote ESC[?2004l AFTER bubbletea's RestoreTerminal had
+	// re-enabled paste, so bracketed paste must be re-armed here or it stays dead for
+	// the rest of the radio session (iteration-1 finding #2). The radio always runs
+	// with paste on - unconditional, unlike the m.mouseOff-gated mouse restore.
+	cmds := []tea.Cmd{fetchBalance(m.broker, m.user), tea.EnableBracketedPaste}
 	if !m.mouseOff {
 		cmds = append(cmds, tea.EnableMouseCellMotion)
 	}

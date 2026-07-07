@@ -800,7 +800,7 @@ type model struct {
 	agentVP             viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
 	agentBusy           bool           // a turn is in flight (drives the working line)
 	agentCanceling      bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
-	agentQueued         []string       // prompts typed mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue)
+	agentQueued         []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
 	agentLastEvent      time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
 	agentTurnState      agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
 	agentStart          time.Time      // when the in-flight turn began (elapsed readout)

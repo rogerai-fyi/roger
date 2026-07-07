@@ -241,6 +241,11 @@ func TestMaterializeRejectsUnsafeValues(t *testing.T) {
 		{"newline in base URL", func(s *Session) { s.BaseURL = "http://x/v1\napi_key: stolen" }},
 		{"backslash in model", func(s *Session) { s.Model = `m\"` }},
 		{"yaml colon-space in model", func(s *Session) { s.Model = "m: evil" }},
+		{"yaml comment hash in model", func(s *Session) { s.Model = "m #evil" }}, // " #" starts a YAML comment in a plain scalar
+		{"leading hash in model", func(s *Session) { s.Model = "#evil" }},        // "default: #evil" comments the value out - the key silently nulls (audit finding)
+		{"leading anchor in model", func(s *Session) { s.Model = "&a" }},         // "default: &a" is a YAML anchor - value nulls (audit finding #2)
+		{"leading alias in model", func(s *Session) { s.Model = "*a" }},          // "default: *a" is a YAML alias - parse error or hijack
+		{"leading dash in base URL", func(s *Session) { s.BaseURL = "- http://x/v1" }}, // "- " is a block-sequence indicator
 		{"control byte in base URL", func(s *Session) { s.BaseURL = "http://x/v1\x07" }},
 	}
 	for _, tc := range cases {

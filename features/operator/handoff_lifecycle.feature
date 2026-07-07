@@ -191,3 +191,27 @@ Feature: Handing the mic — suspend, exec, and the return to the desk
     And the user runs "/operator aider"
     Then the aider wiring carries no opencode artifacts
     And the first session's scratch dir is already gone
+
+  # ── iteration-1 fix-pass regressions (2026-07) ──────────────────────────────────
+
+  Scenario: The band dropping during the staging beat aborts at exec time
+    # Finding #3: startOperatorHandoff gates on Connected() but the exec callback only
+    # nil-checked the holder - a band drop inside the 450ms staging beat launched the
+    # guest into a wall of 502/503s. The channel precondition is re-checked at exec
+    # time, aborting with the same styling and an honest note.
+    Given the handoff to "opencode" is staged but not yet execed
+    When the band drops during the staging beat
+    And the staging beat elapses
+    Then no child process is launched
+    And the transcript notes "the channel dropped while patching"
+    And the desk is fully usable for a re-tune
+
+  Scenario: Bracketed paste is re-armed on every return from a guest
+    # Finding #2: the defensive reset preamble ends with ESC[?2004l and runs AFTER
+    # bubbletea's RestoreTerminal already re-enabled paste - so the first handoff killed
+    # bracketed paste for the rest of the radio session (multi-line pastes fired line by
+    # line as separate prompts). The radio always runs with paste on, so the return
+    # command set re-enables it unconditionally, after the defensive reset.
+    When the guest returns with exit 0
+    Then the terminal reset preamble ran
+    And bracketed paste is re-enabled in the return command set

@@ -827,8 +827,8 @@ func TestOnRemoteInboundTurnPaths(t *testing.T) {
 	busy.agentBusy = true
 	nm, _ = busy.onRemoteInbound(protocol.RCInbound{Kind: protocol.RCInTurn, Text: "later please"})
 	gm := asModel(nm)
-	if len(gm.agentQueued) != 1 || gm.agentQueued[0] != "later please" {
-		t.Fatalf("a busy host must queue the turn, got %v", gm.agentQueued)
+	if len(gm.agentQueued) != 1 || gm.agentQueued[0] != (queuedPrompt{text: "later please", remote: true}) {
+		t.Fatalf("a busy host must queue the turn tagged remote, got %v", gm.agentQueued)
 	}
 
 	idle := m
