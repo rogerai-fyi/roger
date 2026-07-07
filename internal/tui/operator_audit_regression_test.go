@@ -59,6 +59,7 @@ func TestSpawnFailureRestoresUncappedBudget(t *testing.T) {
 	m, holder, _ := opRegressionSeed(t)
 	var tm tea.Model
 	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the Phase 3 pre-launch plate -> staged
 	tm, _ = tm.Update(operatorExecMsg{})
 	if got := holder.Get().Budget; got != client.DefaultSessionBudget {
 		t.Fatalf("handoff must arm the $%v budget, got %v", client.DefaultSessionBudget, got)
@@ -78,7 +79,8 @@ func TestStagingWindowRemoteTurnDropped(t *testing.T) {
 	fb := newFakeBridge()
 	m.rcBridge = fb
 	var tm tea.Model
-	tm, _ = m.runAgentCommand("/operator opencode") // staged; NOT yet execed/parked
+	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the plate: staged; NOT yet execed/parked
 	tm, _ = tm.Update(remoteInboundMsg(protocol.RCInbound{Kind: protocol.RCInTurn, Text: "sneaky staging turn", Origin: "phone"}))
 	got := asModel(tm)
 	if got.agentBusy || len(got.agentQueued) != 0 {
@@ -105,6 +107,7 @@ func TestExecRecheckAbortsWhenDJPickedUp(t *testing.T) {
 	m, holder, execs := opRegressionSeed(t)
 	var tm tea.Model
 	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the plate -> staged
 	mm := asModel(tm)
 	mm.agentBusy = true // a turn slipped in during the staging beat
 	tm, _ = mm.Update(operatorExecMsg{})
@@ -127,6 +130,7 @@ func TestExecAbortsOutsideAgentMode(t *testing.T) {
 	m, holder, execs := opRegressionSeed(t)
 	var tm tea.Model
 	tm, _ = m.runAgentCommand("/operator opencode")
+	tm, _ = tm.Update(keyMsg("y")) // accept the plate -> staged
 	mm := asModel(tm)
 	mm.mode = modeBrowse // a global key pulled the TUI away mid-staging
 	tm, _ = mm.Update(operatorExecMsg{})

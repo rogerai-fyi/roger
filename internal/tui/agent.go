@@ -190,6 +190,10 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 				hintTuneOrShare(m.narrow()),
 			)
 		}
+		// Snapshot the entry chrome length: the LANDING state (where THE DESK roster may
+		// render) is "nothing in the transcript beyond these welcome lines". /clear resets
+		// both, so the landing - and the roster - come back with a fresh session.
+		m.agentLandingLines = len(m.agentLines)
 	} else {
 		// Re-entry: pick up a channel tuned in since we last built the runtime (or fall
 		// back to the last band tuned in this session) so the agent never runs on a model
@@ -308,6 +312,12 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// reaches the TUI until the exec callback returns the desk.
 	if m.operatorHandoff != nil {
 		return m, nil
+	}
+	// The pre-launch plate owns every key while up (Phase 3): y/enter accepts (twice on
+	// exactly-$HOME), n/esc cancels, b cycles the ceiling - deny is the default, and the
+	// accept can ONLY come from this local keyboard (the RC money-confirm invariant).
+	if m.operatorPlate != nil {
+		return m.onOperatorPlateKey(k)
 	}
 	// The /operator picker owns every key while open (same modal contract as /model).
 	if m.operatorPicker {
@@ -664,6 +674,9 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
 		m.rcEmitCleared()   // BASE STATION: tell viewers, so a dropped queued turn doesn't dangle
 		note("session cleared - the agent starts fresh (still no long-term memory)")
+		// A cleared session IS the landing again: its one note is the new entry chrome,
+		// so THE DESK roster returns (desk_view: "/clear returns the landing").
+		m.agentLandingLines = len(m.agentLines)
 		return m, nil
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
@@ -1076,8 +1089,10 @@ func (m model) agentView(w int) string {
 	// this shape - red bar + "tools" = "this mode can run tools (read/list auto, write/run
 	// confirm)", at a glance.
 	if m.compact {
+		// The windowshade folds the desk strip to a bare count (§3f) - "" with zero
+		// guests, so the zero-guest compact heading stays byte-identical.
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
-			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost))
+			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost)) + m.deskCompactCount()
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		if mdl != "" && !m.narrow() {
@@ -1087,6 +1102,9 @@ func (m model) agentView(w int) string {
 			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
+		// The desk strip (§3a line 2): who is at the desk + how to hand off. "" with zero
+		// guests - the zero-guest screen is byte-identical (permanent regression).
+		b.WriteString(m.deskStripLine(w))
 	}
 	// Reactive corner Ping: a small operator at the desk that reacts to the live turn
 	// state (standing by / thinking / on air / working the dial). ONLY when a model is
@@ -1115,6 +1133,15 @@ func (m model) agentView(w int) string {
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
 	}
+	// The pre-launch plate (Phase 3): the ONE confirm between picking a guest and
+	// PATCHING YOU THROUGH - modal, so it renders instead of everything below.
+	if m.operatorPlate != nil {
+		b.WriteString(m.operatorPlateView(w))
+		return b.String()
+	}
+	// THE DESK roster (Phase 3): the static landing preview of who can take the mic;
+	// deskRosterBlock returns "" off the landing state (and always with zero guests).
+	b.WriteString(m.deskRosterBlock(w))
 	// The /operator hand-the-mic picker (Guest Operators Phase 2): same modal shape as
 	// the /model picker directly below.
 	if m.operatorPicker {

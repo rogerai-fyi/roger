@@ -31,15 +31,18 @@ func TestGuestOperatorBDD(t *testing.T) {
 	// records the composed child command instead of suspending the test terminal; the
 	// terminal writer captures the reset preamble; the detect env resolves each
 	// scenario's declared PATH; the stage delay shrinks so picker-enter round-trips fast.
-	saveExec, saveTerm, saveEnv, saveRoot, saveDelay :=
-		operatorExec, operatorTermOut, operatorDetectEnv, operatorScratchRoot, operatorStageDelay
+	saveExec, saveTerm, saveEnv, saveRoot, saveDelay, saveWorkdir :=
+		operatorExec, operatorTermOut, operatorDetectEnv, operatorScratchRoot, operatorStageDelay, operatorWorkdir
 	operatorExec = st.seamExec
 	operatorTermOut = opTermTap{st}
 	operatorDetectEnv = func() operator.Env { return st.tuiDetectEnv() }
 	operatorStageDelay = 5 * time.Millisecond
+	// Phase 3: the plate's workdir resolves each scenario's declared sandbox (a project
+	// dir by default; the sandbox home for the $HOME double-confirm scenarios).
+	operatorWorkdir = func() string { return st.launchWorkdir }
 	t.Cleanup(func() {
-		operatorExec, operatorTermOut, operatorDetectEnv, operatorScratchRoot, operatorStageDelay =
-			saveExec, saveTerm, saveEnv, saveRoot, saveDelay
+		operatorExec, operatorTermOut, operatorDetectEnv, operatorScratchRoot, operatorStageDelay, operatorWorkdir =
+			saveExec, saveTerm, saveEnv, saveRoot, saveDelay, saveWorkdir
 		st.closeServers()
 	})
 
