@@ -256,7 +256,7 @@ func TestPlateNarrowSwap(t *testing.T) {
 	}{
 		{plateGuest(t, "opencode"), 44, "█▀▀█", "opencode _"},
 		{plateGuest(t, "hermes"), 53, "██╗", "H E R M E S · nous research"},
-		{plateGuest(t, "aider"), 23, "__ _(_)__", "aider"},
+		{plateGuest(t, "aider"), 38, "__ _(_)__", "aider"}, // the tagline (36) governs the swap, not the wordmark
 		{dormantGuest(t, "claude"), 20, "▐▛███▜▌", "* claude"},
 		// codex's full lockup (19 cells with indent) is itself clamped at width 16,
 		// so the probe is the un-cropped head of the lockup.
@@ -273,6 +273,30 @@ func TestPlateNarrowSwap(t *testing.T) {
 		}
 		if !strings.Contains(narrow, tc.lockup) {
 			t.Fatalf("%s: narrow swaps to the text lockup %q, got %q", tc.guest.Name, tc.lockup, narrow)
+		}
+	}
+}
+
+// TestPlateAiderTaglineNeverClipped pins iteration-2 finding (carried c): aider's tagline
+// row is part of the shipped art, so the §7 narrow SWAP must fire before it would clip. The
+// wordmark (21 cells) fits well before the tagline (36 cells) does; the narrow threshold now
+// tracks the WIDEST row so the plate renders whole or swaps to the "aider" lockup - never a
+// hard-truncated half-tagline (truncVisible cuts mid-word with no ellipsis).
+func TestPlateAiderTaglineNeverClipped(t *testing.T) {
+	g := plateGuest(t, "aider")
+	const tagline = "ai pair programming in your terminal" // 36 cells, the widest art row
+	if full := stripANSI(operatorBrandBlock(g, lipgloss.Width(tagline)+2)); !strings.Contains(full, tagline) {
+		t.Fatalf("at the full plate width the whole tagline must render:\n%s", full)
+	}
+	// Intermediate widths where the wordmark fits but the tagline would clip: the plate must
+	// SWAP to the lockup, never show a partial tagline.
+	for _, w := range []int{23, 30, 37} {
+		got := stripANSI(operatorBrandBlock(g, w))
+		if strings.Contains(got, "ai pair") {
+			t.Fatalf("width %d: the tagline must not render clipped - swap to the lockup instead:\n%s", w, got)
+		}
+		if !strings.Contains(got, "aider") {
+			t.Fatalf("width %d: narrow aider must swap to the 'aider' lockup:\n%s", w, got)
 		}
 	}
 }

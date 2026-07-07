@@ -86,6 +86,21 @@ Feature: While a guest has the mic, remote control parks — never deaf, never a
     Then a frame of kind "status" is emitted announcing the DJ is back
     And a subsequent viewer turn injects into the DJ exactly like local typing
 
+  Scenario: The desktop remote viewer renders the guest-has-the-mic status frame
+    # Iteration-2 finding (UX): the web console AND this desktop RC viewer used to DROP
+    # RCKindStatus frames, so during a handoff a remote viewer saw the stream go dead
+    # (only iOS rendered "guest has the mic"). The viewer now renders the status transition
+    # as a dim line - operator-aware for the handoff, the plain text for the DJ-back return,
+    # content-blind (only the guest name rides the frame, never band/model/spend).
+    Given a desktop remote-control viewer attached to a live session
+    When a status frame announces the guest "opencode" has the mic
+    Then the viewer transcript shows "guest has the mic: opencode"
+
+  Scenario: The desktop remote viewer renders the DJ-is-back status frame
+    Given a desktop remote-control viewer attached to a live session
+    When a status frame announces the DJ is back at the desk
+    Then the viewer transcript shows "the DJ is back at the desk"
+
   Scenario: Handoff with NO bridge attached emits nothing and parks nothing
     Given the remote-control bridge is not enabled
     When the handoff to "opencode" begins
