@@ -584,7 +584,14 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 			return m, nil
 		}
 		o := *pick.cheapest
-		m.bindChannel(o)
+		if _, err := m.bindChannel(o); err != nil {
+			// The local endpoint failed to bind: refuse rather than open a plate over an
+			// unbound channel that would hand the guest a wall of 502s.
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("could not open a channel: "+err.Error()),
+				stDim.Render("· ")+stDim.Render("tune in manually with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
+			return m, nil
+		}
 		m.noteOnce(stDim.Render("· ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" (free) for the handoff"))
 	}
 	// The DJ's in-flight turn owns the completer and the terminal; a queued prompt

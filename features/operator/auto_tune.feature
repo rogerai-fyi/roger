@@ -49,6 +49,14 @@ Feature: The AGENT [0] silent auto-tune (pickAutoBand + runAutoTune)
     And the market has a paid band "paid-any" out 0.10
     Then pickAutoBand logged in picks "free-weak"
 
+  # A CONNECTABLE ($0 free) band must win even when it is known-small and the only
+  # agent-ready band is PAID (never silently connectable, R1) - else auto-tune would
+  # report "no free band on air" and drop into a dead ask box while a free band is up.
+  Scenario: A known-small FREE band still beats an agent-ready PAID band
+    Given the market has a free band "free-small" at signal 50 window 8192
+    And the market has a paid band "paid-big" out 0.20
+    Then pickAutoBand logged in picks "free-small"
+
   Scenario: An empty market picks nothing
     Given the market is empty
     Then pickAutoBand logged in picks nothing
@@ -86,6 +94,14 @@ Feature: The AGENT [0] silent auto-tune (pickAutoBand + runAutoTune)
     When the user submits the prompt "hello"
     And the desk auto-tunes
     Then the agent runs on "gpt-oss-20b"
+
+  # The prompt was echoed + parked WHILE the "finding a band" beat was still up; clearing
+  # the beat must not eat the echo (the review's echo-eating regression).
+  Scenario: A prompt typed before the auto-tune resolves survives in the transcript
+    Given a fresh AGENT session with a free band "gpt-oss-20b" on air
+    When the user submits the prompt "summarize the readme"
+    And the desk auto-tunes
+    Then the transcript shows "summarize the readme"
 
   # ── sticky + no-op ───────────────────────────────────────────────────────────
 

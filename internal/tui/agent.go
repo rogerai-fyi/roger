@@ -340,12 +340,8 @@ func (m model) modelBadgeTail(mdl string) string {
 		return ""
 	}
 	var parts []string
-	if ready, inferred := bandAgentReady(b); ready {
-		t := agentReadyGlyph()
-		if inferred {
-			t += "~"
-		}
-		parts = append(parts, t)
+	if tag := agentReadyTag(b); tag != "" {
+		parts = append(parts, tag)
 	}
 	if b.vision {
 		parts = append(parts, visionGlyph())

@@ -6083,6 +6083,20 @@ func bandAgentReady(bd band) (ready, inferred bool) {
 	return false, false
 }
 
+// agentReadyTag is the agent-ready badge glyph for a band, or "" when it is not
+// agent-ready: "⌁" proven, "⌁~" inferred (R5, always inferred today). The ONE place the
+// ⌁ / inferred-~ shape is composed, shared by the band table + the /model picker tail.
+func agentReadyTag(bd band) string {
+	ready, inferred := bandAgentReady(bd)
+	if !ready {
+		return ""
+	}
+	if inferred {
+		return agentReadyGlyph() + "~"
+	}
+	return agentReadyGlyph()
+}
+
 // bandKnownSmall reports a band whose window is KNOWN and under the agent-ready floor -
 // the one partition auto-tune de-prioritises for a coding handoff (R6). Unknown (ctx 0)
 // is NOT known-small: it may well be a large model the broker sent without ctx metadata.
@@ -6106,11 +6120,7 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	if bd.lineage > 0 {
 		parts = append(parts, fmt.Sprintf("◆ %d", bd.lineage))
 	}
-	if ready, inferred := bandAgentReady(bd); ready {
-		tag := agentReadyGlyph()
-		if inferred {
-			tag += "~"
-		}
+	if tag := agentReadyTag(bd); tag != "" {
 		parts = append(parts, tag)
 	}
 	if bd.vision {
@@ -6147,11 +6157,7 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	}
 	// Agent-ready ⌁ (inferred ⌁~) - the coding-agent-capable mark, keyed like the ctx
 	// value it is derived from. Vision ◪ - a declared multimodal band.
-	if ready, inferred := bandAgentReady(bd); ready {
-		tag := agentReadyGlyph()
-		if inferred {
-			tag += "~"
-		}
+	if tag := agentReadyTag(bd); tag != "" {
 		parts = append(parts, stKey.Render(tag))
 	}
 	if bd.vision {
@@ -6324,11 +6330,15 @@ func pickAutoBand(bands []band, loggedIn bool) *band {
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
 		bi, bj := cands[i], cands[j]
+		// FREE is the top-level key: only a free band is ever SILENTLY connected (R1), so a
+		// never-connectable paid band must NEVER outrank a connectable free one - even a
+		// known-small free one (else auto-tune would report "no free band" while a $0 band
+		// is on air). The agent-ready partition (R6) orders only WITHIN free (and within paid).
+		if bi.free != bj.free {
+			return bi.free
+		}
 		if si, sj := bandKnownSmall(bi), bandKnownSmall(bj); si != sj {
 			return !si // agent-ready (not known-small) first
-		}
-		if bi.free != bj.free {
-			return bi.free // free before paid
 		}
 		if bi.free {
 			if gi, gj := bandSignal(bi), bandSignal(bj); gi != gj {
@@ -6402,7 +6412,17 @@ func (m *model) runAutoTune() tea.Cmd {
 	case pick != nil && pick.free && pick.cheapest != nil:
 		o := *pick.cheapest
 		m.clearFindingBeat()
-		m.bindChannel(o)
+		if _, err := m.bindChannel(o); err != nil {
+			// The local endpoint failed to bind: never claim a channel that is not there.
+			// Fall to the honest empty state (deduped) and drop any parked prompt silently.
+			m.noteOnce(
+				stRed.Render("✕ ")+stEmber.Render("no station on air right now"),
+				hintTuneOrShare(m.narrow()))
+			m.agentLandingLines = len(m.agentLines)
+			m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
+			m.flushPendingPrompts()
+			return nil
+		}
 		m.agent.model = o.Model
 		m.agentPicked = false
 		// Keep focus where it is: if the user is on the FOCUSED desk (a guest scan landed
@@ -6471,16 +6491,25 @@ func (m *model) flushPendingPrompts() {
 	m.agentPending = nil
 }
 
-// clearFindingBeat drops the "finding a band…" beat line the fresh AGENT landing shows
-// while an auto-tune is in flight, so the outcome replaces it in place (no stale beat).
+// clearFindingBeat splices out the single "finding a free band…" beat line the fresh
+// AGENT landing shows while an auto-tune is in flight, so the outcome replaces it in
+// place. It removes ONLY that one line (index autoTuneBeatLen), never the tail: a prompt
+// the user typed + parked while the auto-tune was in flight sits AFTER the beat, and must
+// survive to be drained (the review's echo-eating bug). A content guard keeps it from
+// deleting an unrelated line if the transcript shifted underneath it.
 func (m *model) clearFindingBeat() {
-	if m.autoTuneBeatLen > 0 && m.autoTuneBeatLen <= len(m.agentLines) {
-		m.agentLines = m.agentLines[:m.autoTuneBeatLen]
-		if m.agentLandingLines > len(m.agentLines) {
-			m.agentLandingLines = len(m.agentLines)
-		}
-	}
+	i := m.autoTuneBeatLen
 	m.autoTuneBeatLen = 0
+	if i <= 0 || i >= len(m.agentLines) {
+		return
+	}
+	if !strings.Contains(m.agentLines[i], "finding a free band") {
+		return
+	}
+	m.agentLines = append(m.agentLines[:i], m.agentLines[i+1:]...)
+	if m.agentLandingLines > len(m.agentLines) {
+		m.agentLandingLines = len(m.agentLines)
+	}
 }
 
 // bandOverLimit reports whether a band's cheapest online station is over the

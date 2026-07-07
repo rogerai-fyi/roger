@@ -108,7 +108,9 @@ Feature: THE DESK takes focus on the AGENT [0] landing
 
   # ── the spam regression: the honest state renders at most once ───────────────
 
-  Scenario: The honest empty state renders exactly once (noteOnce)
+  # A repeated auto-tune trigger does NOT re-spam the honest state (the single-shot guard
+  # + noteOnce). The tail-compare dedup itself is pinned by TestNoteOnceDedup.
+  Scenario: A repeated auto-tune trigger renders the honest empty state exactly once
     Given a fresh AGENT session with an empty market
     When the desk auto-tunes
     And the desk auto-tunes
@@ -120,6 +122,15 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     And the desk auto-tunes
     Then the transcript shows "no station on air" at most once
     And no chat turn is submitted
+
+  # ── the background auto-tune must not steal focus from an active picker ───────
+
+  Scenario: A guest scan then a free-band auto-tune keeps the DESK focused (no focus-steal)
+    Given a fresh AGENT session with a free band "gpt-oss-20b" on air
+    And the desk scan lands guest "opencode"
+    When the desk auto-tunes
+    Then THE DESK has focus
+    And the agent runs on "gpt-oss-20b"
 
   # ── auto-tune never overrides a deliberate tune ──────────────────────────────
 
