@@ -23,8 +23,8 @@
       body: JSON.stringify({ code: code }),
     }).then(function (r) {
       if (r.status === 401) {
-        // Not logged in on this device. The code alone is never enough — same-account is
-        // required — so ask the visitor to log in, then reopen the link (the fragment carries
+        // Not logged in on this device. The code alone is never enough - same-account is
+        // required - so ask the visitor to log in, then reopen the link (the fragment carries
         // the code). We deliberately do NOT auto-redirect: the code must survive the round trip
         // and the OAuth flow does not thread a return path.
         var m = document.getElementById("msg");
