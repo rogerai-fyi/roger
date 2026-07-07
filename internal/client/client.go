@@ -440,9 +440,9 @@ func newRelayClient() *http.Client {
 func NewSessionKey() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand failing is catastrophic; fail closed with an unusable key rather than a
-		// predictable one (a blank key would DISABLE auth).
-		return "unavailable-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+		// crypto/rand failing means the machine cannot mint secrets at all - fail CLOSED and
+		// loudly (a predictable or timestamp-derived key would silently weaken the auth gate).
+		panic("rogerai: crypto/rand unavailable, cannot mint a session key: " + err.Error())
 	}
 	return hex.EncodeToString(b)
 }
@@ -520,7 +520,7 @@ func (h *ProxyOptionsHolder) Spent() float64 {
 	return h.spent
 }
 
-// admit gates one request on the session budget - the LITERAL CEILING (founder ruling
+// admit gates one BUDGETED request on the session cap - the LITERAL CEILING (founder ruling
 // 2026-07-07): admit while cumulative spent < budget; refuse (ok=false -> 402) once
 // spent >= budget. The call that CROSSES the budget completes (the spend may tip slightly
 // over); the NEXT call is the one refused. On ok it returns a release closure the caller MUST
@@ -530,21 +530,38 @@ func (h *ProxyOptionsHolder) Spent() float64 {
 // "at most 4 served"). The mutex is thus held across the upstream dial + header-wait (release
 // fires when the response headers with X-RogerAI-Cost arrive, BEFORE the body streams), so the
 // body/stream runs unlocked but admissions are serialized - a slower but spend-SAFE gate.
-// Callers of Spent()/ResetSpend() block behind an in-flight relay's header phase; keep those
-// off any hot render path.
+// UNCAPPED sessions (budget <= 0) never come through here - the handler skips straight to
+// addSpend, fully parallel (review HIGH #3). Callers of Spent()/ResetSpend() block behind an
+// in-flight budgeted relay's header phase; keep those off any hot render path.
+// Only callable with budget > 0.
 func (h *ProxyOptionsHolder) admit(budget float64) (release func(cost float64), ok bool) {
 	h.budgetMu.Lock()
-	if budget > 0 && h.spent >= budget-1e-9 {
+	if h.spent >= budget-1e-9 {
 		h.budgetMu.Unlock()
 		return nil, false
 	}
 	var once sync.Once
 	return func(cost float64) {
 		once.Do(func() {
-			h.spent += cost
+			if cost > 0 { // a malformed/negative meter must never move the accumulator
+				h.spent += cost
+			}
 			h.budgetMu.Unlock()
 		})
 	}, true
+}
+
+// addSpend accumulates a settled cost OUTSIDE the admission gate: the uncapped fast path
+// (budget 0 - no serialization) and the post-stream SSE meter cost (billed at stream end,
+// after the budgeted slot was already released at headers - the ceiling's crossing stream).
+// Guarded: only a positive cost moves the accumulator.
+func (h *ProxyOptionsHolder) addSpend(cost float64) {
+	if cost <= 0 {
+		return
+	}
+	h.budgetMu.Lock()
+	h.spent += cost
+	h.budgetMu.Unlock()
 }
 
 // openAIError writes an OpenAI-shaped JSON error envelope: {"error":{"message","type","code"}}
@@ -642,20 +659,28 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			openAIError(w, http.StatusNotFound, "invalid_request_error", "unknown_url", "unknown url: "+r.Method+" "+r.URL.Path)
 			return
 		}
+		// Ruling 5 applies to the probe too: a DISCONNECTED proxy must not advertise the
+		// stale band's model - an empty (valid) OpenAI list, never an error.
+		if !h.Connected() {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{}})
+			return
+		}
 		writeModelsList(w, opts.Model, h.created)
 	})
 
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		opts := h.Get()
+		// Auth FIRST on every route (consistency with /v1/models; an unauthenticated caller
+		// learns nothing about band state): a missing/wrong bearer never reaches the broker.
+		if opts.SessionKey != "" && !bearerOK(r.Header.Get("Authorization"), opts.SessionKey) {
+			openAIError(w, http.StatusUnauthorized, "authentication_error", "", "missing or invalid API key")
+			return
+		}
 		// Ruling 5: a disconnected proxy (endpoint bound, no band tuned) refuses to spend,
 		// never serves a stale band.
 		if !h.Connected() {
 			openAIError(w, http.StatusServiceUnavailable, "api_error", "no_band_tuned", "no band tuned - open a channel first")
-			return
-		}
-		// Auth precedes spend (ruling 3): a missing/wrong bearer never reaches the broker.
-		if opts.SessionKey != "" && !bearerOK(r.Header.Get("Authorization"), opts.SessionKey) {
-			openAIError(w, http.StatusUnauthorized, "authentication_error", "", "missing or invalid API key")
 			return
 		}
 		// Body cap (ruling 8): over 4 MiB -> OpenAI-shaped 413, never silent truncation.
@@ -672,17 +697,27 @@ func ProxyHandlerLive(h *ProxyOptionsHolder) http.Handler {
 			return
 		}
 		crit := Criteria{Model: model, Confidential: opts.Confidential, MinTPS: opts.MinTPS, MaxPriceIn: opts.MaxPriceIn, MaxPriceOut: opts.MaxPriceOut, Pref: opts.Pref}
-		// Per-session spend budget (ruling 1/2): hard-stop the NEXT request once spent >= cap.
-		release, admitted := h.admit(opts.Budget)
-		if !admitted {
-			openAIError(w, http.StatusPaymentRequired, "insufficient_quota", "budget_exceeded", "session spend budget reached - raise it with /budget to continue")
-			return
+		// Per-session spend budget (rulings 1/2, the literal ceiling). UNCAPPED sessions
+		// (Budget <= 0: `roger use`, the TUI) skip the admission gate entirely and relay fully
+		// in parallel (review HIGH #3) - costs still accumulate via addSpend for observability.
+		onServed := h.addSpend
+		if opts.Budget > 0 {
+			release, admitted := h.admit(opts.Budget)
+			if !admitted {
+				openAIError(w, http.StatusPaymentRequired, "insufficient_quota", "budget_exceeded", "session spend budget reached - restart the session with a higher budget to continue")
+				return
+			}
+			// release must fire exactly once; the relay fires it with the billed cost right at
+			// the response headers. The deferred release(0) is a no-op backstop (sync.Once)
+			// that guarantees the budget slot is freed even on an unexpected relay return path.
+			defer release(0)
+			onServed = release
 		}
-		// release must fire exactly once; the relay fires it with the billed cost right at the
-		// response headers. The deferred release(0) is a no-op backstop (sync.Once) that
-		// guarantees the budget slot is freed even on an unexpected relay return path.
-		defer release(0)
-		relayWithFailover(r.Context(), w, opts, crit, rewritten, httpClient, policy, release)
+		// h.addSpend as onStreamCost: a streamed response carries no cost header - its billed
+		// cost arrives as the `: rogerai-cost=` SSE comment at stream END, accumulated after
+		// the budget slot was already released (the ceiling's crossing stream completes; the
+		// NEXT call sees the updated spend and gets the 402).
+		relayWithFailover(r.Context(), w, opts, crit, rewritten, httpClient, policy, onServed, h.addSpend)
 	})
 
 	// Catch-all: every other route (/, /v1/embeddings, /v1/responses, /healthz, …) is an
@@ -713,7 +748,10 @@ func readCappedBody(r io.Reader, limit int64) (body []byte, over bool) {
 // from X-RogerAI-Cost) the moment a response is settled - on success right before the body is
 // streamed, or with 0 on total failover exhaustion. The proxy handler uses it to accumulate
 // the per-session spend and release the budget slot before the (possibly long) body stream.
-func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy, onServed func(cost float64)) {
+// onStreamCost, when non-nil, receives the `: rogerai-cost=` SSE meter comment's amount AFTER
+// the streamed body has fully copied (streamed responses carry no cost header - the broker
+// flushes headers before output; the comment at stream end is the only meter).
+func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOptions, crit Criteria, body []byte, httpClient *http.Client, policy failoverPolicy, onServed, onStreamCost func(cost float64)) {
 	if onServed == nil {
 		onServed = func(float64) {}
 	}
@@ -785,7 +823,13 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// serialized. A response with no cost header accumulates nothing (fail-safe).
 			cost, _ := strconv.ParseFloat(resp.Header.Get("X-RogerAI-Cost"), 64)
 			onServed(cost)
-			copyRelayResponse(w, resp)
+			// Streamed responses carry no cost header; copyRelayResponse scans the body for
+			// the broker's `: rogerai-cost=` SSE meter comment (passed through unchanged) and
+			// returns it - billed at stream END, per the ceiling (the crossing stream
+			// completes; the NEXT call is refused).
+			if sc := copyRelayResponse(w, resp); sc > 0 && onStreamCost != nil {
+				onStreamCost(sc)
+			}
 			resp.Body.Close()
 			return
 		}
@@ -852,8 +896,11 @@ func failoverError(crit Criteria, lastStatus int, lastErr error) string {
 }
 
 // copyRelayResponse mirrors the broker's response (status, meter headers, body)
-// to the local client, flushing per chunk so SSE streaming works end-to-end.
-func copyRelayResponse(w http.ResponseWriter, resp *http.Response) {
+// to the local client, flushing per chunk so SSE streaming works end-to-end. On an SSE
+// response it also scans the pass-through for the broker's `: rogerai-cost=` meter comment
+// (the ONLY cost meter a stream carries - headers were flushed before output) and returns
+// the amount; 0 when absent (an old broker: graceful degrade, never an error).
+func copyRelayResponse(w http.ResponseWriter, resp *http.Response) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
@@ -868,18 +915,66 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
+	var meter *sseMeter
+	if strings.Contains(ct, "text/event-stream") {
+		meter = &sseMeter{}
+	}
 	flusher, _ := w.(http.Flusher)
 	buf := make([]byte, 4096)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			w.Write(buf[:n])
+			if meter != nil {
+				meter.scan(buf[:n])
+			}
 			if flusher != nil {
 				flusher.Flush()
 			}
 		}
 		if err != nil {
 			break
+		}
+	}
+	if meter != nil {
+		return meter.cost
+	}
+	return 0
+}
+
+// sseMeterPrefix is the broker's stream-end cost meter: a spec-compliant SSE comment line
+// (parsers ignore comment lines), emitted by relayStream after settle because a stream's
+// headers were flushed before any output and cannot carry X-RogerAI-Cost.
+const sseMeterPrefix = ": rogerai-cost="
+
+// sseMeter incrementally scans an SSE byte stream for the meter comment, correct across
+// chunk boundaries. Lines longer than its small bound are skipped whole (overflow) so a huge
+// data: line can neither grow memory nor be misread mid-line as a comment.
+type sseMeter struct {
+	line     []byte
+	overflow bool
+	cost     float64
+}
+
+func (m *sseMeter) scan(p []byte) {
+	for _, c := range p {
+		if c == '\n' {
+			if !m.overflow {
+				line := strings.TrimSuffix(string(m.line), "\r")
+				if v, ok := strings.CutPrefix(line, sseMeterPrefix); ok {
+					if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && f > 0 {
+						m.cost = f // a malformed / non-positive amount is ignored (fail-safe)
+					}
+				}
+			}
+			m.line = m.line[:0]
+			m.overflow = false
+			continue
+		}
+		if len(m.line) < 128 {
+			m.line = append(m.line, c)
+		} else {
+			m.overflow = true
 		}
 	}
 }

@@ -572,6 +572,48 @@ func TestProxyStreamNotCutByBlanket(t *testing.T) {
 	}
 }
 
+// TestProxyUncappedRelaysNotSerialized: an UNCAPPED session (Budget 0 - `roger use`, the TUI,
+// parallel CLIs) must relay fully in parallel; the budget admission gate (which serializes the
+// dial+header phase for budgeted sessions) must be skipped entirely. Regression for review
+// HIGH #3: the gate was taken unconditionally, serializing every relay. The stub broker
+// REQUIRES both requests to be in flight simultaneously before answering either - a
+// serialized proxy deadlocks here and the test fails by timeout.
+func TestProxyUncappedRelaysNotSerialized(t *testing.T) {
+	sandbox(t)
+	arrived := make(chan struct{}, 2)
+	proceed := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrived <- struct{}{}
+		<-proceed
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-RogerAI-Cost", "0.10")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"hi"}}]}`))
+	}))
+	defer srv.Close()
+
+	h := ProxyHandler(ProxyOptions{Broker: srv.URL, User: "u", Model: "m"}) // Budget 0 = uncapped
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+			h.ServeHTTP(rec, req)
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case <-arrived:
+		case <-time.After(5 * time.Second):
+			close(proceed) // unblock the in-flight request so cleanup can drain fast
+			t.Fatal("uncapped relays are serialized: the 2nd request never reached the broker while the 1st was in flight (the budget gate must be skipped when Budget <= 0)")
+		}
+	}
+	close(proceed)
+	wg.Wait()
+}
+
 // --- #9 live ProxyOptions (seam landed: ProxyOptionsHolder) -------------------------------
 
 // TestProxyLiveOptions: the handler reads its options LIVE from the holder, so a re-tune

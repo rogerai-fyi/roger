@@ -64,14 +64,15 @@ Feature: Local proxy per-session bearer auth
       | header                    |
       |                           |
       | Bearer                    |
-      | Bearer                    |
       | Basic <sessionkey>        |
       | <sessionkey>              |
       | bearer <sessionkey>xtra   |
-      | Bearer <sessionkey>       |
+      | Bearer <sessionkey>x      |
 
   # Note: the "<sessionkey>" placeholder above is substituted with the REAL key by the step
-  # def; rows that still fail carry a deliberately-broken scheme/prefix/suffix around it.
+  # def, verbatim - every row's brokenness is VISIBLE in the table (empty header, bare scheme,
+  # wrong scheme, missing scheme, lowercase scheme + suffix, correct scheme + wrong-key
+  # suffix "x"). The harness performs no hidden mutation of any row.
 
   Scenario: /v1/models is auth-gated with the same key
     When an agent sends GET "/v1/models" with no Authorization header

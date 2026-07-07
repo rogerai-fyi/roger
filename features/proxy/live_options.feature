@@ -73,6 +73,17 @@ Feature: Local proxy serves the live tuned band, not stale bind-time options
     Then the request is refused with an OpenAI-shaped error (no band tuned)
     And the broker was never called (no spend)
 
+  # Ruling 5 applies to the models probe too: a disconnected proxy must not advertise the
+  # STALE band's model (an agent probing /v1/models would otherwise configure itself against
+  # a band that is no longer tuned). Empty OpenAI list, valid shape, never an error.
+  Scenario: A disconnected proxy serves an empty model list (no stale band)
+    Given the proxy is bound while tuned to band A model "qwen3-32b-fp8"
+    When the user disconnects and no band is tuned
+    And an agent probes GET "/v1/models"
+    Then the status is 200
+    And the data array has exactly 0 entries
+    And "qwen3-32b-fp8" does not appear in the list
+
   # Concurrency corner: a re-tune while a request is in flight must not tear the options.
   Scenario: A re-tune concurrent with an in-flight request reads a consistent snapshot
     Given a chat request is in flight against band A

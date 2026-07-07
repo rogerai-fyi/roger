@@ -8,18 +8,27 @@
 # read the wallet key, but the budget bounds the blast radius) and the safety rail that makes
 # handing the mic to a third-party CLI acceptable.
 #
-# GROUND TRUTH: X-RogerAI-Cost is credits (1 credit = $1), parsed as float (see ChatDetailed
-# client.go:1079-1080). The budget accumulator lives in the proxy handler closure, shared
-# across all concurrent requests. Proposed seams: ProxyOptions.Budget (dollars; 0 = the
-# default), a thread-safe running total, and a way to RAISE/RESET it (the TUI /budget knob and
-# the pre-launch plate, Phase 3).
+# GROUND TRUTH: the broker meters its two relay paths DIFFERENTLY. A NON-STREAMING response
+# carries the billed cost in the X-RogerAI-Cost header (credits, 1 credit = $1; tunnel.go
+# relay path). A STREAMING response flushes its headers BEFORE any output and carries NO cost
+# header at all ("No metering headers (already streaming)", tunnel.go relayStream) - so a
+# header-only accumulator is a NO-OP for stream:true traffic, which is what agent CLIs default
+# to. The streamed cost arrives at STREAM END as a spec-compliant SSE COMMENT line
+# `: rogerai-cost=<amount>` emitted by the broker after settle (founder-approved design,
+# 2026-07-07 "SSE meter comment" ruling; SSE parsers ignore comment lines by spec, so no
+# client breaks, and the proxy passes the comment through unchanged). The proxy accumulates
+# BOTH meters: the header on non-streaming responses, the comment on streams - billed at
+# stream end, consistent with the ceiling (the crossing stream completes; the NEXT call gets
+# the 402). Seams: ProxyOptions.Budget (dollars; 0 = uncapped), a thread-safe running total,
+# and RAISE/RESET (the pre-launch plate, Phase 3).
 #
-# ACCOUNTING RULE: accumulate the ACTUAL billed X-RogerAI-Cost of each COMPLETED response
-# (streaming AND non-streaming — the header is present on both once the stream closes). The
+# ACCOUNTING RULE: accumulate the ACTUAL billed cost of each COMPLETED response - from the
+# X-RogerAI-Cost header (non-streaming) or the `: rogerai-cost=` SSE comment (streaming). The
 # check is: if (spent_so_far >= budget) refuse the NEXT request with 402; a request already
 # in flight is not retro-killed. Concurrency: the accumulate-and-check is atomic so N parallel
 # guest subagents cannot each read "under budget" and all slip through (design doc §8 rate
-# limits notes parallel-subagent CLIs).
+# limits notes parallel-subagent CLIs). Uncapped sessions (Budget 0) skip the admission gate
+# entirely - no serialization for `roger use` / the TUI / parallel CLIs.
 #
 # FOUNDER RULINGS (approved 2026-07-06; boundary re-approved 2026-07-07):
 #   - DEFAULT budget value: $2.00, raisable (design doc §5).
@@ -31,7 +40,8 @@
 #     spec edit, 2026-07-07).
 #   - 402 error `type`: "insufficient_quota" (OpenAI's billing type) vs a custom
 #     "budget_exceeded". Proposed code "budget_exceeded", type "insufficient_quota".
-#   - Does the budget-402 message tell the user how to raise it (the /budget knob)?
+#   - 402 message copy: NEUTRAL (no /budget command exists yet, review #6) - "session spend
+#     budget reached - restart the session with a higher budget to continue".
 #
 # EXECUTABLE: step defs deferred; the Budget seam lands with implementation. RED evidence:
 # TestProxySpendBudget in proxy_hardening_test.go asserts a 402 arrives once the running total
@@ -94,16 +104,29 @@ Feature: Local proxy per-session spend budget
     When 2 chat requests are made
     Then the accumulated session spend is $0.80
 
-  Scenario: Streaming responses are accounted the same as non-streaming
-    Given a stub broker that streams an SSE response then sets X-RogerAI-Cost to $0.40
+  # STREAM-FAITHFUL: the real broker sends NO cost header on a stream (headers are flushed
+  # before output); the billed cost arrives only as the `: rogerai-cost=` SSE comment at
+  # stream end. The stub below reproduces exactly that wire shape - a stub that set the
+  # header on streams would fake fidelity and hide the streaming-budget no-op bug.
+  Scenario: Streaming responses are accounted from the SSE meter comment
+    Given a stream-faithful stub broker with no cost header that emits ": rogerai-cost=0.40" at stream end
     When 2 streaming chat requests are made
     Then the accumulated session spend is $0.80
+    And the meter comment passes through to the client unchanged
     # Founder ruling 2026-07-07 (literal ceiling): $0.80 is still UNDER the $1.00 budget, so
     # the 3rd call is ADMITTED and completes - the crossing call may tip the spend over.
     When a 3rd streaming chat request is made
     Then the status is 200
     And the accumulated session spend is $1.20
     And a 4th streaming request past the $1.00 budget is refused 402
+
+  # GRACEFUL DEGRADE: an OLD broker that emits no meter comment on streams bills the session
+  # $0 locally (the wallet is still billed broker-side) but must never error the client.
+  Scenario: A stream with no meter comment accumulates nothing and does not error
+    Given a stream-faithful stub broker with no cost header and no meter comment
+    When a streaming chat request is made
+    Then the status is 200
+    And the accumulated session spend is $0.00
 
   Scenario: A response with no cost header accumulates nothing (fail-safe, not fail-open on spend)
     Given a stub broker that returns 200 with NO X-RogerAI-Cost header

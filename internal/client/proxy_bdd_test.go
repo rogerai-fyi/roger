@@ -137,7 +137,11 @@ func (s *proxyState) startBroker() {
 		for k, v := range s.extraHeaders {
 			w.Header().Set(k, v)
 		}
-		if s.cost != "" {
+		// STREAM-FAITHFUL (the real broker's wire shape): a streaming response NEVER carries
+		// the X-RogerAI-Cost header - headers are flushed before output (tunnel.go relayStream,
+		// "No metering headers (already streaming)"); the billed cost arrives only as the
+		// `: rogerai-cost=` SSE comment at stream end (emitted below when s.cost is set).
+		if s.cost != "" && !s.streaming {
 			w.Header().Set("X-RogerAI-Cost", s.cost)
 		}
 		if s.retryAfter != "" {
@@ -149,6 +153,9 @@ func (s *proxyState) startBroker() {
 		ct := s.contentType
 		if ct == "" {
 			ct = "application/json"
+			if s.streaming {
+				ct = "text/event-stream" // the real streaming broker's Content-Type
+			}
 		}
 		w.Header().Set("Content-Type", ct)
 		st := s.status
@@ -169,6 +176,13 @@ func (s *proxyState) startBroker() {
 				}
 			}
 			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			// The SSE cost meter comment, exactly as the real relayStream emits it: AFTER the
+			// node's [DONE] has streamed through (settle only happens once the receipt arrives,
+			// which follows the node's final chunk). SSE parsers ignore comment lines wherever
+			// they appear. Omitted when s.cost=="" (the old-broker graceful-degrade case).
+			if s.cost != "" {
+				fmt.Fprintf(w, ": rogerai-cost=%s\n\n", s.cost)
+			}
 			return
 		}
 		body := s.respBody
@@ -606,18 +620,10 @@ func (s *proxyState) chatBearer(key string) error {
 }
 
 func (s *proxyState) chatRawAuth(header string) error {
-	// The step outline substitutes "<sessionkey>" with the real key. Rows are all
-	// deliberately-broken (wrong scheme/prefix/suffix). The final row, "Bearer <sessionkey>",
-	// carries a broken TRAILING suffix in the source table (visible padding) that Gherkin trims;
-	// re-add it so the row is refused as the spec's inline note documents (a valid credential
-	// would contradict scenario 1 "the correct session key is admitted").
-	h := header
-	if strings.Contains(h, "<sessionkey>") {
-		h = strings.ReplaceAll(h, "<sessionkey>", s.sessionKey)
-		if h == "Bearer "+s.sessionKey { // otherwise-valid -> honor the documented broken suffix
-			h += " "
-		}
-	}
+	// The step outline substitutes "<sessionkey>" with the real key VERBATIM - every row's
+	// brokenness is visible in the spec table itself (spec-fidelity review #4); the harness
+	// performs no hidden mutation of any row.
+	h := strings.ReplaceAll(header, "<sessionkey>", s.sessionKey)
 	setAuth := header != ""
 	s.doReq(http.MethodPost, "/v1/chat/completions", `{"model":"m"}`, h, setAuth)
 	return nil
@@ -711,10 +717,16 @@ func (s *proxyState) accumulatedSpendIs(amount string) error {
 	if s.cost == "" || dollars("$"+s.cost) <= 0 {
 		s.cost = "0.25"
 	}
-	for s.holder.Spent()+1e-9 < want {
+	// Bounded driver: if the accumulator never moves (e.g. a metering bug), fail cleanly
+	// on the assertion below instead of spinning forever.
+	for i := 0; s.holder.Spent()+1e-9 < want && i < 32; i++ {
+		before := s.holder.Spent()
 		s.doChat(`{"model":"m"}`)
 		if s.holder.Spent() > want+1e-6 {
 			return fmt.Errorf("overshot establishing spend $%.4f (now $%.4f)", want, s.holder.Spent())
+		}
+		if approxEq(s.holder.Spent(), before) {
+			break // a served request accumulated NOTHING - metering is broken; assert below
 		}
 	}
 	if got := s.holder.Spent(); !approxEq(got, want) {
@@ -749,10 +761,14 @@ func (s *proxyState) preSpend(amount string) error {
 	target := dollars(amount)
 	s.cost = "0.25"
 	s.ensureBound()
-	for s.holder.Spent()+1e-9 < target {
+	for i := 0; s.holder.Spent()+1e-9 < target && i < 32; i++ {
+		before := s.holder.Spent()
 		s.doChat(`{"model":"m"}`)
 		if s.holder.Spent() > target+1e-6 {
 			return fmt.Errorf("overshot the pre-spend target")
+		}
+		if approxEq(s.holder.Spent(), before) {
+			return fmt.Errorf("pre-spend stalled at $%.4f (metering broken?)", s.holder.Spent())
 		}
 	}
 	return nil
@@ -812,12 +828,24 @@ func (s *proxyState) brokerBillsNonStreaming(amount string) error {
 	return s.brokerBills(amount)
 }
 
-func (s *proxyState) brokerStreamsThenCost(amount string) error {
+// brokerStreamFaithful configures the stub as the REAL streaming broker: no cost header
+// (headers flush before output), the billed cost only as the `: rogerai-cost=` SSE comment at
+// stream end. amount=="" reproduces an OLD broker that emits no meter comment at all.
+func (s *proxyState) brokerStreamFaithful(amount string) error {
 	s.streaming = true
 	s.trickleN = 2
 	s.trickleGap = time.Millisecond
 	s.cost = strings.TrimPrefix(amount, "$")
 	s.ensureBound()
+	return nil
+}
+
+// meterCommentPassedThrough asserts the SSE meter comment reached the CLIENT unchanged
+// (comments are ignored by SSE parsers; the proxy must pass them through, never strip).
+func (s *proxyState) meterCommentPassedThrough() error {
+	if !strings.Contains(s.rec.Body.String(), ": rogerai-cost="+s.cost) {
+		return fmt.Errorf("the client's stream lost the meter comment; body=%q", s.rec.Body.String())
+	}
 	return nil
 }
 
@@ -1580,7 +1608,7 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^data\[0\]\.id is "([^"]*)"$`, func(v string) error { return st.dataFieldIs("id", v) })
 			sc.Step(`^data\[0\]\.object is "([^"]*)"$`, func(v string) error { return st.dataFieldIs("object", v) })
 			sc.Step(`^data\[0\]\.owned_by is "([^"]*)"$`, func(v string) error { return st.dataFieldIs("owned_by", v) })
-			sc.Step(`^the data array has exactly (\d+) entry$`, st.dataArrayHasN)
+			sc.Step(`^the data array has exactly (\d+) entr(?:y|ies)$`, st.dataArrayHasN)
 			sc.Step(`^the band is re-tuned from "([^"]*)" to "([^"]*)"$`, st.bandReTuned)
 			sc.Step(`^"([^"]*)" does not appear in the list$`, st.modelNotInList)
 			sc.Step(`^an agent sends "([^"]*)" "/v1/models" with the session key$`, st.sendMethodModels)
@@ -1647,7 +1675,9 @@ func TestProxyBDD(t *testing.T) {
 				return nil
 			})
 			sc.Step(`^a stub broker that bills \$([0-9.]+) per non-streaming response$`, func(a string) error { return st.brokerBillsNonStreaming("$" + a) })
-			sc.Step(`^a stub broker that streams an SSE response then sets X-RogerAI-Cost to \$([0-9.]+)$`, func(a string) error { return st.brokerStreamsThenCost("$" + a) })
+			sc.Step(`^a stream-faithful stub broker with no cost header that emits ": rogerai-cost=([0-9.]+)" at stream end$`, func(a string) error { return st.brokerStreamFaithful(a) })
+			sc.Step(`^a stream-faithful stub broker with no cost header and no meter comment$`, func() error { return st.brokerStreamFaithful("") })
+			sc.Step(`^the meter comment passes through to the client unchanged$`, st.meterCommentPassedThrough)
 			sc.Step(`^(\d+) streaming chat requests are made$`, st.nStreamingRequests)
 			sc.Step(`^a 3rd streaming chat request is made$`, st.oneStreamingRequest)
 			sc.Step(`^a 4th streaming request past the \$([0-9.]+) budget is refused 402$`, func(a string) error { return st.nextStreamingRefused("$" + a) })
