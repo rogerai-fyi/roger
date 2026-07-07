@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestRelayEnforcesDefaultCap(t *testing.T) {
 	w := httptest.NewRecorder()
 	// opts.MaxPriceOut = 0 (no cap set) -> the relay must inject the default ceiling.
 	opts := ProxyOptions{Broker: srv.URL, User: "u"}
-	relayWithFailover(w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy())
+	relayWithFailover(context.Background(), w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy(), nil, nil)
 	if gotCap == "" {
 		t.Fatalf("relay sent no X-Roger-Max-Price-Out - default cap NOT enforced (overpay path open)")
 	}
@@ -67,7 +68,7 @@ func TestRelayHonorsExplicitCap(t *testing.T) {
 	defer srv.Close()
 	w := httptest.NewRecorder()
 	opts := ProxyOptions{Broker: srv.URL, User: "u", MaxPriceOut: 3.5}
-	relayWithFailover(w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy())
+	relayWithFailover(context.Background(), w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy(), nil, nil)
 	if gotCap != "3.5" {
 		t.Errorf("explicit cap header = %q, want %q", gotCap, "3.5")
 	}
@@ -88,7 +89,7 @@ func TestRelaySendsFreqHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	// --freq tune-in with NO explicit cap: the broker default cap must ride along.
 	opts := ProxyOptions{Broker: srv.URL, User: "u", Freq: "147.520 MHz 8F3K-9M2Q"}
-	relayWithFailover(w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy())
+	relayWithFailover(context.Background(), w, opts, Criteria{Model: "m"}, []byte(`{"model":"m"}`), srv.Client(), defaultPolicy(), nil, nil)
 	if gotFreq != "147.520 MHz 8F3K-9M2Q" {
 		t.Errorf("freq header = %q, want the code", gotFreq)
 	}

@@ -679,6 +679,12 @@ type model struct {
 	connectStartFrame int
 	proxyUp           bool
 	proxyAddr         string
+	// proxyHolder is the LIVE options source the local proxy reads per request. It is created
+	// once (first tune-in) and re-pointed on every (re)tune via SetBand, keeping the stable
+	// per-session bearer key (proxyKey) so a running guest's config survives a re-tune; a
+	// disconnect flips it to "refuse - no band tuned". nil until the proxy is bound.
+	proxyHolder *client.ProxyOptionsHolder
+	proxyKey    string
 	confidentialOnly  bool
 	balance           float64
 	haveBal           bool
@@ -3630,6 +3636,20 @@ func (m model) connect() (tea.Model, tea.Cmd) {
 // openChannel binds the local proxy (once) and marks the band connected, sending
 // the resolved spend limits to the relay so routing stays within them. Called
 // only after the user accepts the cost confirmation.
+// liveProxyOpts builds the LIVE ProxyOptions for the band `o` under the current spend limits /
+// freq / confidential toggle, carrying the STABLE per-session bearer key and the tuned band's
+// model (the proxy rewrites incoming models to it). Budget stays 0 (the interactive TUI is a
+// single-user, hands-on flow; the guest-operator launch is where DefaultSessionBudget applies).
+func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
+	return client.ProxyOptions{
+		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
+		Confidential: m.confidentialOnly,
+		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
+		Freq:  m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
+		Alert: func(s string) { alert.set(s) },
+	}
+}
+
 func (m model) openChannel() (tea.Model, tea.Cmd) {
 	q := m.q
 	o := *q.b.cheapest
@@ -3649,16 +3669,24 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 		// Failover alerts from the relay land in a shared box the tick loop drains
 		// onto the status line - bots keep hitting the same endpoint regardless.
 		alert := m.alert
-		opts := client.ProxyOptions{
-			Broker: m.broker, User: m.user, Confidential: m.confidentialOnly,
-			MaxPriceIn: q.limit.MaxIn, MaxPriceOut: q.limit.MaxOut, MinTPS: q.limit.MinTPS,
-			Freq:  m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
-			Alert: func(s string) { alert.set(s) },
-		}
-		go http.Serve(ln, client.ProxyHandler(opts))
+		// Mint the STABLE per-session bearer key once; the hardened proxy enforces it on every
+		// route, and the LIVE options holder is re-pointed on each re-tune (below) without ever
+		// rotating the key, so a running guest agent's generated config keeps working.
+		m.proxyKey = client.NewSessionKey()
+		m.proxyHolder = client.NewProxyOptionsHolder(m.liveProxyOpts(o, alert))
+		go http.Serve(ln, client.ProxyHandlerLive(m.proxyHolder))
+	}
+	// LIVE re-point: every (re)tune updates the band model / caps / freq / confidential on the
+	// SAME endpoint (ruling 9), keeping the session key + budget stable. A no-op-safe guard for
+	// the tests that pre-set proxyUp without a holder.
+	if m.proxyHolder != nil {
+		m.proxyHolder.SetBand(m.liveProxyOpts(o, m.alert))
 	}
 	m.connected = &o
-	m.apikey = "roger-local"
+	m.apikey = m.proxyKey
+	if m.apikey == "" {
+		m.apikey = "roger-local"
+	}
 	// Remember this station as the "sticky" recent band so it never vanishes from the
 	// browse list if its node ages out of /discover while we are on the channel (the
 	// founder's vanishing-band bug). mergeStickyBand re-includes it on every re-scan.
@@ -3758,6 +3786,12 @@ func (m model) disconnect() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	was := m.connected.Model
+	// The endpoint stays bound (bots may still hold it), but a disconnected proxy must REFUSE
+	// to spend rather than serve the last band's stale routing (ruling 5). A re-tune re-points
+	// it via openChannel/SetBand. Guard for tests that never bound a holder.
+	if m.proxyHolder != nil {
+		m.proxyHolder.Disconnect()
+	}
 	m.connected = nil
 	m.transcript = nil
 	m.lastReply = "" // leaving the channel: don't let ctrl+y / /copy yank a prior channel's reply
