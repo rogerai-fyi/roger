@@ -67,10 +67,12 @@ type opBDD struct {
 	parentEnv  []string
 
 	// TUI
-	tm        tea.Model
-	holder    *client.ProxyOptionsHolder
-	keyAtSeed string
-	tuiPaths  map[string]string // guest bin -> fake path for the TUI-side detect seam
+	tm            tea.Model
+	holder        *client.ProxyOptionsHolder
+	keyAtSeed     string
+	budgetAtSeed  float64           // holder budget at seed (the "unchanged" baseline)
+	launchWorkdir string            // what the operatorWorkdir seam resolves for this scenario
+	tuiPaths      map[string]string // guest bin -> fake path for the TUI-side detect seam
 
 	// money servers (real HTTP through the real proxy handler)
 	brokerSrv *httptest.Server
@@ -132,6 +134,11 @@ func (s *opBDD) reset(t *testing.T) {
 	s.workdir = t.TempDir()
 	s.home = t.TempDir()
 	operatorScratchRoot = s.scratchRoot
+	// Phase 3: the plate's workdir seam resolves the scenario's sandbox project dir by
+	// default, and the process HOME is THIS scenario's sandbox home so the exactly-$HOME
+	// double confirm compares against the live env (never the developer's real home).
+	s.launchWorkdir = s.workdir
+	os.Setenv("HOME", s.home)
 }
 
 func (s *opBDD) closeServers() {
@@ -260,6 +267,7 @@ func (s *opBDD) seedTUI(bandModel string) {
 		mm.endpoint = s.proxySrv.URL + "/v1"
 		mm.broker = s.brokerSrv.URL
 		s.keyAtSeed = s.holder.Get().SessionKey
+		s.budgetAtSeed = s.holder.Get().Budget
 	}
 	s.tm = mm
 }
@@ -551,6 +559,17 @@ func (s *opBDD) userPicks(label string) error {
 
 func (s *opBDD) userPressesEsc() error { s.pressKey("esc"); return nil }
 func (s *opBDD) userPresses(k string) error {
+	// y/enter on an open plate emits the staging tick as a Cmd; deliver the KEY only and
+	// leave the tick to the explicit exec steps (fireExec) so "only after that paint is
+	// the exec issued" stays a real ordering assertion.
+	if s.model().operatorPlate != nil && (k == "y" || k == "enter") {
+		s.update(keyMsg(k))
+		return nil
+	}
+	if k == "down" { // a real arrow key, not the runes d-o-w-n typed into the prompt
+		s.update(tea.KeyMsg{Type: tea.KeyDown})
+		return nil
+	}
 	s.pressKey(k)
 	return nil
 }
@@ -636,13 +655,17 @@ func (s *opBDD) fireExec() {
 }
 
 // ensureHandoff makes sure the full begin path ran for the named guest: /operator <name>
-// if nothing is staged, then the staging tick.
+// if nothing is staged, the Phase 3 pre-launch plate accepted with the local y, then the
+// staging tick. (The plate interposes on every pick since Phase 3; a Phase 2 lifecycle
+// scenario reaches its staged/exec assertions through the accepted plate - the invariants
+// it pins are unchanged.)
 func (s *opBDD) ensureHandoff(name string) error {
-	if s.model().operatorHandoff == nil && len(s.execCmds) == 0 {
+	if s.model().operatorHandoff == nil && len(s.execCmds) == 0 && s.model().operatorPlate == nil {
 		if err := s.userRuns("/operator " + name); err != nil {
 			return err
 		}
 	}
+	s.acceptPlateIfUp()
 	s.fireExec()
 	if len(s.execCmds) == 0 {
 		return fmt.Errorf("no exec was issued for %s (transcript: %s)", name, s.view())
@@ -663,7 +686,21 @@ func (s *opBDD) handoffBegins(name string) error {
 
 func (s *opBDD) guestHasTheMic() error { return s.ensureHandoff("opencode") }
 
+// acceptPlateIfUp advances an open pre-launch plate with the local y (the Phase 3 gate
+// between picking and staging), WITHOUT executing the emitted staging tick - the exec is
+// always advanced explicitly (fireExec) so exec-ordering assertions stay meaningful.
+func (s *opBDD) acceptPlateIfUp() {
+	if s.model().operatorPlate != nil {
+		s.update(keyMsg("y"))
+	}
+}
+
 func (s *opBDD) nextPaintShows(text string) error {
+	// A Phase 2 scenario asserting the staged PATCHING paint reaches it through the
+	// Phase 3 plate's local accept (the plate interposes before staging by spec).
+	if strings.Contains(text, "PATCHING") {
+		s.acceptPlateIfUp()
+	}
 	if !strings.Contains(s.view(), text) {
 		return fmt.Errorf("the staged paint lacks %q:\n%s", text, s.view())
 	}
@@ -699,9 +736,13 @@ func (s *opBDD) execOnlyAfterPaint() error {
 	return nil
 }
 
-func (s *opBDD) paintShowsBaseURL() error { return s.nextPaintShows(s.model().endpoint) }
+func (s *opBDD) paintShowsBaseURL() error {
+	s.acceptPlateIfUp() // the staged paint sits one accepted plate past the pick
+	return s.nextPaintShows(s.model().endpoint)
+}
 
 func (s *opBDD) paintShowsModel(mdl string) error {
+	s.acceptPlateIfUp()
 	v := s.view()
 	if !strings.Contains(v, "MODEL") || !strings.Contains(v, mdl) {
 		return fmt.Errorf("no MODEL %s on the staged paint:\n%s", mdl, v)
@@ -989,6 +1030,7 @@ func (s *opBDD) binaryVanishes() error {
 
 func (s *opBDD) tuiPaintingAgain() error {
 	if s.spawnFail {
+		s.acceptPlateIfUp()
 		s.fireExec()
 		s.doReturn(&exec.Error{Name: "opencode", Err: exec.ErrNotFound})
 		s.spawnFail = false
@@ -1079,6 +1121,7 @@ func (s *opBDD) userRunsOperatorAgain() error {
 	if err := s.userRuns("/operator opencode"); err != nil {
 		return err
 	}
+	s.acceptPlateIfUp()
 	s.fireExec()
 	return nil
 }
@@ -1563,6 +1606,7 @@ func (s *opBDD) handoffStagedNotExeced(name string) error {
 	if err := s.userRuns("/operator " + name); err != nil {
 		return err
 	}
+	s.acceptPlateIfUp() // the Phase 3 plate interposes; staging begins on the local y
 	h := s.model().operatorHandoff
 	if h == nil || h.execing {
 		return fmt.Errorf("the handoff is not in the staging window")
@@ -1866,4 +1910,7 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 	sc.Step(`^the staging beat elapses$`, st.stagingBeatElapses)
 	sc.Step(`^bracketed paste is re-enabled in the return command set$`, st.bracketedPasteReenabled)
 	sc.Step(`^a detected guest "([^"]*)" whose version probe failed$`, st.detectedGuestUnverified)
+
+	// ── Phase 3: THE DESK view · band gate · pre-launch plate ─────────────────
+	initializePhase3Steps(st, sc)
 }

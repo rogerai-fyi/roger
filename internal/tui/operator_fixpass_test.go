@@ -82,6 +82,7 @@ func TestOperatorReturnReenablesBracketedPaste(t *testing.T) {
 			m.broker = balSrv.URL
 			var tm tea.Model
 			tm, _ = m.runAgentCommand("/operator opencode")
+			tm, _ = tm.Update(keyMsg("y")) // accept the Phase 3 pre-launch plate -> staged
 			tm, _ = tm.Update(operatorExecMsg{})
 			_, cmd := tm.Update(operatorDoneMsg{})
 			found := false
@@ -103,7 +104,8 @@ func TestExecRecheckAbortsOnBandDrop(t *testing.T) {
 	m, holder, execs := opRegressionSeed(t)
 	var tm tea.Model
 	tm, _ = m.runAgentCommand("/operator opencode")
-	holder.Disconnect() // the band drops inside the 450ms staging window
+	tm, _ = tm.Update(keyMsg("y")) // accept the Phase 3 pre-launch plate -> staged
+	holder.Disconnect()            // the band drops inside the 450ms staging window
 	tm, _ = tm.Update(operatorExecMsg{})
 	got := asModel(tm)
 	if len(*execs) != 0 {
@@ -140,6 +142,7 @@ func TestExecTimeAbortEmitsDJBackFrame(t *testing.T) {
 		m.rcBridge = fb
 		var tm tea.Model
 		tm, _ = m.runAgentCommand("/operator opencode")
+		tm, _ = tm.Update(keyMsg("y")) // accept the Phase 3 pre-launch plate -> staged
 		// The staging guard answers a remote turn with the guest-has-the-mic frame.
 		tm, _ = tm.Update(remoteInboundMsg(protocol.RCInbound{Kind: protocol.RCInTurn, Text: "hi", Origin: "phone"}))
 		mm := asModel(tm)
@@ -158,6 +161,7 @@ func TestExecTimeAbortEmitsDJBackFrame(t *testing.T) {
 		m.rcBridge = fb
 		var tm tea.Model
 		tm, _ = m.runAgentCommand("/operator opencode")
+		tm, _ = tm.Update(keyMsg("y")) // accept the Phase 3 pre-launch plate -> staged
 		holder.Disconnect()
 		tm, _ = tm.Update(operatorExecMsg{})
 		if len(*execs) != 0 {

@@ -138,3 +138,15 @@ Feature: While a guest has the mic, remote control parks — never deaf, never a
     When a DJ turn slips in and the staging beat elapses
     Then the handoff is aborted with no child process launched
     And a frame of kind "status" is emitted announcing the DJ is back
+
+  Scenario: A band-gate abort during the staging beat also announces the DJ is back (Phase 3 review regression 2026-07-07)
+    # The Phase 3 agent-ready gate re-check is an abort branch like every other: a
+    # re-tune that shrinks the channel window inside the staging beat must not strand
+    # remote viewers on "guest has the mic" - the abort emits the corrective DJ-back
+    # status frame too (nil-safe: no bridge, no frame).
+    Given the handoff to "opencode" is staged but not yet execed
+    When the channel is re-tuned to a station with a context window of 8192 tokens during the staging beat
+    And the staging beat elapses
+    Then the handoff is aborted with no child process launched
+    And the transcript notes the band changed under the patch
+    And a frame of kind "status" is emitted announcing the DJ is back
