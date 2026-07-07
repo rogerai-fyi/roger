@@ -89,10 +89,10 @@ func TestDeskEntryCaptures(t *testing.T) {
 	var browseTm tea.Model = New("http://broker.local", "tester")
 	browseTm, _ = browseTm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	browseTm, _ = browseTm.Update(offersMsg([]offer{
-		capOffer("qwen3-coder-30b", 131072, true, nil, 0, 88),        // agent-ready + FREE
-		capOffer("llava-vision-13b", 8192, false, []string{"vision"}, 0.25, 60), // vision, small
+		capOffer("qwen3-coder-30b", 131072, true, nil, 0, 88),                     // agent-ready + FREE
+		capOffer("llava-vision-13b", 8192, false, []string{"vision"}, 0.25, 60),   // vision, small
 		capOffer("big-multimodal-70b", 65536, false, []string{"vision"}, 0.9, 74), // agent-ready + vision
-		capOffer("tiny-1b", 4096, true, nil, 0, 40),                 // known-small free
+		capOffer("tiny-1b", 4096, true, nil, 0, 40),                               // known-small free
 	}))
 	browseTm, _ = browseTm.Update(balanceMsg{loggedIn: true, balance: 12.50})
 	browseTm, _ = browseTm.Update(tickMsg{})

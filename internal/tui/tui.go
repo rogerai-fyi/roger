@@ -441,13 +441,13 @@ type offer struct {
 	// did not declare, so an ABSENT set claims nothing (no "text-only" badge).
 	Capabilities []string `json:"capabilities,omitempty"`
 	Online       bool     `json:"online"`
-	Confidential bool    `json:"confidential"`
-	FreeNow      bool    `json:"free_now"`
-	TPS          float64 `json:"tps"`
-	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
-	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
-	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	Confidential bool     `json:"confidential"`
+	FreeNow      bool     `json:"free_now"`
+	TPS          float64  `json:"tps"`
+	TTFTMs       float64  `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate  float64  `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen  bool     `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified     bool     `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
@@ -844,15 +844,15 @@ type model struct {
 	// and clears deskFocused (the DJ-still-types-through path). autoTuning marks a silent
 	// auto-tune in flight (R1/R6); autoTuneBeatLen is the transcript length BEFORE the
 	// "finding a band…" beat, so the beat is swapped for the outcome without stacking.
-	deskFocused    bool
-	deskCursor     int
-	autoTuning     bool
+	deskFocused     bool
+	deskCursor      int
+	autoTuning      bool
 	autoTuneBeatLen int
 	// agentPending holds prompts submitted while NO model is tuned in: rather than fire a
 	// doomed turn (the "no station on air" spam), the turn is parked, a silent auto-tune
 	// is kicked, and the prompt is sent the moment a band lands (drained by runAutoTune).
-	agentPending []queuedPrompt
-	agentLandingLines  int                  // transcript length that still counts as the AGENT landing (entry chrome only)
+	agentPending      []queuedPrompt
+	agentLandingLines int // transcript length that still counts as the AGENT landing (entry chrome only)
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
