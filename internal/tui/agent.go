@@ -179,11 +179,28 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
 				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · files sandboxed to "+m.agent.loop.Root+" · run_shell runs there but is NOT sandboxed"),
 			)
+		} else if m.proxyHolder == nil {
+			// FRESH: nothing has ever been tuned in this session (no endpoint bound). The
+			// old behavior dropped into a dead ask box and spammed "no station on air" on
+			// every turn. Instead: a calm welcome + a SILENT background auto-tune (R1/R6)
+			// that finds a FREE band with no spend. The ask box stays focused (the DJ types
+			// through); when the async desk scan lands GUESTS, THE DESK takes focus as the
+			// selectable operator picker (R3, onOperatorDetected). The auto-tune outcome is
+			// noted once, when it resolves - never a per-turn "no station" pile-up.
+			m.agentLines = append(m.agentLines,
+				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"))
+			m.autoTuneBeatLen = len(m.agentLines) // the beat below is swapped for the outcome
+			m.agentLines = append(m.agentLines,
+				stDim.Render("· ")+stDim.Render("finding a free band…"))
+			m.agentLandingLines = len(m.agentLines)
+			m.autoTuning = true
+			m.agentIn.Focus()
+			m.status = stDim.Render("AGENT ready · esc exits")
+			return m, tea.Batch(textinput.Blink, operatorScanCmd(), autoTuneCmd(m.broker, m.scanned))
 		} else {
-			// Nothing tuned in (and nothing tuned in earlier this session): be honest up
-			// front and point at the two moves. The turn itself is still allowed (it falls
-			// into the same actionable hint), but the user should not have to send one to
-			// learn there is no model.
+			// A proxy holder exists but no model resolves (a disconnected / oddly-seeded
+			// session): keep the honest up-front hint - the turn is still allowed and falls
+			// into the same actionable hint.
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"),
 				stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
@@ -232,9 +249,10 @@ func (m *model) refreshAgentModel() {
 	case want != "":
 		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("the agent now runs on ")+stKey.Render(want))
 	default:
-		m.agentLines = append(m.agentLines,
-			stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
-			hintTuneOrShare(m.narrow()))
+		// No model resolves - a STATUS note, not a transcript line, so re-entries / turns
+		// never stack "no model tuned in" (founder spam regression). The actual failure,
+		// if the user sends a turn anyway, still surfaces once via the deduped failureHint.
+		m.status = stRed.Render("✕ ") + stEmber.Render("no model tuned in") + stDim.Render(" · [1] tune in · [2] go on air")
 	}
 }
 
@@ -301,6 +319,55 @@ func (m model) newAgentRuntime() *agentRuntime {
 // distinct from the harness.EventKind values (which start at 0) by being far out of
 // their range, so a real harness event is never mistaken for a cost tick.
 const eventCost = harness.EventKind(1000)
+
+// bandForModel finds the discover band for a model id (false when it is not on the
+// current dial - e.g. a session-recent model whose station has aged out).
+func (m model) bandForModel(mdl string) (band, bool) {
+	for _, b := range m.bands {
+		if b.model == mdl {
+			return b, true
+		}
+	}
+	return band{}, false
+}
+
+// modelBadgeTail is the short flag tail the /model picker appends to a candidate row:
+// the same agent-ready ⌁ (inferred ⌁~) / vision ◪ / FREE marks the band table shows, so
+// picking a model is an informed choice. "" when the model is not on the current dial.
+func (m model) modelBadgeTail(mdl string) string {
+	b, ok := m.bandForModel(mdl)
+	if !ok {
+		return ""
+	}
+	var parts []string
+	if ready, inferred := bandAgentReady(b); ready {
+		t := agentReadyGlyph()
+		if inferred {
+			t += "~"
+		}
+		parts = append(parts, t)
+	}
+	if b.vision {
+		parts = append(parts, visionGlyph())
+	}
+	if b.free {
+		parts = append(parts, "FREE")
+	}
+	return strings.Join(parts, " ")
+}
+
+// deskRowCount is the number of selectable desk rows when THE DESK has focus: the
+// resident DJ (always row 0) plus one row per detected guest.
+func (m model) deskRowCount() int {
+	return 1 + len(deskGuests(m.operatorDetections))
+}
+
+// isPrintableKey reports whether a key press is a printable character (a rune or a
+// space) - the class that falls THROUGH the focused desk into the ask box (R3). Nav /
+// control keys (arrows, esc, enter, tab, ctrl+*, pgup) are not printable.
+func isPrintableKey(k tea.KeyMsg) bool {
+	return k.Type == tea.KeyRunes || k.Type == tea.KeySpace
+}
 
 // onAgentKey handles keys while in AGENT mode. A pending mutating-tool confirm owns
 // every key (y runs, n/esc denies - default DENY). Otherwise it is a text-entry mode:
@@ -370,6 +437,45 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rcEmitConfirmDone(false, "local")
 			c.resp <- false
 			return m, m.waitAgentEvent()
+		}
+	}
+	// THE DESK has focus (the [0] landing with nothing tuned in, R3): arrows move the
+	// operator cursor, Enter on the DJ focuses the ask box, Enter on a guest opens the
+	// pre-launch plate (auto-tuning first if there is no channel). ANY printable rune
+	// falls through to the ask box and de-focuses the desk (the DJ-still-types-through
+	// path); esc / scroll / control keys fall through to the normal handling below.
+	if m.deskFocused {
+		switch k.String() {
+		case "up":
+			if m.deskCursor > 0 {
+				m.deskCursor--
+			}
+			return m, nil
+		case "down":
+			if m.deskCursor < m.deskRowCount()-1 {
+				m.deskCursor++
+			}
+			return m, nil
+		case "enter":
+			if m.deskCursor <= 0 {
+				// The resident DJ: hand focus to the ask box.
+				m.deskFocused = false
+				m.agentIn.Focus()
+				m.status = stDim.Render("the DJ has the mic · type to ask · esc exits")
+				return m, textinput.Blink
+			}
+			ds := deskGuests(m.operatorDetections)
+			if idx := m.deskCursor - 1; idx >= 0 && idx < len(ds) {
+				m.deskFocused = false
+				return m.startOperatorHandoff(ds[idx], false)
+			}
+			return m, nil
+		}
+		if isPrintableKey(k) {
+			// Type-through: the DJ is implied. De-focus the desk and let the rune land in
+			// the ask box via the text-entry Update below.
+			m.deskFocused = false
+			m.agentIn.Focus()
 		}
 	}
 	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
@@ -557,6 +663,22 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 		m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
 		return m, nil
 	}
+	// No model tuned in: don't fire a doomed turn (the "no station on air" spam). Echo the
+	// ask, park it, and kick a SILENT auto-tune; runAutoTune sends it the moment a free
+	// band lands, or flushes it with a single deduped failureHint if none is available. A
+	// REMOTE-drained prompt is NEVER parked (it must resolve as a chat turn immediately -
+	// the busy-queue remote-handoff guard); only locally-typed asks park.
+	if m.agent != nil && m.agent.model == "" && !q.remote {
+		m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+		m.agentPending = append(m.agentPending, q)
+		if !m.autoTuning {
+			m.autoTuning = true
+			m.autoTuneBeatLen = len(m.agentLines)
+			m.agentLines = append(m.agentLines, stDim.Render(glyphOnAir+" ")+stDim.Render("finding a free band…"))
+			return m, autoTuneCmd(m.broker, m.scanned)
+		}
+		return m, nil
+	}
 	m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
 	// Re-resolve to the currently open channel so a model tuned in mid-session is used; if
 	// still nothing is tuned in, the turn fails into the same actionable hint rather than
@@ -568,6 +690,25 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	now := time.Now()
 	m.agentStart = now
 	m.agentLastEvent = now // reset the stall clock; the first event re-stamps it
+	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
+}
+
+// startParkedTurn starts a turn for a prompt that was PARKED while no model was tuned
+// (auto-tune has since bound a band). It is submitAgentPrompt without the echo (the ask
+// was already echoed at park time) and without the model=="" park (a band is now bound).
+func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
+	p := q.text
+	if m.agent != nil && m.agent.running.Load() {
+		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...)
+		return m, nil
+	}
+	m.refreshAgentModel()
+	m.agentBusy = true
+	m.agentCanceling = false
+	m.agentTurnState = poseThinking
+	now := time.Now()
+	m.agentStart = now
+	m.agentLastEvent = now
 	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
 }
 
@@ -1172,10 +1313,19 @@ func (m model) agentView(w int) string {
 		b.WriteString("\n" + truncVisible("  "+stSelText.Render("pick a model")+stDim.Render(" - the agent will run on it"), w) + "\n")
 		for i, mdl := range m.agentPickerRows {
 			row := pad(mdl, 28)
+			tail := m.modelBadgeTail(mdl)
 			if i == m.agentPickerCursor {
-				b.WriteString(truncVisible("  "+stSelText.Render(" ▸ "+row), w) + "\n")
+				line := " ▸ " + row
+				if tail != "" {
+					line += "  " + tail // plain: one accent bar governs the reverse-video row
+				}
+				b.WriteString(truncVisible("  "+stSelText.Render(line), w) + "\n")
 			} else {
-				b.WriteString(truncVisible("  "+stDim.Render("   "+row), w) + "\n")
+				line := stDim.Render("   " + row)
+				if tail != "" {
+					line += "  " + stKey.Render(tail)
+				}
+				b.WriteString(truncVisible("  "+line, w) + "\n")
 			}
 		}
 		hint := "↑↓ pick · ⏎ select · esc keep current"

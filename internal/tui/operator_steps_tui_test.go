@@ -262,18 +262,20 @@ func (s *opBDD) proxyCallsCosts(costs []string) error {
 func (s *opBDD) seedTUI(bandModel string) {
 	m := browseSeed(120)
 	m.mouseOff = false // the handoff specs default to "the user has the mouse on"
-	var tm tea.Model = m
-	tm, _ = tm.Update(keyMsg("0"))
-	mm := asModel(tm)
+	// Wire the live proxy holder BEFORE entering AGENT - the real order is "tune in, then
+	// [0]", so enterAgent sees a live channel and lands on the ask prompt (not the fresh
+	// DESK auto-tune landing, which is only for a genuinely fresh session with no holder).
 	if bandModel != "" {
 		s.startMoneyServers(bandModel)
-		mm.proxyHolder = s.holder
-		mm.endpoint = s.proxySrv.URL + "/v1"
-		mm.broker = s.brokerSrv.URL
+		m.proxyHolder = s.holder
+		m.endpoint = s.proxySrv.URL + "/v1"
+		m.broker = s.brokerSrv.URL
 		s.keyAtSeed = s.holder.Get().SessionKey
 		s.budgetAtSeed = s.holder.Get().Budget
 	}
-	s.tm = mm
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("0"))
+	s.tm = asModel(tm)
 }
 
 func (s *opBDD) agentSessionAtPrompt() error {
