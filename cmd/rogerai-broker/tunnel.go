@@ -1873,7 +1873,9 @@ func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol
 // relayStream handles the streaming path of POST /v1/chat/completions: it sends SSE
 // headers, registers the client as a sink, and enqueues the job. The node pipes
 // chunks via /agent/stream straight to this client; when it finishes it posts a
-// receipt (resCh) which settles the wallet. No metering headers (already streaming).
+// receipt (resCh) which settles the wallet. No metering HEADERS (already streaming);
+// the billed cost is emitted at stream end as the `: rogerai-cost=` SSE comment (the
+// meter the local proxy's session budget reads - founder ruling 2026-07-07).
 func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol.NodeRegistration, offer protocol.ModelOffer, bill streamBill, job protocol.Job, resCh chan protocol.JobResult, maxCost float64) {
 	user, consumer, model, pricing, grantID := bill.user, bill.consumer, bill.model, bill.pricing, bill.grantID
 	settled := false
@@ -1905,6 +1907,13 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 
 	b.enterInflight(node.NodeID)
 	concurrentAtDispatch := b.inflightOf(node.NodeID)
+
+	// waitPump blocks until no OTHER goroutine can still be writing this client's
+	// ResponseWriter: a no-op on the local path (agentStream's last write happens-before the
+	// node posts its result), a bounded wait on the multi-instance pump. The receipt branch
+	// calls it before emitting the SSE cost meter comment (never write w concurrently), and
+	// the function waits on it again (idempotent) before returning.
+	waitPump := func() {}
 
 	// MULTI-INSTANCE (Stage 2): the poller serving this stream may be on a PEER
 	// instance, which pipes its SSE chunks over the per-job stream bus channel and the
@@ -1949,7 +1958,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		// single-instance path's writer - agentStream - finishes before the receipt-driven
 		// return).
 		pumpDone := make(chan struct{})
-		defer func() {
+		waitPump = func() {
 			select {
 			case <-pumpDone:
 			case <-time.After(2 * time.Second):
@@ -1958,7 +1967,8 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				streamCancel()
 				<-pumpDone
 			}
-		}()
+		}
+		defer waitPump()
 		go func() {
 			defer close(pumpDone)
 			for fr := range busStream {
@@ -2089,6 +2099,19 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			// an actively-used node is barely probed and reads as freshly verified.
 			b.markMeasured(node.NodeID)
 			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
+			// SSE COST METER (founder ruling 2026-07-07, "SSE meter comment"): a stream's
+			// headers were flushed before any output, so the billed cost cannot ride
+			// X-RogerAI-Cost. Emit it as a spec-compliant SSE COMMENT line at stream end -
+			// parsers ignore comment lines by spec, so no client breaks - which the local
+			// proxy reads to meter per-session spend for streamed traffic. It lands after the
+			// node's [DONE] has streamed through (settle only happens once the receipt
+			// arrives, which follows the node's final chunk). Only a SETTLED stream is
+			// metered: a failed settle refunds the hold and must not report a spend.
+			if settled {
+				waitPump() // never write w while the multi-instance pump may still be writing
+				fmt.Fprintf(w, ": rogerai-cost=%s\n\n", fmtCostHeader(cost))
+				flusher.Flush()
+			}
 		}
 	case <-time.After(300 * time.Second):
 		b.exitInflight(node.NodeID, false)
