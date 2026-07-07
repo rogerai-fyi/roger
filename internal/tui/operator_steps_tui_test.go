@@ -74,6 +74,7 @@ type opBDD struct {
 	budgetAtSeed  float64           // holder budget at seed (the "unchanged" baseline)
 	launchWorkdir string            // what the operatorWorkdir seam resolves for this scenario
 	tuiPaths      map[string]string // guest bin -> fake path for the TUI-side detect seam
+	deskMkt       []offer           // accumulated market offers for the pickAutoBand pure steps
 
 	// money servers (real HTTP through the real proxy handler)
 	brokerSrv *httptest.Server
@@ -1960,4 +1961,7 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── Phase 3: THE DESK view · band gate · pre-launch plate ─────────────────
 	initializePhase3Steps(st, sc)
+
+	// ── AGENT [0] desk-entry redesign: focus, auto-tune, badges ───────────────
+	initializeDeskEntryScenarios(st, sc)
 }

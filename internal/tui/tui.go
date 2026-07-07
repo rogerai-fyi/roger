@@ -6435,7 +6435,7 @@ func (m *model) runAutoTune() tea.Cmd {
 			m.noteOnce(
 				stRed.Render("✕ ")+stEmber.Render("no station on air right now"),
 				hintTuneOrShare(m.narrow()))
-			m.status = stDim.Render("no station on air · [1] tune in · [2] go on air · esc exits")
+			m.status = stDim.Render("nothing on air · [1] tune in · [2] go on air · esc exits")
 		}
 		m.agentLandingLines = len(m.agentLines)
 		m.flushPendingPrompts()
@@ -6460,14 +6460,11 @@ func (m *model) drainPendingPrompts() tea.Cmd {
 }
 
 // flushPendingPrompts drops prompts parked while no model was tuned, when the auto-tune
-// found no free band to land on: a SINGLE deduped failureHint, never one per prompt.
+// found no free band to land on. It drops them SILENTLY: runAutoTune has already noted
+// the ONE honest state (empty / paid) right after the echoed ask, so a second "no station
+// on air" failureHint would be exactly the per-turn spam this redesign kills.
 func (m *model) flushPendingPrompts() {
-	if len(m.agentPending) == 0 {
-		return
-	}
 	m.agentPending = nil
-	m.noteOnce(failureHint("no station on air - no model is tuned in", "", m.narrow())...)
-	m.agentLandingLines = len(m.agentLines)
 }
 
 // clearFindingBeat drops the "finding a band…" beat line the fresh AGENT landing shows
