@@ -127,11 +127,11 @@ func TestBrandArtsExactBytes(t *testing.T) {
 }
 
 // TestBrandArtWidths pins each plate's narrow-swap width (§7: full art renders
-// whenever termWidth >= 2 + artWidth; opencode 42, hermes 51, aider 21 (the figlet
-// wordmark, NOT the longer tagline - the doc sets aider's threshold at 23), claude
-// 18, codex 15).
+// whenever termWidth >= 2 + artWidth; opencode 42, hermes 51, aider 36 (the tagline
+// is the WIDEST row, so it gates the swap - iteration-2 fix so the tagline never
+// clips), claude 18, codex 15).
 func TestBrandArtWidths(t *testing.T) {
-	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 21, "claude": 18, "codex": 15}
+	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 36, "claude": 18, "codex": 15}
 	arts := BrandArts()
 	for name, w := range want {
 		if got := arts[name].Width; got != w {
