@@ -6405,8 +6405,12 @@ func (m *model) runAutoTune() tea.Cmd {
 		m.bindChannel(o)
 		m.agent.model = o.Model
 		m.agentPicked = false
-		m.deskFocused = false
-		m.agentIn.Focus()
+		// Keep focus where it is: if the user is on the FOCUSED desk (a guest scan landed
+		// first), a silent auto-tune must not yank them to the ask box mid-pick. Otherwise
+		// the ask box takes focus so a turn can be typed straight away.
+		if !m.deskFocused {
+			m.agentIn.Focus()
+		}
 		m.noteOnce(stDim.Render("· ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" (free) · the agent runs on it"))
 		m.agentLandingLines = len(m.agentLines)
 		m.status = stRed.Render(glyphOnAir+" ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" · type to ask")
