@@ -85,3 +85,37 @@ test("frameLine: a status frame renders the handoff transition as a dim rc-statu
   assert.equal(V.frameLine({ kind: "status" }), null);
   assert.equal(V.frameLine({ kind: "status", text: "" }), null);
 });
+
+// Operator frame enrichment (rc_enrichment.feature, founder ruling 3): a status frame carrying
+// the additive model/spend metadata renders "<op> has the mic on <model> · $<spend>" (spend
+// formatted like the desk summary), degrading piecewise - zero spend drops the "· $" part, an
+// empty model drops "on <model>", and a bare frame stays exactly today's line (old hosts).
+// No band ever rides a frame (founder ruling 2 - the Freq secret stays off the wire).
+test("frameLine: an enriched status frame renders op/model/spend and degrades cleanly", () => {
+  const V = loadCore();
+  const fixed = "guest has the mic: opencode - the DJ answers when the handoff ends";
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "opencode", model: "gpt-oss-120b", spend: 0.19, text: fixed }),
+    { cls: "rc-status", text: "◉ opencode has the mic on gpt-oss-120b · $0.19" },
+  );
+  // zero spend -> no money figure at all
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "opencode", model: "gpt-oss-120b", spend: 0, text: fixed }),
+    { cls: "rc-status", text: "◉ opencode has the mic on gpt-oss-120b" },
+  );
+  // no model -> no on-clause
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "aider", spend: 1.05, text: fixed }),
+    { cls: "rc-status", text: "◉ aider has the mic · $1.05" },
+  );
+  // neither -> exactly the pre-enrichment line (degrade-clean for old hosts)
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "opencode", text: fixed }),
+    { cls: "rc-status", text: "◉ guest has the mic: opencode" },
+  );
+  // a malformed (non-numeric) spend never renders a bogus figure
+  assert.deepEqual(
+    V.frameLine({ kind: "status", operator: "opencode", spend: "0.19", text: fixed }),
+    { cls: "rc-status", text: "◉ guest has the mic: opencode" },
+  );
+});

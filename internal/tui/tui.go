@@ -158,8 +158,10 @@ type RemoteBridge interface {
 	// Guest-operator interlock (Phase 2): while parked, inbound turns/confirms are
 	// dropped AT THE BRIDGE with a status auto-frame and backfill is answered from the
 	// snapshot - the host's event loop is suspended under tea.ExecProcess. Unpark on a
-	// dead/stopped bridge is a no-op.
-	Park(operator, snapshot string)
+	// dead/stopped bridge is a no-op. model + spend (a LIVE session-spend reader, may be
+	// nil) enrich the parked auto-frames (rc_enrichment.feature) - metadata only, never
+	// a band label (founder ruling 2: the private Freq secret stays off every frame).
+	Park(operator, snapshot, model string, spend func() float64)
 	Unpark()
 }
 

@@ -62,6 +62,13 @@ type RCFrame struct {
 	Viewer    string `json:"viewer,omitempty"`     // backfill: the ONE addressed viewer id (others skip)
 	HostUp    *bool  `json:"host_up,omitempty"`    // status: host reachable? (pointer distinguishes unset)
 	Operator  string `json:"operator,omitempty"`   // status: the guest operator at the desk (Phase 2, additive; "" = the DJ)
+	// Operator frame enrichment (2026-07-07, additive + omitempty so old viewers and the
+	// un-tuned / spend-0 state degrade cleanly). A Band field was deliberately DROPPED for
+	// v1 (founder ruling 2): the model conveys the station, and the private-band frequency
+	// code (client ProxyOptions.Freq) is a hash-at-rest SECRET that must NEVER appear on
+	// any frame field (features/operator/rc_enrichment.feature pins this).
+	Model string  `json:"model,omitempty"` // status: the tuned band's public model identity (already public via /discover)
+	Spend float64 `json:"spend,omitempty"` // status: the HOST's own session spend in dollars (the desk summary's figure)
 }
 
 // RCInbound is what a remote surface (or the broker itself, for backfill) sends TO the host.

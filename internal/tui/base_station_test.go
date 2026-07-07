@@ -483,9 +483,23 @@ func TestOnRemoteFrameKinds(t *testing.T) {
 		// and nothing when the frame carries neither (content-blind: only the guest name).
 		{"status names the operator", protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "opencode", Text: "guest has the mic: opencode - the DJ answers when the handoff ends"}, "guest has the mic: opencode", func(t *testing.T, gm model) {
 			// content-blind + tidy: the operator-aware line is the short handoff line, not
-			// the frame's full sentence (no band/model/spend rides the frame anyway).
+			// the frame's full sentence (a bare frame degrades to the pre-enrichment line).
 			if last := stripANSI(gm.rsLines[len(gm.rsLines)-1]); strings.Contains(last, "answers when the handoff ends") {
 				t.Errorf("the viewer line should be the short operator-aware line, got %q", last)
+			}
+		}},
+		// Operator frame enrichment (rc_enrichment.feature, founder ruling 3): with
+		// model/spend metadata the viewer renders "<op> has the mic on <model> · $<spend>",
+		// degrading piecewise (no model drops "on", zero spend drops "· $").
+		{"status enriched with model and spend", protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "opencode", Model: "gpt-oss-120b", Spend: 0.19, Text: "guest has the mic: opencode - the DJ answers when the handoff ends"}, "opencode has the mic on gpt-oss-120b · $0.19", nil},
+		{"status enriched model only (zero spend drops the money)", protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "opencode", Model: "gpt-oss-120b", Text: "guest has the mic: opencode - the DJ answers when the handoff ends"}, "opencode has the mic on gpt-oss-120b", func(t *testing.T, gm model) {
+			if last := stripANSI(gm.rsLines[len(gm.rsLines)-1]); strings.Contains(last, "$") {
+				t.Errorf("a zero-spend frame must not render a money figure, got %q", last)
+			}
+		}},
+		{"status enriched spend only (no model drops the on-clause)", protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "aider", Spend: 1.05, Text: "guest has the mic: aider - the DJ answers when the handoff ends"}, "aider has the mic · $1.05", func(t *testing.T, gm model) {
+			if last := stripANSI(gm.rsLines[len(gm.rsLines)-1]); strings.Contains(last, " on ") {
+				t.Errorf("a model-less frame must not render an on-clause, got %q", last)
 			}
 		}},
 		{"status DJ back has no operator", protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"}, "the DJ is back at the desk", nil},

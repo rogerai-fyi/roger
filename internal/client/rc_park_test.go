@@ -24,7 +24,7 @@ func TestBridgeParkStateMachine(t *testing.T) {
 	if op, parked := rb.Parked(); parked || op != "" {
 		t.Fatalf("a fresh bridge must be unparked, got (%q, %v)", op, parked)
 	}
-	rb.Park("opencode", "transcript snapshot")
+	rb.Park("opencode", "transcript snapshot", "gpt-oss-120b", nil)
 	if op, parked := rb.Parked(); !parked || op != "opencode" {
 		t.Fatalf("Parked = (%q, %v), want (opencode, true)", op, parked)
 	}
@@ -34,13 +34,13 @@ func TestBridgeParkStateMachine(t *testing.T) {
 	}
 	// Nil-safety: the exec return callback may race a dead/never-enabled bridge.
 	var nilRB *RCBridge
-	nilRB.Park("x", "y")
+	nilRB.Park("x", "y", "", nil)
 	nilRB.Unpark()
 	if op, parked := nilRB.Parked(); parked || op != "" {
 		t.Fatalf("nil bridge Parked = (%q, %v), want unparked", op, parked)
 	}
 	// Unpark on a STOPPED bridge is a no-op, not a panic (rc_interlock.feature).
-	rb.Park("opencode", "snap")
+	rb.Park("opencode", "snap", "", nil)
 	rb.Stop()
 	rb.Unpark()
 }
@@ -82,7 +82,11 @@ func TestParkIntercept(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rb := NewRCBridge("http://127.0.0.1:1", "s1", "tok")
-			rb.Park("opencode", "the transcript so far")
+			// Enrichment (rc_enrichment.feature E2): the spend reader is LIVE - it moved
+			// from $0 after Park, and the auto-frame must carry the emit-time figure.
+			liveSpend := 0.0
+			rb.Park("opencode", "the transcript so far", "gpt-oss-120b", func() float64 { return liveSpend })
+			liveSpend = 0.19
 			if !rb.parkIntercept(tc.in) {
 				t.Fatalf("a parked bridge must consume every inbound")
 			}
@@ -99,6 +103,9 @@ func TestParkIntercept(t *testing.T) {
 				case protocol.RCKindStatus:
 					if f.Operator != "opencode" || !strings.Contains(f.Text, "guest has the mic") {
 						t.Fatalf("status frame must name the guest: %+v", f)
+					}
+					if f.Model != "gpt-oss-120b" || f.Spend != 0.19 {
+						t.Fatalf("status frame must carry the live model/spend enrichment: %+v", f)
 					}
 				case protocol.RCKindBackfill:
 					if f.Viewer != "v2" || f.Text != "the transcript so far" {

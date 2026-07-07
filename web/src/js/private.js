@@ -40,10 +40,22 @@
       case "confirm_req": return { cls: "rc-confirm", text: "? " + (f.tool || "") + " - approve? (runs on the host)", confirm: f.confirm_id || "" };
       case "confirm_done": return { cls: "rc-tool", text: "✓ " + (f.approve ? "approved" : "denied") + " from " + (f.origin || "") };
       // A guest-operator handoff (or the DJ-back return): render it dim so the viewer never sees
-      // the stream go dead mid-handoff. Operator-aware + content-blind (only the guest name + the
-      // fixed line ride the frame - no band/model/spend); a status with neither renders nothing.
+      // the stream go dead mid-handoff. Operator-aware + content-blind (only the guest name plus
+      // the model/spend metadata ride the frame); a status with neither renders nothing.
+      // Enriched copy (founder ruling 3): "<op> has the mic on <model> · $<spend>" - spend
+      // formatted like the desk summary ($0.19); no model drops "on <model>", zero spend drops
+      // "· $", and a frame with neither degrades to the pre-enrichment line (an old host).
       case "status": {
-        var st = f.operator ? "◉ guest has the mic: " + f.operator : (f.text || "");
+        var st = f.text || "";
+        if (f.operator) {
+          st = "◉ guest has the mic: " + f.operator;
+          var spend = typeof f.spend === "number" ? f.spend : 0;
+          if (f.model || spend > 0) {
+            st = "◉ " + f.operator + " has the mic";
+            if (f.model) st += " on " + f.model;
+            if (spend > 0) st += " · $" + spend.toFixed(2);
+          }
+        }
         return st.trim() ? { cls: "rc-status", text: st } : null;
       }
       case "backfill": return f.text && f.text.trim() ? { cls: "rc-backfill", text: f.text } : null;
