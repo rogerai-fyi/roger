@@ -363,7 +363,9 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// Re-check the DJ-idle preconditions AT EXEC TIME (audit regression): the bridge
 	// parks only now, so a turn injected during the staging beat would otherwise run -
 	// and bill - under the suspended TUI, into the guest's freshly reset accumulator.
-	if m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
+	// The mode check covers global keys (ctrl+c quit-confirm, alt+m, a preset) pulling
+	// the TUI off AGENT mid-staging - never exec the guest under another modal.
+	if m.mode != modeAgent || m.agentBusy || (m.agent != nil && m.agent.running.Load()) || len(m.agentQueued) > 0 {
 		m.operatorHandoff = nil
 		m.rcNote("handoff aborted - the DJ picked up a turn while patching · /operator again once it finishes")
 		m.status = stDim.Render("back at the desk · the DJ is standing by")

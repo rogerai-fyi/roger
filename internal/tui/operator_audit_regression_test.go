@@ -119,3 +119,25 @@ func TestExecRecheckAbortsWhenDJPickedUp(t *testing.T) {
 		t.Fatalf("an aborted handoff must not leave the $%v cap armed (budget=%v)", client.DefaultSessionBudget, b)
 	}
 }
+
+// TestExecAbortsOutsideAgentMode: audit minor (2nd pass). A global key during the
+// staging beat (ctrl+c quit-confirm, alt+m, a preset) can move the TUI off modeAgent;
+// the staged operatorExecMsg must then ABORT, never exec the guest under another modal.
+func TestExecAbortsOutsideAgentMode(t *testing.T) {
+	m, holder, execs := opRegressionSeed(t)
+	var tm tea.Model
+	tm, _ = m.runAgentCommand("/operator opencode")
+	mm := asModel(tm)
+	mm.mode = modeBrowse // a global key pulled the TUI away mid-staging
+	tm, _ = mm.Update(operatorExecMsg{})
+	got := asModel(tm)
+	if len(*execs) != 0 {
+		t.Fatalf("the exec was issued outside AGENT mode")
+	}
+	if got.operatorHandoff != nil {
+		t.Fatalf("the aborted handoff must clear its staging state")
+	}
+	if b := holder.Get().Budget; b != 0 {
+		t.Fatalf("an aborted handoff must not leave the cap armed (budget=%v)", b)
+	}
+}
