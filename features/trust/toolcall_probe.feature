@@ -160,11 +160,36 @@ Feature: A model earns the verified "tools" capability only when the broker's to
     And the probe is retried on a later round rather than recorded as a regression
     # Mirrors the liveness probe's "a dispatch that never reached the node is not evidence".
 
-  Scenario: A wrong-function but well-formed tool_calls still proves tool-calling (FOUNDER FLAG T4, lenient default)
-    When the provider returns a well-formed tool_calls entry for a DIFFERENT function name
+  Scenario: A wrong-function but well-formed tool_calls that echoes the nonce still proves tool-calling (FOUNDER FLAG T4, lenient default)
+    When the provider returns a well-formed tool_calls entry for a DIFFERENT function name that echoes the probe nonce
     Then the model earns "tools" under the lenient rule
     # Structure (a valid tool_calls array with a function name + parseable arguments) proves the
-    # provider HONORS tool-calling; exact-name matching is the strict alternative left to T4.
+    # provider HONORS tool-calling; exact-name matching is the strict alternative left to T4. The
+    # per-probe NONCE must still appear (name suffix or arguments), so leniency is about the name,
+    # never about skipping the nonce check.
+
+  # --- anti-fingerprint: the per-probe nonce (PR #33 review, minor #4) -------------------
+  # The canary body was deterministic, so a hostile node could return a CANNED well-formed
+  # tool_calls to earn the badge without honoring tools. Each probe now weaves a fresh random
+  # nonce into the tool NAME and a token the prompt tells the model to echo, and the verdict
+  # requires the response to reference THAT nonce. A canned/replayed reply cannot guess it.
+
+  Scenario: A well-formed tool_calls that echoes THIS probe's nonce earns "tools"
+    When the broker sends its tool-call canary to the model
+    And the provider returns a well-formed tool_calls that echoes this probe's nonce
+    Then the model earns the verified "tools" capability
+
+  Scenario: A canned well-formed tool_calls that omits the current nonce does NOT earn "tools"
+    When the broker sends its tool-call canary to the model
+    And the provider returns a well-formed tool_calls that does NOT reference this probe's nonce
+    Then the model does NOT earn "tools"
+    # A fingerprinted/replayed reply built for a prior probe cannot carry the fresh nonce, so it
+    # is rejected exactly like a plain-text answer - closing the earn-the-badge-unearned hole.
+
+  Scenario: A replayed tool_calls carrying a STALE nonce from an earlier probe does NOT earn "tools"
+    When the broker sends its tool-call canary to the model
+    And the provider replays a well-formed tool_calls carrying a stale nonce
+    Then the model does NOT earn "tools"
 
   Scenario: A "tools" that slips into a STORED offer (mirror / re-hydrate) is still not emitted unprobed
     Given the model's stored offer already lists "tools" from a mixed-version mirror

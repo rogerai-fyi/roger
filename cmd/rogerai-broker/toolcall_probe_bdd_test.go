@@ -23,6 +23,12 @@ import (
 	"github.com/rogerai-fyi/roger/internal/store"
 )
 
+// tcNonce is the fixed nonce the BDD steps weave into their canned canary responses, standing in
+// for the fresh per-probe nonce the live probeToolCall mints (PR #33 review, minor #4). Driving
+// applyToolVerdict with a known nonce keeps the scenarios deterministic while exercising the real
+// nonce-enforcing verdict: a well-formed reply must reference THIS nonce to earn the bit.
+const tcNonce = "beadfeed"
+
 type tcState struct {
 	b     *broker
 	now   time.Time
@@ -128,7 +134,9 @@ func (s *tcState) publicCapsOmitTools() error {
 func (s *tcState) brokerSendsCanary() error { return nil } // the When is realized by the verdict steps
 
 func (s *tcState) providerWellFormed() error {
-	body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack","arguments":"{\"ok\":true}"}}]},"finish_reason":"tool_calls"}]}`
+	// A well-formed tool_calls that ECHOES this probe's nonce (in the token argument) - the shape
+	// a genuine tool-honoring model returns.
+	body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack_` + tcNonce + `","arguments":"{\"token\":\"` + tcNonce + `\"}"}}]},"finish_reason":"tool_calls"}]}`
 	s.applyBody(body)
 	return nil
 }
@@ -149,9 +157,9 @@ func (s *tcState) providerUnparseable() error {
 }
 
 // applyBody runs the REAL verdict path: a 2xx JobResult with body -> applyToolVerdict ->
-// toolCallOK -> recordToolProbe (single-instance => authoritative).
+// toolCallOK (against tcNonce) -> recordToolProbe (single-instance => authoritative).
 func (s *tcState) applyBody(body string) {
-	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 200, Body: []byte(body)}, true)
+	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 200, Body: []byte(body)}, true, tcNonce)
 }
 
 func (s *tcState) earnsTools() error {
@@ -206,8 +214,8 @@ func (s *tcState) offersTwoModels() error {
 }
 
 func (s *tcState) onlyFirstPasses() error {
-	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 200, Body: []byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack","arguments":"{}"}}]}}]}`)}, true)
-	s.b.applyToolVerdict(s.node, s.model2, protocol.JobResult{Status: 200, Body: []byte(`{"choices":[{"message":{"content":"no tools here"}}]}`)}, true)
+	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 200, Body: []byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack_` + tcNonce + `","arguments":"{}"}}]}}]}`)}, true, tcNonce)
+	s.b.applyToolVerdict(s.node, s.model2, protocol.JobResult{Status: 200, Body: []byte(`{"choices":[{"message":{"content":"no tools here"}}]}`)}, true, tcNonce)
 	return nil
 }
 
@@ -279,7 +287,7 @@ func (s *tcState) trafficResetsBackoff() error {
 func (s *tcState) canaryUnbilledDiscarded() error {
 	// The canary rides the probe job identity: User=="probe" (unbilled; the settle/earnings
 	// path is never taken for a probe user) and the result body is discarded after the verdict.
-	job := protocol.Job{User: "probe", Body: toolCanaryBody(s.model)}
+	job := protocol.Job{User: "probe", Body: toolCanaryBody(s.model, tcNonce)}
 	if job.User != "probe" {
 		return fmt.Errorf("tool canary job is not marked unbilled (User=%q)", job.User)
 	}
@@ -304,7 +312,7 @@ func (s *tcState) trivialToolTinyBudget() error {
 			} `json:"function"`
 		} `json:"tools"`
 	}
-	if err := json.Unmarshal(toolCanaryBody(s.model), &req); err != nil {
+	if err := json.Unmarshal(toolCanaryBody(s.model, tcNonce), &req); err != nil {
 		return fmt.Errorf("canary body did not parse: %v", err)
 	}
 	if len(req.Tools) != 1 {
@@ -436,7 +444,7 @@ func (s *tcState) canaryRuns() error {
 func (s *tcState) transportOr429() error {
 	// A transport error / 429 is a NON-verdict: applyToolVerdict on a non-2xx status records a
 	// TRANSIENT probe (never clears). Model the 429 as a non-2xx JobResult.
-	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 429, Body: []byte(`{"error":"rate limited"}`)}, true)
+	s.b.applyToolVerdict(s.node, s.model, protocol.JobResult{Status: 429, Body: []byte(`{"error":"rate limited"}`)}, true, tcNonce)
 	return nil
 }
 
@@ -453,11 +461,33 @@ func (s *tcState) retriedLater() error {
 }
 
 func (s *tcState) wrongFunctionWellFormed() error {
-	s.applyBody(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"some_other_fn","arguments":"{\"x\":1}"}}]}}]}`)
+	// A DIFFERENT function name still proves tool-calling under the lenient rule (FOUNDER FLAG T4)
+	// AS LONG AS it echoes this probe's nonce (here in the arguments) - the nonce closes the
+	// canned-reply hole without forcing an exact name match.
+	s.applyBody(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"some_other_fn","arguments":"{\"token\":\"` + tcNonce + `\",\"x\":1}"}}]}}]}`)
 	return nil
 }
 
 func (s *tcState) earnsUnderLenient() error { return s.earnsTools() }
+
+// providerEchoesNonce is the genuine reply: a well-formed tool_calls that references THIS probe's
+// nonce (reuses providerWellFormed, which echoes tcNonce).
+func (s *tcState) providerEchoesNonce() error { return s.providerWellFormed() }
+
+// providerOmitsNonce is a CANNED well-formed tool_calls that references NO nonce - the
+// fingerprint attack. It is structurally valid but must be rejected because it cannot carry the
+// fresh nonce a genuine model would echo.
+func (s *tcState) providerOmitsNonce() error {
+	s.applyBody(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack","arguments":"{\"ok\":true}"}}]}}]}`)
+	return nil
+}
+
+// providerReplaysStaleNonce is a REPLAY: a well-formed tool_calls carrying a DIFFERENT (stale)
+// nonce from an earlier probe. It must be rejected against the current probe's nonce.
+func (s *tcState) providerReplaysStaleNonce() error {
+	s.applyBody(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack_deadbeef","arguments":"{\"token\":\"deadbeef\"}"}}]}}]}`)
+	return nil
+}
 
 func (s *tcState) storedOfferListsTools() error {
 	// Simulate an ingestion path that BYPASSES the register-door strip (shared-registry mirror,
@@ -645,8 +675,11 @@ func TestTrustToolCallProbeBDD(t *testing.T) {
 			sc.Step(`^the tool-call canary comes back as a transport error or a 429 rate-limit$`, st.transportOr429)
 			sc.Step(`^the earned "tools" bit is NOT cleared on a transient non-verdict$`, st.notClearedOnTransient)
 			sc.Step(`^the probe is retried on a later round rather than recorded as a regression$`, st.retriedLater)
-			sc.Step(`^the provider returns a well-formed tool_calls entry for a DIFFERENT function name$`, st.wrongFunctionWellFormed)
+			sc.Step(`^the provider returns a well-formed tool_calls entry for a DIFFERENT function name that echoes the probe nonce$`, st.wrongFunctionWellFormed)
 			sc.Step(`^the model earns "tools" under the lenient rule$`, st.earnsUnderLenient)
+			sc.Step(`^the provider returns a well-formed tool_calls that echoes this probe's nonce$`, st.providerEchoesNonce)
+			sc.Step(`^the provider returns a well-formed tool_calls that does NOT reference this probe's nonce$`, st.providerOmitsNonce)
+			sc.Step(`^the provider replays a well-formed tool_calls carrying a stale nonce$`, st.providerReplaysStaleNonce)
 			sc.Step(`^the model's stored offer already lists "tools" from a mixed-version mirror$`, st.storedOfferListsTools)
 
 			sc.Step(`^the broker runs two instances behind the shared store$`, st.twoInstances)

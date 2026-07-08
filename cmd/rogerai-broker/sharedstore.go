@@ -705,14 +705,57 @@ func (v *valkeyStore) toolsVerified(ttl time.Duration) (map[string]bool, error) 
 		}
 		out[field] = true
 	}
-	// Lazily HDEL stale/unparseable fields so a dead node's field cannot accumulate forever (one
+	// Lazily sweep stale/unparseable fields so a dead node's field cannot accumulate forever (one
 	// actively-verified model refreshes the whole hash TTL, so stale fields never expire on their
-	// own). Best-effort: a sweep error does not affect the fresh result already computed.
+	// own). The sweep RE-CHECKS each field's CURRENT value before deleting (sweepStaleToolsFields),
+	// so a field that was stale in THIS HGETALL snapshot but re-marked fresh by a concurrent
+	// markToolsVerified (a different instance's passing canary) between the read and the delete is
+	// SPARED - closing the flicker race (PR #33 review, minor #2). Best-effort: a sweep error does
+	// not affect the fresh result already computed.
 	if len(stale) > 0 {
-		_ = v.rdb.HDel(ctx, toolsKey(), stale...).Err()
+		_ = v.sweepStaleToolsFields(ctx, cutoff, stale)
 	}
 	v.setUp(true)
 	return out, nil
+}
+
+// sweepStaleToolsSrc is the atomic re-check-then-delete the toolsVerified sweep runs: for each
+// candidate field it re-reads the CURRENT value and deletes ONLY if the field is still absent-of-
+// freshness (unparseable or older than cutoff). Doing the freshness check and the HDEL in one
+// server-side script closes the read-then-blind-HDEL race: a field re-marked fresh AFTER the
+// caller's HGETALL snapshot but BEFORE this runs now carries a value >= cutoff and is left intact.
+// Safe-direction: the worst case is UNDER-claiming (a field that goes stale between check and
+// delete simply survives one more cycle), never dropping a fresh verified bit.
+const sweepStaleToolsSrc = `
+local cutoff = tonumber(ARGV[1])
+local deleted = 0
+for i = 2, #ARGV do
+  local f = ARGV[i]
+  local v = redis.call('HGET', KEYS[1], f)
+  if v then
+    local ms = tonumber(v)
+    if ms == nil or ms < cutoff then
+      redis.call('HDEL', KEYS[1], f)
+      deleted = deleted + 1
+    end
+  end
+end
+return deleted
+`
+
+// sweepStaleToolsFields atomically deletes the given candidate fields that are STILL stale (or
+// unparseable) at execution time, re-checking freshness against cutoff (a UnixMilli) inside the
+// script so a concurrently re-marked field survives. Best-effort; the caller ignores the error.
+func (v *valkeyStore) sweepStaleToolsFields(ctx context.Context, cutoff int64, fields []string) error {
+	if v == nil || v.rdb == nil || len(fields) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(fields)+1)
+	args = append(args, cutoff)
+	for _, f := range fields {
+		args = append(args, f)
+	}
+	return v.rdb.Eval(ctx, sweepStaleToolsSrc, []string{toolsKey()}, args...).Err()
 }
 
 // regKey holds a node's full registration JSON, shared so any instance can mirror it.

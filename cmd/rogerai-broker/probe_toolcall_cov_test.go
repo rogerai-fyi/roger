@@ -1,12 +1,42 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/store"
 )
+
+// answerToolProbeEcho replies to the live tool-call canary by ECHOING the fresh per-probe nonce
+// the broker wove into the request (the forced tool's name is roger_probe_ack_<nonce>). A genuine
+// tool-honoring provider surfaces the nonce; echoing it lets the deterministic test drive the real
+// dispatch path even though probeToolCall mints a random nonce internally.
+func answerToolProbeEcho(tun *nodeTunnel) {
+	go func() {
+		job := <-tun.jobs
+		var req struct {
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		_ = json.Unmarshal(job.Body, &req)
+		fn := ""
+		if len(req.Tools) > 0 {
+			fn = req.Tools[0].Function.Name
+		}
+		body := `{"choices":[{"message":{"tool_calls":[{"function":{"name":"` + fn + `","arguments":"{\"token\":\"x\"}"}}]}}]}`
+		res := protocol.JobResult{ID: job.ID, Status: http.StatusOK, Body: []byte(body),
+			Receipt: protocol.UsageReceipt{RequestID: job.ID, CompletionTokens: 5}}
+		tun.mu.Lock()
+		ch := tun.waiters[job.ID]
+		tun.mu.Unlock()
+		ch <- res
+	}()
+}
 
 // probe_toolcall_cov_test.go covers the LIVE dispatch of the tool-call canary (probeToolCall)
 // beyond the pure-verdict + emission scenarios in toolcall_probe_bdd_test.go: the
@@ -20,7 +50,7 @@ func TestProbeToolCallSingleInstancePass(t *testing.T) {
 	b := relayBroker(store.NewMem())
 	b.toolsOK = map[string]bool{}
 	tun, _ := probeReg(b, "tnode")
-	answerProbe(tun, http.StatusOK, `{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack","arguments":"{\"ok\":true}"}}]}}]}`)
+	answerToolProbeEcho(tun) // echo the fresh nonce the broker wove into the canary
 
 	b.probeToolCall(b.nodes["tnode"], "m", true)
 

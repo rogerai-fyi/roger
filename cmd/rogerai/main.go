@@ -819,16 +819,20 @@ func cmdUse(cfg config, args []string) error {
 	// Advanced - defaulted and tucked away (CLI-SIMPLICITY-AUDIT C7). --port 0 =
 	// auto-pick a free port; --max-in is the rare input-heavy cap (C1 drops the
 	// --max-price alias entirely).
-	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes)")
+	advanced := fs.Bool("advanced", false, "show advanced flags (--port --max-in --min-tps --confidential --yes --raw)")
 	port := fs.Int("port", 0, "local endpoint port (0 = auto-pick a free one)")
 	confidential := fs.Bool("confidential", false, "route only to confidential (TEE-attested) nodes")
 	maxIn := fs.Float64("max-in", -1, "cap: skip stations above this $/1M INPUT price; 0 = no cap")
 	minTPS := fs.Float64("min-tps", -1, "require at least this measured throughput (tok/s); 0 = no floor")
 	yes := fs.Bool("yes", false, "skip the connect-time confirm (for scripts / Hermes / bots)")
 	freq := fs.String("freq", "", "tune in to a PRIVATE band by its frequency code, e.g. \"147.520 MHz 8F3K-9M2Q\" (the code is what matters; cosmetic part optional)")
+	// --raw disables the reasoning->content fallback for this session (raw provider body).
+	// Default off = fallback ON (an empty-content reasoning reply is surfaced as content).
+	// ROGERAI_REASONING_RAW=1 does the same via the environment (client.Use ORs them).
+	raw := fs.Bool("raw", false, "raw passthrough: disable the reasoning->content fallback for this session")
 	fs.Parse(args[1:])
 	if *advanced {
-		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes")
+		fmt.Println("advanced flags: --port --max-in --min-tps --confidential --yes --raw")
 	}
 	// Start from the resolved per-model limit (or Default), then let flags override
 	// it for this session. -1 sentinel = flag not passed (keep the stored limit).
@@ -853,7 +857,7 @@ func cmdUse(cfg config, args []string) error {
 	return client.Use(cfg.Broker, cfg.User, model, client.UseOptions{
 		Port: useport, Confidential: *confidential,
 		MaxIn: lim.MaxIn, MaxOut: lim.MaxOut, MinTPS: lim.MinTPS,
-		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq),
+		TypicalOut: typical, Yes: *yes, Freq: strings.TrimSpace(*freq), Raw: *raw,
 	})
 }
 

@@ -1403,6 +1403,12 @@ type UseOptions struct {
 	TypicalOut   int     // output tokens for the est-cost line (default 800)
 	Yes          bool    // skip the (y/N) confirm (scripts / Hermes / bots)
 	Freq         string  // private band frequency code (empty = open market). Routes via X-Roger-Freq.
+	// Raw disables the reasoning->content fallback for this session (the `roger use --raw`
+	// flag / ROGERAI_REASONING_RAW env). Default false = fallback ON (founder default): an
+	// empty-content reasoning reply is surfaced as content. Raw true is the honest per-session
+	// disable the proxy already supported programmatically (ProxyOptions.ReasoningFallbackOff)
+	// but had no user-facing surface for - a caller that wants the untouched provider body.
+	Raw bool
 }
 
 // balanceOf fetches the caller's wallet credits (best-effort; -1 if unavailable).
@@ -1561,10 +1567,10 @@ func Use(broker, user, model string, opt UseOptions) error {
 	}
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Alert: func(s string) {
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, Confidential: opt.Confidential, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
-	return useServe(addr, ProxyHandler(opts))
+	return useServe(addr, newProxyHandler(opts))
 }
 
 // useStdin / useServe are seams over the two side effects Use can't run in a test: the
@@ -1575,7 +1581,27 @@ func Use(broker, user, model string, opt UseOptions) error {
 var (
 	useStdin = os.Stdin
 	useServe = http.ListenAndServe
+	// newProxyHandler is the seam Use / useOnFreq build the local relay handler through, so a
+	// test can capture the assembled ProxyOptions (e.g. the --raw wiring) without binding a
+	// real listener. Production value is ProxyHandler; the useServe seam still runs it.
+	newProxyHandler = ProxyHandler
 )
+
+// RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
+// reasoning->content fallback disabled). A non-empty value other than the usual falsey tokens
+// ("", "0", "false", "no", "off") counts as set, so `ROGERAI_REASONING_RAW=1` works. It ORs
+// with the --raw flag (either enables raw), never overrides an explicit --raw. Exported so the
+// TUI booth honors the same env toggle as `roger use` (the env var is a global session knob).
+func RawReasoningEnv() bool { return rawReasoningEnv() }
+
+func rawReasoningEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROGERAI_REASONING_RAW"))) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
 
 // useOnFreq is the private-band branch of Use: resolve a frequency code, confirm the
 // price (same price-safety as the open market), then bind a local endpoint that routes
@@ -1645,10 +1671,10 @@ func useOnFreq(broker, user, model string, opt UseOptions, maxOut float64, typic
 	fmt.Printf("  %-9s %s\n", "FREQ", display)
 	fmt.Printf("\n  drop-in, OpenAI-compatible - point any OpenAI tool here. roger that.\n")
 	fmt.Printf("  OPENAI_API_BASE=http://%s/v1  OPENAI_API_KEY=%s   (Ctrl-C to stop)\n", addr, sessionKey)
-	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, Alert: func(s string) {
+	opts := ProxyOptions{Broker: broker, User: user, Model: model, SessionKey: sessionKey, MaxPriceIn: opt.MaxIn, MaxPriceOut: maxOut, MinTPS: opt.MinTPS, Freq: opt.Freq, ReasoningFallbackOff: opt.Raw || rawReasoningEnv(), Alert: func(s string) {
 		fmt.Fprintln(os.Stderr, "rogerai: "+s)
 	}}
-	return useServe(addr, ProxyHandler(opts))
+	return useServe(addr, newProxyHandler(opts))
 }
 
 // rangeLabel renders a cross-station spread as "min ~ max" ($/1M out), or a single
