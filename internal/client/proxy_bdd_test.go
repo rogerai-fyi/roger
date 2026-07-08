@@ -32,21 +32,23 @@ type proxyState struct {
 	broker string
 
 	// broker behavior (set by Given steps)
-	status            int
-	cost              string
-	retryAfter        string
-	provider          string
-	contentType       string
-	respBody          string
-	extraHeaders      map[string]string
-	streaming         bool
-	trickleN          int
-	trickleGap        time.Duration
-	chatSleep         time.Duration // >0: never sends a response header (triggers the header timeout)
-	always503         bool
-	failFirstUnpinned bool
-	discoverBody      string
-	unreachable       bool
+	status              int
+	cost                string
+	retryAfter          string
+	provider            string
+	contentType         string
+	respBody            string
+	extraHeaders        map[string]string
+	streaming           bool
+	streamLines         []string // when set, the streaming stub emits these SSE events verbatim (no trickle)
+	brokerContentDeltas int      // how many content-bearing deltas the stub emits (to detect a synthesized one)
+	trickleN            int
+	trickleGap          time.Duration
+	chatSleep           time.Duration // >0: never sends a response header (triggers the header timeout)
+	always503           bool
+	failFirstUnpinned   bool
+	discoverBody        string
+	unreachable         bool
 
 	// recorded from the broker (last chat request)
 	mu              sync.Mutex
@@ -66,8 +68,8 @@ type proxyState struct {
 	sessionKey string
 
 	// request outcome
-	rec         *httptest.ResponseRecorder
-	sentFields  map[string]json.RawMessage
+	rec             *httptest.ResponseRecorder
+	sentFields      map[string]json.RawMessage
 	served          int32
 	refused         int32
 	callsSnapshot   int32
@@ -168,11 +170,23 @@ func (s *proxyState) startBroker() {
 			if fl != nil {
 				fl.Flush()
 			}
-			for i := 0; i < s.trickleN; i++ {
-				time.Sleep(s.trickleGap)
-				_, _ = w.Write([]byte("data: chunk\n\n"))
-				if fl != nil {
-					fl.Flush()
+			if len(s.streamLines) > 0 {
+				// Emit the caller-configured SSE events verbatim (reasoning/content deltas), then
+				// the terminal [DONE] and (below) the meter comment - the real relayStream shape.
+				for _, ln := range s.streamLines {
+					time.Sleep(s.trickleGap)
+					_, _ = w.Write([]byte(ln))
+					if fl != nil {
+						fl.Flush()
+					}
+				}
+			} else {
+				for i := 0; i < s.trickleN; i++ {
+					time.Sleep(s.trickleGap)
+					_, _ = w.Write([]byte("data: chunk\n\n"))
+					if fl != nil {
+						fl.Flush()
+					}
 				}
 			}
 			_, _ = w.Write([]byte("data: [DONE]\n\n"))
@@ -1569,6 +1583,252 @@ func (s *proxyState) noHalfUpdatedMix() error { return nil }
 
 // ===================== registration =====================
 
+// --- reasoning_fallback.feature ---
+
+// jsonStr renders a Go string as a JSON string literal (proper escaping) for building
+// broker response bodies in the reasoning-fallback steps.
+func jsonStr(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// unescapeGherkin turns the literal "\n"/"\t" a Gherkin cell carries into real whitespace
+// (godog passes the backslash-n through verbatim); used so the whitespace-content scenario
+// actually exercises whitespace.
+func unescapeGherkin(s string) string {
+	s = strings.ReplaceAll(s, `\n`, "\n")
+	s = strings.ReplaceAll(s, `\t`, "\t")
+	return s
+}
+
+func (s *proxyState) reasoningFallbackDisabled() error {
+	s.band.ReasoningFallbackOff = true
+	return nil
+}
+
+func (s *proxyState) brokerReturnsContentReasoning(content, reasoning string) error {
+	s.respBody = fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":%s,"reasoning":%s}}]}`,
+		jsonStr(unescapeGherkin(content)), jsonStr(unescapeGherkin(reasoning)))
+	return nil
+}
+
+func (s *proxyState) brokerReturnsContentReasoningContent(content, reasoningContent string) error {
+	s.respBody = fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":%s,"reasoning_content":%s}}]}`,
+		jsonStr(unescapeGherkin(content)), jsonStr(unescapeGherkin(reasoningContent)))
+	return nil
+}
+
+func (s *proxyState) brokerBillsNextNonStreaming(amount string) error {
+	s.cost = strings.TrimPrefix(amount, "$")
+	return nil
+}
+
+// replyMessage decodes the single non-streaming choice's message the client received.
+func (s *proxyState) replyMessage() (content, reasoning, reasoningContent string) {
+	var d struct {
+		Choices []struct {
+			Message struct {
+				Content          string `json:"content"`
+				Reasoning        string `json:"reasoning"`
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	_ = json.Unmarshal(s.rec.Body.Bytes(), &d)
+	if len(d.Choices) == 0 {
+		return "", "", ""
+	}
+	m := d.Choices[0].Message
+	return m.Content, m.Reasoning, m.ReasoningContent
+}
+
+func (s *proxyState) replyContentIs(want string) error {
+	got, _, _ := s.replyMessage()
+	if got != want {
+		return fmt.Errorf("reply content = %q, want %q (body=%q)", got, want, s.rec.Body.String())
+	}
+	return nil
+}
+
+func (s *proxyState) replyContentIsEmpty() error {
+	got, _, _ := s.replyMessage()
+	if got != "" {
+		return fmt.Errorf("reply content = %q, want empty", got)
+	}
+	return nil
+}
+
+func (s *proxyState) replyReasoningStill(want string) error {
+	_, r, rc := s.replyMessage()
+	if r != want && rc != want {
+		return fmt.Errorf("reply reasoning = %q / reasoning_content = %q, want %q preserved", r, rc, want)
+	}
+	return nil
+}
+
+func (s *proxyState) responseBodyByteForByte() error {
+	if got := s.rec.Body.String(); got != s.respBody {
+		return fmt.Errorf("response body was reshaped:\n got = %q\nwant = %q", got, s.respBody)
+	}
+	return nil
+}
+
+func (s *proxyState) responseCarriesCostHeader(want string) error {
+	if got := s.rec.Header().Get("X-RogerAI-Cost"); got != want {
+		return fmt.Errorf("X-RogerAI-Cost = %q, want %q", got, want)
+	}
+	return nil
+}
+
+// gherkinQuoted extracts the quoted tokens from a step tail like: "a" "b" "c".
+func gherkinQuoted(tail string) []string {
+	var out []string
+	rest := tail
+	for {
+		i := strings.IndexByte(rest, '"')
+		if i < 0 {
+			break
+		}
+		rest = rest[i+1:]
+		j := strings.IndexByte(rest, '"')
+		if j < 0 {
+			break
+		}
+		out = append(out, rest[:j])
+		rest = rest[j+1:]
+	}
+	return out
+}
+
+func (s *proxyState) brokerStreamsReasoningDeltas(tail string) error {
+	s.streaming = true
+	s.brokerContentDeltas = 0
+	for _, d := range gherkinQuoted(tail) {
+		s.streamLines = append(s.streamLines,
+			fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":%s}}]}\n\n", jsonStr(d)))
+	}
+	// A realistic terminal finish chunk with empty content (the shape hermes chokes on).
+	s.streamLines = append(s.streamLines, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+	return nil
+}
+
+func (s *proxyState) brokerStreamsContentDeltas(tail string) error {
+	s.streaming = true
+	deltas := gherkinQuoted(tail)
+	s.brokerContentDeltas = len(deltas)
+	for _, d := range deltas {
+		s.streamLines = append(s.streamLines,
+			fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":%s}}]}\n\n", jsonStr(d)))
+	}
+	s.streamLines = append(s.streamLines, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+	return nil
+}
+
+func (s *proxyState) streamWillBill(amount string) error {
+	s.streaming = true
+	s.cost = strings.TrimPrefix(amount, "$")
+	return nil
+}
+
+// streamDeltas parses the SSE the CLIENT received into content+reasoning concatenations and
+// a count of content-bearing delta events (to detect a synthesized delta).
+func (s *proxyState) streamDeltas() (content, reasoning string, contentEvents int) {
+	var cb, rb strings.Builder
+	for _, raw := range strings.Split(s.rec.Body.String(), "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" || payload == "" {
+			continue
+		}
+		var d struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					Reasoning        string `json:"reasoning"`
+					ReasoningContent string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(payload), &d) != nil {
+			continue
+		}
+		for _, c := range d.Choices {
+			if c.Delta.Content != "" {
+				cb.WriteString(c.Delta.Content)
+				contentEvents++
+			}
+			rb.WriteString(c.Delta.ReasoningContent)
+			rb.WriteString(c.Delta.Reasoning)
+		}
+	}
+	return cb.String(), rb.String(), contentEvents
+}
+
+func (s *proxyState) streamedContentIs(want string) error {
+	got, _, _ := s.streamDeltas()
+	if got != want {
+		return fmt.Errorf("streamed content = %q, want %q (body=%q)", got, want, s.rec.Body.String())
+	}
+	return nil
+}
+
+func (s *proxyState) streamedReasoningStill(want string) error {
+	_, got, _ := s.streamDeltas()
+	if got != want {
+		return fmt.Errorf("streamed reasoning = %q, want %q preserved", got, want)
+	}
+	return nil
+}
+
+func (s *proxyState) noContentDeltaSynthesized() error {
+	_, _, events := s.streamDeltas()
+	if events != s.brokerContentDeltas {
+		return fmt.Errorf("content-delta events = %d, want %d (a delta was synthesized)", events, s.brokerContentDeltas)
+	}
+	return nil
+}
+
+func (s *proxyState) brokerReturnsToolCallReply(reasoning string) error {
+	s.respBody = fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":"","reasoning":%s,`+
+		`"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{}"}}]}}]}`,
+		jsonStr(unescapeGherkin(reasoning)))
+	return nil
+}
+
+func (s *proxyState) brokerStreamsReasoningThenToolCall(reasoning string) error {
+	s.streaming = true
+	s.brokerContentDeltas = 0
+	s.streamLines = []string{
+		fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":%s}}]}\n\n", jsonStr(reasoning)),
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{}\"}}]}}]}\n\n",
+		"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+	}
+	return nil
+}
+
+func (s *proxyState) synthesizedContentPrecedesFinish() error {
+	out := s.rec.Body.String()
+	ci, fi := strings.Index(out, `"content":`), strings.Index(out, "finish_reason")
+	if ci < 0 {
+		return fmt.Errorf("no synthesized content delta in stream: %q", out)
+	}
+	if fi < 0 || ci > fi {
+		return fmt.Errorf("synthesized content not before finish_reason: content@%d finish@%d body=%q", ci, fi, out)
+	}
+	return nil
+}
+
+func (s *proxyState) sseCostCommentPresent(amount string) error {
+	want := ": rogerai-cost=" + strings.TrimPrefix(amount, "$")
+	if !strings.Contains(s.rec.Body.String(), want) {
+		return fmt.Errorf("SSE meter comment %q missing from stream; body=%q", want, s.rec.Body.String())
+	}
+	return nil
+}
+
 func TestProxyBDD(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -1599,6 +1859,27 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^the broker was never called$`, st.brokerNeverCalled)
 			sc.Step(`^the request is relayed to the broker$`, st.requestRelayed)
 			sc.Step(`^a chat request is made$`, st.chatRequestMade)
+
+			// reasoning_fallback.feature
+			sc.Step(`^the reasoning fallback is disabled$`, st.reasoningFallbackDisabled)
+			sc.Step(`^the broker returns message content "(.*)" and reasoning "(.*)"$`, st.brokerReturnsContentReasoning)
+			sc.Step(`^the broker returns message content "(.*)" and reasoning_content "(.*)"$`, st.brokerReturnsContentReasoningContent)
+			sc.Step(`^the broker bills "([^"]*)" for the next non-streaming reply$`, st.brokerBillsNextNonStreaming)
+			sc.Step(`^the reply content is "(.*)"$`, st.replyContentIs)
+			sc.Step(`^the reply content is empty$`, st.replyContentIsEmpty)
+			sc.Step(`^the reply reasoning is still "(.*)"$`, st.replyReasoningStill)
+			sc.Step(`^the response body is byte-for-byte the broker's body$`, st.responseBodyByteForByte)
+			sc.Step(`^the response carries cost header "([^"]*)"$`, st.responseCarriesCostHeader)
+			sc.Step(`^the broker streams reasoning deltas (.+) and no content$`, st.brokerStreamsReasoningDeltas)
+			sc.Step(`^the broker streams content deltas (.+)$`, st.brokerStreamsContentDeltas)
+			sc.Step(`^the stream will bill "([^"]*)"$`, st.streamWillBill)
+			sc.Step(`^the streamed content is "(.*)"$`, st.streamedContentIs)
+			sc.Step(`^the streamed reasoning is still "(.*)"$`, st.streamedReasoningStill)
+			sc.Step(`^no content delta was synthesized$`, st.noContentDeltaSynthesized)
+			sc.Step(`^the SSE cost-meter comment for "([^"]*)" is present$`, st.sseCostCommentPresent)
+			sc.Step(`^the broker returns a tool-call reply with empty content and reasoning "(.*)"$`, st.brokerReturnsToolCallReply)
+			sc.Step(`^the broker streams a reasoning delta "(.*)" then a tool_call and no content$`, st.brokerStreamsReasoningThenToolCall)
+			sc.Step(`^the synthesized content precedes the finish_reason chunk$`, st.synthesizedContentPrecedesFinish)
 
 			// models.feature ("GET <path> with the session key" is served by the generic
 			// errors.feature step getPath, which handles /v1/models and unknown routes alike).

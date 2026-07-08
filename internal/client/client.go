@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -404,6 +405,14 @@ type ProxyOptions struct {
 	// launch sets DefaultSessionBudget.
 	Budget float64
 	Alert  AlertFunc // surfaced when failover is exhausted (nil = silent)
+	// ReasoningFallbackOff disables the reasoning->content fallback (founder ruling, option
+	// A, 2026-07-08). The fallback is ON by default (this flag's zero value): when an upstream
+	// reply leaves message.content EMPTY but carries reasoning (message.reasoning or
+	// reasoning_content), the proxy surfaces that reasoning AS content so strict clients
+	// (hermes -z) don't see a blank answer on a reasoning-heavy band. Set true for RAW
+	// passthrough (a client that wants the untouched provider body). It ONLY reshapes the
+	// response body text - billing, model, routing, and the SSE cost meter are never touched.
+	ReasoningFallbackOff bool
 }
 
 // DefaultSessionBudget is the per-session spend cap the guest-operator launch applies by
@@ -843,7 +852,7 @@ func relayWithFailover(ctx context.Context, w http.ResponseWriter, opts ProxyOpt
 			// the broker's `: rogerai-cost=` SSE meter comment (passed through unchanged) and
 			// returns it - billed at stream END, per the ceiling (the crossing stream
 			// completes; the NEXT call is refused).
-			if sc := copyRelayResponse(w, resp); sc > 0 && onStreamCost != nil {
+			if sc := copyRelayResponse(w, resp, !opts.ReasoningFallbackOff); sc > 0 && onStreamCost != nil {
 				onStreamCost(sc)
 			}
 			resp.Body.Close()
@@ -911,12 +920,19 @@ func failoverError(crit Criteria, lastStatus int, lastErr error) string {
 	return fmt.Sprintf("no provider available for %q%s - %s", crit.Model, suffix, reason)
 }
 
-// copyRelayResponse mirrors the broker's response (status, meter headers, body)
-// to the local client, flushing per chunk so SSE streaming works end-to-end. On an SSE
-// response it also scans the pass-through for the broker's `: rogerai-cost=` meter comment
-// (the ONLY cost meter a stream carries - headers were flushed before output) and returns
-// the amount; 0 when absent (an old broker: graceful degrade, never an error).
-func copyRelayResponse(w http.ResponseWriter, resp *http.Response) (sseCost float64) {
+// maxTransformBody bounds how much of a NON-streaming body we buffer to apply the
+// reasoning->content fallback. A completion body is KB-scale; anything larger is forwarded raw
+// (untransformed) rather than held in memory - a defensive ceiling, not an expected path.
+const maxTransformBody = 8 << 20
+
+// copyRelayResponse mirrors the broker's response (status, meter headers, body) to the local
+// client. On an SSE response it delegates to streamRelayBody (which passes the stream through,
+// scans the broker's `: rogerai-cost=` meter comment - the ONLY cost meter a stream carries -
+// and, when reasoningFallbackOn, injects the reasoning->content fallback). On a NON-streaming
+// body it buffers, applies applyReasoningFallback when enabled, and forwards. reasoningFallbackOn
+// only reshapes body text; status, headers (incl. the billed X-RogerAI-Cost), and the SSE meter
+// pass through untouched.
+func copyRelayResponse(w http.ResponseWriter, resp *http.Response, reasoningFallbackOn bool) (sseCost float64) {
 	ct := resp.Header.Get("Content-Type")
 	if ct == "" {
 		ct = "application/json"
@@ -931,30 +947,23 @@ func copyRelayResponse(w http.ResponseWriter, resp *http.Response) (sseCost floa
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	var meter *sseMeter
+
 	if strings.Contains(ct, "text/event-stream") {
-		meter = &sseMeter{}
+		return streamRelayBody(w, resp.Body, reasoningFallbackOn)
 	}
-	flusher, _ := w.(http.Flusher)
-	buf := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n])
-			if meter != nil {
-				meter.scan(buf[:n])
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		if err != nil {
-			break
-		}
+
+	// Non-streaming JSON: buffer (bounded), transform if enabled, forward. Billing is in the
+	// headers already written above; the body transform never touches it.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTransformBody+1))
+	if len(body) > maxTransformBody { // oversized: forward raw, untransformed
+		w.Write(body)
+		io.Copy(w, resp.Body)
+		return 0
 	}
-	if meter != nil {
-		return meter.cost
+	if reasoningFallbackOn {
+		body = applyReasoningFallback(body)
 	}
+	w.Write(body)
 	return 0
 }
 
@@ -993,6 +1002,348 @@ func (m *sseMeter) scan(p []byte) {
 			m.overflow = true
 		}
 	}
+}
+
+// reasoningFallback decides whether an assistant turn's EMPTY content should be surfaced from
+// its reasoning channel, and with what text. It returns (text, true) ONLY when content is
+// blank/whitespace AND a non-blank reasoning channel exists; reasoning_content is preferred
+// over reasoning (providers emit one or the other). It NEVER replaces real content - the guard
+// against overwriting or double-emitting a genuine answer.
+func reasoningFallback(content, reasoning, reasoningContent string) (string, bool) {
+	if strings.TrimSpace(content) != "" {
+		return "", false // a real answer: leave it exactly as sent
+	}
+	if strings.TrimSpace(reasoningContent) != "" {
+		return reasoningContent, true
+	}
+	if strings.TrimSpace(reasoning) != "" {
+		return reasoning, true
+	}
+	return "", false // nothing to surface: content stays empty
+}
+
+// hasToolCalls reports whether a message's tool_calls field is present and non-empty. On such a
+// turn the empty content is intentional (the "answer" is the tool call), so the reasoning
+// fallback must NOT fill it - mirroring internal/harness.parseCompletion's guard.
+func hasToolCalls(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null" && s != "[]"
+}
+
+// applyReasoningFallback rewrites a NON-streaming chat/completions JSON body so a choice whose
+// message.content is empty/whitespace has that content filled from its reasoning channel
+// (message.reasoning or reasoning_content). It returns the ORIGINAL bytes unchanged when
+// nothing applies or the body is not the expected shape (fail-safe: never corrupt a response
+// we don't fully understand), so real-content / nothing-to-do / error bodies are byte-identical
+// passthrough. Only message.content is touched; every other field - including reasoning itself
+// (the accepted double-mirror) and usage token counts - is preserved (json.Number keeps
+// numbers bit-for-bit). Billing lives in headers, not the body, so it is never affected here.
+func applyReasoningFallback(body []byte) []byte {
+	// Cheap typed probe: does any choice actually need the fallback? If not, skip re-encoding
+	// entirely and hand back the original bytes untouched.
+	var probe struct {
+		Choices []struct {
+			Message struct {
+				Content          string          `json:"content"`
+				Reasoning        string          `json:"reasoning"`
+				ReasoningContent string          `json:"reasoning_content"`
+				ToolCalls        json.RawMessage `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil || len(probe.Choices) == 0 {
+		return body
+	}
+	need := false
+	for _, c := range probe.Choices {
+		if hasToolCalls(c.Message.ToolCalls) {
+			continue // a tool-call turn's empty content is intentional - leave it (mirrors parseCompletion)
+		}
+		if _, ok := reasoningFallback(c.Message.Content, c.Message.Reasoning, c.Message.ReasoningContent); ok {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return body
+	}
+	// At least one choice needs surfacing: re-parse generically (UseNumber preserves token
+	// counts) and mutate only the affected message.content values.
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var root map[string]any
+	if err := dec.Decode(&root); err != nil {
+		return body
+	}
+	choices, ok := root["choices"].([]any)
+	if !ok {
+		return body
+	}
+	for _, ci := range choices {
+		cm, ok := ci.(map[string]any)
+		if !ok {
+			continue
+		}
+		msg, ok := cm["message"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if tc, ok := msg["tool_calls"]; ok && tc != nil {
+			if arr, isArr := tc.([]any); !isArr || len(arr) > 0 {
+				continue // tool-call turn: leave its content as sent
+			}
+		}
+		content, _ := msg["content"].(string)
+		reasoning, _ := msg["reasoning"].(string)
+		reasoningContent, _ := msg["reasoning_content"].(string)
+		if text, ok := reasoningFallback(content, reasoning, reasoningContent); ok {
+			msg["content"] = text
+		}
+	}
+	out, err := json.Marshal(root)
+	if err != nil {
+		return body // never emit a half-built body
+	}
+	return out
+}
+
+// maxSSELine bounds the per-line buffer of the streaming injector. A data: line longer than
+// this is flushed in pieces and treated as opaque passthrough (it can never be the tiny
+// [DONE] sentinel or meter comment), so a huge chunk can neither grow memory nor be misparsed.
+const maxSSELine = 1 << 20
+
+// streamRelayBody copies an SSE relay stream to the client, flushing per event so streaming
+// works end-to-end, and scanning for the broker's `: rogerai-cost=` meter comment (returned as
+// the stream's only cost signal). When reasoningFallbackOn and the whole stream emitted
+// reasoning deltas but ZERO visible content, it injects ONE synthesized content delta (per
+// choice) carrying the accumulated reasoning immediately BEFORE that choice's finish_reason
+// chunk (or before [DONE]/at EOF if none) - so a strict client (hermes -z) that finalizes on
+// finish_reason still sees the content. The synthesized chunk copies id/object/created/model
+// from the last observed chunk so it is a well-formed sibling. v1 limitation: the reasoning is
+// delivered as a single consolidated delta at stream end, not re-chunked live as it arrives.
+// Everything else - the original reasoning deltas (the accepted double-mirror), the finish
+// chunk, [DONE], and the meter comment - passes through byte-for-byte.
+func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool) (sseCost float64) {
+	flusher, _ := w.(http.Flusher)
+	meter := &sseMeter{}
+	write := func(p []byte) {
+		w.Write(p)
+		meter.scan(p)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	// Raw byte-for-byte passthrough when the fallback is disabled (a caller that wants the
+	// untouched provider stream) - identical to the legacy relay behavior.
+	if !reasoningFallbackOn {
+		buf := make([]byte, 4096)
+		for {
+			n, err := body.Read(buf)
+			if n > 0 {
+				write(buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		return meter.cost
+	}
+
+	// Per-choice accumulation across the whole stream (index -> builders).
+	contentBuf := map[int]*strings.Builder{}
+	reasoningBuf := map[int]*strings.Builder{}
+	toolCalls := map[int]bool{} // a choice that streamed tool_calls: its empty content is BY DESIGN
+	buf := func(m map[int]*strings.Builder, idx int) *strings.Builder {
+		b := m[idx]
+		if b == nil {
+			b = &strings.Builder{}
+			m[idx] = b
+		}
+		return b
+	}
+	injected := map[int]bool{} // per-choice latch: which choices we've already resolved
+	// Envelope metadata copied verbatim from the last observed chunk so a synthesized chunk is a
+	// well-formed sibling (some strict SDK parsers require id/object/model on every chunk). Held
+	// as raw JSON so a nonstandard type (a numeric id, a string created) is re-emitted as-is and
+	// can NEVER fail the chunk parse and silently drop tracking (audit finding).
+	var lastID, lastObject, lastCreated, lastModel json.RawMessage
+	// blankRaw treats absent / null / "" as no value, so an explicit empty envelope field can't
+	// clobber a real one already seen (nor be re-emitted).
+	blankRaw := func(v json.RawMessage) bool {
+		s := string(v)
+		return len(v) == 0 || s == "null" || s == `""`
+	}
+	keep := func(dst *json.RawMessage, v json.RawMessage) {
+		if !blankRaw(v) {
+			*dst = v
+		}
+	}
+	putRaw := func(m map[string]any, k string, v json.RawMessage) {
+		if !blankRaw(v) {
+			m[k] = v // json.RawMessage marshals verbatim (string, number, whatever it was)
+		}
+	}
+
+	// synthesizeChoice writes the reasoning->content delta for ONE choice, once. It is a no-op
+	// when the choice has real content, a tool_calls turn (empty content is intentional), or no
+	// reasoning to surface. Per-choice (not a global latch) so an n>1 stream can't get a
+	// premature or duplicated delta on another choice's finish.
+	synthesizeChoice := func(idx int) {
+		if injected[idx] {
+			return
+		}
+		injected[idx] = true
+		if toolCalls[idx] {
+			return
+		}
+		r := ""
+		if rb := reasoningBuf[idx]; rb != nil {
+			r = rb.String()
+		}
+		content := ""
+		if cb := contentBuf[idx]; cb != nil {
+			content = cb.String()
+		}
+		text, ok := reasoningFallback(content, r, "")
+		if !ok {
+			return
+		}
+		chunk := map[string]any{
+			"choices": []any{map[string]any{"index": idx, "delta": map[string]any{"content": text}}},
+		}
+		putRaw(chunk, "id", lastID)
+		putRaw(chunk, "object", lastObject)
+		putRaw(chunk, "created", lastCreated)
+		putRaw(chunk, "model", lastModel)
+		payload, _ := json.Marshal(chunk)
+		write([]byte("data: " + string(payload) + "\n\n"))
+	}
+
+	// synthesizeAll resolves every choice that emitted reasoning (ascending index, deterministic)
+	// - the terminal catch-all for choices that never carried an explicit finish_reason.
+	synthesizeAll := func() {
+		idxs := make([]int, 0, len(reasoningBuf))
+		for idx := range reasoningBuf {
+			idxs = append(idxs, idx)
+		}
+		sort.Ints(idxs)
+		for _, idx := range idxs {
+			synthesizeChoice(idx)
+		}
+	}
+
+	// observe parses a data: JSON line to track content/reasoning/tool_calls deltas and envelope
+	// metadata per choice, returning the choice indices whose chunk carried a finish_reason (the
+	// point to inject BEFORE, so the synthesized content lands ahead of THAT choice finishing).
+	observe := func(payload string) (finishedIdx []int) {
+		var d struct {
+			ID      json.RawMessage `json:"id"`
+			Object  json.RawMessage `json:"object"`
+			Created json.RawMessage `json:"created"`
+			Model   json.RawMessage `json:"model"`
+			Choices []struct {
+				Index        int             `json:"index"`
+				FinishReason json.RawMessage `json:"finish_reason"`
+				Delta        struct {
+					Content          string          `json:"content"`
+					Reasoning        string          `json:"reasoning"`
+					ReasoningContent string          `json:"reasoning_content"`
+					ToolCalls        json.RawMessage `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if json.Unmarshal([]byte(payload), &d) != nil {
+			return nil
+		}
+		keep(&lastID, d.ID)
+		keep(&lastObject, d.Object)
+		keep(&lastCreated, d.Created)
+		keep(&lastModel, d.Model)
+		for _, c := range d.Choices {
+			if c.Delta.Content != "" {
+				buf(contentBuf, c.Index).WriteString(c.Delta.Content)
+			}
+			// Cap the accumulated reasoning so a pathological multi-MB reasoning stream can't grow
+			// memory unbounded (the non-streaming path is bounded by maxTransformBody).
+			if rb := reasoningBuf[c.Index]; rb == nil || rb.Len() < maxTransformBody {
+				if c.Delta.ReasoningContent != "" {
+					buf(reasoningBuf, c.Index).WriteString(c.Delta.ReasoningContent)
+				}
+				if c.Delta.Reasoning != "" {
+					buf(reasoningBuf, c.Index).WriteString(c.Delta.Reasoning)
+				}
+			}
+			if len(c.Delta.ToolCalls) > 0 && string(c.Delta.ToolCalls) != "null" {
+				toolCalls[c.Index] = true
+			}
+			if fr := strings.TrimSpace(string(c.FinishReason)); fr != "" && fr != "null" {
+				finishedIdx = append(finishedIdx, c.Index)
+			}
+		}
+		return finishedIdx
+	}
+
+	// Line-buffered forwarding: hold each line so the synthesized delta can be injected BEFORE
+	// [DONE]. A line over maxSSELine is flushed in pieces (truncated) and forwarded opaquely.
+	var line []byte
+	truncated := false
+	rd := make([]byte, 4096)
+	for {
+		n, err := body.Read(rd)
+		for i := 0; i < n; i++ {
+			ch := rd[i]
+			line = append(line, ch)
+			if ch != '\n' {
+				if len(line) > maxSSELine { // opaque overflow: flush and keep going
+					write(line)
+					line = line[:0]
+					truncated = true
+				}
+				continue
+			}
+			// Complete raw line (includes its trailing newline).
+			if truncated { // tail of a line whose head already went out: forward as-is
+				write(line)
+				line = line[:0]
+				truncated = false
+				continue
+			}
+			text := strings.TrimSpace(strings.TrimRight(string(line), "\r\n"))
+			if strings.HasPrefix(text, "data:") {
+				payload := strings.TrimSpace(strings.TrimPrefix(text, "data:"))
+				if payload == "[DONE]" {
+					synthesizeAll() // resolve any remaining choices before the terminal sentinel
+					write(line)
+					line = line[:0]
+					continue
+				}
+				for _, idx := range observe(payload) {
+					synthesizeChoice(idx) // inject BEFORE this choice's finish chunk
+				}
+			}
+			write(line)
+			line = line[:0]
+		}
+		if err != nil {
+			break
+		}
+	}
+	if len(line) > 0 { // trailing bytes with no final newline
+		if !truncated {
+			// A final data: line that lacked its terminating blank line still counts toward the
+			// reasoning-only detection (observe ignores non-JSON / partial lines).
+			text := strings.TrimSpace(strings.TrimRight(string(line), "\r\n"))
+			if payload, ok := strings.CutPrefix(text, "data:"); ok {
+				if p := strings.TrimSpace(payload); p != "" && p != "[DONE]" {
+					observe(p)
+				}
+			}
+		}
+		write(line)
+	}
+	synthesizeAll() // no [DONE]/finish seen (or already resolved -> no-op): best-effort at EOF
+	return meter.cost
 }
 
 // joinSet renders a set as a comma-separated header value.
