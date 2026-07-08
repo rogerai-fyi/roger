@@ -930,7 +930,7 @@ github.com/rogerai-fyi/roger/internal/client/login.go:194:		LogoutReturn			60.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:206:		Logout				85.7%
 github.com/rogerai-fyi/roger/internal/client/login.go:221:		Whoami				100.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:244:		startDeviceFlow			92.9%
-github.com/rogerai-fyi/roger/internal/client/login.go:266:		pollDeviceToken			85.7%
+github.com/rogerai-fyi/roger/internal/client/login.go:266:		pollDeviceToken			90.5%
 github.com/rogerai-fyi/roger/internal/client/login.go:308:		postSigned			100.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:316:		maxInt				100.0%
 github.com/rogerai-fyi/roger/internal/client/payout.go:49:		payoutErr			100.0%
@@ -963,7 +963,7 @@ github.com/rogerai-fyi/roger/internal/client/rc.go:445:			Done				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:448:			Run				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:455:			Stop				100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:466:			Disable				100.0%
-github.com/rogerai-fyi/roger/internal/client/rc.go:474:			pollLoop			79.3%
+github.com/rogerai-fyi/roger/internal/client/rc.go:474:			pollLoop			82.8%
 github.com/rogerai-fyi/roger/internal/client/rc.go:526:			eventPump			100.0%
 github.com/rogerai-fyi/roger/internal/client/rc.go:548:			postEvents			100.0%
 github.com/rogerai-fyi/roger/internal/client/say.go:41:			Speak				95.2%
@@ -1886,7 +1886,7 @@ github.com/rogerai-fyi/roger/internal/tui/tui.go:7820:			sharePriceCell			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7845:			shareRowDetail			97.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7917:			marquee				91.7%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7941:			shareEditorView			89.3%
-github.com/rogerai-fyi/roger/internal/tui/tui.go:8068:			editorLivePreview		96.0%
+github.com/rogerai-fyi/roger/internal/tui/tui.go:8068:			editorLivePreview		92.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8117:			maskKey				100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8134:			shareSetupView			85.4%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8202:			modalFooter			100.0%
