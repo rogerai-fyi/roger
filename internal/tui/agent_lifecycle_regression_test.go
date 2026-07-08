@@ -12,6 +12,17 @@ package tui
 //   #6 (minor) the handoff auto-tune bound a KNOWN-small free band and only THEN refused
 //      at the §6 gate, leaving the user silently tuned to a band too small for a guest.
 //
+// AGENT redesign residuals (2026-07-08):
+//   - the handoff pre-bind gate read the BAND ctx (max across stations) but bound a SPECIFIC
+//     free station: a free 8k station beside a paid 32k sibling was bound then refused
+//     post-bind (the mixed-band twin of #6). Pinned as a godog scenario in auto_tune.feature.
+//   - a re-scan to ZERO guests while THE DESK was focused left an invisible focused desk that
+//     swallowed arrows/enter (TestDeskFocusClearsWhenGuestsVanish).
+//   - re-entry clobbered refreshAgentModel's "no model tuned in" status with "AGENT ready"
+//     (TestReentryPreservesNoModelStatus).
+//   - the "finding a free band…" beat prefix differed between the two sites that emit it
+//     (TestFindingBandBeatPrefixConsistent).
+//
 // Candidates for promotion into the approved .feature set at the next founder review
 // (findings #1, #2, #4 are pinned as godog scenarios in features/operator/*.feature).
 
@@ -205,5 +216,106 @@ func TestHandoffRefusesKnownSmallFreeBandWithoutBinding(t *testing.T) {
 	body := stripANSI(strings.Join(got.agentLines, "\n"))
 	if !strings.Contains(body, "16k") && !strings.Contains(strings.ToLower(body), "too small") {
 		t.Fatalf("the transcript must carry an honest 'no agent-ready band' refusal:\n%s", body)
+	}
+}
+
+// TestDeskFocusClearsWhenGuestsVanish: finding (2026-07-08). A re-scan that shrinks
+// deskGuests to ZERO while THE DESK is focused left deskFocused=true over an EMPTY roster
+// (deskRosterBlock renders nothing at zero guests) - an INVISIBLE focused desk that
+// swallowed arrows/enter. onOperatorDetected must clear deskFocused (and reset the cursor)
+// when the new guest set is empty, so keys reach the ask box again.
+func TestDeskFocusClearsWhenGuestsVanish(t *testing.T) {
+	oc, err := registryGuest("opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
+	m.operatorDetections = []operator.Detection{{Guest: oc, Path: "/fake/opencode", Version: oc.KnownGood}}
+	m.deskFocused = true
+	m.deskCursor = 1 // parked on the guest row
+
+	// A re-scan lands ZERO guests (the guest quit / dropped off PATH).
+	nm, _ := m.onOperatorDetected(operatorDetectedMsg{ds: nil})
+	got := asModel(nm)
+	if got.deskFocused {
+		t.Fatalf("deskFocused must clear when the guest set empties - an invisible focused desk swallows arrows/enter")
+	}
+	if got.deskCursor != 0 {
+		t.Fatalf("deskCursor should reset to 0 when the desk defocuses, got %d", got.deskCursor)
+	}
+}
+
+// TestReentryPreservesNoModelStatus: finding (2026-07-08, cosmetic). On RE-ENTRY with no
+// model resolving, refreshAgentModel sets the specific "no model tuned in" status; enterAgent
+// then unconditionally overwrote it with the generic "AGENT ready", making the status wrong.
+// The specific no-model status must survive re-entry.
+func TestReentryPreservesNoModelStatus(t *testing.T) {
+	m := freshDeskAgent(t, nil)
+	// A session that HAD a model but no longer resolves one (the band dropped, nothing
+	// sticky): agent.model set, but connected/lastConnected nil so resolveAgentModel()=="".
+	m.agent.model = "gpt-oss-20b"
+	m.connected = nil
+	m.lastConnected = nil
+	m.autoTuning = false
+
+	nm, _ := m.enterAgent()
+	status := stripANSI(asModel(nm).status)
+	if !strings.Contains(status, "no model tuned in") {
+		t.Fatalf("re-entry must preserve the specific no-model status refreshAgentModel set, got %q", status)
+	}
+	if strings.Contains(status, "AGENT ready") {
+		t.Fatalf("re-entry clobbered the no-model status with the generic AGENT ready: %q", status)
+	}
+}
+
+// TestReentryDuringAutoTuneKeepsReadyStatus: a silent auto-tune in flight (no model bound
+// YET) must NOT flip the re-entry status to "no model tuned in" - that would contradict the
+// still-up "finding a free band…" beat. While autoTuning, the status stays "AGENT ready".
+func TestReentryDuringAutoTuneKeepsReadyStatus(t *testing.T) {
+	m := freshDeskAgent(t, nil)
+	m.connected = nil
+	m.lastConnected = nil
+	m.autoTuning = true // a cold auto-tune is finding a band
+
+	nm, _ := m.enterAgent()
+	status := stripANSI(asModel(nm).status)
+	if !strings.Contains(status, "AGENT ready") {
+		t.Fatalf("re-entry mid-auto-tune should keep the AGENT ready status, got %q", status)
+	}
+	if strings.Contains(status, "no model tuned in") {
+		t.Fatalf("re-entry mid-auto-tune must not show the no-model status (contradicts the finding-a-band beat): %q", status)
+	}
+}
+
+// TestFindingBandBeatPrefixConsistent: finding (2026-07-08, cosmetic). The "finding a free
+// band…" beat used a "· " prefix in enterAgent but glyphOnAir in submitAgentPrompt. Pin ONE
+// prefix at both sites so the transcript reads consistently.
+func TestFindingBandBeatPrefixConsistent(t *testing.T) {
+	beatLine := func(lines []string) string {
+		for _, ln := range lines {
+			if strings.Contains(stripANSI(ln), "finding a free band") {
+				return ln
+			}
+		}
+		return ""
+	}
+	// enterAgent's fresh-landing beat.
+	m1 := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
+	enterBeat := beatLine(m1.agentLines)
+	// submitAgentPrompt's park-path beat (no model tuned -> park + auto-tune beat). Clear the
+	// transcript + re-arm so the ONLY beat present is the one submitAgentPrompt emits (else
+	// beatLine would find the enter beat freshDeskAgent already appended).
+	m2 := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
+	m2.agentLines = nil
+	m2.autoTuning = false
+	tm, _ := m2.submitAgentPrompt(queuedPrompt{text: "hello"})
+	submitBeat := beatLine(asModel(tm).agentLines)
+
+	if enterBeat == "" || submitBeat == "" {
+		t.Fatalf("both sites must emit the finding-a-band beat: enter=%q submit=%q", enterBeat, submitBeat)
+	}
+	if enterBeat != submitBeat {
+		t.Fatalf("the finding-a-band beat prefix differs between enterAgent and submitAgentPrompt:\n enter=%q\nsubmit=%q",
+			stripANSI(enterBeat), stripANSI(submitBeat))
 	}
 }
