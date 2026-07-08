@@ -8,18 +8,20 @@ import "testing"
 // fingerprint check (probe.go). It is RED against origin/main because toolCallOK does NOT
 // exist yet (undefined: toolCallOK) — the not-yet-existing prober the spec approves.
 //
-// CONTRACT (proposed; the exact-name strictness is FOUNDER FLAG T4):
+// CONTRACT:
 //
-//	toolCallOK(body []byte, wantFn string) (ok bool, reason string)
+//	toolCallOK(body []byte, nonce string) (ok bool, reason string)
 //
 // ok == true ONLY when the response carries at least one well-formed tool_calls entry: a
-// non-empty function.name AND JSON-parseable function.arguments. A plain-text answer, an empty
-// tool_calls array, or an unparseable body all return false (unproven stays unproven). Under the
-// LENIENT default a valid tool_calls to a DIFFERENT function name still proves tool-calling
-// (structure proves the provider honors the protocol); wantFn is threaded so a STRICT ruling can
-// require the name match without changing the signature.
+// non-empty function.name AND JSON-parseable function.arguments - that ALSO references the probe
+// nonce (name suffix or arguments). A plain-text answer, an empty tool_calls array, or an
+// unparseable body all return false (unproven stays unproven). This table exercises the STRUCTURAL
+// layer with the nonce gate OFF (nonce == "", the test affordance); the nonce enforcement itself
+// - a canned reply that does not reference THIS probe's nonce fails - is pinned in
+// TestToolCallOKRequiresNonce (toolcall_nonce_red_test.go). With the gate off, a valid tool_calls
+// to a DIFFERENT function name still proves tool-calling (FOUNDER FLAG T4, lenient structure).
 func TestToolCallOK(t *testing.T) {
-	const wantFn = "roger_probe_ack"
+	const nonce = "" // structural layer only; nonce enforcement is covered separately
 
 	cases := []struct {
 		name string
@@ -79,7 +81,7 @@ func TestToolCallOK(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := toolCallOK([]byte(c.body), wantFn)
+			got, reason := toolCallOK([]byte(c.body), nonce)
 			if got != c.want {
 				t.Fatalf("toolCallOK(%s) = %v (%q), want %v", c.body, got, reason, c.want)
 			}
