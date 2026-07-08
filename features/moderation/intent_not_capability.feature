@@ -27,7 +27,8 @@
 #              ledger tests skip without ROGERAI_TEST_DATABASE_URL. This is the ONLY layer that
 #              can prove a PROMPT change removes false positives - a stubbed verdict cannot.
 #   @plumbing- deterministic; a local httptest stub returns a fixed verdict. Proves the
-#              concat/verdict-mapping around the model (no role exempted; tools-array gap).
+#              concat/verdict-mapping around the model (no role exempted; the tools-array
+#              evasion is now CLOSED - see features/moderation/tools_array_screening.feature).
 #   @policy  - static string guard on the moderationPolicy constant (categories retained,
 #              carveout present, anti-evasion clause present). No network.
 
@@ -166,7 +167,7 @@ Feature: Moderation judges intent to harm, not descriptions of tool/agent capabi
     And no category description is weakened or removed
 
   # ==========================================================================
-  # SECTION E - PLUMBING: no role is exempted; the tools-array gap (@plumbing)
+  # SECTION E - PLUMBING: no role is exempted; the tools-array evasion is closed (@plumbing)
   # ==========================================================================
 
   @plumbing
@@ -185,12 +186,14 @@ Feature: Moderation judges intent to harm, not descriptions of tool/agent capabi
     Then the screen returns 451 (flagged)
     And modResult.csam is true with the matched category S4
 
-  @plumbing @known-gap
-  Scenario: the top-level tools array is NOT screened today (documented gap, founder decision)
+  @plumbing
+  Scenario: the top-level tools array IS now screened (evasion closed)
     Given a relay body that carries a harmful instruction ONLY inside the top-level "tools" array
     And the messages array contains no harmful text
     When promptText extracts the text to screen
-    Then the harmful instruction from the tools array is ABSENT from the screened text
-    # NOTE: the intent-carveout fix scope is the policy prompt only. Whether to ALSO fold the
-    # tools/functions array into promptText (closing this evasion) is a separate founder ruling
-    # recorded on the spec - it is NOT silently in or out of this change.
+    Then the harmful instruction from the tools array is PRESENT in the screened text
+    # RESOLVED: the "separate founder ruling" this scenario recorded has been made - promptText
+    # now folds the tools/functions array text into the screened blob, closing the evasion.
+    # The exhaustive spec for that change lives in features/moderation/tools_array_screening.feature
+    # (BUILD-AND-HOLD, needs the founder live red-team like #39). This scenario is retained as a
+    # regression pin that the tools text is no longer dropped.
