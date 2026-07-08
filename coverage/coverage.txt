@@ -375,7 +375,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:405:		rcSubtree			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:436:		rcJoin				55.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:466:		rcAuthHost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:477:		rcAuthViewer			72.7%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				72.2%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				66.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:568:		rcEvents			64.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:595:		rcSend				79.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:639:		rcStream			71.9%
@@ -925,7 +925,7 @@ github.com/rogerai-fyi/roger/internal/client/login.go:194:		LogoutReturn			60.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:206:		Logout				85.7%
 github.com/rogerai-fyi/roger/internal/client/login.go:221:		Whoami				100.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:244:		startDeviceFlow			92.9%
-github.com/rogerai-fyi/roger/internal/client/login.go:266:		pollDeviceToken			90.5%
+github.com/rogerai-fyi/roger/internal/client/login.go:266:		pollDeviceToken			85.7%
 github.com/rogerai-fyi/roger/internal/client/login.go:308:		postSigned			100.0%
 github.com/rogerai-fyi/roger/internal/client/login.go:316:		maxInt				100.0%
 github.com/rogerai-fyi/roger/internal/client/payout.go:49:		payoutErr			100.0%
