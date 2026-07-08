@@ -1289,6 +1289,12 @@ func (m model) agentView(w int) string {
 		mdlCell = stDim.Render(" ") + stEmber.Render("no model tuned in")
 	} else {
 		mdlCell = stDim.Render(" on ") + stKey.Render(mdl)
+		// The open channel's agent-ready marker: "⌁" VERIFIED (probed tool-calls) or "⌁~"
+		// INFERRED (window qualifies, tools unproven). Silent when too-small/unknown (the
+		// refusal + window warn carry those). Reads m.connected, the station patched in.
+		if tag := m.operatorChannelAgentTag(); tag != "" {
+			mdlCell += stDim.Render(" ") + stKey.Render(tag)
+		}
 	}
 	// MODE CLARITY: AGENT (tool-calling) keeps the RED accent bar + a "· tools" tag, so it
 	// reads as visibly distinct from the mono-barred TUNE-IN (basic chat) view that shares

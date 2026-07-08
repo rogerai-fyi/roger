@@ -101,17 +101,30 @@ func (o *ModelOffer) Normalize() {
 	o.Capabilities = CanonicalCapabilities(o.Capabilities)
 }
 
-// CapVision marks a chat model that accepts image_url content (the photo path).
+// CapVision marks a chat model that accepts image_url content (the photo path). It is
+// DECLARED-not-probed: a node asserts it and the broker canonicalizes it (no probe backs it).
 const CapVision = "vision"
+
+// CapTools marks a chat model VERIFIED to honor OpenAI tool-calls. Unlike CapVision it is
+// VERIFIED-not-declared: a node can NEVER earn it by asserting it in its offer - only the
+// broker's own tool-call canary (cmd/rogerai-broker/probe.go) grants it, after the provider
+// returned a well-formed tool_calls response. The broker strips a node-declared "tools" at
+// registration; the sole writer of a verified "tools" is the probe. The vision/tools
+// asymmetry is deliberate (FOUNDER FLAG T3): vision stays declared, tools is probed.
+const CapTools = "tools"
 
 // knownCapabilities is the CLOSED set of chat sub-capabilities the broker recognizes. A value
 // outside it is dropped (never trusted raw), the same discipline canonicalUnit applies to units.
-var knownCapabilities = map[string]bool{CapVision: true}
+// "vision" is DECLARED (a node asserts it); "tools" is a KNOWN, canonicalizable LABEL here but
+// VERIFIED-not-declared in practice - the broker strips a node's self-declared "tools" at
+// registration and only its own probe stamps it (see CapTools + the broker register/probe path).
+var knownCapabilities = map[string]bool{CapVision: true, CapTools: true}
 
 // CanonicalCapabilities lowercases, dedupes, drops unknown values, and returns a stable-sorted
 // slice - or nil for an empty/nil input so the JSON key is omitted (undetermined) rather than
-// emitted as [] (a positive "text only" claim). Capabilities are node-declared (the broker
-// cannot re-probe a node's model), so they are canonicalized, not derived.
+// emitted as [] (a positive "text only" claim). Capabilities are canonicalized, not derived:
+// "vision" is node-declared, while "tools" only ever reaches this function AFTER the broker's
+// probe has stamped it (a node-declared "tools" is stripped upstream, at registration).
 func CanonicalCapabilities(in []string) []string {
 	if in == nil {
 		return nil

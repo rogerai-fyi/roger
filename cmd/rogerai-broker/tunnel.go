@@ -204,6 +204,16 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
 	}
+	// VERIFIED-not-declared: strip a node-declared "tools" from every offer at this node-facing
+	// door. A node can NEVER earn "tools" by asserting it (unlike "vision", which stays declared);
+	// only the broker's own tool-call canary grants it, via the FIRST-CLASS shared verdict store.
+	// This strip is defence-in-depth: emission (withVerifiedTools) ALSO strips a stored "tools"
+	// and re-adds it only from the probe verdict, so an ingestion path that bypasses this door
+	// (shared-registry mirror, lazy learn, DB re-hydrate) still cannot leak an unproven "tools".
+	// See features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
+	for i := range reg.Offers {
+		reg.Offers[i].Capabilities = stripDeclaredTools(reg.Offers[i].Capabilities)
+	}
 	// Price-safety, operator side: a HARD, GLOBAL ceiling on what ANY station may charge -
 	// public, --private, AND confidential ALIKE. It runs UNCONDITIONALLY here (before
 	// owner-binding, attestation, and the private-band mint below), so NO flag exempts it.
@@ -471,6 +481,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 				_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
 			}
 		}
+		// NOTE: the verified "tools" bit is NOT carried in the registration JSON - it is
+		// first-class shared state (shared.markToolsVerified / toolsVerified, merged into
+		// b.toolsMerged on the sync loop), so a re-register never clobbers or resurrects it.
 	}
 
 	// Private band: ensure this node has a band (mint once, idempotent on re-register).
@@ -766,6 +779,10 @@ func (b *broker) syncLivenessOnce() {
 	//     reconciled, and the token ping-pong became SELF-SUSTAINING: rotated tokens
 	//     could never converge (the v5.0.0 flag=1 launch symptom).
 	b.syncRegistry()
+	// Refresh the cross-instance verified-tools union on the same tick (BEFORE the liveness
+	// early-return, so a host's regression clear still propagates when the liveness snapshot is
+	// momentarily empty). Keeps the hot /discover + /market read in-memory.
+	b.syncToolsVerified()
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return
