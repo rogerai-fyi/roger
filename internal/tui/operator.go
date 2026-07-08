@@ -160,6 +160,7 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 			m.deskFocused = false
 			m.deskCursor = 0
 			m.agentIn.Focus()
+			m.status = stDim.Render(djHasMicStatus) // drop the now-stale focused-desk hint
 		} else {
 			if max := m.deskRowCount() - 1; m.deskCursor > max {
 				m.deskCursor = max
@@ -184,9 +185,28 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 		m.deskFocused = true
 		m.deskCursor = 0
 		m.agentIn.Blur()
+		// Surface the desk ONCE PER MODEL PER SESSION: mark the tuned model seen so a second
+		// AGENT entry for it stays ask-focused (a fresh landing has no model yet - nothing to
+		// mark; the auto-tune that follows keeps its focus without re-marking).
+		if mdl := m.resolveAgentModel(); mdl != "" {
+			if m.operatorSeenModels == nil {
+				m.operatorSeenModels = map[string]bool{}
+			}
+			m.operatorSeenModels[mdl] = true
+		}
+		m.status = stDim.Render(deskFocusHint)
 	}
 	return m, nil
 }
+
+// deskFocusHint is the one-line status shown while THE DESK holds focus: how to pick an
+// operator, keep the DJ, or just start asking. Mirrors the /operator picker footer voice.
+const deskFocusHint = "↑↓ choose an operator · ⏎ DJ keeps the mic · type to just ask · esc exits"
+
+// djHasMicStatus replaces deskFocusHint the moment the desk hands focus back to the ask box
+// (enter-on-DJ, type-through, or a guest set that empties under focus) so the status line
+// never keeps advertising arrow-selection that no longer applies.
+const djHasMicStatus = "the DJ has the mic · type to ask · esc exits"
 
 // deskEntryEligible reports whether the AGENT is on the FRESH landing where THE DESK may
 // take focus: AGENT mode, no channel/model, the ask box empty (nothing typed), the
@@ -195,8 +215,17 @@ func (m model) deskEntryEligible() bool {
 	if m.mode != modeAgent || m.deskFocused {
 		return false
 	}
-	if m.proxyHolder != nil || m.connected != nil || m.resolveAgentModel() != "" {
-		return false // a channel is (or was) up - not a fresh landing
+	// A band that IS (or was) tuned surfaces THE DESK once per model per session: the first
+	// AGENT entry for a resolved model lands on the selectable desk; a second entry for the
+	// SAME model stays ask-focused (operatorSeenModels). A live holder with NO resolved model
+	// (a disconnected / oddly-seeded re-entry) is neither a fresh landing nor a tuned band -
+	// keep the ask focused. A genuinely-fresh landing (no holder, no model) stays eligible.
+	if mdl := m.resolveAgentModel(); mdl != "" {
+		if m.operatorSeenModels[mdl] {
+			return false // this model already surfaced the desk this session
+		}
+	} else if m.proxyHolder != nil {
+		return false // a holder with no resolved model - not a fresh landing
 	}
 	if strings.TrimSpace(m.agentIn.Value()) != "" || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
 		return false
@@ -1226,11 +1255,15 @@ func (m model) deskRosterView(w, cursor int, focused bool) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n" + truncVisible("  "+stSelBar.Render("▌")+" "+stBrand.Render("THE DESK")+"    "+stDim.Render(sub), w) + "\n")
-	// R2: the selected operator's plate as a marquee, in its ONE canonical hue. Focused
-	// only - the static preview stays byte-identical (no marquee, no carat).
-	if focused {
-		b.WriteString(m.deskMarquee(w, cursor))
+	// The operator's plate as a marquee, in its ONE canonical hue. Focused: the cursor drives
+	// which operator's plate shows. NOT focused (refinement 2, amends R2 / §6): the static
+	// preview anchors on the resident DJ's house plate (cursor 0 = djBrandArt) - guest plates
+	// still surface on focus/selection ONLY (ONE HUE, ONE BEAT preserved).
+	cur := cursor
+	if !focused {
+		cur = 0
 	}
+	b.WriteString(m.deskMarquee(w, cur))
 	b.WriteString(truncVisible("    "+stDim.Render(pad("operator", 13)+pad("wire", 11)+"status"), w) + "\n")
 	// The resident DJ row is always first (index 0), with the red on-air mark.
 	b.WriteString(truncVisible(deskGutter(focused && cursor == 0)+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")

@@ -480,7 +480,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// The resident DJ: hand focus to the ask box.
 				m.deskFocused = false
 				m.agentIn.Focus()
-				m.status = stDim.Render("the DJ has the mic · type to ask · esc exits")
+				m.status = stDim.Render(djHasMicStatus)
 				return m, textinput.Blink
 			}
 			ds := deskGuests(m.operatorDetections)
@@ -492,9 +492,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if isPrintableKey(k) {
 			// Type-through: the DJ is implied. De-focus the desk and let the rune land in
-			// the ask box via the text-entry Update below.
+			// the ask box via the text-entry Update below. Clear the focused-desk hint so the
+			// status line stops advertising arrow-selection (mirrors the enter-on-DJ path).
 			m.deskFocused = false
 			m.agentIn.Focus()
+			m.status = stDim.Render(djHasMicStatus)
 		}
 	}
 	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
@@ -1437,7 +1439,11 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
+		// Width-budgeted like the footer (refinement 3): keep the line under the canonical
+		// ~120 cols so truncVisible never clips the read/list·write/run safety posture. /clear
+		// and esc live in the footer, so the idle line drops them to make room for /operator
+		// while keeping ⌃y copy (founder: copy stays discoverable here) and the posture tail.
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  ⌃y copy  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"

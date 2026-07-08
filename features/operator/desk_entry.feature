@@ -36,11 +36,72 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     Then THE DESK does not have focus
     And the ask box has focus
 
-  Scenario: A tuned-in session (a live holder) never steals focus to the desk
+  # A live proxy holder with NO resolved model (a disconnected / oddly-seeded re-entry) is
+  # NOT a fresh landing and NOT a tuned band: keep the ask box focused, never steal to the
+  # desk. Only a genuinely-resolved model surfaces the desk (the once-per-model path below).
+  Scenario: A live holder with no resolved model keeps the ask box focused
     Given an AGENT session at the ask prompt
     When the desk scan lands guest "opencode"
     Then THE DESK does not have focus
     And the ask box has focus
+
+  # ── first-time-per-model desk focus: a tuned band surfaces the desk ONCE ──────
+  #
+  # Founder ruling: when a band IS tuned (resolveAgentModel non-empty), the FIRST AGENT
+  # entry for that model this session surfaces the focused desk (cursor on the DJ row) once
+  # a guest is detected; a SECOND entry for the same model stays ask-focused. Switching to a
+  # DIFFERENT model re-surfaces the desk once for it (operatorSeenModels, per session).
+
+  Scenario: A first entry for a tuned model surfaces the focused desk and marks it seen
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    When the desk scan lands guest "opencode"
+    Then THE DESK has focus
+    And the ask box is not focused
+    And the desk cursor is on the DJ row
+    And the model "gpt-oss-20b" is marked surfaced this session
+
+  Scenario: A second entry for the same model stays ask-focused (surfaced once per model)
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    And the model "gpt-oss-20b" has already surfaced the desk this session
+    When the desk scan lands guest "opencode"
+    Then THE DESK does not have focus
+    And the ask box has focus
+
+  Scenario: A different model re-surfaces the desk once, even after another model was seen
+    Given an AGENT session whose last band "llama-3.3-70b-instruct" is still on air
+    And the model "gpt-oss-20b" has already surfaced the desk this session
+    When the desk scan lands guest "opencode"
+    Then THE DESK has focus
+    And the desk cursor is on the DJ row
+
+  Scenario: Type-through de-focuses a tuned-model focused desk and lands the char in ask
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    And the desk scan lands guest "opencode"
+    When the user types "h"
+    Then THE DESK does not have focus
+    And the ask box has focus
+    And the ask box echoes "h"
+
+  # Regression (audit 2026-07-08): the focused-desk hint used to linger on the status line
+  # after a type-through defocus, advertising arrow-selection that no longer applied.
+  Scenario: Typing through clears the focused-desk hint (no stale arrow-selection advice)
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    And the desk scan lands guest "opencode"
+    When the user types "h"
+    Then the AGENT view shows "the DJ has the mic"
+    And the AGENT view does not show "choose an operator"
+
+  Scenario: A tuned first-entry with NO guests keeps the ask box focused (zero-guest invariant)
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    When the desk scan lands no guests
+    Then THE DESK does not have focus
+    And the ask box has focus
+
+  Scenario: The focused desk shows the choose-an-operator hint
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    When the desk scan lands guest "opencode"
+    Then THE DESK has focus
+    And the AGENT view shows "type to just ask"
 
   # ── arrows move the desk cursor ──────────────────────────────────────────────
 
