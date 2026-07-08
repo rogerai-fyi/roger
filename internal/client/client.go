@@ -1168,13 +1168,19 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	// as raw JSON so a nonstandard type (a numeric id, a string created) is re-emitted as-is and
 	// can NEVER fail the chunk parse and silently drop tracking (audit finding).
 	var lastID, lastObject, lastCreated, lastModel json.RawMessage
+	// blankRaw treats absent / null / "" as no value, so an explicit empty envelope field can't
+	// clobber a real one already seen (nor be re-emitted).
+	blankRaw := func(v json.RawMessage) bool {
+		s := string(v)
+		return len(v) == 0 || s == "null" || s == `""`
+	}
 	keep := func(dst *json.RawMessage, v json.RawMessage) {
-		if len(v) > 0 && string(v) != "null" {
+		if !blankRaw(v) {
 			*dst = v
 		}
 	}
 	putRaw := func(m map[string]any, k string, v json.RawMessage) {
-		if len(v) > 0 && string(v) != "null" {
+		if !blankRaw(v) {
 			m[k] = v // json.RawMessage marshals verbatim (string, number, whatever it was)
 		}
 	}
