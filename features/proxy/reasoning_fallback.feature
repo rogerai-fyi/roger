@@ -89,6 +89,33 @@ Feature: Proxy reasoning->content fallback (relay path)
       Then the status is 200
       And the streamed content is "the answer is 42"
 
+    Scenario: The synthesized content is delivered BEFORE the finish_reason chunk
+      # a strict client that finalizes on finish_reason must still see the content
+      Given a tuned band whose model is "gpt-oss-120b"
+      And the local proxy is bound to that band
+      And the broker streams reasoning deltas "answer" and no content
+      When a chat request is made
+      Then the streamed content is "answer"
+      And the synthesized content precedes the finish_reason chunk
+
+  Rule: A tool-call turn's empty content is left intact (never filled)
+
+    Scenario: Non-streaming - an empty-content reply carrying tool_calls is not filled
+      Given a tuned band whose model is "gpt-oss-120b"
+      And the local proxy is bound to that band
+      And the broker returns a tool-call reply with empty content and reasoning "calling weather api"
+      When a chat request is made
+      Then the reply content is empty
+      And the response body is byte-for-byte the broker's body
+
+    Scenario: Streaming - a reasoning+tool_call stream gets no synthesized content delta
+      Given a tuned band whose model is "gpt-oss-120b"
+      And the local proxy is bound to that band
+      And the broker streams a reasoning delta "thinking" then a tool_call and no content
+      When a chat request is made
+      Then the streamed content is ""
+      And no content delta was synthesized
+
     Scenario: The original reasoning deltas still pass through (the double-mirror tradeoff)
       Given a tuned band whose model is "gpt-oss-120b"
       And the local proxy is bound to that band

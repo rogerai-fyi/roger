@@ -1791,6 +1791,36 @@ func (s *proxyState) noContentDeltaSynthesized() error {
 	return nil
 }
 
+func (s *proxyState) brokerReturnsToolCallReply(reasoning string) error {
+	s.respBody = fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","content":"","reasoning":%s,`+
+		`"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{}"}}]}}]}`,
+		jsonStr(unescapeGherkin(reasoning)))
+	return nil
+}
+
+func (s *proxyState) brokerStreamsReasoningThenToolCall(reasoning string) error {
+	s.streaming = true
+	s.brokerContentDeltas = 0
+	s.streamLines = []string{
+		fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":%s}}]}\n\n", jsonStr(reasoning)),
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"{}\"}}]}}]}\n\n",
+		"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+	}
+	return nil
+}
+
+func (s *proxyState) synthesizedContentPrecedesFinish() error {
+	out := s.rec.Body.String()
+	ci, fi := strings.Index(out, `"content":`), strings.Index(out, "finish_reason")
+	if ci < 0 {
+		return fmt.Errorf("no synthesized content delta in stream: %q", out)
+	}
+	if fi < 0 || ci > fi {
+		return fmt.Errorf("synthesized content not before finish_reason: content@%d finish@%d body=%q", ci, fi, out)
+	}
+	return nil
+}
+
 func (s *proxyState) sseCostCommentPresent(amount string) error {
 	want := ": rogerai-cost=" + strings.TrimPrefix(amount, "$")
 	if !strings.Contains(s.rec.Body.String(), want) {
@@ -1847,6 +1877,9 @@ func TestProxyBDD(t *testing.T) {
 			sc.Step(`^the streamed reasoning is still "(.*)"$`, st.streamedReasoningStill)
 			sc.Step(`^no content delta was synthesized$`, st.noContentDeltaSynthesized)
 			sc.Step(`^the SSE cost-meter comment for "([^"]*)" is present$`, st.sseCostCommentPresent)
+			sc.Step(`^the broker returns a tool-call reply with empty content and reasoning "(.*)"$`, st.brokerReturnsToolCallReply)
+			sc.Step(`^the broker streams a reasoning delta "(.*)" then a tool_call and no content$`, st.brokerStreamsReasoningThenToolCall)
+			sc.Step(`^the synthesized content precedes the finish_reason chunk$`, st.synthesizedContentPrecedesFinish)
 
 			// models.feature ("GET <path> with the session key" is served by the generic
 			// errors.feature step getPath, which handles /v1/models and unknown routes alike).

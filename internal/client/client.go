@@ -1022,6 +1022,14 @@ func reasoningFallback(content, reasoning, reasoningContent string) (string, boo
 	return "", false // nothing to surface: content stays empty
 }
 
+// hasToolCalls reports whether a message's tool_calls field is present and non-empty. On such a
+// turn the empty content is intentional (the "answer" is the tool call), so the reasoning
+// fallback must NOT fill it - mirroring internal/harness.parseCompletion's guard.
+func hasToolCalls(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null" && s != "[]"
+}
+
 // applyReasoningFallback rewrites a NON-streaming chat/completions JSON body so a choice whose
 // message.content is empty/whitespace has that content filled from its reasoning channel
 // (message.reasoning or reasoning_content). It returns the ORIGINAL bytes unchanged when
@@ -1036,9 +1044,10 @@ func applyReasoningFallback(body []byte) []byte {
 	var probe struct {
 		Choices []struct {
 			Message struct {
-				Content          string `json:"content"`
-				Reasoning        string `json:"reasoning"`
-				ReasoningContent string `json:"reasoning_content"`
+				Content          string          `json:"content"`
+				Reasoning        string          `json:"reasoning"`
+				ReasoningContent string          `json:"reasoning_content"`
+				ToolCalls        json.RawMessage `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
@@ -1047,6 +1056,9 @@ func applyReasoningFallback(body []byte) []byte {
 	}
 	need := false
 	for _, c := range probe.Choices {
+		if hasToolCalls(c.Message.ToolCalls) {
+			continue // a tool-call turn's empty content is intentional - leave it (mirrors parseCompletion)
+		}
 		if _, ok := reasoningFallback(c.Message.Content, c.Message.Reasoning, c.Message.ReasoningContent); ok {
 			need = true
 			break
@@ -1075,6 +1087,11 @@ func applyReasoningFallback(body []byte) []byte {
 		msg, ok := cm["message"].(map[string]any)
 		if !ok {
 			continue
+		}
+		if tc, ok := msg["tool_calls"]; ok && tc != nil {
+			if arr, isArr := tc.([]any); !isArr || len(arr) > 0 {
+				continue // tool-call turn: leave its content as sent
+			}
 		}
 		content, _ := msg["content"].(string)
 		reasoning, _ := msg["reasoning"].(string)
@@ -1134,6 +1151,7 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	// Per-choice accumulation across the whole stream (index -> builders).
 	contentBuf := map[int]*strings.Builder{}
 	reasoningBuf := map[int]*strings.Builder{}
+	toolCalls := map[int]bool{} // a choice that streamed tool_calls: its empty content is BY DESIGN
 	buf := func(m map[int]*strings.Builder, idx int) *strings.Builder {
 		b := m[idx]
 		if b == nil {
@@ -1145,7 +1163,8 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	injected := false
 
 	// synthesize writes one content delta per choice that emitted reasoning but no visible
-	// content, in ascending index order (deterministic). It is the whole fix, in one place.
+	// content (and no tool_calls - a tool turn's empty content is intentional), in ascending
+	// index order (deterministic). It is the whole fix, in one place.
 	synthesize := func() {
 		if injected {
 			return
@@ -1157,6 +1176,9 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		}
 		sort.Ints(idxs)
 		for _, idx := range idxs {
+			if toolCalls[idx] {
+				continue // don't overwrite a tool-call turn's (legitimately empty) content
+			}
 			r := reasoningBuf[idx].String()
 			content := ""
 			if cb := contentBuf[idx]; cb != nil {
@@ -1174,32 +1196,47 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		}
 	}
 
-	// observe parses a data: JSON line to track content/reasoning deltas per choice.
-	observe := func(payload string) {
+	// observe parses a data: JSON line to track content/reasoning/tool_calls deltas per choice,
+	// returning true when the chunk carries a finish_reason (the point to inject BEFORE, so the
+	// synthesized content lands ahead of the turn being marked finished - the strict-client fix).
+	observe := func(payload string) (finished bool) {
 		var d struct {
 			Choices []struct {
-				Index int `json:"index"`
-				Delta struct {
-					Content          string `json:"content"`
-					Reasoning        string `json:"reasoning"`
-					ReasoningContent string `json:"reasoning_content"`
+				Index        int             `json:"index"`
+				FinishReason json.RawMessage `json:"finish_reason"`
+				Delta        struct {
+					Content          string          `json:"content"`
+					Reasoning        string          `json:"reasoning"`
+					ReasoningContent string          `json:"reasoning_content"`
+					ToolCalls        json.RawMessage `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
 		}
 		if json.Unmarshal([]byte(payload), &d) != nil {
-			return
+			return false
 		}
 		for _, c := range d.Choices {
 			if c.Delta.Content != "" {
 				buf(contentBuf, c.Index).WriteString(c.Delta.Content)
 			}
-			if c.Delta.ReasoningContent != "" {
-				buf(reasoningBuf, c.Index).WriteString(c.Delta.ReasoningContent)
+			// Cap the accumulated reasoning so a pathological multi-MB reasoning stream can't grow
+			// memory unbounded (the non-streaming path is bounded by maxTransformBody).
+			if rb := reasoningBuf[c.Index]; rb == nil || rb.Len() < maxTransformBody {
+				if c.Delta.ReasoningContent != "" {
+					buf(reasoningBuf, c.Index).WriteString(c.Delta.ReasoningContent)
+				}
+				if c.Delta.Reasoning != "" {
+					buf(reasoningBuf, c.Index).WriteString(c.Delta.Reasoning)
+				}
 			}
-			if c.Delta.Reasoning != "" {
-				buf(reasoningBuf, c.Index).WriteString(c.Delta.Reasoning)
+			if len(c.Delta.ToolCalls) > 0 && string(c.Delta.ToolCalls) != "null" {
+				toolCalls[c.Index] = true
+			}
+			if fr := strings.TrimSpace(string(c.FinishReason)); fr != "" && fr != "null" {
+				finished = true
 			}
 		}
+		return finished
 	}
 
 	// Line-buffered forwarding: hold each line so the synthesized delta can be injected BEFORE
@@ -1231,12 +1268,14 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 			if strings.HasPrefix(text, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(text, "data:"))
 				if payload == "[DONE]" {
-					synthesize() // inject before the terminal sentinel
+					synthesize() // inject before the terminal sentinel (fallback if no finish chunk)
 					write(line)
 					line = line[:0]
 					continue
 				}
-				observe(payload)
+				if observe(payload) {
+					synthesize() // inject BEFORE the finish chunk so content precedes finish_reason
+				}
 			}
 			write(line)
 			line = line[:0]
@@ -1258,7 +1297,7 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		}
 		write(line)
 	}
-	synthesize() // no [DONE] seen (or already injected -> no-op): best-effort at EOF
+	synthesize() // no [DONE]/finish seen (or already injected -> no-op): best-effort at EOF
 	return meter.cost
 }
 

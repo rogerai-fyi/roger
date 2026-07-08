@@ -140,6 +140,20 @@ func TestApplyReasoningFallbackNonStreaming(t *testing.T) {
 		}
 	})
 
+	t.Run("empty content + reasoning + tool_calls -> NOT filled (byte-identical)", func(t *testing.T) {
+		in := []byte(`{"choices":[{"message":{"content":"","reasoning":"calling api","tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}`)
+		if got := string(applyReasoningFallback(in)); got != string(in) {
+			t.Fatalf("tool-call turn was filled:\n got %q\nwant %q", got, in)
+		}
+	})
+
+	t.Run("empty tool_calls array does NOT block the fallback", func(t *testing.T) {
+		in := []byte(`{"choices":[{"message":{"content":"","reasoning":"ans","tool_calls":[]}}]}`)
+		if got := msgContent(t, applyReasoningFallback(in)); got != "ans" {
+			t.Fatalf("content = %q, want ans (empty tool_calls should not guard)", got)
+		}
+	})
+
 	t.Run("multi-choice: only the empty one is filled, the other preserved", func(t *testing.T) {
 		in := []byte(`{"choices":[{"index":0,"message":{"content":"","reasoning":"a"}},{"index":1,"message":{"content":"b","reasoning":"c"}}]}`)
 		out := applyReasoningFallback(in)
@@ -214,6 +228,38 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		out := rec.Body.String()
 		if !strings.Contains(out, "tail") || !strings.Contains(out, `"content":"tail"`) {
 			t.Fatalf("trailing-line reasoning not preserved+synthesized: %q", out)
+		}
+	})
+
+	t.Run("synthesized content precedes the finish_reason chunk", func(t *testing.T) {
+		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\n" +
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		out := rec.Body.String()
+		ci, fi := strings.Index(out, `"content":"ans"`), strings.Index(out, "finish_reason")
+		if ci < 0 || fi < 0 || ci > fi {
+			t.Fatalf("content not before finish_reason: content@%d finish@%d body=%q", ci, fi, out)
+		}
+	})
+
+	t.Run("reasoning + tool_call stream -> no synthesized content", func(t *testing.T) {
+		body := `data: {"choices":[{"index":0,"delta":{"reasoning":"thinking"}}]}` + "\n\n" +
+			`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]}}]}` + "\n\n" +
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		if strings.Contains(rec.Body.String(), `"content":`) {
+			t.Fatalf("tool-call stream got a synthesized content delta: %q", rec.Body.String())
+		}
+	})
+
+	t.Run("CRLF line endings pass through byte-for-byte", func(t *testing.T) {
+		body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		if rec.Body.String() != body {
+			t.Fatalf("CRLF stream altered:\n got %q\nwant %q", rec.Body.String(), body)
 		}
 	})
 
