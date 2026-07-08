@@ -1437,7 +1437,7 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"
