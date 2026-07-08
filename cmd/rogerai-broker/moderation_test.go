@@ -21,6 +21,37 @@ func TestPromptText(t *testing.T) {
 	}
 }
 
+// TestPromptTextToolsArray pins the tools/functions folding: harmful text hidden in a tool
+// name, description, nested parameter description, or a legacy functions[] entry is included
+// in the screened blob, while a body with no tools array is byte-for-byte unchanged.
+func TestPromptTextToolsArray(t *testing.T) {
+	// modern tools[].function: name + description + nested parameter description all screened
+	tools := []byte(`{"messages":[{"role":"user","content":"MSG_TXT"}],` +
+		`"tools":[{"type":"function","function":{"name":"NAME_TXT","description":"DESC_TXT",` +
+		`"parameters":{"type":"object","properties":{"p":{"type":"string","description":"PARAM_TXT"}}}}}]}`)
+	got := promptText(tools)
+	for _, want := range []string{"MSG_TXT", "NAME_TXT", "DESC_TXT", "PARAM_TXT"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("promptText(tools) missing %q; got %q", want, got)
+		}
+	}
+	// legacy top-level functions[]
+	fns := []byte(`{"messages":[{"role":"user","content":"MSG"}],"functions":[{"name":"FN_NAME","description":"FN_DESC"}]}`)
+	if g := promptText(fns); !strings.Contains(g, "FN_NAME") || !strings.Contains(g, "FN_DESC") {
+		t.Errorf("promptText(functions) = %q", g)
+	}
+	// no tools/functions -> exactly the messages-only extraction (no extra bytes, no regression)
+	plain := []byte(`{"messages":[{"role":"user","content":"only this"}]}`)
+	if g := promptText(plain); g != "only this\n" {
+		t.Errorf("promptText(no tools) = %q, want %q", g, "only this\n")
+	}
+	// malformed / empty function object is a no-op, not a panic
+	empty := []byte(`{"messages":[{"role":"user","content":"x"}],"tools":[{"type":"function"}],"functions":[null]}`)
+	if g := promptText(empty); g != "x\n" {
+		t.Errorf("promptText(empty tool) = %q, want %q", g, "x\n")
+	}
+}
+
 func TestModerationScreen(t *testing.T) {
 	// disabled (no url, not required) -> allow
 	if st := (moderation{}).screen("x").status; st != 0 {

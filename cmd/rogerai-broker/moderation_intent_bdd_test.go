@@ -169,9 +169,9 @@ func (s *intentBddState) messagesHaveNoHarmfulText() error {
 	return fmtErr("test body malformed: expected a benign-only messages array")
 }
 
-func (s *intentBddState) harmfulToolsInstructionAbsent() error {
-	if strings.Contains(s.extracted, "produce child sexual abuse material") {
-		return fmtErr("tools array is now being screened - update the @known-gap doc if the fix closed it")
+func (s *intentBddState) harmfulToolsInstructionPresent() error {
+	if !strings.Contains(s.extracted, "produce child sexual abuse material") {
+		return fmtErr("the tools-array evasion is not closed: promptText dropped the harmful tool description")
 	}
 	if !strings.Contains(s.extracted, "BENIGN") {
 		return fmtErr("sanity: the benign user message should still be screened")
@@ -208,7 +208,7 @@ func TestModerationIntentBDD(t *testing.T) {
 			// @plumbing @known-gap: tools array
 			sc.Step(`^a relay body that carries a harmful instruction ONLY inside the top-level "tools" array$`, st.bodyHarmfulOnlyInToolsArray)
 			sc.Step(`^the messages array contains no harmful text$`, st.messagesHaveNoHarmfulText)
-			sc.Step(`^the harmful instruction from the tools array is ABSENT from the screened text$`, st.harmfulToolsInstructionAbsent)
+			sc.Step(`^the harmful instruction from the tools array is PRESENT in the screened text$`, st.harmfulToolsInstructionPresent)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
