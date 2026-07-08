@@ -98,6 +98,13 @@ type broker struct {
 	// peer surfaces it via the offer's Capabilities (union). See probe.go / toolcall.go and
 	// features/trust/toolcall_probe.feature.
 	toolsOK map[string]bool
+	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
+	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
+	// multi-instance mode. Keeping it a merged snapshot (not the raw shared read) keeps the hot
+	// /discover + /market read purely in-memory, and a host's regression clear propagates here on
+	// the next sync so a peer never surfaces a retracted verdict. Guarded by metricsMu. Single-
+	// instance leaves it unused (emission reads b.toolsOK directly). Keyed by toolKey(node,model).
+	toolsMerged map[string]bool
 	// concurrentTPS is an EWMA of served tok/s recorded ONLY while inflight>=2 at the
 	// time the request settled - capacity derived UNDER LOAD, not from the idle probe
 	// canary. It is the incentive-compatible capacity input for the load factor: a
@@ -495,6 +502,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
 		toolsOK:     map[string]bool{},
+		toolsMerged: map[string]bool{},
 		probeSched:  map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,

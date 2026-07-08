@@ -117,7 +117,7 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 	// per-model verdict either instance surfaces. See features/trust/toolcall_probe.feature.
 	toolsOK := map[string]bool{}
 	for _, o := range n.Offers {
-		if b.toolsOK[toolKey(n.NodeID, o.Model)] {
+		if b.toolsVerifiedForLocked(n.NodeID, o.Model) {
 			toolsOK[o.Model] = true
 		}
 	}
@@ -409,7 +409,7 @@ func (b *broker) computeMarket() any {
 			// Union in the VERIFIED "tools" bit (this instance's probe verdict, or a peer's
 			// stamp on o.Capabilities) exactly like the per-offer feed, so the aggregated /market
 			// capabilities carry it too. metricsMu is held here, so b.toolsOK is safe to read.
-			if caps := withVerifiedTools(o.Capabilities, b.toolsOK[toolKey(n.NodeID, o.Model)]); caps != nil { // declared/verified vs undetermined (nil)
+			if caps := withVerifiedTools(o.Capabilities, b.toolsVerifiedForLocked(n.NodeID, o.Model)); caps != nil { // declared/verified vs undetermined (nil)
 				a.capsSeen = true
 				for _, c := range caps { // canonicalized: unknown wire values already dropped
 					a.capsUnion[c] = true

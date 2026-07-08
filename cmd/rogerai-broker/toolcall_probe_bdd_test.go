@@ -5,8 +5,8 @@ package main
 // the verdict application + regression + transient/authoritative gate (recordToolProbe /
 // applyToolVerdict), the emission through the offer view (enrichOffersForNode) and the
 // aggregated market union (computeMarket), the node-facing declared-"tools" strip (register's
-// stripDeclaredTools), the shared-registry stamp + peer union (mirrorToolsToShared + syncRegistry
-// over a real miniredis-backed valkeyStore), and the adaptive schedule the canary rides
+// stripDeclaredTools), the first-class shared verdict + peer union (markToolsVerified /
+// syncToolsVerified over a real miniredis-backed valkeyStore), and the adaptive schedule the canary rides
 // (probeState / probeConfig). It observes through the same seams verified_serving_bdd_test.go uses.
 
 import (
@@ -466,8 +466,8 @@ func (s *tcState) twoInstances() error {
 	_, priv, _ := ed25519.GenerateKey(nil)
 	s.a = newMIBroker(s.t, priv, store.NewMem(), s.mr)
 	s.bB = newMIBroker(s.t, priv, store.NewMem(), s.mr)
-	s.a.toolsOK = map[string]bool{}
-	s.bB.toolsOK = map[string]bool{}
+	s.a.toolsOK, s.a.toolsMerged = map[string]bool{}, map[string]bool{}
+	s.bB.toolsOK, s.bB.toolsMerged = map[string]bool{}, map[string]bool{}
 	if s.a.localPollAt == nil {
 		s.a.localPollAt = map[string]time.Time{}
 	}
@@ -487,8 +487,8 @@ func (s *tcState) twoInstances() error {
 }
 
 func (s *tcState) instanceAProved() error {
-	// A hosts the poll (authoritative) and proves tools; mirrorToolsToShared stamps the shared
-	// registry so a peer surfaces it via the offer union.
+	// A hosts the poll (authoritative) and proves tools; recordToolProbe writes the FIRST-CLASS
+	// shared verdict (markToolsVerified) so a peer surfaces it via the shared union after a sync.
 	s.a.mu.Lock()
 	s.a.localPollAt[s.node] = time.Now()
 	s.a.mu.Unlock()
@@ -497,7 +497,8 @@ func (s *tcState) instanceAProved() error {
 }
 
 func (s *tcState) consumerReadsFromB() error {
-	s.bB.syncRegistry() // adopt the shared (stamped) registration into B's in-memory registry
+	s.bB.syncRegistry()      // adopt the shared registration into B's in-memory registry
+	s.bB.syncToolsVerified() // pull the shared verified-tools union into B's merged read map
 	return nil
 }
 
@@ -505,6 +506,31 @@ func (s *tcState) bSurfacesTools() error {
 	now := time.Now()
 	if !contains(capsFor(s.bB, s.node, s.model, now), protocol.CapTools) {
 		return fmt.Errorf("instance B does not surface the tools bit A proved (multi-instance union broken): %v", capsFor(s.bB, s.node, s.model, now))
+	}
+	return nil
+}
+
+func (s *tcState) bSeesToolsThenReads() error {
+	if err := s.consumerReadsFromB(); err != nil {
+		return err
+	}
+	return s.bSurfacesTools()
+}
+
+func (s *tcState) aRegresses() error {
+	// A is the authoritative poll host: a definitive regression clears the shared verdict.
+	s.a.mu.Lock()
+	s.a.localPollAt[s.node] = time.Now()
+	s.a.mu.Unlock()
+	s.a.recordToolProbe(s.node, s.model, false, false, true)
+	return nil
+}
+
+func (s *tcState) bNoLongerSurfaces() error {
+	s.bB.syncToolsVerified()
+	now := time.Now()
+	if contains(capsFor(s.bB, s.node, s.model, now), protocol.CapTools) {
+		return fmt.Errorf("instance B STILL surfaces tools after the authoritative host regressed the model (stale peer bit)")
 	}
 	return nil
 }
@@ -532,8 +558,10 @@ func (s *tcState) bCanaryTimesOut() error {
 }
 
 func (s *tcState) toolsNotCleared() error {
-	// The authoritative host's stamp survives in the shared registry, and B re-adopts it.
+	// The authoritative host's shared verdict survives (the transient never cleared it), and B
+	// re-reads it as the union (adopting the mirrored node registration too).
 	s.bB.syncRegistry()
+	s.bB.syncToolsVerified()
 	now := time.Now()
 	if !contains(capsFor(s.bB, s.node, s.model, now), protocol.CapTools) {
 		return fmt.Errorf("a non-authoritative peer's timed-out canary cleared the tools bit")
@@ -619,6 +647,9 @@ func TestTrustToolCallProbeBDD(t *testing.T) {
 			sc.Step(`^instance B is a peer that merely mirrors the node$`, st.bIsPeer)
 			sc.Step(`^instance B's cross-instance tool-call canary times out$`, st.bCanaryTimesOut)
 			sc.Step(`^"tools" is NOT cleared for the model$`, st.toolsNotCleared)
+			sc.Step(`^a consumer on instance B surfaces "tools" for that model$`, st.bSeesToolsThenReads)
+			sc.Step(`^instance A's authoritative canary later regresses the model$`, st.aRegresses)
+			sc.Step(`^instance B no longer surfaces "tools" for that model$`, st.bNoLongerSurfaces)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

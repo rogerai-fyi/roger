@@ -480,16 +480,9 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 				_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
 			}
 		}
-		// A re-register republished the STRIPPED (tools-free) offers above; if this node still
-		// carries a verified "tools" verdict (b.toolsOK), re-stamp the shared registry so a peer
-		// keeps surfacing it - the verified bit survives a re-register (only a probe regression
-		// clears it). Gated so a never-verified node skips the redundant shared write.
-		b.metricsMu.Lock()
-		reStamp := b.hasVerifiedToolsLocked(reg.NodeID)
-		b.metricsMu.Unlock()
-		if reStamp {
-			b.mirrorToolsToShared(reg.NodeID)
-		}
+		// NOTE: the verified "tools" bit is NOT carried in the registration JSON - it is
+		// first-class shared state (shared.markToolsVerified / toolsVerified, merged into
+		// b.toolsMerged on the sync loop), so a re-register never clobbers or resurrects it.
 	}
 
 	// Private band: ensure this node has a band (mint once, idempotent on re-register).
@@ -785,6 +778,10 @@ func (b *broker) syncLivenessOnce() {
 	//     reconciled, and the token ping-pong became SELF-SUSTAINING: rotated tokens
 	//     could never converge (the v5.0.0 flag=1 launch symptom).
 	b.syncRegistry()
+	// Refresh the cross-instance verified-tools union on the same tick (BEFORE the liveness
+	// early-return, so a host's regression clear still propagates when the liveness snapshot is
+	// momentarily empty). Keeps the hot /discover + /market read in-memory.
+	b.syncToolsVerified()
 	snap, err := b.shared.liveness()
 	if err != nil || len(snap) == 0 {
 		return

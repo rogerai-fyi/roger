@@ -77,40 +77,40 @@ func TestMultiInstanceToolCallCanaryCrossesBus(t *testing.T) {
 	}
 }
 
-// TestMirrorToolsToSharedPrivateAndMissing covers mirrorToolsToShared's PRIVATE-namespace
-// branch (a verified private band mirrors via putPrivateNode, never the public registry) and
-// the missing-node early return (nothing to publish).
-func TestMirrorToolsToSharedPrivateAndMissing(t *testing.T) {
+// TestToolsVerifiedHostClearPropagatesToPeer is the REGRESSION GUARD for the audit's major
+// finding: a per-instance monotonic map let a peer keep surfacing "tools" after the
+// authoritative host cleared a regressed verdict, and a re-register could resurrect it. With the
+// verdict as first-class shared state, the host's clear propagates to the peer on its next sync.
+func TestToolsVerifiedHostClearPropagatesToPeer(t *testing.T) {
 	mr := miniredis.RunT(t)
 	_, brokerPriv, _ := ed25519.GenerateKey(nil)
-	b := newMIBroker(t, brokerPriv, store.NewMem(), mr)
-	b.toolsOK = map[string]bool{}
-
-	// Missing node: a clean no-op (no panic, nothing published).
-	b.mirrorToolsToShared("ghost")
-	if _, ok, _ := b.shared.getPrivateNode("ghost"); ok {
-		t.Fatal("mirrorToolsToShared published a node that does not exist")
+	host := newMIBroker(t, brokerPriv, store.NewMem(), mr) // authoritative poll host
+	peer := newMIBroker(t, brokerPriv, store.NewMem(), mr) // mirroring peer
+	for _, b := range []*broker{host, peer} {
+		b.toolsOK = map[string]bool{}
+		b.toolsMerged = map[string]bool{}
+		b.nodes["n1"] = protocol.NodeRegistration{NodeID: "n1",
+			Offers: []protocol.ModelOffer{{Model: "m", Ctx: 131072}}}
+		b.lastSeen["n1"] = time.Now()
 	}
 
-	// A verified PRIVATE band mirrors into the private namespace with tools stamped.
-	b.nodes["band1"] = protocol.NodeRegistration{NodeID: "band1", Private: true,
-		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 131072}}}
-	b.metricsMu.Lock()
-	b.toolsOK[toolKey("band1", "m")] = true
-	b.metricsMu.Unlock()
-	b.mirrorToolsToShared("band1")
+	// Host proves tools; both instances see it via the shared union after a sync.
+	host.recordToolProbe("n1", "m", true, false, true)
+	peer.syncToolsVerified()
+	if !contains(capsFor(peer, "n1", "m", time.Now()), protocol.CapTools) {
+		t.Fatal("peer did not surface tools after the host proved it (shared union broken)")
+	}
 
-	raw, ok, _ := b.shared.getPrivateNode("band1")
-	if !ok {
-		t.Fatal("verified private band was not mirrored into the private namespace")
+	// The model regresses; the AUTHORITATIVE host clears. The peer's own non-authoritative
+	// definitive fail is a no-op AND its stale would-be-monotonic bit must not survive.
+	peer.recordToolProbe("n1", "m", false, false, false) // peer: not authoritative -> no clear
+	host.recordToolProbe("n1", "m", false, false, true)  // host: authoritative -> clears shared field
+	peer.syncToolsVerified()
+
+	if contains(capsFor(peer, "n1", "m", time.Now()), protocol.CapTools) {
+		t.Fatal("peer STILL surfaces tools after the authoritative host cleared the regression (the audit bug)")
 	}
-	var reg protocol.NodeRegistration
-	_ = json.Unmarshal(raw, &reg)
-	if len(reg.Offers) != 1 || !contains(protocol.CanonicalCapabilities(reg.Offers[0].Capabilities), protocol.CapTools) {
-		t.Fatalf("private mirror did not stamp the verified tools bit: %+v", reg.Offers)
-	}
-	// It must NOT leak into the public registry.
-	if _, pub, _ := b.shared.getNode("band1"); pub {
-		t.Fatal("a private band leaked into the public shared registry")
+	if contains(capsFor(host, "n1", "m", time.Now()), protocol.CapTools) {
+		t.Fatal("host still surfaces tools after clearing its own verdict")
 	}
 }

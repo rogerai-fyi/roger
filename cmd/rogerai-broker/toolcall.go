@@ -41,6 +41,13 @@ const toolCanaryFn = "roger_probe_ack"
 // leaves. The job is unbilled (User="probe") and the result is discarded after the verdict.
 const toolCanaryMaxTokens = 64
 
+// toolsVerifiedTTL is the freshness window for a shared verified-tools field: a verified model
+// must be re-proven (a passing canary re-marks it) within this window or it ages out of the
+// union as UNDETERMINED. Set comfortably above the probe ceiling (15m) so a model probed on the
+// idle backoff stays fresh; it is the backstop for an authoritative host that dies WITHOUT a
+// regression (a real regression clears the field immediately via clearToolsVerified).
+const toolsVerifiedTTL = 45 * time.Minute
+
 // toolKey is the (node, model) verdict key for b.toolsOK. The verified bit is per-MODEL, not
 // per-node: a node offering two models earns "tools" only for the model(s) that passed.
 func toolKey(node, model string) string { return node + "\x00" + model }
@@ -167,8 +174,12 @@ func stripDeclaredTools(in []string) []string {
 //   - ok               -> set verified (monotonic; a peer that also proves it is harmless).
 //   - definitive fail  -> clear IFF authoritative (a real regression); else leave it.
 //
-// After a change it re-publishes the node's registration to the shared registry with the bit
-// stamped, so a peer surfaces "tools" via the offer's Capabilities (the multi-instance union).
+// The verdict is FIRST-CLASS SHARED STATE, not a per-instance map: on a change it writes the
+// shared toolsok field (markToolsVerified on a pass, clearToolsVerified on an authoritative
+// regression) AND updates this instance's merged read map immediately, so a host's regression
+// clear propagates to every peer on the next sync (a peer can never re-poison a cleared verdict
+// - the bug a per-instance monotonic map had). b.toolsOK stays this instance's OWN verdict,
+// which is the emission source ONLY in single-instance mode.
 func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritative bool) {
 	if transient {
 		return // a non-verdict is not evidence: never clears, never sets
@@ -179,92 +190,71 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 	if b.toolsOK == nil {
 		b.toolsOK = map[string]bool{}
 	}
+	if b.toolsMerged == nil {
+		b.toolsMerged = map[string]bool{}
+	}
 	switch {
 	case ok:
 		if !b.toolsOK[key] {
 			b.toolsOK[key] = true
 			changed = true
 		}
+		b.toolsMerged[key] = true // reflect our own fresh verdict at once (the sync reconciles peers)
 	case authoritative:
 		if b.toolsOK[key] {
 			delete(b.toolsOK, key)
 			changed = true
 		}
+		delete(b.toolsMerged, key) // an authoritative clear drops it locally too, pending the shared del
 	}
 	b.metricsMu.Unlock()
+
 	if ok {
 		log.Printf("tool-call canary node=%s model=%s VERIFIED (well-formed tool_calls)", nodeID, model)
 	} else if authoritative && changed {
 		log.Printf("tool-call canary node=%s model=%s REGRESSED (no well-formed tool_calls) - dropping verified tools", nodeID, model)
 	}
-	if changed {
-		b.mirrorToolsToShared(nodeID)
-	}
-}
 
-// mirrorToolsToShared re-publishes a node's registration to the shared registry with each
-// verified "tools" bit stamped onto the matching offer's Capabilities, so a PEER instance
-// surfaces the verified capability via the offer it learns through the allNodes() union -
-// exactly the registry/liveness mirror pattern (no per-instance split). It is best-effort and
-// a no-op without a shared backend (single-instance reads its own b.toolsOK map directly). It
-// never mutates b.nodes: it marshals a stamped COPY, honoring the copy-on-write discipline the
-// register mirror relies on.
-func (b *broker) mirrorToolsToShared(nodeID string) {
+	// Mirror to the shared verdict store. A PASS re-marks every round (refreshing the freshness
+	// TTL) even when the local bit was already set, so a still-honoring model never ages out. An
+	// authoritative CLEAR retracts the shared field so peers drop it on their next sync.
 	if b.shared == nil {
 		return
 	}
-	b.mu.Lock()
-	reg, ok := b.nodes[nodeID]
-	if !ok {
-		b.mu.Unlock()
+	switch {
+	case ok:
+		_ = b.shared.markToolsVerified(nodeID, model, toolsVerifiedTTL)
+	case authoritative && changed:
+		_ = b.shared.clearToolsVerified(nodeID, model)
+	}
+}
+
+// syncToolsVerified refreshes the in-memory merged verdict map from the shared store (the UNION
+// across instances, fresh fields only). It runs on the same sync loop as the liveness/registry
+// merge, keeping the hot /discover + /market read purely in-memory. A shared error leaves the
+// last merged view in place (degrade, don't flap). No-op single-instance (own toolsOK is truth).
+func (b *broker) syncToolsVerified() {
+	if b.shared == nil {
 		return
 	}
-	private := reg.Private
-	stamped := b.stampVerifiedToolsLocked(reg)
-	raw, err := json.Marshal(stamped)
-	b.mu.Unlock()
+	merged, err := b.shared.toolsVerified(toolsVerifiedTTL)
 	if err != nil {
 		return
 	}
-	// A stamped re-publish (set OR cleared): recordToolProbe re-publishes on BOTH a new verdict
-	// and a regression, so a cleared node overwrites its stale stamped mirror tools-free.
-	if private {
-		_ = b.shared.putPrivateNode(nodeID, raw, livenessTTL)
-	} else {
-		_ = b.shared.putNode(nodeID, raw, livenessTTL)
-	}
-}
-
-// hasVerifiedToolsLocked reports whether any of the node's models carries a verified tools bit.
-// Caller holds metricsMu. It gates the register-time re-stamp so a re-register of a NEVER-
-// verified node skips the redundant shared write (the normal registration write already mirrors
-// it correctly); a verified node re-stamps so its bit survives the re-register.
-func (b *broker) hasVerifiedToolsLocked(nodeID string) bool {
-	pfx := nodeID + "\x00"
-	for k := range b.toolsOK {
-		if strings.HasPrefix(k, pfx) {
-			return true
-		}
-	}
-	return false
-}
-
-// stampVerifiedToolsLocked returns a COPY of reg whose offers carry the verified "tools" bit
-// from b.toolsOK (union with whatever the offer already declared post-strip). Caller holds
-// b.mu; it takes metricsMu to read b.toolsOK (the established b.mu -> metricsMu order). The copy
-// is deep enough that b.nodes' offer slices are never mutated in place.
-func (b *broker) stampVerifiedToolsLocked(reg protocol.NodeRegistration) protocol.NodeRegistration {
 	b.metricsMu.Lock()
-	defer b.metricsMu.Unlock()
-	offers := make([]protocol.ModelOffer, len(reg.Offers))
-	copy(offers, reg.Offers)
-	for i := range offers {
-		if b.toolsOK[toolKey(reg.NodeID, offers[i].Model)] {
-			offers[i].Capabilities = withVerifiedTools(offers[i].Capabilities, true)
-		}
+	b.toolsMerged = merged
+	b.metricsMu.Unlock()
+}
+
+// toolsVerifiedForLocked reports whether a (node, model) carries a VERIFIED tool-call bit for
+// EMISSION. Single-instance reads this instance's own probe verdict (b.toolsOK); multi-instance
+// reads the shared UNION (b.toolsMerged), so a host's regression clear is honoured everywhere
+// and a peer never surfaces a verdict the host retracted. Caller holds metricsMu.
+func (b *broker) toolsVerifiedForLocked(nodeID, model string) bool {
+	if b.shared != nil {
+		return b.toolsMerged[toolKey(nodeID, model)]
 	}
-	reg.Offers = offers
-	return reg
+	return b.toolsOK[toolKey(nodeID, model)]
 }
 
 // authoritativeFor reports whether THIS instance hosts the node's live poll and may therefore

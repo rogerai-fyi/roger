@@ -182,3 +182,13 @@ Feature: A model earns the verified "tools" capability only when the broker's to
     When instance B's cross-instance tool-call canary times out
     Then "tools" is NOT cleared for the model
     # Same authoritative-poll-host gate the /discover flicker fix uses (market.go authoritative).
+
+  Scenario: An authoritative host regression clears "tools" for every peer (no stale peer bit)
+    Given the broker runs two instances behind the shared store
+    And instance A ran a passing tool-call canary against the model
+    And a consumer on instance B surfaces "tools" for that model
+    When instance A's authoritative canary later regresses the model
+    Then instance B no longer surfaces "tools" for that model
+    # REGRESSION GUARD (pre-push audit, major): the verdict is FIRST-CLASS shared state, not a
+    # per-instance monotonic map, so the host's clear propagates to the peer on its next sync -
+    # a peer can never keep surfacing (or re-stamp/resurrect) a verdict the host retracted.

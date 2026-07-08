@@ -62,6 +62,30 @@ type sharedStore interface {
 	// purely in-memory. A non-nil err means the snapshot is unavailable this round.
 	liveness() (map[string]time.Time, error)
 
+	// --- VERIFIED tool-call capability, as FIRST-CLASS shared state (features/trust/
+	// toolcall_probe.feature). The verified "tools" bit is per-(node, model) and lives in the
+	// shared store, NOT a per-instance map, so a regression the authoritative poll host clears
+	// propagates to every peer (a peer never re-poisons a cleared verdict). The broker merges
+	// toolsVerified() into an in-memory read map on the same sync loop as liveness, keeping the
+	// hot /discover + /market read purely in-memory.
+
+	// markToolsVerified records/refreshes a model's VERIFIED tool-call bit (a passing canary),
+	// keyed by field=node+"\x00"+model, with a freshness TTL: a verified model re-probed within
+	// the ceiling stays fresh; a host that dies without regressing lets the bit age out. A
+	// non-nil err is best-effort (the local record stays this instance's own truth).
+	markToolsVerified(node, model string, ttl time.Duration) error
+
+	// clearToolsVerified retracts a model's verified bit (a definitive regression on the
+	// authoritative poll host). It is the CROSS-INSTANCE removal path a per-instance map lacked:
+	// once the host clears the shared field, every peer's next toolsVerified() drops it too.
+	clearToolsVerified(node, model string) error
+
+	// toolsVerified returns the UNION of verified (node,model) bits across all instances that
+	// are still FRESH (field timestamp within ttl). Merged into the broker's in-memory read map
+	// on the sync loop. A non-nil err means the snapshot is unavailable this round (the caller
+	// keeps the last merged view). Keyed by node+"\x00"+model.
+	toolsVerified(ttl time.Duration) (map[string]bool, error)
+
 	// cacheGet returns the cached bytes for key (found == true) or a miss
 	// (found == false). It is a READ-ONLY accelerator for the hot, expensive read
 	// paths (/discover + /market, /metrics/series + /console): NEVER a money/mutating
@@ -287,6 +311,12 @@ func (m *memStore) rateAllow(string, float64, float64, time.Time) (bool, int, er
 }
 func (m *memStore) markSeen(string, time.Time) error        { return errNoSharedStore }
 func (m *memStore) liveness() (map[string]time.Time, error) { return nil, errNoSharedStore }
+
+// The tool-call verdict is inert on memStore: single-instance reads its own b.toolsOK map, so
+// these are no-ops (the flag-OFF / no-Redis path never mirrors a verdict).
+func (m *memStore) markToolsVerified(string, string, time.Duration) error { return errNoSharedStore }
+func (m *memStore) clearToolsVerified(string, string) error               { return errNoSharedStore }
+func (m *memStore) toolsVerified(time.Duration) (map[string]bool, error)  { return nil, errNoSharedStore }
 
 // cacheGet on memStore is always a MISS (no backend), so call sites compute directly.
 func (m *memStore) cacheGet(string) ([]byte, bool, error) { return nil, false, errNoSharedStore }
@@ -612,6 +642,66 @@ func (v *valkeyStore) liveness() (map[string]time.Time, error) {
 			return out, err
 		}
 		out[id] = time.UnixMilli(ms)
+	}
+	v.setUp(true)
+	return out, nil
+}
+
+// toolsKey is the single shared hash of VERIFIED tool-call bits: field = node+"\x00"+model,
+// value = the last-verified UnixMilli. One hash keeps the read a single HGETALL round-trip
+// (like liveness) and per-field HDEL gives the authoritative host a precise cross-instance clear.
+func toolsKey() string { return keyPrefix + "toolsok" }
+
+func (v *valkeyStore) markToolsVerified(node, model string, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	pipe := v.rdb.Pipeline()
+	pipe.HSet(ctx, toolsKey(), node+"\x00"+model, time.Now().UnixMilli())
+	pipe.PExpire(ctx, toolsKey(), ttl) // refresh the hash TTL on every mark (like liveness)
+	if _, err := pipe.Exec(ctx); err != nil {
+		v.noteErr("markToolsVerified", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) clearToolsVerified(node, model string) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.HDel(ctx, toolsKey(), node+"\x00"+model).Err(); err != nil && err != redis.Nil {
+		v.noteErr("clearToolsVerified", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+func (v *valkeyStore) toolsVerified(ttl time.Duration) (map[string]bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	fields, err := v.rdb.HGetAll(ctx, toolsKey()).Result()
+	if err != nil {
+		v.noteErr("toolsVerified", err)
+		return nil, err
+	}
+	out := make(map[string]bool, len(fields))
+	cutoff := time.Now().Add(-ttl).UnixMilli()
+	for field, val := range fields {
+		ms, perr := strconv.ParseInt(val, 10, 64)
+		if perr != nil || ms < cutoff {
+			continue // unparseable or STALE (host stopped refreshing): treat as undetermined
+		}
+		out[field] = true
 	}
 	v.setUp(true)
 	return out, nil
