@@ -150,10 +150,18 @@ resp = client.chat.completions.create(
             <li><b>Grant key - reaches your own nodes.</b> Mint a key and point a remote or headless bot straight at <code>https://broker.rogerai.fyi/v1</code> with no CLI. A grant is confined to <b>your own</b> hardware (it can never reach another owner's nodes), so this is the pattern for "my cloud bot uses the GPU on my desk."</li>
           </ul>
           <p>
-            <b>Want a remote, headless bot to use someone else's band?</b> Install the CLI on that box
-            and run <code>roger use</code> there - signed identity reaches the whole market; a grant key
-            won't, by design. The flip side - putting a GPU on the air for these requests to land on -
-            is covered in <a href="/broadcasts-share-gpu-earn.html">share your GPU and earn</a>.
+            <b>Connecting a bot to a band you don't own?</b> That always goes through signed identity,
+            so run the CLI where the bot lives - a grant key can't reach another operator's hardware:
+          </p>
+          <ol class="bc-steps mono" style="margin:1rem 0;padding-left:1.4rem;line-height:1.7;">
+            <li>Install <code>roger</code> on the bot's machine (or a sidecar it can reach).</li>
+            <li>Only for a <b>paid</b> band: <code>roger login</code> and fund your wallet. A <b>free</b> band needs no account - your local key signs anonymously, at $0.</li>
+            <li><code>roger use &lt;model&gt;</code> - it finds a station serving that model, confirms the price, and prints a <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint + a key.</li>
+            <li>Point your bot at that endpoint. Each request is signed as you, routed to the operator's node, and billed to your wallet (or $0 for free).</li>
+          </ol>
+          <p>
+            The flip side - putting a GPU on the air for these requests to land on - is covered in
+            <a href="/broadcasts-share-gpu-earn.html">share your GPU and earn</a>.
           </p>
         </section>
 
