@@ -281,7 +281,8 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:451:	groqFailMode	
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:461:	matchedCategoryList		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:474:	splitCategories			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:493:	screenVoiceRegistration		100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:500:	promptText			93.8%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:520:	promptText			95.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/moderation.go:571:	collectStrings			85.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:30:	monthlyCapState			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:40:	capStateFrom			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/monthlycap.go:56:	monthlyCapCheck			100.0%
@@ -375,7 +376,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:405:		rcSubtree			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:436:		rcJoin				55.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:466:		rcAuthHost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:477:		rcAuthViewer			72.7%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				66.7%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:496:		rcPoll				72.2%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:568:		rcEvents			64.7%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:595:		rcSend				79.3%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/rc.go:639:		rcStream			71.9%
@@ -604,7 +605,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1200:		heartbeat			93.
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1227:		agentPoll			82.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1309:		agentResult			88.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1358:		relay				94.1%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1869:		busDispatchJob			92.9%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1869:		busDispatchJob			78.6%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1896:		relayStream			80.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:2142:		estimateMaxCost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:2165:		agentStream			87.0%
