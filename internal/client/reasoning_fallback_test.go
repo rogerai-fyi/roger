@@ -173,6 +173,38 @@ func TestApplyReasoningFallbackNonStreaming(t *testing.T) {
 	})
 }
 
+// findSynthChunk returns the parsed SSE chunk the proxy SYNTHESIZED (the one whose
+// choices[0].delta carries content), or nil. Used to assert on the injected chunk specifically
+// rather than a whole-body substring that a passed-through provider chunk could satisfy.
+func findSynthChunk(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var synth map[string]any
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		p := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if p == "[DONE]" {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal([]byte(p), &m) != nil {
+			continue
+		}
+		ch, _ := m["choices"].([]any)
+		if len(ch) == 0 {
+			continue
+		}
+		c0, _ := ch[0].(map[string]any)
+		d, _ := c0["delta"].(map[string]any)
+		if d != nil && d["content"] != nil {
+			synth = m // the injected chunk (last wins, though there is at most one per choice)
+		}
+	}
+	return synth
+}
+
 // TestStreamRelayBodyDirect covers the streaming injector's edge branches (overflow line,
 // no-[DONE] stream, meter ordering) that the BDD happy paths don't reach.
 func TestStreamRelayBodyDirect(t *testing.T) {
@@ -258,26 +290,7 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		body := `data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":1700000000,"model":"gpt-oss-120b","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
 		rec := httptest.NewRecorder()
 		streamRelayBody(rec, strings.NewReader(body), true)
-		// Find the synthesized chunk (the one carrying content) and check its envelope.
-		var synth map[string]any
-		for _, raw := range strings.Split(rec.Body.String(), "\n") {
-			line := strings.TrimSpace(raw)
-			if !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			p := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if p == "[DONE]" {
-				continue
-			}
-			var m map[string]any
-			if json.Unmarshal([]byte(p), &m) == nil {
-				if ch, _ := m["choices"].([]any); len(ch) > 0 {
-					if d, _ := ch[0].(map[string]any)["delta"].(map[string]any); d["content"] != nil {
-						synth = m
-					}
-				}
-			}
-		}
+		synth := findSynthChunk(t, rec.Body.String())
 		if synth == nil {
 			t.Fatalf("no synthesized chunk found: %q", rec.Body.String())
 		}
@@ -301,6 +314,23 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		}
 		if !strings.Contains(out, `"id":42`) || !strings.Contains(out, `"created":"1700000000"`) {
 			t.Fatalf("envelope not re-emitted verbatim: %q", out)
+		}
+	})
+
+	t.Run("an explicit empty id does not clobber a previously seen real id", func(t *testing.T) {
+		// chunk 1 sets a real id; chunk 2 carries "id":"" (pathological) then the reasoning. The
+		// SYNTHESIZED chunk must keep "real-9" - asserting on the synthesized chunk specifically
+		// (not a whole-body substring, which chunk 1 would satisfy regardless of the guard).
+		body := `data: {"id":"real-9","object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}]}` + "\n\n" +
+			`data: {"id":"","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		synth := findSynthChunk(t, rec.Body.String())
+		if synth == nil {
+			t.Fatalf("no synthesized chunk found: %q", rec.Body.String())
+		}
+		if synth["id"] != "real-9" {
+			t.Fatalf("synthesized chunk id = %v, want real-9 (empty id clobbered the real one)", synth["id"])
 		}
 	})
 
