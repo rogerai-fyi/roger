@@ -512,6 +512,10 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentIn.Blur()
+		// Clear the DESK focus on the way out, so a re-entry never lands in a dual-focus
+		// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
+		// box and any fresh scan re-arms the desk from a known-clean base.
+		m.deskFocused = false
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
 		return m, nil

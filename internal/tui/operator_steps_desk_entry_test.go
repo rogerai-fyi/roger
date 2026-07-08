@@ -113,6 +113,46 @@ func (s *opBDD) channelOpenedBeforeScan(mdl string) error {
 	return nil
 }
 
+// channelOpened opens a real channel on `model`. Same as channelOpenedBeforeScan but with
+// no ordering implied in the phrasing - used to open a channel AFTER a guest scan has
+// focused the desk (the already-connected focus-steal regression).
+func (s *opBDD) channelOpened(mdl string) error { return s.channelOpenedBeforeScan(mdl) }
+
+// userReEntersAgent presses [0] again after an esc-exit. The async desk scan cmd it emits
+// is deliberately NOT drained here, so no fresh scan re-arms the desk: the focus state on
+// re-entry is exactly what the exit left behind (the dual-focus regression).
+func (s *opBDD) userReEntersAgent() error {
+	s.update(keyMsg("0"))
+	return nil
+}
+
+// userPressesRealEsc delivers a REAL Escape key (tea.KeyEsc), not the multi-rune keyMsg
+// helper "esc" - which isPrintableKey would treat as a type-through and de-focus the desk
+// as a side effect. Only a real Esc exercises the esc-EXIT path (the dual-focus fix).
+func (s *opBDD) userPressesRealEsc() error {
+	cmd := s.update(tea.KeyMsg{Type: tea.KeyEsc})
+	for _, msg := range collectCmdMsgs(cmd) {
+		if msg != nil {
+			s.update(msg)
+		}
+	}
+	return nil
+}
+
+// brokerUnreachableColdAutoTune delivers the errMsg that fetchOffers emits when the cold
+// AGENT [0] auto-tune cannot reach the broker - the real message, straight into Update.
+func (s *opBDD) brokerUnreachableColdAutoTune() error {
+	s.update(errMsg("broker unreachable: http://broker.local"))
+	return nil
+}
+
+func (s *opBDD) transcriptNoLongerShows(text string) error {
+	if strings.Contains(s.view(), text) {
+		return fmt.Errorf("transcript still shows %q:\n%s", text, s.view())
+	}
+	return nil
+}
+
 // --- focus assertions --------------------------------------------------------------------
 
 func (s *opBDD) deskHasFocus() error {
@@ -269,6 +309,11 @@ func initializeDeskEntryScenarios(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^the desk scan lands no guests$`, st.deskScanLandsNoGuests)
 	sc.Step(`^the desk auto-tunes$`, st.theDeskAutoTunes)
 	sc.Step(`^a channel is opened on "([^"]*)" before the scan lands$`, st.channelOpenedBeforeScan)
+	sc.Step(`^a channel is opened on "([^"]*)"$`, st.channelOpened)
+	sc.Step(`^the user re-enters AGENT$`, st.userReEntersAgent)
+	sc.Step(`^the user presses the escape key$`, st.userPressesRealEsc)
+	sc.Step(`^the broker is unreachable during the cold auto-tune$`, st.brokerUnreachableColdAutoTune)
+	sc.Step(`^the transcript no longer shows "([^"]*)"$`, st.transcriptNoLongerShows)
 	sc.Step(`^THE DESK has focus$`, st.deskHasFocus)
 	sc.Step(`^THE DESK does not have focus$`, st.deskNoFocus)
 	sc.Step(`^the ask box has focus$`, st.askBoxHasFocus)

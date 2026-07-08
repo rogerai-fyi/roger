@@ -141,6 +141,54 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     Then the agent runs on "llama-3.3-70b-instruct"
     And no honest "no band" note appears
 
+  # ── esc-exit clears the desk focus (no dual-focus owner on re-entry) ─────────
+
+  # Audit finding: deskFocused was never cleared on the esc-exit path, so re-entering
+  # AGENT yielded a DUAL-focus state (the ask box focused AND the desk focused). Leaving
+  # AGENT must reset it so a re-entry has exactly ONE focus owner.
+  Scenario: Re-entering AGENT after an esc-exit has exactly one focus owner
+    Given a fresh AGENT session with nothing tuned in
+    And the desk scan lands guest "opencode"
+    When the user presses the escape key
+    And the user re-enters AGENT
+    Then THE DESK does not have focus
+    And the ask box has focus
+
+  # ── an ALREADY-CONNECTED auto-tune must not steal focus either ────────────────
+
+  # Audit finding: the free-pick branch already guards focus (f6c5be7), but the
+  # already-connected branch yanked focus to the ask box unconditionally. With the desk
+  # focused and a user mid-pick, an already-connected auto-tune must NOT steal focus.
+  Scenario: An already-connected auto-tune keeps the focused desk (no focus-steal)
+    Given a fresh AGENT session with a free band "gpt-oss-20b" on air
+    And the desk scan lands guest "opencode"
+    And a channel is opened on "llama-3.3-70b-instruct"
+    When the desk auto-tunes
+    Then THE DESK has focus
+    And the agent runs on "llama-3.3-70b-instruct"
+
+  # ── a cold auto-tune that can't reach the broker fails cleanly ────────────────
+
+  # Audit finding: broker-unreachable during the COLD auto-tune (the /discover fetch that
+  # feeds the landing) left autoTuning armed and the "finding a free band" beat up until a
+  # later rescan. The failure must disarm, splice the beat, and note the honest unreachable
+  # state ONCE (noteOnce), dropping any parked prompt silently.
+  Scenario: Broker-unreachable during the cold auto-tune clears the beat and notes once
+    Given a fresh AGENT session with nothing tuned in
+    When the broker is unreachable during the cold auto-tune
+    Then the transcript no longer shows "finding a free band"
+    And the transcript shows "couldn't reach the broker to find a band" exactly once
+    And the auto-tune did not arm
+
+  # A parked prompt typed before the unreachable failure is dropped silently (no band to
+  # send it to) and never leaks a chat turn.
+  Scenario: A prompt parked before a broker-unreachable cold auto-tune is dropped silently
+    Given a fresh AGENT session with nothing tuned in
+    When the user submits the prompt "hello"
+    And the broker is unreachable during the cold auto-tune
+    Then the transcript shows "couldn't reach the broker to find a band" exactly once
+    And no chat turn is submitted
+
   # ── the landing DESK collapses once the transcript fills (Phase 3 preserved) ──
 
   Scenario: The focused desk collapses once the transcript has lines

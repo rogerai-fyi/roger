@@ -1409,7 +1409,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoTuneMsg:
 		// The AGENT [0] DESK landing armed a silent auto-tune and a scan is already in
 		// hand: decide now (R1/R6). Cold launches route through offersMsg instead.
-		return m, m.runAutoTune()
+		// runAutoTune has a pointer receiver + mutates m, so sequence the call BEFORE the
+		// return value is copied (don't lean on Go's return arg-eval order).
+		cmd := m.runAutoTune()
+		return m, cmd
 	case sharesDetectedMsg:
 		return m.onSharesDetected(msg.found, msg.needKey)
 	case balanceMsg:
@@ -1473,6 +1476,20 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
 			m.scanErr = true // the band scan dropped -> Ping goes "...static"
+		}
+		// A COLD AGENT [0] auto-tune fetches /discover first; if the broker is unreachable
+		// the fetch fails HERE. Without this the auto-tune stays armed and the "finding a
+		// free band…" beat sits up until a later rescan. Disarm, splice out the beat, and
+		// note the honest unreachable state ONCE (noteOnce dedups), dropping any parked
+		// prompt silently - there is no band to send it to.
+		if m.autoTuning {
+			m.autoTuning = false
+			m.clearFindingBeat()
+			m.noteOnce(
+				stRed.Render("✕ ")+stEmber.Render("couldn't reach the broker to find a band"),
+				hintTuneOrShare(m.narrow()))
+			m.agentLandingLines = len(m.agentLines)
+			m.flushPendingPrompts()
 		}
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
@@ -6404,8 +6421,12 @@ func (m *model) runAutoTune() tea.Cmd {
 	// A channel opened / a band deliberately tuned since we armed: never override it.
 	if m.connected != nil || m.resolveAgentModel() != "" {
 		m.clearFindingBeat()
-		m.deskFocused = false
-		m.agentIn.Focus()
+		// Mirror the free-pick branch's guard (the f6c5be7 ruling): if the user is mid-pick
+		// on the FOCUSED desk, an already-connected auto-tune must NOT yank them to the ask
+		// box. Only grab focus when the desk isn't holding it.
+		if !m.deskFocused {
+			m.agentIn.Focus()
+		}
 		m.refreshAgentModel()
 		return m.drainPendingPrompts()
 	}
