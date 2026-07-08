@@ -21,26 +21,38 @@
 {{/if}}
     <nav class="nav__menu" id="navMenu" aria-label="Primary">
 {{#if variant=marketing}}
-      <!-- section group: terse single-word manual labels, in document order -->
+      <!-- section group: terse single-word DESTINATION labels. Decluttered - the
+           same-page anchors (Spec #spec / Operating #how / Monetize #monetize) moved
+           OUT of the top bar; they still live in the footer Product group and are
+           reachable by scroll on the homepage, so nothing is lost. App -> the future
+           showcase page (a "tuning up" placeholder until the app ships). -->
       <div class="nav__sections">
         <a class="nav__link" href="/models.html">Models</a>
         <a class="nav__link" href="/voices.html">Voices</a>
-        <a class="nav__link" href="{{anchors}}#spec">Spec</a>
-        <a class="nav__link" href="{{anchors}}#how">Operating</a>
-        <a class="nav__link" href="{{anchors}}#monetize">Monetize</a>
+        <a class="nav__link" href="/app.html">App</a>
       </div>
 
       <span class="nav__divider" aria-hidden="true"></span>
 {{/if}}
-      <!-- utility cluster: manual, account, source, theme - on EVERY page -->
+      <!-- utility cluster: manual, source, account, theme - on EVERY page.
+           Decluttered - "API keys" (a signed-in action) moved OUT of the top bar to
+           the footer Account group; it stays reachable from Log in / the dashboard. -->
       <div class="nav__utils">
         {{#unless variant=marketing}}<a class="nav__link nav__util" href="/models.html">Models</a>{{/unless}}
         {{#unless variant=marketing}}<a class="nav__link nav__util" href="/voices.html">Voices</a>{{/unless}}
         <a class="nav__link nav__util" href="/manual.html">Manual</a>
-        <a class="nav__link nav__util" href="/keys.html">API keys</a>
-        <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
 {{#if variant=marketing}}
         <a class="nav__link nav__util nav__link--ghost" href="https://github.com/rogerai-fyi/roger">Source</a>
+{{/if}}
+        <a class="nav__link nav__util" href="/login.html" data-session-login>Log in</a>
+{{#if variant=marketing}}
+        <!-- RESERVED: App Store badge SLOT (cut, not live). Position is locked here -
+             after Log in, before the theme toggle - so the utility cluster won't
+             reflow when the CTA goes live. We do NOT fabricate an App Store link or
+             badge yet: no listing exists. When the RogerAI iOS app ships, replace
+             this comment with the real "Download on the App Store" badge <a>:
+             <a class="nav__link nav__util nav__appstore" href="APP_STORE_URL"
+                aria-label="Download RogerAI on the App Store"> ...badge... </a> -->
 {{/if}}
         <button class="theme-toggle" id="themeToggle" type="button"
                 aria-label="Switch to dark theme" aria-pressed="false">
