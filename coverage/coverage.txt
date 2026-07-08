@@ -332,7 +332,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:321:		probeEvidenceRece
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
@@ -605,7 +605,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1200:		heartbeat			93.
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1227:		agentPoll			82.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1309:		agentResult			88.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1358:		relay				94.1%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1869:		busDispatchJob			78.6%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1869:		busDispatchJob			92.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:1896:		relayStream			80.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:2142:		estimateMaxCost			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:2165:		agentStream			87.0%
