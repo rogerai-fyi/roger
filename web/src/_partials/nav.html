@@ -49,10 +49,9 @@
         <!-- RESERVED: App Store badge SLOT (cut, not live). Position is locked here -
              after Log in, before the theme toggle - so the utility cluster won't
              reflow when the CTA goes live. We do NOT fabricate an App Store link or
-             badge yet: no listing exists. When the RogerAI iOS app ships, replace
-             this comment with the real "Download on the App Store" badge <a>:
-             <a class="nav__link nav__util nav__appstore" href="APP_STORE_URL"
-                aria-label="Download RogerAI on the App Store"> ...badge... </a> -->
+             badge yet: no listing exists. When the RogerAI iOS app ships, add the
+             real "Download on the App Store" badge anchor here (classes
+             nav__link nav__util nav__appstore, pointing at the App Store listing). -->
 {{/if}}
         <button class="theme-toggle" id="themeToggle" type="button"
                 aria-label="Switch to dark theme" aria-pressed="false">
