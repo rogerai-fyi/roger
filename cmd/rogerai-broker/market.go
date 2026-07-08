@@ -108,13 +108,13 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		(!b.localPollAt[n.NodeID].IsZero() && now.Sub(b.localPollAt[n.NodeID]) < nodeTTL)
 	b.metricsMu.Lock()
 	tq := b.trust[n.NodeID]
-	// Snapshot the VERIFIED "tools" verdict for each of this node's models while metricsMu is
-	// held (b.toolsOK is guarded by it), so the offer loop below - which runs AFTER the unlock -
-	// reads a consistent view. A model earns the map entry ONLY from a passing tool-call canary
-	// (recordToolProbe), never from a node's declaration; on a multi-instance PEER the map is
-	// empty and the verified bit instead rides the offer's own Capabilities (stamped into the
-	// shared registry by the authoritative poll host), so the union of {map, offer caps} is the
-	// per-model verdict either instance surfaces. See features/trust/toolcall_probe.feature.
+	// Snapshot the VERIFIED "tools" verdict for each of this node's models while metricsMu is held
+	// (the verdict maps are guarded by it), so the offer loop below - which runs AFTER the unlock -
+	// reads a consistent view. A model earns the bit ONLY from a passing tool-call canary
+	// (recordToolProbe), never from a node's declaration. The verdict is first-class SHARED state:
+	// toolsVerifiedForLocked reads this instance's own b.toolsOK single-instance, or the
+	// cross-instance union b.toolsMerged (synced from the shared toolsok hash) multi-instance, so a
+	// host's regression clear is honoured on every peer. See features/trust/toolcall_probe.feature.
 	toolsOK := map[string]bool{}
 	for _, o := range n.Offers {
 		if b.toolsVerifiedForLocked(n.NodeID, o.Model) {
@@ -184,10 +184,11 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		pin, pout, free, _ := o.ActivePrice(now)
 		out = append(out, offerView{
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
-			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from
-			// the probe verdict (toolsOK): a node-declared "tools" was stripped at registration, so
-			// only a passing canary (this instance's map, or a peer's stamp on o.Capabilities)
-			// surfaces it - verified-not-declared. Absence keeps the key omitted (undetermined).
+			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from the
+			// probe verdict (toolsOK snapshot of toolsVerifiedForLocked): a node-declared "tools" was
+			// stripped at registration, so only a passing canary (this instance's own verdict, or the
+			// synced cross-instance union) surfaces it - verified-not-declared. Absence keeps the key
+			// omitted (undetermined).
 			Capabilities: withVerifiedTools(o.Capabilities, toolsOK[o.Model]),
 			In:           pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,

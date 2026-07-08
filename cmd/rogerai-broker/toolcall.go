@@ -209,22 +209,27 @@ func (b *broker) recordToolProbe(nodeID, model string, ok, transient, authoritat
 	}
 	b.metricsMu.Unlock()
 
-	if ok {
+	// Log only on a TRANSITION (changed), not every probe round - a verified model re-proves on
+	// every cadence tick, and an unconditional VERIFIED line would spam the log at probe rate.
+	if ok && changed {
 		log.Printf("tool-call canary node=%s model=%s VERIFIED (well-formed tool_calls)", nodeID, model)
-	} else if authoritative && changed {
+	} else if !ok && authoritative && changed {
 		log.Printf("tool-call canary node=%s model=%s REGRESSED (no well-formed tool_calls) - dropping verified tools", nodeID, model)
 	}
 
 	// Mirror to the shared verdict store. A PASS re-marks every round (refreshing the freshness
 	// TTL) even when the local bit was already set, so a still-honoring model never ages out. An
-	// authoritative CLEAR retracts the shared field so peers drop it on their next sync.
+	// authoritative definitive fail CLEARS the shared field UNCONDITIONALLY (idempotent HDEL) -
+	// NOT gated on the local `changed`: after a restart b.toolsOK is empty while the shared field
+	// may still be set (or a peer proved it), so gating on `changed` would leave a regressed model
+	// falsely VERIFIED for up to toolsVerifiedTTL. The clear is cheap and safe to repeat.
 	if b.shared == nil {
 		return
 	}
 	switch {
 	case ok:
 		_ = b.shared.markToolsVerified(nodeID, model, toolsVerifiedTTL)
-	case authoritative && changed:
+	case authoritative:
 		_ = b.shared.clearToolsVerified(nodeID, model)
 	}
 }

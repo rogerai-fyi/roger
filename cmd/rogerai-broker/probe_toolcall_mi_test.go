@@ -114,3 +114,45 @@ func TestToolsVerifiedHostClearPropagatesToPeer(t *testing.T) {
 		t.Fatal("host still surfaces tools after clearing its own verdict")
 	}
 }
+
+// TestToolsVerifiedClearsAfterRestart is the REGRESSION GUARD for the pre-push audit's second
+// major: after a broker RESTART the local b.toolsOK is empty while the shared field is still set
+// (a prior instance proved it). An authoritative definitive regression must STILL clear the
+// shared field - the clear must NOT be gated on a local-map transition - or a regressed model
+// stays falsely VERIFIED for up to toolsVerifiedTTL across the fleet.
+func TestToolsVerifiedClearsAfterRestart(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+
+	// A prior instance proved the bit into the shared store.
+	seed := newMIBroker(t, brokerPriv, store.NewMem(), mr)
+	if err := seed.shared.markToolsVerified("n1", "m", toolsVerifiedTTL); err != nil {
+		t.Fatal(err)
+	}
+
+	// A FRESH instance (post-restart): empty local toolsOK, shared field still set. It syncs the
+	// bit into its merged union and surfaces it.
+	fresh := newMIBroker(t, brokerPriv, store.NewMem(), mr)
+	fresh.toolsOK, fresh.toolsMerged = map[string]bool{}, map[string]bool{}
+	fresh.nodes["n1"] = protocol.NodeRegistration{NodeID: "n1", Offers: []protocol.ModelOffer{{Model: "m", Ctx: 131072}}}
+	fresh.lastSeen["n1"] = time.Now()
+	fresh.syncToolsVerified()
+	if !contains(capsFor(fresh, "n1", "m", time.Now()), protocol.CapTools) {
+		t.Fatal("fresh instance did not pick up the shared verified bit after restart")
+	}
+
+	// An authoritative definitive regression on the fresh instance (its local map never had the
+	// bit) must clear the SHARED field, not silently skip because `changed` was false.
+	fresh.recordToolProbe("n1", "m", false, false, true)
+	got, err := fresh.shared.toolsVerified(toolsVerifiedTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[toolKey("n1", "m")] {
+		t.Fatal("authoritative regression after restart did NOT clear the shared field (stale VERIFIED persists fleet-wide)")
+	}
+	fresh.syncToolsVerified()
+	if contains(capsFor(fresh, "n1", "m", time.Now()), protocol.CapTools) {
+		t.Fatal("fresh instance still surfaces tools after the post-restart authoritative regression")
+	}
+}

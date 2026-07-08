@@ -696,12 +696,20 @@ func (v *valkeyStore) toolsVerified(ttl time.Duration) (map[string]bool, error) 
 	}
 	out := make(map[string]bool, len(fields))
 	cutoff := time.Now().Add(-ttl).UnixMilli()
+	var stale []string
 	for field, val := range fields {
 		ms, perr := strconv.ParseInt(val, 10, 64)
 		if perr != nil || ms < cutoff {
-			continue // unparseable or STALE (host stopped refreshing): treat as undetermined
+			stale = append(stale, field) // unparseable or STALE: treat as undetermined AND sweep
+			continue
 		}
 		out[field] = true
+	}
+	// Lazily HDEL stale/unparseable fields so a dead node's field cannot accumulate forever (one
+	// actively-verified model refreshes the whole hash TTL, so stale fields never expire on their
+	// own). Best-effort: a sweep error does not affect the fresh result already computed.
+	if len(stale) > 0 {
+		_ = v.rdb.HDel(ctx, toolsKey(), stale...).Err()
 	}
 	v.setUp(true)
 	return out, nil
