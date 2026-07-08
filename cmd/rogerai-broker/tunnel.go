@@ -483,8 +483,13 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		// A re-register republished the STRIPPED (tools-free) offers above; if this node still
 		// carries a verified "tools" verdict (b.toolsOK), re-stamp the shared registry so a peer
 		// keeps surfacing it - the verified bit survives a re-register (only a probe regression
-		// clears it). A no-op when nothing is verified for this node.
-		b.mirrorToolsToShared(reg.NodeID)
+		// clears it). Gated so a never-verified node skips the redundant shared write.
+		b.metricsMu.Lock()
+		reStamp := b.hasVerifiedToolsLocked(reg.NodeID)
+		b.metricsMu.Unlock()
+		if reStamp {
+			b.mirrorToolsToShared(reg.NodeID)
+		}
 	}
 
 	// Private band: ensure this node has a band (mint once, idempotent on re-register).

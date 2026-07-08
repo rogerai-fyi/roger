@@ -83,6 +83,25 @@ func TestProbeToolCallNoTunnel(t *testing.T) {
 	}
 }
 
+// TestHasVerifiedToolsLocked covers both branches of the register-time re-stamp gate: a node
+// with a verified model reports true (re-stamp), a never-verified node reports false (skip).
+func TestHasVerifiedToolsLocked(t *testing.T) {
+	b := relayBroker(store.NewMem())
+	b.toolsOK = map[string]bool{toolKey("n1", "m"): true}
+	b.metricsMu.Lock()
+	defer b.metricsMu.Unlock()
+	if !b.hasVerifiedToolsLocked("n1") {
+		t.Error("hasVerifiedToolsLocked(n1) = false, want true (n1/m is verified)")
+	}
+	if b.hasVerifiedToolsLocked("other") {
+		t.Error("hasVerifiedToolsLocked(other) = true, want false (never verified)")
+	}
+	// Prefix guard: "n1x" must not match the "n1\x00m" key of a DIFFERENT node.
+	if b.hasVerifiedToolsLocked("n") {
+		t.Error("hasVerifiedToolsLocked matched on a bare node-id prefix (missing NUL boundary)")
+	}
+}
+
 // TestStripDeclaredToolsEmpty covers the empty/nil fast-path of the declared-tools strip.
 func TestStripDeclaredToolsEmpty(t *testing.T) {
 	if got := stripDeclaredTools(nil); got != nil {

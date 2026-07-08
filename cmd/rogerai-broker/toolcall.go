@@ -226,11 +226,27 @@ func (b *broker) mirrorToolsToShared(nodeID string) {
 	if err != nil {
 		return
 	}
+	// A stamped re-publish (set OR cleared): recordToolProbe re-publishes on BOTH a new verdict
+	// and a regression, so a cleared node overwrites its stale stamped mirror tools-free.
 	if private {
 		_ = b.shared.putPrivateNode(nodeID, raw, livenessTTL)
 	} else {
 		_ = b.shared.putNode(nodeID, raw, livenessTTL)
 	}
+}
+
+// hasVerifiedToolsLocked reports whether any of the node's models carries a verified tools bit.
+// Caller holds metricsMu. It gates the register-time re-stamp so a re-register of a NEVER-
+// verified node skips the redundant shared write (the normal registration write already mirrors
+// it correctly); a verified node re-stamps so its bit survives the re-register.
+func (b *broker) hasVerifiedToolsLocked(nodeID string) bool {
+	pfx := nodeID + "\x00"
+	for k := range b.toolsOK {
+		if strings.HasPrefix(k, pfx) {
+			return true
+		}
+	}
+	return false
 }
 
 // stampVerifiedToolsLocked returns a COPY of reg whose offers carry the verified "tools" bit
