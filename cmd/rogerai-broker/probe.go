@@ -491,6 +491,12 @@ func (b *broker) probeOnce() {
 				time.Sleep(delay)
 			}
 			b.probeNode(t.node, t.model, fp)
+			// TOOL-CALL canary (T1): a SECOND assertion folded into the SAME round - it rides
+			// this node's adaptive schedule/backoff/jitter, never a separate faster loop. It is
+			// unbilled + tiny (T2), the result discarded after the verdict. Only the poll host
+			// (authoritative) may CLEAR a verified bit on a regression; a peer's transient
+			// non-verdict never does. Voice-only nodes never reach here (model=="" was skipped).
+			b.probeToolCall(t.node, t.model, b.authoritativeFor(t.node.NodeID, now))
 		}()
 	}
 }

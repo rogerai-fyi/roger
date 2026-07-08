@@ -108,6 +108,19 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		(!b.localPollAt[n.NodeID].IsZero() && now.Sub(b.localPollAt[n.NodeID]) < nodeTTL)
 	b.metricsMu.Lock()
 	tq := b.trust[n.NodeID]
+	// Snapshot the VERIFIED "tools" verdict for each of this node's models while metricsMu is
+	// held (b.toolsOK is guarded by it), so the offer loop below - which runs AFTER the unlock -
+	// reads a consistent view. A model earns the map entry ONLY from a passing tool-call canary
+	// (recordToolProbe), never from a node's declaration; on a multi-instance PEER the map is
+	// empty and the verified bit instead rides the offer's own Capabilities (stamped into the
+	// shared registry by the authoritative poll host), so the union of {map, offer caps} is the
+	// per-model verdict either instance surfaces. See features/trust/toolcall_probe.feature.
+	toolsOK := map[string]bool{}
+	for _, o := range n.Offers {
+		if b.toolsOK[toolKey(n.NodeID, o.Model)] {
+			toolsOK[o.Model] = true
+		}
+	}
 	// A node that heartbeats but has failed a SUSTAINED streak of liveness probes is not
 	// actually serving its model (dead/unloaded upstream) - surface it as OFFLINE so a
 	// consumer never tunes into a dead channel and eats repeated 504s. It still heartbeats,
@@ -171,7 +184,11 @@ func (b *broker) enrichOffersForNode(out []offerView, n protocol.NodeRegistratio
 		pin, pout, free, _ := o.ActivePrice(now)
 		out = append(out, offerView{
 			NodeID: n.NodeID, Region: n.Region, HW: n.HW, Model: o.Model, Modality: offerModality(o.Modality),
-			Capabilities: protocol.CanonicalCapabilities(o.Capabilities), // canonicalized at read, never raw wire
+			// canonicalized at read, never raw wire. The VERIFIED "tools" bit is unioned in from
+			// the probe verdict (toolsOK): a node-declared "tools" was stripped at registration, so
+			// only a passing canary (this instance's map, or a peer's stamp on o.Capabilities)
+			// surfaces it - verified-not-declared. Absence keeps the key omitted (undetermined).
+			Capabilities: withVerifiedTools(o.Capabilities, toolsOK[o.Model]),
 			In:           pin, Out: pout, Ctx: o.Ctx, CtxEstimated: o.CtxEstimated, Online: online,
 			Confidential: b.confidential[n.NodeID], FreeNow: free, Scheduled: len(o.Schedule) > 0,
 			TPS:    tps,

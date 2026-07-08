@@ -204,6 +204,15 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
 	}
+	// VERIFIED-not-declared: strip a node-declared "tools" from every offer at this ONE
+	// node-facing door. A node can NEVER earn "tools" by asserting it (unlike "vision", which
+	// stays declared); only the broker's own tool-call canary stamps it (recordToolProbe). So
+	// after this strip the only path to a verified "tools" on an offer is a peer's authoritative
+	// stamp via the shared registry, and the local probe verdict (b.toolsOK) at emission. See
+	// features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
+	for i := range reg.Offers {
+		reg.Offers[i].Capabilities = stripDeclaredTools(reg.Offers[i].Capabilities)
+	}
 	// Price-safety, operator side: a HARD, GLOBAL ceiling on what ANY station may charge -
 	// public, --private, AND confidential ALIKE. It runs UNCONDITIONALLY here (before
 	// owner-binding, attestation, and the private-band mint below), so NO flag exempts it.
@@ -471,6 +480,11 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 				_ = b.shared.putNode(reg.NodeID, raw, livenessTTL)
 			}
 		}
+		// A re-register republished the STRIPPED (tools-free) offers above; if this node still
+		// carries a verified "tools" verdict (b.toolsOK), re-stamp the shared registry so a peer
+		// keeps surfacing it - the verified bit survives a re-register (only a probe regression
+		// clears it). A no-op when nothing is verified for this node.
+		b.mirrorToolsToShared(reg.NodeID)
 	}
 
 	// Private band: ensure this node has a band (mint once, idempotent on re-register).
