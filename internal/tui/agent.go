@@ -516,6 +516,13 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
 		// box and any fresh scan re-arms the desk from a known-clean base.
 		m.deskFocused = false
+		// Tear down any in-flight silent auto-tune and drop the prompts parked while no band
+		// was tuned: otherwise the async /discover result lands AFTER we left - binding a band
+		// and firing a phantom parked turn outside AGENT (audit finding). Mirror the clean
+		// disarm (clearFindingBeat + flush).
+		m.autoTuning = false
+		m.clearFindingBeat()
+		m.flushPendingPrompts()
 		m.mode = modeBrowse
 		m.status = stDim.Render("left AGENT - the session is kept · [0] returns")
 		return m, nil
@@ -647,6 +654,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 type queuedPrompt struct {
 	text   string
 	remote bool
+	// echoed marks a prompt whose "▸ …" ask line is ALREADY in the transcript (a prompt
+	// parked before the auto-tune landed, echoed at park time). drainPendingPrompts sets it
+	// on the entries it requeues so submitAgentPrompt does not echo them a SECOND time at
+	// drain (audit finding: the 2nd+ parked prompt was double-echoed).
+	echoed bool
 }
 
 // submitAgentPrompt starts ONE agent turn for prompt q: it echoes the ask, re-resolves
@@ -679,7 +691,11 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+	if !q.echoed {
+		// Skip the echo for a prompt already shown at park time (drainPendingPrompts requeued
+		// it); otherwise echo the ask now.
+		m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+	}
 	// Re-resolve to the currently open channel so a model tuned in mid-session is used; if
 	// still nothing is tuned in, the turn fails into the same actionable hint rather than
 	// 504-ing on a phantom model.
@@ -829,7 +845,13 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentTokensOut = 0
 		m.agentTPS = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
-		m.rcEmitCleared()   // BASE STATION: tell viewers, so a dropped queued turn doesn't dangle
+		// Also disarm any in-flight auto-tune and drop the prompts parked while no band was
+		// tuned. Without this a prompt parked before /clear fired as a phantom turn (its echo
+		// already wiped by the clear) when the auto-tune landed (audit finding, MAJOR).
+		m.agentPending = nil
+		m.autoTuning = false
+		m.autoTuneBeatLen = 0
+		m.rcEmitCleared() // BASE STATION: tell viewers, so a dropped queued turn doesn't dangle
 		note("session cleared - the agent starts fresh (still no long-term memory)")
 		// A cleared session IS the landing again: its one note is the new entry chrome,
 		// so THE DESK roster returns (desk_view: "/clear returns the landing").

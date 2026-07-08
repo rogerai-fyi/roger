@@ -1482,7 +1482,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// free band…" beat sits up until a later rescan. Disarm, splice out the beat, and
 		// note the honest unreachable state ONCE (noteOnce dedups), dropping any parked
 		// prompt silently - there is no band to send it to.
-		if m.autoTuning {
+		//
+		// Scope the disarm to broker-UNREACHABLE errors only (audit finding): a non-unreachable
+		// errMsg in the cold-fetch window (e.g. fetchBalance's errMsg("")) must NOT kill a tune
+		// whose /discover then succeeds - and must not wrongly note "couldn't reach the broker".
+		if m.autoTuning && strings.HasPrefix(string(msg), "broker unreachable") {
 			m.autoTuning = false
 			m.clearFindingBeat()
 			m.noteOnce(
@@ -6417,6 +6421,16 @@ func (m *model) runAutoTune() tea.Cmd {
 	if !m.autoTuning || m.agent == nil {
 		return nil
 	}
+	// The auto-tune is an AGENT-landing affordance. If the user has since LEFT AGENT (esc to
+	// BROWSE during the cold /discover fetch), its effects - binding a channel, stomping the
+	// status, firing a parked turn - must NOT land outside AGENT. Disarm and bail, dropping
+	// any parked prompt (there is no landing to send it to). Audit finding.
+	if m.mode != modeAgent {
+		m.autoTuning = false
+		m.clearFindingBeat()
+		m.flushPendingPrompts()
+		return nil
+	}
 	m.autoTuning = false
 	// A channel opened / a band deliberately tuned since we armed: never override it.
 	if m.connected != nil || m.resolveAgentModel() != "" {
@@ -6499,6 +6513,11 @@ func (m *model) drainPendingPrompts() tea.Cmd {
 	q := m.agentPending[0]
 	rest := m.agentPending[1:]
 	m.agentPending = nil
+	// The requeued prompts were ALREADY echoed at park time; mark them so submitAgentPrompt
+	// does not re-echo the "▸ …" ask line when the busy queue drains (audit finding).
+	for i := range rest {
+		rest[i].echoed = true
+	}
 	m.agentQueued = append(m.agentQueued, rest...)
 	// The prompt was already echoed at park time, so start the turn WITHOUT re-echoing.
 	nm, cmd := m.startParkedTurn(q)

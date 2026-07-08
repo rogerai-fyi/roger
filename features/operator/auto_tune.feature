@@ -103,6 +103,19 @@ Feature: The AGENT [0] silent auto-tune (pickAutoBand + runAutoTune)
     And the desk auto-tunes
     Then the transcript shows "summarize the readme"
 
+  # Audit finding [MAJOR]: /clear dropped agentQueued but NOT agentPending, and never
+  # disarmed the in-flight auto-tune. A prompt parked before /clear then fired as a phantom
+  # turn (its echo already wiped by the clear) when the auto-tune landed. /clear must disarm
+  # the auto-tune and drop the parked prompt too - a fresh session is genuinely fresh.
+  Scenario: A prompt parked before /clear never fires when the auto-tune lands
+    Given a fresh AGENT session with a free band "gpt-oss-20b" on air
+    When the user submits the prompt "leftover ask"
+    And the session is cleared with "/clear"
+    And the desk auto-tunes
+    Then no chat turn is submitted
+    And the transcript no longer shows "leftover ask"
+    And the auto-tune did not arm
+
   # ── sticky + no-op ───────────────────────────────────────────────────────────
 
   Scenario: Sticky — a last-tuned band still on air is reused, not re-picked

@@ -149,6 +149,17 @@ func operatorScanCmd() tea.Cmd {
 // its rows in place (the r re-scan) with the cursor clamped to a selectable row.
 func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) {
 	m.operatorDetections = msg.ds
+	// A re-scan can SHRINK the guest list while THE DESK is focused; clamp the cursor into
+	// the new row range so the carat/marquee never vanish off the end until the user presses
+	// up (audit finding). deskRowCount reads the freshly-set detections.
+	if m.deskFocused {
+		if max := m.deskRowCount() - 1; m.deskCursor > max {
+			m.deskCursor = max
+		}
+		if m.deskCursor < 0 {
+			m.deskCursor = 0
+		}
+	}
 	if m.operatorPicker {
 		m.operatorRows = m.buildOperatorRows()
 		if m.operatorCursor >= len(m.operatorRows) {
@@ -581,6 +592,17 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 			m.agentLines = append(m.agentLines,
 				stRed.Render("✕ ")+stEmber.Render("no channel to patch into - a guest runs on your open channel"),
 				stDim.Render("· ")+stDim.Render("tune in first: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then come back with ")+stKey.Render("[0]"))
+			return m, nil
+		}
+		// Require an agent-ready pick BEFORE binding (audit finding): pickAutoBand returns
+		// the strongest CONNECTABLE free band even when it is KNOWN-small, so binding here
+		// and only THEN hitting the §6 gate below would leave the user silently tuned to a
+		// band too small for a guest. If the only free band is known-small, land on the
+		// honest 'no agent-ready band' refusal WITHOUT binding.
+		if bandKnownSmall(*pick) {
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("no agent-ready band to patch into - the only free band's window is too small for a guest (needs 16k+)"),
+				stDim.Render("· ")+stDim.Render("tune in to a larger band with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
 			return m, nil
 		}
 		o := *pick.cheapest

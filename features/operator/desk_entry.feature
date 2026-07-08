@@ -154,6 +154,19 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     Then THE DESK does not have focus
     And the ask box has focus
 
+  # Audit finding: leaving AGENT (esc to BROWSE) during a COLD auto-tune left it armed with
+  # a prompt parked; the async result then landed OUTSIDE AGENT - binding a channel and
+  # firing the parked turn. The esc-exit must disarm the auto-tune and drop the parked
+  # prompt, and a stray auto-tune that resolves after the exit must be a no-op.
+  Scenario: Leaving AGENT during a cold auto-tune binds no channel and fires no turn
+    Given a fresh AGENT session with a free band "gpt-oss-20b" on air
+    When the user submits the prompt "mid-flight ask"
+    And the user presses the escape key
+    And the desk auto-tunes
+    Then no channel is open
+    And no chat turn is submitted
+    And the auto-tune did not arm
+
   # ── an ALREADY-CONNECTED auto-tune must not steal focus either ────────────────
 
   # Audit finding: the free-pick branch already guards focus (f6c5be7), but the
@@ -188,6 +201,17 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     And the broker is unreachable during the cold auto-tune
     Then the transcript shows "couldn't reach the broker to find a band" exactly once
     And no chat turn is submitted
+
+  # Audit finding: ANY errMsg disarmed the auto-tune - a NON-unreachable errMsg (e.g.
+  # fetchBalance's errMsg("") landing in the cold-fetch window) killed a tune whose
+  # /discover then succeeds, and wrongly noted "couldn't reach the broker". The disarm must
+  # be scoped to broker-unreachable errors only.
+  Scenario: A non-unreachable error during the cold auto-tune does not disarm it
+    Given a fresh AGENT session with nothing tuned in
+    When the user submits the prompt "still coming"
+    And a non-unreachable error arrives during the cold auto-tune
+    Then the auto-tune is still armed
+    And the transcript no longer shows "couldn't reach the broker to find a band"
 
   # ── the landing DESK collapses once the transcript fills (Phase 3 preserved) ──
 

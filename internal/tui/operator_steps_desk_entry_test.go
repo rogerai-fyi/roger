@@ -153,6 +153,33 @@ func (s *opBDD) transcriptNoLongerShows(text string) error {
 	return nil
 }
 
+// sessionClearedWith runs an in-AGENT slash command (e.g. /clear) through the REAL
+// runAgentCommand path and folds any emitted cmd back in.
+func (s *opBDD) sessionClearedWith(cmd string) error {
+	tm, c := s.model().runAgentCommand(cmd)
+	s.tm = tm
+	for _, msg := range collectCmdMsgs(c) {
+		if msg != nil {
+			s.update(msg)
+		}
+	}
+	return nil
+}
+
+// nonUnreachableErr delivers a NON-broker-unreachable errMsg (fetchBalance's errMsg("") in
+// the cold-fetch window is the reported case) - it must NOT disarm an armed auto-tune.
+func (s *opBDD) nonUnreachableErr() error {
+	s.update(errMsg(""))
+	return nil
+}
+
+func (s *opBDD) autoTuneIsArmed() error {
+	if !s.model().autoTuning {
+		return fmt.Errorf("the auto-tune is not armed (a non-unreachable error disarmed it)")
+	}
+	return nil
+}
+
 // --- focus assertions --------------------------------------------------------------------
 
 func (s *opBDD) deskHasFocus() error {
@@ -313,6 +340,9 @@ func initializeDeskEntryScenarios(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^the user re-enters AGENT$`, st.userReEntersAgent)
 	sc.Step(`^the user presses the escape key$`, st.userPressesRealEsc)
 	sc.Step(`^the broker is unreachable during the cold auto-tune$`, st.brokerUnreachableColdAutoTune)
+	sc.Step(`^a non-unreachable error arrives during the cold auto-tune$`, st.nonUnreachableErr)
+	sc.Step(`^the session is cleared with "([^"]*)"$`, st.sessionClearedWith)
+	sc.Step(`^the auto-tune is still armed$`, st.autoTuneIsArmed)
 	sc.Step(`^the transcript no longer shows "([^"]*)"$`, st.transcriptNoLongerShows)
 	sc.Step(`^THE DESK has focus$`, st.deskHasFocus)
 	sc.Step(`^THE DESK does not have focus$`, st.deskNoFocus)
