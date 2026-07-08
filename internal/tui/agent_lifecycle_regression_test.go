@@ -268,6 +268,25 @@ func TestReentryPreservesNoModelStatus(t *testing.T) {
 	}
 }
 
+// TestReentryDuringAutoTuneKeepsReadyStatus: a silent auto-tune in flight (no model bound
+// YET) must NOT flip the re-entry status to "no model tuned in" - that would contradict the
+// still-up "finding a free band…" beat. While autoTuning, the status stays "AGENT ready".
+func TestReentryDuringAutoTuneKeepsReadyStatus(t *testing.T) {
+	m := freshDeskAgent(t, nil)
+	m.connected = nil
+	m.lastConnected = nil
+	m.autoTuning = true // a cold auto-tune is finding a band
+
+	nm, _ := m.enterAgent()
+	status := stripANSI(asModel(nm).status)
+	if !strings.Contains(status, "AGENT ready") {
+		t.Fatalf("re-entry mid-auto-tune should keep the AGENT ready status, got %q", status)
+	}
+	if strings.Contains(status, "no model tuned in") {
+		t.Fatalf("re-entry mid-auto-tune must not show the no-model status (contradicts the finding-a-band beat): %q", status)
+	}
+}
+
 // TestFindingBandBeatPrefixConsistent: finding (2026-07-08, cosmetic). The "finding a free
 // band…" beat used a "· " prefix in enterAgent but glyphOnAir in submitAgentPrompt. Pin ONE
 // prefix at both sites so the transcript reads consistently.

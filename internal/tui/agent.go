@@ -218,11 +218,12 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 		m.refreshAgentModel()
 	}
 	m.agentIn.Focus()
-	// Set the generic "AGENT ready" only when a model IS tuned in: otherwise preserve the
-	// more-specific "no model tuned in" status (refreshAgentModel sets it on re-entry; set
-	// it here too for the fresh no-model landing) instead of clobbering it (finding
-	// 2026-07-08).
-	if m.agent.model != "" {
+	// Set the generic "AGENT ready" only when a model IS tuned in (or a silent auto-tune is
+	// in flight finding one): otherwise preserve the more-specific "no model tuned in" status
+	// (refreshAgentModel sets it on re-entry; set it here too for the fresh no-model landing)
+	// instead of clobbering it (finding 2026-07-08). The autoTuning guard keeps the status
+	// from contradicting the still-up "finding a free band…" beat on a re-entry mid-tune.
+	if m.agent.model != "" || m.autoTuning {
 		m.status = stDim.Render("AGENT ready · esc exits")
 	} else {
 		m.status = agentNoModelStatus()
