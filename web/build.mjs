@@ -50,6 +50,8 @@ const CSS_BUNDLES = {
   "broadcasts-run-local-llm.html":   [...CSS_MARKETING, "broadcasts.css"], // broadcast 002 · SEO field guide
   "broadcasts-vram-for-llm.html":    [...CSS_MARKETING, "broadcasts.css"], // broadcast 003 · SEO field guide (VRAM)
   "broadcasts-share-gpu-earn.html":  [...CSS_MARKETING, "broadcasts.css"], // broadcast 004 · SEO field guide (share/earn)
+  "broadcasts-one-gpu-many-users.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 005 · SEO field guide (concurrency)
+  "broadcasts-free-chatgpt-alternative.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 006 · SEO field guide (free ChatGPT alt)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
