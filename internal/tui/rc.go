@@ -635,24 +635,12 @@ func (m model) onRemoteFrame(msg remoteFrameMsg) (tea.Model, tea.Cmd) {
 	case protocol.RCKindStatus:
 		// A guest-operator handoff (or the DJ-back return) - render it so the viewer never
 		// sees the stream go dead mid-handoff. Operator-aware + content-blind: only the guest
-		// name plus the model/spend metadata ride the frame, matching the web console.
-		// Enriched copy (founder ruling 3): "<op> has the mic on <model> · $<spend>",
-		// degrading piecewise - no model drops "on <model>", zero spend drops "· $",
-		// neither degrades to the pre-enrichment line (an old host's frames).
-		line := f.Text
-		if f.Operator != "" {
-			line = glyphOnAir + " guest has the mic: " + f.Operator
-			if f.Model != "" || f.Spend > 0 {
-				line = glyphOnAir + " " + f.Operator + " has the mic"
-				if f.Model != "" {
-					line += " on " + f.Model
-				}
-				if f.Spend > 0 {
-					line += " · " + fmt.Sprintf("$%.2f", f.Spend)
-				}
-			}
-		}
-		if strings.TrimSpace(line) != "" {
+		// name plus the model/spend metadata ride the frame, matching the web console. The ONE
+		// shared client.OperatorStatusLine formatter keeps this copy from drifting between the
+		// TUI, the `roger remote` CLI, and (mirrored) the web console - the enriched piecewise
+		// line "<op> has the mic on <model> · $<spend>" degrading to the bare handoff line, then
+		// the plain DJ-back text. glyphOnAir is this surface's on-air marker.
+		if line := client.OperatorStatusLine(f, glyphOnAir); strings.TrimSpace(line) != "" {
 			m.rsLines = append(m.rsLines, stDim.Render(line))
 		}
 	case protocol.RCKindBackfill:

@@ -316,6 +316,11 @@ func TestRemoteAttachNarratesEveryFrameKind(t *testing.T) {
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindConfirmReq, Tool: "Edit", ConfirmID: "cf1"})
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindConfirmDone, Approve: &approve, Origin: "web"})
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindConfirmDone, Approve: &deny, Origin: "cli"})
+		// A guest-operator handoff (enriched) then the DJ-back return: the CLI viewer must
+		// narrate both (it used to DROP every status frame, so a handoff looked dead).
+		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindStatus, Operator: "opencode", Model: "gpt-oss-120b", Spend: 0.19, Text: "guest has the mic: opencode - the DJ answers when the handoff ends"})
+		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindStatus, Text: "the DJ is back at the desk"})
+		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindStatus}) // neither operator nor text: skipped
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindBackfill, Text: "earlier transcript"})
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindBackfill, Text: ""}) // blank: skipped
 		sseFrame(w, protocol.RCFrame{Kind: protocol.RCKindError, Text: "boom"})
@@ -339,6 +344,8 @@ func TestRemoteAttachNarratesEveryFrameKind(t *testing.T) {
 		"? Edit — type 'y' to approve",
 		"✓ approved from web",
 		"✓ denied from cli",
+		"◉ opencode has the mic on gpt-oss-120b · $0.19",
+		"the DJ is back at the desk",
 		"earlier transcript",
 		"(live from here)",
 		"✕ boom",
