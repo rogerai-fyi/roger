@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<!-- Field-guide broadcast 006. SEO/AEO format: Quick Answer + question-H2s + FAQ schema + internal
+     links. Assets: TWO character scenes in the vintage "old airways operator" style (flux1-dev,
+     warm monochrome + one red) - the hero (independent operator vs the corporate tower) and a
+     listener tuning in. Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="The best free ChatGPT alternative you can self-host" desc="Open models now match ChatGPT for most everyday work - and you can run them yourself, free and private, or tune in to a community GPU. What a self-hosted alternative does, how to set one up even without a GPU, and the honest trade-offs." theme=external og=post ogtype=article ogtitle="The best free ChatGPT alternative you can self-host" ogdesc="Open models match ChatGPT for everyday work - run them yourself free and private, or tune in to a community GPU. What it does, how to set it up, and the honest trade-offs." ogurl="https://rogerai.fyi/broadcasts-free-chatgpt-alternative.html" ogimage="https://rogerai.fyi/assets/broadcasts/alt-hero.png" -->
+</head>
+<body>
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 006 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-08">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">The best free ChatGPT alternative you can self-host</h1>
+        <p class="bc-post__dek">
+          You don't need a subscription to a giant's broadcast. Open models now handle most
+          everyday work - and you can run your own station, free and private.
+        </p>
+      </header>
+
+      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+        <img src="assets/broadcasts/alt-hero.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+             alt="A radio operator at his own home station keying the mic to go on air, a small ON-AIR beacon lit, a giant corporate broadcast tower far on the horizon - RogerAI operating-manual illustration." loading="lazy" />
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - YOUR OWN FREQUENCY, INDEPENDENT OF THE GIANT'S TOWER</figcaption>
+      </figure>
+
+      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+        <b>Quick answer.</b> The best free ChatGPT alternative is an open model - gpt-oss, Qwen, or
+        Llama - run on your own machine or on a community GPU. It's free, private, and has no
+        subscription or lock-in. Self-host it with Ollama, or, if you don't have the hardware, tune
+        in on RogerAI with <code>roger use</code> and get the same models for free.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          "Alternative to ChatGPT" used to mean a worse chatbot. Not anymore. Open-weights models
+          caught up on the everyday work most people actually do, and they run on hardware you can
+          own or borrow - which means no monthly bill, no message caps, and no prompts handed to a
+          company by default.
+        </p>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; The short answer</span>
+          <h2>Is there a truly free ChatGPT alternative?</h2>
+          <p>
+            Yes - an <b>open-weights model</b>. Families like <b>gpt-oss</b>, <b>Qwen</b>,
+            <b>Llama</b>, <b>Gemma</b>, and <b>Mistral</b> are free to download and run, and in 2026
+            they handle writing, summarizing, translation, Q&amp;A, and coding at a level that was
+            frontier not long ago. No subscription, no per-message meter - the model is yours to run.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; Capability</span>
+          <h2>What can a self-hosted model actually do?</h2>
+          <p>
+            The staples people use ChatGPT for every day: drafting and editing, summarizing long
+            documents, translation, explanations, and coding help. Bigger open models like
+            <b>gpt-oss-120b</b> are genuinely strong at reasoning and code; many setups also do
+            <b>vision</b> (understanding images) and <b>voice</b>. The gap to the very top
+            proprietary models has narrowed to specific hard tasks - not everyday use.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Setup</span>
+          <h2>How do I set one up - even without a GPU?</h2>
+          <p>Two paths, depending on your hardware:</p>
+          <ul class="bc-dial">
+            <li><b>Self-host.</b> Install <b>Ollama</b> (or LM Studio / llama.cpp), pull a model, and chat - a private, offline assistant. Our <a href="/broadcasts-run-local-llm.html">local-LLM guide</a> walks it through, and the <a href="/broadcasts-vram-for-llm.html">VRAM guide</a> tells you which model your card can run.</li>
+            <li><b>No GPU? Tune in.</b> <code>roger use gpt-oss-120b</code> gives you a local, OpenAI-compatible endpoint backed by a <b>community GPU</b>, with free models on the <a href="/bands.html">band</a> right now. Same models, no hardware to buy.</li>
+          </ul>
+          <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+            <img src="assets/broadcasts/alt-tunein.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+                 alt="A listener at a small home radio set tuning in to a free broadcast, an ON-AIR beacon glowing, in the RogerAI operating-manual style." loading="lazy" />
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 2 - NO TRANSMITTER OF YOUR OWN? JUST TUNE IN</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; Privacy</span>
+          <h2>Is a self-hosted alternative private?</h2>
+          <p>
+            Self-hosting is as private as it gets: the model runs on your machine and your prompts
+            never leave it. On a shared network like RogerAI, prompts are screened for safety, but
+            operators are <b>pseudonymous</b> (a callsign and a coarse region, nothing more) and you
+            hold <b>signed receipts</b> of every call. Either way, you are not feeding your
+            conversations into a company's training pipeline by default.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; The honest trade</span>
+          <h2>Free alternative vs. paid ChatGPT: the honest trade</h2>
+          <p>
+            What you gain: it's <b>free</b>, <b>private</b>, has <b>no lock-in</b>, can run
+            <b>offline</b>, and you pick the model. What you trade: the very top proprietary models
+            still edge ahead on the hardest tasks, a home GPU is slower than a data center, and you
+            manage your own setup - or let a community node handle the hosting. For the everyday
+            writing, coding, and questions most people run, the trade is clearly worth it.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <dl class="bc-faq">
+            <dt><b>Is there a completely free alternative to ChatGPT?</b></dt>
+            <dd>Yes. Open models like gpt-oss, Qwen, and Llama run free on your own machine or on a community GPU - no subscription and no per-message charge.</dd>
+            <dt><b>What is the best free ChatGPT alternative?</b></dt>
+            <dd>It depends on your hardware, but gpt-oss, Qwen, and Llama are the top open choices in 2026. See what people are actually running on the <a href="/models.html">model directory</a>.</dd>
+            <dt><b>Can I run a ChatGPT alternative without a GPU?</b></dt>
+            <dd>Yes. Tune in to a community GPU with <code>roger use &lt;model&gt;</code> - it gives you a local OpenAI-compatible endpoint, with free models available, and no hardware to buy.</dd>
+            <dt><b>Are self-hosted models as good as ChatGPT?</b></dt>
+            <dd>For everyday writing, coding, and Q&amp;A, open models are very close. The top proprietary models still lead on the hardest reasoning tasks, but most day-to-day use no longer needs them.</dd>
+            <dt><b>Is a self-hosted AI private?</b></dt>
+            <dd>Yes - run it locally and your prompts never leave your machine. On RogerAI, prompts are screened for safety but operators are pseudonymous, and you're not feeding a training pipeline.</dd>
+            <dt><b>Do I have to pay for anything?</b></dt>
+            <dd>No. The models and runtimes are free and open source. You only pay if you choose a paid node on the market, or for the electricity your own GPU uses.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Start your own station or just tune in - install the set:
+          <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is there a completely free alternative to ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Yes. Open models like gpt-oss, Qwen, and Llama run free on your own machine or on a community GPU - no subscription and no per-message charge."}},{"@type":"Question","name":"What is the best free ChatGPT alternative?","acceptedAnswer":{"@type":"Answer","text":"It depends on your hardware, but gpt-oss, Qwen, and Llama are the top open choices in 2026. See what people are actually running on the RogerAI model directory."}},{"@type":"Question","name":"Can I run a ChatGPT alternative without a GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes. Tune in to a community GPU with roger use <model> - it gives you a local OpenAI-compatible endpoint, with free models available, and no hardware to buy."}},{"@type":"Question","name":"Are self-hosted models as good as ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"For everyday writing, coding, and Q&A, open models are very close. The top proprietary models still lead on the hardest reasoning tasks, but most day-to-day use no longer needs them."}},{"@type":"Question","name":"Is a self-hosted AI private?","acceptedAnswer":{"@type":"Answer","text":"Yes - run it locally and your prompts never leave your machine. On RogerAI, prompts are screened for safety but operators are pseudonymous, and you're not feeding a training pipeline."}},{"@type":"Question","name":"Do I have to pay for anything?","acceptedAnswer":{"@type":"Answer","text":"No. The models and runtimes are free and open source. You only pay if you choose a paid node on the market, or for the electricity your own GPU uses."}}]}</script>
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
