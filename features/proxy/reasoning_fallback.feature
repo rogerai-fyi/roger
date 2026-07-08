@@ -10,7 +10,8 @@ Feature: Proxy reasoning->content fallback (relay path)
   Founder ruling (option A, 2026-07-08): the fallback is ON by default. Because we fill
   only EMPTY content, a client that reads reasoning separately still gets the reasoning
   field intact AND now a content mirror - the accepted double-mirror tradeoff. A caller
-  that needs raw passthrough can disable it per session.
+  that needs raw passthrough can disable it per session via `roger use --raw` (or the
+  ROGERAI_REASONING_RAW env var), which sets ProxyOptions.ReasoningFallbackOff.
 
   # NON-STREAMING (application/json): the whole body is buffered, transformed, forwarded.
   Rule: Non-streaming - empty content is filled from reasoning
