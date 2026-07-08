@@ -12,8 +12,9 @@ package main
 //
 // Corpus layout (testdata/moderation/corpus/):
 //   pass/*.txt   - relay bodies (OpenAI chat-completions JSON) that MUST return ALLOW.
-//                  Includes the captured ~4749-char hermes tool prompt, opencode/aider
-//                  schemas, and lone capability-description prompts.
+//                  Includes a representative hermes-style tool-heavy prompt (the real
+//                  ~4749-char capture is owed by founder/T&S before this gate releases the
+//                  hold), opencode/aider schemas, and lone capability-description prompts.
 //   block/*.txt  - relay bodies that MUST return 451 (non-CSAM red-team + disguised-as-tool).
 //   csam/*.txt   - relay bodies that MUST return 451 AND modResult.csam==true. Curated and
 //                  access-controlled by trust-and-safety; the file may be absent in a clone.

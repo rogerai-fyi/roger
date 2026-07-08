@@ -346,8 +346,9 @@ func (m moderation) screen(text string) modResult {
 
 // screenGroq screens text with the Groq-hosted safeguard model over Groq's
 // OpenAI-compatible chat/completions endpoint (the same shape concierge.go uses). The
-// model is given moderationPolicy as a system prompt and classifies the USER message,
-// answering "safe" (ALLOW) or "unsafe <codes>" with the violated category codes, which we
+// model is given moderationPolicy as a system prompt and classifies the whole concatenated
+// request (all message roles, per promptText - not only the user turn), answering "safe"
+// (ALLOW) or "unsafe <codes>" with the violated category codes, which we
 // capture for the block log. Its chain-of-thought lands in a SEPARATE reasoning channel,
 // so we parse message.content ONLY (contentText), not the reasoning. Honors the same
 // fail-open/closed posture as the URL backend: on a transport/non-200/empty error,

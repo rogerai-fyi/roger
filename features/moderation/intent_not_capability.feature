@@ -39,16 +39,16 @@ Feature: Moderation judges intent to harm, not descriptions of tool/agent capabi
   # ==========================================================================
 
   @live
-  Scenario: hermes's real tool-heavy system prompt is allowed
+  Scenario: hermes's tool-heavy system prompt is allowed
     Given the moderation backend is the real Groq safeguard model with the refined policy
-    And a relay body whose system message is the captured ~4749-char hermes tool prompt
+    And a relay body whose system message is a representative hermes-style tool-heavy prompt (the real ~4749-char capture is owed by founder/T&S before this live gate releases the hold)
     When the concatenated prompt text is screened
     Then the screen returns status 0 (ALLOW)
 
   @live
   Scenario Outline: agent tool-schema system prompts are allowed
     Given the moderation backend is the real Groq safeguard model with the refined policy
-    And a relay body whose system message is the captured <agent> tool schema
+    And a relay body whose system message is a representative <agent> tool schema
     When the concatenated prompt text is screened
     Then the screen returns status 0 (ALLOW)
 
