@@ -110,7 +110,7 @@ Feature: Moderation screens the top-level tools / functions array, not only the 
 
   # ==========================================================================
   # SECTION C - LIVE: against the REAL safeguard model (golden corpus).
-  # Realized by moderation_tools_live_test.go; SKIPPED without MODERATION_GROQ_KEY.
+  # Realized by moderation_intent_live_test.go's generic corpus scan; SKIPPED without MODERATION_GROQ_KEY.
   # ==========================================================================
 
   @live

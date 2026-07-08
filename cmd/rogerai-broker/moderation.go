@@ -509,6 +509,13 @@ func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult
 // capability-vocabulary false positive because the intent-not-capability carveout (#39) in
 // moderationPolicy allows a benign tool description ("executes shell commands", "deletes
 // files") while still blocking a description that SEEKS the harm.
+//
+// COUPLING: promptText also feeds the broker's billing recount (settleRecountPrompt, via
+// tunnel.go). Folding the tools/functions text in makes a tool-heavy request recount a bit
+// higher - which is directionally correct (the node genuinely tokenizes that text) and
+// benign: recount only ever bills min(claimed, recounted) and only flags a node whose CLAIM
+// exceeds the recount, so a larger, more accurate recount reduces false discrepancy flags on
+// honest nodes. It never raises what a caller is billed.
 func promptText(body []byte) string {
 	var req struct {
 		Messages []struct {

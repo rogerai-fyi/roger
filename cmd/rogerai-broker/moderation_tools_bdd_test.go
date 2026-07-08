@@ -5,7 +5,7 @@ package main
 // folds the top-level tools/functions array text into the screened blob, and that a body
 // whose ONLY harmful text lives in a tool description still flows through screen() to the
 // SAME 451 (and CSAM) verdict mapping. It filters OUT @live: those scenarios drive the REAL
-// Groq safeguard model and are realized by moderation_tools_live_test.go's golden corpus
+// Groq safeguard model and are realized by moderation_intent_live_test.go's golden-corpus scan
 // (skipped without MODERATION_GROQ_KEY), so `go test` stays hermetic and free.
 //
 // Style: godog + stdlib testing only (this repo has no testify), mirroring
@@ -217,7 +217,7 @@ func TestModerationToolsBDD(t *testing.T) {
 		Options: &godog.Options{
 			Format:   "pretty",
 			Paths:    []string{"../../features/moderation/tools_array_screening.feature"},
-			Tags:     "~@live", // @live is the golden-corpus test (moderation_tools_live_test.go)
+			Tags:     "~@live", // @live is the golden-corpus scan (moderation_intent_live_test.go)
 			TestingT: t,
 			Strict:   true,
 		},
