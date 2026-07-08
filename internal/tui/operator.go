@@ -153,11 +153,20 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 	// the new row range so the carat/marquee never vanish off the end until the user presses
 	// up (audit finding). deskRowCount reads the freshly-set detections.
 	if m.deskFocused {
-		if max := m.deskRowCount() - 1; m.deskCursor > max {
-			m.deskCursor = max
-		}
-		if m.deskCursor < 0 {
+		if len(deskGuests(m.operatorDetections)) == 0 {
+			// The guest set emptied while THE DESK had focus: the roster renders NOTHING at
+			// zero guests (deskRosterBlock), so a still-focused desk would be invisible and
+			// swallow arrows/enter (finding 2026-07-08). Hand focus back to the ask box.
+			m.deskFocused = false
 			m.deskCursor = 0
+			m.agentIn.Focus()
+		} else {
+			if max := m.deskRowCount() - 1; m.deskCursor > max {
+				m.deskCursor = max
+			}
+			if m.deskCursor < 0 {
+				m.deskCursor = 0
+			}
 		}
 	}
 	if m.operatorPicker {
@@ -603,14 +612,17 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 				stDim.Render("· ")+stDim.Render("tune in first: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then come back with ")+stKey.Render("[0]"))
 			return m, nil
 		}
-		// Require an agent-ready pick BEFORE binding (audit finding): pickAutoBand returns
-		// the strongest CONNECTABLE free band even when it is KNOWN-small, so binding here
-		// and only THEN hitting the §6 gate below would leave the user silently tuned to a
-		// band too small for a guest. If the only free band is known-small, land on the
-		// honest 'no agent-ready band' refusal WITHOUT binding.
-		if bandKnownSmall(*pick) {
+		// Gate on the STATION we are about to bind, not the band (finding 2026-07-08):
+		// bandCtx is the MAX window across a band's stations, so a free 8k station beside a
+		// paid 32k sibling cleared a band-level gate, got bound, then hit the §6 floor
+		// POST-bind - the bind-then-refuse state finding #6 was meant to kill. Bind a free
+		// station only when ITS OWN window clears the 16k floor; an unknown window (ctx 0)
+		// stays connectable (G2: it warns on the plate, never blocks). Else land the honest
+		// refusal WITHOUT binding. (The copy stays correct with multiple known-small free
+		// bands on air - it names no "only" band.)
+		if freeSt.Ctx > 0 && freeSt.Ctx < operatorCtxFloor {
 			m.agentLines = append(m.agentLines,
-				stRed.Render("✕ ")+stEmber.Render("no agent-ready band to patch into - the only free band's window is too small for a guest (needs 16k+)"),
+				stRed.Render("✕ ")+stEmber.Render("no agent-ready free band on air - the free channel's window is too small for a guest (needs 16k+)"),
 				stDim.Render("· ")+stDim.Render("tune in to a larger band with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
 			return m, nil
 		}

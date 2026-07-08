@@ -191,7 +191,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"))
 			m.autoTuneBeatLen = len(m.agentLines) // the beat below is swapped for the outcome
 			m.agentLines = append(m.agentLines,
-				stDim.Render("· ")+stDim.Render("finding a free band…"))
+				agentFindingBandBeat())
 			m.agentLandingLines = len(m.agentLines)
 			m.autoTuning = true
 			m.agentIn.Focus()
@@ -218,7 +218,15 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 		m.refreshAgentModel()
 	}
 	m.agentIn.Focus()
-	m.status = stDim.Render("AGENT ready · esc exits")
+	// Set the generic "AGENT ready" only when a model IS tuned in: otherwise preserve the
+	// more-specific "no model tuned in" status (refreshAgentModel sets it on re-entry; set
+	// it here too for the fresh no-model landing) instead of clobbering it (finding
+	// 2026-07-08).
+	if m.agent.model != "" {
+		m.status = stDim.Render("AGENT ready · esc exits")
+	} else {
+		m.status = agentNoModelStatus()
+	}
 	// Async desk scan (Guest Operators): LookPath + bounded version probes off the event
 	// loop, landing as operatorDetectedMsg - the same pattern as onSharesDetected.
 	return m, tea.Batch(textinput.Blink, operatorScanCmd())
@@ -252,8 +260,22 @@ func (m *model) refreshAgentModel() {
 		// No model resolves - a STATUS note, not a transcript line, so re-entries / turns
 		// never stack "no model tuned in" (founder spam regression). The actual failure,
 		// if the user sends a turn anyway, still surfaces once via the deduped failureHint.
-		m.status = stRed.Render("✕ ") + stEmber.Render("no model tuned in") + stDim.Render(" · [1] tune in · [2] go on air")
+		m.status = agentNoModelStatus()
 	}
+}
+
+// agentNoModelStatus is the status line shown when the AGENT has no model tuned in - the
+// ONE place that copy lives, so refreshAgentModel and enterAgent never drift (enterAgent
+// used to clobber a fresh no-model status with the generic "AGENT ready" on re-entry).
+func agentNoModelStatus() string {
+	return stRed.Render("✕ ") + stEmber.Render("no model tuned in") + stDim.Render(" · [1] tune in · [2] go on air")
+}
+
+// agentFindingBandBeat is the single "finding a free band…" transcript beat, shared by
+// enterAgent's fresh landing and submitAgentPrompt's park path so the prefix never drifts
+// (finding 2026-07-08: enterAgent used "· ", submitAgentPrompt used the on-air glyph).
+func agentFindingBandBeat() string {
+	return stDim.Render("· ") + stDim.Render("finding a free band…")
 }
 
 // pickAgentModel re-points the agent at the chosen model and notes the switch. It sets
@@ -686,7 +708,7 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 		if !m.autoTuning {
 			m.autoTuning = true
 			m.autoTuneBeatLen = len(m.agentLines)
-			m.agentLines = append(m.agentLines, stDim.Render(glyphOnAir+" ")+stDim.Render("finding a free band…"))
+			m.agentLines = append(m.agentLines, agentFindingBandBeat())
 			return m, autoTuneCmd(m.broker, m.scanned)
 		}
 		return m, nil
