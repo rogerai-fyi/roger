@@ -694,6 +694,12 @@ type model struct {
 	// (cold) tune-in to a band; a band in this set drops straight into the open channel
 	// (warm reconnect). Cleared by nothing this session (a band stays "warm" once tuned).
 	recentBands map[string]bool
+	// operatorSeenModels records every model that has ALREADY surfaced the focused AGENT
+	// DESK this session (Guest Operators): the first AGENT entry for a tuned model lands on
+	// the selectable desk once a guest is detected; a second entry for the SAME model stays
+	// ask-focused. Switching to a different model re-surfaces the desk once for it. Lazily
+	// initialized; per-session (never cleared - an esc-exit keeps the record).
+	operatorSeenModels map[string]bool
 	// staged tune-in sequence (modeConnecting): connectStage is the step the
 	// animation has reached (0..connectStageDone); connectStartFrame anchors the
 	// per-step dwell to m.frame so the steps advance on the one carrier beat. Under
@@ -8319,7 +8325,7 @@ func (m model) footer(w int) string {
 				left = stDim.Render("y run · n/esc deny")
 			}
 		default:
-			left = stDim.Render("type to ask  ·  /model  ·  /clear  ·  /persona  ·  esc exits AGENT")
+			left = stDim.Render("type to ask  ·  /model  ·  /operator  ·  /clear  ·  esc exits AGENT")
 			if m.narrow() {
 				left = stDim.Render("ask · /model · esc exit")
 			}

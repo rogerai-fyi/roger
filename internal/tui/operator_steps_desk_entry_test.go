@@ -375,8 +375,33 @@ func (s *opBDD) pickAutoBandPicksNothing(login string) error {
 	return nil
 }
 
+// deskSurfacedForModel marks a model as already having surfaced the focused desk this
+// session (operatorSeenModels), so a re-entry for it stays ask-focused - the once-per-model
+// ruling. Seeded directly to pin the state without an esc/re-enter round-trip.
+func (s *opBDD) deskSurfacedForModel(mdl string) error {
+	s.mutate(func(m *model) {
+		if m.operatorSeenModels == nil {
+			m.operatorSeenModels = map[string]bool{}
+		}
+		m.operatorSeenModels[mdl] = true
+	})
+	return nil
+}
+
+// modelMarkedSurfaced asserts the model is now recorded in operatorSeenModels - the FIRST
+// entry that surfaced the desk must mark it, so a second entry for it stays ask-focused.
+func (s *opBDD) modelMarkedSurfaced(mdl string) error {
+	if !s.model().operatorSeenModels[mdl] {
+		return fmt.Errorf("model %q is not marked surfaced this session (operatorSeenModels=%v)", mdl, s.model().operatorSeenModels)
+	}
+	return nil
+}
+
 // initializeDeskEntryScenarios registers the desk_entry + auto_tune step definitions.
 func initializeDeskEntryScenarios(st *opBDD, sc *godog.ScenarioContext) {
+	sc.Step(`^the model "([^"]*)" has already surfaced the desk this session$`, st.deskSurfacedForModel)
+	sc.Step(`^the model "([^"]*)" is marked surfaced this session$`, st.modelMarkedSurfaced)
+	sc.Step(`^the AGENT view shows "([^"]*)"$`, st.transcriptShows)
 	sc.Step(`^a fresh AGENT session with nothing tuned in$`, st.freshNothingTuned)
 	sc.Step(`^a fresh AGENT session with a free band "([^"]*)" on air$`, st.freshFreeBand)
 	sc.Step(`^a fresh AGENT session with only a paid band on air$`, st.freshPaidOnly)

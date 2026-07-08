@@ -302,12 +302,21 @@ func (s *opBDD) landingRendersNoDeskChrome() error {
 
 func (s *opBDD) firstRosterRowIsDJ() error {
 	lines := s.rosterLines()
-	if len(lines) < 3 {
-		return fmt.Errorf("roster too short:\n%s", s.roster())
+	// The column header ("operator … wire … status") precedes the operator rows; the DJ
+	// row is the first row after it. Located by content (not a fixed index) so the resident
+	// DJ house plate now sitting above the header (refinement 2) does not throw the count.
+	hdr := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "operator") && strings.Contains(ln, "wire") && strings.Contains(ln, "status") {
+			hdr = i
+			break
+		}
 	}
-	// lines[0] heading, lines[1] column header, lines[2] the first row.
-	if !strings.Contains(lines[2], "DJ") || !strings.Contains(lines[2], "resident") {
-		return fmt.Errorf("the first roster row is not the DJ row: %q", lines[2])
+	if hdr < 0 || hdr+1 >= len(lines) {
+		return fmt.Errorf("no column header / first row in roster:\n%s", s.roster())
+	}
+	if !strings.Contains(lines[hdr+1], "DJ") || !strings.Contains(lines[hdr+1], "resident") {
+		return fmt.Errorf("the first roster row is not the DJ row: %q", lines[hdr+1])
 	}
 	return nil
 }
@@ -318,8 +327,10 @@ func (s *opBDD) djRowCarriesRedMark() error {
 		block = s.rosterRaw()
 		token = stRed.Render(glyphOnAir)
 	})
+	// Match the DJ ROW specifically ("dj.md persona" is row-only text); the DJ house plate
+	// above also carries the word "resident" but is a dim lockup, not the on-air row.
 	for _, ln := range strings.Split(block, "\n") {
-		if strings.Contains(stripANSI(ln), "resident") {
+		if strings.Contains(stripANSI(ln), "dj.md persona") {
 			if !strings.Contains(ln, token) {
 				return fmt.Errorf("the DJ row does not carry the red %s mark: %q", glyphOnAir, ln)
 			}
@@ -492,6 +503,44 @@ func (s *opBDD) djRowPlainMark() error {
 	}
 	if !strings.Contains(row, glyphOnAir) {
 		return fmt.Errorf("the DJ row lost the %s mark under NO_COLOR: %q", glyphOnAir, row)
+	}
+	return nil
+}
+
+// staticPreviewShowsDJPlate pins refinement 2: the resident DJ's house plate anchors the
+// roster on the UNFOCUSED static preview ("the house agent" is plate-only text - the DJ
+// ROW says "dj.md persona", the plate says "the house agent").
+func (s *opBDD) staticPreviewShowsDJPlate() error {
+	m := s.model()
+	if m.deskFocused {
+		return fmt.Errorf("the desk is focused - this scenario pins the STATIC (unfocused) preview")
+	}
+	if !strings.Contains(s.roster(), "the house agent") {
+		return fmt.Errorf("the static preview does not render the resident DJ house plate:\n%s", s.roster())
+	}
+	return nil
+}
+
+// agentFooterShows / agentFooterOmits pin refinement 3's footer copy. s.view() is the full
+// rendered screen including the modal footer / status line.
+func (s *opBDD) agentFooterShows(text string) error {
+	if !strings.Contains(s.view(), text) {
+		return fmt.Errorf("the AGENT footer lacks %q:\n%s", text, s.view())
+	}
+	return nil
+}
+func (s *opBDD) agentFooterOmits(text string) error {
+	if strings.Contains(s.view(), text) {
+		return fmt.Errorf("the AGENT footer unexpectedly shows %q:\n%s", text, s.view())
+	}
+	return nil
+}
+
+// agentIdleHelpShows pins the in-body idle help copy (the one-line command hint under the
+// ask prompt, in agentView).
+func (s *opBDD) agentIdleHelpShows(text string) error {
+	if !strings.Contains(s.agentViewText(), text) {
+		return fmt.Errorf("the in-body idle help lacks %q:\n%s", text, s.agentViewText())
 	}
 	return nil
 }
@@ -1193,6 +1242,10 @@ func initializePhase3Steps(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^the ask prompt still has focus$`, st.askPromptHasFocus)
 	sc.Step(`^the ask prompt echoes "([^"]*)"$`, st.askPromptEchoes)
 	sc.Step(`^the AGENT landing renders THE DESK roster$`, st.landingRendersRoster)
+	sc.Step(`^the static preview shows the resident DJ house plate$`, st.staticPreviewShowsDJPlate)
+	sc.Step(`^the AGENT footer shows "([^"]*)"$`, st.agentFooterShows)
+	sc.Step(`^the AGENT footer does not show "([^"]*)"$`, st.agentFooterOmits)
+	sc.Step(`^the in-body idle help shows "([^"]*)"$`, st.agentIdleHelpShows)
 	sc.Step(`^the roster heading reads "([^"]*)"$`, st.rosterHeadingReads)
 	sc.Step(`^the roster heading subtitle reads "([^"]*)"$`, st.rosterSubtitleReads)
 	sc.Step(`^the roster heading subtitle does not name a model$`, st.rosterSubtitleNamesNoModel)
