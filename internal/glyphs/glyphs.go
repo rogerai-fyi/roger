@@ -29,30 +29,39 @@ type Set struct {
 	SigOff  string // a flat "no signal" tower (5 cells)
 	BoxV    string // box-drawing vertical
 	BoxH    string // box-drawing horizontal
+	// AgentReady is the coding-agent-capable mark (a band whose window fits a coding
+	// agent). A trailing "~" is appended by the caller when the readiness is INFERRED
+	// from the window rather than proven by a probe (R5). Vision marks a multimodal band.
+	AgentReady string
+	Vision     string
 }
 
 var unicodeSet = Set{
-	OnAir:   "◉",
-	OffAir:  "○",
-	Verify:  "◆",
-	Lineage: "✓",
-	Beacon:  "(( • ))",
-	Signal:  []rune("▁▂▃▄▅▆▇█"),
-	SigOff:  "▁▁▁▁▁",
-	BoxV:    "│",
-	BoxH:    "─",
+	OnAir:      "◉",
+	OffAir:     "○",
+	Verify:     "◆",
+	Lineage:    "✓",
+	Beacon:     "(( • ))",
+	Signal:     []rune("▁▂▃▄▅▆▇█"),
+	SigOff:     "▁▁▁▁▁",
+	BoxV:       "│",
+	BoxH:       "─",
+	AgentReady: "⌁",
+	Vision:     "◪",
 }
 
 var asciiSet = Set{
-	OnAir:   "(o)",
-	OffAir:  "( )",
-	Verify:  "<>",
-	Lineage: "+",
-	Beacon:  "((*))",
-	Signal:  []rune(".:-=+*#@"),
-	SigOff:  ".....",
-	BoxV:    "|",
-	BoxH:    "-",
+	OnAir:      "(o)",
+	OffAir:     "( )",
+	Verify:     "<>",
+	Lineage:    "+",
+	Beacon:     "((*))",
+	Signal:     []rune(".:-=+*#@"),
+	SigOff:     ".....",
+	BoxV:       "|",
+	BoxH:       "-",
+	AgentReady: "%",
+	Vision:     "[v]",
 }
 
 // Current returns the resolved glyph set for this process (Unicode unless ASCII()).
@@ -134,6 +143,10 @@ var asciiFold = map[rune]rune{
 	'▶': '>', '◀': '<',
 	// The em-dash 'none' mark used in voice tables folds to a plain hyphen.
 	'—': '-',
+	// Band badges: the agent-ready ⌁ folds to '%' (its inferred "~" suffix passes
+	// through). The vision ◪ is a 1->3 expansion ("[v]"), so it is a string-level
+	// pre-pass in Fold (like the ellipsis), not a rune entry here.
+	'⌁': '%',
 }
 
 // Fold replaces non-ASCII art/signal runes with ASCII stand-ins WHEN ASCII() is in
@@ -145,7 +158,11 @@ func Fold(s string) string {
 	if !ASCII() {
 		return s
 	}
-	return foldASCII(strings.ReplaceAll(s, "…", "..."))
+	// 1->N expansions run as a string pre-pass (asciiFold is rune-to-rune): the
+	// ellipsis, and the vision badge ◪ -> "[v]".
+	s = strings.ReplaceAll(s, "…", "...")
+	s = strings.ReplaceAll(s, "◪", "[v]")
+	return foldASCII(s)
 }
 
 // foldASCII applies the asciiFold map to every rune of s. Exposed (unconditionally)

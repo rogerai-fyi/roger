@@ -149,6 +149,17 @@ func operatorScanCmd() tea.Cmd {
 // its rows in place (the r re-scan) with the cursor clamped to a selectable row.
 func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) {
 	m.operatorDetections = msg.ds
+	// A re-scan can SHRINK the guest list while THE DESK is focused; clamp the cursor into
+	// the new row range so the carat/marquee never vanish off the end until the user presses
+	// up (audit finding). deskRowCount reads the freshly-set detections.
+	if m.deskFocused {
+		if max := m.deskRowCount() - 1; m.deskCursor > max {
+			m.deskCursor = max
+		}
+		if m.deskCursor < 0 {
+			m.deskCursor = 0
+		}
+	}
 	if m.operatorPicker {
 		m.operatorRows = m.buildOperatorRows()
 		if m.operatorCursor >= len(m.operatorRows) {
@@ -156,7 +167,35 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 		}
 		m.operatorCursor = operatorNearestSelectable(m.operatorRows, m.operatorCursor)
 	}
+	// AGENT [0] DESK entry (R3): on the FRESH landing (nothing tuned in, nothing typed,
+	// no modal, empty transcript beyond the entry chrome), a scan that lands GUESTS turns
+	// THE DESK into the focused, selectable operator picker - the ask box hands focus over
+	// until the user types through. Zero guests keeps the ask focused (nothing to pick).
+	if m.deskEntryEligible() && len(deskGuests(m.operatorDetections)) > 0 {
+		m.deskFocused = true
+		m.deskCursor = 0
+		m.agentIn.Blur()
+	}
 	return m, nil
+}
+
+// deskEntryEligible reports whether the AGENT is on the FRESH landing where THE DESK may
+// take focus: AGENT mode, no channel/model, the ask box empty (nothing typed), the
+// landing transcript untouched, no turn running, and no modal / plate / handoff up.
+func (m model) deskEntryEligible() bool {
+	if m.mode != modeAgent || m.deskFocused {
+		return false
+	}
+	if m.proxyHolder != nil || m.connected != nil || m.resolveAgentModel() != "" {
+		return false // a channel is (or was) up - not a fresh landing
+	}
+	if strings.TrimSpace(m.agentIn.Value()) != "" || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
+		return false
+	}
+	if len(m.agentLines) != m.agentLandingLines {
+		return false
+	}
+	return !m.operatorPicker && !m.agentPicker && m.agentPendingConfirm == nil && m.operatorPlate == nil && m.operatorHandoff == nil
 }
 
 // --- the /operator command -----------------------------------------------------------
@@ -312,6 +351,16 @@ func (m model) operatorPickerView(w int) string {
 		tail = " - the guest runs on " + mdl + ", through your open channel"
 	}
 	b.WriteString("\n" + truncVisible("  "+stSelText.Render("hand the mic")+stDim.Render(tail), w) + "\n")
+	// R2 (amends GUEST-OPERATOR-PLATES.md §6 "no brand art in the picker"): the SELECTED
+	// operator's marquee plate, in its one canonical hue - the same renderer THE DESK uses.
+	// The list rows below stay mono+red. The cursor never lands on a suggestion row.
+	if m.operatorCursor >= 0 && m.operatorCursor < len(m.operatorRows) {
+		if row := m.operatorRows[m.operatorCursor]; row.isDJ {
+			b.WriteString(operatorBrandArtBlock(djBrandArt(), w))
+		} else if !row.suggestion {
+			b.WriteString(deskMarqueeForGuest(row.det.Guest, w))
+		}
+	}
 	for i, row := range m.operatorRows {
 		switch {
 		case row.suggestion:
@@ -533,13 +582,48 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 		m.rcNote(note)
 		return m, nil
 	}
-	// No band tuned: a disconnected proxy REFUSES to spend (Phase 1 ruling 5), so a
-	// launch now would only hand the guest a wall of 502s - block it at the desk.
+	// No band tuned: a disconnected proxy REFUSES to spend (Phase 1 ruling 5), so a launch
+	// now would only hand the guest a wall of 502s. Rather than dead-end, try a SILENT
+	// auto-tune to a FREE band first (R1 - never a paid auto-spend); land the plate on
+	// success, a SINGLE honest refusal on failure.
 	if m.proxyHolder == nil || !m.proxyHolder.Connected() {
-		m.agentLines = append(m.agentLines,
-			stRed.Render("✕ ")+stEmber.Render("no channel to patch into - a guest runs on your open channel"),
-			stDim.Render("· ")+stDim.Render("tune in first: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then come back with ")+stKey.Render("[0]"))
-		return m, nil
+		pick := pickAutoBand(m.bands, m.loggedInState())
+		// R1 money-safety: a SILENT handoff auto-tune may only bind a genuinely-FREE station
+		// (FreeNow / zero-priced), never pick.cheapest - the min-PRICE station across ALL of
+		// the band's stations, which can be PAID even in a band flagged free. No free station
+		// (nil pick, or a free-flagged band with only paid/promo-priced stations) -> refuse
+		// rather than spend.
+		var freeSt *offer
+		if pick != nil {
+			freeSt = bestFreeStation(*pick)
+		}
+		if freeSt == nil {
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("no channel to patch into - a guest runs on your open channel"),
+				stDim.Render("· ")+stDim.Render("tune in first: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then come back with ")+stKey.Render("[0]"))
+			return m, nil
+		}
+		// Require an agent-ready pick BEFORE binding (audit finding): pickAutoBand returns
+		// the strongest CONNECTABLE free band even when it is KNOWN-small, so binding here
+		// and only THEN hitting the §6 gate below would leave the user silently tuned to a
+		// band too small for a guest. If the only free band is known-small, land on the
+		// honest 'no agent-ready band' refusal WITHOUT binding.
+		if bandKnownSmall(*pick) {
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("no agent-ready band to patch into - the only free band's window is too small for a guest (needs 16k+)"),
+				stDim.Render("· ")+stDim.Render("tune in to a larger band with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
+			return m, nil
+		}
+		o := *freeSt
+		if _, err := m.bindChannel(o); err != nil {
+			// The local endpoint failed to bind: refuse rather than open a plate over an
+			// unbound channel that would hand the guest a wall of 502s.
+			m.agentLines = append(m.agentLines,
+				stRed.Render("✕ ")+stEmber.Render("could not open a channel: "+err.Error()),
+				stDim.Render("· ")+stDim.Render("tune in manually with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
+			return m, nil
+		}
+		m.noteOnce(stDim.Render("· ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" (free) for the handoff"))
 	}
 	// The DJ's in-flight turn owns the completer and the terminal; a queued prompt
 	// would drain into a new turn against a suspended TUI - both block the handoff.
@@ -1035,16 +1119,16 @@ func (m model) deskCompactCount() string {
 	return stDim.Render(" · ") + stDim.Render(fmt.Sprintf("%d at the desk", n))
 }
 
-// deskRosterBlock is THE DESK roster (§3a): a STATIC PREVIEW of who can take the mic,
-// rendered on the LANDING state only (>=1 guest, empty transcript, no turn running, no
-// modal up, full view) - it collapses once the conversation starts, exactly like the
-// empty-band CTA. No carat, no reverse-video row: carats mean "interactive" in this
-// house, and picking happens in the /operator modal, never here. Returns the exact
-// inserted substring (clamped lines), or "".
+// deskRosterBlock is the LANDING wrapper for THE DESK (§3a): it gates on the landing
+// state (empty transcript, no turn running, no modal up, full view) and then renders the
+// roster via deskRosterView. When the AGENT lands with nothing tuned in the desk is
+// FOCUSED and selectable (the [0] redesign, R3: deskFocused); when a band is already
+// tuned it stays the STATIC PREVIEW it always was (no carat, no marquee) - the desk_view
+// bytes are unchanged. Returns the inserted substring (clamped lines), or "".
 func (m model) deskRosterBlock(w int) string {
 	ds := deskGuests(m.operatorDetections)
 	if len(ds) == 0 || m.compact {
-		return ""
+		return "" // the zero-guest byte-identical invariant: no guests, no desk chrome
 	}
 	if len(m.agentLines) != m.agentLandingLines || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
 		return "" // any line beyond the entry chrome = the conversation started
@@ -1052,6 +1136,15 @@ func (m model) deskRosterBlock(w int) string {
 	if m.operatorPicker || m.agentPicker || m.agentPendingConfirm != nil || m.operatorPlate != nil || m.operatorHandoff != nil {
 		return ""
 	}
+	return m.deskRosterView(w, m.deskCursor, m.deskFocused)
+}
+
+// deskRosterView renders THE DESK roster: the header, the SELECTED operator's marquee
+// plate (focused only, R2 - the one hue), and the operator rows. When focused the cursor
+// row carries a red carat; the row bodies stay mono+red (R2). The SAME renderer (via the
+// marquee) feeds the /operator picker, so the modal gets the marquee too.
+func (m model) deskRosterView(w, cursor int, focused bool) string {
+	ds := deskGuests(m.operatorDetections)
 	mdl := ""
 	if m.proxyHolder != nil && m.proxyHolder.Connected() {
 		mdl = m.proxyHolder.Get().Model
@@ -1062,11 +1155,15 @@ func (m model) deskRosterBlock(w int) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n" + truncVisible("  "+stSelBar.Render("▌")+" "+stBrand.Render("THE DESK")+"    "+stDim.Render(sub), w) + "\n")
+	// R2: the selected operator's plate as a marquee, in its ONE canonical hue. Focused
+	// only - the static preview stays byte-identical (no marquee, no carat).
+	if focused {
+		b.WriteString(m.deskMarquee(w, cursor))
+	}
 	b.WriteString(truncVisible("    "+stDim.Render(pad("operator", 13)+pad("wire", 11)+"status"), w) + "\n")
-	// The resident DJ row is always first, with the red on-air mark (the connected band
-	// row treatment): whenever this TUI is painting, the DJ has the mic.
-	b.WriteString(truncVisible("  "+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")
-	for _, d := range ds {
+	// The resident DJ row is always first (index 0), with the red on-air mark.
+	b.WriteString(truncVisible(deskGutter(focused && cursor == 0)+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")
+	for i, d := range ds {
 		status := "guest · on PATH · patches into your open channel"
 		if d.Guest.NeedsSetup {
 			status = "guest · needs a key first - /operator " + d.Guest.Name + " shows how"
@@ -1077,10 +1174,11 @@ func (m model) deskRosterBlock(w int) string {
 			}
 			status += " · version " + v + " unproven"
 		}
-		b.WriteString(truncVisible("    "+stKey.Render(pad(d.Guest.Name, 12))+" "+stDim.Render(pad("hands off", 10)+" "+status), w) + "\n")
+		b.WriteString(truncVisible(deskGutter(focused && cursor == i+1)+"  "+stKey.Render(pad(d.Guest.Name, 12))+" "+stDim.Render(pad("hands off", 10)+" "+status), w) + "\n")
 	}
 	// At most ONE dim not-installed suggestion, at the bottom, only while the desk is
-	// sparse - a healthy desk advertises nothing (the buildOperatorRows rule).
+	// sparse - a healthy desk advertises nothing (the buildOperatorRows rule). Never
+	// selectable (the cursor never lands on it).
 	if len(ds) < 2 {
 		seen := map[string]bool{}
 		for _, d := range ds {
@@ -1094,4 +1192,59 @@ func (m model) deskRosterBlock(w int) string {
 		}
 	}
 	return b.String()
+}
+
+// deskGutter is the 2-cell row gutter: a red carat on the selected (focused) row, two
+// spaces otherwise - so the un-focused static preview keeps its exact leading spacing.
+func deskGutter(selected bool) string {
+	if selected {
+		return stSelText.Render("▸ ")
+	}
+	return "  "
+}
+
+// deskMarquee renders the SELECTED operator's brand plate (R2): the DJ house plate at
+// cursor 0, else the detected guest's shipped plate (or a plain name lockup when a guest
+// ships none). One hue per the plate; the list rows below stay mono+red.
+func (m model) deskMarquee(w, cursor int) string {
+	ds := deskGuests(m.operatorDetections)
+	if cursor <= 0 {
+		return operatorBrandArtBlock(djBrandArt(), w)
+	}
+	if idx := cursor - 1; idx >= 0 && idx < len(ds) {
+		return deskMarqueeForGuest(ds[idx].Guest, w)
+	}
+	return ""
+}
+
+// deskMarqueeForGuest renders one guest's marquee plate: its shipped BrandArt when it
+// has one, else a plain (mono) name lockup so the marquee is never blank.
+func deskMarqueeForGuest(g operator.Guest, w int) string {
+	if g.Brand != nil {
+		return operatorBrandArtBlock(*g.Brand, w)
+	}
+	return truncVisible("  "+stBrand.Render(g.Name), w) + "\n"
+}
+
+// djBrandArt is the resident DJ's house plate: a TUI-side mono+red ROGER·AI · DJ lockup
+// built from the corner-Ping operator pose (the ((•)) beacon + the R body). It lives
+// here, NOT in internal/operator/brand.go, which stays guests-only (data-free of the
+// house). One red beat on the beacon dot + the DJ tag; the wordmark in house brand ink.
+func djBrandArt() operator.BrandArt {
+	red := operator.BrandInk{Token: operator.InkRedBold}
+	brand := operator.BrandInk{Token: operator.InkBrand}
+	dim := operator.BrandInk{Token: operator.InkDim}
+	return operator.BrandArt{
+		Rows: []operator.BrandRow{
+			{Text: "((•))", Spans: []operator.BrandSpan{{From: 2, To: 3, Ink: red}}},
+			{Text: " \\(R)/   ROGER·AI · DJ", Spans: []operator.BrandSpan{
+				{From: 3, To: 4, Ink: red},    // the R body
+				{From: 9, To: 17, Ink: brand}, // ROGER·AI
+				{From: 20, To: 22, Ink: red},  // DJ
+			}},
+			{Text: " ╰───╯   resident · the house agent · dj.md", Ink: dim},
+		},
+		Width:  43,
+		Lockup: operator.BrandRow{Text: "ROGER·AI · DJ", Spans: []operator.BrandSpan{{From: 0, To: 8, Ink: brand}, {From: 11, To: 13, Ink: red}}},
+	}
 }
