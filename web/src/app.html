@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="App - RogerAI" desc="The band, in your pocket. The RogerAI app is tuning up - tune in, share, and earn from your phone soon. For now, ride the band on the CLI." theme=external css=site robots=noindex -->
+</head>
+<body>
+
+  <!-- running head: this page is one bound document -->
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · The App</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
+  </div>
+
+  <!-- ============================ NAV ============================ -->
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <!-- ============================ TUNING UP ============================ -->
+  <!-- reuses the notfound.css .lost plate: a centered, ham-radio-manual message.
+       Not a dropped signal though - Ping is LIVE (base .ping, on-air red eye),
+       because the app is coming, not gone. -->
+  <main id="top">
+  <section class="lost">
+    <div class="wrap lost__inner">
+      <span class="fig" aria-hidden="true">FIG. APP - ON THE AIR SOON</span>
+
+      <!-- Ping in the LIVE pose: on-air red eye, waves standing by (base.css) -->
+      <span class="lost__ping" aria-hidden="true">
+        <svg class="ping" viewBox="0 0 64 72" fill="currentColor" focusable="false"
+             role="img" aria-label="Ping, tuning up">
+          <g class="ping__waves" fill="none" stroke="var(--live)" stroke-linecap="round" stroke-width="2">
+            <path class="ping__wave ping__wave--a" d="M22 12 A11 11 0 0 1 42 12" opacity="0"/>
+            <path class="ping__wave ping__wave--b" d="M16 11 A16 16 0 0 1 48 11" opacity="0"/>
+          </g>
+          <g class="ping__body">
+            <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+            <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+            <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+            <rect x="25" y="64" width="5" height="5" rx="1"/>
+            <rect x="34" y="64" width="5" height="5" rx="1"/>
+          </g>
+          <circle class="ping__glow" cx="32" cy="18" r="9" fill="var(--live)" opacity="0.3"/>
+          <circle class="ping__eye" cx="32" cy="18" r="5" fill="var(--live)"/>
+        </svg>
+      </span>
+
+      <h1 class="lost__title">
+        <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+        the band, in your pocket.
+      </h1>
+      <p class="lost__sub">
+        The RogerAI app is <b>tuning up</b>. Tune in, share your rig, and read your
+        receipts from your phone - same band, no desk required. We are warming the
+        transmitter now; this channel goes live when the app ships.
+      </p>
+
+      <p class="lost__path mono" aria-label="Status">
+        <span class="lost__path-label" aria-hidden="true">status</span>
+        <span class="lost__path-code">warming the transmitter · standing by</span>
+      </p>
+
+      <div class="lost__actions">
+        <a class="lost__home" href="/">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          back to the band
+        </a>
+        <a class="lost__alt" href="/manual.html">ride the band on the CLI →</a>
+      </div>
+    </div>
+  </section>
+  </main>
+
+  <!-- ============================ FOOTER ============================ -->
+  <!-- include: footer.html anchors=/ -->
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>

@@ -53,6 +53,7 @@ const CSS_BUNDLES = {
   "broadcasts-one-gpu-many-users.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 005 · SEO field guide (concurrency)
   "broadcasts-free-chatgpt-alternative.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 006 · SEO field guide (free ChatGPT alt)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
+  "app.html":       [...CSS_MARKETING, "notfound.css"],  // "tuning up" placeholder: reuses the centered .lost plate
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
   "account.html":   [...CSS_ACCOUNT, "account.css"],
