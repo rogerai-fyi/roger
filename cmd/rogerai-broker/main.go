@@ -105,6 +105,10 @@ type broker struct {
 	// the next sync so a peer never surfaces a retracted verdict. Guarded by metricsMu. Single-
 	// instance leaves it unused (emission reads b.toolsOK directly). Keyed by toolKey(node,model).
 	toolsMerged map[string]bool
+	// lastToolMark throttles the served-traffic refresh of a verified model's shared field
+	// (markMeasured), keyed by nodeID. Guarded by metricsMu. Keeps a continuously-busy node's
+	// verified-tools bit fresh without a Valkey write per served request.
+	lastToolMark map[string]time.Time
 	// concurrentTPS is an EWMA of served tok/s recorded ONLY while inflight>=2 at the
 	// time the request settled - capacity derived UNDER LOAD, not from the idle probe
 	// canary. It is the incentive-compatible capacity input for the load factor: a
@@ -501,9 +505,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
-		toolsOK:     map[string]bool{},
-		toolsMerged: map[string]bool{},
-		probeSched:  map[string]*probeState{},
+		toolsOK:      map[string]bool{},
+		toolsMerged:  map[string]bool{},
+		lastToolMark: map[string]time.Time{},
+		probeSched:   map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,
 		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),

@@ -83,6 +83,25 @@ func TestProbeToolCallNoTunnel(t *testing.T) {
 	}
 }
 
+// TestWithVerifiedToolsStripsStored is the REGRESSION GUARD for the pre-push audit's emission
+// finding: withVerifiedTools must STRIP a "tools" sitting in a stored/mirrored offer and re-add
+// it ONLY from the probe verdict, so no ingestion path can leak an unproven "tools".
+func TestWithVerifiedToolsStripsStored(t *testing.T) {
+	// A stored "tools" with NO verdict is stripped (never trusted).
+	if got := withVerifiedTools([]string{"tools", "vision"}, false); len(got) != 1 || got[0] != "vision" {
+		t.Fatalf("withVerifiedTools stored-tools/unverified = %v, want [vision] (stored tools must be stripped)", got)
+	}
+	// With the verdict it is re-added, canonical + deduped even if also present in declared.
+	got := withVerifiedTools([]string{"tools", "vision"}, true)
+	if len(got) != 2 || got[0] != "tools" || got[1] != "vision" {
+		t.Fatalf("withVerifiedTools verified = %v, want [tools vision]", got)
+	}
+	// Nothing known stays nil (undetermined), never a positive [].
+	if got := withVerifiedTools(nil, false); got != nil {
+		t.Fatalf("withVerifiedTools(nil,false) = %v, want nil (undetermined)", got)
+	}
+}
+
 // TestStripDeclaredToolsEmpty covers the empty/nil fast-path of the declared-tools strip.
 func TestStripDeclaredToolsEmpty(t *testing.T) {
 	if got := stripDeclaredTools(nil); got != nil {

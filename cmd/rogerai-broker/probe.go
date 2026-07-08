@@ -238,7 +238,30 @@ func (b *broker) markMeasured(nodeID string) {
 	if due := now.Add(b.probe.interval); due.After(st.nextDue) {
 		st.nextDue = due
 	}
+	// A continuously-busy node (inflight>0 every probe tick) is SKIPPED by probeOnce, so its
+	// verified-tools shared field would age out at toolsVerifiedTTL precisely because it is
+	// popular. Real served traffic is fresh liveness, so refresh the shared mark for this node's
+	// verified models here too - THROTTLED (at most once per toolsRefreshEvery) so the hot settle
+	// path never writes Valkey per request. Collect under the lock; mark outside it (network I/O).
+	var refresh []string
+	if b.shared != nil && now.Sub(b.lastToolMark[nodeID]) > toolsRefreshEvery {
+		pfx := nodeID + "\x00"
+		for k := range b.toolsOK {
+			if strings.HasPrefix(k, pfx) {
+				refresh = append(refresh, strings.TrimPrefix(k, pfx))
+			}
+		}
+		if len(refresh) > 0 {
+			if b.lastToolMark == nil {
+				b.lastToolMark = map[string]time.Time{}
+			}
+			b.lastToolMark[nodeID] = now
+		}
+	}
 	b.metricsMu.Unlock()
+	for _, model := range refresh {
+		_ = b.shared.markToolsVerified(nodeID, model, toolsVerifiedTTL)
+	}
 }
 
 // demandProbeSoonLocked is the just-in-time hook: a consumer is actively interested in
@@ -495,8 +518,16 @@ func (b *broker) probeOnce() {
 			// this node's adaptive schedule/backoff/jitter, never a separate faster loop. It is
 			// unbilled + tiny (T2), the result discarded after the verdict. Only the poll host
 			// (authoritative) may CLEAR a verified bit on a regression; a peer's transient
-			// non-verdict never does. Voice-only nodes never reach here (model=="" was skipped).
-			b.probeToolCall(t.node, t.model, b.authoritativeFor(t.node.NodeID, now))
+			// non-verdict never does. Unlike the liveness canary (one model/round is enough for
+			// liveness), the tool verdict is PER-MODEL, so probe EVERY chat offer's model - a
+			// second chat model must be able to earn "tools" too. Voice offers are skipped.
+			auth := b.authoritativeFor(t.node.NodeID, now)
+			for _, o := range t.node.Offers {
+				if offerModality(o.Modality) != protocol.ModalityChat {
+					continue
+				}
+				b.probeToolCall(t.node, o.Model, auth)
+			}
 		}()
 	}
 }

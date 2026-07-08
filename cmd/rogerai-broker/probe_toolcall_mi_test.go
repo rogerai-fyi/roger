@@ -156,3 +156,39 @@ func TestToolsVerifiedClearsAfterRestart(t *testing.T) {
 		t.Fatal("fresh instance still surfaces tools after the post-restart authoritative regression")
 	}
 }
+
+// TestMarkMeasuredRefreshesToolsShared covers the served-traffic refresh: a continuously-busy
+// node (skipped by probeOnce) keeps its verified-tools shared field fresh from real traffic,
+// throttled so the hot settle path does not write Valkey per request.
+func TestMarkMeasuredRefreshesToolsShared(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	b := newMIBroker(t, brokerPriv, store.NewMem(), mr)
+	b.toolsOK, b.toolsMerged, b.lastToolMark = map[string]bool{}, map[string]bool{}, map[string]time.Time{}
+	b.probe = probeConfig{interval: 30 * time.Second, ceiling: 15 * time.Minute}
+	b.metricsMu.Lock()
+	b.toolsOK[toolKey("n1", "m")] = true
+	b.metricsMu.Unlock()
+
+	// First served request re-marks the shared field (nothing marked yet).
+	b.markMeasured("n1")
+	got, err := b.shared.toolsVerified(toolsVerifiedTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[toolKey("n1", "m")] {
+		t.Fatal("served traffic did not refresh the verified-tools shared field for a busy node")
+	}
+
+	// A second immediate served request is THROTTLED (no second write within toolsRefreshEvery).
+	b.metricsMu.Lock()
+	last := b.lastToolMark["n1"]
+	b.metricsMu.Unlock()
+	b.markMeasured("n1")
+	b.metricsMu.Lock()
+	again := b.lastToolMark["n1"]
+	b.metricsMu.Unlock()
+	if !again.Equal(last) {
+		t.Fatal("served-traffic tool refresh was not throttled (wrote Valkey again within toolsRefreshEvery)")
+	}
+}

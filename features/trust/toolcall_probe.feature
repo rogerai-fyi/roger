@@ -166,6 +166,16 @@ Feature: A model earns the verified "tools" capability only when the broker's to
     # Structure (a valid tool_calls array with a function name + parseable arguments) proves the
     # provider HONORS tool-calling; exact-name matching is the strict alternative left to T4.
 
+  Scenario: A "tools" that slips into a STORED offer (mirror / re-hydrate) is still not emitted unprobed
+    Given the model's stored offer already lists "tools" from a mixed-version mirror
+    And the broker has never run a passing tool-call canary against that model
+    Then the model's public capabilities do NOT include "tools"
+    # REGRESSION GUARD (pre-push audit, major): register strips a node-declared "tools", but the
+    # shared-registry mirror, the lazy tunnel learn, and the DB re-hydrate ingest raw regs that
+    # never passed that door (a mixed-version rolling deploy can mirror a pre-strip "tools").
+    # Emission (withVerifiedTools) strips a stored "tools" and re-adds it ONLY from the probe
+    # verdict, so no ingestion path can leak an unproven "tools" to the public feed.
+
   # --- multi-instance: two brokers must not double-probe or split the verdict ------------
 
   Scenario: Two broker instances share the verified "tools" verdict (no per-instance split)

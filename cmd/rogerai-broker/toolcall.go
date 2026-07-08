@@ -48,6 +48,12 @@ const toolCanaryMaxTokens = 64
 // regression (a real regression clears the field immediately via clearToolsVerified).
 const toolsVerifiedTTL = 45 * time.Minute
 
+// toolsRefreshEvery throttles the served-traffic refresh of a verified model's shared field (see
+// markMeasured): a continuously-busy node that probeOnce keeps skipping still keeps its verified
+// bit fresh from real traffic, but the hot settle path re-marks Valkey at most this often (well
+// under toolsVerifiedTTL, so the field never lapses between refreshes).
+const toolsRefreshEvery = 15 * time.Minute
+
 // toolKey is the (node, model) verdict key for b.toolsOK. The verified bit is per-MODEL, not
 // per-node: a node offering two models earns "tools" only for the model(s) that passed.
 func toolKey(node, model string) string { return node + "\x00" + model }
@@ -129,25 +135,28 @@ func toolCallOK(body []byte, wantFn string) (ok bool, reason string) {
 	return false, "no well-formed tool_calls entry (plain text / empty array / malformed)"
 }
 
-// withVerifiedTools returns the offer's canonical capabilities with the VERIFIED "tools" bit
-// unioned in when verified. It is the sole emission gate: declared caps are canonicalized (a
-// node-declared "tools" was already stripped at registration, so any "tools" surviving here is
-// a peer's authoritative stamp), and the local probe verdict adds "tools" for this instance.
-// A nil result (nothing known) keeps the JSON key omitted - absence stays UNDETERMINED, never
-// a positive "no tools" (features/trust/toolcall_probe.feature).
+// withVerifiedTools is the SOLE emission gate for the "tools" capability. It STRIPS any "tools"
+// sitting in the offer's declared/stored capabilities and re-adds it ONLY from the probe verdict
+// (verified). This is verified-not-declared enforced at the READ, not just at the register door:
+// a "tools" can reach a stored/mirrored/re-hydrated offer WITHOUT passing register's strip - the
+// shared-registry mirror, the lazy tunnel learn, and the DB re-hydrate all ingest raw regs, and
+// a mixed-version rolling deploy can mirror a pre-strip declared "tools". Stripping at emission
+// means such a bit is NEVER trusted (and a failing canary can never leave a stale declared bit
+// stranded). A nil result keeps the JSON key omitted - absence stays UNDETERMINED, never a
+// positive "no tools" (features/trust/toolcall_probe.feature).
 func withVerifiedTools(declared []string, verified bool) []string {
-	caps := protocol.CanonicalCapabilities(declared)
+	caps := protocol.CanonicalCapabilities(stripDeclaredTools(declared)) // never trust a stored/mirrored declared "tools"
 	if !verified {
 		return caps
 	}
 	return protocol.CanonicalCapabilities(append(caps, protocol.CapTools))
 }
 
-// stripDeclaredTools removes a node-declared "tools" from an offer's capabilities: "tools" is
-// VERIFIED-not-declared, so a node can NEVER earn it by asserting it (unlike "vision", which
-// stays declared). It is applied at the ONE node-facing door (registration), so the only way
-// "tools" reaches an offer's stored Capabilities afterwards is a peer's authoritative stamp via
-// the shared registry. It returns a fresh slice (copy-on-write) and never mutates the input.
+// stripDeclaredTools removes a "tools" value from a capability list: "tools" is VERIFIED-not-
+// declared, so a node can NEVER earn it by asserting it (unlike "vision", which stays declared).
+// It is applied at BOTH the node-facing register door AND at emission (withVerifiedTools), so no
+// ingestion path (register, shared-registry mirror, lazy learn, DB re-hydrate) can leak a
+// declared "tools" to the public feed. It returns a fresh slice (copy-on-write), never mutating.
 func stripDeclaredTools(in []string) []string {
 	if len(in) == 0 {
 		return in

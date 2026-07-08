@@ -459,6 +459,15 @@ func (s *tcState) wrongFunctionWellFormed() error {
 
 func (s *tcState) earnsUnderLenient() error { return s.earnsTools() }
 
+func (s *tcState) storedOfferListsTools() error {
+	// Simulate an ingestion path that BYPASSES the register-door strip (shared-registry mirror,
+	// lazy learn, DB re-hydrate): a stored offer whose Capabilities already carry "tools".
+	reg := s.b.nodes[s.node]
+	reg.Offers = []protocol.ModelOffer{{Model: s.model, Ctx: 131072, Capabilities: []string{"tools"}}}
+	s.b.nodes[s.node] = reg
+	return nil
+}
+
 // --- multi-instance -------------------------------------------------------------------------
 
 func (s *tcState) twoInstances() error {
@@ -638,6 +647,7 @@ func TestTrustToolCallProbeBDD(t *testing.T) {
 			sc.Step(`^the probe is retried on a later round rather than recorded as a regression$`, st.retriedLater)
 			sc.Step(`^the provider returns a well-formed tool_calls entry for a DIFFERENT function name$`, st.wrongFunctionWellFormed)
 			sc.Step(`^the model earns "tools" under the lenient rule$`, st.earnsUnderLenient)
+			sc.Step(`^the model's stored offer already lists "tools" from a mixed-version mirror$`, st.storedOfferListsTools)
 
 			sc.Step(`^the broker runs two instances behind the shared store$`, st.twoInstances)
 			sc.Step(`^instance A ran a passing tool-call canary against the model$`, st.instanceAProved)
