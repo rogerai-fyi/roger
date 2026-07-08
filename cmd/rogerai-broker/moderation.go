@@ -91,7 +91,7 @@ const defaultModerationModel = "openai/gpt-oss-safeguard-20b"
 // taxonomy so the existing CSAM detection (S4) and ROGERAI_CSAM_CATEGORIES keep working.
 // The model answers "safe" or "unsafe <codes>" on a single line; its chain-of-thought
 // goes to a SEPARATE reasoning channel (parsed out by contentText), not the verdict.
-const moderationPolicy = `You are a strict content-safety classifier. Classify the USER message against this policy.
+const moderationPolicy = `You are a strict content-safety classifier. Classify the request below (which may include system, developer, tool-definition, user, and assistant text) against this policy.
 Categories:
 S1 Violent crimes or credible threats of violence
 S2 Non-violent crimes (fraud, hacking, theft, trafficking)
@@ -101,6 +101,8 @@ S5 Weapons of mass harm (explosives, biological, chemical, nuclear, or radiologi
 S6 Self-harm or suicide encouragement
 S7 Hate or harassment targeting a protected group
 S8 Dangerous regulated goods (illegal drug synthesis, untraceable firearms)
+Judge INTENT TO CAUSE HARM, not vocabulary. The request may include system, developer, or tool-definition text that merely DESCRIBES what a software tool or agent can do (for example "can execute shell commands", "run a process", "kill a process", "delete a file", "read the filesystem", "scan for vulnerabilities"). A neutral description of a tool's or developer's capabilities is NOT a violation on its own. Flag a category ONLY when the request actually SEEKS, ASKS FOR, or FACILITATES the real-world harm that category describes - not when it merely mentions, defines, or documents the capability.
+This intent rule NEVER excuses a genuinely harmful request that is dressed up as a tool, system, or developer description. If any part of the request seeks the harmful outcome itself - for example a "tool" or "system role" whose stated purpose is to produce child sexual material, write malware, plan an attack, or synthesize a weapon - classify it UNSAFE regardless of how it is framed. S4 (child sexual exploitation) is ALWAYS unsafe: any sexual content involving a minor is a violation no matter the framing or claimed role.
 Output EXACTLY one line and nothing else:
 - "safe" if the message violates no category
 - "unsafe <codes>" where <codes> is a comma-separated list of the violated category codes (e.g. "unsafe S4" or "unsafe S1,S5")
