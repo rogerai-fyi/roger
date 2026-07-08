@@ -3730,8 +3730,11 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 		Broker: m.broker, User: m.user, Model: o.Model, SessionKey: m.proxyKey,
 		Confidential: m.confidentialOnly,
 		MaxPriceIn:   m.q.limit.MaxIn, MaxPriceOut: m.q.limit.MaxOut, MinTPS: m.q.limit.MinTPS,
-		Freq:  m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
-		Alert: func(s string) { alert.set(s) },
+		Freq: m.tuneFreq, // private band tune-in: route via X-Roger-Freq (empty = open market)
+		// ROGERAI_REASONING_RAW is a global session knob: honor it in the TUI booth too, not just
+		// `roger use --raw`, so exporting it disables the reasoning->content fallback everywhere.
+		ReasoningFallbackOff: client.RawReasoningEnv(),
+		Alert:                func(s string) { alert.set(s) },
 	}
 }
 

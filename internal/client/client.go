@@ -1587,10 +1587,13 @@ var (
 	newProxyHandler = ProxyHandler
 )
 
-// rawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
+// RawReasoningEnv reports whether ROGERAI_REASONING_RAW asks for raw passthrough (the
 // reasoning->content fallback disabled). A non-empty value other than the usual falsey tokens
 // ("", "0", "false", "no", "off") counts as set, so `ROGERAI_REASONING_RAW=1` works. It ORs
-// with the --raw flag (either enables raw), never overrides an explicit --raw.
+// with the --raw flag (either enables raw), never overrides an explicit --raw. Exported so the
+// TUI booth honors the same env toggle as `roger use` (the env var is a global session knob).
+func RawReasoningEnv() bool { return rawReasoningEnv() }
+
 func rawReasoningEnv() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROGERAI_REASONING_RAW"))) {
 	case "", "0", "false", "no", "off":
