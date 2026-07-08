@@ -154,6 +154,14 @@ func remoteAttach(cfg config, code string) error {
 				v = "approved"
 			}
 			fmt.Printf("  ✓ %s from %s\n", v, f.Origin)
+		case protocol.RCKindStatus:
+			// A guest-operator handoff (or the DJ-back return): render it so the CLI viewer
+			// never sees the stream go dead mid-handoff, matching the TUI + web console. The
+			// ONE shared formatter keeps the copy from drifting; "◉" is the CLI's on-air glyph
+			// (as on tool_call). Content-blind: only operator/model/spend + the fixed text.
+			if line := client.OperatorStatusLine(f, "◉"); strings.TrimSpace(line) != "" {
+				fmt.Printf("%s\n", line)
+			}
 		case protocol.RCKindBackfill:
 			if strings.TrimSpace(f.Text) != "" {
 				fmt.Printf("%s\n─── (live from here) ───\n", f.Text)

@@ -394,6 +394,33 @@ func OperatorStatusFrame(operator, model string, spend float64) protocol.RCFrame
 	}
 }
 
+// OperatorStatusLine renders one RCKindStatus frame as the SINGLE piecewise-degrading
+// viewer line shared by every Go surface - the TUI transcript (onRemoteFrame) and the
+// `roger remote` CLI viewer (StreamRC) - so the "<op> has the mic on <model> · $<spend>"
+// copy can never drift between them (the web console mirrors it in web/src/js/private.js).
+// It is content-blind: only the operator name plus the additive Model/Spend metadata ever
+// ride the line, never guest content, and the enrichment stays out of the frame Text (which
+// carries the fixed handoff sentence). glyph is the surface's own on-air marker, prefixed to
+// a guest handoff; the DJ-back (and any operator-less) frame renders its plain Text with no
+// glyph. An empty return means "render nothing" (a status carrying neither operator nor text)
+// - callers guard with strings.TrimSpace(line) != "" exactly as the web frameLine does.
+func OperatorStatusLine(f protocol.RCFrame, glyph string) string {
+	if f.Operator == "" {
+		return f.Text
+	}
+	line := glyph + " guest has the mic: " + f.Operator
+	if f.Model != "" || f.Spend > 0 {
+		line = glyph + " " + f.Operator + " has the mic"
+		if f.Model != "" {
+			line += " on " + f.Model
+		}
+		if f.Spend > 0 {
+			line += " · " + fmt.Sprintf("$%.2f", f.Spend)
+		}
+	}
+	return line
+}
+
 // SessionID reports the bridge's session id (for the roster / disable).
 func (rb *RCBridge) SessionID() string { return rb.sessionID }
 
