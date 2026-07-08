@@ -138,6 +138,26 @@ Feature: The AGENT [0] silent auto-tune (pickAutoBand + runAutoTune)
     And the transcript no longer shows "leftover ask"
     And the auto-tune did not arm
 
+  # ── the handoff auto-tune binds the BOUND station's window, never the band's best ──
+  #
+  # Finding (2026-07-08): startOperatorHandoff's pre-bind gate read the BAND ctx (the MAX
+  # window across the band's stations) but then bound bestFreeStation - a SPECIFIC station.
+  # A free 8k station beside a paid 32k sibling: the band ctx (32k) cleared the pre-bind
+  # gate, the free 8k station was bound, and the §6 floor then refused it POST-bind - the
+  # bind-then-refuse state finding #6 was meant to kill. The gate must read the station it
+  # is about to bind: a free station is bound only when ITS OWN window clears the 16k floor,
+  # else an honest refusal with NO bind.
+  Scenario: A free small station beside a paid large sibling is refused WITHOUT binding
+    Given an AGENT session with a tuned band "qwen3-32b-fp8" and a live proxy holder
+    And a detected guest "opencode"
+    And the proxy holder is disconnected
+    And the only free band pairs a free 8k station with a paid 32k sibling
+    When the user runs "/operator opencode"
+    Then no channel is open
+    And the transcript does not show "auto-tuned to"
+    And the transcript notes "no agent-ready free band on air"
+    And no child process is launched
+
   # ── sticky + no-op ───────────────────────────────────────────────────────────
 
   Scenario: Sticky — a last-tuned band still on air is reused, not re-picked

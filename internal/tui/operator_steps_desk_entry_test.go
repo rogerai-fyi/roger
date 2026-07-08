@@ -285,6 +285,23 @@ func (s *opBDD) noCostConfirmShown() error {
 	}
 	return nil
 }
+// onlyFreeBandSmallBesidePaidLarge seeds the model's market with a SINGLE band whose free
+// station has an 8k window and whose paid sibling has a 32k window - the mixed band the
+// handoff auto-tune must NOT bind the 8k free station onto (finding 2026-07-08). The band
+// ctx is 32k (the max), so a band-level known-small gate is fooled; the fix reads the
+// station it is about to bind.
+func (s *opBDD) onlyFreeBandSmallBesidePaidLarge() error {
+	s.mutate(func(m *model) {
+		m.offers = []offer{
+			{NodeID: "FREE-8K", Model: "handoff-mix", Online: true, FreeNow: true, Signal: 80, Ctx: 8192},
+			{NodeID: "PAID-32K", Model: "handoff-mix", Online: true, PriceIn: 0.15, PriceOut: 0.30, PriceTier: 1, Signal: 70, Ctx: 32768},
+		}
+		m.lastConnected = nil
+		m.bands = groupBands(m.offers, m.limits)
+	})
+	return nil
+}
+
 func (s *opBDD) boundStationIsGenuinelyFree() error {
 	c := s.model().connected
 	if c == nil {
@@ -369,6 +386,7 @@ func initializeDeskEntryScenarios(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^a fresh AGENT session with a band mixing a free station and a cheaper paid station$`, st.freshMixedFreeAndCheaperPaid)
 	sc.Step(`^a fresh AGENT session with a free-flagged band whose stations are all paid$`, st.staleFreeFlaggedAllPaid)
 	sc.Step(`^the bound station is genuinely free$`, st.boundStationIsGenuinelyFree)
+	sc.Step(`^the only free band pairs a free 8k station with a paid 32k sibling$`, st.onlyFreeBandSmallBesidePaidLarge)
 	sc.Step(`^an AGENT session whose last band "([^"]*)" is still on air$`, st.lastBandStillOnAir)
 	sc.Step(`^the desk scan lands guest "([^"]*)"$`, st.deskScanLandsGuest)
 	sc.Step(`^the desk scan lands no guests$`, st.deskScanLandsNoGuests)
