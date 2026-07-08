@@ -224,6 +224,13 @@ func (b *broker) markMeasured(nodeID string) {
 		return
 	}
 	now := time.Now()
+	// Whether THIS instance may refresh the shared verified-tools field for the node: ONLY the
+	// authoritative poll host. A non-authoritative peer's b.toolsOK can be a STALE monotonic bit
+	// (a peer's earlier pass that a later regression never cleared - only the host clears), so a
+	// peer re-marking from it would re-poison a verdict the host retracted. authoritativeFor takes
+	// b.mu, so resolve it BEFORE metricsMu (the established b.mu -> metricsMu order). Single-
+	// instance has no shared field to refresh.
+	canRefreshTools := b.shared != nil && b.authoritativeFor(nodeID, now)
 	b.metricsMu.Lock()
 	sched := b.probeSchedLocked()
 	st := sched[nodeID]
@@ -244,7 +251,7 @@ func (b *broker) markMeasured(nodeID string) {
 	// verified models here too - THROTTLED (at most once per toolsRefreshEvery) so the hot settle
 	// path never writes Valkey per request. Collect under the lock; mark outside it (network I/O).
 	var refresh []string
-	if b.shared != nil && now.Sub(b.lastToolMark[nodeID]) > toolsRefreshEvery {
+	if canRefreshTools && now.Sub(b.lastToolMark[nodeID]) > toolsRefreshEvery {
 		pfx := nodeID + "\x00"
 		for k := range b.toolsOK {
 			if strings.HasPrefix(k, pfx) {

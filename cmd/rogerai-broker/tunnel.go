@@ -204,12 +204,13 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusUnauthorized, "registration timestamp stale or skewed")
 		return
 	}
-	// VERIFIED-not-declared: strip a node-declared "tools" from every offer at this ONE
-	// node-facing door. A node can NEVER earn "tools" by asserting it (unlike "vision", which
-	// stays declared); only the broker's own tool-call canary stamps it (recordToolProbe). So
-	// after this strip the only path to a verified "tools" on an offer is a peer's authoritative
-	// stamp via the shared registry, and the local probe verdict (b.toolsOK) at emission. See
-	// features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
+	// VERIFIED-not-declared: strip a node-declared "tools" from every offer at this node-facing
+	// door. A node can NEVER earn "tools" by asserting it (unlike "vision", which stays declared);
+	// only the broker's own tool-call canary grants it, via the FIRST-CLASS shared verdict store.
+	// This strip is defence-in-depth: emission (withVerifiedTools) ALSO strips a stored "tools"
+	// and re-adds it only from the probe verdict, so an ingestion path that bypasses this door
+	// (shared-registry mirror, lazy learn, DB re-hydrate) still cannot leak an unproven "tools".
+	// See features/trust/toolcall_probe.feature ("A node CANNOT earn 'tools' merely by declaring it").
 	for i := range reg.Offers {
 		reg.Offers[i].Capabilities = stripDeclaredTools(reg.Offers[i].Capabilities)
 	}

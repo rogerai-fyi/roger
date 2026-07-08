@@ -407,9 +407,10 @@ func (b *broker) computeMarket() any {
 				a = &acc{modality: offerModality(o.Modality), capsUnion: map[string]bool{}}
 				agg[o.Model] = a
 			}
-			// Union in the VERIFIED "tools" bit (this instance's probe verdict, or a peer's
-			// stamp on o.Capabilities) exactly like the per-offer feed, so the aggregated /market
-			// capabilities carry it too. metricsMu is held here, so b.toolsOK is safe to read.
+			// Union in the VERIFIED "tools" bit (toolsVerifiedForLocked: this instance's own
+			// verdict single-instance, or the synced cross-instance union multi-instance) exactly
+			// like the per-offer feed, so the aggregated /market capabilities carry it too;
+			// withVerifiedTools also strips any stored declared "tools". metricsMu is held here.
 			if caps := withVerifiedTools(o.Capabilities, b.toolsVerifiedForLocked(n.NodeID, o.Model)); caps != nil { // declared/verified vs undetermined (nil)
 				a.capsSeen = true
 				for _, c := range caps { // canonicalized: unknown wire values already dropped

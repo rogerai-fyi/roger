@@ -166,6 +166,10 @@ func TestMarkMeasuredRefreshesToolsShared(t *testing.T) {
 	b := newMIBroker(t, brokerPriv, store.NewMem(), mr)
 	b.toolsOK, b.toolsMerged, b.lastToolMark = map[string]bool{}, map[string]bool{}, map[string]time.Time{}
 	b.probe = probeConfig{interval: 30 * time.Second, ceiling: 15 * time.Minute}
+	if b.localPollAt == nil {
+		b.localPollAt = map[string]time.Time{}
+	}
+	b.localPollAt["n1"] = time.Now() // THIS instance hosts the poll => authoritative refresher
 	b.metricsMu.Lock()
 	b.toolsOK[toolKey("n1", "m")] = true
 	b.metricsMu.Unlock()
@@ -190,5 +194,39 @@ func TestMarkMeasuredRefreshesToolsShared(t *testing.T) {
 	b.metricsMu.Unlock()
 	if !again.Equal(last) {
 		t.Fatal("served-traffic tool refresh was not throttled (wrote Valkey again within toolsRefreshEvery)")
+	}
+}
+
+// TestMarkMeasuredNonAuthoritativePeerDoesNotRePoison is the REGRESSION GUARD for the pre-push
+// audit's round-3 finding: a NON-authoritative peer must NOT refresh the shared verified-tools
+// field from its own stale toolsOK. Scenario: the peer's probe once passed (peer.toolsOK=true),
+// the authoritative host later cleared the regression from the shared store, then relayed traffic
+// settles on the peer (markMeasured). The peer must NOT re-mark the cleared field.
+func TestMarkMeasuredNonAuthoritativePeerDoesNotRePoison(t *testing.T) {
+	mr := miniredis.RunT(t)
+	_, brokerPriv, _ := ed25519.GenerateKey(nil)
+	peer := newMIBroker(t, brokerPriv, store.NewMem(), mr)
+	peer.toolsOK, peer.toolsMerged, peer.lastToolMark = map[string]bool{}, map[string]bool{}, map[string]time.Time{}
+	peer.probe = probeConfig{interval: 30 * time.Second, ceiling: 15 * time.Minute}
+	if peer.localPollAt == nil {
+		peer.localPollAt = map[string]time.Time{}
+	}
+	// The peer's own earlier pass left a STALE local bit; it does NOT host the node's poll.
+	peer.metricsMu.Lock()
+	peer.toolsOK[toolKey("n1", "m")] = true
+	peer.metricsMu.Unlock()
+	// The shared field is CLEARED (the authoritative host retracted the regressed verdict).
+	if err := peer.shared.clearToolsVerified("n1", "m"); err != nil {
+		t.Fatal(err)
+	}
+
+	peer.markMeasured("n1") // relayed traffic settles on the non-authoritative peer
+
+	got, err := peer.shared.toolsVerified(toolsVerifiedTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[toolKey("n1", "m")] {
+		t.Fatal("a non-authoritative peer's served traffic RE-POISONED the host-cleared verdict (audit round-3 bug)")
 	}
 }

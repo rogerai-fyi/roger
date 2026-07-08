@@ -94,9 +94,10 @@ type broker struct {
 	// It is verified-not-declared - a node CANNOT set it by declaring "tools" (that is stripped
 	// at registration); only a passing canary writes it, and a definitive regression clears it
 	// (a transient/dispatch non-verdict never does). Keyed by toolKey(node, model). Guarded by
-	// metricsMu. The authoritative poll host mirrors the bit into the shared node registry so a
-	// peer surfaces it via the offer's Capabilities (union). See probe.go / toolcall.go and
-	// features/trust/toolcall_probe.feature.
+	// metricsMu. It is this instance's OWN verdict: it mirrors to the FIRST-CLASS shared verdict
+	// store (shared.markToolsVerified / clearToolsVerified), NOT into the registration JSON, and
+	// a peer reads the cross-instance union via toolsMerged. It is the emission source only
+	// single-instance. See probe.go / toolcall.go and features/trust/toolcall_probe.feature.
 	toolsOK map[string]bool
 	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
 	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
