@@ -32,23 +32,23 @@ type proxyState struct {
 	broker string
 
 	// broker behavior (set by Given steps)
-	status            int
-	cost              string
-	retryAfter        string
-	provider          string
-	contentType       string
-	respBody          string
-	extraHeaders      map[string]string
-	streaming         bool
-	streamLines       []string // when set, the streaming stub emits these SSE events verbatim (no trickle)
-	brokerContentDeltas int    // how many content-bearing deltas the stub emits (to detect a synthesized one)
-	trickleN          int
-	trickleGap        time.Duration
-	chatSleep         time.Duration // >0: never sends a response header (triggers the header timeout)
-	always503         bool
-	failFirstUnpinned bool
-	discoverBody      string
-	unreachable       bool
+	status              int
+	cost                string
+	retryAfter          string
+	provider            string
+	contentType         string
+	respBody            string
+	extraHeaders        map[string]string
+	streaming           bool
+	streamLines         []string // when set, the streaming stub emits these SSE events verbatim (no trickle)
+	brokerContentDeltas int      // how many content-bearing deltas the stub emits (to detect a synthesized one)
+	trickleN            int
+	trickleGap          time.Duration
+	chatSleep           time.Duration // >0: never sends a response header (triggers the header timeout)
+	always503           bool
+	failFirstUnpinned   bool
+	discoverBody        string
+	unreachable         bool
 
 	// recorded from the broker (last chat request)
 	mu              sync.Mutex
@@ -68,8 +68,8 @@ type proxyState struct {
 	sessionKey string
 
 	// request outcome
-	rec         *httptest.ResponseRecorder
-	sentFields  map[string]json.RawMessage
+	rec             *httptest.ResponseRecorder
+	sentFields      map[string]json.RawMessage
 	served          int32
 	refused         int32
 	callsSnapshot   int32

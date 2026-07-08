@@ -1115,12 +1115,14 @@ const maxSSELine = 1 << 20
 // streamRelayBody copies an SSE relay stream to the client, flushing per event so streaming
 // works end-to-end, and scanning for the broker's `: rogerai-cost=` meter comment (returned as
 // the stream's only cost signal). When reasoningFallbackOn and the whole stream emitted
-// reasoning deltas but ZERO visible content, it injects ONE synthesized content delta carrying
-// the accumulated reasoning immediately BEFORE the terminal [DONE] (or at EOF if the provider
-// sent none) - the fix for strict clients (hermes -z) that see empty content and fail. v1
-// limitation: the reasoning is delivered as a single consolidated delta at stream end, not
-// re-chunked live as it arrives. Everything else - the original reasoning deltas (the accepted
-// double-mirror), the finish chunk, [DONE], and the meter comment - passes through byte-for-byte.
+// reasoning deltas but ZERO visible content, it injects ONE synthesized content delta (per
+// choice) carrying the accumulated reasoning immediately BEFORE that choice's finish_reason
+// chunk (or before [DONE]/at EOF if none) - so a strict client (hermes -z) that finalizes on
+// finish_reason still sees the content. The synthesized chunk copies id/object/created/model
+// from the last observed chunk so it is a well-formed sibling. v1 limitation: the reasoning is
+// delivered as a single consolidated delta at stream end, not re-chunked live as it arrives.
+// Everything else - the original reasoning deltas (the accepted double-mirror), the finish
+// chunk, [DONE], and the meter comment - passes through byte-for-byte.
 func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn bool) (sseCost float64) {
 	flusher, _ := w.(http.Flusher)
 	meter := &sseMeter{}
@@ -1160,47 +1162,77 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		}
 		return b
 	}
-	injected := false
+	injected := map[int]bool{} // per-choice latch: which choices we've already resolved
+	// Envelope metadata copied from the last observed chunk so a synthesized chunk is a
+	// well-formed sibling (some strict SDK parsers require id/object/model on every chunk).
+	var lastID, lastObject, lastModel string
+	var lastCreated json.Number
 
-	// synthesize writes one content delta per choice that emitted reasoning but no visible
-	// content (and no tool_calls - a tool turn's empty content is intentional), in ascending
-	// index order (deterministic). It is the whole fix, in one place.
-	synthesize := func() {
-		if injected {
+	// synthesizeChoice writes the reasoning->content delta for ONE choice, once. It is a no-op
+	// when the choice has real content, a tool_calls turn (empty content is intentional), or no
+	// reasoning to surface. Per-choice (not a global latch) so an n>1 stream can't get a
+	// premature or duplicated delta on another choice's finish.
+	synthesizeChoice := func(idx int) {
+		if injected[idx] {
 			return
 		}
-		injected = true
+		injected[idx] = true
+		if toolCalls[idx] {
+			return
+		}
+		r := ""
+		if rb := reasoningBuf[idx]; rb != nil {
+			r = rb.String()
+		}
+		content := ""
+		if cb := contentBuf[idx]; cb != nil {
+			content = cb.String()
+		}
+		text, ok := reasoningFallback(content, r, "")
+		if !ok {
+			return
+		}
+		chunk := map[string]any{
+			"choices": []any{map[string]any{"index": idx, "delta": map[string]any{"content": text}}},
+		}
+		if lastID != "" {
+			chunk["id"] = lastID
+		}
+		if lastObject != "" {
+			chunk["object"] = lastObject
+		}
+		if lastCreated != "" {
+			chunk["created"] = lastCreated
+		}
+		if lastModel != "" {
+			chunk["model"] = lastModel
+		}
+		payload, _ := json.Marshal(chunk)
+		write([]byte("data: " + string(payload) + "\n\n"))
+	}
+
+	// synthesizeAll resolves every choice that emitted reasoning (ascending index, deterministic)
+	// - the terminal catch-all for choices that never carried an explicit finish_reason.
+	synthesizeAll := func() {
 		idxs := make([]int, 0, len(reasoningBuf))
 		for idx := range reasoningBuf {
 			idxs = append(idxs, idx)
 		}
 		sort.Ints(idxs)
 		for _, idx := range idxs {
-			if toolCalls[idx] {
-				continue // don't overwrite a tool-call turn's (legitimately empty) content
-			}
-			r := reasoningBuf[idx].String()
-			content := ""
-			if cb := contentBuf[idx]; cb != nil {
-				content = cb.String()
-			}
-			if text, ok := reasoningFallback(content, r, ""); ok {
-				payload, _ := json.Marshal(map[string]any{
-					"choices": []any{map[string]any{
-						"index": idx,
-						"delta": map[string]any{"content": text},
-					}},
-				})
-				write([]byte("data: " + string(payload) + "\n\n"))
-			}
+			synthesizeChoice(idx)
 		}
 	}
 
-	// observe parses a data: JSON line to track content/reasoning/tool_calls deltas per choice,
-	// returning true when the chunk carries a finish_reason (the point to inject BEFORE, so the
-	// synthesized content lands ahead of the turn being marked finished - the strict-client fix).
-	observe := func(payload string) (finished bool) {
+	// observe parses a data: JSON line to track content/reasoning/tool_calls deltas and envelope
+	// metadata per choice, returning the choice indices whose chunk carried a finish_reason (the
+	// point to inject BEFORE, so the synthesized content lands ahead of THAT choice finishing).
+	observe := func(payload string) (finishedIdx []int) {
 		var d struct {
+			ID      string      `json:"id"`
+			Object  string      `json:"object"`
+			Created json.Number `json:"created"`
+			Model   string      `json:"model"`
 			Choices []struct {
 				Index        int             `json:"index"`
 				FinishReason json.RawMessage `json:"finish_reason"`
@@ -1213,7 +1245,19 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 			} `json:"choices"`
 		}
 		if json.Unmarshal([]byte(payload), &d) != nil {
-			return false
+			return nil
+		}
+		if d.ID != "" {
+			lastID = d.ID
+		}
+		if d.Object != "" {
+			lastObject = d.Object
+		}
+		if d.Created != "" {
+			lastCreated = d.Created
+		}
+		if d.Model != "" {
+			lastModel = d.Model
 		}
 		for _, c := range d.Choices {
 			if c.Delta.Content != "" {
@@ -1233,10 +1277,10 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 				toolCalls[c.Index] = true
 			}
 			if fr := strings.TrimSpace(string(c.FinishReason)); fr != "" && fr != "null" {
-				finished = true
+				finishedIdx = append(finishedIdx, c.Index)
 			}
 		}
-		return finished
+		return finishedIdx
 	}
 
 	// Line-buffered forwarding: hold each line so the synthesized delta can be injected BEFORE
@@ -1268,13 +1312,13 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 			if strings.HasPrefix(text, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(text, "data:"))
 				if payload == "[DONE]" {
-					synthesize() // inject before the terminal sentinel (fallback if no finish chunk)
+					synthesizeAll() // resolve any remaining choices before the terminal sentinel
 					write(line)
 					line = line[:0]
 					continue
 				}
-				if observe(payload) {
-					synthesize() // inject BEFORE the finish chunk so content precedes finish_reason
+				for _, idx := range observe(payload) {
+					synthesizeChoice(idx) // inject BEFORE this choice's finish chunk
 				}
 			}
 			write(line)
@@ -1297,7 +1341,7 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		}
 		write(line)
 	}
-	synthesize() // no [DONE]/finish seen (or already injected -> no-op): best-effort at EOF
+	synthesizeAll() // no [DONE]/finish seen (or already resolved -> no-op): best-effort at EOF
 	return meter.cost
 }
 

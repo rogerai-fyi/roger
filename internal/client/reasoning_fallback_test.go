@@ -254,6 +254,63 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		}
 	})
 
+	t.Run("synthesized chunk copies id/object/created/model from the last chunk", func(t *testing.T) {
+		body := `data: {"id":"chatcmpl-9","object":"chat.completion.chunk","created":1700000000,"model":"gpt-oss-120b","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		// Find the synthesized chunk (the one carrying content) and check its envelope.
+		var synth map[string]any
+		for _, raw := range strings.Split(rec.Body.String(), "\n") {
+			line := strings.TrimSpace(raw)
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			p := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if p == "[DONE]" {
+				continue
+			}
+			var m map[string]any
+			if json.Unmarshal([]byte(p), &m) == nil {
+				if ch, _ := m["choices"].([]any); len(ch) > 0 {
+					if d, _ := ch[0].(map[string]any)["delta"].(map[string]any); d["content"] != nil {
+						synth = m
+					}
+				}
+			}
+		}
+		if synth == nil {
+			t.Fatalf("no synthesized chunk found: %q", rec.Body.String())
+		}
+		if synth["id"] != "chatcmpl-9" || synth["object"] != "chat.completion.chunk" || synth["model"] != "gpt-oss-120b" {
+			t.Fatalf("synthesized envelope missing id/object/model: %+v", synth)
+		}
+		if synth["created"] == nil {
+			t.Fatalf("synthesized envelope missing created: %+v", synth)
+		}
+	})
+
+	t.Run("n>1: only the reasoning-only choice is synthesized, no duplicate on the content choice", func(t *testing.T) {
+		body := `data: {"choices":[{"index":0,"delta":{"content":"hi"}}]}` + "\n\n" +
+			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
+			`data: {"choices":[{"index":1,"delta":{"reasoning":"think"}}]}` + "\n\n" +
+			`data: {"choices":[{"index":1,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		out := rec.Body.String()
+		if strings.Count(out, `"content":"hi"`) != 1 {
+			t.Fatalf("choice 0 content duplicated/altered: %q", out)
+		}
+		if strings.Count(out, `"content":"think"`) != 1 {
+			t.Fatalf("choice 1 should get exactly one synthesized content delta: %q", out)
+		}
+		// The synthesized content for choice 1 must reference index 1, and precede choice 1's finish.
+		ci := strings.Index(out, `"content":"think"`)
+		fi := strings.LastIndex(out, "finish_reason")
+		if ci < 0 || ci > fi {
+			t.Fatalf("choice-1 synthesized content not before its finish: %q", out)
+		}
+	})
+
 	t.Run("CRLF line endings pass through byte-for-byte", func(t *testing.T) {
 		body := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
 		rec := httptest.NewRecorder()
