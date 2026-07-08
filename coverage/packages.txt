@@ -3,7 +3,7 @@
   94.7%  github.com/rogerai-fyi/roger/cmd/tokenizer-sidecar
   92.7%  github.com/rogerai-fyi/roger/internal/agent
   90.3%  github.com/rogerai-fyi/roger/internal/audio
-  95.8%  github.com/rogerai-fyi/roger/internal/client
+  95.7%  github.com/rogerai-fyi/roger/internal/client
   91.5%  github.com/rogerai-fyi/roger/internal/detect
  100.0%  github.com/rogerai-fyi/roger/internal/glyphs
   99.6%  github.com/rogerai-fyi/roger/internal/harness
@@ -16,4 +16,4 @@
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer
   92.3%  github.com/rogerai-fyi/roger/internal/tui
   98.9%  github.com/rogerai-fyi/roger/internal/update
-  95.2%  github.com/rogerai-fyi/roger/internal/webui
+  95.6%  github.com/rogerai-fyi/roger/internal/webui
