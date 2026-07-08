@@ -515,7 +515,8 @@ func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult
 // higher - which is directionally correct (the node genuinely tokenizes that text) and
 // benign: recount only ever bills min(claimed, recounted) and only flags a node whose CLAIM
 // exceeds the recount, so a larger, more accurate recount reduces false discrepancy flags on
-// honest nodes. It never raises what a caller is billed.
+// honest nodes. It never bills above the node's claim (a tool-heavy recount can rise toward
+// that claim, but not past it).
 func promptText(body []byte) string {
 	var req struct {
 		Messages []struct {
