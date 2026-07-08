@@ -51,7 +51,21 @@ func TestMultiInstanceToolCallCanaryCrossesBus(t *testing.T) {
 			return
 		}
 		res := miSignedResult(job.ID, "p1", "free-m", "", nodePriv, 200)
-		res.Body = []byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"roger_probe_ack","arguments":"{\"ok\":true}"}}]}}]}`)
+		// Echo the fresh per-probe nonce A wove into the canary (the forced tool's name), so a
+		// genuine tool-honoring reply crosses the bus and earns the bit under the nonce check.
+		var creq struct {
+			Tools []struct {
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tools"`
+		}
+		_ = json.Unmarshal(job.Body, &creq)
+		fn := ""
+		if len(creq.Tools) > 0 {
+			fn = creq.Tools[0].Function.Name
+		}
+		res.Body = []byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"` + fn + `","arguments":"{\"token\":\"x\"}"}}]}}]}`)
 		rb, _ := json.Marshal(res)
 		rr := httptest.NewRequest(http.MethodPost, "/agent/result?node=p1", bytes.NewReader(rb))
 		rr.Header.Set("Authorization", miNodeBearer(token))
