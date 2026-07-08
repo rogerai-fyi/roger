@@ -14,6 +14,6 @@
   95.7%  github.com/rogerai-fyi/roger/internal/protocol
   91.9%  github.com/rogerai-fyi/roger/internal/store
   98.1%  github.com/rogerai-fyi/roger/internal/tokenizer
-  92.5%  github.com/rogerai-fyi/roger/internal/tui
+  92.4%  github.com/rogerai-fyi/roger/internal/tui
   98.9%  github.com/rogerai-fyi/roger/internal/update
   95.2%  github.com/rogerai-fyi/roger/internal/webui
