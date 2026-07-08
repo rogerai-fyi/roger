@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<!-- Field-guide broadcast 004 (supply side). SEO/AEO format: Quick Answer + question-H2s + FAQ
+     schema + internal links to /manual, /models, /payouts. Assets: a Flux GPU-transmitter-tower
+     hero + a Flux "community tunes in" figure + an inline theme-adaptive SVG flow diagram.
+     Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="How to share your GPU for AI and earn" desc="Turn an idle GPU into a private, earning AI node with one command. What roger share does, how pricing and 70% Stripe payouts work, whether it's safe, and free vs. earn - the provider's field guide." theme=external og=post ogtype=article ogtitle="How to share your GPU for AI and earn" ogdesc="Turn an idle GPU into an earning AI node with one command. Pricing, 70% payouts, safety, and free vs. earn - the provider's guide." ogurl="https://rogerai.fyi/broadcasts-share-gpu-earn.html" ogimage="https://rogerai.fyi/assets/broadcasts/share-hero.png" -->
+</head>
+<body>
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 004 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-07">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">How to share your GPU for AI - and earn</h1>
+        <p class="bc-post__dek">
+          That idle GPU can answer for the whole band. Here is how to put it on the air with one
+          command, what you can earn, and why it is safe to do.
+        </p>
+      </header>
+
+      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+        <img src="assets/broadcasts/share-hero.png" width="1280" height="560" style="display:block;width:100%;height:auto;border-radius:6px;"
+             alt="A graphics card mounted on a radio broadcast transmitter tower with a red beacon, broadcasting signal, in the RogerAI operating-manual style." loading="lazy" />
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - PUT YOUR STATION ON THE AIR</figcaption>
+      </figure>
+
+      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+        <b>Quick answer.</b> Run <code>roger share</code> and your machine's local model goes on the
+        air as an AI node. It's free with no login by default; set a price (dollars per million
+        tokens) to earn instead - you keep <b>70%</b>, paid out through Stripe. The connection is
+        outbound-only, and every prompt is moderated before it ever reaches you.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          Most GPUs sit idle most of the day. RogerAI lets you lend that idle time to people who
+          need a model you can already run - as a free contribution to the open band, or priced so
+          the capacity earns while you sleep. It takes one command and does not open your machine to
+          the internet.
+        </p>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; Going on air</span>
+          <h2>How do I share my GPU?</h2>
+          <p>
+            One command: <code>roger share</code>. It auto-detects your local, OpenAI-compatible
+            model server - Ollama, LM Studio, llama.cpp, vLLM, Jan, LiteLLM, or anything serving
+            <code>/v1/models</code> - and puts that model on the air. Bare <code>roger share</code> is
+            <b>free and needs no account</b>. First time out:
+          </p>
+          <ul class="bc-dial">
+            <li><code>roger onboard --free</code> then <code>roger share</code> - the guided start.</li>
+            <li><code>roger share gpt-oss-120b</code> - put a specific model on the air.</li>
+            <li>Your node gets an anonymous callsign (like <code>brave-otter</code>) - never your hostname or port.</li>
+          </ul>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The signal path</span>
+          <h2>How does sharing actually work?</h2>
+          <p>
+            Your machine <b>dials out</b> to the broker - "the band" - and waits for work. It never
+            opens an inbound port. The broker screens each prompt, matches it to a listener, and
+            hands it to your model; you answer locally and return a signed receipt.
+          </p>
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img" style="width:100%;height:auto"
+                 aria-label="Flow diagram: 1) roger share puts your local model on the band; 2) the broker screens every prompt and routes it to your node; 3) you serve it, sign the receipt, and keep 70 percent, cashed out via Stripe.">
+              <style>
+                .d-box{fill:currentColor;opacity:.04}.d-stroke{stroke:currentColor;fill:none;opacity:.32}
+                .d-arrow{stroke:currentColor;opacity:.5;fill:none}.d-live{fill:#E0231C}
+                .d-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .d-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
+                .d-b{font-family:"JetBrains Mono",monospace;font-size:12.5px;fill:currentColor;opacity:.8}
+                .d-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+              </style>
+              <text x="24" y="30" class="d-cap">FIG. 2 - HOW A SHARE GOES ON AIR</text>
+              <line x1="24" y1="44" x2="796" y2="44" class="d-stroke"/>
+              <!-- box 1 -->
+              <rect x="30" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="30" y="78" width="220" height="120" rx="10" class="d-stroke"/>
+              <circle cx="52" cy="104" r="5" class="d-live"/><text x="66" y="109" class="d-no">1 &#183; GO ON AIR</text>
+              <text x="48" y="140" class="d-h">roger share</text>
+              <text x="48" y="162" class="d-b">puts your local model</text>
+              <text x="48" y="180" class="d-b">on the band (free by default)</text>
+              <!-- arrow 1->2 -->
+              <path d="M250 138 H288" class="d-arrow"/><path d="M282 132 L290 138 L282 144" class="d-arrow"/>
+              <!-- box 2 -->
+              <rect x="295" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="295" y="78" width="220" height="120" rx="10" class="d-stroke"/>
+              <text x="313" y="109" class="d-no">2 &#183; THE BAND ROUTES</text>
+              <text x="313" y="140" class="d-h">broker</text>
+              <text x="313" y="162" class="d-b">screens every prompt,</text>
+              <text x="313" y="180" class="d-b">routes a listener to you</text>
+              <!-- arrow 2->3 -->
+              <path d="M515 138 H553" class="d-arrow"/><path d="M547 132 L555 138 L547 144" class="d-arrow"/>
+              <!-- box 3 -->
+              <rect x="560" y="78" width="220" height="120" rx="10" class="d-box"/><rect x="560" y="78" width="220" height="120" rx="10" class="d-stroke"/>
+              <text x="578" y="109" class="d-no">3 &#183; YOU EARN</text>
+              <text x="578" y="140" class="d-h">serve + sign</text>
+              <text x="578" y="162" class="d-b">the receipt, keep</text>
+              <text x="578" y="180" class="d-b"><tspan class="d-live" style="font-weight:700">70%</tspan> - Stripe payout</text>
+              <text x="24" y="234" class="d-b" style="opacity:.6">Outbound only: no inbound ports, no shell, no files. The bridge exposes just your model's port.</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 2 - One command on air, screened by the band, paid on a signed receipt.</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Earning</span>
+          <h2>How much can I earn?</h2>
+          <p>
+            You set two prices - <b>input</b> and <b>output</b>, in dollars per million tokens
+            (<code>--price-in</code>, <code>--price-out</code>). The default is <b>0/0</b>, which is
+            free. The earn wizard suggests <b>$0.20 in / $0.30 out</b> per million to start. You keep
+            <b>70%</b> of what your node bills; the rest is the platform's cut. Price against live
+            rates for your model on the <a href="/models.html">model directory</a> so you stay
+            competitive - and <code>roger onboard --earn</code> walks you through pricing and login.
+          </p>
+          <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+            <img src="assets/broadcasts/share-reach.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+                 alt="One transmitter broadcasting to several small receiver radios tuned in, RogerAI operating-manual illustration." loading="lazy" />
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 - ONE STATION, THE WHOLE BAND TUNING IN</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; Safety</span>
+          <h2>Is it safe to share my GPU?</h2>
+          <p>
+            Yes, by design. The connection is <b>outbound-only</b>: no inbound ports, no public URL,
+            no shell, no file access, no context - the bridge exposes only your model's port. Your
+            upstream API key never leaves the machine (it's stripped from anything relayed back).
+            Every request is <b>moderated by the broker before it reaches you</b>, so illegal content
+            is blocked upstream and never touches your GPU. Your node signs every receipt with a
+            local key, and your callsign is anonymous - your hostname and location stay private.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Payouts</span>
+          <h2>How and when do I get paid?</h2>
+          <p>
+            Earning takes a one-time <code>roger login</code> (GitHub). Payouts run on <b>Stripe
+            Connect</b> - Stripe handles identity verification and pays to your bank; RogerAI never
+            stores your documents. Earnings accrue as you serve, then release under a simple policy:
+            <b>$25 minimum</b>, a <b>120-day hold</b> (it covers the chargeback window), paid out
+            <b>monthly</b>. Manage it with <code>roger payout status</code>,
+            <code>roger payout request</code>, and friends - full details on the
+            <a href="/payouts.html">payouts page</a>. Earnings even accrue before your verification
+            clears; you just can't withdraw until it does.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; Free or earn</span>
+          <h2>Should I share for free or to earn?</h2>
+          <p>
+            Both are one command apart. <b>Free</b> (<code>roger share</code>, no login) is the
+            fastest way to add capacity to the open band and help the community - perfect for spare
+            cycles. <b>Earn</b> (set a price, log in) turns idle time into income. You don't have to
+            choose forever: a paid node can still broadcast free during a daily
+            <code>--free-window</code> or on a schedule, and <code>roger share --private</code> keeps
+            a node off the public market, reachable only by a secret code. The full command reference
+            is in the <a href="/manual.html">operating manual</a>.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <dl class="bc-faq">
+            <dt><b>Do I need a GPU to share?</b></dt>
+            <dd>You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement.</dd>
+            <dt><b>Is sharing my GPU free, or do I earn?</b></dt>
+            <dd>Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 70%.</dd>
+            <dt><b>How much can I earn sharing my GPU?</b></dt>
+            <dd>You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 70% of what your node bills.</dd>
+            <dt><b>Is it safe to let strangers use my GPU?</b></dt>
+            <dd>Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous.</dd>
+            <dt><b>When do I get paid?</b></dt>
+            <dd>Payouts run on Stripe Connect with a $25 minimum, a 120-day hold, and monthly release. Earning requires a one-time GitHub login and Stripe identity verification; earnings accrue in the meantime.</dd>
+            <dt><b>Can I stop sharing anytime?</b></dt>
+            <dd>Yes - just stop <code>roger share</code>. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Put your idle GPU on the air - install the set and go live:
+          <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Do I need a GPU to share?","acceptedAnswer":{"@type":"Answer","text":"You need a machine running a local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, vLLM, and others). A GPU is what makes it fast and worth sharing; the model server is the actual requirement."}},{"@type":"Question","name":"Is sharing my GPU free, or do I earn?","acceptedAnswer":{"@type":"Answer","text":"Your choice. The default is free and needs no login. Set a price (dollars per million tokens, input and output) to earn instead - you keep 70%."}},{"@type":"Question","name":"How much can I earn sharing my GPU?","acceptedAnswer":{"@type":"Answer","text":"You set the price, so it depends on your rate, how in-demand your model is, and your uptime. The earn wizard suggests $0.20 in / $0.30 out per million tokens to start, and you keep 70% of what your node bills."}},{"@type":"Question","name":"Is it safe to let strangers use my GPU?","acceptedAnswer":{"@type":"Answer","text":"Yes. The connection is outbound-only - no inbound ports, no shell, no file access - and exposes only your model's port. Every prompt is moderated by the broker before it reaches you, your API key never leaves your machine, and your callsign is anonymous."}},{"@type":"Question","name":"When do I get paid?","acceptedAnswer":{"@type":"Answer","text":"Payouts run on Stripe Connect with a $25 minimum, a 120-day hold, and monthly release. Earning requires a one-time GitHub login and Stripe identity verification; earnings accrue in the meantime."}},{"@type":"Question","name":"Can I stop sharing anytime?","acceptedAnswer":{"@type":"Answer","text":"Yes - just stop roger share. If you restart, your node comes back under the same anonymous callsign, and shares survive broker restarts automatically."}}]}</script>
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
