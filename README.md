@@ -2,6 +2,22 @@
 
 [![coverage](https://rogerai-fyi.github.io/roger/coverage/badge.svg)](https://rogerai-fyi.github.io/roger/coverage/packages.html)
 
+```
+             ·   ˙   ·
+           ˙ ((  •  )) ˙                   ┌──────────────┐
+              \(   )/                      │ ((•)) ON AIR │
+               │ R │         ▟█▙           └──────────────┘
+   ┌───────────┴───┴──────────█───────────────────────────┐
+   │  ◉ ch 01 · on band gpt-oss-20b · 42 tok/s   ▂ ▄ ▆ █  │
+   ╰┬────────────────────────────────────────────────────┬╯
+    ▔                                                    ▔
+
+        █▀▀█ █▀▀█ █▀▀▀ █▀▀▀ █▀▀█     █▀▀█ ▀█▀  ▄
+        █▀▀▄ █  █ █ ▀█ █▀▀  █▀▀▄  ▄  █▀▀█  █   █
+        ▀  ▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀  ▀     ▀  ▀ ▀▀▀  ▀
+             borrow a GPU, pay by the token · roger that.
+```
+
 **A two-way radio for GPUs.** RogerAI is a marketplace for crowd-sourced, self-hosted LLMs:
 people run open models on their own GPUs and go "on air"; you tune in and pay per token. Every
 token carries a **model-lineage record** - a receipt signed by the provider and counter-signed
@@ -31,7 +47,7 @@ roger remote                  # your private BASE STATION: continue an agent ses
 
 Inside the agent (`[0] AGENT`), `/remote-control` puts the live session on your private **Base
 Station** so you can pick it up from another terminal (`roger remote attach <code>`), the web
-console, or the app — private to your account, one-time link codes for a phone. Tools keep
+console, or the app - private to your account, one-time link codes for a phone. Tools keep
 running on the host and still ask before anything mutating.
 
 `roger use` (or the TUI's "tune in") exposes `http://127.0.0.1:4141/v1` with an API key - point
