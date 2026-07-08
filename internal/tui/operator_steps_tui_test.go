@@ -74,6 +74,7 @@ type opBDD struct {
 	budgetAtSeed  float64           // holder budget at seed (the "unchanged" baseline)
 	launchWorkdir string            // what the operatorWorkdir seam resolves for this scenario
 	tuiPaths      map[string]string // guest bin -> fake path for the TUI-side detect seam
+	deskMkt       []offer           // accumulated market offers for the pickAutoBand pure steps
 
 	// money servers (real HTTP through the real proxy handler)
 	brokerSrv *httptest.Server
@@ -267,18 +268,20 @@ func (s *opBDD) proxyCallsCosts(costs []string) error {
 func (s *opBDD) seedTUI(bandModel string) {
 	m := browseSeed(120)
 	m.mouseOff = false // the handoff specs default to "the user has the mouse on"
-	var tm tea.Model = m
-	tm, _ = tm.Update(keyMsg("0"))
-	mm := asModel(tm)
+	// Wire the live proxy holder BEFORE entering AGENT - the real order is "tune in, then
+	// [0]", so enterAgent sees a live channel and lands on the ask prompt (not the fresh
+	// DESK auto-tune landing, which is only for a genuinely fresh session with no holder).
 	if bandModel != "" {
 		s.startMoneyServers(bandModel)
-		mm.proxyHolder = s.holder
-		mm.endpoint = s.proxySrv.URL + "/v1"
-		mm.broker = s.brokerSrv.URL
+		m.proxyHolder = s.holder
+		m.endpoint = s.proxySrv.URL + "/v1"
+		m.broker = s.brokerSrv.URL
 		s.keyAtSeed = s.holder.Get().SessionKey
 		s.budgetAtSeed = s.holder.Get().Budget
 	}
-	s.tm = mm
+	var tm tea.Model = m
+	tm, _ = tm.Update(keyMsg("0"))
+	s.tm = asModel(tm)
 }
 
 func (s *opBDD) agentSessionAtPrompt() error {
@@ -1963,6 +1966,9 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── Phase 3: THE DESK view · band gate · pre-launch plate ─────────────────
 	initializePhase3Steps(st, sc)
+
+	// ── AGENT [0] desk-entry redesign: focus, auto-tune, badges ───────────────
+	initializeDeskEntryScenarios(st, sc)
 
 	// ── operator frame enrichment (rc_enrichment.feature) ─────────────────────
 	initializeEnrichmentSteps(st, sc)

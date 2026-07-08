@@ -310,6 +310,12 @@ var (
 	glyphVerify = glyphConf
 )
 
+// bandCapGlyph resolves a band-badge capability mark LIVE from the current glyph set
+// (unlike the package-init glyph vars above), so a test that flips ROGERAI_ASCII after
+// init sees the ASCII fold. agentReadyGlyph carries its inferred "~" at the call site.
+func agentReadyGlyph() string { return glyphs.Current().AgentReady }
+func visionGlyph() string     { return glyphs.Current().Vision }
+
 // beaconPulse is the breathing "(( • ))" Ping beacon string, folded to ASCII
 // ("((*))") on a legacy Windows console. Centralized so the one motif has one source.
 func beaconPulse() string { return glyphs.Current().Beacon }
@@ -432,14 +438,18 @@ type offer struct {
 	PriceTier    int     `json:"price_tier"` // broker's neutral 0..4 $-tier (0 = FREE/unknown)
 	Ctx          int     `json:"ctx"`
 	CtxEstimated bool    `json:"ctx_estimated"` // Ctx is the estimated default, not a detected window
-	Online       bool    `json:"online"`
-	Confidential bool    `json:"confidential"`
-	FreeNow      bool    `json:"free_now"`
-	TPS          float64 `json:"tps"`
-	TTFTMs       float64 `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
-	SuccessRate  float64 `json:"success"`      // 0..1 time-decayed success evidence
-	SuccessSeen  bool    `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
-	Verified     bool    `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
+	// Capabilities is the broker's declared per-station capability set (e.g. "vision").
+	// Decode-only on this side: the browser NEVER fabricates a capability the station
+	// did not declare, so an ABSENT set claims nothing (no "text-only" badge).
+	Capabilities []string `json:"capabilities,omitempty"`
+	Online       bool     `json:"online"`
+	Confidential bool     `json:"confidential"`
+	FreeNow      bool     `json:"free_now"`
+	TPS          float64  `json:"tps"`
+	TTFTMs       float64  `json:"ttft_ms"`      // probe-measured time-to-first-token (ms; 0 = unmeasured)
+	SuccessRate  float64  `json:"success"`      // 0..1 time-decayed success evidence
+	SuccessSeen  bool     `json:"success_seen"` // SuccessRate is REAL (not the no-evidence fallback)
+	Verified     bool     `json:"verified"`     // recent PASSED serving canary (distinct from confidential ◆)
 	// Signal is the broker's 0..100 channel-health score (online + quality + tps +
 	// reliability). It carries even when TPS==0, so a freshly-on-air band meters at
 	// its baseline strength instead of a blank tps-driven bar.
@@ -595,6 +605,7 @@ type band struct {
 	free     bool    // any station FREE now
 	lineage  int     // count of confidential/lineage stations
 	verified bool    // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
+	vision   bool    // any station DECLARED the "vision" capability (◪; never inferred)
 	inFlight int     // active (in-flight) requests summed across online stations - the REAL
 	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
 	// it is the broker's live load, never a fabricated pulse.
@@ -828,7 +839,22 @@ type model struct {
 	operatorCursor     int                  // selected picker row (never the suggestion)
 	operatorHandoff    *operatorHandoff     // non-nil from staging until the exec returns
 	operatorPlate      *operatorPlate       // the Phase 3 pre-launch confirm plate; nil = no plate up
-	agentLandingLines  int                  // transcript length that still counts as the AGENT landing (entry chrome only)
+	// AGENT [0] desk entry (the redesign): when the AGENT lands with nothing tuned in,
+	// THE DESK becomes the FOCUSED, selectable operator picker (R3) - the ask box is NOT
+	// focused, arrows move deskCursor, Enter on the DJ focuses the ask box and Enter on a
+	// guest opens the pre-launch plate; any printable rune falls through to the ask box
+	// and clears deskFocused (the DJ-still-types-through path). autoTuning marks a silent
+	// auto-tune in flight (R1/R6); autoTuneBeatLen is the transcript length BEFORE the
+	// "finding a band…" beat, so the beat is swapped for the outcome without stacking.
+	deskFocused     bool
+	deskCursor      int
+	autoTuning      bool
+	autoTuneBeatLen int
+	// agentPending holds prompts submitted while NO model is tuned in: rather than fire a
+	// doomed turn (the "no station on air" spam), the turn is parked, a silent auto-tune
+	// is kicked, and the prompt is sent the moment a band lands (drained by runAutoTune).
+	agentPending      []queuedPrompt
+	agentLandingLines int // transcript length that still counts as the AGENT landing (entry chrome only)
 	// `ask ›` slash-command autocomplete (agent.go: agentCommands / agentSlashStrip /
 	// the tab case in onAgentKey). agentTabPrefix is the typed prefix a live Tab
 	// completion cycle is stepping ("" = no cycle); agentTabIdx is the current pick
@@ -1349,6 +1375,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadedOnce = true // the first scan has come back: never re-enter the initial loading pose
 		m.offers = []offer(msg)
 		m.bands = m.mergeStickyBand(groupBands(m.offers, m.limits))
+		// AGENT [0] cold auto-tune: this scan was fetched to find a band for the DESK
+		// landing. Decide now that the band list is in hand (single-shot; no retry loop).
+		var autoTuneDrain tea.Cmd
+		if m.autoTuning {
+			autoTuneDrain = m.runAutoTune()
+		}
 		m.world.data = buildWorldData(m.bands) // refresh the screensaver's LIVE signal towers
 		// Clamp the cursor + window into the FILTERED view (the list the user actually
 		// navigates), so a re-scan that shrinks the matches never strands the cursor.
@@ -1373,7 +1405,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !notified && !m.relaying && (m.mode == modeBrowse || m.mode == modeCommand) {
 			m.status = m.ambientStatus()
 		}
-		return m, nil
+		return m, autoTuneDrain
+	case autoTuneMsg:
+		// The AGENT [0] DESK landing armed a silent auto-tune and a scan is already in
+		// hand: decide now (R1/R6). Cold launches route through offersMsg instead.
+		// runAutoTune has a pointer receiver + mutates m, so sequence the call BEFORE the
+		// return value is copied (don't lean on Go's return arg-eval order).
+		cmd := m.runAutoTune()
+		return m, cmd
 	case sharesDetectedMsg:
 		return m.onSharesDetected(msg.found, msg.needKey)
 	case balanceMsg:
@@ -1437,6 +1476,24 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.relaying = false
 		if strings.HasPrefix(string(msg), "broker unreachable") {
 			m.scanErr = true // the band scan dropped -> Ping goes "...static"
+		}
+		// A COLD AGENT [0] auto-tune fetches /discover first; if the broker is unreachable
+		// the fetch fails HERE. Without this the auto-tune stays armed and the "finding a
+		// free band…" beat sits up until a later rescan. Disarm, splice out the beat, and
+		// note the honest unreachable state ONCE (noteOnce dedups), dropping any parked
+		// prompt silently - there is no band to send it to.
+		//
+		// Scope the disarm to broker-UNREACHABLE errors only (audit finding): a non-unreachable
+		// errMsg in the cold-fetch window (e.g. fetchBalance's errMsg("")) must NOT kill a tune
+		// whose /discover then succeeds - and must not wrongly note "couldn't reach the broker".
+		if m.autoTuning && strings.HasPrefix(string(msg), "broker unreachable") {
+			m.autoTuning = false
+			m.clearFindingBeat()
+			m.noteOnce(
+				stRed.Render("✕ ")+stEmber.Render("couldn't reach the broker to find a band"),
+				hintTuneOrShare(m.narrow()))
+			m.agentLandingLines = len(m.agentLines)
+			m.flushPendingPrompts()
 		}
 		m.status = stEmber.Render("! " + string(msg))
 		return m, nil
@@ -3674,18 +3731,21 @@ func (m model) liveProxyOpts(o offer, alert *alertBox) client.ProxyOptions {
 	}
 }
 
-func (m model) openChannel() (tea.Model, tea.Cmd) {
-	q := m.q
-	o := *q.b.cheapest
+// bindChannel is the endpoint-binding half of tuning in, factored out of openChannel so
+// the SILENT auto-tune (autoTuneCmd) can open a channel WITHOUT the staged animation or
+// any mode switch: bind (or re-point) the local proxy to station o, mark it connected,
+// and record it as the sticky/recent band. It returns warm=true when the model was
+// already tuned in this session (a reconnect skips the cold-tune animation) and any
+// endpoint-bind error (openChannel bounces back to BROWSE; the auto-tune notes it once).
+// It mutates the receiver in place - callers pass a &m.
+func (m *model) bindChannel(o offer) (warm bool, err error) {
 	if !m.proxyUp {
 		// Auto-pick a free port instead of dead-ending if 4141 is taken (mirrors the CLI's
 		// freePort): scan upward from the configured port so a busy port never bounces the
 		// user back to browse with a bind error and no recovery.
-		ln, err := listenFreePort(m.proxyAddr)
-		if err != nil {
-			m.mode = modeBrowse
-			m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
-			return m, nil
+		ln, lerr := listenFreePort(m.proxyAddr)
+		if lerr != nil {
+			return false, lerr
 		}
 		m.proxyAddr = ln.Addr().String() // remember the port we actually bound
 		m.endpoint = "http://" + ln.Addr().String() + "/v1"
@@ -3706,7 +3766,8 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	if m.proxyHolder != nil {
 		m.proxyHolder.SetBand(m.liveProxyOpts(o, m.alert))
 	}
-	m.connected = &o
+	oc := o
+	m.connected = &oc
 	m.apikey = m.proxyKey
 	if m.apikey == "" {
 		m.apikey = "roger-local"
@@ -3716,15 +3777,27 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 	// founder's vanishing-band bug). mergeStickyBand re-includes it on every re-scan.
 	sticky := o
 	m.lastConnected = &sticky
-	// WARM RECONNECT: a band we have tuned in to before this session skips the staged
-	// scan/lock/handshake animation and drops straight into the open channel - only a
-	// FIRST (cold) tune-in plays the full sequence. The endpoint is already bound, so a
-	// reconnect is genuinely instant.
-	warm := m.recentBands[o.Model]
+	warm = m.recentBands[o.Model]
 	if m.recentBands == nil {
 		m.recentBands = map[string]bool{}
 	}
 	m.recentBands[o.Model] = true
+	return warm, nil
+}
+
+func (m model) openChannel() (tea.Model, tea.Cmd) {
+	q := m.q
+	o := *q.b.cheapest
+	// WARM RECONNECT: a band we have tuned in to before this session skips the staged
+	// scan/lock/handshake animation and drops straight into the open channel - only a
+	// FIRST (cold) tune-in plays the full sequence. The endpoint is already bound, so a
+	// reconnect is genuinely instant.
+	warm, err := m.bindChannel(o)
+	if err != nil {
+		m.mode = modeBrowse
+		m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
+		return m, nil
+	}
 	if warm {
 		m.mode = modeConnecting
 		m.connectStage = connectStageDone
@@ -5921,6 +5994,22 @@ func (m model) browseView(w int) string {
 	if matched > rows {
 		b.WriteString("  " + stDim.Render(fmt.Sprintf("%d-%d of %d", top+1, end, matched)) + "\n")
 	}
+	// BADGE LEGEND: one dim key line, shown only when a visible band actually carries a
+	// non-self-describing glyph (agent-ready / vision) - a plain-text-flags list needs no
+	// legend. Full view only (compact folds flags away). Sits directly under the table.
+	if !m.compact {
+		legend := false
+		for i := top; i < end; i++ {
+			bd := vis[i]
+			if ready, _ := bandAgentReady(bd); ready || bd.vision {
+				legend = true
+				break
+			}
+		}
+		if legend {
+			b.WriteString(truncVisible(bandBadgeLegend(), w) + "\n")
+		}
+	}
 	// VOICE FOOTNOTE (LLM primacy): one DIM line at the FOOT of the LLM band list —
 	// "also on air: N voices ▸ [v]" — shown ONLY when a voice band is actually on air. It is the
 	// quietest live line on the screen (no ◉, no accent), drilling into THE DJ BOOTH (a child
@@ -5992,6 +6081,53 @@ func (m model) filterLine(matched, total int) string {
 	return "  " + strings.Join(parts, "  ")
 }
 
+// offerHasCapability reports whether the station DECLARED cap (case-insensitive). It
+// is the ONLY source of a capability badge: an absent set claims nothing.
+func offerHasCapability(o offer, cap string) bool {
+	for _, c := range o.Capabilities {
+		if strings.EqualFold(strings.TrimSpace(c), cap) {
+			return true
+		}
+	}
+	return false
+}
+
+// bandAgentReady reports whether a band is coding-agent capable, and whether that
+// readiness is INFERRED (from the window) rather than proven (R5). Today it is ALWAYS
+// inferred from the representative window meeting the agent-ready floor (operatorCtxFloor,
+// the same 16k gate the handoff uses); a later broker tool-call probe can flip inferred
+// off. An UNKNOWN window (ctx 0) is NOT claimed agent-ready here - the badge never
+// asserts a window it cannot see (that is the auto-tune partition's job, not the badge's).
+func bandAgentReady(bd band) (ready, inferred bool) {
+	ctx, _ := bandCtx(bd)
+	if ctx >= operatorCtxFloor {
+		return true, true
+	}
+	return false, false
+}
+
+// agentReadyTag is the agent-ready badge glyph for a band, or "" when it is not
+// agent-ready: "⌁" proven, "⌁~" inferred (R5, always inferred today). The ONE place the
+// ⌁ / inferred-~ shape is composed, shared by the band table + the /model picker tail.
+func agentReadyTag(bd band) string {
+	ready, inferred := bandAgentReady(bd)
+	if !ready {
+		return ""
+	}
+	if inferred {
+		return agentReadyGlyph() + "~"
+	}
+	return agentReadyGlyph()
+}
+
+// bandKnownSmall reports a band whose window is KNOWN and under the agent-ready floor -
+// the one partition auto-tune de-prioritises for a coding handoff (R6). Unknown (ctx 0)
+// is NOT known-small: it may well be a large model the broker sent without ctx metadata.
+func bandKnownSmall(bd band) bool {
+	ctx, _ := bandCtx(bd)
+	return ctx > 0 && ctx < operatorCtxFloor
+}
+
 // plainBandBadge is bandBadge without color, for the reverse-video selected row
 // (one accent style governs the whole row; an embedded fg color reads as noise).
 // connected leads the cell with the "◉ connected" marker so the open channel's
@@ -6006,6 +6142,12 @@ func plainBandBadge(bd band, limits *LimitStore, connected bool) string {
 	}
 	if bd.lineage > 0 {
 		parts = append(parts, fmt.Sprintf("◆ %d", bd.lineage))
+	}
+	if tag := agentReadyTag(bd); tag != "" {
+		parts = append(parts, tag)
+	}
+	if bd.vision {
+		parts = append(parts, visionGlyph())
 	}
 	if bd.free {
 		parts = append(parts, "FREE")
@@ -6036,6 +6178,14 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 	if bd.lineage > 0 {
 		parts = append(parts, stGold.Render(fmt.Sprintf("◆ %d", bd.lineage)))
 	}
+	// Agent-ready ⌁ (inferred ⌁~) - the coding-agent-capable mark, keyed like the ctx
+	// value it is derived from. Vision ◪ - a declared multimodal band.
+	if tag := agentReadyTag(bd); tag != "" {
+		parts = append(parts, stKey.Render(tag))
+	}
+	if bd.vision {
+		parts = append(parts, stKey.Render(visionGlyph()))
+	}
 	if bd.free {
 		parts = append(parts, stLive.Render("FREE"))
 	}
@@ -6046,6 +6196,15 @@ func bandBadge(bd band, limits *LimitStore, connected bool) string {
 		return stDim.Render("·")
 	}
 	return strings.Join(parts, " ")
+}
+
+// bandBadgeLegend is the one dim key line under the band table explaining the flag
+// glyphs that are NOT self-describing text: the agent-ready ⌁ (inferred ⌁~) and the
+// vision ◪. FREE / ◆ / ✓ carry their own words in the cell, so the legend stays short.
+// Rendered plain (dim) and folded for ASCII so a legacy console shows "%~ / [v]".
+func bandBadgeLegend() string {
+	ar := agentReadyGlyph()
+	return stDim.Render("  " + ar + " agent-ready (" + ar + "~ inferred) · " + visionGlyph() + " vision")
 }
 
 // groupBands groups offers by model into bands, computing each band's live
@@ -6067,6 +6226,11 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		b.all = append(b.all, oc)
 		if o.Confidential {
 			b.lineage++
+		}
+		// A DECLARED capability is intrinsic to the model, so it counts from any station
+		// (online or not) - a vision model does not stop being multimodal while off air.
+		if offerHasCapability(o, "vision") {
+			b.vision = true
 		}
 		if !o.Online {
 			continue
@@ -6157,6 +6321,273 @@ func (m *model) mergeStickyBand(bands []band) []band {
 		sticky.lineage = 1
 	}
 	return append(bands, sticky)
+}
+
+// pickAutoBand chooses the band the AGENT [0] DESK auto-tunes onto when it lands with
+// nothing tuned in. PURE + deterministic. Rulings:
+//
+//   - R1 (never auto-spend): a FREE band is the only kind ever SILENTLY connectable, and
+//     the CALLER (runAutoTune) - never this function - decides that a PAID pick lands on
+//     the honest paid state instead of spending. A PAID band is offered here ONLY when
+//     loggedIn (a logged-out user cannot pay), so a logged-out user with no free band
+//     gets nil -> the honest empty state, never a named paid band it cannot reach.
+//   - R6 (agent-ready first): a coding handoff must not dead-end, so agent-ready bands
+//     (window unknown or >=16k) sort before KNOWN-small ones. Within a partition FREE
+//     precedes paid; free bands sort by signal desc (the iOS order), paid by cheapest
+//     out-price. Model name is the final deterministic tie-break.
+//
+// Only ONLINE, non-voice (a brain is a chat band) candidates are considered.
+func pickAutoBand(bands []band, loggedIn bool) *band {
+	var cands []band
+	for _, b := range bands {
+		if !b.online || b.isVoice() {
+			continue
+		}
+		if !b.free && !loggedIn {
+			continue // a paid band needs a wallet
+		}
+		cands = append(cands, b)
+	}
+	if len(cands) == 0 {
+		return nil
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		bi, bj := cands[i], cands[j]
+		// FREE is the top-level key: only a free band is ever SILENTLY connected (R1), so a
+		// never-connectable paid band must NEVER outrank a connectable free one - even a
+		// known-small free one (else auto-tune would report "no free band" while a $0 band
+		// is on air). The agent-ready partition (R6) orders only WITHIN free (and within paid).
+		if bi.free != bj.free {
+			return bi.free
+		}
+		if si, sj := bandKnownSmall(bi), bandKnownSmall(bj); si != sj {
+			return !si // agent-ready (not known-small) first
+		}
+		if bi.free {
+			if gi, gj := bandSignal(bi), bandSignal(bj); gi != gj {
+				return gi > gj // free: strongest signal first
+			}
+		} else if bi.minOut != bj.minOut {
+			return bi.minOut < bj.minOut // paid: cheapest first
+		}
+		return bi.model < bj.model
+	})
+	top := cands[0]
+	return &top
+}
+
+// bestFreeStation returns the highest-signal ONLINE genuinely-free station in b (FreeNow, or
+// zero-priced: PriceIn==0 && PriceOut==0), or nil when the band carries none. It is the ONLY
+// station kind runAutoTune / the operator handoff may SILENTLY bind (R1: a $0 spend, no
+// confirm). It is DISTINCT from b.cheapest, which is the min-PRICE station across ALL of the
+// band's stations and can be a PAID station even in a band flagged free - a FreeNow promo
+// station carrying a nonzero nominal price sitting beside a cheaper paid one makes b.free true
+// while b.cheapest points at the paid station. Binding cheapest there would silently spend on
+// a paid station labelled "(free)" (the R1 money-safety trap); binding bestFreeStation cannot.
+// Deterministic: strongest signal wins, NodeID breaks a tie.
+func bestFreeStation(b band) *offer {
+	var best *offer
+	for i := range b.all {
+		o := &b.all[i]
+		if !o.Online {
+			continue
+		}
+		if !(o.FreeNow || (o.PriceIn == 0 && o.PriceOut == 0)) {
+			continue
+		}
+		if best == nil || o.Signal > best.Signal || (o.Signal == best.Signal && o.NodeID < best.NodeID) {
+			best = o
+		}
+	}
+	return best
+}
+
+// autoTuneMsg asks the model to run the auto-tune decision now (bands are already
+// scanned). The cold path fetches /discover first (fetchOffers -> offersMsg), whose
+// handler runs the decision when m.autoTuning is set.
+type autoTuneMsg struct{}
+
+// autoTuneCmd kicks the silent auto-tune off the AGENT [0] landing: decide immediately
+// when a scan is already in hand, else fetch /discover first so a cold launch (AGENT
+// before any BROWSE scan) still finds a band. There is NO retry loop - a single empty
+// scan lands on the honest empty state (the founder's "spams no station" regression).
+func autoTuneCmd(broker string, scanned bool) tea.Cmd {
+	if scanned {
+		return func() tea.Msg { return autoTuneMsg{} }
+	}
+	return fetchOffers(broker)
+}
+
+// noteOnce appends a transcript block UNLESS it already IS the tail - the guard that
+// stops the "no station on air / no free band / no model tuned in" honest states from
+// stacking on every turn / re-entry (founder live-test pain). Dedup is per-BLOCK so a
+// two-line honest state (the ✕ + its hint) collapses as a unit.
+func (m *model) noteOnce(lines ...string) {
+	if n := len(m.agentLines); n >= len(lines) && len(lines) > 0 {
+		same := true
+		for i, ln := range lines {
+			if m.agentLines[n-len(lines)+i] != ln {
+				same = false
+				break
+			}
+		}
+		if same {
+			return
+		}
+	}
+	m.agentLines = append(m.agentLines, lines...)
+}
+
+// runAutoTune folds a silent auto-tune outcome into the model (R1/R6): a FREE pick is
+// connected on the spot at $0 and the agent binds to it; a PAID pick (logged-in
+// cheapest-paid) lands on the honest paid state, NEVER a spend; nothing available lands
+// on the honest empty state. It respects a channel opened since entry and a
+// deliberately-tuned band (no override). It is a no-op unless an auto-tune is armed.
+func (m *model) runAutoTune() tea.Cmd {
+	if !m.autoTuning || m.agent == nil {
+		return nil
+	}
+	// The auto-tune is an AGENT-landing affordance. If the user has since LEFT AGENT (esc to
+	// BROWSE during the cold /discover fetch), its effects - binding a channel, stomping the
+	// status, firing a parked turn - must NOT land outside AGENT. Disarm and bail, dropping
+	// any parked prompt (there is no landing to send it to). Audit finding.
+	if m.mode != modeAgent {
+		m.autoTuning = false
+		m.clearFindingBeat()
+		m.flushPendingPrompts()
+		return nil
+	}
+	m.autoTuning = false
+	// A channel opened / a band deliberately tuned since we armed: never override it.
+	if m.connected != nil || m.resolveAgentModel() != "" {
+		m.clearFindingBeat()
+		// Mirror the free-pick branch's guard (the f6c5be7 ruling): if the user is mid-pick
+		// on the FOCUSED desk, an already-connected auto-tune must NOT yank them to the ask
+		// box. Only grab focus when the desk isn't holding it.
+		if !m.deskFocused {
+			m.agentIn.Focus()
+		}
+		m.refreshAgentModel()
+		return m.drainPendingPrompts()
+	}
+	pick := pickAutoBand(m.bands, m.loggedInState())
+	// R1 money-safety: bind the band's genuinely-FREE station (FreeNow / zero-priced), NEVER
+	// pick.cheapest - the min-PRICE station across ALL stations, which can be a PAID station
+	// even when the band is flagged free (a FreeNow promo beside a cheaper paid one). If no
+	// free station exists (a stale/mixed free flag, or only paid), fall to the honest paid
+	// state below - a silent bind is only ever a $0 station.
+	var freeSt *offer
+	if pick != nil {
+		freeSt = bestFreeStation(*pick)
+	}
+	switch {
+	case freeSt != nil:
+		o := *freeSt
+		m.clearFindingBeat()
+		if _, err := m.bindChannel(o); err != nil {
+			// The local endpoint failed to bind: never claim a channel that is not there.
+			// Fall to the honest empty state (deduped) and drop any parked prompt silently.
+			m.noteOnce(
+				stRed.Render("✕ ")+stEmber.Render("no station on air right now"),
+				hintTuneOrShare(m.narrow()))
+			m.agentLandingLines = len(m.agentLines)
+			m.status = stEmber.Render("! endpoint bind failed: " + err.Error())
+			m.flushPendingPrompts()
+			return nil
+		}
+		m.agent.model = o.Model
+		m.agentPicked = false
+		// Keep focus where it is: if the user is on the FOCUSED desk (a guest scan landed
+		// first), a silent auto-tune must not yank them to the ask box mid-pick. Otherwise
+		// the ask box takes focus so a turn can be typed straight away.
+		if !m.deskFocused {
+			m.agentIn.Focus()
+		}
+		m.noteOnce(stDim.Render("· ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" (free) · the agent runs on it"))
+		m.agentLandingLines = len(m.agentLines)
+		m.status = stRed.Render(glyphOnAir+" ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" · type to ask")
+		return m.drainPendingPrompts()
+	case pick != nil: // a paid pick, OR a free-flagged band with no genuinely-free station -
+		// either way the honest paid state, never a silent spend (R1: never auto-spend)
+		m.clearFindingBeat()
+		m.noteOnce(stDim.Render("· ") + stDim.Render("no free band on air - ") + stKey.Render("[1]") + stDim.Render(" picks a paid band (the usual cost confirm applies)"))
+		m.agentLandingLines = len(m.agentLines)
+		m.status = stDim.Render("no free band on air · [1] to pick a paid band · esc exits")
+		m.flushPendingPrompts()
+	default: // nothing to land on - the honest empty state
+		m.clearFindingBeat()
+		anyOnline := false
+		for _, b := range m.bands {
+			if b.online && !b.isVoice() {
+				anyOnline = true
+				break
+			}
+		}
+		if anyOnline && !m.loggedInState() {
+			// Paid-only market, logged out: name the honest move (log in) without naming a
+			// band it cannot reach.
+			m.noteOnce(stDim.Render("· ") + stDim.Render("no free band on air - ") + stKey.Render("/login") + stDim.Render(", then ") + stKey.Render("[1]") + stDim.Render(" picks a paid band"))
+			m.status = stDim.Render("no free band on air · /login for paid bands · esc exits")
+		} else {
+			m.noteOnce(
+				stRed.Render("✕ ")+stEmber.Render("no station on air right now"),
+				hintTuneOrShare(m.narrow()))
+			m.status = stDim.Render("nothing on air · [1] tune in · [2] go on air · esc exits")
+		}
+		m.agentLandingLines = len(m.agentLines)
+		m.flushPendingPrompts()
+	}
+	return nil
+}
+
+// drainPendingPrompts starts the first prompt parked while no model was tuned (now that
+// a free band is bound) and moves any others to the normal busy queue.
+func (m *model) drainPendingPrompts() tea.Cmd {
+	if len(m.agentPending) == 0 {
+		return nil
+	}
+	q := m.agentPending[0]
+	rest := m.agentPending[1:]
+	m.agentPending = nil
+	// The requeued prompts were ALREADY echoed at park time; mark them so submitAgentPrompt
+	// does not re-echo the "▸ …" ask line when the busy queue drains (audit finding).
+	for i := range rest {
+		rest[i].echoed = true
+	}
+	m.agentQueued = append(m.agentQueued, rest...)
+	// The prompt was already echoed at park time, so start the turn WITHOUT re-echoing.
+	nm, cmd := m.startParkedTurn(q)
+	*m = nm
+	return cmd
+}
+
+// flushPendingPrompts drops prompts parked while no model was tuned, when the auto-tune
+// found no free band to land on. It drops them SILENTLY: runAutoTune has already noted
+// the ONE honest state (empty / paid) right after the echoed ask, so a second "no station
+// on air" failureHint would be exactly the per-turn spam this redesign kills.
+func (m *model) flushPendingPrompts() {
+	m.agentPending = nil
+}
+
+// clearFindingBeat splices out the single "finding a free band…" beat line the fresh
+// AGENT landing shows while an auto-tune is in flight, so the outcome replaces it in
+// place. It removes ONLY that one line (index autoTuneBeatLen), never the tail: a prompt
+// the user typed + parked while the auto-tune was in flight sits AFTER the beat, and must
+// survive to be drained (the review's echo-eating bug). A content guard keeps it from
+// deleting an unrelated line if the transcript shifted underneath it.
+func (m *model) clearFindingBeat() {
+	i := m.autoTuneBeatLen
+	m.autoTuneBeatLen = 0
+	if i <= 0 || i >= len(m.agentLines) {
+		return
+	}
+	if !strings.Contains(m.agentLines[i], "finding a free band") {
+		return
+	}
+	m.agentLines = append(m.agentLines[:i], m.agentLines[i+1:]...)
+	if m.agentLandingLines > len(m.agentLines) {
+		m.agentLandingLines = len(m.agentLines)
+	}
 }
 
 // bandOverLimit reports whether a band's cheapest online station is over the
