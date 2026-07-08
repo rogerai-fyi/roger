@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!-- Field-guide broadcast 007 (developer integration). SEO/AEO format: Quick Answer + question-H2s
+     + FAQ schema + internal links. Modern-color turn (alternating with 006's character style):
+     a Flux patch-panel/switchboard hero + an inline theme-adaptive SVG "point your base_url here"
+     diagram. Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. Facts grounded in the
+     broker + CLI (grant keys, /v1 routes, roger use). -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Connect your bots and services to RogerAI (OpenAI-compatible)" desc="RogerAI speaks the OpenAI API, so any bot or service that uses the OpenAI SDK works with a two-line change. How to mint a key, point your base_url, choose a model, and use streaming, tools, and vision." theme=external og=post ogtype=article ogtitle="Connect your bots to RogerAI (OpenAI-compatible)" ogdesc="Any OpenAI-SDK bot or service works with a two-line change: mint a grant key, point base_url at RogerAI, pass a model id. Streaming, tools, and vision included." ogurl="https://rogerai.fyi/broadcasts-connect-bots-openai-api.html" ogimage="https://rogerai.fyi/assets/broadcasts/connect-hero.png" -->
+</head>
+<body>
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+
+  <article class="bc-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 007 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-08">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">Connect your bots and services to RogerAI</h1>
+        <p class="bc-post__dek">
+          If it speaks the OpenAI API, it already speaks RogerAI. Repatch two lines - a base URL and
+          a key - and your bot is running on community GPUs.
+        </p>
+      </header>
+
+      <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
+        <img src="assets/broadcasts/connect-hero.png" width="1280" height="720" style="display:block;width:100%;height:auto;border-radius:6px;"
+             alt="A vintage patch-panel switchboard with many service cables plugging into one central jack lit with a red indicator, in the RogerAI operating-manual style." loading="lazy" />
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - MANY SERVICES, ONE PATCH INTO THE BAND</figcaption>
+      </figure>
+
+      <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
+        <b>Quick answer.</b> RogerAI is OpenAI-compatible, so any OpenAI-SDK bot connects by changing
+        two lines - a base URL and a key. On the bot's own machine, <code>roger use &lt;model&gt;</code>
+        prints a localhost endpoint that can reach <b>any</b> band on the market. For a remote or
+        headless bot, mint a grant key with <code>roger grant create</code> and point at
+        <code>https://broker.rogerai.fyi/v1</code> - which serves <b>your own</b> GPUs. Streaming, tool
+        calls, and vision all work.
+      </blockquote>
+
+      <div class="bc-post__body">
+
+        <p class="bc-post__lead" data-reveal>
+          You don't rewrite your bot to move it to RogerAI. The chat endpoint is the OpenAI shape your
+          code already targets, so the migration is a base URL and an API key - the same edit you'd
+          make to switch between any two OpenAI-compatible providers.
+        </p>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; The two-line change</span>
+          <h2>How do I point a bot at RogerAI?</h2>
+          <p>
+            Change the client's <code>base_url</code> and <code>api_key</code>, keep everything else.
+            With the OpenAI Python SDK:
+          </p>
+          <pre class="bc-code mono" style="margin:1rem 0;padding:1rem 1.25rem;background:rgba(21,20,15,.05);border:1px solid rgba(21,20,15,.1);border-radius:8px;overflow-x:auto;line-height:1.6;"><code>from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://broker.rogerai.fyi/v1",
+    api_key="rog-grant_...",          # from: roger grant create
+)
+
+resp = client.chat.completions.create(
+    model="gpt-oss-120b",             # a model your key can reach
+    messages=[{"role": "user", "content": "roger, radio check"}],
+    stream=True,                       # SSE streaming works
+)</code></pre>
+          <p>
+            That's the whole integration. The same two fields work from the JS SDK, LangChain,
+            LlamaIndex, a Discord bot, or a plain <code>curl</code> with an
+            <code>Authorization: Bearer</code> header. This hosted example uses a grant key, which
+            serves <b>your own</b> GPUs; to reach the wider market from a bot, use the local endpoint
+            from <code>roger use</code> - see &sect;3.
+          </p>
+          <figure class="bc-figure bc-figure--chart" data-reveal>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 250" role="img" style="width:100%;height:auto"
+                 aria-label="Diagram: your bot or service, using the OpenAI SDK, points its base_url at https://broker.rogerai.fyi/v1 with a grant key; the RogerAI broker screens and routes the request to a community GPU that serves your model.">
+              <style>
+                .g-box{fill:currentColor;opacity:.04}.g-stroke{stroke:currentColor;fill:none;opacity:.32}
+                .g-arrow{stroke:currentColor;opacity:.5;fill:none}.g-live{fill:#E0231C}
+                .g-no{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:1px;fill:currentColor;opacity:.6}
+                .g-h{font-family:"JetBrains Mono",monospace;font-size:15px;font-weight:700;fill:currentColor}
+                .g-b{font-family:"JetBrains Mono",monospace;font-size:12px;fill:currentColor;opacity:.8}
+                .g-cap{font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:2px;fill:currentColor;opacity:.6}
+              </style>
+              <text x="24" y="30" class="g-cap">FIG. 2 - POINT YOUR BASE_URL HERE</text>
+              <line x1="24" y1="44" x2="796" y2="44" class="g-stroke"/>
+              <rect x="30" y="80" width="220" height="118" rx="10" class="g-box"/><rect x="30" y="80" width="220" height="118" rx="10" class="g-stroke"/>
+              <text x="48" y="110" class="g-no">YOUR BOT / SERVICE</text>
+              <text x="48" y="140" class="g-h">OpenAI SDK</text>
+              <text x="48" y="163" class="g-b">unchanged code -</text>
+              <text x="48" y="181" class="g-b">just base_url + key</text>
+              <path d="M250 139 H288" class="g-arrow"/><path d="M282 133 L290 139 L282 145" class="g-arrow"/>
+              <rect x="295" y="80" width="220" height="118" rx="10" class="g-box"/><rect x="295" y="80" width="220" height="118" rx="10" class="g-stroke"/>
+              <circle cx="317" cy="105" r="5" class="g-live"/><text x="331" y="110" class="g-no">ROGERAI /v1</text>
+              <text x="313" y="140" class="g-h">broker</text>
+              <text x="313" y="163" class="g-b">screens + routes to</text>
+              <text x="313" y="181" class="g-b">the cheapest node</text>
+              <path d="M515 139 H553" class="g-arrow"/><path d="M547 133 L555 139 L547 145" class="g-arrow"/>
+              <rect x="560" y="80" width="220" height="118" rx="10" class="g-box"/><rect x="560" y="80" width="220" height="118" rx="10" class="g-stroke"/>
+              <text x="578" y="110" class="g-no">A COMMUNITY GPU</text>
+              <text x="578" y="140" class="g-h">serves it</text>
+              <text x="578" y="163" class="g-b">your model, streamed</text>
+              <text x="578" y="181" class="g-b">back token by token</text>
+              <text x="24" y="234" class="g-b" style="opacity:.6">base_url = https://broker.rogerai.fyi/v1  ·  Authorization: Bearer rog-grant_...  ·  model = an id from /discover</text>
+            </svg>
+            <figcaption class="fig mono">FIG. 2 - The same OpenAI call, repatched to the band.</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; Keys</span>
+          <h2>How do I get an API key?</h2>
+          <p>
+            Mint a <b>grant key</b> - a scoped key made for bots and services:
+          </p>
+          <ul class="bc-dial">
+            <li><code>roger grant create --name my-bots</code> prints a <code>rog-grant_...</code> key. You (the owner) sign in once to mint it; the bot then uses it <b>with no login</b>.</li>
+            <li>It's shown <b>once</b> - save it. The broker only ever stores a hash, and recovery rotates it (the old one dies).</li>
+            <li>Scope it: <code>--models</code>, <code>--nodes</code>, <code>--rpm</code>, <code>--daily-cap</code>, <code>--monthly-cap</code>, <code>--expires</code>. A fresh free key is already capped, so a leak is bounded.</li>
+          </ul>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; Two base URLs</span>
+          <h2>Hosted endpoint or local proxy - and which reaches whose band?</h2>
+          <p>
+            Both paths run through the broker - it screens, routes, meters, and signs receipts;
+            nothing is peer-to-peer, and the localhost proxy is <b>not</b> a direct line to the node.
+            So there's no separate network route and no meaningful speed difference between them. What
+            actually differs is how you authenticate, and that decides <b>whose</b> bands you can reach:
+          </p>
+          <ul class="bc-dial">
+            <li><b>Local proxy - reaches any band.</b> Run <code>roger use &lt;model&gt;</code> on the bot's machine; it prints a <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint and a session key, and signs every request with your identity. Because it's your signed identity, it can use <b>any</b> band on the market - <b>$0</b> to your own nodes, your wallet for anyone else's. Best when you can run the CLI where the bot lives.</li>
+            <li><b>Grant key - reaches your own nodes.</b> Mint a key and point a remote or headless bot straight at <code>https://broker.rogerai.fyi/v1</code> with no CLI. A grant is confined to <b>your own</b> hardware (it can never reach another owner's nodes), so this is the pattern for "my cloud bot uses the GPU on my desk."</li>
+          </ul>
+          <p>
+            <b>Want a remote, headless bot to use someone else's band?</b> Install the CLI on that box
+            and run <code>roger use</code> there - signed identity reaches the whole market; a grant key
+            won't, by design. The flip side - putting a GPU on the air for these requests to land on -
+            is covered in <a href="/broadcasts-share-gpu-earn.html">share your GPU and earn</a>.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; Features</span>
+          <h2>Does streaming, tool calling, and vision work?</h2>
+          <p>
+            Yes. <b>Streaming</b> is standard SSE - pass <code>stream=true</code>. <b>Tool / function
+            calling</b> works on nodes that pass RogerAI's tool-call check (it's a verified
+            capability, surfaced in the market), and <b>vision</b> (image inputs) works on nodes that
+            accept images. The hosted broker also serves <b>audio</b> -
+            <code>/v1/audio/speech</code> (TTS) and <code>/v1/audio/transcriptions</code> (STT). Model
+            discovery is via <code>/discover</code> or <code>roger search</code> (there is no
+            <code>/v1/models</code> on the broker); pass an exact model id and the broker routes to the
+            cheapest node serving it. Browse ids on the <a href="/models.html">model directory</a>.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Before you ship</span>
+          <h2>What should I know before shipping a bot?</h2>
+          <ul class="bc-dial">
+            <li><b>Rate limits.</b> ~120 requests/min per identity by default; each grant also has its own limit plus daily and monthly token caps you set.</li>
+            <li><b>Moderation applies to API traffic too</b> - grants don't bypass it. Illegal content is blocked before dispatch.</li>
+            <li><b>Keep the key secret.</b> It's a bearer credential; treat it like any secret and rotate if exposed.</li>
+            <li><b>Pick a live model.</b> Which ids are available depends on who's on air - check <code>/discover</code> (or the <a href="/models.html">directory</a>) rather than hard-coding a model that may not be up.</li>
+          </ul>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <dl class="bc-faq">
+            <dt><b>Is RogerAI OpenAI-compatible?</b></dt>
+            <dd>Yes. It serves the OpenAI chat-completions API (plus audio), so any OpenAI-SDK bot or service works by changing only the base URL and API key.</dd>
+            <dt><b>What base URL do I use?</b></dt>
+            <dd>Either the hosted endpoint <code>https://broker.rogerai.fyi/v1</code> with a grant key, or the <code>http://127.0.0.1:&lt;port&gt;/v1</code> endpoint that <code>roger use</code> prints on your own machine.</dd>
+            <dt><b>Can a remote bot use someone else's model with just a grant key?</b></dt>
+            <dd>No - a grant key is confined to your own nodes, so it can't reach another operator's hardware. To use the wider market from a remote or headless bot, run the <code>roger</code> CLI there (<code>roger use</code>): its signed identity can reach any band. Both paths still go through the broker.</dd>
+            <dt><b>How do I get an API key?</b></dt>
+            <dd>Run <code>roger grant create --name my-bots</code>. It mints a <code>rog-grant_</code> key; the owner signs in once to create it, and the bot then uses it with no login. It's shown only once.</dd>
+            <dt><b>Does streaming and function calling work?</b></dt>
+            <dd>Yes - <code>stream=true</code> streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images.</dd>
+            <dt><b>Which model id do I pass?</b></dt>
+            <dd>An exact id from the live market, such as <code>gpt-oss-120b</code>. Find current ids with <code>roger search</code> or on the model directory; the broker routes your request to the cheapest node serving that model.</dd>
+            <dt><b>Are there rate limits?</b></dt>
+            <dd>Yes. Roughly 120 requests per minute per identity by default, and each grant key has its own rate limit plus daily and monthly token caps that you configure.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Mint a key and repatch your bot - install the set:
+          <code>curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        </div>
+
+      </div>
+
+    </div>
+  </article>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Is RogerAI OpenAI-compatible?","acceptedAnswer":{"@type":"Answer","text":"Yes. It serves the OpenAI chat-completions API (plus audio), so any OpenAI-SDK bot or service works by changing only the base URL and API key."}},{"@type":"Question","name":"What base URL do I use?","acceptedAnswer":{"@type":"Answer","text":"Either the hosted endpoint https://broker.rogerai.fyi/v1 with a grant key, or the http://127.0.0.1:<port>/v1 endpoint that roger use prints on your own machine."}},{"@type":"Question","name":"How do I get an API key?","acceptedAnswer":{"@type":"Answer","text":"Run roger grant create --name my-bots. It mints a rog-grant_ key; the owner signs in once to create it, and the bot then uses it with no login. It is shown only once."}},{"@type":"Question","name":"Does streaming and function calling work?","acceptedAnswer":{"@type":"Answer","text":"Yes - stream=true streams over SSE, and tool/function calling works on nodes that pass the tool-call capability check. Vision (image inputs) works on nodes that accept images."}},{"@type":"Question","name":"Which model id do I pass?","acceptedAnswer":{"@type":"Answer","text":"An exact id from the live market, such as gpt-oss-120b. Find current ids with roger search or on the model directory; the broker routes your request to the cheapest node serving that model."}},{"@type":"Question","name":"Are there rate limits?","acceptedAnswer":{"@type":"Answer","text":"Yes. Roughly 120 requests per minute per identity by default, and each grant key has its own rate limit plus daily and monthly token caps that you configure."}}]}</script>
+
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>
