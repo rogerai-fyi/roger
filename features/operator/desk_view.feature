@@ -111,6 +111,15 @@ Feature: THE DESK roster on the AGENT landing
     Then no roster row carries a carat
     And no roster row is rendered reverse-video
 
+  # Refinement 2 (amends §6 "static preview, no marquee"): the resident DJ's house plate
+  # (mono+red djBrandArt) anchors the roster even when the desk is NOT focused; the guest
+  # plates still render on focus/selection only (ONE HUE, ONE BEAT preserved).
+  Scenario: The static preview shows the resident DJ house plate (band tuned, desk not focused)
+    Given an AGENT session with a tuned band "qwen3-32b-fp8" and a live proxy holder
+    And detected guests "opencode"
+    Then the AGENT landing renders THE DESK roster
+    And the static preview shows the resident DJ house plate
+
   Scenario: Arrow keys at the prompt never move a roster cursor
     Given detected guests "opencode" and "aider"
     When the user presses "down"
@@ -175,3 +184,17 @@ Feature: THE DESK roster on the AGENT landing
     And color is disabled
     Then the roster renders without ANSI color
     And the DJ row still carries the ◉ mark as a plain rune
+
+  # ── /operator discoverability: footer + in-body idle help ────────────────────
+  #
+  # Refinement 3: /operator is advertised in the AGENT footer (dropping /persona to hold
+  # the ~88-col width - /persona stays in /help + Tab-complete) and in the in-body idle
+  # help. Copy standardizes on "/operator hands the mic".
+
+  Scenario: The AGENT footer advertises /operator and drops /persona
+    Then the AGENT footer shows "/operator"
+    And the AGENT footer does not show "/persona"
+
+  Scenario: The in-body idle help names /operator hands the mic next to /model switches
+    Then the in-body idle help shows "/model switches"
+    And the in-body idle help shows "/operator hands the mic"
