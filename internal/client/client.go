@@ -1163,10 +1163,21 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		return b
 	}
 	injected := map[int]bool{} // per-choice latch: which choices we've already resolved
-	// Envelope metadata copied from the last observed chunk so a synthesized chunk is a
-	// well-formed sibling (some strict SDK parsers require id/object/model on every chunk).
-	var lastID, lastObject, lastModel string
-	var lastCreated json.Number
+	// Envelope metadata copied verbatim from the last observed chunk so a synthesized chunk is a
+	// well-formed sibling (some strict SDK parsers require id/object/model on every chunk). Held
+	// as raw JSON so a nonstandard type (a numeric id, a string created) is re-emitted as-is and
+	// can NEVER fail the chunk parse and silently drop tracking (audit finding).
+	var lastID, lastObject, lastCreated, lastModel json.RawMessage
+	keep := func(dst *json.RawMessage, v json.RawMessage) {
+		if len(v) > 0 && string(v) != "null" {
+			*dst = v
+		}
+	}
+	putRaw := func(m map[string]any, k string, v json.RawMessage) {
+		if len(v) > 0 && string(v) != "null" {
+			m[k] = v // json.RawMessage marshals verbatim (string, number, whatever it was)
+		}
+	}
 
 	// synthesizeChoice writes the reasoning->content delta for ONE choice, once. It is a no-op
 	// when the choice has real content, a tool_calls turn (empty content is intentional), or no
@@ -1195,18 +1206,10 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		chunk := map[string]any{
 			"choices": []any{map[string]any{"index": idx, "delta": map[string]any{"content": text}}},
 		}
-		if lastID != "" {
-			chunk["id"] = lastID
-		}
-		if lastObject != "" {
-			chunk["object"] = lastObject
-		}
-		if lastCreated != "" {
-			chunk["created"] = lastCreated
-		}
-		if lastModel != "" {
-			chunk["model"] = lastModel
-		}
+		putRaw(chunk, "id", lastID)
+		putRaw(chunk, "object", lastObject)
+		putRaw(chunk, "created", lastCreated)
+		putRaw(chunk, "model", lastModel)
 		payload, _ := json.Marshal(chunk)
 		write([]byte("data: " + string(payload) + "\n\n"))
 	}
@@ -1229,10 +1232,10 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 	// point to inject BEFORE, so the synthesized content lands ahead of THAT choice finishing).
 	observe := func(payload string) (finishedIdx []int) {
 		var d struct {
-			ID      string      `json:"id"`
-			Object  string      `json:"object"`
-			Created json.Number `json:"created"`
-			Model   string      `json:"model"`
+			ID      json.RawMessage `json:"id"`
+			Object  json.RawMessage `json:"object"`
+			Created json.RawMessage `json:"created"`
+			Model   json.RawMessage `json:"model"`
 			Choices []struct {
 				Index        int             `json:"index"`
 				FinishReason json.RawMessage `json:"finish_reason"`
@@ -1247,18 +1250,10 @@ func streamRelayBody(w http.ResponseWriter, body io.Reader, reasoningFallbackOn 
 		if json.Unmarshal([]byte(payload), &d) != nil {
 			return nil
 		}
-		if d.ID != "" {
-			lastID = d.ID
-		}
-		if d.Object != "" {
-			lastObject = d.Object
-		}
-		if d.Created != "" {
-			lastCreated = d.Created
-		}
-		if d.Model != "" {
-			lastModel = d.Model
-		}
+		keep(&lastID, d.ID)
+		keep(&lastObject, d.Object)
+		keep(&lastCreated, d.Created)
+		keep(&lastModel, d.Model)
 		for _, c := range d.Choices {
 			if c.Delta.Content != "" {
 				buf(contentBuf, c.Index).WriteString(c.Delta.Content)

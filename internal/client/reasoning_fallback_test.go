@@ -289,6 +289,21 @@ func TestStreamRelayBodyDirect(t *testing.T) {
 		}
 	})
 
+	t.Run("nonstandard envelope types do NOT disable tracking (numeric id, string created)", func(t *testing.T) {
+		// A provider that sends id as a number and created as a string must still get the
+		// fallback: the envelope is re-emitted verbatim and can't poison choice tracking.
+		body := `data: {"id":42,"created":"1700000000","model":"m","choices":[{"index":0,"delta":{"reasoning":"ans"}}]}` + "\n\ndata: [DONE]\n\n"
+		rec := httptest.NewRecorder()
+		streamRelayBody(rec, strings.NewReader(body), true)
+		out := rec.Body.String()
+		if !strings.Contains(out, `"content":"ans"`) {
+			t.Fatalf("fallback dropped on nonstandard envelope: %q", out)
+		}
+		if !strings.Contains(out, `"id":42`) || !strings.Contains(out, `"created":"1700000000"`) {
+			t.Fatalf("envelope not re-emitted verbatim: %q", out)
+		}
+	})
+
 	t.Run("n>1: only the reasoning-only choice is synthesized, no duplicate on the content choice", func(t *testing.T) {
 		body := `data: {"choices":[{"index":0,"delta":{"content":"hi"}}]}` + "\n\n" +
 			`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
