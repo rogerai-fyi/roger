@@ -715,6 +715,10 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
 	p := q.text
 	if m.agent != nil && m.agent.running.Load() {
+		// A turn is still running: park this already-echoed prompt onto the busy queue. Mark it
+		// echoed so the drain (submitAgentPrompt) does not re-echo the "▸ …" ask line - it was
+		// echoed once at park time (audit finding: the same double-echo class fixed for rest[]).
+		q.echoed = true
 		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...)
 		return m, nil
 	}

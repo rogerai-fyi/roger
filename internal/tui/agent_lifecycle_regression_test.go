@@ -82,6 +82,41 @@ func TestParkedPromptEchoOnceEach(t *testing.T) {
 	}
 }
 
+// TestParkedTurnRequeueEchoesOnce: audit finding (2026-07-07). startParkedTurn requeued
+// the FIRST parked prompt into agentQueued WITHOUT echoed=true when a turn was still running
+// at drain time; the busy-queue drain then re-echoed it (the same double-echo class fixed for
+// the rest[] entries). The requeued prompt must carry echoed=true, and drain exactly once.
+func TestParkedTurnRequeueEchoesOnce(t *testing.T) {
+	m := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
+
+	// One ask parks while no band is tuned (echoed "▸ …" once at park time).
+	tm, _ := m.submitAgentPrompt(queuedPrompt{text: "only ask"})
+	m = asModel(tm)
+	if len(m.agentPending) != 1 {
+		t.Fatalf("the ask should park while no band is tuned, got %d pending", len(m.agentPending))
+	}
+
+	// A turn is running at auto-tune time, so drainPendingPrompts -> startParkedTurn requeues
+	// the parked prompt into agentQueued instead of starting it now.
+	m.agent.running.Store(true)
+	_ = m.runAutoTune()
+	if len(m.agentQueued) != 1 {
+		t.Fatalf("the parked ask should requeue while a turn runs, got %d queued", len(m.agentQueued))
+	}
+	if !m.agentQueued[0].echoed {
+		t.Fatalf("the requeued parked prompt must carry echoed=true so the busy-queue drain does not re-echo it")
+	}
+
+	// The running turn finishes and the busy queue drains: the ask must NOT be re-echoed.
+	m.agent.running.Store(false)
+	dm, _ := m.Update(agentDoneMsg{}) // discard cmd: no real relay
+	m = asModel(dm)
+	body := stripANSI(strings.Join(m.agentLines, "\n"))
+	if n := strings.Count(body, "only ask"); n != 1 {
+		t.Fatalf("\"only ask\" echoed %d times, want exactly 1 (the requeue double-echo bug):\n%s", n, body)
+	}
+}
+
 // TestRunAutoTuneBailsOutsideAgentMode: finding #2 (the mode guard). An auto-tune that
 // resolves AFTER the user has left AGENT must be a no-op: never bind a channel, never fire
 // a parked turn, never stomp the browse status.

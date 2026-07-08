@@ -6376,6 +6376,32 @@ func pickAutoBand(bands []band, loggedIn bool) *band {
 	return &top
 }
 
+// bestFreeStation returns the highest-signal ONLINE genuinely-free station in b (FreeNow, or
+// zero-priced: PriceIn==0 && PriceOut==0), or nil when the band carries none. It is the ONLY
+// station kind runAutoTune / the operator handoff may SILENTLY bind (R1: a $0 spend, no
+// confirm). It is DISTINCT from b.cheapest, which is the min-PRICE station across ALL of the
+// band's stations and can be a PAID station even in a band flagged free - a FreeNow promo
+// station carrying a nonzero nominal price sitting beside a cheaper paid one makes b.free true
+// while b.cheapest points at the paid station. Binding cheapest there would silently spend on
+// a paid station labelled "(free)" (the R1 money-safety trap); binding bestFreeStation cannot.
+// Deterministic: strongest signal wins, NodeID breaks a tie.
+func bestFreeStation(b band) *offer {
+	var best *offer
+	for i := range b.all {
+		o := &b.all[i]
+		if !o.Online {
+			continue
+		}
+		if !(o.FreeNow || (o.PriceIn == 0 && o.PriceOut == 0)) {
+			continue
+		}
+		if best == nil || o.Signal > best.Signal || (o.Signal == best.Signal && o.NodeID < best.NodeID) {
+			best = o
+		}
+	}
+	return best
+}
+
 // autoTuneMsg asks the model to run the auto-tune decision now (bands are already
 // scanned). The cold path fetches /discover first (fetchOffers -> offersMsg), whose
 // handler runs the decision when m.autoTuning is set.
@@ -6445,9 +6471,18 @@ func (m *model) runAutoTune() tea.Cmd {
 		return m.drainPendingPrompts()
 	}
 	pick := pickAutoBand(m.bands, m.loggedInState())
+	// R1 money-safety: bind the band's genuinely-FREE station (FreeNow / zero-priced), NEVER
+	// pick.cheapest - the min-PRICE station across ALL stations, which can be a PAID station
+	// even when the band is flagged free (a FreeNow promo beside a cheaper paid one). If no
+	// free station exists (a stale/mixed free flag, or only paid), fall to the honest paid
+	// state below - a silent bind is only ever a $0 station.
+	var freeSt *offer
+	if pick != nil {
+		freeSt = bestFreeStation(*pick)
+	}
 	switch {
-	case pick != nil && pick.free && pick.cheapest != nil:
-		o := *pick.cheapest
+	case freeSt != nil:
+		o := *freeSt
 		m.clearFindingBeat()
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: never claim a channel that is not there.
@@ -6472,7 +6507,8 @@ func (m *model) runAutoTune() tea.Cmd {
 		m.agentLandingLines = len(m.agentLines)
 		m.status = stRed.Render(glyphOnAir+" ") + stDim.Render("auto-tuned to ") + stKey.Render(o.Model) + stDim.Render(" · type to ask")
 		return m.drainPendingPrompts()
-	case pick != nil: // paid, logged in - the honest paid state (R1: never auto-spend)
+	case pick != nil: // a paid pick, OR a free-flagged band with no genuinely-free station -
+		// either way the honest paid state, never a silent spend (R1: never auto-spend)
 		m.clearFindingBeat()
 		m.noteOnce(stDim.Render("· ") + stDim.Render("no free band on air - ") + stKey.Render("[1]") + stDim.Render(" picks a paid band (the usual cost confirm applies)"))
 		m.agentLandingLines = len(m.agentLines)

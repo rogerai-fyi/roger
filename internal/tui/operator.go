@@ -588,7 +588,16 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 	// success, a SINGLE honest refusal on failure.
 	if m.proxyHolder == nil || !m.proxyHolder.Connected() {
 		pick := pickAutoBand(m.bands, m.loggedInState())
-		if pick == nil || !pick.free || pick.cheapest == nil {
+		// R1 money-safety: a SILENT handoff auto-tune may only bind a genuinely-FREE station
+		// (FreeNow / zero-priced), never pick.cheapest - the min-PRICE station across ALL of
+		// the band's stations, which can be PAID even in a band flagged free. No free station
+		// (nil pick, or a free-flagged band with only paid/promo-priced stations) -> refuse
+		// rather than spend.
+		var freeSt *offer
+		if pick != nil {
+			freeSt = bestFreeStation(*pick)
+		}
+		if freeSt == nil {
 			m.agentLines = append(m.agentLines,
 				stRed.Render("✕ ")+stEmber.Render("no channel to patch into - a guest runs on your open channel"),
 				stDim.Render("· ")+stDim.Render("tune in first: press ")+stKey.Render("[1]")+stDim.Render(", ⏎ on a band opens the channel · then come back with ")+stKey.Render("[0]"))
@@ -605,7 +614,7 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 				stDim.Render("· ")+stDim.Render("tune in to a larger band with ")+stKey.Render("[1]")+stDim.Render(", then hand off again with ")+stKey.Render("/operator"))
 			return m, nil
 		}
-		o := *pick.cheapest
+		o := *freeSt
 		if _, err := m.bindChannel(o); err != nil {
 			// The local endpoint failed to bind: refuse rather than open a plate over an
 			// unbound channel that would hand the guest a wall of 502s.

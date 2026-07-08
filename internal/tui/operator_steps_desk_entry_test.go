@@ -56,6 +56,31 @@ func (s *opBDD) freshPaidOnlyLoggedOut() error {
 }
 func (s *opBDD) freshEmptyMarket() error { s.freshAgent(nil, true); return nil }
 
+// freshMixedFreeAndCheaperPaid seeds ONE band ("mixed") of two online stations: a FreeNow
+// promo station carrying a NONZERO nominal price, and a genuinely PAID station whose price
+// is CHEAPER. groupBands flags the band free (the FreeNow station) but sets cheapest to the
+// paid station (lower PriceOut) - the R1 money-safety trap: binding cheapest silently spends.
+func (s *opBDD) freshMixedFreeAndCheaperPaid() error {
+	free := offer{NodeID: "n-free", Model: "mixed", Online: true, FreeNow: true, PriceIn: 0.25, PriceOut: 0.50, Signal: 60, Ctx: 32768}
+	paid := offer{NodeID: "n-paid", Model: "mixed", Online: true, PriceIn: 0.05, PriceOut: 0.10, Signal: 90, Ctx: 32768}
+	s.freshAgent([]offer{free, paid}, true)
+	return nil
+}
+
+// staleFreeFlaggedAllPaid seeds a hand-built band whose `free` flag is set but whose only
+// station is PAID (a stale/mixed signal groupBands cannot produce, injected directly to pin
+// the defensive fallback). Auto-tune must bind nothing and land on the honest paid state.
+func (s *opBDD) staleFreeFlaggedAllPaid() error {
+	s.freshAgent(nil, true)
+	s.mutate(func(m *model) {
+		paid := offer{NodeID: "n-stale-paid", Model: "stale", Online: true, PriceIn: 0.05, PriceOut: 0.10, Signal: 50, Ctx: 32768}
+		b := band{model: "stale", online: true, free: true, stations: 1, minIn: 0.05, minOut: 0.10, maxOut: 0.10, all: []offer{paid}}
+		b.cheapest = &b.all[0]
+		m.bands = []band{b}
+	})
+	return nil
+}
+
 // lastBandStillOnAir seeds a session that last tuned band `model`, still on air: a live
 // holder + lastConnected on that model + the market carrying it. resolveAgentModel then
 // reuses it, so entering AGENT never arms an auto-tune (the sticky-when-online path).
@@ -260,6 +285,16 @@ func (s *opBDD) noCostConfirmShown() error {
 	}
 	return nil
 }
+func (s *opBDD) boundStationIsGenuinelyFree() error {
+	c := s.model().connected
+	if c == nil {
+		return fmt.Errorf("no channel is open - nothing was bound")
+	}
+	if !(c.FreeNow || (c.PriceIn == 0 && c.PriceOut == 0)) {
+		return fmt.Errorf("bound station %q is NOT genuinely free (FreeNow=%v in=%v out=%v) - auto-tune silently bound a PAID station (R1 violation)", c.NodeID, c.FreeNow, c.PriceIn, c.PriceOut)
+	}
+	return nil
+}
 func (s *opBDD) pointsAtLoggingIn() error { return s.transcriptShows("/login") }
 func (s *opBDD) noHonestNoBandNote() error {
 	v := s.view()
@@ -331,6 +366,9 @@ func initializeDeskEntryScenarios(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^a fresh AGENT session logged in with only a paid band on air$`, st.freshPaidOnlyLoggedIn)
 	sc.Step(`^a fresh AGENT session logged out with only a paid band on air$`, st.freshPaidOnlyLoggedOut)
 	sc.Step(`^a fresh AGENT session with an empty market$`, st.freshEmptyMarket)
+	sc.Step(`^a fresh AGENT session with a band mixing a free station and a cheaper paid station$`, st.freshMixedFreeAndCheaperPaid)
+	sc.Step(`^a fresh AGENT session with a free-flagged band whose stations are all paid$`, st.staleFreeFlaggedAllPaid)
+	sc.Step(`^the bound station is genuinely free$`, st.boundStationIsGenuinelyFree)
 	sc.Step(`^an AGENT session whose last band "([^"]*)" is still on air$`, st.lastBandStillOnAir)
 	sc.Step(`^the desk scan lands guest "([^"]*)"$`, st.deskScanLandsGuest)
 	sc.Step(`^the desk scan lands no guests$`, st.deskScanLandsNoGuests)

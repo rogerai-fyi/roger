@@ -89,6 +89,28 @@ Feature: The AGENT [0] silent auto-tune (pickAutoBand + runAutoTune)
     Then the transcript shows "no station on air right now"
     And no channel is open
 
+  # Audit finding [MAJOR - R1 money-safety]: pick.cheapest is the min-PRICE station across
+  # ALL stations of a band, but pick.free is a BAND-level flag (ANY station FreeNow). A band
+  # mixing a FreeNow-promo station (nonzero nominal price) with a CHEAPER paid station is
+  # flagged free, yet cheapest points at the PAID station - so binding cheapest would SILENTLY
+  # spend on a paid station labelled "(free)". Auto-tune must bind the genuinely-free station
+  # (FreeNow, or zero-priced), NEVER cheapest-across-all. R1: only a $0 station is silent-bound.
+  Scenario: A band mixing a free station and a cheaper paid station tunes to the FREE one, never spends
+    Given a fresh AGENT session with a band mixing a free station and a cheaper paid station
+    When the desk auto-tunes
+    Then the bound station is genuinely free
+    And a channel is open
+    And no cost confirm is shown
+
+  # Defensive: a free-FLAGGED band that carries no genuinely-free station (a stale/mixed
+  # signal, or only paid stations) must bind NOTHING and land on the honest paid state - never
+  # a silent spend on the strength of the stale flag alone.
+  Scenario: A free-flagged band with no actually-free station binds nothing and shows the honest paid state
+    Given a fresh AGENT session with a free-flagged band whose stations are all paid
+    When the desk auto-tunes
+    Then no channel is open
+    And the transcript shows "no free band on air"
+
   Scenario: A parked prompt is sent once a free band lands
     Given a fresh AGENT session with a free band "gpt-oss-20b" on air
     When the user submits the prompt "hello"
