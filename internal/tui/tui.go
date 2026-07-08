@@ -606,6 +606,10 @@ type band struct {
 	lineage  int     // count of confidential/lineage stations
 	verified bool    // any ONLINE station passed the broker's serving probe (✓, distinct from ◆)
 	vision   bool    // any station DECLARED the "vision" capability (◪; never inferred)
+	tools    bool    // any station carries the broker-VERIFIED "tools" capability (agent-ready ⌁,
+	// no tilde). Unlike vision it is verified-not-declared: the broker only emits "tools" on an
+	// offer after its tool-call canary passed, so a node can never fake it. Absence => inferred
+	// (⌁~), never a false "no tools". See features/trust/toolcall_probe.feature.
 	inFlight int     // active (in-flight) requests summed across online stations - the REAL
 	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
 	// it is the broker's live load, never a fabricated pulse.
@@ -6092,23 +6096,25 @@ func offerHasCapability(o offer, cap string) bool {
 	return false
 }
 
-// bandAgentReady reports whether a band is coding-agent capable, and whether that
-// readiness is INFERRED (from the window) rather than proven (R5). Today it is ALWAYS
-// inferred from the representative window meeting the agent-ready floor (operatorCtxFloor,
-// the same 16k gate the handoff uses); a later broker tool-call probe can flip inferred
-// off. An UNKNOWN window (ctx 0) is NOT claimed agent-ready here - the badge never
-// asserts a window it cannot see (that is the auto-tune partition's job, not the badge's).
+// bandAgentReady reports whether a band is coding-agent capable, and whether that readiness
+// is INFERRED (from the window alone) rather than VERIFIED (the broker's tool-call probe).
+// Readiness needs the representative window to meet the agent-ready floor (operatorCtxFloor,
+// the same 16k gate the handoff uses). It is VERIFIED (inferred=false, ⌁) when a station on
+// the band carries the broker-probed "tools" capability, and INFERRED (inferred=true, ⌁~) when
+// the window qualifies but no tool-call proof exists yet. An UNKNOWN window (ctx 0) is NOT
+// claimed agent-ready here - the badge never asserts a window it cannot see.
 func bandAgentReady(bd band) (ready, inferred bool) {
 	ctx, _ := bandCtx(bd)
 	if ctx >= operatorCtxFloor {
-		return true, true
+		return true, !bd.tools // probed tools -> VERIFIED (no tilde); absent -> INFERRED (~)
 	}
 	return false, false
 }
 
 // agentReadyTag is the agent-ready badge glyph for a band, or "" when it is not
-// agent-ready: "⌁" proven, "⌁~" inferred (R5, always inferred today). The ONE place the
-// ⌁ / inferred-~ shape is composed, shared by the band table + the /model picker tail.
+// agent-ready: "⌁" VERIFIED (a station carries the broker-probed "tools" capability), "⌁~"
+// INFERRED (window qualifies but tool-calling is unproven). The ONE place the ⌁ / inferred-~
+// shape is composed, shared by the band table + the /model picker tail.
 func agentReadyTag(bd band) string {
 	ready, inferred := bandAgentReady(bd)
 	if !ready {
@@ -6231,6 +6237,12 @@ func groupBands(offers []offer, limits *LimitStore) []band {
 		// (online or not) - a vision model does not stop being multimodal while off air.
 		if offerHasCapability(o, "vision") {
 			b.vision = true
+		}
+		// A broker-VERIFIED "tools" capability is intrinsic to the model too (it earned it
+		// from the tool-call canary), so it counts from any station carrying it. It upgrades
+		// the agent-ready badge from inferred (⌁~) to verified (⌁) - never a declared claim.
+		if offerHasCapability(o, "tools") {
+			b.tools = true
 		}
 		if !o.Online {
 			continue

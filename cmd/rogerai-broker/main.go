@@ -89,6 +89,27 @@ type broker struct {
 	// real traffic exercises, so it is weighted higher than probes/recounts in N.
 	// Guarded by metricsMu.
 	successCount map[string]int
+	// toolsOK is the VERIFIED tool-call verdict per (node, model): true iff THIS instance's
+	// tool-call canary got a well-formed tool_calls response from that model (recordToolProbe).
+	// It is verified-not-declared - a node CANNOT set it by declaring "tools" (that is stripped
+	// at registration); only a passing canary writes it, and a definitive regression clears it
+	// (a transient/dispatch non-verdict never does). Keyed by toolKey(node, model). Guarded by
+	// metricsMu. It is this instance's OWN verdict: it mirrors to the FIRST-CLASS shared verdict
+	// store (shared.markToolsVerified / clearToolsVerified), NOT into the registration JSON, and
+	// a peer reads the cross-instance union via toolsMerged. It is the emission source only
+	// single-instance. See probe.go / toolcall.go and features/trust/toolcall_probe.feature.
+	toolsOK map[string]bool
+	// toolsMerged is the cross-instance UNION of verified (node,model) tool-call bits, refreshed
+	// from the shared store on the sync loop (syncToolsVerified) - the EMISSION source in
+	// multi-instance mode. Keeping it a merged snapshot (not the raw shared read) keeps the hot
+	// /discover + /market read purely in-memory, and a host's regression clear propagates here on
+	// the next sync so a peer never surfaces a retracted verdict. Guarded by metricsMu. Single-
+	// instance leaves it unused (emission reads b.toolsOK directly). Keyed by toolKey(node,model).
+	toolsMerged map[string]bool
+	// lastToolMark throttles the served-traffic refresh of a verified model's shared field
+	// (markMeasured), keyed by nodeID. Guarded by metricsMu. Keeps a continuously-busy node's
+	// verified-tools bit fresh without a Valkey write per served request.
+	lastToolMark map[string]time.Time
 	// concurrentTPS is an EWMA of served tok/s recorded ONLY while inflight>=2 at the
 	// time the request settled - capacity derived UNDER LOAD, not from the idle probe
 	// canary. It is the incentive-compatible capacity input for the load factor: a
@@ -485,7 +506,10 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
-		probeSched:  map[string]*probeState{},
+		toolsOK:      map[string]bool{},
+		toolsMerged:  map[string]bool{},
+		lastToolMark: map[string]time.Time{},
+		probeSched:   map[string]*probeState{},
 		lastPersist: map[string]time.Time{},
 		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,
 		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),

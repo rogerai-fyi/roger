@@ -1972,4 +1972,7 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── operator frame enrichment (rc_enrichment.feature) ─────────────────────
 	initializeEnrichmentSteps(st, sc)
+
+	// ── tool-call capability probe: VERIFIED vs INFERRED agent-ready ──────────
+	initializeAgentReadyVerifiedSteps(st, sc)
 }

@@ -522,6 +522,58 @@ func (m model) operatorChannelCtx() (ctx int, estimated bool) {
 	return m.connected.Ctx, m.connected.CtxEstimated
 }
 
+// operatorChannelTools reports whether the OPEN CHANNEL's station carries the broker-VERIFIED
+// "tools" capability - the probed tool-call signal, read from m.connected (the station the
+// guest is actually patched into), NOT the band's best station. Absent = UNDETERMINED (the
+// probe has not proven it), never a positive "no tools" (features/operator/agent_ready_verified).
+func (m model) operatorChannelTools() bool {
+	return m.connected != nil && offerHasCapability(*m.connected, "tools")
+}
+
+// agentReadyState is the THREE-STATE (plus ABSENT) honesty the AGENT view reports for the open
+// channel, the truth-in-labeling house rule (like CtxEstimated's ~): exactly one of verified,
+// inferred, too-small, or absent. The ctx floor still gates the handoff regardless of tools.
+type agentReadyState int
+
+const (
+	agentReadyAbsent   agentReadyState = iota // ctx unknown (0): claims nothing; tools undetermined
+	agentReadyTooSmall                        // ctx KNOWN and < floor: the existing refusal, tools irrelevant
+	agentReadyInferred                        // ctx >= floor but "tools" absent (unprobed): ⌁~ + the plate warn
+	agentReadyVerified                        // ctx >= floor AND probed "tools": ⌁ (no tilde), the warn drops
+)
+
+// operatorAgentReadyState classifies the OPEN CHANNEL's agent-readiness. A verified tool-call
+// capability NEVER lifts the too-small refusal (the ctx floor is independent); an unknown window
+// is ABSENT (never a false "no tools"). It reads m.connected, the same source band_gate reads.
+func (m model) operatorAgentReadyState() agentReadyState {
+	ctx, _ := m.operatorChannelCtx()
+	switch {
+	case ctx <= 0:
+		return agentReadyAbsent
+	case ctx < operatorCtxFloor:
+		return agentReadyTooSmall
+	case m.operatorChannelTools():
+		return agentReadyVerified
+	default:
+		return agentReadyInferred
+	}
+}
+
+// operatorChannelAgentTag is the open channel's agent-ready marker glyph: "⌁" VERIFIED (probed
+// tools, no tilde), "⌁~" INFERRED (window qualifies, tools unproven), or "" when the channel is
+// too small / unknown (the refusal + unknown-window warn carry those, not a marker). It is the
+// consumer twin of agentReadyTag(band), reading the open channel instead of the band aggregate.
+func (m model) operatorChannelAgentTag() string {
+	switch m.operatorAgentReadyState() {
+	case agentReadyVerified:
+		return agentReadyGlyph()
+	case agentReadyInferred:
+		return agentReadyGlyph() + "~"
+	default:
+		return ""
+	}
+}
+
 // operatorCtxLabel renders a window with the house ~ estimate honesty ("8k" / "~8k").
 // It TRUNCATES to the familiar window name (spec-pinned: 32768 -> "32k", 131072 ->
 // "131k") where the band-table fmtCtx rounds (32768 -> "33k") - the desk speaks the
@@ -1048,7 +1100,14 @@ func (m model) operatorPlateView(w int) string {
 	if ctx, _ := m.operatorChannelCtx(); ctx <= 0 {
 		warn("context window unknown on this band - the guest may hit the wall mid-task")
 	}
-	warn("tool-call support unproven on this band - the guest may fall back to plain text")
+	// Tool-call honesty (FOUNDER FLAG A1): DROP the "unproven" warn entirely on a band whose
+	// open channel carries the broker-VERIFIED "tools" capability (silence = verified, matching
+	// the desk's "no data" honesty). It KEEPS the warn on an unprobed/inferred/unknown band -
+	// the guest may still fall back to plain text there. Verified-not-declared: a node cannot
+	// silence this warn by declaring "tools"; only the broker's tool-call probe drops it.
+	if m.operatorAgentReadyState() != agentReadyVerified {
+		warn("tool-call support unproven on this band - the guest may fall back to plain text")
+	}
 	if p.det.Unverified {
 		v := p.det.Version
 		if v == "" {
