@@ -19,3 +19,23 @@ model by `moderation_intent_live_test.go`. Skipped unless `MODERATION_GROQ_KEY` 
 
 Each file is a full request body; the test screens `promptText(body)` so it exercises the
 exact multi-role concatenation the relay screens.
+
+## Tool / function array screening (evasion closed)
+
+`promptText` also folds the top-level `tools` / legacy `functions` array text (each tool's
+function name + description + every string in its parameters schema) into the screened blob,
+so a harmful instruction hidden in a tool `description` can no longer skip moderation. These
+fixtures carry their text in the STRUCTURED array, not in a message:
+
+- `pass/tools_array_{opencode,aider,hermes}.txt` - benign coding-agent tool schemas in the
+  real `tools[].function` shape, dense with capability vocabulary. MUST ALLOW (the #39
+  intent-not-capability carveout holds - a described capability is not a violation).
+- `block/tools_desc_malware.txt` - a harmful malware-authoring instruction placed ONLY in a
+  tool `description`. MUST 451 (the anti-evasion clause: harm disguised as a tool still blocks).
+- `block/functions_desc_weapon.txt` - a weapon-synthesis instruction in a legacy top-level
+  `functions[]` entry description. MUST 451.
+- `csam/*` - a CSAM-in-a-tool-description body MUST 451 with `csam=true`; that fixture is
+  founder/T&S-owned and ABSENT from the public tree (no CSAM authored here).
+
+Spec: `features/moderation/tools_array_screening.feature` (BUILD-AND-HOLD; needs the founder
+live red-team like #39 before merge).

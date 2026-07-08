@@ -494,14 +494,32 @@ func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult
 	return m.screen(strings.TrimSpace(name + "\n" + slug + "\n" + handle))
 }
 
-// promptText pulls the user-visible text from an OpenAI chat-completions body for
-// screening: the concatenated string content of the messages. Tolerates the array
-// (multimodal) content form by collecting its text parts; the launch is text-only.
+// promptText pulls the client-authored text from an OpenAI chat-completions body for
+// screening: the concatenated string content of the messages AND the text carried by the
+// top-level tool/function definitions. Tolerates the array (multimodal) content form by
+// collecting its text parts; the launch is text-only.
+//
+// The tools/functions array is folded in because a client can hide a harmful instruction
+// inside a tool `description` (or a nested parameter description) - free text the provider
+// node still sees - which would otherwise skip moderation entirely (an evasion surface). We
+// append each tool's function name + description + every string value inside its parameters
+// schema (nested descriptions, enums, examples), so the safeguard model classifies it
+// alongside the messages. This is a PURE text-extraction addition: the verdict mapping and
+// the 451 / CSAM preserve+report path are unchanged. It does not re-introduce the
+// capability-vocabulary false positive because the intent-not-capability carveout (#39) in
+// moderationPolicy allows a benign tool description ("executes shell commands", "deletes
+// files") while still blocking a description that SEEKS the harm.
 func promptText(body []byte) string {
 	var req struct {
 		Messages []struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
+		// Modern OpenAI tools shape: tools[].function.{name,description,parameters}.
+		Tools []struct {
+			Function json.RawMessage `json:"function"`
+		} `json:"tools"`
+		// Legacy top-level functions shape: functions[].{name,description,parameters}.
+		Functions []json.RawMessage `json:"functions"`
 	}
 	if json.Unmarshal(body, &req) != nil {
 		return ""
@@ -524,5 +542,54 @@ func promptText(body []byte) string {
 			}
 		}
 	}
+	// Fold in the tool / function definition text. collectStrings walks the whole function
+	// object (name, description, and the parameters JSON-schema subtree) and emits every
+	// string scalar, so harmful text hidden anywhere in a tool definition is screened.
+	for _, t := range req.Tools {
+		collectStrings(t.Function, &b)
+	}
+	for _, f := range req.Functions {
+		collectStrings(f, &b)
+	}
 	return b.String()
+}
+
+// collectStrings walks an arbitrary JSON value and appends every string SCALAR (one per line)
+// to b, in a deterministic order (map keys sorted). It is used to extract all free text from a
+// tool/function definition - name, description, and any nested parameter descriptions / enum
+// values / examples - so none of it can smuggle a harmful instruction past the content screen.
+// Object KEYS are not emitted (only values); numbers/bools/null are ignored. A malformed or
+// empty RawMessage is a no-op.
+func collectStrings(raw json.RawMessage, b *bytes.Buffer) {
+	if len(raw) == 0 {
+		return
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return
+	}
+	var walk func(any)
+	walk = func(n any) {
+		switch t := n.(type) {
+		case string:
+			if t != "" {
+				b.WriteString(t)
+				b.WriteByte('\n')
+			}
+		case []any:
+			for _, e := range t {
+				walk(e)
+			}
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(t[k])
+			}
+		}
+	}
+	walk(v)
 }
