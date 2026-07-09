@@ -197,9 +197,13 @@ func verdictTokens(verdict string) []string {
 	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool { return unicode.IsSpace(r) || r == ',' }) {
 		add(t)
 	}
-	// Pass 2: split codes joined by any internal separator.
+	// Pass 2: split codes joined by any internal separator. The set mirrors verdictTokenTrimCutset
+	// (minus letters/digits) so a code joined to another by "." or "-" ("S4.S5", "S1-S3") is split,
+	// not just codes with whitespace/comma/slash between them - closing the last separator-evasion
+	// corner. "sexual/minors" still survives via pass 1 (the slash split here would break it, but
+	// pass 1 already emitted it whole for the CSAM check).
 	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool {
-		return unicode.IsSpace(r) || strings.ContainsRune(",;:|/()[]{}", r)
+		return unicode.IsSpace(r) || strings.ContainsRune(".,;:!?|/()[]{}<>\"'`*_-", r)
 	}) {
 		add(t)
 	}

@@ -84,11 +84,13 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
 
     Examples:
       | verdict      |
-      | unsafe S1.   |
-      | unsafe S5)   |
-      | unsafe S6;   |
+      | unsafe S1.    |
+      | unsafe S5)    |
+      | unsafe S6;    |
       | unsafe S1;S3  |
       | unsafe S1\|S2 |
+      | unsafe S1.S3  |
+      | unsafe S5-S6  |
 
   # ===========================================================================
   # 2. CSAM NET - ALWAYS blocks + preserves, never fails open, never passes on retry
@@ -136,6 +138,8 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
       | the content is sexual/minors. |
       | unsafe S4/S5                  |
       | unsafe S1;S4                  |
+      | unsafe S4.S5                  |
+      | unsafe S1-S4                  |
 
   # ===========================================================================
   # 3. PASS + LOG (low-harm categories)
@@ -201,6 +205,17 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
 
   Scenario: a non-200 from the classifier fails OPEN under require=1 with a loud log
     Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP 500
+    When a relay prompt is screened
+    Then the screen allows (status 0)
+    And a loud "MODERATION FAIL-OPEN" incident line is logged
+
+  # FOUNDER DECISION POINT (pre-push audit, 2026-07-08): a 429 is a non-200, so it currently
+  # fails OPEN too - which means an attacker who floods the broker until the Groq moderation key
+  # rate-limits could convert "outage" into an induced unscreened pass (CSAM screen off) for all
+  # traffic. This scenario pins today's approved behavior (non-200 -> fail open); the merge-block
+  # asks the founder to confirm whether 429 should instead fail closed / back off + alert.
+  Scenario: a 429 rate-limit currently fails OPEN (founder decision point - see merge-block)
+    Given ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP 429
     When a relay prompt is screened
     Then the screen allows (status 0)
     And a loud "MODERATION FAIL-OPEN" incident line is logged

@@ -113,9 +113,9 @@ func (s *recalState) requireUnreachable() error {
 	return nil
 }
 
-func (s *recalState) requireNon200() error {
+func (s *recalState) requireHTTPStatus(code int) error {
 	s.require = true
-	s.status = http.StatusInternalServerError
+	s.status = code
 	s.startStub()
 	return nil
 }
@@ -256,7 +256,7 @@ func TestModerationRecalibrationBDD(t *testing.T) {
 			sc.Step(`^a Groq safeguard backend scripted to return "([^"]*)" then "([^"]*)"$`, st.scriptedReturnThen)
 			sc.Step(`^a Groq safeguard backend scripted to return "([^"]*)"$`, st.scriptedReturn)
 			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier is unreachable$`, st.requireUnreachable)
-			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP 500$`, st.requireNon200)
+			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns HTTP (\d+)$`, st.requireHTTPStatus)
 			sc.Step(`^ROGERAI_REQUIRE_MODERATION=1 and the Groq classifier returns an empty verdict$`, st.requireEmptyVerdict)
 			// When
 			sc.Step(`^a relay prompt is screened$`, st.promptScreened)

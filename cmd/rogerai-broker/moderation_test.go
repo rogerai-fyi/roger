@@ -258,6 +258,8 @@ func TestModerationGroqVerdictParsing(t *testing.T) {
 		{"unsafe S1;S3", true},    // REGRESSION: semicolon-joined codes still block
 		{"unsafe S1|S2", true},    // REGRESSION: pipe-joined (S1 block-net wins)
 		{"unsafe\tS5", true},      // REGRESSION: tab-separated code still blocks
+		{"unsafe S1.S3", true},    // REGRESSION: period-joined codes still block
+		{"unsafe S5-S6", true},    // REGRESSION: hyphen-joined codes still block
 		{"unsafe S2", false},      // pass-log (hacking) -> allow
 		{"unsafe S7", false},      // pass-log (hate) -> allow
 		{"unsafe S8", false},      // pass-log (drugs) -> allow
@@ -337,6 +339,8 @@ func TestModerationGroqCSAMInNoise(t *testing.T) {
 		"unsafe S4/S5",                    // REGRESSION: slash-joined codes must not hide S4
 		"unsafe S1;S4",                    // REGRESSION: semicolon-joined codes must not hide S4
 		"unsafe S4\tand more",             // REGRESSION: tab-separated S4 must not be missed
+		"unsafe S4.S5",                    // REGRESSION: period-joined codes must not hide S4
+		"unsafe S1-S4",                    // REGRESSION: hyphen-joined codes must not hide S4
 	} {
 		calls := 0
 		srv := groqVerdictServer(t, verdict, &calls)
