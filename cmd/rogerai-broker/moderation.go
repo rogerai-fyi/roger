@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // moderation is the broker's mandatory pre-dispatch content screen. The broker is
@@ -36,8 +37,12 @@ import (
 // Posture:
 //   - no backend configured, require=false -> DISABLED (dev only): pass through, with
 //     a loud startup warning. NOT safe for real public traffic.
-//   - ROGERAI_REQUIRE_MODERATION=1 -> fail CLOSED: if the screen is unset or
-//     unreachable, requests are rejected (503) rather than served unscreened.
+//   - ROGERAI_REQUIRE_MODERATION=1 + no/unreachable backend on the URL adapter -> fail
+//     CLOSED (503): unconfigured or a 200-with-no-verdict is rejected, not served unscreened.
+//   - a GROQ classifier OUTAGE (no verdict at all - transport/non-200/empty) now FAILS OPEN
+//     even under require=1 and logs a loud MODERATION FAIL-OPEN line (founder-approved
+//     lean-pass recalibration; see screenGroq / groqFailMode). The CSAM screen is not applied
+//     during a groq outage (accepted tradeoff). The require knob is kept so this is revertible.
 //
 // Launch to real public traffic MUST run with a backend set and require=true.
 type moderation struct {
@@ -164,6 +169,42 @@ var validCategoryCodes = map[string]bool{
 // the valid-code / CSAM check, so "S4.", "S4)", "S1;", "sexual/minors." are still recognized. It
 // deliberately excludes the slash (internal to "sexual/minors") and letters/digits.
 const verdictTokenTrimCutset = " \t.,;:!?()[]{}<>\"'`*_-"
+
+// verdictTokens extracts the deduplicated category-candidate tokens from a classifier verdict,
+// robust to the separators a safeguard model actually emits. A code that matches NEITHER csamCats
+// NOR the S1-S8 set is treated as malformed and (after retry) lean-passes, so a code hidden by an
+// unexpected separator must NOT be missed - especially a CSAM (S4) code, which must never pass.
+//
+// Two passes, both trimming surrounding punctuation from each token:
+//   pass 1 splits on WHITESPACE + comma only, so a multi-character csamCats token like
+//     "sexual/minors" survives intact (its internal slash is NOT a separator here);
+//   pass 2 splits on the BROAD separator set (whitespace, comma, semicolon, colon, pipe, slash,
+//     brackets/parens), so codes joined by an internal separator - "S4/S5", "S1;S3", a tab, "S1|S2"
+//     - are broken into their individual S-codes and re-checked.
+// The union of both passes is returned, so "unsafe S4/S5" yields both "sexual/minors" survival
+// (pass 1, irrelevant here) and "S4","S5" (pass 2 - the S4 CSAM signal is caught).
+func verdictTokens(verdict string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(t string) {
+		if t = strings.Trim(t, verdictTokenTrimCutset); t == "" || seen[t] {
+			return
+		}
+		seen[t] = true
+		out = append(out, t)
+	}
+	// Pass 1: preserve whole tokens (keeps "sexual/minors" together).
+	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool { return unicode.IsSpace(r) || r == ',' }) {
+		add(t)
+	}
+	// Pass 2: split codes joined by any internal separator.
+	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool {
+		return unicode.IsSpace(r) || strings.ContainsRune(",;:|/()[]{}", r)
+	}) {
+		add(t)
+	}
+	return out
+}
 
 // blockNetCategoryCodes are the categories that REJECT (451) on a clear verdict: S1 (violent
 // crimes), S3 (sex crimes), S4 (child exploitation - also the CSAM preserve path), S5 (weapons
@@ -514,17 +555,7 @@ func (m moderation) groqVerdict(text, policy string) (string, *modResult) {
 //  4. A clean "safe" first word -> ALLOW.
 //  5. No valid code and not "safe" -> MALFORMED (decided=false).
 func (m moderation) decideVerdict(verdict string) (modResult, bool) {
-	// Tokenize the whole verdict (layout-agnostic) and STRIP surrounding punctuation from each
-	// token, so a code adjacent to a period/paren/semicolon/quote ("S4.", "S4)", "S1;",
-	// "sexual/minors.") is still recognized. Without this a punctuated code would match neither
-	// csamCats nor the block-net set and would lean-pass - a safety hole (a present CSAM signal
-	// must never pass). Internal characters (the slash in "sexual/minors") are preserved.
-	var tokens []string
-	for _, t := range splitCategories(strings.ReplaceAll(strings.ReplaceAll(verdict, "\r", " "), "\n", " ")) {
-		if c := strings.Trim(t, verdictTokenTrimCutset); c != "" {
-			tokens = append(tokens, c)
-		}
-	}
+	tokens := verdictTokens(verdict)
 	// 1. CSAM signal ALWAYS wins - never fails open, never passes on retry.
 	if csam, cat := m.isCSAM(tokens); csam {
 		log.Printf("MODERATION: blocked by safeguard - CSAM signal (category: %s)", cat)
@@ -614,26 +645,15 @@ func matchedCategoryList(cats map[string]bool) []string {
 	return hit
 }
 
-// splitCategories parses Llama Guard's comma/space-separated category codes (e.g.
-// "S4", "S1,S3", "S1, S3") into a trimmed, non-empty list.
-func splitCategories(s string) []string {
-	var out []string
-	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
-		if part = strings.TrimSpace(part); part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
 // screenVoiceRegistration is the NEW register-time content screen for a public voice: it
 // runs the voice's display Name, its derived namespaced SLUG, and the operator handle
 // through the SAME b.mod.screen hook used on the prompt path (no new backend, no new model
 // dependency). This closes the register-time impersonation/abuse vector the recon flagged:
 // today an offer's Name/id lands verbatim on /voices unscreened. It honors the identical
-// posture as the prompt path — ROGERAI_REQUIRE_MODERATION fails CLOSED (503) when the
-// screen is required but unreachable, and an empty field short-circuits ALLOW inside
-// screen(). Returns modResult so the caller can reject with the screen's status (451/503).
+// posture as the prompt path (including the lean-pass recalibration): an unconfigured/unreachable
+// URL adapter under ROGERAI_REQUIRE_MODERATION=1 fails CLOSED (503), while a GROQ classifier
+// outage fails OPEN + logs; an empty field short-circuits ALLOW inside screen(). Returns
+// modResult so the caller can reject with the screen's status (451/503).
 // The three fields are joined into one screen call so a single flagged token trips it.
 func (m moderation) screenVoiceRegistration(name, slug, handle string) modResult {
 	return m.screen(strings.TrimSpace(name + "\n" + slug + "\n" + handle))

@@ -39,7 +39,10 @@
 # (real httptest Groq stub returning canned verdicts, no mocks) + moderation_test.go.
 #
 # NOTE: this recalibration is the GROQ safeguard path (production backend, gpt-oss-safeguard).
-# The URL adapter backend keeps its flagged-boolean shape and is out of scope here.
+# The URL adapter backend keeps its flagged-boolean shape and is out of scope here. Because the
+# chat/TTS/STT-output/voice-registration screens ALL share moderation.screen()->screenGroq, this
+# posture (incl. the outage fail-open) applies to every one of those surfaces on the groq backend
+# - the founder sign-off + live red-team must cover them, not just the chat relay.
 
 Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false-positive blocks
 
@@ -72,17 +75,20 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
     Then the screen returns 451
     And modResult.csam is false
 
-  # REGRESSION (reviewer, 2026-07-08): punctuation-adjacent block-net codes must still block.
-  Scenario Outline: a punctuation-adjacent block-net code still rejects 451
+  # REGRESSION (reviewer + pre-push audit, 2026-07-08): a block-net code obscured by trailing
+  # punctuation OR an internal separator (slash/semicolon/pipe/tab) must still block.
+  Scenario Outline: a separator-obscured block-net code still rejects 451
     Given a Groq safeguard backend scripted to return "<verdict>"
     When a relay prompt is screened
     Then the screen returns 451
 
     Examples:
-      | verdict     |
-      | unsafe S1.  |
-      | unsafe S5)  |
-      | unsafe S6;  |
+      | verdict      |
+      | unsafe S1.   |
+      | unsafe S5)   |
+      | unsafe S6;   |
+      | unsafe S1;S3  |
+      | unsafe S1\|S2 |
 
   # ===========================================================================
   # 2. CSAM NET - ALWAYS blocks + preserves, never fails open, never passes on retry
@@ -114,8 +120,9 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
     And modResult.csam is true with category "S4"
     And the classifier was called exactly 1 time
 
-  # REGRESSION (reviewer, 2026-07-08): a code adjacent to punctuation must not evade the net.
-  Scenario Outline: a punctuation-adjacent CSAM signal still blocks as CSAM
+  # REGRESSION (reviewer + pre-push audit, 2026-07-08): a code hidden by ANY separator - trailing
+  # punctuation, or an internal slash/semicolon/colon/pipe/tab - must not evade the CSAM net.
+  Scenario Outline: a separator-obscured CSAM signal still blocks as CSAM
     Given a Groq safeguard backend scripted to return "<verdict>"
     When a relay prompt is screened
     Then the screen returns 451
@@ -123,10 +130,12 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
     And the classifier was called exactly 1 time
 
     Examples:
-      | verdict                      |
+      | verdict                       |
       | cannot comply but this is S4. |
       | unsafe (S4)                   |
       | the content is sexual/minors. |
+      | unsafe S4/S5                  |
+      | unsafe S1;S4                  |
 
   # ===========================================================================
   # 3. PASS + LOG (low-harm categories)
