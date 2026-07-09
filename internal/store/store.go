@@ -979,6 +979,15 @@ func billedTokens(rec protocol.UsageReceipt) (promptTok, completionTok int) {
 	if rec.BrokerCompletionTokens > 0 && rec.BrokerCompletionTokens < completionTok {
 		completionTok = rec.BrokerCompletionTokens
 	}
+	// Floor at 0: a node-signed receipt claiming a NEGATIVE count would otherwise record a
+	// negative billed count and (via CostWith2) a negative cost that mints. The broker recount
+	// only ever LOWERS a claim, so it never restores a floored value.
+	if promptTok < 0 {
+		promptTok = 0
+	}
+	if completionTok < 0 {
+		completionTok = 0
+	}
 	return promptTok, completionTok
 }
 
