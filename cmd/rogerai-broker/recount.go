@@ -127,6 +127,9 @@ func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool,
 // goroutine (OFF the hot path), reusing this single sidecar result so the relay path
 // never double-calls the sidecar. Returns `claimed` immediately when re-count is off.
 func (b *broker) settleRecount(nodeID, requestID, model, completion string, claimed int) int {
+	if claimed < 0 {
+		claimed = 0 // a negative node-claimed count never bills, records, signs, or logs negative
+	}
 	if !b.recount.enabled() || completion == "" || claimed <= 0 {
 		return claimed
 	}
@@ -160,6 +163,9 @@ func (b *broker) settleRecount(nodeID, requestID, model, completion string, clai
 // It never inflates a claim (we only ever bill the lesser count), and it returns the
 // claim unchanged when re-count is off and the byte floor was not breached.
 func (b *broker) settleRecountPrompt(nodeID, requestID, model, prompt string, claimed, bodyLen int) int {
+	if claimed < 0 {
+		claimed = 0 // a negative node-claimed count never bills, records, signs, or logs negative
+	}
 	// Defense 1: the zero-doubt byte floor (no sidecar needed). Clamp billing to the only
 	// physically-possible upper bound ALWAYS (safe for the consumer, makes input inflation
 	// unprofitable), but only PERMABAN when the claim exceeds the body by more than any

@@ -1083,6 +1083,18 @@ func (b *broker) rehydrateNodes() {
 		// claim from an old release); rec.Confidential is the broker's stored VERDICT, so
 		// re-hydrate memory + the mirror re-publish below with the verdict, never the claim.
 		reg.Confidential = rec.Confidential
+		// Drop a persisted reg that violates the price floor or ceiling (e.g. a pre-fix
+		// negative-price row): re-ingesting it would let it rejoin the market and win
+		// cheapest-first routing. Mint-safe (clampSettleCost floors the cost), but a bad
+		// price must not resurface across a restart - the same bounds register enforces.
+		if msg := registerPriceFloor(reg.Offers); msg != "" {
+			log.Printf("re-hydrate: dropping node %s (persisted price below floor: %s)", reg.NodeID, msg)
+			continue
+		}
+		if msg := registerPriceCeiling(reg.Offers); msg != "" {
+			log.Printf("re-hydrate: dropping node %s (persisted price above ceiling: %s)", reg.NodeID, msg)
+			continue
+		}
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential
