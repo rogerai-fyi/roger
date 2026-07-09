@@ -480,7 +480,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// The resident DJ: hand focus to the ask box.
 				m.deskFocused = false
 				m.agentIn.Focus()
-				m.status = stDim.Render("the DJ has the mic · type to ask · esc exits")
+				m.status = stDim.Render(djHasMicStatus)
 				return m, textinput.Blink
 			}
 			ds := deskGuests(m.operatorDetections)
@@ -492,9 +492,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if isPrintableKey(k) {
 			// Type-through: the DJ is implied. De-focus the desk and let the rune land in
-			// the ask box via the text-entry Update below.
+			// the ask box via the text-entry Update below. Clear the focused-desk hint so the
+			// status line stops advertising arrow-selection (mirrors the enter-on-DJ path).
 			m.deskFocused = false
 			m.agentIn.Focus()
+			m.status = stDim.Render(djHasMicStatus)
 		}
 	}
 	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
