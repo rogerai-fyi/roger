@@ -16,9 +16,14 @@
 #      work in good faith on opaque audio; the abuser (not the operator) eats the
 #      cost, which also prices out repeat laundering probes. The 451 response carries
 #      the usual X-RogerAI-Cost header so the spend is visible.
-#   D2 FAIL MODE mirrors input screening: with ROGERAI_REQUIRE_MODERATION=1 a screen
-#      outage 503s the transcription (fail-closed, result withheld); with 0 it is
-#      served unscreened (fail-open) - same knob, same semantics, no new flag.
+#   D2 FAIL MODE mirrors input screening: with ROGERAI_REQUIRE_MODERATION=1 a URL-adapter
+#      screen outage 503s the transcription (fail-closed, result withheld); with 0 it is
+#      served unscreened (fail-open) - same knob, same semantics, no new flag. NOTE: the
+#      production GROQ safeguard backend now FAILS OPEN on a classifier outage even under
+#      require=1 (per the founder-approved lean-pass recalibration, features/moderation/
+#      recalibration.feature), so on that backend an STT/voice-registration screen outage serves
+#      unscreened + logs a loud MODERATION FAIL-OPEN line rather than 503-ing. These scenarios
+#      pin the URL-adapter backend (still fail-closed under require=1).
 #   D3 The screened text is the node's transcription JSON "text" field; the raw JSON
 #      is NOT forwarded on a block (no partial leak via other fields).
 #
