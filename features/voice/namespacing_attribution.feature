@@ -6,7 +6,7 @@
 # owners too) and non-sensitive. This suite predates that switch; it runs with each owner's station
 # set EQUAL to its bare login, so the @<login>/<slug> ids below read as the station-namespaced ids
 # they now are. All the SLUG behavior it exercises (normalization, "/"+"@" forgery in a NAME, the
-# 64-rune cap, the chat-model impersonation prefix denylist, and moderation fail-closed) is keyed
+# 64-rune cap, the chat-model impersonation prefix denylist, and moderation reject) is keyed
 # on the voice NAME and is UNCHANGED by the switch. Station-specific behavior (Apple-only listing,
 # cross-owner station uniqueness, namespaced ROUTING) lives in features/voice/namespaced_routing.feature.
 # FOUNDER-APPROVED with 4 binding decisions baked in:
