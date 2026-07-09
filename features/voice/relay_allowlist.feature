@@ -80,6 +80,11 @@ Feature: Relay path allowlist - the share node is the trust boundary
     Then the backend is hit once at "/v1/audio/transcriptions"
     And the node returns the backend's response
 
+  Scenario: a forwarded request carries only the node's own headers (A4)
+    When the broker relays a job with path "/v1/audio/speech"
+    Then the backend is hit once at "/v1/audio/speech"
+    And the forwarded request carries only the node's Content-Type and Authorization headers
+
   # ---------------------------------------------------------------------------
   # 1b. FORGIVING - a cosmetic variant of an allowlisted path is normalized and
   #     forwarded to its canonical endpoint (A5). (Leading/trailing whitespace

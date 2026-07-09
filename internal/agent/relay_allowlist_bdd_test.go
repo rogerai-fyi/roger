@@ -25,6 +25,7 @@ type relayAllowlistState struct {
 	backend     *httptest.Server
 	hits        atomic.Int64
 	lastPath    atomic.Value // string: the last URL path the backend was hit on
+	lastHeader  atomic.Value // http.Header: the headers the backend saw on the last hit
 	cfg         Config
 	priv        ed25519.PrivateKey
 	res         protocol.JobResult
@@ -49,6 +50,7 @@ func (s *relayAllowlistState) recordingBackend() error {
 	s.backend = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.hits.Add(1)
 		s.lastPath.Store(r.URL.Path)
+		s.lastHeader.Store(r.Header.Clone())
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(relayBackendBody))
 	}))
@@ -135,6 +137,33 @@ func (s *relayAllowlistState) backendNeverHit() error {
 	return nil
 }
 
+// forwardedHeaderDiscipline asserts A4: the node forwards ONLY the Content-Type + Authorization
+// headers it sets itself - never a broker-supplied application header (Job carries no headers, so
+// the node cannot be tricked into forwarding one). Go's transport adds its own hop-by-hop headers
+// (Host/User-Agent/Accept-Encoding/Content-Length), which are not broker-controlled and allowed.
+func (s *relayAllowlistState) forwardedHeaderDiscipline() error {
+	h, _ := s.lastHeader.Load().(http.Header)
+	if h == nil {
+		return bddErr("no forwarded request was recorded")
+	}
+	if ct := h.Get("Content-Type"); ct != "application/json" {
+		return bddErr("forwarded Content-Type " + ct + ", want application/json")
+	}
+	if auth := h.Get("Authorization"); auth != "Bearer "+s.upstreamKey {
+		return bddErr("forwarded Authorization " + auth + ", want the node's Bearer upstream key")
+	}
+	allowed := map[string]bool{
+		"Content-Type": true, "Authorization": true, // the only two the node sets
+		"Host": true, "User-Agent": true, "Accept-Encoding": true, "Content-Length": true, // Go transport
+	}
+	for name := range h {
+		if !allowed[name] {
+			return bddErr("forwarded an unexpected header " + name + "; the node must forward ONLY Content-Type + Authorization")
+		}
+	}
+	return nil
+}
+
 func (s *relayAllowlistState) refusalLeaksNothing() error {
 	body := string(s.res.Body)
 	if s.upstreamURL != "" && strings.Contains(body, s.upstreamURL) {
@@ -190,6 +219,7 @@ func TestRelayAllowlistBDD(t *testing.T) {
 			sc.Step(`^the broker relays a job with path "([^"]*)"$`, st.relayWithPath)
 			sc.Step(`^the backend is hit once at "([^"]*)"$`, st.backendHitOnceAt)
 			sc.Step(`^the node returns the backend's response$`, st.nodeReturnsBackendResponse)
+			sc.Step(`^the forwarded request carries only the node's Content-Type and Authorization headers$`, st.forwardedHeaderDiscipline)
 			sc.Step(`^the node refuses with a 404 "unsupported path"$`, st.refuses404Unsupported)
 			sc.Step(`^the backend is never hit$`, st.backendNeverHit)
 			sc.Step(`^the refusal body leaks neither the upstream URL nor the upstream key$`, st.refusalLeaksNothing)
