@@ -135,6 +135,14 @@ func (b *broker) grantCreate(w http.ResponseWriter, r *http.Request, owner store
 		jsonErr(w, http.StatusBadRequest, "name required")
 		return
 	}
+	// Price floor (money invariant): a grant can never carry a negative price. A custom-priced
+	// grant bills the OWNER's own sponsor wallet, so a negative price would CREDIT that wallet at
+	// settle (Finalize: balance += held - cost) - minting spendable balance. validateOfferInput is
+	// the same non-negative guard the public-market register path uses (grants have no schedule).
+	if msg := validateOfferInput(req.PriceIn, req.PriceOut, nil); msg != "" {
+		jsonErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	// Free is the default; a custom price (and not --free) makes it priced.
 	free := true
 	if req.Free != nil {
@@ -222,6 +230,20 @@ func (b *broker) grantByID(w http.ResponseWriter, r *http.Request, id string) {
 		var patch store.GrantPatch
 		if json.Unmarshal(body, &patch) != nil {
 			jsonErr(w, http.StatusBadRequest, "bad patch")
+			return
+		}
+		// Same price floor as create: reject a negative price BEFORE it is persisted. Only the
+		// fields the patch actually carries are checked (a nil field means "leave unchanged", and
+		// any already-stored price passed create's guard).
+		pin, pout := 0.0, 0.0
+		if patch.PriceIn != nil {
+			pin = *patch.PriceIn
+		}
+		if patch.PriceOut != nil {
+			pout = *patch.PriceOut
+		}
+		if msg := validateOfferInput(pin, pout, nil); msg != "" {
+			jsonErr(w, http.StatusBadRequest, msg)
 			return
 		}
 		g, ok, err := b.db.UpdateGrant(id, owner.Pubkey, patch)
