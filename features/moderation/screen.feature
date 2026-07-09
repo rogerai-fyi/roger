@@ -1,23 +1,34 @@
 # MODERATION: the broker's MANDATORY pre-dispatch content screen. The broker is the single
 # choke point where an illegal prompt (CSAM and similar) is blocked BEFORE it ever reaches a
-# provider node. The screen is a pluggable hook; what these scenarios pin is the POSTURE
-# (fail-open dev vs fail-closed launch), the verdict-to-HTTP mapping, and the legally-distinct
-# CSAM preserve-and-report path that must NEVER silently discard.
+# provider node. The screen is a pluggable hook; what these scenarios pin is the shared POSTURE
+# (dev disabled vs launch enabled), the flag-to-HTTP mapping, and the legally-distinct CSAM
+# preserve-and-report path that must NEVER silently discard. These scenarios exercise the URL
+# adapter backend (an OpenAI-moderation-compatible {input}->{flagged} endpoint), which is
+# category-agnostic for its block decision (it blocks whatever the adapter flags).
+#
+# LEAN-PASS RECALIBRATION (founder-approved): the GROQ safeguard backend (production, since
+# Groq retired Llama Guard) now routes the classifier's per-category verdict under a lean-pass
+# posture - block-net (S1/S3/S4/S5/S6, S4 CSAM) vs pass+log (S2/S7/S8), malformed->retry->pass,
+# and outage->fail-open+log even under require=1. That exhaustive contract lives in its own
+# spec, features/moderation/recalibration.feature; it does NOT change the URL-backend behavior
+# these scenarios pin, nor the CSAM preserve+report path (still 451 + csam=true, unchanged).
 #
 # GROUND TRUTH (cmd/rogerai-broker/moderation.go):
 #   backend resolved from MODERATION_PROVIDER ("url" | "groq"); inferred when empty:
-#     "url" if MODERATION_URL set, else "groq" if a Groq key present (gpt-oss-safeguard,
-#     since Groq retired Llama Guard), else OFF.
-#   modResult.status: 0 = ALLOW; 451 = flagged (reject); 503 = fail-closed.
+#     "url" if MODERATION_URL set, else "groq" if a Groq key present (gpt-oss-safeguard),
+#     else OFF.
+#   modResult.status: 0 = ALLOW; 451 = flagged (reject); 503 = fail-closed (URL backend, or a
+#     misconfiguration - a GROQ classifier OUTAGE now FAILS OPEN + logs, per recalibration.feature).
 #   posture:
 #     no backend + require=false -> DISABLED (pass-through + LOUD startup warning; dev only)
-#     ROGERAI_REQUIRE_MODERATION=1 -> fail CLOSED: unset/unreachable screen => 503, never served
-#   csam=true ONLY for a matched csamCats category (default Llama-Guard S4 + OpenAI
-#     sexual/minors; ROGERAI_CSAM_CATEGORIES overrides): the relay must PRESERVE the incident
-#     and QUEUE a CyberTipline report (18 USC 2258A), not just reject+discard.
+#     ROGERAI_REQUIRE_MODERATION=1, URL backend unset/unreachable => 503, never served unscreened
+#   csam=true ONLY for a matched csamCats category (default S4 + OpenAI sexual/minors;
+#     ROGERAI_CSAM_CATEGORIES overrides): the relay must PRESERVE the incident and QUEUE a
+#     CyberTipline report (18 USC 2258A), not just reject+discard.
 #   The screen runs BEFORE dispatch, so a blocked prompt never reaches any node.
 #
-# Enforced by: cmd/rogerai-broker/moderation_test.go (+ report.go + concierge.go/tunnel.go for the CSAM queue).
+# Enforced by: cmd/rogerai-broker/moderation_test.go + moderation_bdd_test.go (+ report.go +
+# concierge.go/tunnel.go for the CSAM queue). GROQ lean-pass: recalibration.feature.
 
 Feature: Moderation — the mandatory pre-dispatch content screen
 
