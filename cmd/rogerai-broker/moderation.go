@@ -175,14 +175,18 @@ const verdictTokenTrimCutset = " \t.,;:!?()[]{}<>\"'`*_-"
 // NOR the S1-S8 set is treated as malformed and (after retry) lean-passes, so a code hidden by an
 // unexpected separator must NOT be missed - especially a CSAM (S4) code, which must never pass.
 //
-// Two passes, both trimming surrounding punctuation from each token:
-//   pass 1 splits on WHITESPACE + comma only, so a multi-character csamCats token like
-//     "sexual/minors" survives intact (its internal slash is NOT a separator here);
-//   pass 2 splits on the BROAD separator set (whitespace, comma, semicolon, colon, pipe, slash,
-//     brackets/parens), so codes joined by an internal separator - "S4/S5", "S1;S3", a tab, "S1|S2"
-//     - are broken into their individual S-codes and re-checked.
-// The union of both passes is returned, so "unsafe S4/S5" yields both "sexual/minors" survival
-// (pass 1, irrelevant here) and "S4","S5" (pass 2 - the S4 CSAM signal is caught).
+// Coarse-then-fine, each token trimmed of surrounding punctuation:
+//   COARSE: split on WHITESPACE + comma only and add each token WHOLE, so a multi-character
+//     csamCats token like "sexual/minors" (or a configured custom one) survives intact for the
+//     CSAM check (its internal slash is not a separator here).
+//   FINE: for each coarse token, additionally split on ANY non-alphanumeric rune and add the
+//     parts, so a code joined to another by ANY separator - "S4/S5", "S1;S3", "S4.S5", "S1-S4",
+//     "S4+S5", a tab, a pipe - is still recovered and re-checked (a CSAM S4 can never hide behind
+//     an unexpected joiner).
+//   EXCEPTION: the literal whole-range token "S1-S8" (case-insensitive) - the policy's own name
+//     for the entire code set - is left un-split, so a rambling verdict that merely echoes the
+//     range is not shattered into S1..S8 and false-positive-blocked. It is not a valid single
+//     code, so leaving it whole lean-passes it.
 func verdictTokens(verdict string) []string {
 	seen := map[string]bool{}
 	var out []string
