@@ -165,7 +165,7 @@ function assetHash(rel) {
   return h;
 }
 function cacheBust(html) {
-  return html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|gif|png|webp|svg|jpe?g|avif))"/g,
+  return html.replace(/((?:src|href|poster)=")((?:js|styles|assets)\/[^"?]+\.(?:js|css|mp4|vtt|gif|png|webp|svg|jpe?g|avif))"/g,
     (_, pre, rel) => `${pre}${rel}?v=${assetHash(rel)}"`);
 }
 
