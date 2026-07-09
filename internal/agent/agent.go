@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -658,12 +659,22 @@ func parseUsage(line []byte) (prompt, completion int, ok bool) {
 }
 
 func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *http.Client, job protocol.Job) protocol.JobResult {
+	// TRUST BOUNDARY: the broker supplies job.Path and we derive a LOCAL endpoint from it (below),
+	// which the loopback backend treats as authenticated. Only forward an ALLOWLISTED upstream
+	// path; refuse everything else BEFORE building a target or touching the backend, so a
+	// compromised/buggy broker cannot steer the node onto a dangerous local route (e.g.
+	// /agents/{id}/run or /mcp/call). We normalize once (see cleanUpstreamPath) and use the
+	// normalized path everywhere below. See isAllowedUpstreamPath + relay_allowlist.feature.
+	p := cleanUpstreamPath(job.Path)
+	if !isAllowedUpstreamPath(p) {
+		return protocol.JobResult{ID: job.ID, Status: http.StatusNotFound, Body: []byte(`{"error":"unsupported path"}`)}
+	}
 	// The broker tags a voice job with the upstream Path to hit (e.g. /v1/audio/speech); serve it
 	// against the SAME local server at that path, derived from the chat upstream's base. An empty
 	// or chat Path leaves cfg.Upstream unchanged (a normal LLM share is untouched).
 	target := cfg.Upstream
 	body := job.Body
-	if p := job.Path; p != "" && !strings.HasSuffix(p, "/chat/completions") {
+	if p != "" && !strings.HasSuffix(p, "/chat/completions") {
 		target = strings.TrimSuffix(cfg.Upstream, "/chat/completions") + strings.TrimPrefix(p, "/v1")
 		// On the speech path, inject the operator's DEFAULT voice/speed when the caller omitted
 		// them, so a consumer gets the operator's picked voice/blend (offer.Voice) — not the raw
@@ -710,10 +721,46 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 	return protocol.JobResult{ID: job.ID, Status: resp.StatusCode, Body: respBody, Receipt: rec}
 }
 
-// isSpeechPath reports whether a broker job Path targets the local text-to-speech endpoint (the
-// ONLY path where the operator's default voice/speed is injected). stt (/v1/audio/transcriptions)
-// and chat are excluded — they have no `voice` knob.
-func isSpeechPath(p string) bool { return strings.HasSuffix(p, "/audio/speech") }
+// The canonical upstream paths the node relays to its LOCAL backend - the ONLY endpoints the
+// broker ever dispatches (cmd/rogerai-broker: chat sets no Path; audio.go tags TTS/STT). These
+// are the single source of truth: the allowlist and the downstream routing both read them, so
+// adding a modality is a one-line change here.
+const (
+	pathChat       = "/v1/chat/completions"     // chat completions (canonical)
+	pathChatAlias  = "/chat/completions"        // chat completions (back-compat alias)
+	pathSpeech     = "/v1/audio/speech"         // TTS
+	pathTranscribe = "/v1/audio/transcriptions" // STT
+)
+
+// cleanUpstreamPath does the minimal, safe normalization the allowlist matches against: trim
+// surrounding whitespace, then path.Clean a rooted path (collapses "//", resolves "." and "..",
+// strips a trailing slash). A blank path stays "" (the chat back-compat). Anything that is not a
+// rooted "/..." path (an absolute URL, a scheme, a backslash form) is returned untouched so it
+// simply fails the exact match below - we never try to rescue it. path.Clean resolving ".."
+// pulls a traversal AWAY from a canonical path (e.g. /v1/../agents/run -> /agents/run), never
+// toward one, so this cannot manufacture an allowed path out of a dangerous one.
+func cleanUpstreamPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || !strings.HasPrefix(p, "/") {
+		return p
+	}
+	return path.Clean(p)
+}
+
+// isAllowedUpstreamPath is the node-side trust boundary: it reports whether a (cleaned) broker
+// job path may be forwarded to the LOCAL backend. It is a tight exact-match against the canonical
+// set above, reusing isSpeechPath so the voice path stays in sync. A blank path is the chat
+// back-compat. Case-sensitive (the relay treats paths case-sensitively). Extend it by adding one
+// term for a new canonical modality.
+func isAllowedUpstreamPath(p string) bool {
+	return p == "" || p == pathChat || p == pathChatAlias || isSpeechPath(p) || p == pathTranscribe
+}
+
+// isSpeechPath reports whether a (cleaned) job path targets the local text-to-speech endpoint -
+// the ONLY path where the operator's default voice/speed is injected. Anchored to the exact
+// canonical TTS path (not a loose suffix, which /evil/audio/speech would have matched). stt and
+// chat are excluded — they have no `voice` knob.
+func isSpeechPath(p string) bool { return p == pathSpeech }
 
 // injectVoiceDefaults returns body with the operator's default voice/speed FILLED IN when the
 // caller omitted them, so a consumer gets the operator's picked voice/blend (offer.Voice) rather
