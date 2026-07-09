@@ -82,6 +82,12 @@ Feature: THE DESK takes focus on the AGENT [0] landing
     And the ask box has focus
     And the ask box echoes "h"
 
+  Scenario: Typing through clears the focused-desk hint (no stale arrow-selection advice)
+    Given an AGENT session whose last band "gpt-oss-20b" is still on air
+    And the desk scan lands guest "opencode"
+    When the user types "h"
+    Then the AGENT footer does not show "↑↓ choose an operator"
+
   Scenario: A tuned first-entry with NO guests keeps the ask box focused (zero-guest invariant)
     Given an AGENT session whose last band "gpt-oss-20b" is still on air
     When the desk scan lands no guests

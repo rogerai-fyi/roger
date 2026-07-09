@@ -160,6 +160,7 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 			m.deskFocused = false
 			m.deskCursor = 0
 			m.agentIn.Focus()
+			m.status = stDim.Render(djHasMicStatus) // drop the now-stale focused-desk hint
 		} else {
 			if max := m.deskRowCount() - 1; m.deskCursor > max {
 				m.deskCursor = max
@@ -201,6 +202,11 @@ func (m model) onOperatorDetected(msg operatorDetectedMsg) (tea.Model, tea.Cmd) 
 // deskFocusHint is the one-line status shown while THE DESK holds focus: how to pick an
 // operator, keep the DJ, or just start asking. Mirrors the /operator picker footer voice.
 const deskFocusHint = "↑↓ choose an operator · ⏎ DJ keeps the mic · type to just ask · esc exits"
+
+// djHasMicStatus replaces deskFocusHint the moment the desk hands focus back to the ask box
+// (enter-on-DJ, type-through, or a guest set that empties under focus) so the status line
+// never keeps advertising arrow-selection that no longer applies.
+const djHasMicStatus = "the DJ has the mic · type to ask · esc exits"
 
 // deskEntryEligible reports whether the AGENT is on the FRESH landing where THE DESK may
 // take focus: AGENT mode, no channel/model, the ask box empty (nothing typed), the
