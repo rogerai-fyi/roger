@@ -357,7 +357,11 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			pin = 0
 		}
 	}
-	cost := float64(units) * pin / 1e6
+	// Floor via the same chokepoint as the relay settle path (maxCost 0 = no upper cap here;
+	// audio's hold == cost, counted up front). units is broker-owned and pin is registration-
+	// floored, so this is defense in depth - it keeps the "cost is never negative/non-finite"
+	// invariant uniform at EVERY settle writer, not reliant on the cost > 0 guards below.
+	cost := clampSettleCost(float64(units)*pin/1e6, 0)
 	if pricing.free {
 		cost = 0
 	}
