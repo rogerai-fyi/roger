@@ -578,7 +578,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:225:	recordToolProbe
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:283:	syncToolsVerified		87.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:300:	toolsVerifiedForLocked		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:311:	authoritativeFor		100.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:327:	probeToolCall			92.1%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:327:	probeToolCall			89.5%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/toolcall.go:387:	applyToolVerdict		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:42:		maxNodesPerOwnerLimit		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/tunnel.go:56:		ownerOnAirCount			91.7%
