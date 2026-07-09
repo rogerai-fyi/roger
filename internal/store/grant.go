@@ -63,12 +63,22 @@ func (g Grant) Expired(now time.Time) bool {
 }
 
 // GrantPrice returns the price the grant bills at: 0/0 for a free or self grant,
-// else its custom (PriceIn, PriceOut).
+// else its custom (PriceIn, PriceOut). A negative stored price is clamped to 0 here -
+// the billing chokepoint every settle path reads - so even a legacy/corrupt negative
+// row can never yield a negative cost (which Finalize would turn into a minted credit).
+// The HTTP create/edit paths reject a negative price outright; this is defense in depth.
 func (g Grant) GrantPrice() (in, out float64) {
 	if g.Free || g.Self {
 		return 0, 0
 	}
-	return g.PriceIn, g.PriceOut
+	in, out = g.PriceIn, g.PriceOut
+	if in < 0 {
+		in = 0
+	}
+	if out < 0 {
+		out = 0
+	}
+	return in, out
 }
 
 // applyPatch returns g with the non-nil patch fields applied.
