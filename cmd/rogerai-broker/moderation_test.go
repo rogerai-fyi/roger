@@ -260,6 +260,12 @@ func TestModerationGroqVerdictParsing(t *testing.T) {
 		{"unsafe\tS5", true},      // REGRESSION: tab-separated code still blocks
 		{"unsafe S1.S3", true},    // REGRESSION: period-joined codes still block
 		{"unsafe S5-S6", true},    // REGRESSION: hyphen-joined codes still block
+		{"unsafe S1+S3", true},    // REGRESSION: plus-joined (exotic) still blocks
+		// FALSE-POSITIVE GUARD: a rambling verdict that merely echoes the literal code range
+		// "S1-S8" (as the policy/retry prompt name it) must NOT be shattered into S1..S8 and
+		// blocked - it has no valid single code, so it is malformed -> retry -> lean-pass.
+		{"The valid categories are S1-S8 but this content looks fine", false},
+		{"unsafe S1-S8", false}, // the whole-range token alone is not a violated-code list -> pass
 		{"unsafe S2", false},      // pass-log (hacking) -> allow
 		{"unsafe S7", false},      // pass-log (hate) -> allow
 		{"unsafe S8", false},      // pass-log (drugs) -> allow
@@ -341,6 +347,8 @@ func TestModerationGroqCSAMInNoise(t *testing.T) {
 		"unsafe S4\tand more",             // REGRESSION: tab-separated S4 must not be missed
 		"unsafe S4.S5",                    // REGRESSION: period-joined codes must not hide S4
 		"unsafe S1-S4",                    // REGRESSION: hyphen-joined codes must not hide S4
+		"unsafe S4+S5",                    // REGRESSION: plus-joined (exotic) must not hide S4
+		"unsafe S4&S6",                    // REGRESSION: ampersand-joined must not hide S4
 	} {
 		calls := 0
 		srv := groqVerdictServer(t, verdict, &calls)

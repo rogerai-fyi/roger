@@ -132,7 +132,7 @@ const (
 // non-empty reply that carries no valid S1-S8 code and is not a clean "safe"). It re-states the
 // output contract so a model that rambled/summarized on the first pass has a second chance to
 // answer in the parseable form before we lean-pass.
-const moderationRetrySuffix = "\n\nRETRY: your previous reply was NOT in the required format. Reply with EXACTLY one line and nothing else: either \"safe\" or \"unsafe <codes>\" using only the codes S1-S8. No explanation, no summary, no other text."
+const moderationRetrySuffix = "\n\nRETRY: your previous reply was NOT in the required format. Reply with EXACTLY one line and nothing else: either \"safe\" or \"unsafe <codes>\" using only the category codes defined above. No explanation, no summary, no other text."
 
 // wrapForClassification wraps the screened text in the content-isolation delimiters so the
 // classifier treats it as data, never instructions (reliability fix R1). Each marker carries a
@@ -193,19 +193,24 @@ func verdictTokens(verdict string) []string {
 		seen[t] = true
 		out = append(out, t)
 	}
-	// Pass 1: preserve whole tokens (keeps "sexual/minors" together).
-	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool { return unicode.IsSpace(r) || r == ',' }) {
-		add(t)
-	}
-	// Pass 2: split codes joined by any internal separator. The set mirrors verdictTokenTrimCutset
-	// (minus letters/digits) so a code joined to another by "." or "-" ("S4.S5", "S1-S3") is split,
-	// not just codes with whitespace/comma/slash between them - closing the last separator-evasion
-	// corner. "sexual/minors" still survives via pass 1 (the slash split here would break it, but
-	// pass 1 already emitted it whole for the CSAM check).
-	for _, t := range strings.FieldsFunc(verdict, func(r rune) bool {
-		return unicode.IsSpace(r) || strings.ContainsRune(".,;:!?|/()[]{}<>\"'`*_-", r)
-	}) {
-		add(t)
+	// Coarse pass: split only on whitespace + comma, then add each token WHOLE. This preserves any
+	// multi-character csamCats token ("sexual/minors", or a configured custom one) intact for the
+	// CSAM check.
+	for _, coarse := range strings.FieldsFunc(verdict, func(r rune) bool { return unicode.IsSpace(r) || r == ',' }) {
+		add(coarse)
+		// A code joined to another by ANY non-alphanumeric ("S4/S5", "S4.S5", "S1-S4", "S4+S5",
+		// tab, pipe, ...) must still be recovered so it cannot hide behind an unexpected separator
+		// - a CSAM (S4) code especially must never slip. So split each coarse token finely on any
+		// non-letter/non-digit rune and add the parts too.
+		// EXCEPTION: the literal enumeration "S1-S8" (the policy's own way of naming the whole
+		// code range) is NOT a list of two violated codes; splitting it would false-positive-block
+		// a rambling verdict that merely echoes the range. Leave it whole (it is not a valid code).
+		if strings.EqualFold(strings.Trim(coarse, verdictTokenTrimCutset), "s1-s8") {
+			continue
+		}
+		for _, fine := range strings.FieldsFunc(coarse, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+			add(fine)
+		}
 	}
 	return out
 }

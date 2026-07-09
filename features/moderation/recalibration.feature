@@ -91,6 +91,7 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
       | unsafe S1\|S2 |
       | unsafe S1.S3  |
       | unsafe S5-S6  |
+      | unsafe S1+S3  |
 
   # ===========================================================================
   # 2. CSAM NET - ALWAYS blocks + preserves, never fails open, never passes on retry
@@ -140,6 +141,7 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
       | unsafe S1;S4                  |
       | unsafe S4.S5                  |
       | unsafe S1-S4                  |
+      | unsafe S4+S5                  |
 
   # ===========================================================================
   # 3. PASS + LOG (low-harm categories)
@@ -174,6 +176,15 @@ Feature: Moderation lean-pass recalibration - keep the CSAM/harm net, stop false
       | unsafe                                              |
       | unsafe S9                                           |
       | X42 undefined                                       |
+
+  # FALSE-POSITIVE GUARD (pre-push audit, 2026-07-08): a rambling verdict that merely echoes the
+  # literal code RANGE "S1-S8" (how the policy names the whole set) must NOT be shattered into
+  # S1..S8 and blocked - it carries no valid single code, so it is malformed -> retry -> pass.
+  Scenario: a verdict echoing the literal "S1-S8" range is not false-positive-blocked
+    Given a Groq safeguard backend scripted to return "The valid categories are S1-S8 but this looks fine"
+    When a relay prompt is screened
+    Then the screen allows (status 0)
+    And the classifier was called exactly 2 times
 
   Scenario: the aider/ai-benchy incident payload passes instead of a false-positive 451
     Given a Groq safeguard backend scripted to return "The user is asking me to summarize a code repository, which is a benign development task."
