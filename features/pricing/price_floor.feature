@@ -65,6 +65,13 @@ Feature: Global price floor — no price or token count can be negative (never m
       When the node is registered as a public station
       Then the registration is accepted
 
+    # A restart re-hydrates persisted registrations; the same floor must gate that ingest so a
+    # pre-fix negative-price row cannot rejoin the market and win cheapest-first routing.
+    Scenario: A persisted node with a negative price is dropped on re-hydrate
+      Given a persisted node registration carrying a negative output price
+      When the broker re-hydrates its node registry
+      Then the node does not appear on the market
+
   # ---- #2: a node-signed receipt with a negative token count never mints ----
 
   Rule: A settled receipt never bills a negative token count
@@ -100,6 +107,14 @@ Feature: Global price floor — no price or token count can be negative (never m
       And the consumer balance is not increased by the settle
       And the recorded prompt tokens are not negative
       And the recorded completion tokens are not negative
+
+    # The floor is applied at the re-count source, so a negative claim can never leak into the
+    # response headers, the logs, or the broker-SIGNED token counts either - not just the ledger.
+    Scenario: A negative claimed token count is floored before headers, logs, and the broker signature
+      When the relay re-counts a claim of -1000000 completion tokens
+      And the relay re-counts a claim of -1000000 prompt tokens
+      Then the billed completion count is 0
+      And the billed prompt count is 0
 
   # ---- Defense in depth: the settled cost is bounded below by zero ----
 

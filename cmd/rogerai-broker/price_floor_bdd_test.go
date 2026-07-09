@@ -16,6 +16,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 	"github.com/rogerai-fyi/roger/internal/protocol"
@@ -194,6 +195,25 @@ func (s *pfState) costPreparedForSettlement() error {
 	return nil
 }
 
+func (s *pfState) recountCompletion(n string) error {
+	s.entryComp = s.b.settleRecount("n1", "req_r", "m", "some completion text", int(parseF(n)))
+	return nil
+}
+func (s *pfState) recountPrompt(n string) error {
+	s.entryProm = s.b.settleRecountPrompt("n1", "req_r", "m", "some prompt text", int(parseF(n)), 100)
+	return nil
+}
+
+func (s *pfState) persistedNegativeNode() error {
+	reg := protocol.NodeRegistration{
+		NodeID: "n1", PubKey: s.nodePubHex, BridgeToken: "tok", TS: time.Now().Unix(),
+		Offers: []protocol.ModelOffer{{Model: "m", Ctx: 4096, PriceOut: -1000}},
+	}
+	return s.b.db.(*store.Mem).UpsertNode(store.NodeRecord{NodeID: "n1", Reg: reg, LastSeen: time.Now().Unix()})
+}
+
+func (s *pfState) rehydrates() error { s.b.rehydrateNodes(); return nil }
+
 // --- Then -------------------------------------------------------------------
 
 func (s *pfState) rejectedWith(msg string) error {
@@ -254,6 +274,13 @@ func (s *pfState) billedCompletionIs(n string) error {
 	}
 	return nil
 }
+func (s *pfState) billedPromptIs(n string) error {
+	want := int(parseF(n))
+	if s.entryProm != want {
+		return fmt.Errorf("billed prompt tokens = %d, want %d", s.entryProm, want)
+	}
+	return nil
+}
 
 func (s *pfState) costAppliedIs(v string) error {
 	if s.appliedCost != parseF(v) {
@@ -284,6 +311,10 @@ func TestPriceFloorBDD(t *testing.T) {
 			sc.Step(`^the node returns a receipt claiming (\S+) completion tokens$`, st.returnsCompletionTokens)
 			sc.Step(`^the node returns a receipt claiming (\S+) prompt tokens$`, st.returnsPromptTokens)
 			sc.Step(`^the node returns a receipt claiming (\S+) prompt and (\S+) completion tokens$`, st.returnsBothTokens)
+			sc.Step(`^the relay re-counts a claim of (\S+) completion tokens$`, st.recountCompletion)
+			sc.Step(`^the relay re-counts a claim of (\S+) prompt tokens$`, st.recountPrompt)
+			sc.Step(`^a persisted node registration carrying a negative output price$`, st.persistedNegativeNode)
+			sc.Step(`^the broker re-hydrates its node registry$`, st.rehydrates)
 			sc.Step(`^the node claims (\S+) completion tokens$`, st.nodeClaimsCompletion)
 			sc.Step(`^a request settles at a computed cost of (\S+) credits$`, st.settlesAtCost)
 			sc.Step(`^the cost is prepared for settlement$`, st.costPreparedForSettlement)
@@ -297,6 +328,8 @@ func TestPriceFloorBDD(t *testing.T) {
 			sc.Step(`^the recorded completion tokens are not negative$`, st.recordedCompletionNotNegative)
 			sc.Step(`^the recorded prompt tokens are not negative$`, st.recordedPromptNotNegative)
 			sc.Step(`^the billed completion tokens are (\S+)$`, st.billedCompletionIs)
+			sc.Step(`^the billed completion count is (\S+)$`, st.billedCompletionIs)
+			sc.Step(`^the billed prompt count is (\S+)$`, st.billedPromptIs)
 			sc.Step(`^the settled cost applied is (\S+)$`, st.costAppliedIs)
 			sc.Step(`^the cost applied is (\S+)$`, st.costAppliedIs)
 		},
