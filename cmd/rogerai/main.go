@@ -1003,6 +1003,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if *upKey == "" && savedKey != "" && (up == "" || sameEndpoint(up, savedUp)) {
 		*upKey = savedKey
 	}
+	// osaurusBrand records that DETECTION already fingerprinted the resolved upstream as Osaurus
+	// (a real GET / banner match during the scan). It is authoritative and, unlike a fresh probe at
+	// Config time, cannot fail open if the local server is momentarily slow - so the Osaurus-only
+	// hardenings (X-Persist + model-pin) never silently drop out under load. OR-ed with the probe below.
+	osaurusBrand := false
 	if up == "" {
 		// Saved keyed upstream: try it WITH its key first (the broad DetectFull scan does
 		// not carry the saved key), so a custom keyed endpoint is reused without a re-prompt.
@@ -1042,6 +1047,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 			}
 		}
 		up = pick.Chat
+		osaurusBrand = pick.Name == "osaurus" // detection's authoritative fingerprint (see above)
 		// A key-protected upstream the detector authenticated to (from env or the guided
 		// paste) carries its working key on the Found; adopt it unless --upstream-key was
 		// given explicitly, so the agent forwards jobs with the same Bearer.
@@ -1086,8 +1092,11 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 		// from the environment (OPENAI_API_KEY / friends) for THIS endpoint and confirm
 		// reachability - but NEVER block here, the agent self-heals if the server is
 		// momentarily down (the same reason the explicit path skips a hard preflight).
-		if f, st := detectProbeKey(up, ""); st == detect.Reachable && f.Key != "" {
-			*upKey = f.Key
+		if f, st := detectProbeKey(up, ""); st == detect.Reachable {
+			if f.Key != "" {
+				*upKey = f.Key
+			}
+			osaurusBrand = osaurusBrand || f.Name == "osaurus" // capture the brand on the explicit path too
 		}
 	}
 	// --modality is the operator's override for the --upstream path, where auto-detection (which
@@ -1191,8 +1200,12 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 	if msg := softPriceWarn(*broker, mdl, *priceOut); msg != "" {
 		fmt.Println(msg)
 	}
+	// Osaurus shares Jan's :1337 and needs two relay hardenings (X-Persist + model-pin). Decide
+	// ONCE here whether the resolved upstream is Osaurus (root-banner fingerprint) so the relay
+	// applies them without re-probing per job; a no-op flag for every other backend.
+	osaurusUpstream := osaurusBrand || detect.IsOsaurus(strings.TrimSuffix(up, "/chat/completions"))
 	cfgRun := agent.Config{
-		Broker: *broker, Upstream: up, UpstreamKey: *upKey,
+		Broker: *broker, Upstream: up, UpstreamKey: *upKey, Osaurus: osaurusUpstream,
 		// HW carries the PRIVACY-BUCKETED class (multi-gpu / single-gpu / apple / cpu),
 		// NOT the raw CPU/GPU string - so a consumer learns the band's tier without the
 		// node leaking its exact rig.
