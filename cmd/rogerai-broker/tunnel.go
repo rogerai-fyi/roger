@@ -229,6 +229,14 @@ func (b *broker) register(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, http.StatusBadRequest, msg)
 		return
 	}
+	// ...and the symmetric FLOOR: a negative price would settle to a negative cost that mints
+	// credit (Finalize: wallet += held - cost), and a negative price is not "priced" so it would
+	// also skip the login-to-monetize gate below - an anonymous mint. Runs unconditionally here
+	// alongside the ceiling.
+	if msg := registerPriceFloor(reg.Offers); msg != "" {
+		jsonErr(w, http.StatusBadRequest, msg)
+		return
+	}
 	// Login-to-monetize / login-to-go-private: a node advertising a NONZERO price is
 	// an earning node, AND a node going PRIVATE (its own discovery visibility is a
 	// per-owner resource) both HARD-REQUIRE a GitHub-linked owner bound to the signing
@@ -1075,6 +1083,18 @@ func (b *broker) rehydrateNodes() {
 		// claim from an old release); rec.Confidential is the broker's stored VERDICT, so
 		// re-hydrate memory + the mirror re-publish below with the verdict, never the claim.
 		reg.Confidential = rec.Confidential
+		// Drop a persisted reg that violates the price floor or ceiling (e.g. a pre-fix
+		// negative-price row): re-ingesting it would let it rejoin the market and win
+		// cheapest-first routing. Mint-safe (clampSettleCost floors the cost), but a bad
+		// price must not resurface across a restart - the same bounds register enforces.
+		if msg := registerPriceFloor(reg.Offers); msg != "" {
+			log.Printf("re-hydrate: dropping node %s (persisted price below floor: %s)", reg.NodeID, msg)
+			continue
+		}
+		if msg := registerPriceCeiling(reg.Offers); msg != "" {
+			log.Printf("re-hydrate: dropping node %s (persisted price above ceiling: %s)", reg.NodeID, msg)
+			continue
+		}
 		b.nodes[reg.NodeID] = reg
 		b.lastSeen[reg.NodeID] = time.Unix(rec.LastSeen, 0)
 		b.confidential[reg.NodeID] = rec.Confidential
@@ -1765,10 +1785,7 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 			// SignBroker is called AFTER the broker counts are assigned so the broker
 			// counter-signature covers them (the node-sig excludes them via signingBytes).
 			rec.SignBroker(b.priv)
-			cost := rec.CostWith2(billedPrompt, billedCompletion)
-			if maxCost > 0 && cost > maxCost {
-				cost = maxCost // never capture more than was authorized
-			}
+			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 			newBal, ferr := b.settleRequest(payer, node.NodeID, maxCost, cost, rec, grantID, pricing.free)
 			if ferr != nil {
 				// Settle failed - leave settled=false so the deferred ReleaseHold
@@ -2090,10 +2107,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
 			// SignBroker AFTER the broker counts are assigned (covers them).
 			rec.SignBroker(b.priv)
-			cost := rec.CostWith2(billedPrompt, billedCompletion)
-			if maxCost > 0 && cost > maxCost {
-				cost = maxCost
-			}
+			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
 			if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
 				// settle failed - leave settled=false so the deferred ReleaseHold refunds
 				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
