@@ -64,11 +64,17 @@ roger share                                    # auto-detects your local model, 
 #          --confidential (TEE-attested), --upstream <your OpenAI endpoint>
 ```
 
+**Bring your own runner.** The node relays to any **OpenAI-compatible** endpoint, so it works with
+whatever you already host - **Ollama, llama.cpp, LM Studio, vLLM, Osaurus, Jan, LocalAI, TGI,
+SGLang, KoboldCpp, text-generation-webui** - and anything else that speaks the OpenAI API (point it
+with `--upstream`). Same on the other side: `roger use` gives you an OpenAI-compatible endpoint, so
+any tool that talks to OpenAI talks to RogerAI.
+
 ## How it works
 
 ```
 rogerai ──► broker (broker.rogerai.fyi) ──► your node ──► your local model
- discover     registry · wallet · relay      dials out      (Ollama/vLLM/llama.cpp/LM Studio)
+ discover     registry · wallet · relay      dials out      (Ollama/llama.cpp/LM Studio/vLLM/Osaurus/…)
  use/topup    match · meter · co-sign         serve+sign
 ```
 
