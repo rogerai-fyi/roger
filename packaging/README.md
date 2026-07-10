@@ -59,12 +59,18 @@ the tap on every non-prerelease `v*` tag. To (re)generate by hand for the curren
 scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksums.txt as $2
 ```
 
-> **The `brew trust` step is unavoidable.** Homebrew 6+ requires a one-time `brew trust` for
-> **any** third-party tap - formula or cask (it's the default via `HOMEBREW_REQUIRE_TAP_TRUST`).
-> `homebrew-core` (`brew install roger`, no tap, no trust) is the only way around it, and it
-> needs an **OSI-approved** license; PolyForm Perimeter is source-available, not OSI, so a
-> tap + trust is the best achievable. (After the one-liner, the bare `brew upgrade roger` /
-> `brew uninstall roger` work, since the tap is then trusted.)
+> **The `brew trust` step is unavoidable from a third-party tap.** Homebrew 6+ requires a
+> one-time `brew trust` for **any** non-official tap - formula or cask (it's the default via
+> `HOMEBREW_REQUIRE_TAP_TRUST`). Only the **official** taps are trusted by default. (After the
+> one-liner, bare `brew upgrade roger` / `brew uninstall roger` work, since the tap is then
+> trusted.)
+
+The zero-trust upgrade path (`brew install --cask roger`, no tap) is to get into the official
+`Homebrew/homebrew-cask` - the same tap `claude-code` uses for a proprietary CLI binary. Not
+`homebrew-core` (it needs an OSI license + build-from-source; PolyForm is neither). A ready-to-
+submit cask + the two gates that block it today (GitHub notability, and macOS signing +
+notarization) live in [`homebrew-cask/`](homebrew-cask/). Grow past the notability bar, sign
+the darwin builds, submit once - then keep the tap formula for Linux / anyone who wants it.
 
 ### 2. winget (optional, Windows 11's built-in manager)
 winget needs a **first manual submission**, then the workflow keeps it updated:
