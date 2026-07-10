@@ -12,8 +12,11 @@ Release assets that GoReleaser publishes on each `v*` tag.
    a red gate).
 2. **release** - GoReleaser (`.goreleaser.yaml`) cross-compiles, publishes the GitHub
    Release with the raw binaries + `checksums.txt` (the exact names `web/install.sh`
-   fetches), and pushes the **Homebrew cask** and **Scoop manifest** to their repos.
-3. **winget** - opens a PR to `microsoft/winget-pkgs` (only when enabled; see below).
+   fetches), and pushes the **Scoop manifest** to its repo.
+3. **brew** - renders `Formula/roger.rb` from that release's `checksums.txt` (via
+   `scripts/gen-brew-formula.sh`) and pushes it to `rogerai-fyi/homebrew-tap`. This is a
+   **formula, not a cask**, and it's NOT done by GoReleaser - see the Homebrew section below.
+4. **winget** - opens a PR to `microsoft/winget-pkgs` (only when enabled; see below).
 
 Local dry-run (builds everything into `dist/`, publishes nothing):
 
@@ -24,11 +27,10 @@ TAP_GITHUB_TOKEN=dummy goreleaser release --snapshot --clean --skip=publish
 ## One-time setup (owner action required)
 
 ### 1. Homebrew + Scoop repos + token
-- [x] `rogerai-fyi/homebrew-tap` created (public, `main`) - cask lands in `Casks/roger.rb`.
+- [x] `rogerai-fyi/homebrew-tap` created (public, `main`) - **formula** lands in `Formula/roger.rb`.
 - [x] `rogerai-fyi/scoop-bucket` created (public, `main`) - manifest lands in `bucket/roger.json`.
-- [ ] Create a token with `contents:write` on **both** repos and add it as secret
-  **`TAP_GITHUB_TOKEN`** on the `roger` repo. The default `GITHUB_TOKEN` cannot push
-  cross-repo, so this is required. **Owner action** (GitHub won't mint a PAT via CLI):
+- [x] `TAP_GITHUB_TOKEN` secret set on the `roger` repo (`contents:write` on both tap repos).
+  The default `GITHUB_TOKEN` can't push cross-repo, so this is required. To rotate it:
   1. Fine-grained PAT: https://github.com/settings/tokens?type=beta -> Resource owner
      `rogerai-fyi`, Repository access = only `homebrew-tap` + `scoop-bucket`,
      Repository permissions -> Contents: **Read and write**. (Or a classic PAT with `repo`.)
@@ -37,15 +39,32 @@ TAP_GITHUB_TOKEN=dummy goreleaser release --snapshot --clean --skip=publish
 Then users install with:
 
 ```sh
-brew install --cask rogerai-fyi/tap/roger          # macOS
+brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/roger   # macOS + Linux
 scoop bucket add rogerai https://github.com/rogerai-fyi/scoop-bucket && scoop install roger  # Windows
 ```
 
-> Note: it's a Homebrew **cask** (not a formula) because the release ships a prebuilt
-> binary - the cask install strips the macOS quarantine xattr so the unsigned binary runs
-> without a Gatekeeper prompt. `homebrew-core` (`brew install roger`, no tap prefix) is not
-> an option: it requires an OSI-approved license and builds from source; PolyForm Perimeter
-> is source-available, not open-source.
+#### Formula, not cask — and why we generate it ourselves
+It's a Homebrew **formula** (not a cask): a formula installs the same prebuilt per-arch
+binary, **works on Linux Homebrew too** (casks are macOS-only, and providers run on Linux
+GPU boxes), and needs no `--cask` flag. Gatekeeper is a non-issue - Homebrew's formula
+downloader doesn't set the macOS quarantine xattr and Go ad-hoc-signs darwin binaries, so
+the unsigned CLI runs clean (verified: formula install -> `roger version` exits 0).
+
+GoReleaser can't generate it: it **dropped** Homebrew formula support (`brews`) in favour of
+casks (goreleaser.com/deprecations#brews). So `scripts/gen-brew-formula.sh` renders the
+formula from the release `checksums.txt`, and the `brew` job in `release.yml` pushes it to
+the tap on every non-prerelease `v*` tag. To (re)generate by hand for the current release:
+
+```sh
+scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksums.txt as $2
+```
+
+> **The `brew trust` step is unavoidable.** Homebrew 6+ requires a one-time `brew trust` for
+> **any** third-party tap - formula or cask (it's the default via `HOMEBREW_REQUIRE_TAP_TRUST`).
+> `homebrew-core` (`brew install roger`, no tap, no trust) is the only way around it, and it
+> needs an **OSI-approved** license; PolyForm Perimeter is source-available, not OSI, so a
+> tap + trust is the best achievable. (After the one-liner, the bare `brew upgrade roger` /
+> `brew uninstall roger` work, since the tap is then trusted.)
 
 ### 2. winget (optional, Windows 11's built-in manager)
 winget needs a **first manual submission**, then the workflow keeps it updated:
