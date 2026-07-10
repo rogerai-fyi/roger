@@ -14,9 +14,9 @@ import (
 // swapHeartbeatInterval lowers the heartbeat cadence for a test and returns a restore
 // func; production uses ~10s, but the tests need fast beats to observe transitions.
 func swapHeartbeatInterval(d time.Duration) func() {
-	prev := heartbeatInterval
-	heartbeatInterval = d
-	return func() { heartbeatInterval = prev }
+	prev := heartbeatInterval.Load()
+	heartbeatInterval.Store(int64(d))
+	return func() { heartbeatInterval.Store(prev) }
 }
 
 // waitLink polls the session's link state until it reaches want or times out.

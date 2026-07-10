@@ -82,8 +82,11 @@ var (
 
 // heartbeatInterval is how often the node heartbeats the broker to stay on-air. It
 // is a var (not a const) only so tests can lower it; production uses ~10s, well
-// inside the broker's nodeTTL liveness window.
-var heartbeatInterval = 10 * time.Second
+// inside the broker's nodeTTL liveness window. Stored as an atomic (int64 nanos) so a
+// still-running heartbeat goroutine reading it can never race a test's swap/restore.
+var heartbeatInterval atomic.Int64
+
+func init() { heartbeatInterval.Store(int64(10 * time.Second)) }
 
 // Session is a running in-process share (the TUI's /share). It exposes live
 // counters so the ON-AIR panel can render connections + earnings without the
@@ -530,7 +533,7 @@ func heartbeatUntil(broker, nodeID string, rereg *reregistrar, sess *Session) {
 		}
 	}
 	beat() // confirm quickly on entry rather than waiting a full tick
-	t := time.NewTicker(heartbeatInterval)
+	t := time.NewTicker(time.Duration(heartbeatInterval.Load()))
 	defer t.Stop()
 	for {
 		select {
