@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -40,6 +41,39 @@ func effectiveRelayMaxOut(reqMaxOut float64) float64 {
 		return reqMaxOut
 	}
 	return consumerDefaultMaxOut()
+}
+
+// clampSettleCost bounds a computed settle cost on BOTH sides before it is captured. The
+// LOWER bound is a money invariant: Finalize does `wallet += held - cost`, so a negative (or
+// non-finite) cost would MINT spendable credit into the consumer's wallet - the same class as
+// the negative-price / negative-token mints. It floors to 0. The UPPER bound is maxCost (>0),
+// the consumer's authorized hold, so the broker never captures more than was authorized.
+func clampSettleCost(cost, maxCost float64) float64 {
+	if math.IsNaN(cost) || math.IsInf(cost, 0) || cost < 0 {
+		return 0
+	}
+	if maxCost > 0 && cost > maxCost {
+		cost = maxCost
+	}
+	return cost
+}
+
+// registerPriceFloor is the symmetric twin of registerPriceCeiling: it rejects a NEGATIVE base
+// or scheduled-window price on any offer. The register path bounded prices only ABOVE (the
+// ceiling); a negative price passed, was not treated as "priced" (so it skipped the login
+// gate), and settled to a negative cost that mints. Returns "" when every price is >= 0.
+func registerPriceFloor(offers []protocol.ModelOffer) string {
+	for _, o := range offers {
+		if o.PriceIn < 0 || o.PriceOut < 0 {
+			return "price cannot be negative"
+		}
+		for _, win := range o.Schedule {
+			if !win.Free && (win.In < 0 || win.Out < 0) {
+				return "schedule window price cannot be negative"
+			}
+		}
+	}
+	return ""
 }
 
 // registerPriceCeiling returns a non-empty rejection message if any offer (base price
