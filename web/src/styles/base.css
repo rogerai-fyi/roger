@@ -350,6 +350,10 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   color: var(--ink-900); background: var(--white); box-shadow: none;
 }
 .nav__link--ghost:hover { border-color: var(--live); color: var(--ink-900); }
+/* the GitHub source pill: octocat mark + label, tinting to the signal red on hover */
+.nav__source { gap: 6px; }
+.nav__source__mark { flex: none; transition: color var(--d-2); }
+.nav__source:hover .nav__source__mark { color: var(--live); }
 @media (prefers-reduced-motion: reduce) {
   .nav__link:not(.nav__link--ghost)::after { transition: none; }
 }
