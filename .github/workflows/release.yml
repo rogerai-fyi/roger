@@ -87,6 +87,44 @@ jobs:
           # brew/scoop steps. Missing it fails only those steps, not the published release.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
 
+  # brew: render Formula/roger.rb from THIS release's checksums.txt and push it to the
+  # Homebrew tap. GoReleaser can't do this step - it dropped Homebrew *formula* support in
+  # favour of casks (goreleaser.com/deprecations#brews) - and we want a formula, not a cask:
+  # it installs on Linux Homebrew too (casks are macOS-only) and needs no `--cask` flag. The
+  # SHAs come straight from the release checksums.txt (the same file web/install.sh trusts),
+  # so the formula can't drift from the binaries. Skips pre-releases (tags with a `-`), just
+  # like the winget job and the old cask's `skip_upload: auto`.
+  #   Install: brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/roger
+  brew:
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: render formula from the release checksums + push to the tap
+        env:
+          # Read this repo's release asset (checksums.txt).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Cross-repo push to the tap - same token goreleaser uses for Scoop (contents:write
+          # on rogerai-fyi/homebrew-tap). Missing it fails only this job, not the release.
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"                       # v5.2.1 -> 5.2.1
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+             --pattern checksums.txt --dir .
+          scripts/gen-brew-formula.sh "$version" checksums.txt roger.rb
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/rogerai-fyi/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp roger.rb tap/Formula/roger.rb
+          cd tap
+          git config user.name  "rogerai-release-bot"
+          git config user.email "release-bot@rogerai.fyi"
+          git add Formula/roger.rb
+          if git diff --cached --quiet; then echo "formula unchanged; nothing to push"; exit 0; fi
+          git commit -m "roger ${version}: update formula (automated)"
+          git push
+
   # winget: opens a PR to microsoft/winget-pkgs after the release publishes.
   # ONE-TIME prereqs (see packaging/README): the package id RogerAI.Roger must already exist
   # (first manifest submitted manually via wingetcreate) and secrets.WINGET_TOKEN must hold a
