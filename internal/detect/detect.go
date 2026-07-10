@@ -180,6 +180,7 @@ func ProbeKey(rawURL, key string) (Found, Status) {
 		enrichCtx(&f, base)
 		classifyModalities(&f, base)
 		classifyCapabilities(&f, base)
+		brandOsaurus(&f)
 		return f, Reachable
 	case probeAuth:
 		return Found{BaseURL: base}, NeedsKey
@@ -249,6 +250,9 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 			enrichCtx(&f, base)
 			classifyModalities(&f, base)
 			classifyCapabilities(&f, base)
+			// Osaurus shares Jan's :1337, so the port label is ambiguous — re-brand it
+			// from the served root banner before the offer goes on air.
+			brandOsaurus(&f)
 			found = append(found, f)
 		case probeAuth:
 			// Present but key-protected and no env key fit: surface it so the caller can
@@ -276,6 +280,47 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 		}
 	}
 	return found, needKey
+}
+
+// osaurusBanner is the distinctive body Osaurus's root route returns (GET / on its
+// :1337 default — which it SHARES with Jan — or on a custom port). Matched as a substring
+// (not the exact bytes) so a trailing newline or the dino-emoji encoding can't cause a miss.
+const osaurusBanner = "Osaurus Server is running"
+
+// isOsaurus fingerprints the server at base (a .../v1 URL) as Osaurus by fetching its root
+// (GET /) and matching osaurusBanner. Osaurus squats Jan's default :1337 port, so the port
+// label alone ("jan") is ambiguous; this disambiguates it before `roger share` labels the
+// offer. Best-effort and short-timeout (the detection probe budget): a non-Osaurus server
+// does not match and keeps its original label. No key is sent — the banner is unauthenticated,
+// which keeps the probe consistent with the port-scan "never spray a key at it" policy.
+func isOsaurus(base string) bool {
+	root := strings.TrimSuffix(base, "/v1")
+	resp, err := authGet(root+"/", "")
+	if err != nil || resp == nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return strings.Contains(string(body), osaurusBanner)
+}
+
+// IsOsaurus reports whether the server at base (a .../v1 URL) fingerprints as Osaurus via its
+// root banner (GET /). Exported so `roger share` can decide ONCE, at share time, whether the
+// resolved upstream is Osaurus and set agent.Config.Osaurus - which gates the Osaurus-only relay
+// hardenings (X-Persist, model-pin) without the relay re-probing per job.
+func IsOsaurus(base string) bool { return isOsaurus(base) }
+
+// brandOsaurus re-labels a reachable server "osaurus" when its root banner fingerprints as
+// Osaurus, overriding the ambiguous source label ("jan" on the :1337 slot, or "port:N" /
+// "configured" on a custom port) so the on-air offer names the true backend. A no-op for any
+// server that does not match.
+func brandOsaurus(f *Found) {
+	if isOsaurus(f.BaseURL) {
+		f.Name = "osaurus"
+	}
 }
 
 // probeResult is probeModels' tri-state: a usable server, a key-protected one, or

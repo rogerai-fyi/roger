@@ -57,7 +57,14 @@ type Config struct {
 	BridgeToken  string
 	Confidential bool
 	Private      bool // go on air as a PRIVATE band (hidden; freq-code only)
-	Schedule     []protocol.PriceWindow
+	// Osaurus is set ONCE at share time when the upstream fingerprints as an Osaurus server
+	// (detect.IsOsaurus). It gates the Osaurus-only relay hardenings in serve/serveStream: the
+	// node adds "X-Persist: false" (so tuner traffic never lands in the owner's Osaurus chat
+	// history / memory) and pins the request body's model to Model (so a tuner cannot name a
+	// different local model to force-load it). No effect for any other backend. The relay never
+	// re-probes per job - the fingerprint is decided once and carried here.
+	Osaurus  bool
+	Schedule []protocol.PriceWindow
 	// Voice: the offer's modality + display metadata (set only when sharing a voice/audio model,
 	// from the detected server; empty modality = chat, so a normal LLM share is unchanged).
 	Modality string // "" / "chat" | "tts" | "stt"
@@ -570,10 +577,20 @@ func isStream(body []byte) bool {
 // node asks the upstream to include a usage chunk so we can meter the stream.
 func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, token string, job protocol.Job) protocol.UsageReceipt {
 	client := &http.Client{Timeout: 10 * time.Minute} // streams can be long
-	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(job.Body)))
+	// Osaurus hardening (Config.Osaurus, decided once at share time): pin the model to the offer
+	// and mark the request no-persist so tuner traffic can't force-load a different local model
+	// or land in the owner's Osaurus history/memory. A no-op for any other backend.
+	body := job.Body
+	if cfg.Osaurus {
+		body = pinModel(body, cfg.Model)
+	}
+	upReq, _ := http.NewRequest(http.MethodPost, cfg.Upstream, bytes.NewReader(withUsageOption(body)))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
+	}
+	if cfg.Osaurus {
+		upReq.Header.Set("X-Persist", "false")
 	}
 	resp, err := client.Do(upReq)
 	if err != nil {
@@ -630,7 +647,7 @@ func serveStream(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey,
 // usage chunk (OpenAI streaming) - needed to meter the stream.
 func withUsageOption(body []byte) []byte {
 	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
+	if json.Unmarshal(body, &m) != nil || m == nil { // `null` unmarshals to a nil map - avoid the nil-map assign panic
 		return body
 	}
 	m["stream_options"] = json.RawMessage(`{"include_usage":true}`)
@@ -638,6 +655,28 @@ func withUsageOption(body []byte) []byte {
 		return b
 	}
 	return body
+}
+
+// pinModel rewrites the JSON body's "model" field to the offered model - the Osaurus hardening
+// that stops a tuner from naming a DIFFERENT locally-installed model to force-load it (memory
+// pressure on the owner's Mac; serving a model the owner never put on the band). The node offers
+// exactly ONE model, so a pinned body can only ever exercise that one: a different name is
+// rewritten, an absent/empty name is filled, the correct name stays. A body that does not parse
+// as JSON is returned byte-for-byte (an unparseable request can't force-load a model, and we
+// never corrupt a body we can't read - same discipline as withUsageOption).
+func pinModel(body []byte, model string) []byte {
+	var m map[string]json.RawMessage
+	// json.Unmarshal of the literal `null` SUCCEEDS into a NIL map (no error), so the nil check is
+	// load-bearing: without it the m["model"] assignment below panics on a nil map, and a bare `null`
+	// request body from a tuner would crash the node (pollLoop has no recover). A null / non-object /
+	// unparseable body can't force-load a model anyway, so forward it byte-for-byte.
+	if json.Unmarshal(body, &m) != nil || m == nil {
+		return body
+	}
+	mb, _ := json.Marshal(model) // a string always marshals
+	m["model"] = json.RawMessage(mb)
+	out, _ := json.Marshal(m) // a map of already-valid RawMessages always marshals
+	return out
 }
 
 // parseUsage extracts token counts from an SSE "data: {...usage...}" line.
@@ -684,10 +723,23 @@ func serve(cfg Config, offer protocol.ModelOffer, priv ed25519.PrivateKey, up *h
 			body = injectVoiceDefaults(job.Body, offer.Voice, offer.Speed)
 		}
 	}
+	// Osaurus hardening (Config.Osaurus, decided once at share time): pin the model to the offer
+	// and mark the request no-persist so tuner traffic can't force-load a different local model or
+	// land in the owner's Osaurus history/memory. Scoped to the CHAT path ONLY (per the spec's scope
+	// guard): the model-pin/persist concepts are chat-specific, and applying them on a voice
+	// (speech/transcribe) job would clobber that request's own model field. A no-op for any other
+	// backend. Chat = the non-voice branch above (absent path or a /chat/completions suffix).
+	osaurusChat := cfg.Osaurus && (p == "" || strings.HasSuffix(p, "/chat/completions"))
+	if osaurusChat {
+		body = pinModel(body, cfg.Model)
+	}
 	upReq, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	upReq.Header.Set("Content-Type", "application/json")
 	if cfg.UpstreamKey != "" {
 		upReq.Header.Set("Authorization", "Bearer "+cfg.UpstreamKey)
+	}
+	if osaurusChat {
+		upReq.Header.Set("X-Persist", "false")
 	}
 	resp, err := up.Do(upReq)
 	if err != nil {
