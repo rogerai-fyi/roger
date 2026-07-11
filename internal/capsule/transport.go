@@ -22,6 +22,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 
@@ -44,7 +45,27 @@ var (
 	// authentication fails (wrong code / tamper). One error for both so open leaks nothing
 	// about which failed.
 	ErrBadBlob = errors.New("capsule: sealed blob invalid or wrong code")
+	// ErrNotSummary rejects sealing a non-summary (full) capsule for a stranger: the
+	// redaction floor. A marketplace/stranger handoff may only carry a summary-only capsule.
+	ErrNotSummary = errors.New("capsule: refusing to seal a non-summary capsule for a stranger")
 )
+
+// SealForStranger enforces the redaction FLOOR before sealing: a capsule handed to a
+// marketplace/stranger operator MUST be summary-only (redaction=="summary"). It refuses any
+// full/other capsule (ErrNotSummary) before it touches the code, so a stranger transport can
+// never carry a full transcript even if a caller forgets to redact. capsuleJSON is the signed
+// wire object; the redaction level is signed, so this checks the same field the signature
+// covers. On acceptance it seals under code exactly like SealForCode.
+func SealForStranger(capsuleJSON []byte, code string) ([]byte, error) {
+	var c Capsule
+	if err := json.Unmarshal(capsuleJSON, &c); err != nil {
+		return nil, err
+	}
+	if c.Redaction != "summary" {
+		return nil, ErrNotSummary
+	}
+	return SealForCode(capsuleJSON, code)
+}
 
 // TransportLookup is the broker lookup key for a code: BandCodeHash(code) = sha256 over the
 // canonical secret tail (hex). It is what the client sends to mint/resolve; it is DISTINCT
