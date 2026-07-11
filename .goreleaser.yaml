@@ -38,6 +38,38 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X main.Version={{.Version}}"]
 
+# ---- macOS code signing + notarization -----------------------------------------------
+# Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
+# (`brew install --cask roger` - no tap, no `brew trust`) becomes possible; homebrew-cask
+# rejects unsigned binaries (`brew audit --cask --new` -> "Signature verification failed").
+# See packaging/homebrew-cask/ for the cask + the remaining gates.
+#
+# GoReleaser signs Mach-O NATIVELY, so this runs on the Linux release runner (no macOS host,
+# no quill/rcodesign). It's OFF until the signing secrets exist: `enabled` self-evaluates from
+# MACOS_SIGN_P12, so a release without the secrets skips signing and stays green (the release.yml
+# `release` job passes all five through, empty when unset). Wiring them up flips it on with no
+# further code change. Owner action - add these repo secrets (Apple Developer Program required):
+#   MACOS_SIGN_P12           base64 of the "Developer ID Application" cert exported as .p12
+#   MACOS_SIGN_PASSWORD      the .p12 export password
+#   MACOS_NOTARY_ISSUER_ID   App Store Connect API issuer id (UUID)
+#   MACOS_NOTARY_KEY_ID      App Store Connect API key id
+#   MACOS_NOTARY_KEY         base64 of the App Store Connect API key (.p8)
+# Signing changes the darwin binaries' bytes, so checksums.txt (and thus the tap formula +
+# the cask, both generated from it) track the SIGNED binaries automatically.
+notarize:
+  macos:
+    - enabled: '{{ if .Env.MACOS_SIGN_P12 }}true{{ else }}false{{ end }}'
+      ids: [roger-unix]   # the build that emits the darwin binaries (goreleaser signs only those)
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 archives:
   # RAW binaries for every platform - keeps the asset names and the install.sh download
   # path identical to today (roger-linux-amd64, roger-windows-amd64.exe, ...).

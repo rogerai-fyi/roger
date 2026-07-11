@@ -81,11 +81,19 @@ jobs:
         env:
           # Publishes the GitHub Release + assets into THIS repo.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Cross-repo push of the Homebrew cask + Scoop manifest. A PAT (or fine-grained
-          # token) with contents:write on rogerai-fyi/homebrew-tap AND rogerai-fyi/scoop-bucket.
-          # The default GITHUB_TOKEN can't push to other repos, so this is required for the
-          # brew/scoop steps. Missing it fails only those steps, not the published release.
+          # Cross-repo push of the Scoop manifest (the Homebrew formula is pushed by the
+          # `brew` job below, not goreleaser). A PAT with contents:write on the scoop-bucket
+          # repo. The default GITHUB_TOKEN can't push cross-repo; missing it fails only Scoop.
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # macOS signing + notarization for the darwin binaries (see `notarize:` in
+          # .goreleaser.yaml). These are EMPTY until the owner adds the secrets, and goreleaser
+          # self-skips signing while MACOS_SIGN_P12 is empty - so the release stays green today
+          # and flips on the moment all five are set. Unblocks the official homebrew-cask route.
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
 
   # brew: render Formula/roger.rb from THIS release's checksums.txt and push it to the
   # Homebrew tap. GoReleaser can't do this step - it dropped Homebrew *formula* support in
