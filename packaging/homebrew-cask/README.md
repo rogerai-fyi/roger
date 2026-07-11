@@ -19,23 +19,23 @@ brew install --cask roger      # no tap, no trust — official cask
 
 Keep the tap formula around for people who want it, and for any platform the cask doesn't cover.
 
-## Two gates, both currently unmet
-
-Run the exact check Homebrew runs on a new submission:
+## Gates — run the exact check Homebrew runs on a new submission
 
 ```sh
 brew audit --cask --new roger
 ```
 
-Today it fails on:
+Current status (re-run before submitting — these move over time):
 
-1. **Notability** — *"GitHub repository not notable enough (<30 forks, <30 watchers and <75
-   stars)"*. The bar is **≥75 stars OR ≥30 forks OR ≥30 watchers**. As of writing roger has
-   ~3 stars / 0 / 0. Nothing to do here but grow; re-check periodically.
-
-2. **macOS code signing** — *"Signature verification failed"*. homebrew-cask requires the
-   macOS binary to be **Developer-ID signed and notarized**; ours are only ad-hoc signed
-   (see "Code signing (deferred)" in [`../README.md`](../README.md)). To clear it:
+- ✅ **Notability** — bar is **≥75 stars OR ≥30 forks OR ≥30 watchers**. roger has **193
+  stars**, so this passes.
+- ⏳ **Repo age** — *"GitHub repository too new (<30 days old)"*. homebrew-cask wants the
+  upstream repo ≥30 days old. roger was created 2026-06-23, so it clears on **~2026-07-23**.
+  Nothing to do but wait.
+- ❌ **macOS code signing** — *"Signature verification failed"*. homebrew-cask requires the
+  macOS binary to be **Developer-ID signed and notarized**; ours are only ad-hoc signed
+  (see "Code signing (deferred)" in [`../README.md`](../README.md)). This is the real work
+  item. To clear it:
    - Apple Developer ID Application cert ($99/yr).
    - Sign + notarize + staple the darwin binaries in the release. GoReleaser supports this
      via a `signs:`/`notarize:` step (or a post-build hook running `codesign` + `notarytool`).
@@ -45,7 +45,7 @@ Today it fails on:
    (This is *only* needed for the cask. The formula runs the ad-hoc-signed binary fine —
    Homebrew doesn't quarantine formula downloads — which is why the tap works today.)
 
-## Submitting (once both gates pass)
+## Submitting (once signing lands and the repo is ≥30 days old)
 
 1. Refresh the four sha256s + version in [`roger.rb`](roger.rb) for the target release. The
    generator prints the same SHAs the cask needs:

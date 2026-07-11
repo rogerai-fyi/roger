@@ -12,11 +12,11 @@ cask "roger" do
   arch arm: "arm64", intel: "amd64"
   os macos: "darwin", linux: "linux"
 
-  version "5.2.1"
-  sha256 arm:          "a2b5a7f9647d0131b4d4e193ac28dcd7e0c5e3a93a65e9cf0d4c9ec134ced27e",
-         x86_64:       "5ca0d5d027e33e23d33ac36a5d87e9d4f3771210c605a5b3e1a556e5ffc5d757",
-         arm64_linux:  "f22771c61b8b352eda1c9e86bc61bffcd23f0ff2f68e65cb05bd50c5645a691a",
-         x86_64_linux: "a0f63dc5df6443066cfff798c0f25aeb386e73fd35c56df04de3dc61abbd671b"
+  version "5.2.2"
+  sha256 arm:          "326d73388762bb9de4d714ac3c96f940741be030d828c61a1512acdafd137c70",
+         x86_64:       "6cfdcfd5162d6890ffa28b2560a255e338a1a5070474470759df32c6366e6a3f",
+         arm64_linux:  "a3511fd8ad9a71a18f4b4510307b601441b5fb67897262940849ea8b395e9795",
+         x86_64_linux: "dfaca814a924bc758ec6006122af993d53580b5d2c2bfdecd6acc82113c18713"
 
   url "https://github.com/rogerai-fyi/roger/releases/download/v#{version}/roger-#{os}-#{arch}",
       verified: "github.com/rogerai-fyi/roger/"
