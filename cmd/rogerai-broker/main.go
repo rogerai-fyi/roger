@@ -557,6 +557,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 	// resolve the secret code. Idempotent (a re-run is a no-op) + non-fatal on error.
 	b.remaskExistingBands()
 	b.bill = loadBilling()
+	loadAppleRoot() // StoreKit IAP trust anchor (Apple 3.1.1); /iap/credit is 503 until configured
 	b.conn = loadConnect()
 	b.mod = loadModeration()
 	b.mail = loadMailer()
@@ -666,6 +667,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/billing", b.billing)                              // money-in view: balance + top-up history
 	mux.HandleFunc("/billing/checkout", b.checkout)                    // Stripe top-up -> credits
 	mux.HandleFunc("/billing/webhook", b.webhook)                      // Stripe payment + dispute webhook
+	mux.HandleFunc("/iap/credit", b.iapCredit)                         // StoreKit IAP top-up -> credits (Apple 3.1.1)
+	mux.HandleFunc("/iap/notifications", b.iapNotifications)           // App Store Server Notifications V2 -> refund clawback
 	mux.HandleFunc("/usage", b.usage)                                  // consumer spend by model|day
 	mux.HandleFunc("/connect/onboard", b.connectOnboard)               // Stripe Connect Express onboarding link
 	mux.HandleFunc("/connect/status", b.connectStatus)                 // Connect capability status (KYC gate)
