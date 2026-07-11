@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"flag"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/rogerai-fyi/roger/internal/capsule"
 	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // context.go is the `roger context` verb group: portable signed context capsules
@@ -34,11 +36,15 @@ func cmdContext(cfg config, args []string) error {
 		return cmdContextExport(args[1:])
 	case "import":
 		return cmdContextImport(args[1:])
+	case "publish":
+		return cmdContextPublish(cfg, args[1:])
+	case "resolve":
+		return cmdContextResolve(cfg, args[1:])
 	case "-h", "--help", "help":
 		contextUsage()
 		return nil
 	default:
-		return fmt.Errorf("unknown context command %q (try export|import)", args[0])
+		return fmt.Errorf("unknown context command %q (try export|import|publish|resolve)", args[0])
 	}
 }
 
@@ -98,6 +104,83 @@ func cmdContextImport(args []string) error {
 	}
 	defer closeOut()
 	return contextImportMerge(in, base, w, client.LoadOrCreateUserKey())
+}
+
+// cmdContextPublish drives the ENCRYPTED STRANGER transport (Stage 3) from the CLI: it reads
+// a signed capsule (.rcap.json, from a file or stdin), MINTS it to the broker's content-blind
+// rendezvous under a FRESH one-time code (or --code), and prints the code for the DJ to hand
+// to the guest out-of-band. The redaction floor is enforced (client.PublishStrangerCapsule
+// refuses a non-summary capsule). The broker only ever stores {lookup, ciphertext}.
+func cmdContextPublish(cfg config, args []string) error {
+	fs := flag.NewFlagSet("context publish", flag.ExitOnError)
+	code := fs.String("code", "", "one-time code to seal under (default: a fresh code, printed)")
+	fs.Usage = contextPublishUsage
+	inPath, rest := leadingPositional(args)
+	fs.Parse(rest)
+	if inPath == "" {
+		inPath = fs.Arg(0)
+	}
+	if cfg.Broker == "" {
+		return fmt.Errorf("no broker configured (set one up with `roger` first)")
+	}
+	in, closeIn, err := openIn(inPath)
+	if err != nil {
+		return err
+	}
+	defer closeIn()
+	raw, err := io.ReadAll(in)
+	if err != nil {
+		return err
+	}
+	// a fresh code REUSES the 40-bit RC/band tail (no new code format).
+	full := *code
+	if full == "" {
+		full, _, _ = protocol.NewRCLinkCode()
+	}
+	if err := client.PublishStrangerCapsule(cfg.Broker, full, raw); err != nil {
+		return err
+	}
+	fmt.Printf("published · hand this one-time code to the guest (expires in 10 min, single use):\n\n  %s\n\nthe guest runs: roger context resolve \"%s\"\n", full, full)
+	return nil
+}
+
+// cmdContextResolve is the guest/receiver side: it RESOLVES the sealed capsule for a code from
+// the broker (one-time, delete-on-read), OPENS it with the code, verifies the owner signature,
+// and prints a summary - or with --into append-only merges it into a base thread. A gone/
+// expired/wrong-code resolve is reported as such (the broker gives no existence oracle).
+func cmdContextResolve(cfg config, args []string) error {
+	fs := flag.NewFlagSet("context resolve", flag.ExitOnError)
+	into := fs.String("into", "", "base capsule to append-only merge the resolved one into (.rcap.json)")
+	out := fs.String("o", "-", "output file for the merged capsule (default: stdout; --into only)")
+	fs.Usage = contextResolveUsage
+	codeArg, rest := leadingPositional(args)
+	fs.Parse(rest)
+	if codeArg == "" {
+		codeArg = fs.Arg(0)
+	}
+	if cfg.Broker == "" {
+		return fmt.Errorf("no broker configured (set one up with `roger` first)")
+	}
+	if codeArg == "" {
+		return fmt.Errorf("a one-time code is required (roger context resolve \"<code>\")")
+	}
+	raw, err := client.FetchCapsule(cfg.Broker, codeArg)
+	if err != nil {
+		return err
+	}
+	if *into == "" {
+		return contextImportSummary(bytes.NewReader(raw), os.Stdout)
+	}
+	base, err := os.ReadFile(*into)
+	if err != nil {
+		return err
+	}
+	w, closeOut, err := openOut(*out)
+	if err != nil {
+		return err
+	}
+	defer closeOut()
+	return contextImportMerge(bytes.NewReader(raw), base, w, client.LoadOrCreateUserKey())
 }
 
 // contextExport reads a draft capsule JSON from in, signs it with priv (stamping
@@ -246,14 +329,42 @@ the merged capsule is re-signed with your key.
 `)
 }
 
+func contextPublishUsage() {
+	fmt.Print(`roger context publish - hand a summary capsule to a stranger over the broker
+
+  roger context publish convo.rcap.json               seal + mint under a fresh one-time code
+  roger context publish convo.rcap.json --code "..."   seal + mint under a supplied code
+
+The capsule is encrypted client-side under a one-time code and stored on the broker as an
+opaque blob (the broker never sees the code, the key, or the plaintext). It must be
+summary-only (a full capsule is refused). Hand the printed code to the guest out-of-band;
+they run 'roger context resolve'. The blob is single-use and expires in 10 minutes.
+`)
+}
+
+func contextResolveUsage() {
+	fmt.Print(`roger context resolve - fetch + open a stranger capsule by its one-time code
+
+  roger context resolve "147.520 MHz · 8F3K-9M2Q"                    verify + print a summary
+  roger context resolve "<code>" --into mine.rcap.json -o merged.rcap.json
+
+Resolve fetches the sealed blob ONCE (delete-on-read), opens it with the code, and verifies
+the owner signature. With --into, the turns are APPENDED (never replace/truncate) to the base
+thread and the merged capsule is re-signed with your key. A wrong/expired/used code is gone.
+`)
+}
+
 func contextUsage() {
 	fmt.Print(`roger context - carry a conversation across operators (roger.context.v1)
 
   roger context export draft.json -o convo.rcap.json   sign a portable context capsule
   roger context import convo.rcap.json                 verify a capsule + print a summary
   roger context import guest.rcap.json --into mine.rcap.json -o merged.rcap.json
+  roger context publish convo.rcap.json                seal + mint to a stranger (one-time code)
+  roger context resolve "<code>"                       fetch + open a stranger capsule
 
 A capsule is a signed, portable snapshot of a thread. Import verifies the owner
-signature and merges APPEND-ONLY (a handoff never erases context).
+signature and merges APPEND-ONLY (a handoff never erases context). publish/resolve carry it
+encrypted over the broker's content-blind one-time-code rendezvous.
 `)
 }

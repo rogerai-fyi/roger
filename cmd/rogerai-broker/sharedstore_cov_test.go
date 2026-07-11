@@ -59,6 +59,11 @@ func TestValkeyDownedBackendErrorsExtra(t *testing.T) {
 	}
 	sharedErrWanted(t, "dropSharedNode", vs.dropSharedNode("p"))
 
+	sharedErrWanted(t, "putCapsule", vs.putCapsule("lk", []byte("blob"), time.Second))
+	if _, _, err := vs.takeCapsule("lk"); err == nil {
+		t.Error("takeCapsule against a dead backend should error")
+	}
+
 	sharedErrWanted(t, "markInflight", vs.markInflight("inst", "n", 3, time.Now()))
 	if _, err := vs.inflightByNode("inst"); err == nil {
 		t.Error("inflightByNode against a dead backend should error")

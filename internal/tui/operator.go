@@ -16,6 +16,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/operator"
 	"github.com/rogerai-fyi/roger/internal/pricetier"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator
@@ -907,16 +908,34 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
 		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
 	}
-	// Same-owner LOCAL handoff (Stage 1): drop the conversation as a signed roger.context
-	// capsule the guest can import from its workdir (a REFERENCE it reads, not bytes on a
-	// frame). Best-effort - a write failure narrates but never aborts the handoff. The
-	// encrypted stranger transport is a follow-on (ruling Q3).
-	if path, err := m.writeHandoffCapsule(wd); err != nil {
+	// Context handoff. Two MUTUALLY-EXCLUSIVE paths (a stranger must never also get the full
+	// local file - that would sidestep the redaction floor):
+	//
+	//   STRANGER (Stage 3, ratification-gated: ROGERAI_CAPSULE_STRANGER=1 + a known broker):
+	//   publish a SUMMARY-ONLY, signed, SEALED capsule to the broker's content-blind rendezvous
+	//   under a FRESH one-time code, and hand the guest the RAW code + broker via the ENV
+	//   reference channel (never inline bytes, never a frame field, and NO full local file).
+	//
+	//   SAME-OWNER LOCAL (Stage 1, the default): drop the conversation as a signed roger.context
+	//   capsule the guest imports from its workdir (a REFERENCE it reads, not bytes on a frame).
+	//
+	// Both are best-effort - a failure narrates but never aborts the handoff.
+	env := os.Environ()
+	if broker := m.strangerHandoffBroker(); broker != "" {
+		code, _, _ := protocol.NewRCLinkCode() // fresh code; reuses the 40-bit band tail
+		if err := m.publishStrangerCapsule(broker, code); err != nil {
+			m.rcNote("stranger capsule not published: " + err.Error())
+		} else {
+			// the reference channel: the guest resolves the code from the broker itself.
+			env = append(env, "ROGERAI_CAPSULE_CODE="+code, "ROGERAI_CAPSULE_BROKER="+broker)
+			m.rcNote(fmt.Sprintf("published a summary capsule for %s · one-time code handed off", h.det.Guest.Name))
+		}
+	} else if path, err := m.writeHandoffCapsule(wd); err != nil {
 		m.rcNote("context capsule not handed off: " + err.Error())
 	} else if path != "" {
 		m.rcNote(fmt.Sprintf("handed the conversation to %s · %d turns", h.det.Guest.Name, m.ringTurn))
 	}
-	c := operator.Command(launch, h.det.Path, sess.Workdir, os.Environ())
+	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
 }
 

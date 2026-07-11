@@ -106,6 +106,21 @@ type sharedStore interface {
 	// (the TTL is the backstop). A missing key is not an error.
 	cacheDel(key string) error
 
+	// --- content-blind capsule rendezvous (capsule.go), keyed on the LOOKUP hash ---
+	//
+	// putCapsule stores an OPAQUE encrypted capsule blob under lookup with a TTL, so a
+	// mint on one instance resolves on another (the multi-instance content-blind handoff).
+	// It holds ONLY {lookup, ciphertext}: never the code, the key, or the plaintext. A
+	// non-nil err (incl. errNoSharedStore on memStore) means the shared path is unavailable
+	// and the caller uses its per-instance fallback map. ttl<=0 is treated as no-store.
+	putCapsule(lookup string, blob []byte, ttl time.Duration) error
+
+	// takeCapsule ATOMICALLY returns AND deletes the blob under lookup (one-time,
+	// delete-on-read via GETDEL), so exactly one of N concurrent resolves across all
+	// instances wins and every later resolve is a miss. found==false for an absent/expired
+	// lookup. A non-nil err (incl. errNoSharedStore) routes the caller to its fallback map.
+	takeCapsule(lookup string) (blob []byte, found bool, err error)
+
 	// counterGet reads a numeric counter (a stringified float) for key. found==false on a
 	// miss; a non-nil err means the backend was unreachable. It is a fast-path accelerator
 	// for a value the caller can always RECONCILE from Postgres (the source of truth) on a
@@ -327,6 +342,11 @@ func (m *memStore) cacheSet(string, []byte, time.Duration) error { return errNoS
 
 // cacheDel on memStore is a no-op (nothing cached to invalidate).
 func (m *memStore) cacheDel(string) error { return errNoSharedStore }
+
+// The capsule rendezvous is inert on memStore: no shared backend, so the broker uses its
+// per-instance capsuleStore map (single-instance / no-Valkey path).
+func (m *memStore) putCapsule(string, []byte, time.Duration) error { return errNoSharedStore }
+func (m *memStore) takeCapsule(string) ([]byte, bool, error)       { return nil, false, errNoSharedStore }
 
 // The counter / setIfAbsent primitives on memStore are all "unavailable" no-ops, so
 // every money/seed fast-path falls back to its Postgres-authoritative computation.
@@ -1182,6 +1202,54 @@ func (v *valkeyStore) cacheDel(key string) error {
 	}
 	v.setUp(true)
 	return nil
+}
+
+// capsuleKeyPrefix namespaces the content-blind capsule blobs under the shared keyspace so
+// they never collide with another project or with the rl:/node:/cache: keys. Every capsule
+// key is rogerai:cap:<lookup>. The value is opaque ciphertext; the broker never reads it.
+const capsuleKeyPrefix = keyPrefix + "cap:"
+
+// putCapsule SETs the opaque blob under the lookup with a TTL (atomic set+expire), so an
+// expired blob can never outlive its window. ttl<=0 is a no-op. Content-blind: only the
+// lookup + ciphertext are written.
+func (v *valkeyStore) putCapsule(lookup string, blob []byte, ttl time.Duration) error {
+	if v == nil || v.rdb == nil {
+		return errNoSharedStore
+	}
+	if ttl <= 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	if err := v.rdb.Set(ctx, capsuleKeyPrefix+lookup, blob, ttl).Err(); err != nil {
+		v.noteErr("putCapsule", err)
+		return err
+	}
+	v.setUp(true)
+	return nil
+}
+
+// takeCapsule GETDELs the blob under the lookup: a single atomic get-and-delete, so exactly
+// one of N concurrent resolves (across all instances) gets the bytes and every later resolve
+// is a clean miss (delete-on-read, one-time). A miss (absent/expired) returns found=false
+// with a nil error so the handler returns the uniform 404 without logging a backend error.
+func (v *valkeyStore) takeCapsule(lookup string) ([]byte, bool, error) {
+	if v == nil || v.rdb == nil {
+		return nil, false, errNoSharedStore
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sharedOpTimeout)
+	defer cancel()
+	raw, err := v.rdb.GetDel(ctx, capsuleKeyPrefix+lookup).Bytes()
+	if err == redis.Nil {
+		v.setUp(true)
+		return nil, false, nil // clean miss / expired / already consumed
+	}
+	if err != nil {
+		v.noteErr("takeCapsule", err)
+		return nil, false, err
+	}
+	v.setUp(true)
+	return raw, true, nil
 }
 
 // counterKeyPrefix namespaces the numeric fast-path counters (the monthly-spend
