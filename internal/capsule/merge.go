@@ -75,13 +75,20 @@ func Merge(incoming, into Capsule) (Capsule, error) {
 		present[m.XRoger.Turn] = turnHash(m)
 	}
 
-	// Fork check FIRST, across the whole incoming set, so a rejection leaves into fully
-	// unchanged (ruling Q2): any incoming turn that collides with a present turn of the
-	// same index but a different hash rejects the entire capsule.
+	// Fork check FIRST, so a rejection leaves into fully unchanged (ruling Q2). A fork is
+	// any two turns sharing an index but differing in content - checked both against the
+	// TARGET and WITHIN the incoming set itself (an incoming capsule that carries turn 2
+	// twice with different content is a rewrite too, and must not slip through).
+	seen := make(map[int]string, len(incoming.Messages))
 	for _, m := range incoming.Messages {
-		if h, ok := present[m.XRoger.Turn]; ok && h != turnHash(m) {
+		h := turnHash(m)
+		if e, ok := present[m.XRoger.Turn]; ok && e != h {
 			return into, ErrForkedTurn
 		}
+		if e, ok := seen[m.XRoger.Turn]; ok && e != h {
+			return into, ErrForkedTurn
+		}
+		seen[m.XRoger.Turn] = h
 	}
 
 	// Append-only: add incoming turns at/after the watermark that are not already present.

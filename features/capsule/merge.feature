@@ -64,6 +64,15 @@ Feature: append-only capsule merge
     Then the merge is rejected as forked
     And the merged thread has turns "0,1"
 
+  Scenario: an incoming capsule that forks a turn within itself is rejected
+    Given a signed capsule with watermark 3 and turns
+      | turn | role      | content     |
+      | 0    | user      | hi          |
+      | 1    | assistant | yo          |
+      | 1    | assistant | REWRITTEN   |
+    When I merge it into an empty thread
+    Then the merge is rejected as forked
+
   Scenario: an unknown capsule version is rejected
     Given a signed capsule with watermark 1 and turns
       | turn | role | content |

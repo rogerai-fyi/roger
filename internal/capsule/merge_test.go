@@ -177,6 +177,31 @@ func TestMergeRejectsForkedTurn(t *testing.T) {
 	}
 }
 
+// TestMergeRejectsIntraIncomingFork is a regression for the reviewer's Q2 gap: an incoming
+// capsule that carries the SAME turn index twice with different content is a rewrite too,
+// and must reject the whole capsule (not silently append both). into is left unchanged.
+func TestMergeRejectsIntraIncomingFork(t *testing.T) {
+	_, priv := keypair(t)
+	into := signed(t, priv, 0)
+	incoming := signed(t, priv, 3,
+		msg(0, "user", "a", "user"),
+		msg(1, "assistant", "b", "roger:m"),
+		msg(1, "assistant", "b-REWRITTEN", "roger:m"), // turn 1 again, different content
+	)
+	out, err := Merge(incoming, into)
+	if !errors.Is(err, ErrForkedTurn) {
+		t.Errorf("err = %v, want ErrForkedTurn", err)
+	}
+	if len(out.Messages) != 0 {
+		t.Errorf("into must be unchanged on intra-incoming fork, got %v", turns(out))
+	}
+	// An exact-duplicate turn (same index AND content) is NOT a fork - it dedups.
+	dup := signed(t, priv, 2, msg(0, "user", "a", "user"), msg(0, "user", "a", "user"))
+	if _, err := Merge(dup, into); err != nil {
+		t.Errorf("exact-duplicate turn must dedup, not fork: %v", err)
+	}
+}
+
 // TestMergeRejectsUnknownVersion + tool_calls at the boundary.
 func TestMergeRejectsBoundary(t *testing.T) {
 	_, priv := keypair(t)
