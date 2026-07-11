@@ -62,7 +62,6 @@ func (s *strangerBDD) unrecoverableWithoutCode() error {
 	return nil
 }
 
-
 func (s *strangerBDD) freshKeypair() error {
 	_, s.priv, _ = ed25519.GenerateKey(nil)
 	return nil

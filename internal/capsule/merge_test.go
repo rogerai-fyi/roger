@@ -202,7 +202,7 @@ func TestMergeRejectsIntraIncomingFork(t *testing.T) {
 	}
 }
 
-// TestMergeRejectsUnknownVersion + tool_calls at the boundary.
+// TestMergeRejectsUnknownVersion: an unknown capsule version is rejected at the boundary.
 func TestMergeRejectsBoundary(t *testing.T) {
 	_, priv := keypair(t)
 	into := signed(t, priv, 0)
@@ -213,13 +213,42 @@ func TestMergeRejectsBoundary(t *testing.T) {
 	if _, err := Merge(badVer, into); !errors.Is(err, ErrUnknownVersion) {
 		t.Errorf("unknown version: err = %v, want ErrUnknownVersion", err)
 	}
+}
 
-	withTools := signed(t, priv, 0)
-	withTools.Messages = []Message{{Role: "assistant", Content: "c", ToolCalls: json.RawMessage(`[{"id":"1"}]`), XRoger: XRoger{Turn: 0, Agent: "roger:m", TS: 1}}}
-	withTools.Thread.BaseWatermark = 1
-	withTools.Sign(priv)
-	if _, err := Merge(withTools, into); !errors.Is(err, ErrToolCalls) {
-		t.Errorf("tool_calls: err = %v, want ErrToolCalls", err)
+// toolCallMsg builds an assistant turn carrying one flat tool_call (built via the producer
+// helper, so the wire bytes are canonical).
+func toolCallMsg(turn int) Message {
+	return Message{
+		Role:    "assistant",
+		Content: "c",
+		ToolCalls: ToolCallsRaw([]ToolCall{{
+			Arguments: `{"url":"https://x.com/a?b=1&c=2","note":"<tag> & \"q\""}`,
+			ID:        "call_1", Name: "open_url",
+		}}),
+		XRoger: XRoger{Turn: turn, Agent: "roger:m", TS: int64(turn)},
+	}
+}
+
+// TestMergeAcceptsToolCalls: the gate is LIFTED - a VERIFIED tool-call capsule now merges
+// (append-only, verify-first still apply), while an UNVERIFIED tool-call capsule is still
+// rejected (the safe state).
+func TestMergeAcceptsToolCalls(t *testing.T) {
+	_, priv := keypair(t)
+	into := Capsule{Capsule: Version, Thread: Thread{BaseWatermark: 0}}
+
+	verified := signed(t, priv, 1, toolCallMsg(0))
+	out, err := Merge(verified, into)
+	if err != nil {
+		t.Fatalf("verified tool-call capsule must merge (gate lifted): %v", err)
+	}
+	if !eqInts(turns(out), []int{0}) {
+		t.Errorf("merged turns = %v, want [0]", turns(out))
+	}
+
+	tampered := signed(t, priv, 1, toolCallMsg(0))
+	tampered.Messages[0].ToolCalls = ToolCallsRaw([]ToolCall{{Arguments: `{}`, ID: "evil", Name: "open_url"}})
+	if _, err := Merge(tampered, into); !errors.Is(err, ErrUnverified) {
+		t.Errorf("tampered tool-call capsule: err = %v, want ErrUnverified", err)
 	}
 }
 
@@ -260,13 +289,40 @@ func TestExportRoundtrip(t *testing.T) {
 	}
 }
 
-// TestExportRejectsToolCalls: Export refuses a draft carrying tool_calls (ruling Q1) so a
-// capsule that crosses the boundary can never contain them.
-func TestExportRejectsToolCalls(t *testing.T) {
+// TestToolCallCapsuleRoundtrip: a flat tool-call capsule exports -> signs -> verifies ->
+// imports -> merges (append-only), reproducing the tool_calls on the merged turn. The full
+// cross-language path for a capsule carrying tool calls, end to end.
+func TestToolCallCapsuleRoundtrip(t *testing.T) {
 	_, priv := keypair(t)
-	d := Draft{ID: "cap_t", Messages: []Message{{Role: "assistant", Content: "c", ToolCalls: json.RawMessage(`[{"id":"1"}]`), XRoger: XRoger{Turn: 0, Agent: "roger:m"}}}}
-	if _, err := Export(d, priv, "roger-cli", nil); !errors.Is(err, ErrToolCalls) {
-		t.Errorf("err = %v, want ErrToolCalls", err)
+	d := Draft{
+		ID:       "cap_tc",
+		Thread:   Thread{OriginThreadID: "t1", Title: "T", BaseWatermark: 1},
+		Messages: []Message{toolCallMsg(0)},
+	}
+	c, err := Export(d, priv, "roger-cli", func() int64 { return 100 })
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if !c.Verify() {
+		t.Fatal("exported tool-call capsule must verify")
+	}
+	raw, err := c.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	imported, err := Import(raw)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	out, err := Merge(imported, Capsule{Capsule: Version})
+	if err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	if !eqInts(turns(out), []int{0}) {
+		t.Errorf("round-trip turns = %v, want [0]", turns(out))
+	}
+	if len(out.Messages[0].ToolCalls) == 0 {
+		t.Error("merged turn lost its tool_calls")
 	}
 }
 

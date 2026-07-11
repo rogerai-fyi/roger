@@ -9,12 +9,14 @@
 //
 // Stage 1 scope (founder-approved): the capsule package + the `roger context` CLI +
 // SAME-OWNER / LOCAL handoff only. The encrypted stranger broker transport is a
-// follow-on (ruling Q3). tool_calls are REJECTED at the app<->CLI boundary (ruling
-// Q1): a canonical form for them is not yet pinned cross-language, so no capsule
-// carrying them may cross until it is.
+// follow-on (ruling Q3). tool_calls now INTEROPERATE: the flat cross-language shape and
+// its canonical form are pinned against the app (canonicalToolCalls + the golden), so a
+// verified tool-call capsule imports and merges like any other (verify-before-merge and
+// append-only still apply; an unverified one is still rejected, the safe state).
 package capsule
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -63,14 +65,66 @@ type Memory struct {
 }
 
 // Message is one turn in plain OpenAI shape so any agent can read it; RogerAI
-// provenance lives under the ignore-unknown x_roger namespace. ToolCalls is carried
-// as raw JSON and is REJECTED at the boundary (ruling Q1) until its canonical form is
-// pinned cross-language; it appears in canonical() only to keep the fixed field order.
+// provenance lives under the ignore-unknown x_roger namespace. ToolCalls is carried as
+// raw JSON (any shape); canonical() re-serializes it in the pinned cross-language form
+// (see canonicalToolCalls). Producers build it from the flat ToolCall shape via
+// ToolCallsRaw so the wire bytes are already canonical.
 type Message struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content"`
 	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
 	XRoger    XRoger          `json:"x_roger"`
+}
+
+// ToolCall is the FLAT, cross-language tool-call shape (NOT OpenAI-nested {id,type,
+// function{}}): the app's internal struct, byte-aligned with CapsuleWire.swift. Every
+// value is a string or a JSON bool - no numbers. Arguments is a STRING holding
+// already-escaped JSON. Result is present ONLY when the tool has run (a nil Result is
+// omitted). Fields are declared in sorted key order (arguments,denied,failed,id,name,
+// result) so a plain marshal is already sorted; canonical() re-sorts regardless.
+type ToolCall struct {
+	Arguments string  `json:"arguments"`
+	Denied    bool    `json:"denied"`
+	Failed    bool    `json:"failed"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Result    *string `json:"result,omitempty"`
+}
+
+// ToolCallsRaw is the PRODUCER helper: it serializes the flat tool_calls of a turn into
+// the canonical cross-language wire bytes (sorted keys, compact, < > & literal, U+2028/
+// U+2029 escaped). A producer attaches the result to Message.ToolCalls; canonical() would
+// normalize any shape, but building via this keeps the at-rest bytes canonical too. It
+// returns nil for an empty slice (so the tool_calls slot is omitted).
+func ToolCallsRaw(tcs []ToolCall) json.RawMessage {
+	if len(tcs) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(tcs) // marshaling a fixed struct slice never errors
+	return canonicalToolCalls(raw)
+}
+
+// canonicalToolCalls re-serializes a tool_calls value in the pinned cross-language
+// canonical form: parsed generically (numbers preserved via json.Number, no float
+// rounding), object keys sorted lexicographically at every level, arrays kept in order,
+// compact, and strings escaped like the app - SetEscapeHTML(false) leaves < > & and /
+// literal (as the golden requires) while Go still escapes U+2028/U+2029. It is
+// shape-agnostic. An unparseable value is emitted verbatim: it simply will not match a
+// peer's canonical bytes (so verify fails - the safe state) unless it already is canonical.
+func canonicalToolCalls(raw json.RawMessage) []byte {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v interface{}
+	if err := dec.Decode(&v); err != nil {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return raw
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n") // Encoder appends a newline; canonical form has none
 }
 
 // XRoger is the RogerAI provenance for a message. Model/Provider are pointers so a nil
@@ -151,7 +205,7 @@ func (c Capsule) canonical() []byte {
 		b = append(b, goString(m.Content)...)
 		if len(m.ToolCalls) > 0 {
 			b = append(b, `,"tool_calls":`...)
-			b = append(b, m.ToolCalls...)
+			b = append(b, canonicalToolCalls(m.ToolCalls)...)
 		}
 		b = append(b, `,"x_roger":{"turn":`...)
 		b = strconv.AppendInt(b, int64(m.XRoger.Turn), 10)

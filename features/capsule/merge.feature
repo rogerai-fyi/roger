@@ -1,7 +1,8 @@
 Feature: append-only capsule merge
   A returning capsule may only ADD turns; a handoff never erases context. Merge verifies
-  the incoming signature FIRST, rejects a forked turn or an unknown version or tool_calls,
-  then appends only the turns at/after the target's watermark that are not already present.
+  the incoming signature FIRST, rejects a forked turn or an unknown version, then appends
+  only the turns at/after the target's watermark that are not already present. tool_calls
+  are carried through (their canonical form is pinned cross-language).
 
   Background:
     Given a fresh operator keypair

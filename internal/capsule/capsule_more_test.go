@@ -62,7 +62,7 @@ func TestCanonicalFieldOrderAndForm(t *testing.T) {
 			want: `{"capsule":"roger.context.v1","id":"cap_2","thread":{"origin_thread_id":"","title":"","base_watermark":-1},"redaction":"","summary":{"text":"","produced_by":"","as_of_turn":-5},"memory":{"notes":"","facts":[]},"messages":[{"role":"assistant","content":"","x_roger":{"turn":-2,"agent":"roger:m","model":null,"provider":null,"ts":-9}}],"meta":{"tools_used":[],"exported_by":"","created_at":0,"owner_pubkey":""}}`,
 		},
 		{
-			name: "conditional tool_calls slot present (verbatim raw)",
+			name: "conditional tool_calls slot present (already-canonical raw passes through)",
 			in: Capsule{
 				Capsule:  Version,
 				ID:       "cap_3",

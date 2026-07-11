@@ -16,9 +16,6 @@ var (
 	ErrUnverified = errors.New("capsule: signature does not verify")
 	// ErrUnknownVersion rejects a capsule whose format is not Version.
 	ErrUnknownVersion = errors.New("capsule: unknown version")
-	// ErrToolCalls rejects a capsule carrying tool_calls (ruling Q1): the canonical form
-	// for tool_calls is not yet pinned cross-language, so none may cross the boundary.
-	ErrToolCalls = errors.New("capsule: tool_calls not supported at this boundary")
 	// ErrForkedTurn rejects a merge where an incoming turn collides with a present turn of
 	// the same index but different content (ruling Q2): the whole capsule is rejected and
 	// the target is left unchanged - a returning capsule may never rewrite history.
@@ -33,24 +30,20 @@ func turnHash(m Message) string {
 	return hex.EncodeToString(h[:])
 }
 
-// validateBoundary runs the version + tool_calls checks every crossing capsule must
-// pass. It does NOT verify the signature (callers that need verification call Verify or
-// Merge, which does both) - Export produces boundary-valid capsules, Merge/Import
-// consume them.
+// validateBoundary runs the version check every crossing capsule must pass. tool_calls are
+// no longer gated here: their canonical form is pinned cross-language (canonicalToolCalls +
+// the golden), so a verified tool-call capsule crosses like any other. It does NOT verify
+// the signature (callers that need verification call Verify or Merge, which does both) -
+// Export produces boundary-valid capsules, Merge/Import consume them.
 func validateBoundary(c Capsule) error {
 	if c.Capsule != Version {
 		return ErrUnknownVersion
-	}
-	for i := range c.Messages {
-		if len(c.Messages[i].ToolCalls) > 0 {
-			return ErrToolCalls
-		}
 	}
 	return nil
 }
 
 // Merge appends the turns in incoming that into does not already have, append-only. It
-// (1) rejects an incoming capsule that fails validateBoundary (version / tool_calls),
+// (1) rejects an incoming capsule that fails validateBoundary (unknown version),
 // (2) rejects one whose sig does not verify (verify-before-merge), (3) rejects the whole
 // capsule if any incoming turn forks a present turn (ruling Q2), then (4) appends only
 // incoming messages at/after into's base_watermark that are not already present (dedup by
@@ -115,8 +108,8 @@ func Merge(incoming, into Capsule) (Capsule, error) {
 }
 
 // Import decodes and verifies a capsule from raw JSON (a .rcap.json file / stdin). It
-// enforces the same boundary as Merge: valid JSON, known version, no tool_calls, and a
-// signature that verifies. The receiving side of the file interop.
+// enforces the same boundary as Merge: valid JSON, known version, and a signature that
+// verifies (tool_calls now interoperate). The receiving side of the file interop.
 func Import(data []byte) (Capsule, error) {
 	var c Capsule
 	if err := json.Unmarshal(data, &c); err != nil {
@@ -146,9 +139,9 @@ type Draft struct {
 
 // Export builds a signed roger.context.v1 capsule from d, stamping meta.exported_by =
 // exportedBy (e.g. "roger-cli"), created_at = now, and signing with priv (which also
-// sets owner_pubkey). It REJECTS a draft carrying tool_calls (ruling Q1) before signing,
-// so a capsule that crosses the boundary can never contain them. now is injectable for
-// deterministic tests; pass nil to use time.Now.
+// sets owner_pubkey). tool_calls are allowed (their canonical form is pinned); the
+// signature covers them via canonical(). now is injectable for deterministic tests; pass
+// nil to use time.Now.
 func Export(d Draft, priv ed25519.PrivateKey, exportedBy string, now func() int64) (Capsule, error) {
 	ts := time.Now().Unix
 	if now != nil {

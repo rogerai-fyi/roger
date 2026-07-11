@@ -26,7 +26,9 @@ Feature: the `roger context` CLI
     Then the merged capsule has 3 turns
     And the merged capsule verifies
 
-  Scenario: export refuses a draft carrying tool_calls
+  Scenario: export signs a draft carrying tool_calls (gate lifted)
     Given a draft carrying tool_calls
     When I export it to a capsule file
-    Then the export fails as tool_calls-unsupported
+    Then the export succeeds
+    And I import the capsule file
+    Then the import reports it verified
