@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -107,6 +108,44 @@ func TestCapsuleMultiInstanceRaceOneWinner(t *testing.T) {
 	if wins != 1 || misses != 1 {
 		t.Fatalf("race must yield exactly one winner: wins=%d misses=%d", wins, misses)
 	}
+}
+
+// TestCapsuleInertSharedFallsBackToLocalMap: with an INERT memStore (errNoSharedStore), the
+// handlers use the per-instance map (single-instance / no-Valkey) and still round-trip.
+func TestCapsuleInertSharedFallsBackToLocalMap(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b := buildBroker(store.NewMem(), priv, 0.30, 100, time.Hour)
+	b.shared = newMemStore() // non-nil but inert
+	lookup, blob := "lk-inert", []byte("via-local-map")
+	if w := capsuleMintReq(t, b, priv, lookup, blob, true); w.Code != http.StatusOK {
+		t.Fatalf("mint status %d", w.Code)
+	}
+	w := capsuleResolveReq(t, b, lookup)
+	if w.Code != http.StatusOK || string(decodeBlobMI(w)) != string(blob) {
+		t.Fatalf("inert-shared resolve status %d blob %q", w.Code, decodeBlobMI(w))
+	}
+}
+
+// TestCapsuleDownedSharedShedsAndMisses: a PRESENT-but-erroring shared backend must NOT
+// split-brain to the local map - a mint sheds (503) and a resolve is a uniform 404.
+func TestCapsuleDownedSharedShedsAndMisses(t *testing.T) {
+	url := xiRedisURL(t)
+	b := sharedBroker(t, url)
+	_, priv, _ := ed25519.GenerateKey(nil)
+	b.shared.(*valkeyStore).rdb.Close() // kill the backend
+	if w := capsuleMintReq(t, b, priv, "lk-down", []byte("x"), true); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("mint on a downed shared backend status %d, want 503", w.Code)
+	}
+	if w := capsuleResolveReq(t, b, "lk-down"); w.Code != http.StatusNotFound {
+		t.Fatalf("resolve on a downed shared backend status %d, want 404", w.Code)
+	}
+}
+
+func decodeBlobMI(w *httptest.ResponseRecorder) []byte {
+	var out struct{ Blob string }
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	b, _ := base64.StdEncoding.DecodeString(out.Blob)
+	return b
 }
 
 // TestCapsuleBrokerContentBlind proves the broker cannot decrypt what it stores: after a

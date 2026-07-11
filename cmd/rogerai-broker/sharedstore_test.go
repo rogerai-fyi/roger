@@ -50,11 +50,62 @@ func TestSharedStoreInterface(t *testing.T) {
 	if err := m.cacheSet("k", []byte("v"), time.Second); err == nil {
 		t.Error("memStore.cacheSet is a no-op and should report unavailable")
 	}
+	if err := m.putCapsule("lk", []byte("blob"), time.Minute); err == nil {
+		t.Error("memStore.putCapsule should report unavailable so the caller uses the local map")
+	}
+	if _, found, err := m.takeCapsule("lk"); found || err == nil {
+		t.Error("memStore.takeCapsule must be a miss with a non-nil error")
+	}
 	if m.healthy() {
 		t.Error("memStore is never healthy (no backend)")
 	}
 	if err := m.Close(); err != nil {
 		t.Errorf("memStore.Close: %v", err)
+	}
+}
+
+// TestValkeyCapsuleRoundTrip exercises the content-blind capsule rendezvous end-to-end on a
+// live backend: put stores the opaque blob namespaced under rogerai:cap:, takeCapsule GETDELs
+// it exactly once (one-time), a miss is (nil,false,nil), and the TTL expires the blob.
+func TestValkeyCapsuleRoundTrip(t *testing.T) {
+	vs, mr := newTestValkey(t)
+
+	// miss -> (nil,false,nil): a clean miss, no logged backend error.
+	if blob, found, err := vs.takeCapsule("absent"); found || err != nil || blob != nil {
+		t.Fatalf("miss = (%v,%v,%v), want (nil,false,nil)", blob, found, err)
+	}
+	// put then take returns the exact ciphertext ONCE.
+	want := []byte("opaque-ciphertext")
+	if err := vs.putCapsule("lk1", want, time.Minute); err != nil {
+		t.Fatalf("putCapsule: %v", err)
+	}
+	for _, k := range mr.Keys() { // shared-instance namespacing
+		if !strings.HasPrefix(k, capsuleKeyPrefix) {
+			t.Errorf("capsule key %q is NOT under %q", k, capsuleKeyPrefix)
+		}
+	}
+	got, found, err := vs.takeCapsule("lk1")
+	if err != nil || !found || string(got) != string(want) {
+		t.Fatalf("take = (%q,%v,%v), want (%q,true,nil)", got, found, err, want)
+	}
+	// one-time: a second take is a miss (delete-on-read).
+	if _, found, _ := vs.takeCapsule("lk1"); found {
+		t.Error("second takeCapsule must miss (one-time, delete-on-read)")
+	}
+	// ttl<=0 is a no-op.
+	if err := vs.putCapsule("noop", []byte("x"), 0); err != nil {
+		t.Errorf("putCapsule ttl<=0 should be a no-op nil, got %v", err)
+	}
+	if _, found, _ := vs.takeCapsule("noop"); found {
+		t.Error("putCapsule ttl<=0 must not write a key")
+	}
+	// TTL expiry -> miss.
+	if err := vs.putCapsule("lk2", want, 2*time.Second); err != nil {
+		t.Fatalf("putCapsule: %v", err)
+	}
+	mr.FastForward(3 * time.Second)
+	if _, found, _ := vs.takeCapsule("lk2"); found {
+		t.Error("capsule blob should have expired after its TTL")
 	}
 }
 
