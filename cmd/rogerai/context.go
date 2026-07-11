@@ -19,7 +19,8 @@ import (
 // operator's existing identity, import verifies one (and can append-only merge it into a
 // base thread), so a conversation moves across operators over a .rcap.json file
 // (hermes/opencode) or a same-owner/local handoff. The encrypted stranger broker
-// transport is a follow-on (ruling Q3). tool_calls are rejected at the boundary (Q1).
+// transport is a follow-on (ruling Q3). tool_calls interoperate (their canonical form is
+// pinned cross-language), so a capsule carrying them exports/imports/merges like any other.
 
 // contextExportedBy is the producer tag the CLI stamps into meta.exported_by. The app
 // stamps "roger-ios"; the byte-parity golden covers both.
@@ -312,8 +313,8 @@ func contextExportUsage() {
   cat draft.json | roger context export                sign from stdin to stdout
 
 The input is a roger.context.v1 draft (the capsule shape); export stamps exported_by,
-created_at, and your owner_pubkey, then signs. tool_calls are not supported (they are
-rejected at this boundary until their canonical form is pinned cross-language).
+created_at, and your owner_pubkey, then signs. tool_calls are carried through (their
+canonical form is pinned cross-language, so an app-signed tool-call capsule verifies here).
 `)
 }
 

@@ -48,7 +48,7 @@ func draftJSON(turnsCSV string, withToolCalls bool) []byte {
 		n, _ := strconv.Atoi(p)
 		m := capsule.Message{Role: "user", Content: "c" + p, XRoger: capsule.XRoger{Turn: n, Agent: "user", TS: int64(n)}}
 		if withToolCalls {
-			m.ToolCalls = json.RawMessage(`[{"id":"1"}]`)
+			m.ToolCalls = capsule.ToolCallsRaw([]capsule.ToolCall{{Arguments: `{"url":"https://x.com/a"}`, ID: "call_1", Name: "open_url"}})
 		}
 		c.Messages = append(c.Messages, m)
 		if n > max {
@@ -165,9 +165,9 @@ func (s *contextCLIBDD) readMerged() capsule.Capsule {
 	_ = json.Unmarshal(data, &c)
 	return c
 }
-func (s *contextCLIBDD) exportFailsToolCalls() error {
-	if s.exportErr == nil || !strings.Contains(s.exportErr.Error(), "tool_calls") {
-		return bddErrf("expected tool_calls export failure, got %v", s.exportErr)
+func (s *contextCLIBDD) exportSucceeds() error {
+	if s.exportErr != nil {
+		return bddErrf("expected export to succeed (gate lifted), got %v", s.exportErr)
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ func TestContextCLIBDD(t *testing.T) {
 			sc.Step(`^the import fails$`, st.importFails)
 			sc.Step(`^the merged capsule has (\d+) turns$`, st.mergedHasTurns)
 			sc.Step(`^the merged capsule verifies$`, st.mergedVerifies)
-			sc.Step(`^the export fails as tool_calls-unsupported$`, st.exportFailsToolCalls)
+			sc.Step(`^the export succeeds$`, st.exportSucceeds)
 		},
 		Options: &godog.Options{
 			Format:   "pretty",

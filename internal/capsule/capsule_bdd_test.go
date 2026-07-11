@@ -7,7 +7,6 @@ package capsule
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -269,7 +268,7 @@ func (s *capsuleBDD) tamperField(field string) error {
 	return nil
 }
 func (s *capsuleBDD) signedCapsuleWithToolCalls() error {
-	c := Capsule{Capsule: Version, ID: "cap_tc", Thread: Thread{BaseWatermark: 1}, Messages: []Message{{Role: "assistant", Content: "c", ToolCalls: json.RawMessage(`[{"id":"1"}]`), XRoger: XRoger{Turn: 0, Agent: "roger:m", TS: 1}}}, Meta: Meta{ToolsUsed: []string{}}}
+	c := Capsule{Capsule: Version, ID: "cap_tc", Thread: Thread{BaseWatermark: 1}, Messages: []Message{{Role: "assistant", Content: "c", ToolCalls: ToolCallsRaw([]ToolCall{{Arguments: `{"url":"https://x.com/a?b=1&c=2"}`, ID: "call_1", Name: "open_url"}}), XRoger: XRoger{Turn: 0, Agent: "roger:m", TS: 1}}}, Meta: Meta{ToolsUsed: []string{}}}
 	c.Sign(s.priv)
 	s.incoming = c
 	return nil
@@ -279,9 +278,9 @@ func (s *capsuleBDD) importIncoming() error {
 	_, s.importErr = Import(raw)
 	return nil
 }
-func (s *capsuleBDD) importRejectedToolCalls() error {
-	if !errors.Is(s.importErr, ErrToolCalls) {
-		return bddErrf("expected ErrToolCalls, got %v", s.importErr)
+func (s *capsuleBDD) importAcceptedToolCalls() error {
+	if s.importErr != nil {
+		return bddErrf("expected a verified tool-call capsule to import (gate lifted), got %v", s.importErr)
 	}
 	return nil
 }
@@ -290,12 +289,12 @@ func (s *capsuleBDD) draftWithToolCalls() error {
 	return nil
 }
 func (s *capsuleBDD) exportDraft() error {
-	_, s.importErr = Export(Draft{ID: "cap_d", Messages: []Message{{Role: "assistant", Content: "c", ToolCalls: json.RawMessage(`[{"id":"1"}]`), XRoger: XRoger{Turn: 0, Agent: "roger:m"}}}}, s.priv, "roger-cli", fixedNow)
+	_, s.importErr = Export(Draft{ID: "cap_d", Thread: Thread{BaseWatermark: 1}, Messages: []Message{{Role: "assistant", Content: "c", ToolCalls: ToolCallsRaw([]ToolCall{{Arguments: `{"url":"https://x.com/a"}`, ID: "call_1", Name: "open_url"}}), XRoger: XRoger{Turn: 0, Agent: "roger:m"}}}}, s.priv, "roger-cli", fixedNow)
 	return nil
 }
-func (s *capsuleBDD) exportRefusedToolCalls() error {
-	if !errors.Is(s.importErr, ErrToolCalls) {
-		return bddErrf("expected ErrToolCalls, got %v", s.importErr)
+func (s *capsuleBDD) exportAcceptedToolCalls() error {
+	if s.importErr != nil {
+		return bddErrf("expected a tool-call draft to export (gate lifted), got %v", s.importErr)
 	}
 	return nil
 }
@@ -404,10 +403,10 @@ func TestCapsuleBDD(t *testing.T) {
 			sc.Step(`^I tamper the field "([^"]*)"$`, st.tamperField)
 			sc.Step(`^a signed capsule carrying tool_calls$`, st.signedCapsuleWithToolCalls)
 			sc.Step(`^I import it$`, st.importIncoming)
-			sc.Step(`^the import is rejected as tool_calls-unsupported$`, st.importRejectedToolCalls)
+			sc.Step(`^the import succeeds \(the gate is lifted\)$`, st.importAcceptedToolCalls)
 			sc.Step(`^a draft carrying tool_calls$`, st.draftWithToolCalls)
 			sc.Step(`^I export it$`, st.exportDraft)
-			sc.Step(`^the export is refused as tool_calls-unsupported$`, st.exportRefusedToolCalls)
+			sc.Step(`^the export succeeds \(the gate is lifted\)$`, st.exportAcceptedToolCalls)
 			sc.Step(`^I marshal and import it$`, st.marshalAndImport)
 			sc.Step(`^the import succeeds$`, st.importSucceeds)
 			sc.Step(`^the imported capsule verifies$`, st.importedVerifies)

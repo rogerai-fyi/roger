@@ -1,7 +1,9 @@
 Feature: capsule security invariants
   The owner ed25519 signature covers every field except sig (over the canonical bytes, so
-  it also covers redaction). Verify-before-merge, append-only, and summary-only redaction
-  for strangers are enforced. tool_calls are rejected at the boundary (ruling Q1).
+  it also covers redaction, and the tool_calls). Verify-before-merge, append-only, and
+  summary-only redaction for strangers are enforced. tool_calls now interoperate: their
+  canonical form is pinned cross-language, so a VERIFIED tool-call capsule crosses (an
+  unverified one is still rejected, the safe state).
 
   Background:
     Given a fresh operator keypair
@@ -27,15 +29,15 @@ Feature: capsule security invariants
       | exported_by |
       | watermark   |
 
-  Scenario: a capsule carrying tool_calls is rejected at import
+  Scenario: a verified capsule carrying tool_calls now imports (gate lifted)
     Given a signed capsule carrying tool_calls
     When I import it
-    Then the import is rejected as tool_calls-unsupported
+    Then the import succeeds (the gate is lifted)
 
-  Scenario: exporting a draft that carries tool_calls is refused
+  Scenario: exporting a draft that carries tool_calls now succeeds (gate lifted)
     Given a draft carrying tool_calls
     When I export it
-    Then the export is refused as tool_calls-unsupported
+    Then the export succeeds (the gate is lifted)
 
   Scenario: an importable capsule round-trips through marshal and verifies
     Given a signed capsule with watermark 1 and turns
