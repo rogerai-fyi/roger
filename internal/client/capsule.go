@@ -34,7 +34,12 @@ const capsuleResolveReadCap = 1<<20*3/2 + 1<<12
 // PublishCapsule seals capsuleJSON (a signed roger.context.v1 wire object) under code and
 // MINTS it to the broker: POST /capsule {lookup, blob}, owner-signed (attribution). The
 // lookup is BandCodeHash(code); the blob is the AES-256-GCM ciphertext. The raw code is
-// handed to the guest out-of-band (the reference channel) - never here, never on a frame.
+// handed to the peer out-of-band (the reference channel) - never here, never on a frame.
+//
+// This is the NON-floor publisher used for the RECALL / return leg (the guest hands context
+// back under a FRESH code): a return capsule is not a stranger export, so the summary-only
+// floor does not apply (the receiver is protected by verify-before-merge + append-only, not
+// redaction). The DJ->stranger leg uses PublishStrangerCapsule, which enforces the floor.
 func PublishCapsule(broker, code string, capsuleJSON []byte) error {
 	sealed, err := capsule.SealForCode(capsuleJSON, code)
 	if err != nil {
