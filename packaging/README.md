@@ -68,9 +68,10 @@ scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksu
 The zero-trust upgrade path (`brew install --cask roger`, no tap) is to get into the official
 `Homebrew/homebrew-cask` - the same tap `claude-code` uses for a proprietary CLI binary. Not
 `homebrew-core` (it needs an OSI license + build-from-source; PolyForm is neither). A ready-to-
-submit cask + the two gates that block it today (GitHub notability, and macOS signing +
-notarization) live in [`homebrew-cask/`](homebrew-cask/). Grow past the notability bar, sign
-the darwin builds, submit once - then keep the tap formula for Linux / anyone who wants it.
+submit cask + the live gate status live in [`homebrew-cask/`](homebrew-cask/). Notability is
+already cleared (193★ vs a 75★ bar); what's left is the repo hitting 30 days old (~2026-07-23)
+and **signing + notarizing the darwin binaries**. Sign the builds, submit once - then keep the
+tap formula for Linux / anyone who wants it.
 
 ### 2. winget (optional, Windows 11's built-in manager)
 winget needs a **first manual submission**, then the workflow keeps it updated:
