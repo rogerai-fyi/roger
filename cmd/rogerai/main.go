@@ -761,6 +761,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdPayout(cfg, args[1:])
 	case "grant":
 		return cmdGrant(cfg, args[1:])
+	case "context":
+		return cmdContext(cfg, args[1:])
 	case "onboard", "setup":
 		return cmdOnboard(cfg, args[1:])
 	case "config":
