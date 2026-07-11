@@ -33,16 +33,15 @@ Current status (re-run before submitting — these move over time):
   upstream repo ≥30 days old. roger was created 2026-06-23, so it clears on **~2026-07-23**.
   Nothing to do but wait.
 - ❌ **macOS code signing** — *"Signature verification failed"*. homebrew-cask requires the
-  macOS binary to be **Developer-ID signed and notarized**; ours are only ad-hoc signed
-  (see "Code signing (deferred)" in [`../README.md`](../README.md)). This is the real work
-  item. To clear it:
-   - Apple Developer ID Application cert ($99/yr).
-   - Sign + notarize + staple the darwin binaries in the release. GoReleaser supports this
-     via a `signs:`/`notarize:` step (or a post-build hook running `codesign` + `notarytool`).
-   - Verify locally: `codesign -dv --verbose=4 roger-darwin-arm64` and
-     `spctl -a -vvv -t install roger-darwin-arm64` should both pass.
+  macOS binary to be **Developer-ID signed and notarized**; ours are only ad-hoc signed.
+  The release pipeline is now **wired for this** — `.goreleaser.yaml` has a `notarize:` block
+  (GoReleaser's cross-platform, Quill-backed signer; runs on the Linux runner) that stays off
+  until the signing secrets exist. So clearing this gate is **config, not code**: add the five
+  `MACOS_*` repo secrets per [Code signing in `../README.md`](../README.md#code-signing), cut a
+  release, and the darwin binaries ship signed + notarized. Then re-run
+  `brew audit --cask --new roger` — the signature error clears.
 
-   (This is *only* needed for the cask. The formula runs the ad-hoc-signed binary fine —
+   (Signing is *only* needed for the cask. The formula runs the ad-hoc-signed binary fine —
    Homebrew doesn't quarantine formula downloads — which is why the tap works today.)
 
 ## Submitting (once signing lands and the repo is ≥30 days old)
