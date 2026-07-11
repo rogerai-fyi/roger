@@ -178,12 +178,14 @@ func TestTamperMatrix(t *testing.T) {
 		"escalate redaction summary->full": func(c *Capsule) { c.Redaction = "full" },
 		"flip a message content":           func(c *Capsule) { c.Messages[0].Content = "evil" },
 		"flip a message role":              func(c *Capsule) { c.Messages[0].Role = "system" },
-		"append a forged turn":             func(c *Capsule) { c.Messages = append(c.Messages, Message{Role: "assistant", Content: "forged", XRoger: XRoger{Turn: 3, Agent: "roger:m", TS: 10}}) },
-		"change the title":                 func(c *Capsule) { c.Thread.Title = "other" },
-		"change the summary text":          func(c *Capsule) { c.Summary.Text = "rewritten" },
-		"change created_at":                func(c *Capsule) { c.Meta.CreatedAt = 200 },
-		"change exported_by":               func(c *Capsule) { c.Meta.ExportedBy = "roger-ios" },
-		"change base_watermark":            func(c *Capsule) { c.Thread.BaseWatermark = 99 },
+		"append a forged turn": func(c *Capsule) {
+			c.Messages = append(c.Messages, Message{Role: "assistant", Content: "forged", XRoger: XRoger{Turn: 3, Agent: "roger:m", TS: 10}})
+		},
+		"change the title":        func(c *Capsule) { c.Thread.Title = "other" },
+		"change the summary text": func(c *Capsule) { c.Summary.Text = "rewritten" },
+		"change created_at":       func(c *Capsule) { c.Meta.CreatedAt = 200 },
+		"change exported_by":      func(c *Capsule) { c.Meta.ExportedBy = "roger-ios" },
+		"change base_watermark":   func(c *Capsule) { c.Thread.BaseWatermark = 99 },
 	}
 	for name, mut := range tampers {
 		t.Run(name, func(t *testing.T) {
