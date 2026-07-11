@@ -9,9 +9,14 @@ package main
 // The broker never sees the code, the key, or the plaintext - it stores and returns an opaque,
 // expiring, one-time blob. Mirrors the RC link-code posture (rcAttach): the mint is signed (for
 // attribution / rate-limiting), the resolve is authed only by possession of the lookup, and any
-// miss/expired/garbage resolve returns the IDENTICAL 404 so there is no existence oracle. Like the
-// RC live hubs (not the durable roster), the store is per-instance + ephemeral; it is never
-// persisted to the DB.
+// miss/expired/garbage resolve returns the IDENTICAL 404 so there is no existence oracle.
+//
+// MULTI-INSTANCE: the blob store is SHARED-first (b.shared.putCapsule / takeCapsule, a Valkey
+// SET + one-time GETDEL keyed on rogerai:cap:<lookup>), so a mint on instance A resolves on
+// instance B and exactly one of N concurrent resolves wins (atomic single-use across
+// instances). When no shared backend is wired (single-instance / no-Valkey), it falls back to
+// the bounded, TTL-swept, per-instance capsuleStore map below. Either way it is ephemeral
+// ciphertext, never persisted to the money DB.
 
 import (
 	"encoding/base64"
@@ -83,6 +88,43 @@ func (c *capsuleStore) sweepLocked(now time.Time) {
 	}
 }
 
+// putCapsuleBlob stores a mint SHARED-first (so a mint on one instance resolves on another),
+// falling back to the per-instance map when no shared backend is wired (single-instance /
+// no-Valkey). A shared backend that is present but ERRORING sheds the mint (returns false ->
+// 503) rather than writing it locally where a peer could never see it. errNoSharedStore (the
+// inert memStore) routes to the local map. Content-blind: only {lookup, ciphertext} at rest.
+func (b *broker) putCapsuleBlob(lookup string, blob []byte, now time.Time) bool {
+	if b.shared != nil {
+		err := b.shared.putCapsule(lookup, blob, capsuleTTL)
+		if err == nil {
+			return true
+		}
+		if err != errNoSharedStore {
+			return false // real backend error: shed (retry), never split-brain to local
+		}
+		// errNoSharedStore: no shared backend (memStore) -> use the per-instance map.
+	}
+	return b.capsules.put(lookup, blob, now)
+}
+
+// takeCapsuleBlob consumes a blob SHARED-first (atomic one-time GETDEL across instances),
+// falling back to the per-instance map when no shared backend is wired. A shared backend
+// that is present but ERRORING yields a uniform miss (the handler 404s) rather than probing
+// the local map for a blob a peer minted. errNoSharedStore routes to the local map.
+func (b *broker) takeCapsuleBlob(lookup string, now time.Time) ([]byte, bool) {
+	if b.shared != nil {
+		blob, found, err := b.shared.takeCapsule(lookup)
+		if err == nil {
+			return blob, found // authoritative: a hit or a clean miss
+		}
+		if err != errNoSharedStore {
+			return nil, false // real backend error: uniform miss
+		}
+		// errNoSharedStore: no shared backend -> use the per-instance map.
+	}
+	return b.capsules.take(lookup, now)
+}
+
 // capsuleMint handles POST /capsule: store an opaque encrypted blob keyed by the client-supplied
 // lookup (sha256 of the client's one-time code). Requires a VERIFIED signature (any device/owner
 // key) so a mint is attributable and rate-limitable - the plaintext/code/key never reach us.
@@ -113,7 +155,7 @@ func (b *broker) capsuleMint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	if !b.capsules.put(req.Lookup, blob, now) {
+	if !b.putCapsuleBlob(req.Lookup, blob, now) {
 		jsonErr(w, http.StatusServiceUnavailable, "capsule store is full, retry shortly")
 		return
 	}
@@ -134,7 +176,7 @@ func (b *broker) capsuleResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &req)
 	// Always attempt the take (constant work), even for empty/garbage input.
-	blob, ok := b.capsules.take(req.Lookup, time.Now())
+	blob, ok := b.takeCapsuleBlob(req.Lookup, time.Now())
 	if !ok {
 		uniform()
 		return
