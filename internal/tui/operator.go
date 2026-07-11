@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/operator"
 	"github.com/rogerai-fyi/roger/internal/pricetier"
@@ -909,14 +910,30 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	}
 	// Same-owner LOCAL handoff (Stage 1): drop the conversation as a signed roger.context
 	// capsule the guest can import from its workdir (a REFERENCE it reads, not bytes on a
-	// frame). Best-effort - a write failure narrates but never aborts the handoff. The
-	// encrypted stranger transport is a follow-on (ruling Q3).
+	// frame). Best-effort - a write failure narrates but never aborts the handoff.
 	if path, err := m.writeHandoffCapsule(wd); err != nil {
 		m.rcNote("context capsule not handed off: " + err.Error())
 	} else if path != "" {
 		m.rcNote(fmt.Sprintf("handed the conversation to %s · %d turns", h.det.Guest.Name, m.ringTurn))
 	}
-	c := operator.Command(launch, h.det.Path, sess.Workdir, os.Environ())
+	// STRANGER handoff (Stage 3, ratification-gated): when the marketplace/stranger transport
+	// is enabled (ROGERAI_CAPSULE_STRANGER=1 + a known broker), publish a SUMMARY-ONLY, signed,
+	// SEALED capsule to the broker's content-blind rendezvous under a FRESH one-time code, and
+	// hand the guest the RAW code + broker via the ENV reference channel (never inline bytes,
+	// never a frame field). Best-effort: a publish failure narrates and falls back to the local
+	// file handoff above. See context_capsule.go / features/capsule/stranger_transport.feature.
+	env := os.Environ()
+	if broker := m.strangerHandoffBroker(); broker != "" {
+		code, _, _ := protocol.NewRCLinkCode() // fresh code; reuses the 40-bit band tail
+		if err := m.publishStrangerCapsule(broker, code); err != nil {
+			m.rcNote("stranger capsule not published: " + err.Error())
+		} else {
+			// the reference channel: the guest resolves the code from the broker itself.
+			env = append(env, "ROGERAI_CAPSULE_CODE="+code, "ROGERAI_CAPSULE_BROKER="+broker)
+			m.rcNote(fmt.Sprintf("published a summary capsule for %s · one-time code handed off", h.det.Guest.Name))
+		}
+	}
+	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
 }
 

@@ -127,6 +127,52 @@ func (m *model) writeHandoffCapsule(workdir string) (string, error) {
 	return path, nil
 }
 
+// strangerHandoffBroker returns the broker endpoint to publish a stranger capsule to, or ""
+// when the encrypted stranger transport is not enabled. It is OFF by default (Stage 3 is
+// build-and-hold, pending founder ratification of the crypto choices): it requires BOTH the
+// ROGERAI_CAPSULE_STRANGER opt-in AND a known broker endpoint. Gating it here (not in the
+// operator exec) keeps the same-owner LOCAL handoff the unchanged default.
+func (m *model) strangerHandoffBroker() string {
+	if os.Getenv("ROGERAI_CAPSULE_STRANGER") == "" || m.endpoint == "" {
+		return ""
+	}
+	return m.endpoint
+}
+
+// publishStrangerCapsule is the DJ side of the ENCRYPTED STRANGER transport (Stage 3): it
+// exports a SUMMARY-ONLY capsule (the redaction floor), signs it with the operator's existing
+// identity, seals it under the one-time code, and mints the ciphertext to the broker's
+// content-blind rendezvous. The broker never sees the code, the key, or the plaintext. The
+// RAW code is handed to the guest via the reference channel (env / operator_handoff), NEVER
+// inline bytes and NEVER on a frame field. client.PublishStrangerCapsule enforces the
+// redaction floor (a full capsule is refused). An empty ring publishes nothing.
+func (m *model) publishStrangerCapsule(broker, code string) error {
+	if len(m.ring) == 0 {
+		return nil
+	}
+	c, err := m.exportContextCapsule(true) // summary-only for a stranger (redaction invariant)
+	if err != nil {
+		return err
+	}
+	raw, err := c.Marshal()
+	if err != nil {
+		return err
+	}
+	return client.PublishStrangerCapsule(broker, code, raw)
+}
+
+// resolveStrangerRecall is the DJ side of the RETURN path: it resolves the guest's return
+// capsule from the broker under the FRESH recall code (no key reuse), opens it, and merges it
+// back into the ring append-only (verify-before-merge inside mergeReturnCapsule). It returns
+// the number of new turns added. A gone/expired/wrong-code recall is client.ErrCapsuleGone.
+func (m *model) resolveStrangerRecall(broker, recallCode string) (int, error) {
+	raw, err := client.FetchCapsule(broker, recallCode)
+	if err != nil {
+		return 0, err
+	}
+	return m.mergeReturnCapsule(raw)
+}
+
 // readRecallCapsule merges a guest's return capsule (if it left one under the workdir) back
 // into the ring append-only. It returns the number of turns added (0 when no return file
 // exists - the common case), or an error the caller narrates. A missing file is not an

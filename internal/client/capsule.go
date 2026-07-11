@@ -40,6 +40,23 @@ func PublishCapsule(broker, code string, capsuleJSON []byte) error {
 	if err != nil {
 		return err
 	}
+	return mintCapsule(broker, code, sealed)
+}
+
+// PublishStrangerCapsule is PublishCapsule with the redaction FLOOR: it refuses to mint a
+// non-summary (full) capsule to a marketplace/stranger (ErrNotSummary), so a stranger
+// transport can never carry a full transcript. This is the DJ->stranger handoff path.
+func PublishStrangerCapsule(broker, code string, capsuleJSON []byte) error {
+	sealed, err := capsule.SealForStranger(capsuleJSON, code)
+	if err != nil {
+		return err
+	}
+	return mintCapsule(broker, code, sealed)
+}
+
+// mintCapsule POSTs the sealed blob to the broker's content-blind /capsule endpoint,
+// owner-signed. It is the shared tail of PublishCapsule / PublishStrangerCapsule.
+func mintCapsule(broker, code string, sealed []byte) error {
 	body, _ := json.Marshal(map[string]string{
 		"lookup": capsule.TransportLookup(code),
 		"blob":   base64.StdEncoding.EncodeToString(sealed),
