@@ -907,6 +907,15 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
 		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
 	}
+	// Same-owner LOCAL handoff (Stage 1): drop the conversation as a signed roger.context
+	// capsule the guest can import from its workdir (a REFERENCE it reads, not bytes on a
+	// frame). Best-effort - a write failure narrates but never aborts the handoff. The
+	// encrypted stranger transport is a follow-on (ruling Q3).
+	if path, err := m.writeHandoffCapsule(wd); err != nil {
+		m.rcNote("context capsule not handed off: " + err.Error())
+	} else if path != "" {
+		m.rcNote(fmt.Sprintf("handed the conversation to %s · %d turns", h.det.Guest.Name, m.ringTurn))
+	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, os.Environ())
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
 }
@@ -933,6 +942,14 @@ func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
 		m.rcEmitDJBack()
 	}
 	guest := h.det.Guest.Name
+	// Merge any return capsule the guest left under its workdir back into the context ring
+	// (append-only; a handoff never truncates the thread). Best-effort - a missing file is
+	// the common case (0 turns), a bad one narrates.
+	if n, err := m.readRecallCapsule(h.workdir); err != nil {
+		m.rcNote("return capsule not merged: " + err.Error())
+	} else if n > 0 {
+		m.rcNote(fmt.Sprintf("merged %d turns back from %s", n, guest))
+	}
 	// The defensive reset just wrote ESC[?2004l AFTER bubbletea's RestoreTerminal had
 	// re-enabled paste, so bracketed paste must be re-armed here or it stays dead for
 	// the rest of the radio session (iteration-1 finding #2). The radio always runs
