@@ -32,6 +32,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
 	"github.com/rogerai-fyi/roger/internal/agent"
+	"github.com/rogerai-fyi/roger/internal/capsule"
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
@@ -664,6 +665,15 @@ type model struct {
 	// history.go.
 	chatHist   *inputHistory
 	transcript []string
+	// ring is the MINIMAL per-turn context ring (ruling Q4): one capsule.Message per
+	// completed turn (role/content/turn/model/provider/agent/ts), fed from the chatMsg
+	// before it is discarded. It is NOT a render source (the flat transcript stays that);
+	// it exists only to EXPORT a portable roger.context.v1 capsule on an operator handoff
+	// and MERGE a returning one append-only. ringTurn is the next turn index; threadID is
+	// the session's stable origin thread id. See context_capsule.go.
+	ring     []capsule.Message
+	ringTurn int
+	threadID string
 	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
 	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
 	lastReply string
@@ -1456,6 +1466,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.lastReply = msg.reply // raw text, for ctrl+y / /copy
 			reply = stLive.Render("◂ ") + reply
+			// Record the assistant turn into the per-turn context ring (Q4). The tuned
+			// band's model is public; the provider (if the broker reported one) rides the
+			// x_roger provenance. Only real content is recorded (a no-text turn is skipped).
+			mdl, prov := m.channelModelProvider(msg.provider)
+			m.recordTurn("assistant", msg.reply, m.channelAgent(), mdl, prov)
 		}
 		m.msgInFrom, m.msgInFrame = len(m.transcript), m.frame // mark this block for the settle-in
 		m.transcript = append(m.transcript, reply)
@@ -1866,6 +1881,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.relaying = true
 			m.relayStart = time.Now()
+			// Record the user turn into the per-turn context ring (Q4) before it is sent,
+			// so an operator handoff can carry the conversation. The flat transcript above
+			// stays the render source.
+			m.recordTurn("user", p, "user", nil, nil)
 			// Carry the user's explicit out-price cap for this model (0 -> the default
 			// consumer cap applies broker-side); keeps the in-channel chat bounded like use.
 			return m, sendChat(m.broker, m.user, m.connected.Model, turn, m.confidentialOnly, m.limits.resolve(m.connected.Model).MaxOut)
