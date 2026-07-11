@@ -12,8 +12,11 @@ Release assets that GoReleaser publishes on each `v*` tag.
    a red gate).
 2. **release** - GoReleaser (`.goreleaser.yaml`) cross-compiles, publishes the GitHub
    Release with the raw binaries + `checksums.txt` (the exact names `web/install.sh`
-   fetches), and pushes the **Homebrew cask** and **Scoop manifest** to their repos.
-3. **winget** - opens a PR to `microsoft/winget-pkgs` (only when enabled; see below).
+   fetches), and pushes the **Scoop manifest** to its repo.
+3. **brew** - renders `Formula/roger.rb` from that release's `checksums.txt` (via
+   `scripts/gen-brew-formula.sh`) and pushes it to `rogerai-fyi/homebrew-tap`. This is a
+   **formula, not a cask**, and it's NOT done by GoReleaser - see the Homebrew section below.
+4. **winget** - opens a PR to `microsoft/winget-pkgs` (only when enabled; see below).
 
 Local dry-run (builds everything into `dist/`, publishes nothing):
 
@@ -24,11 +27,10 @@ TAP_GITHUB_TOKEN=dummy goreleaser release --snapshot --clean --skip=publish
 ## One-time setup (owner action required)
 
 ### 1. Homebrew + Scoop repos + token
-- [x] `rogerai-fyi/homebrew-tap` created (public, `main`) - cask lands in `Casks/roger.rb`.
+- [x] `rogerai-fyi/homebrew-tap` created (public, `main`) - **formula** lands in `Formula/roger.rb`.
 - [x] `rogerai-fyi/scoop-bucket` created (public, `main`) - manifest lands in `bucket/roger.json`.
-- [ ] Create a token with `contents:write` on **both** repos and add it as secret
-  **`TAP_GITHUB_TOKEN`** on the `roger` repo. The default `GITHUB_TOKEN` cannot push
-  cross-repo, so this is required. **Owner action** (GitHub won't mint a PAT via CLI):
+- [x] `TAP_GITHUB_TOKEN` secret set on the `roger` repo (`contents:write` on both tap repos).
+  The default `GITHUB_TOKEN` can't push cross-repo, so this is required. To rotate it:
   1. Fine-grained PAT: https://github.com/settings/tokens?type=beta -> Resource owner
      `rogerai-fyi`, Repository access = only `homebrew-tap` + `scoop-bucket`,
      Repository permissions -> Contents: **Read and write**. (Or a classic PAT with `repo`.)
@@ -37,15 +39,39 @@ TAP_GITHUB_TOKEN=dummy goreleaser release --snapshot --clean --skip=publish
 Then users install with:
 
 ```sh
-brew install --cask rogerai-fyi/tap/roger          # macOS
+brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/roger   # macOS + Linux
 scoop bucket add rogerai https://github.com/rogerai-fyi/scoop-bucket && scoop install roger  # Windows
 ```
 
-> Note: it's a Homebrew **cask** (not a formula) because the release ships a prebuilt
-> binary - the cask install strips the macOS quarantine xattr so the unsigned binary runs
-> without a Gatekeeper prompt. `homebrew-core` (`brew install roger`, no tap prefix) is not
-> an option: it requires an OSI-approved license and builds from source; PolyForm Perimeter
-> is source-available, not open-source.
+#### Formula, not cask — and why we generate it ourselves
+It's a Homebrew **formula** (not a cask): a formula installs the same prebuilt per-arch
+binary, **works on Linux Homebrew too** (casks are macOS-only, and providers run on Linux
+GPU boxes), and needs no `--cask` flag. Gatekeeper is a non-issue - Homebrew's formula
+downloader doesn't set the macOS quarantine xattr and Go ad-hoc-signs darwin binaries, so
+the unsigned CLI runs clean (verified: formula install -> `roger version` exits 0).
+
+GoReleaser can't generate it: it **dropped** Homebrew formula support (`brews`) in favour of
+casks (goreleaser.com/deprecations#brews). So `scripts/gen-brew-formula.sh` renders the
+formula from the release `checksums.txt`, and the `brew` job in `release.yml` pushes it to
+the tap on every non-prerelease `v*` tag. To (re)generate by hand for the current release:
+
+```sh
+scripts/gen-brew-formula.sh 5.2.1 > Formula/roger.rb   # or pass a local checksums.txt as $2
+```
+
+> **The `brew trust` step is unavoidable from a third-party tap.** Homebrew 6+ requires a
+> one-time `brew trust` for **any** non-official tap - formula or cask (it's the default via
+> `HOMEBREW_REQUIRE_TAP_TRUST`). Only the **official** taps are trusted by default. (After the
+> one-liner, bare `brew upgrade roger` / `brew uninstall roger` work, since the tap is then
+> trusted.)
+
+The zero-trust upgrade path (`brew install --cask roger`, no tap) is to get into the official
+`Homebrew/homebrew-cask` - the same tap `claude-code` uses for a proprietary CLI binary. Not
+`homebrew-core` (it needs an OSI license + build-from-source; PolyForm is neither). A ready-to-
+submit cask + the live gate status live in [`homebrew-cask/`](homebrew-cask/). Notability is
+already cleared (193★ vs a 75★ bar); what's left is the repo hitting 30 days old (~2026-07-23)
+and **signing + notarizing the darwin binaries**. Sign the builds, submit once - then keep the
+tap formula for Linux / anyone who wants it.
 
 ### 2. winget (optional, Windows 11's built-in manager)
 winget needs a **first manual submission**, then the workflow keeps it updated:
@@ -129,9 +155,20 @@ emerge --sync roger && emerge net-misc/roger-bin
 > A personal overlay is fine. A build-from-source `go-module.eclass` ebuild is possible
 > later if desired, but doesn't change the license situation.
 
-## Code signing (deferred, quality-of-life)
-Binaries are currently unsigned. Not a blocker for any channel above, but:
-- **Windows**: unsigned `.exe` triggers SmartScreen. Fix later with an Authenticode cert or
-  Azure Trusted Signing, wired into the GoReleaser build as a `signs`/post-build hook.
-- **macOS**: the cask strips quarantine, so a CLI runs fine unsigned. Notarization only
-  matters if we ever ship a `.pkg`/`.dmg`/`.app`.
+## Code signing
+- **macOS — WIRED, off until secrets exist.** `.goreleaser.yaml` has a `notarize:` block that
+  signs + notarizes the darwin binaries (GoReleaser's cross-platform, Quill-backed path — runs
+  on the Linux release runner, no macOS host). It self-enables only when `MACOS_SIGN_P12` is
+  set, so releases stay green until then. Unsigned binaries run fine via the curl installer and
+  the tap formula (Homebrew doesn't quarantine formula downloads), but the **official
+  homebrew-cask** route *requires* signed + notarized binaries — this is what unblocks it.
+  **Owner action** — add these repo secrets (needs an Apple Developer Program membership):
+  1. In Apple Developer, create a **Developer ID Application** certificate; export it as `.p12`
+     with a password. `MACOS_SIGN_P12` = `base64 -i cert.p12`, `MACOS_SIGN_PASSWORD` = that password.
+  2. In App Store Connect → Users and Access → Integrations → keys, create an **API key**
+     (Developer role). `MACOS_NOTARY_ISSUER_ID` = the issuer UUID, `MACOS_NOTARY_KEY_ID` = the
+     key id, `MACOS_NOTARY_KEY` = `base64 -i AuthKey_XXXX.p8`.
+  3. `gh secret set MACOS_SIGN_P12 --repo rogerai-fyi/roger < <(base64 -i cert.p12)` (and the
+     other four). The next `v*` release then ships signed, notarized darwin binaries.
+- **Windows** (still deferred): unsigned `.exe` triggers SmartScreen. Fix later with an
+  Authenticode cert or Azure Trusted Signing, wired into the GoReleaser build.
