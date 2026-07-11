@@ -354,7 +354,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:321:		probeEvidenceRece
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
@@ -1974,7 +1974,7 @@ github.com/rogerai-fyi/roger/internal/tui/tui.go:7839:			sharePriceCell			100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7864:			shareRowDetail			97.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7936:			marquee				91.7%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:7960:			shareEditorView			89.3%
-github.com/rogerai-fyi/roger/internal/tui/tui.go:8087:			editorLivePreview		96.0%
+github.com/rogerai-fyi/roger/internal/tui/tui.go:8087:			editorLivePreview		92.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8136:			maskKey				100.0%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8153:			shareSetupView			85.4%
 github.com/rogerai-fyi/roger/internal/tui/tui.go:8221:			modalFooter			100.0%
