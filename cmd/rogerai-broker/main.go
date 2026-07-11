@@ -149,6 +149,7 @@ type broker struct {
 	// host inbound channel, viewer fan-out, a bounded replay ring). See rc.go.
 	rcMu        sync.Mutex
 	rcHubs      map[string]*rcHub
+	capsules    *capsuleStore // content-blind one-time-code capsule handoff blobs (capsule.go); per-instance, ephemeral
 	bill        billing
 	conn        connect
 	mod         moderation
@@ -503,6 +504,7 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
 		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
 		quotes: map[string]priceQuote{}, streams: map[string]*streamSink{}, db: db,
+		capsules:  newCapsuleStore(),
 		pubOfUser: map[string]string{},
 		inflight:  map[string]int{}, success: map[string]float64{}, trust: map[string]trustState{},
 		successCount: map[string]int{}, concurrentTPS: map[string]float64{},
@@ -510,8 +512,8 @@ func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, loc
 		toolsMerged:  map[string]bool{},
 		lastToolMark: map[string]time.Time{},
 		probeSched:   map[string]*probeState{},
-		lastPersist: map[string]time.Time{},
-		priv:        priv, feeRate: fee, seedFunds: seed, lockWin: lock,
+		lastPersist:  map[string]time.Time{},
+		priv:         priv, feeRate: fee, seedFunds: seed, lockWin: lock,
 		ttsMaxChars: audioTTSMaxChars(), audioSem: newAudioSem(),
 		banned:                 map[string]bool{},
 		reportEjectAt:          reportEjectThreshold(),
@@ -697,6 +699,8 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/rc/attach", b.rcAttach)                                                          // remote surface: attach with the link code (uniform-404)
 	mux.HandleFunc("/rc/revoke-all", b.rcRevokeAll)                                                   // owner: end every remote-control session
 	mux.HandleFunc("/rc/", b.rcSubtree)                                                               // /rc/{sid}/{poll|events|send|stream|code|disable}
+	mux.HandleFunc("/capsule", b.capsuleMint)                                                         // signed: store an encrypted context-capsule blob under a one-time-code hash (content-blind)
+	mux.HandleFunc("/capsule/resolve", b.capsuleResolve)                                              // code-authed: fetch the blob ONCE (uniform-404, delete-on-read)
 	mux.HandleFunc("/admin/csam", b.adminCSAMQueue)                                                   // admin-authed: the CyberTipline drain queue (metadata only) + backlog stats
 	mux.HandleFunc("/admin/csam/submit", b.adminCSAMSubmit)                                           // admin-authed: mark an incident submitted with its CyberTipline report id
 	mux.HandleFunc("/admin/live", b.adminLive)                                                        // admin-authed: LIVE in-memory ops (health, marketplace, dispatch, seed/fee/stripe) the private roger-admin portal merges with its own Postgres rollups
