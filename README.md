@@ -28,6 +28,13 @@ hardware; users get cheap, diverse access.
 curl -fsSL https://rogerai.fyi/install.sh | sh
 ```
 
+Or via **Homebrew** (macOS + Linux). Homebrew 6+ makes you trust a third-party tap once, so
+it's a single line:
+
+```
+brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/roger
+```
+
 Then just run `roger` for the interactive radio (browse stations, tune in, test, copy the
 endpoint; `rogerai` is the legacy alias). Already have Go?
 `go install github.com/rogerai-fyi/roger/cmd/rogerai@latest`.

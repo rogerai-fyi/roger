@@ -38,6 +38,38 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X main.Version={{.Version}}"]
 
+# ---- macOS code signing + notarization -----------------------------------------------
+# Signs + notarizes the darwin binaries so the OFFICIAL Homebrew cask route
+# (`brew install --cask roger` - no tap, no `brew trust`) becomes possible; homebrew-cask
+# rejects unsigned binaries (`brew audit --cask --new` -> "Signature verification failed").
+# See packaging/homebrew-cask/ for the cask + the remaining gates.
+#
+# GoReleaser signs Mach-O NATIVELY, so this runs on the Linux release runner (no macOS host,
+# no quill/rcodesign). It's OFF until the signing secrets exist: `enabled` self-evaluates from
+# MACOS_SIGN_P12, so a release without the secrets skips signing and stays green (the release.yml
+# `release` job passes all five through, empty when unset). Wiring them up flips it on with no
+# further code change. Owner action - add these repo secrets (Apple Developer Program required):
+#   MACOS_SIGN_P12           base64 of the "Developer ID Application" cert exported as .p12
+#   MACOS_SIGN_PASSWORD      the .p12 export password
+#   MACOS_NOTARY_ISSUER_ID   App Store Connect API issuer id (UUID)
+#   MACOS_NOTARY_KEY_ID      App Store Connect API key id
+#   MACOS_NOTARY_KEY         base64 of the App Store Connect API key (.p8)
+# Signing changes the darwin binaries' bytes, so checksums.txt (and thus the tap formula +
+# the cask, both generated from it) track the SIGNED binaries automatically.
+notarize:
+  macos:
+    - enabled: '{{ if .Env.MACOS_SIGN_P12 }}true{{ else }}false{{ end }}'
+      ids: [roger-unix]   # the build that emits the darwin binaries (goreleaser signs only those)
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
 archives:
   # RAW binaries for every platform - keeps the asset names and the install.sh download
   # path identical to today (roger-linux-amd64, roger-windows-amd64.exe, ...).
@@ -69,26 +101,22 @@ changelog:
   use: github
   sort: asc
 
-# ---- Homebrew Cask (macOS) -----------------------------------------------------------
-# Generates Casks/roger.rb and pushes it to rogerai-fyi/homebrew-tap on each release.
-#   brew install --cask rogerai-fyi/tap/roger
-# A cask (not a formula) is correct for a pre-built binary: Homebrew strips the macOS
-# quarantine xattr on install, so the unsigned binary runs without a Gatekeeper prompt.
-homebrew_casks:
-  - name: roger
-    ids: [raw]
-    repository:
-      owner: rogerai-fyi
-      name: homebrew-tap
-      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
-    directory: Casks
-    homepage: "https://rogerai.fyi"
-    description: "RogerAI - a two-way radio for GPUs. Consume and share LLM/voice models over the broker."
-    # NOTE: no `rogerai` legacy-alias symlink here. We ship a raw per-arch binary (staged as
-    # roger-darwin-<arch>, not `roger`), so a static `binary "roger", target: "rogerai"` would
-    # dangle. `roger` is the command; install.sh still provides the alias for curl installs.
-    # Don't auto-commit to the tap for pre-releases (v5.1.0-beta.1 etc.).
-    skip_upload: auto
+# ---- Homebrew Formula (macOS + Linux) ------------------------------------------------
+# NOT generated here. GoReleaser removed Homebrew *formula* support (`brews`) in favour of
+# `homebrew_casks` - it only emits casks now (see goreleaser.com/deprecations#brews). We want
+# a FORMULA, not a cask: the formula installs the SAME raw per-arch binary this release ships,
+# works on Linux Homebrew too (casks are macOS-only - and RogerAI providers run on Linux GPU
+# boxes), and needs no `--cask` flag. So the formula is rendered by scripts/gen-brew-formula.sh
+# and pushed to rogerai-fyi/homebrew-tap by the `brew` job in .github/workflows/release.yml,
+# straight from this release's checksums.txt. Install:
+#   brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/roger
+#
+# Gatekeeper is a non-issue for the formula: Homebrew's formula downloader doesn't set the
+# macOS quarantine xattr and the Go linker ad-hoc-signs darwin binaries, so the unsigned CLI
+# runs clean (verified: formula install -> `roger version` exits 0, no prompt). The one
+# unavoidable step is `brew trust`: Homebrew >= 6 requires it for ANY third-party tap (formula
+# OR cask; it's the default via HOMEBREW_REQUIRE_TAP_TRUST). homebrew-core is the only zero-
+# trust path and needs an OSI licence; PolyForm Perimeter is source-available, not OSI.
 
 # ---- Scoop (Windows) -----------------------------------------------------------------
 # Generates bucket/roger.json and pushes it to rogerai-fyi/scoop-bucket on each release.
