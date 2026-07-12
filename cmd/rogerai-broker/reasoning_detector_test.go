@@ -115,6 +115,7 @@ func TestCompletionTextFoldsAllSignals(t *testing.T) {
 		{"content", `{"choices":[{"message":{"content":"hi"}}]}`, []string{"hi"}},
 		{"reasoning", `{"choices":[{"message":{"content":"","reasoning":"the answer is 42"}}]}`, []string{"the answer is 42"}},
 		{"reasoning_content alias", `{"choices":[{"message":{"content":"","reasoning_content":"deliberating"}}]}`, []string{"deliberating"}},
+		{"thinking alias", `{"choices":[{"message":{"content":"","thinking":"pondering"}}]}`, []string{"pondering"}},
 		{"refusal", `{"choices":[{"message":{"content":"","refusal":"I can't help"}}]}`, []string{"I can't help"}},
 		{"tool_calls", `{"choices":[{"message":{"content":null,"tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"SF\"}"}}]}}]}`, []string{"get_weather", "SF"}},
 	}

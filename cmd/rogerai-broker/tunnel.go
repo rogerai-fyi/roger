@@ -1470,9 +1470,9 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 
 	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
 	// node's receipt carries completion_tokens even when the delta text is an unusual
-	// reasoning shape (producedUsableOutput trusts it rather than false-voiding). Additive +
-	// order-preserving on the chat payload (messages unchanged), so the prompt re-count and
-	// moderation screen are unaffected; a no-op for non-streaming requests.
+	// reasoning shape (producedUsableOutput trusts it rather than false-voiding). Only adds
+	// stream_options; the chat messages are unchanged, so the prompt re-count and moderation
+	// screen are unaffected. A no-op for non-streaming requests.
 	if req.Stream {
 		body = ensureStreamIncludeUsage(body)
 	}

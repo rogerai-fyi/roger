@@ -383,6 +383,7 @@ func completionText(body []byte) string {
 				Content          string     `json:"content"`
 				Reasoning        string     `json:"reasoning"`
 				ReasoningContent string     `json:"reasoning_content"`
+				Thinking         string     `json:"thinking"`
 				Refusal          string     `json:"refusal"`
 				ToolCalls        []toolCall `json:"tool_calls"`
 				FunctionCall     *nameArgs  `json:"function_call"`
@@ -407,6 +408,7 @@ func completionText(body []byte) string {
 		// reasoning on the stream path stacked strikes into an auto-ban of honest nodes.
 		out.WriteString(c.Message.Reasoning)
 		out.WriteString(c.Message.ReasoningContent)
+		out.WriteString(c.Message.Thinking)
 		out.WriteString(c.Message.Refusal)
 		foldCalls(&out, c.Message.ToolCalls, c.Message.FunctionCall)
 	}
@@ -442,9 +444,10 @@ func qualityOKText(s string) bool {
 // stream and non-stream paths so they can never diverge again. It is an OR-of-all output
 // signals accumulated to end-of-response: a request produced usable output when the node did
 // NOT error AND EITHER any output text was captured OR the usage backstop reports completion
-// tokens. The `completion` string already folds every thinking-model text signal (content,
-// the reasoning aliases, an inline <think>/harmony block, a refusal, and tool/function-call
-// name+arguments) via completionText / sseDelta; `claimedCompletion` is the node-reported
+// tokens. The `completion` string already folds every thinking-model text signal (content -
+// which carries any inline <think>/harmony markers as-is, no separate parser - the reasoning
+// aliases, a refusal, and tool/function-call name+arguments) via completionText / sseDelta;
+// `claimedCompletion` is the node-reported
 // completion_tokens from the usage chunk (the backstop when text was not captured, e.g. an
 // unusual reasoning shape).
 //
