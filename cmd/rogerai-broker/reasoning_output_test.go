@@ -18,9 +18,16 @@ func TestReasoningCountsAsOutput(t *testing.T) {
 	if got := completionText(contentOnly); got != "hello" {
 		t.Fatalf("content reply changed: got %q", got)
 	}
-	// Genuinely empty (no content, no reasoning) is still flagged.
+	// Empty text but the usage backstop reports completion tokens: NOT flagged (the model
+	// produced tokens per its own usage accounting; trusting it stops the false-void that
+	// auto-banned honest reasoning nodes when capture missed the text).
 	empty := []byte(`{"choices":[{"message":{"content":""}}]}`)
-	if producedUsableOutput(200, completionText(empty), 5) {
-		t.Fatal("a truly empty reply must still be flagged as no-output")
+	if !producedUsableOutput(200, completionText(empty), 5) {
+		t.Fatal("empty text WITH claimed completion tokens must NOT be voided (usage backstop)")
+	}
+	// The TRUE-negative: genuinely empty AND completion_tokens==0 is still flagged, so the
+	// strike stays useful.
+	if producedUsableOutput(200, completionText(empty), 0) {
+		t.Fatal("a truly empty reply with zero tokens must still be flagged as no-output")
 	}
 }

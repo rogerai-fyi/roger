@@ -181,7 +181,10 @@ func TestRelayPaidVoidNoOutputRoundTrip(t *testing.T) {
 		job := <-tun.jobs
 		rec := protocol.UsageReceipt{
 			RequestID: job.ID, NodeID: "paid", Model: "m",
-			PromptTokens: 10, CompletionTokens: 5, // claims output, but the body has none
+			// TRUE-negative: empty body AND zero reported completion tokens -> voided. (An empty
+			// body WITH reported tokens is the usage backstop - billed off the reported tokens,
+			// capped/struck by the re-count layer - not voided; see recount_billing.feature.)
+			PromptTokens: 10, CompletionTokens: 0,
 			PriceIn: 8, PriceOut: 8, TS: time.Now().Unix(),
 		}
 		rec.SignNode(nodePriv)

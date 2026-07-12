@@ -589,7 +589,13 @@ func (s *lrState) nodeReturnsShape(shape string) error {
 	case "an empty / whitespace completion":
 		s.nodeStatus, s.nodeBody = 200, `{"choices":[{"message":{"content":"   "}}]}`
 		s.claimComp = 0
-	case "claimed tokens but no output text":
+	case "no output text and zero tokens":
+		// The TRUE-negative: no completion text AND completion_tokens==0 -> still voided + struck.
+		s.nodeStatus, s.nodeBody = 200, `{"choices":[{"message":{"content":""}}]}`
+		s.claimComp = 0
+	case "empty text but usage reports completion tokens":
+		// Usage backstop: no captured text but the node's usage reports tokens -> NOT voided
+		// (billed off the reported tokens), the honest owner is NOT struck.
 		s.nodeStatus, s.nodeBody = 200, `{"choices":[{"message":{"content":""}}]}`
 		s.claimComp = 5
 	default:
@@ -618,6 +624,30 @@ func (s *lrState) ownerFlagged() error {
 	}
 	if !struck {
 		return fmt.Errorf("a no-output request must flag (strike) the owner for empty output")
+	}
+	return nil
+}
+
+// billedNonZeroEarns asserts the usage-backstop path SETTLED (billed off the reported tokens
+// and the node earned), rather than voiding to $0.
+func (s *lrState) billedNonZeroEarns() error {
+	if !(s.spend > 0) {
+		return fmt.Errorf("empty text WITH reported completion tokens must be billed (usage backstop), spend=%.8f", s.spend)
+	}
+	if !(s.earn > 0) {
+		return fmt.Errorf("the usage-backstop path must mint an earning, earn=%.8f", s.earn)
+	}
+	return nil
+}
+
+// notFlaggedEmptyOutput asserts the honest owner was NOT struck on the usage-backstop path.
+func (s *lrState) notFlaggedEmptyOutput() error {
+	struck, err := s.ownerStruck()
+	if err != nil {
+		return err
+	}
+	if struck {
+		return fmt.Errorf("empty text WITH reported completion tokens must NOT strike the owner (usage backstop)")
 	}
 	return nil
 }
@@ -750,6 +780,8 @@ func TestLineageReceiptsBDD(t *testing.T) {
 			sc.Step(`^the consumer is charged 0 and the hold is refunded in full$`, st.charged0Refunded)
 			sc.Step(`^the owner is flagged for the empty output$`, st.ownerFlagged)
 			sc.Step(`^a \$0 metering receipt is still broker-co-signed and recorded for the lineage trail$`, st.zeroReceiptRecorded)
+			sc.Step(`^the consumer is billed a non-zero cost and the node earns$`, st.billedNonZeroEarns)
+			sc.Step(`^the owner is NOT flagged for empty output$`, st.notFlaggedEmptyOutput)
 
 			// idempotent settle
 			sc.Step(`^a receipt that has already settled for its request id$`, st.alreadySettled)
