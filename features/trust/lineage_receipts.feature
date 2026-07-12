@@ -126,7 +126,18 @@ Feature: Every served request yields a node-signed, broker-co-signed, hash-chain
       | shape                              |
       | an error status (>=400)            |
       | an empty / whitespace completion   |
-      | claimed tokens but no output text  |
+      | no output text and zero tokens     |
+
+  # Usage backstop (thinking-model fix): empty output TEXT but the node's usage reports
+  # completion tokens is NOT a no-output void - a reasoning model produced real tokens per its
+  # own accounting even when the visible text was not captured. It is billed off the reported
+  # tokens and the honest owner is NOT struck. Voiding this false-struck + auto-banned honest
+  # reasoning nodes. (The TRUE-negative above - no text AND zero tokens - still voids + strikes.)
+  Scenario: Empty text with reported completion tokens is billed, not voided or struck
+    Given the node returns "empty text but usage reports completion tokens"
+    When the broker relays the request
+    Then the consumer is billed a non-zero cost and the node earns
+    And the owner is NOT flagged for empty output
 
   # --- idempotent settlement on request id ---------------------------------
 

@@ -184,13 +184,16 @@ Feature: The broker re-counts tokens and bills the lesser of claim and re-count 
       When the broker evaluates the response
       Then producing usable output is <usable>
 
-      Examples: reasoning rescues an otherwise-"empty" reply; a true void stays void
+      Examples: any text OR the usage backstop (reported tokens) is usable; the void narrows to
+      # the true-negative (no text AND completion_tokens==0). An empty-text over-claim (reported
+      # tokens with no text) is capped/struck by the re-count layer, not voided here. An error is
+      # never usable.
         | status | content | reasoning | claim | usable |
         | 200    | "hi"    | ""        | 2     | true   |
         | 200    | ""      | "answer"  | 7     | true   |
         | 200    | "hi"    | "answer"  | 9     | true   |
-        | 200    | ""      | ""        | 5     | false  |
-        | 200    | "   "   | ""        | 5     | false  |
+        | 200    | ""      | ""        | 5     | true   |
+        | 200    | "   "   | ""        | 5     | true   |
         | 200    | ""      | ""        | 0     | false  |
         | 500    | "hi"    | "answer"  | 5     | false  |
         | 400    | ""      | ""        | 0     | false  |
@@ -222,15 +225,23 @@ Feature: The broker re-counts tokens and bills the lesser of claim and re-count 
       And the hold is refunded in full
       And the empty-output strike is flagged against owner "op1"
 
-    Scenario: Claim-without-text (tokens claimed, whitespace body) is voided
+    Scenario: Claim-without-text (whitespace body, tokens claimed) is billed on the re-count and struck, not voided
+      # Empty/whitespace TEXT with reported completion tokens is no longer a no-output void (the
+      # usage backstop trusts reported tokens, so an honest reasoning stream is never false-voided).
+      # The RE-COUNT layer is the defense against a text-less over-claim: it bills the lesser broker
+      # count and strikes a gross over-report against the owner.
       Given a served request on model "m" at price_out 1.00 per 1M
       And the node returns status 200 with a whitespace-only completion
       And the node claims 800 completion tokens
+      And the broker exactly re-counts 1 completion tokens
       When the request settles
-      Then the consumer is charged 0.000000 credits
-      And the empty-output strike is flagged against owner "op1"
+      Then the request void state is false
+      And the node's earnings are HELD from promotion
+      And the recount-over-report strike is flagged against owner "op1"
 
     Scenario Outline: VOID gate truth table
+      # Usable (not voided) when there is text OR the usage backstop reports completion tokens; the
+      # void fires ONLY for the true-negative (no text AND completion_tokens==0) or an error status.
       Given a served request with node status <status> and completion <completion> claiming <claim> completion tokens
       When the request settles
       Then the request void state is <voided>
@@ -238,8 +249,8 @@ Feature: The broker re-counts tokens and bills the lesser of claim and re-count 
       Examples:
         | status | completion | claim | voided |
         | 200    | "ok"       | 3     | false  |
-        | 200    | ""         | 3     | true   |
-        | 200    | "  "       | 3     | true   |
+        | 200    | ""         | 3     | false  |
+        | 200    | "  "       | 3     | false  |
         | 200    | ""         | 0     | true   |
         | 404    | "ok"       | 3     | true   |
         | 500    | ""         | 0     | true   |

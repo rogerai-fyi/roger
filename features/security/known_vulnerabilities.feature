@@ -94,14 +94,21 @@ Feature: Known-vulnerability regression guards
       And operator "op1" earns the 0.000210 owner share (70% of the 0.000300 cost)
 
     @reasoning
-    Scenario: A genuinely empty reply (no content, no reasoning) is still voided and flagged
-      Given a node returns empty content and empty reasoning claiming 5 completion tokens
+    Scenario: A genuinely empty reply (no text, no reported tokens) is still voided and flagged
+      # The TRUE-negative keys on completion_tokens==0: no output text of any kind AND the node
+      # reported no completion tokens. An over-claim (empty text but reported tokens>0) is caught
+      # by the RE-COUNT layer (billed on the lesser count, struck past the strike tolerance), not
+      # by this void - so the void narrows to "produced nothing and claimed nothing".
+      Given a node returns empty content and empty reasoning claiming 0 completion tokens
       When the broker evaluates and settles the request
       Then the request is voided to $0
       And the empty-output strike fires against owner "op1"
 
     @reasoning
     Scenario Outline: Reasoning rescue does not weaken the true-empty void
+      # Usable when there is ANY text OR the usage backstop reports completion tokens; the void
+      # fires ONLY for the true-negative (no text AND completion_tokens==0). Over-claims with
+      # empty text are handled by the re-count layer, not this predicate.
       Given a reply with content <content> and reasoning <reasoning> claiming <claim> completion tokens
       When the broker evaluates the response
       Then producing usable output is <usable>
@@ -110,8 +117,10 @@ Feature: Known-vulnerability regression guards
         | content | reasoning | claim | usable |
         | ""      | "answer"  | 7     | true   |
         | "hi"    | ""        | 2     | true   |
-        | ""      | ""        | 5     | false  |
-        | "  "    | "  "      | 5     | false  |
+        | ""      | ""        | 5     | true   |
+        | "  "    | "  "      | 5     | true   |
+        | ""      | ""        | 0     | false  |
+        | "  "    | "  "      | 0     | false  |
 
   # ===========================================================================
   # CHARGEBACK OVER-CLAW ACROSS MULTIPLE TOP-UPS

@@ -175,6 +175,22 @@ type streamSink struct {
 	start    time.Time
 	ttftDone bool
 	ttftSeen int // running count of meaningful chars observed before the sample lands
+	// activity signals the settlement select that a streamed delta arrived (content OR
+	// reasoning), so the idle/void timer RESETS on any output and a long think never trips a
+	// false stall. Buffered depth 1; a non-blocking send coalesces bursts.
+	activity chan struct{}
+}
+
+// noteActivity nudges the idle/void timer that a streamed delta arrived (any chunk - content
+// or reasoning - counts as liveness). Non-blocking + nil-safe.
+func (s *streamSink) noteActivity() {
+	if s.activity == nil {
+		return
+	}
+	select {
+	case s.activity <- struct{}{}:
+	default:
+	}
 }
 
 // register handles POST /nodes/register: a node announces itself + its offers
@@ -1452,6 +1468,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(body, &req)
 
+	// Usage backstop: ask the model for a final usage chunk on streaming requests so the
+	// node's receipt carries completion_tokens even when the delta text is an unusual
+	// reasoning shape (producedUsableOutput trusts it rather than false-voiding). Additive +
+	// order-preserving on the chat payload (messages unchanged), so the prompt re-count and
+	// moderation screen are unaffected; a no-op for non-streaming requests.
+	if req.Stream {
+		body = ensureStreamIncludeUsage(body)
+	}
+
 	// Grant token caps (daily/monthly) - checked before dispatch, denied at 429.
 	if gok {
 		if st, msg := b.grantCapCheck(gc.grant); st != 0 {
@@ -1904,6 +1929,20 @@ func (b *broker) busDispatchJob(ctx context.Context, nodeID string, job protocol
 	return resCh, cancel, nil
 }
 
+// defaultStreamIdle is the idle/void window a streaming relay tolerates between deltas before
+// aborting a stalled node. It RESETS on every streamed delta, so this bounds SILENCE, not the
+// total stream length - a long reasoning think that keeps emitting deltas never trips it.
+const defaultStreamIdle = 300 * time.Second
+
+// streamIdle is the configured idle/void window (defaultStreamIdle unless overridden; tests
+// set a small value to assert the reset without a real 300s wait).
+func (b *broker) streamIdle() time.Duration {
+	if b.streamIdleTimeout > 0 {
+		return b.streamIdleTimeout
+	}
+	return defaultStreamIdle
+}
+
 // relayStream handles the streaming path of POST /v1/chat/completions: it sends SSE
 // headers, registers the client as a sink, and enqueues the job. The node pipes
 // chunks via /agent/stream straight to this client; when it finishes it posts a
@@ -1924,7 +1963,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 		return
 	}
 	start := time.Now()
-	sink := &streamSink{w: w, flush: flusher.Flush, nodeID: node.NodeID, start: start}
+	sink := &streamSink{w: w, flush: flusher.Flush, nodeID: node.NodeID, start: start, activity: make(chan struct{}, 1)}
 	if b.recount.enabled() {
 		sink.cap = &bytes.Buffer{} // capture completion text for the L1 re-count
 	}
@@ -2011,6 +2050,7 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				}
 				sink.w.Write(fr.payload)
 				sink.flush()
+				sink.noteActivity() // reset the idle/void timer on any delta (content OR reasoning)
 				if sink.cap != nil {
 					sink.capMu.Lock()
 					if sink.cap.Len()+sink.capRaw.Len() < maxRecountCapture {
@@ -2045,107 +2085,127 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 			return // headers already sent; the client just gets an empty stream
 		}
 	}
-	select {
-	case res := <-resCh:
-		b.exitInflight(node.NodeID, res.Status < 500)
-		rec := res.Receipt
-		if rec.VerifyNode(node.PubKey) {
-			var pin, pout float64
-			if pricing.fixed {
-				pin, pout = pricing.in, pricing.out
-			} else {
-				curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
-				pin, pout = curIn, curOut
-				if !scheduled {
-					// Lock keyed on the SIGNED consumer identity (not the payer wallet) so the
-					// streaming path shares the SAME 24h price-lock the non-stream relay mints -
-					// otherwise a logged-in user's stream would dodge the lock (different key) and
-					// eat an owner's mid-engagement hike. See streamBill.consumer.
-					pin, pout, _ = b.lockedPrice(consumer, node.NodeID, model, curIn, curOut)
+	// Idle/void timer: RESETS on every streamed delta (sink.noteActivity), so a long
+	// reasoning think never trips a false stall - only genuine silence for the whole window
+	// aborts. This is the timer, not a total-stream deadline (founder ruling: reset on ANY
+	// delta, content or reasoning).
+	idle := b.streamIdle()
+	idleTimer := time.NewTimer(idle)
+	defer idleTimer.Stop()
+	for {
+		select {
+		case <-sink.activity:
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
 				}
 			}
-			rec.PriceIn, rec.PriceOut = pin, pout
-			rec.GrantID = grantID
-			// The stream has finished (the receipt arrived), so the captured completion
-			// text is complete. (cap is non-nil only when the L1 re-count is enabled; on
-			// a no-recount broker we fall back to the receipt's token count for the void
-			// + reward signals.)
-			completion := ""
-			if sink.cap != nil {
-				sink.capMu.Lock()
-				completion = sink.cap.String()
-				sink.capMu.Unlock()
-			}
-			// VOID-ON-NO-OUTPUT (P0), stream path. When capture is enabled we know the
-			// stream was empty if the captured text is blank; without capture we fall
-			// back to the receipt's claimed completion tokens + status. An errored or
-			// no-output stream charges $0, mints no earning, and the deferred ReleaseHold
-			// refunds the consumer's hold in full.
-			var producedOutput bool
-			if sink.cap != nil {
-				// Capture on: use the same predicate as the relay path off the captured text.
-				producedOutput = producedUsableOutput(res.Status, completion, rec.CompletionTokens)
-			} else {
-				// No capture: fall back to status + the receipt's claimed completion tokens.
-				producedOutput = res.Status < 400 && rec.CompletionTokens > 0
-			}
-			if !producedOutput {
-				b.flagEmptyOutput(node.NodeID, rec, res.Status)
-				log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
-					user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
-				if b.db != nil {
-					rec.SignBroker(b.priv)
-					_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
+			idleTimer.Reset(idle)
+			continue
+		case <-idleTimer.C:
+			b.exitInflight(node.NodeID, false)
+			return
+		case res := <-resCh:
+			b.exitInflight(node.NodeID, res.Status < 500)
+			rec := res.Receipt
+			if rec.VerifyNode(node.PubKey) {
+				var pin, pout float64
+				if pricing.fixed {
+					pin, pout = pricing.in, pricing.out
+				} else {
+					curIn, curOut, _, scheduled := offer.ActivePrice(time.Now())
+					pin, pout = curIn, curOut
+					if !scheduled {
+						// Lock keyed on the SIGNED consumer identity (not the payer wallet) so the
+						// streaming path shares the SAME 24h price-lock the non-stream relay mints -
+						// otherwise a logged-in user's stream would dodge the lock (different key) and
+						// eat an owner's mid-engagement hike. See streamBill.consumer.
+						pin, pout, _ = b.lockedPrice(consumer, node.NodeID, model, curIn, curOut)
+					}
 				}
-				return // settled stays false -> deferred ReleaseHold refunds the hold
-			}
-			// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
-			// prompt text is the request body (job.Body), available on this path too, so
-			// the input byte-floor + recount apply identically to the relay path.
-			billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), promptText(job.Body), rec.PromptTokens, len(job.Body))
-			billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
-			rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
-			// SignBroker AFTER the broker counts are assigned (covers them).
-			rec.SignBroker(b.priv)
-			cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
-			if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
-				// settle failed - leave settled=false so the deferred ReleaseHold refunds
-				log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
-			} else {
-				settled = true
-			}
-			streamTPS := 0.0
-			if rec.CompletionTokens > 0 {
-				if el := time.Since(start).Seconds(); el > 0 {
-					streamTPS = float64(rec.CompletionTokens) / el
-					b.updateTPS(node.NodeID, streamTPS)
+				rec.PriceIn, rec.PriceOut = pin, pout
+				rec.GrantID = grantID
+				// The stream has finished (the receipt arrived), so the captured completion
+				// text is complete. (cap is non-nil only when the L1 re-count is enabled; on
+				// a no-recount broker we fall back to the receipt's token count for the void
+				// + reward signals.)
+				completion := ""
+				if sink.cap != nil {
+					sink.capMu.Lock()
+					completion = sink.cap.String()
+					sink.capMu.Unlock()
+				}
+				// VOID-ON-NO-OUTPUT (P0), stream path. When capture is enabled we know the
+				// stream was empty if the captured text is blank; without capture we fall
+				// back to the receipt's claimed completion tokens + status. An errored or
+				// no-output stream charges $0, mints no earning, and the deferred ReleaseHold
+				// refunds the consumer's hold in full.
+				var producedOutput bool
+				if sink.cap != nil {
+					// Capture on: use the same predicate as the relay path off the captured text.
+					producedOutput = producedUsableOutput(res.Status, completion, rec.CompletionTokens)
+				} else {
+					// No capture: fall back to status + the receipt's claimed completion tokens.
+					producedOutput = res.Status < 400 && rec.CompletionTokens > 0
+				}
+				if !producedOutput {
+					b.flagEmptyOutput(node.NodeID, rec, res.Status)
+					log.Printf("VOID no-output (stream) user=%s node=%s status=%d claimIn=%d claimOut=%d - $0, hold refunded",
+						user, node.NodeID, res.Status, rec.PromptTokens, rec.CompletionTokens)
+					if b.db != nil {
+						rec.SignBroker(b.priv)
+						_, _ = b.db.Settle(user, node.NodeID, 0, 0, rec) // $0 metering receipt
+					}
+					return // settled stays false -> deferred ReleaseHold refunds the hold
+				}
+				// P0-2 (symmetric): bill min(nodeClaim, brokerRecount) on BOTH axes. The
+				// prompt text is the request body (job.Body), available on this path too, so
+				// the input byte-floor + recount apply identically to the relay path.
+				billedPrompt := b.settleRecountPrompt(node.NodeID, rec.RequestID, recountModel(rec, model), promptText(job.Body), rec.PromptTokens, len(job.Body))
+				billedCompletion := b.settleRecount(node.NodeID, rec.RequestID, recountModel(rec, model), completion, rec.CompletionTokens)
+				rec.BrokerPromptTokens, rec.BrokerCompletionTokens = billedPrompt, billedCompletion
+				// SignBroker AFTER the broker counts are assigned (covers them).
+				rec.SignBroker(b.priv)
+				cost := clampSettleCost(rec.CostWith2(billedPrompt, billedCompletion), maxCost)
+				if _, ferr := b.settleRequest(user, node.NodeID, maxCost, cost, rec, grantID, pricing.free); ferr != nil {
+					// settle failed - leave settled=false so the deferred ReleaseHold refunds
+					log.Printf("stream settle FAILED user=%s node=%s: %v - releasing hold", user, node.NodeID, ferr)
+				} else {
+					settled = true
+				}
+				streamTPS := 0.0
+				if rec.CompletionTokens > 0 {
+					if el := time.Since(start).Seconds(); el > 0 {
+						streamTPS = float64(rec.CompletionTokens) / el
+						b.updateTPS(node.NodeID, streamTPS)
+					}
+				}
+				// Smart-router v2 reward + capacity evidence (streamed). This block only runs
+				// when producedOutput is true (an errored/empty stream returned above), so a
+				// leech can never shrink its UCB radius off a no-output stream.
+				qOK := rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
+				b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
+				// Free measurement off real (streamed) traffic: reset the probe backoff so
+				// an actively-used node is barely probed and reads as freshly verified.
+				b.markMeasured(node.NodeID)
+				log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
+				// SSE COST METER (founder ruling 2026-07-07, "SSE meter comment"): a stream's
+				// headers were flushed before any output, so the billed cost cannot ride
+				// X-RogerAI-Cost. Emit it as a spec-compliant SSE COMMENT line at stream end -
+				// parsers ignore comment lines by spec, so no client breaks - which the local
+				// proxy reads to meter per-session spend for streamed traffic. It lands after the
+				// node's [DONE] has streamed through (settle only happens once the receipt
+				// arrives, which follows the node's final chunk). Only a SETTLED stream is
+				// metered: a failed settle refunds the hold and must not report a spend.
+				if settled {
+					waitPump() // never write w while the multi-instance pump may still be writing
+					fmt.Fprintf(w, ": rogerai-cost=%s\n\n", fmtCostHeader(cost))
+					flusher.Flush()
 				}
 			}
-			// Smart-router v2 reward + capacity evidence (streamed). This block only runs
-			// when producedOutput is true (an errored/empty stream returned above), so a
-			// leech can never shrink its UCB radius off a no-output stream.
-			qOK := rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
-			b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
-			// Free measurement off real (streamed) traffic: reset the probe backoff so
-			// an actively-used node is barely probed and reads as freshly verified.
-			b.markMeasured(node.NodeID)
-			log.Printf("stream user=%s node=%s out=%d cost=%.6f", user, node.NodeID, rec.CompletionTokens, cost)
-			// SSE COST METER (founder ruling 2026-07-07, "SSE meter comment"): a stream's
-			// headers were flushed before any output, so the billed cost cannot ride
-			// X-RogerAI-Cost. Emit it as a spec-compliant SSE COMMENT line at stream end -
-			// parsers ignore comment lines by spec, so no client breaks - which the local
-			// proxy reads to meter per-session spend for streamed traffic. It lands after the
-			// node's [DONE] has streamed through (settle only happens once the receipt
-			// arrives, which follows the node's final chunk). Only a SETTLED stream is
-			// metered: a failed settle refunds the hold and must not report a spend.
-			if settled {
-				waitPump() // never write w while the multi-instance pump may still be writing
-				fmt.Fprintf(w, ": rogerai-cost=%s\n\n", fmtCostHeader(cost))
-				flusher.Flush()
-			}
+			return // the receipt arrived and settled; leave the idle loop
 		}
-	case <-time.After(300 * time.Second):
-		b.exitInflight(node.NodeID, false)
 	}
 }
 
@@ -2234,6 +2294,7 @@ func (b *broker) agentStream(w http.ResponseWriter, r *http.Request) {
 		if n > 0 {
 			sink.w.Write(buf[:n])
 			sink.flush()
+			sink.noteActivity() // reset the idle/void timer on any delta (content OR reasoning)
 			// Organic first-byte latency (smart-router v2): record time-to-first-token
 			// the moment we have streamed at least minFirstTokens worth of MEANINGFUL
 			// text - a node can't win TTFT by emitting a bare space then stalling. One
@@ -2732,8 +2793,39 @@ func drainSSEDeltas(raw, out *bytes.Buffer) {
 	raw.Write(rest)
 }
 
-// sseDelta extracts the assistant content from one OpenAI streaming "data: {...}"
-// SSE line (choices[].delta.content or choices[].text). Returns "" for keepalive
+// toolCall is the shared shape of an OpenAI tool_call / legacy function_call: the generated
+// function name + arguments are REAL output tokens (a reasoning/tool model can answer with a
+// tool call and EMPTY content), so folding them into the captured completion keeps the void
+// gate + the re-count from mis-seeing a tool-call reply as "no output" (which stacked strikes
+// into an auto-ban of honest nodes).
+type nameArgs struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// toolCall is one entry of the tool_calls array: the generated call lives under `function`.
+type toolCall struct {
+	Function nameArgs `json:"function"`
+}
+
+// foldCalls appends the name+arguments of each tool_call and the legacy function_call (which
+// carries name/arguments directly, no `function` wrapper) to b.
+func foldCalls(b *strings.Builder, tools []toolCall, fn *nameArgs) {
+	for _, tc := range tools {
+		b.WriteString(tc.Function.Name)
+		b.WriteString(tc.Function.Arguments)
+	}
+	if fn != nil {
+		b.WriteString(fn.Name)
+		b.WriteString(fn.Arguments)
+	}
+}
+
+// sseDelta extracts the assistant output from one OpenAI streaming "data: {...}" SSE line.
+// It folds EVERY thinking-model output signal - content / legacy text, the reasoning aliases
+// (reasoning, reasoning_content, thinking), a refusal, and tool/function calls - so the
+// captured completion is non-empty for a reasoning or tool stream (dropping reasoning here was
+// the root cause of the false empty-output void + the auto-ban). Returns "" for keepalive
 // lines, the [DONE] sentinel, or anything it can't parse.
 func sseDelta(line []byte) string {
 	i := bytes.IndexByte(line, '{')
@@ -2743,7 +2835,13 @@ func sseDelta(line []byte) string {
 	var d struct {
 		Choices []struct {
 			Delta struct {
-				Content string `json:"content"`
+				Content          string     `json:"content"`
+				Reasoning        string     `json:"reasoning"`
+				ReasoningContent string     `json:"reasoning_content"`
+				Thinking         string     `json:"thinking"`
+				Refusal          string     `json:"refusal"`
+				ToolCalls        []toolCall `json:"tool_calls"`
+				FunctionCall     *nameArgs  `json:"function_call"`
 			} `json:"delta"`
 			Text string `json:"text"`
 		} `json:"choices"`
@@ -2758,8 +2856,42 @@ func sseDelta(line []byte) string {
 		} else if c.Text != "" {
 			s.WriteString(c.Text)
 		}
+		s.WriteString(c.Delta.Reasoning)
+		s.WriteString(c.Delta.ReasoningContent)
+		s.WriteString(c.Delta.Thinking)
+		s.WriteString(c.Delta.Refusal)
+		foldCalls(&s, c.Delta.ToolCalls, c.Delta.FunctionCall)
 	}
 	return s.String()
+}
+
+// ensureStreamIncludeUsage merges stream_options.include_usage=true into a STREAMING request
+// body so the model emits a final usage chunk (the usage backstop that lets the broker trust
+// completion_tokens when no delta text was captured). Existing keys + any existing
+// stream_options are preserved; a non-streaming or unparseable body is returned unchanged.
+func ensureStreamIncludeUsage(body []byte) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return body
+	}
+	if _, ok := m["stream"]; !ok {
+		return body // only rewrite streaming requests
+	}
+	so := map[string]json.RawMessage{}
+	if raw, ok := m["stream_options"]; ok {
+		_ = json.Unmarshal(raw, &so) // preserve existing options; ignore a non-object
+	}
+	so["include_usage"] = json.RawMessage("true")
+	sob, err := json.Marshal(so)
+	if err != nil {
+		return body
+	}
+	m["stream_options"] = sob
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // parseNodeSet parses a comma-separated node-id list (X-Roger-Exclude-Nodes) into
