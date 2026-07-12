@@ -47,6 +47,16 @@ Feature: Reasoning-model streamed output is recognized, never false-voided or fa
     Then the stream is served and settled for a non-zero cost
     And the node's owner is NOT struck
 
+  Scenario: anti-fraud - an unverifiable text-less completion claim is NOT paid
+    # The usage backstop keeps an honest reasoning node from being false-struck, but a
+    # re-count-enabled broker never PAYS a completion it could not capture and count: the
+    # empty-capture guard bills the unverifiable completion 0, so a huge text-less claim
+    # cannot mint output revenue.
+    Given the node streams no output text but its receipt claims 100000 completion tokens
+    When the consumer relays the streaming request
+    Then the node's owner is NOT struck
+    And the consumer is not billed for the unverifiable completion claim
+
   Scenario: the verdict is computed at END of stream - content only in the last delta still serves
     Given the node streams 3 reasoning deltas and puts the only content in the last delta
     And the node's receipt claims the full reasoning+content token count

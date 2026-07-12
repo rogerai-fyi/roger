@@ -96,9 +96,10 @@ Feature: Known-vulnerability regression guards
     @reasoning
     Scenario: A genuinely empty reply (no text, no reported tokens) is still voided and flagged
       # The TRUE-negative keys on completion_tokens==0: no output text of any kind AND the node
-      # reported no completion tokens. An over-claim (empty text but reported tokens>0) is caught
-      # by the RE-COUNT layer (billed on the lesser count, struck past the strike tolerance), not
-      # by this void - so the void narrows to "produced nothing and claimed nothing".
+      # reported no completion tokens. An empty-text over-claim (reported tokens>0) is not struck
+      # here, but it is not paid either: settleRecount's empty-capture guard bills the
+      # unverifiable completion 0 (and a gross over-report on CAPTURED text is struck by the
+      # re-count layer). So the void narrows to "produced nothing and claimed nothing".
       Given a node returns empty content and empty reasoning claiming 0 completion tokens
       When the broker evaluates and settles the request
       Then the request is voided to $0

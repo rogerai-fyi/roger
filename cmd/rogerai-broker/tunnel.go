@@ -2183,8 +2183,12 @@ func (b *broker) relayStream(w http.ResponseWriter, t *nodeTunnel, node protocol
 				}
 				// Smart-router v2 reward + capacity evidence (streamed). This block only runs
 				// when producedOutput is true (an errored/empty stream returned above), so a
-				// leech can never shrink its UCB radius off a no-output stream.
-				qOK := rec.CompletionTokens > 0 && (completion == "" || qualityOKText(completion))
+				// leech can never shrink its UCB radius off a no-output stream. When CAPTURE is
+				// on (sink.cap != nil) an empty captured completion is NOT a quality success - we
+				// have proof it produced no text - so the usage backstop keeps it un-struck but
+				// grants it no serving reward either. Capture OFF (sink.cap == nil) has no text to
+				// judge, so it falls back to the claimed-tokens signal as before.
+				qOK := rec.CompletionTokens > 0 && (sink.cap == nil || qualityOKText(completion))
 				b.recordServed(node.NodeID, qOK, streamTPS, concurrentAtDispatch)
 				// Free measurement off real (streamed) traffic: reset the probe backoff so
 				// an actively-used node is barely probed and reads as freshly verified.
@@ -2880,6 +2884,9 @@ func ensureStreamIncludeUsage(body []byte) []byte {
 	so := map[string]json.RawMessage{}
 	if raw, ok := m["stream_options"]; ok {
 		_ = json.Unmarshal(raw, &so) // preserve existing options; ignore a non-object
+	}
+	if _, set := so["include_usage"]; set {
+		return body // respect an explicit client choice (true OR false); do not override
 	}
 	so["include_usage"] = json.RawMessage("true")
 	sob, err := json.Marshal(so)

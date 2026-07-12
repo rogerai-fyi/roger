@@ -226,10 +226,11 @@ Feature: The broker re-counts tokens and bills the lesser of claim and re-count 
       And the empty-output strike is flagged against owner "op1"
 
     Scenario: Claim-without-text (whitespace body, tokens claimed) is billed on the re-count and struck, not voided
-      # Empty/whitespace TEXT with reported completion tokens is no longer a no-output void (the
-      # usage backstop trusts reported tokens, so an honest reasoning stream is never false-voided).
-      # The RE-COUNT layer is the defense against a text-less over-claim: it bills the lesser broker
-      # count and strikes a gross over-report against the owner.
+      # Whitespace TEXT with reported completion tokens is no longer a no-output void (the usage
+      # backstop keeps an honest reasoning stream from being false-voided). The RE-COUNT layer is
+      # the defense against a text-less over-claim: it bills the lesser broker count (0 when NO
+      # text is captured; see settleRecount's empty-capture guard) and strikes a gross over-report
+      # on captured text.
       Given a served request on model "m" at price_out 1.00 per 1M
       And the node returns status 200 with a whitespace-only completion
       And the node claims 800 completion tokens

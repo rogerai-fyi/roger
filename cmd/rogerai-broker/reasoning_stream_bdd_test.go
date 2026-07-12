@@ -220,6 +220,12 @@ func (s *rsState) noTextClaims5() error {
 	return nil
 }
 
+func (s *rsState) noTextClaimsLarge() error {
+	s.chunks = []string{": keepalive\n\n"} // liveness only, no output text
+	s.claimComp = 100000
+	return nil
+}
+
 func (s *rsState) reasoningLastContent() error {
 	s.chunks = []string{
 		rsDelta("reasoning", "consider the options "),
@@ -360,6 +366,16 @@ func (s *rsState) struckEmptyOutput() error {
 	return nil
 }
 
+// unverifiableNotPaid asserts a text-less completion claim minted no output revenue: the
+// spend is bounded to the tiny input cost, FAR below what the 100000-token claim would bill
+// (100000 * 1/1e6 = 0.1) had the unverifiable completion been paid.
+func (s *rsState) unverifiableNotPaid() error {
+	if s.spend >= 1e-3 {
+		return fmt.Errorf("an unverifiable text-less completion claim must not be paid; spend=%.8f (a paid 100000-token claim would be ~0.1)", s.spend)
+	}
+	return nil
+}
+
 func (s *rsState) ownerNotBanned() error {
 	if s.b.isOwnerBanned("op1") {
 		return fmt.Errorf("an honest reasoning node's owner must NOT be auto-banned")
@@ -390,6 +406,8 @@ func TestReasoningStreamOutputBDD(t *testing.T) {
 			sc.Step(`^the node streams reasoning deltas only with an empty content and finish_reason length$`, st.reasoningOnlyLength)
 			sc.Step(`^the node's receipt claims the reasoning token count$`, st.claimReasoningCount)
 			sc.Step(`^the node streams no output text but its receipt claims 5 completion tokens$`, st.noTextClaims5)
+			sc.Step(`^the node streams no output text but its receipt claims 100000 completion tokens$`, st.noTextClaimsLarge)
+			sc.Step(`^the consumer is not billed for the unverifiable completion claim$`, st.unverifiableNotPaid)
 			sc.Step(`^the node streams 3 reasoning deltas and puts the only content in the last delta$`, st.reasoningLastContent)
 			sc.Step(`^the node streams no output text and its receipt claims 0 completion tokens$`, st.noTextClaims0)
 			sc.Step(`^a short idle window and the node streams reasoning deltas spaced across more than that window$`, st.shortIdleSpacedDeltas)

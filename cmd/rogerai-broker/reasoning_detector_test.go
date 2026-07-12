@@ -160,4 +160,26 @@ func TestEnsureStreamIncludeUsage(t *testing.T) {
 	if got := ensureStreamIncludeUsage(in); string(got) != string(in) {
 		t.Fatalf("non-stream request must be untouched, got %s", got)
 	}
+	// an EXPLICIT client choice (include_usage:false) is respected, not overridden
+	inFalse := []byte(`{"stream":true,"stream_options":{"include_usage":false}}`)
+	if got := ensureStreamIncludeUsage(inFalse); string(got) != string(inFalse) {
+		t.Fatalf("explicit include_usage:false must be respected, got %s", got)
+	}
+}
+
+// TestSettleRecountEmptyCaptureBillsZero: the anti-fraud empty-capture guard. On a re-count
+// ENABLED broker, a claim with NO captured completion text is unverifiable and must bill 0
+// (never pay an unverifiable claim - the leak the usage backstop would otherwise reopen). A
+// re-count DISABLED broker has no counting capability and bills the claim as before.
+func TestSettleRecountEmptyCaptureBillsZero(t *testing.T) {
+	b := &broker{}
+	// re-count DISABLED: claim is billed (no verification capability).
+	if got := b.settleRecount("n", "r", "m", "", 500); got != 500 {
+		t.Fatalf("recount-disabled empty capture must bill the claim, got %d", got)
+	}
+	// re-count ENABLED but empty capture: bill 0 (unverifiable).
+	b.recount = recountConfig{url: "http://127.0.0.1:0", tolerance: 0.02, strikeTolerance: 0.25}
+	if got := b.settleRecount("n", "r", "m", "", 500); got != 0 {
+		t.Fatalf("recount-enabled empty capture must bill 0 (unverifiable), got %d", got)
+	}
 }

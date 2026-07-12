@@ -126,12 +126,23 @@ func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool,
 // ALSO folds the sample into the node's trust state + the promotion-hold flag in a
 // goroutine (OFF the hot path), reusing this single sidecar result so the relay path
 // never double-calls the sidecar. Returns `claimed` immediately when re-count is off.
+//
+// EMPTY-CAPTURE GUARD (anti-fraud): on a re-count-ENABLED broker a claim with NO captured
+// completion text is UNVERIFIABLE - we cannot count what we did not capture - so we bill 0
+// rather than pay the node's unverified claim. This closes the claim-without-text leak that
+// the usage backstop would otherwise reopen: producedUsableOutput's backstop keeps an honest
+// reasoning node (whose text we simply failed to capture) from being false-struck, but it must
+// NOT also pay an unverifiable output claim. A re-count-DISABLED broker has no counting
+// capability at all, so it bills the claim as before (its whole model is claim-trust).
 func (b *broker) settleRecount(nodeID, requestID, model, completion string, claimed int) int {
 	if claimed < 0 {
 		claimed = 0 // a negative node-claimed count never bills, records, signs, or logs negative
 	}
-	if !b.recount.enabled() || completion == "" || claimed <= 0 {
+	if !b.recount.enabled() || claimed <= 0 {
 		return claimed
+	}
+	if completion == "" {
+		return 0 // re-count enabled but nothing to verify: never bill an unverifiable claim
 	}
 	recounted, exact, ok := b.recount.sidecarCount(model, completion)
 	if !ok {
