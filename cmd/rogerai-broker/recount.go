@@ -126,12 +126,23 @@ func (c recountConfig) sidecarCount(model, text string) (tokens int, exact bool,
 // ALSO folds the sample into the node's trust state + the promotion-hold flag in a
 // goroutine (OFF the hot path), reusing this single sidecar result so the relay path
 // never double-calls the sidecar. Returns `claimed` immediately when re-count is off.
+//
+// EMPTY-CAPTURE GUARD (anti-fraud): on a re-count-ENABLED broker a claim with NO captured
+// completion text is UNVERIFIABLE - we cannot count what we did not capture - so we bill 0
+// rather than pay the node's unverified claim. This closes the claim-without-text leak that
+// the usage backstop would otherwise reopen: producedUsableOutput's backstop keeps an honest
+// reasoning node (whose text we simply failed to capture) from being false-struck, but it must
+// NOT also pay an unverifiable output claim. A re-count-DISABLED broker has no counting
+// capability at all, so it bills the claim as before (its whole model is claim-trust).
 func (b *broker) settleRecount(nodeID, requestID, model, completion string, claimed int) int {
 	if claimed < 0 {
 		claimed = 0 // a negative node-claimed count never bills, records, signs, or logs negative
 	}
-	if !b.recount.enabled() || completion == "" || claimed <= 0 {
+	if !b.recount.enabled() || claimed <= 0 {
 		return claimed
+	}
+	if completion == "" {
+		return 0 // re-count enabled but nothing to verify: never bill an unverifiable claim
 	}
 	recounted, exact, ok := b.recount.sidecarCount(model, completion)
 	if !ok {
@@ -380,8 +391,13 @@ func completionText(body []byte) string {
 	var resp struct {
 		Choices []struct {
 			Message struct {
-				Content   string `json:"content"`
-				Reasoning string `json:"reasoning"`
+				Content          string     `json:"content"`
+				Reasoning        string     `json:"reasoning"`
+				ReasoningContent string     `json:"reasoning_content"`
+				Thinking         string     `json:"thinking"`
+				Refusal          string     `json:"refusal"`
+				ToolCalls        []toolCall `json:"tool_calls"`
+				FunctionCall     *nameArgs  `json:"function_call"`
 			} `json:"message"`
 			Text string `json:"text"`
 		} `json:"choices"`
@@ -389,18 +405,23 @@ func completionText(body []byte) string {
 	if json.Unmarshal(body, &resp) != nil {
 		return ""
 	}
-	var out bytes.Buffer
+	var out strings.Builder
 	for _, c := range resp.Choices {
 		if c.Message.Content != "" {
 			out.WriteString(c.Message.Content)
 		} else if c.Text != "" {
 			out.WriteString(c.Text)
 		}
-		// Reasoning is real output (reasoning models put the answer here with empty
-		// content); count it so the no-output / over-report checks don't false-strike.
-		if c.Message.Reasoning != "" {
-			out.WriteString(c.Message.Reasoning)
-		}
+		// Reasoning aliases are real output (reasoning models put the answer in reasoning /
+		// reasoning_content with empty content); a refusal and a tool/function call are real
+		// generated tokens too. Fold them all so the no-output void + the over-report re-count
+		// see the SAME output the stream capture (sseDelta) does - the asymmetry that dropped
+		// reasoning on the stream path stacked strikes into an auto-ban of honest nodes.
+		out.WriteString(c.Message.Reasoning)
+		out.WriteString(c.Message.ReasoningContent)
+		out.WriteString(c.Message.Thinking)
+		out.WriteString(c.Message.Refusal)
+		foldCalls(&out, c.Message.ToolCalls, c.Message.FunctionCall)
 	}
 	return out.String()
 }
@@ -430,26 +451,28 @@ func qualityOKText(s string) bool {
 	return strings.TrimSpace(s) != ""
 }
 
-// producedUsableOutput is the VOID gate predicate (P0): a request produced usable
-// output ONLY when the node did not error AND a non-empty completion was returned. It
-// is false - so the charge is VOIDED ($0, no earning, hold refunded) - when ANY of:
-//   - the node returned an error (status >= 400),
-//   - the completion is empty/whitespace, OR
-//   - the completion is empty yet the node CLAIMED completion tokens (claim-without-text).
+// producedUsableOutput is the SHARED VOID gate predicate (P0), used IDENTICALLY on the
+// stream and non-stream paths so they can never diverge again. It is an OR-of-all output
+// signals accumulated to end-of-response: a request produced usable output when the node did
+// NOT error AND EITHER any output text was captured OR the usage backstop reports completion
+// tokens. The `completion` string already folds every thinking-model text signal (content -
+// which carries any inline <think>/harmony markers as-is, no separate parser - the reasoning
+// aliases, a refusal, and tool/function-call name+arguments) via completionText / sseDelta;
+// `claimedCompletion` is the node-reported
+// completion_tokens from the usage chunk (the backstop when text was not captured, e.g. an
+// unusual reasoning shape).
 //
-// claimedCompletion is the node's self-reported completion_tokens; completion is the
-// extracted assistant text (relay: completionText(body); stream: the captured text).
+// It VOIDS ($0, no earning, hold refunded) + strikes ONLY for the TRUE-negative: an error
+// status, or genuinely NO text AND completion_tokens==0 - so the strike stays useful against
+// a real no-output node while an honest reasoning/tool node is never false-struck.
 func producedUsableOutput(status int, completion string, claimedCompletion int) bool {
 	if status >= 400 {
 		return false
 	}
-	if strings.TrimSpace(completion) == "" {
-		return false
+	if strings.TrimSpace(completion) != "" {
+		return true // any content / reasoning / tags / refusal / tool-call text
 	}
-	if completion == "" && claimedCompletion > 0 {
-		return false
-	}
-	return true
+	return claimedCompletion > 0 // usage backstop: the model reported generated tokens
 }
 
 // recountModel is the model id to tokenize under: prefer the receipt's claimed

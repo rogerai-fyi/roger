@@ -220,8 +220,10 @@ func TestOwnerBanBlocksRelayPickUnderNewNodeID(t *testing.T) {
 }
 
 // TestProducedUsableOutputVoidGate: the void predicate is false (-> $0 charge) for an
-// errored response, an empty/whitespace completion, and a claim-without-text; true only
-// for a real completion.
+// errored response and the TRUE-negative (no text AND completion_tokens==0); true for a real
+// completion OR the usage backstop (empty text but the node reported completion tokens - which
+// is NOT struck, but is billed 0 by settleRecount's empty-capture guard, so an unverifiable
+// text-less claim is never paid).
 func TestProducedUsableOutputVoidGate(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -233,9 +235,10 @@ func TestProducedUsableOutputVoidGate(t *testing.T) {
 		{"good output", 200, "hello", 5, true},
 		{"errored 500", 500, "hello", 5, false},
 		{"errored 400", 400, "hello", 5, false},
-		{"empty completion", 200, "", 0, false},
-		{"whitespace completion", 200, "   \n\t ", 7, false},
-		{"claimed-without-text", 200, "", 42, false},
+		{"empty completion, zero tokens", 200, "", 0, false},
+		{"whitespace text but tokens reported (usage backstop)", 200, "   \n\t ", 7, true},
+		{"empty text but tokens reported (usage backstop)", 200, "", 42, true},
+		{"whitespace text, zero tokens", 200, "  ", 0, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -262,6 +262,12 @@ type broker struct {
 	strikeDecayDays        int
 	strikeCorroborateKinds int
 
+	// streamIdleTimeout is the IDLE window a streaming relay waits for the node's receipt: it
+	// RESETS on every streamed delta (content OR reasoning), so a long reasoning think never
+	// trips a false stall/void - only genuine silence for the whole window aborts. 0 -> the
+	// defaultStreamIdle. Set small in tests to assert the reset without a real 300s wait.
+	streamIdleTimeout time.Duration
+
 	// banRev is the last cross-instance ban revision this instance has applied. Every
 	// ban/unban (node OR owner) bumps a shared monotonic counter (rogerai:ctr:ban:rev);
 	// syncBanRev compares it on the existing liveness sync tick and, on a change, RE-PULLS
