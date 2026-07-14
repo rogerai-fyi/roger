@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v5.3.1</b></span>
+          <span>Version: <b data-cli-version>v5.3.2</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -921,7 +921,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.3.1</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v5.3.2</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1201,7 +1201,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
-              <div class="man-plate__row"><span class="man-plate__k">v5.3.1</span><span class="man-plate__v">Context capsules that include tool calls now hand off cleanly between <code>roger</code> and the app.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v5.3.2</span><span class="man-plate__v">The AGENT's 300s call cap is now extendable: past the cap, <code>tab</code> grants more time and <code>esc</code> stops (auto-stop after a grace window). The relay recognizes thinking-model output, ending false empty-output voids and strikes.</span></div>
+            <div class="man-plate__row"><span class="man-plate__k">v5.3.1</span><span class="man-plate__v">Context capsules that include tool calls now hand off cleanly between <code>roger</code> and the app.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.3.0</span><span class="man-plate__v">Hand off the conversation, not just the mic - the new <code>roger context</code> command exports and imports a signed conversation capsule, and handing the mic to a guest operator now carries the chat with it. Plus share an Osaurus-served model on the band with <code>roger share</code>.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.2.2</span><span class="man-plate__v">A hardened share node - when you SHARE your GPU, the node now relays only to the chat and voice endpoints on your local backend, nothing else.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.2.1</span><span class="man-plate__v">The AGENT desk, refined - THE DESK now opens once per model per session (cursor on the DJ, just type to chat), guests show their brand plates, and <code>/operator</code> sits in the footer. Plus <code>roger use --raw</code> to keep raw model output.</span></div>
