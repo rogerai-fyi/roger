@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rogerai-fyi/roger/internal/client"
@@ -144,11 +145,17 @@ func parseCompletion(raw []byte, status int) (Message, error) {
 	var d struct {
 		Choices []struct {
 			Message struct {
-				Role      string     `json:"role"`
-				Content   string     `json:"content"`
-				Reasoning string     `json:"reasoning"`
-				ToolCalls []ToolCall `json:"tool_calls"`
+				Role    string `json:"role"`
+				Content string `json:"content"`
+				// Thinking models return their reasoning under either key depending
+				// on the backend: llama.cpp's reasoning-format emits
+				// `reasoning_content` (DeepSeek/Qwen style), others use `reasoning`.
+				// Missing the first one made thought-only replies read as empty.
+				Reasoning        string     `json:"reasoning"`
+				ReasoningContent string     `json:"reasoning_content"`
+				ToolCalls        []ToolCall `json:"tool_calls"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Error struct {
 			Message string `json:"message"`
@@ -173,11 +180,22 @@ func parseCompletion(raw []byte, status int) (Message, error) {
 		return Message{}, fmt.Errorf("the station sent an empty response (status %d)", status)
 	}
 	c := d.Choices[0].Message
-	content := c.Content
-	if content == "" && len(c.ToolCalls) == 0 {
-		content = c.Reasoning
+	msg := Message{
+		Role:      "assistant",
+		Content:   c.Content,
+		ToolCalls: c.ToolCalls,
+		Truncated: d.Choices[0].FinishReason == "length",
 	}
-	return Message{Role: "assistant", Content: content, ToolCalls: c.ToolCalls}, nil
+	if msg.Content == "" && len(c.ToolCalls) == 0 {
+		// Keep the reasoning OUT of Content: the loop surfaces it as a marked Thought
+		// (thinking aloud), never as a spoken answer fed back into the conversation.
+		if t := strings.TrimSpace(c.ReasoningContent); t != "" {
+			msg.Thought = t
+		} else {
+			msg.Thought = strings.TrimSpace(c.Reasoning)
+		}
+	}
+	return msg, nil
 }
 
 // bytesTrim trims ASCII whitespace from a byte slice (small local helper to avoid an

@@ -17,6 +17,13 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Thought is the model's reasoning text when the visible content came back empty
+	// (a thinking model that wrapped up inside its reasoning channel and never spoke).
+	// Local-only: never serialized back to the API.
+	Thought string `json:"-"`
+	// Truncated marks a finish_reason=length reply: the completion budget ran out
+	// (often mid-reasoning, which is one way content arrives empty). Local-only.
+	Truncated bool `json:"-"`
 }
 
 // ToolCall is one OpenAI tool_call: an id, the function name, and the JSON-string
@@ -55,6 +62,13 @@ type Event struct {
 	Result  string         // tool result text (ToolResult)
 	IsError bool           // the tool result is an error / a denied confirm
 	Denied  bool           // a confirm was denied (ToolResult)
+	// Thought marks an EventFinal whose Text is the model's REASONING, surfaced
+	// because the spoken answer came back empty - the UI should render it as
+	// thinking aloud, not as a normal answer.
+	Thought bool
+	// Truncated marks an EventFinal cut off by the completion budget
+	// (finish_reason=length), so the UI can say WHY there is little or no text.
+	Truncated bool
 }
 
 // EventKind tags an Event.
@@ -157,7 +171,15 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 		if len(msg.ToolCalls) == 0 {
 			// Final answer (or a plain-chat model that ignored the tools).
 			final := strings.TrimSpace(msg.Content)
-			emit(Event{Kind: EventFinal, Text: final})
+			if final == "" && msg.Thought != "" {
+				// A thinking model that never spoke: surface the reasoning, marked as
+				// thought so the UI renders it as thinking aloud (the founder's "the
+				// agent finished with no text" dead end had the words sitting right
+				// here in reasoning_content).
+				emit(Event{Kind: EventFinal, Text: msg.Thought, Thought: true, Truncated: msg.Truncated})
+				return msg.Thought, nil
+			}
+			emit(Event{Kind: EventFinal, Text: final, Truncated: msg.Truncated})
 			return final, nil
 		}
 

@@ -150,10 +150,11 @@ func TestParseCompletion(t *testing.T) {
 		t.Fatalf("parseCompletion(plain) = %+v/%v", m, err)
 	}
 
-	// Reasoning-only content falls back to reasoning.
+	// Reasoning-only content surfaces as Thought (never dressed up as Content - the
+	// loop renders it as thinking aloud; see thought_test.go for both backend keys).
 	reasoning := `{"choices":[{"message":{"role":"assistant","reasoning":"because"}}]}`
-	if m, _ := parseCompletion([]byte(reasoning), 200); m.Content != "because" {
-		t.Errorf("parseCompletion(reasoning) content = %q, want because", m.Content)
+	if m, _ := parseCompletion([]byte(reasoning), 200); m.Content != "" || m.Thought != "because" {
+		t.Errorf("parseCompletion(reasoning) = Content %q / Thought %q, want empty / because", m.Content, m.Thought)
 	}
 
 	// Provider error body -> surfaced as an error.

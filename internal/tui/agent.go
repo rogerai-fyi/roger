@@ -798,7 +798,7 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	// REMOTE-drained prompt is NEVER parked (it must resolve as a chat turn immediately -
 	// the busy-queue remote-handoff guard); only locally-typed asks park.
 	if m.agent != nil && m.agent.model == "" && !q.remote {
-		m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+		m.agentLines = append(m.agentLines, m.agentAskLines(p)...)
 		m.agentPending = append(m.agentPending, q)
 		if !m.autoTuning {
 			m.autoTuning = true
@@ -811,7 +811,7 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	if !q.echoed {
 		// Skip the echo for a prompt already shown at park time (drainPendingPrompts requeued
 		// it); otherwise echo the ask now.
-		m.agentLines = append(m.agentLines, stSelText.Render("▸ ")+p)
+		m.agentLines = append(m.agentLines, m.agentAskLines(p)...)
 	}
 	// Re-resolve to the currently open channel so a model tuned in mid-session is used; if
 	// still nothing is tuned in, the turn fails into the same actionable hint rather than
@@ -1140,7 +1140,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	case harness.EventAssistant:
 		m.agentTurnState = poseStreaming
 		if t := strings.TrimSpace(e.Text); t != "" {
-			m.agentLines = append(m.agentLines, stLive.Render("◂ ")+t)
+			m.agentLines = append(m.agentLines, agentAnswerBlock(t)...)
 		}
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
@@ -1169,12 +1169,18 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	case harness.EventFinal:
 		m.agentTurnState = poseStreaming
 		t := strings.TrimSpace(e.Text)
-		if t == "" {
-			t = stDim.Render("(the agent finished with no text)")
-		} else {
-			t = stLive.Render("◂ ") + t
+		switch {
+		case t == "" && e.Truncated:
+			// Honest, actionable: the completion budget ran out (usually eaten by a
+			// long think) - name the cause instead of the old dead-end "(no text)".
+			m.agentLines = append(m.agentLines, stEmber.Render("(the answer budget ran out mid-thought - ask again, or ask narrower)"))
+		case t == "":
+			m.agentLines = append(m.agentLines, stDim.Render("(the agent finished with no text)"))
+		case e.Thought:
+			m.agentLines = append(m.agentLines, agentThoughtBlock(t, e.Truncated)...)
+		default:
+			m.agentLines = append(m.agentLines, agentAnswerBlock(t)...)
 		}
-		m.agentLines = append(m.agentLines, t)
 		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
 		// via the SHARED sessionFooter so the AGENT + CHANNEL money surfaces never drift.
 		if f := sessionFooter(m.agentTokensIn, m.agentTokensOut, m.agentCost); f != "" {
@@ -1556,6 +1562,58 @@ func (m model) agentView(w int) string {
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}
 	return b.String()
+}
+
+// agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule
+// precedes it, chunking the transcript into visibly separate turns - the difference
+// between a wall of interleaved tool output and a session you can scan.
+func (m model) agentAskLines(p string) []string {
+	ask := stSelText.Render("▸ ") + p
+	if len(m.agentLines) == 0 {
+		return []string{ask}
+	}
+	rule := stDim.Render("── " + time.Now().Format("15:04") + " " + strings.Repeat("─", 24))
+	return []string{"", rule, ask}
+}
+
+// agentAnswerBlock renders the model's prose with a left gutter on every line ("◂" on
+// the first, a quiet bar on the rest), so a multi-line answer reads as ONE block
+// against the surrounding tool chatter instead of dissolving into it.
+func agentAnswerBlock(t string) []string {
+	lines := strings.Split(t, "\n")
+	out := make([]string, 0, len(lines))
+	for i, l := range lines {
+		g := "▏ "
+		if i == 0 {
+			g = "◂ "
+		}
+		out = append(out, stLive.Render(g)+l)
+	}
+	return out
+}
+
+// agentThoughtClip bounds a surfaced thought to its ENDING - the wrap-up is where a
+// thinking model that never spoke actually concluded (the start is preamble).
+const agentThoughtClip = 10
+
+// agentThoughtBlock renders a thought-only final: the model reasoned to an end but
+// never produced a spoken answer, so show the TAIL of the reasoning, dimmed and
+// labeled, never dressed up as a normal reply.
+func agentThoughtBlock(t string, truncated bool) []string {
+	label := "thought aloud, no spoken answer:"
+	if truncated {
+		label = "ran out of answer budget while thinking - the thought so far:"
+	}
+	out := []string{stDim.Render("◂ (" + label + ")")}
+	lines := strings.Split(t, "\n")
+	if len(lines) > agentThoughtClip {
+		out = append(out, stDim.Render(fmt.Sprintf("▏ … (+%d earlier thought lines)", len(lines)-agentThoughtClip)))
+		lines = lines[len(lines)-agentThoughtClip:]
+	}
+	for _, l := range lines {
+		out = append(out, stDim.Render("▏ "+l))
+	}
+	return out
 }
 
 // agentStallSec is how long the turn may go with NO event from the STATION before the
