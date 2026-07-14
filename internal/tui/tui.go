@@ -611,7 +611,7 @@ type band struct {
 	// no tilde). Unlike vision it is verified-not-declared: the broker only emits "tools" on an
 	// offer after its tool-call canary passed, so a node can never fake it. Absence => inferred
 	// (⌁~), never a false "no tools". See features/trust/toolcall_probe.feature.
-	inFlight int     // active (in-flight) requests summed across online stations - the REAL
+	inFlight int // active (in-flight) requests summed across online stations - the REAL
 	// activity that animates the signal meter (idle band steady, busy band scans). Honest:
 	// it is the broker's live load, never a fabricated pulse.
 	all []offer // every station in this band (online first)
@@ -1808,26 +1808,30 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatVP.HalfPageDown()
 			return m, nil
 		case "up":
-			// Shell-style recall: Up walks to an OLDER sent message (stashing the live
-			// draft on the first Up). Guarded to modeChat (the input is focused here), so
-			// it never fires from BROWSE where up/down move the band cursor. With NO command
-			// history to recall, Up instead scrolls the transcript up a line (so the arrows
-			// reach the response area once the input has nothing to recall).
+			// Up/Down ALWAYS scroll the transcript (the wheel arrives as arrow keys
+			// while mouse capture is off, and it must never "type" old messages).
+			// Recall lives on ctrl+p / ctrl+n, shell-style - same split as AGENT.
+			m.chatVP.ScrollUp(1)
+			return m, nil
+		case "down":
+			m.chatVP.ScrollDown(1)
+			return m, nil
+		case "end":
+			m.chatVP.GotoBottom()
+			return m, nil
+		case "ctrl+p":
+			// Shell-style recall: an OLDER sent message (stashing the live draft on
+			// the first press). Guarded to modeChat (the input is focused here).
 			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
 				m.chatIn.SetValue(v)
 				m.chatIn.CursorEnd()
-			} else {
-				m.chatVP.ScrollUp(1)
 			}
 			return m, nil
-		case "down":
-			// Down walks to a NEWER sent message; past the newest it restores the stashed
-			// draft. With nothing to recall it scrolls the transcript down a line.
+		case "ctrl+n":
+			// Recall a NEWER sent message; past the newest it restores the draft.
 			if v, ok := m.chatHist.next(); ok {
 				m.chatIn.SetValue(v)
 				m.chatIn.CursorEnd()
-			} else {
-				m.chatVP.ScrollDown(1)
 			}
 			return m, nil
 		case "ctrl+y":

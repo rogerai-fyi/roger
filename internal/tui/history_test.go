@@ -9,9 +9,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// keyUp / keyDown are the shell-style recall keys.
-func keyUp() tea.KeyMsg   { return tea.KeyMsg{Type: tea.KeyUp} }
-func keyDown() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyDown} }
+// keyUp / keyDown are the arrow keys: they SCROLL the transcripts (the mouse wheel
+// arrives as these under alternate scroll). Recall lives on ctrl+p / ctrl+n.
+func keyUp() tea.KeyMsg         { return tea.KeyMsg{Type: tea.KeyUp} }
+func keyDown() tea.KeyMsg       { return tea.KeyMsg{Type: tea.KeyDown} }
+func keyRecallPrev() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlP} }
+func keyRecallNext() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyCtrlN} }
 
 // --- the inputHistory store itself (unit level) -------------------------------
 
@@ -216,18 +219,23 @@ func TestChatInputUpDownRecall(t *testing.T) {
 		t.Fatalf("send not recorded in chatHist: %v", ents)
 	}
 
-	// Type a fresh draft, then Up should stash it and recall the sent line.
+	// Arrows must NOT recall (they scroll the transcript; the wheel arrives as arrows).
 	mm3 := asModel(m)
 	mm3.chatIn.SetValue("a draft")
 	m = mm3
 	m, _ = m.Update(keyUp())
-	if got := asModel(m).chatIn.Value(); got != "hello there" {
-		t.Fatalf("Up should recall the sent line, got %q", got)
-	}
-	// Down past the newest restores the stashed draft.
-	m, _ = m.Update(keyDown())
 	if got := asModel(m).chatIn.Value(); got != "a draft" {
-		t.Fatalf("Down should restore the draft, got %q", got)
+		t.Fatalf("Up must scroll, not recall; input became %q", got)
+	}
+	// ctrl+p stashes the draft and recalls the sent line.
+	m, _ = m.Update(keyRecallPrev())
+	if got := asModel(m).chatIn.Value(); got != "hello there" {
+		t.Fatalf("ctrl+p should recall the sent line, got %q", got)
+	}
+	// ctrl+n past the newest restores the stashed draft.
+	m, _ = m.Update(keyRecallNext())
+	if got := asModel(m).chatIn.Value(); got != "a draft" {
+		t.Fatalf("ctrl+n should restore the draft, got %q", got)
 	}
 }
 
@@ -254,10 +262,15 @@ func TestAgentPromptUpDownRecall(t *testing.T) {
 	if len(asModel(m).chatHist.entries) != 0 {
 		t.Fatalf("chat history bled from the agent: %v", asModel(m).chatHist.entries)
 	}
-	// Up recalls the agent's sent prompt.
+	// Arrows must NOT recall in AGENT either (they scroll the transcript).
 	m, _ = m.Update(keyUp())
+	if got := asModel(m).agentIn.Value(); got != "" {
+		t.Fatalf("Up in AGENT must scroll, not recall; input became %q", got)
+	}
+	// ctrl+p recalls the agent's sent prompt.
+	m, _ = m.Update(keyRecallPrev())
 	if got := asModel(m).agentIn.Value(); got != "/help" {
-		t.Fatalf("Up in AGENT should recall /help, got %q", got)
+		t.Fatalf("ctrl+p in AGENT should recall /help, got %q", got)
 	}
 }
 
