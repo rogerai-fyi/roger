@@ -650,31 +650,39 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.HalfPageDown()
 		return m, nil
 	case "up":
-		// Shell-style recall on the AGENT prompt: Up walks to an OLDER sent prompt
-		// (stashing the live draft on the first Up). Distinct from the chat's history.
-		// The /model picker (which uses up/k) returns earlier, so this only fires while
-		// the prompt itself is focused. With nothing to recall (or while a turn streams,
-		// when edits are ignored) Up scrolls the transcript up a line instead.
+		// Up/Down ALWAYS scroll the transcript. Terminals translate the mouse wheel
+		// into arrow keys while mouse capture is off (alternate scroll), so any recall
+		// behavior here made the wheel "type" old prompts instead of scrolling the
+		// responses (the founder's "I can't scroll and see the responses"). Prompt
+		// recall lives on ctrl+p / ctrl+n, shell-style.
+		m.agentVP.ScrollUp(1)
+		return m, nil
+	case "down":
+		m.agentVP.ScrollDown(1)
+		return m, nil
+	case "end":
+		// Jump back to the live tail (advertised by the scrolled marker).
+		m.agentVP.GotoBottom()
+		return m, nil
+	case "ctrl+p":
+		// Shell-style recall: an OLDER sent prompt (stashing the live draft on the
+		// first press). Distinct from the chat's history. Ignored mid-turn, when
+		// edits to the in-flight prompt would be lost anyway.
 		if !m.agentBusy {
 			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
 				m.agentIn.SetValue(v)
 				m.agentIn.CursorEnd()
-				return m, nil
 			}
 		}
-		m.agentVP.ScrollUp(1)
 		return m, nil
-	case "down":
-		// Down walks to a NEWER sent prompt; past the newest it restores the draft. With
-		// nothing to recall (or while busy) it scrolls the transcript down a line.
+	case "ctrl+n":
+		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
 		if !m.agentBusy {
 			if v, ok := m.agentHist.next(); ok {
 				m.agentIn.SetValue(v)
 				m.agentIn.CursorEnd()
-				return m, nil
 			}
 		}
-		m.agentVP.ScrollDown(1)
 		return m, nil
 	case "tab":
 		// PAST-CAP GRANT: while a model call has outlived the soft cap (the working
@@ -1426,10 +1434,23 @@ func (m model) agentView(w int) string {
 	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
 	content := transcriptContent(m.agentLines)
 	m.agentVP.Width = w
-	m.agentVP.Height = clampRows(lineRows(content), m.agentTranscriptRows(cornerRows))
+	budget := m.agentTranscriptRows(cornerRows)
+	m.agentVP.Height = clampRows(lineRows(content), budget)
 	m.agentVP.SetContent(content)
+	// A visible seam between the scrollable transcript and the prompt: when the user
+	// has scrolled up, one reserved row shows how far they are and the way back down,
+	// so "can I scroll this?" is never a mystery (the opencode-style separation).
+	scrolledUp := lineRows(content) > budget && !m.agentVP.AtBottom()
+	if scrolledUp {
+		m.agentVP.Height--
+	}
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
+	}
+	if scrolledUp {
+		pct := int(m.agentVP.ScrollPercent() * 100)
+		marker := fmt.Sprintf("  ── scrolled · %d%% · ↓ more below · end / pgdn for live ──", pct)
+		b.WriteString(truncVisible(stDim.Render(marker), w) + "\n")
 	}
 	// The pre-launch plate (Phase 3): the ONE confirm between picking a guest and
 	// PATCHING YOU THROUGH - modal, so it renders instead of everything below.
@@ -1523,7 +1544,7 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  ⌃p history  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"
