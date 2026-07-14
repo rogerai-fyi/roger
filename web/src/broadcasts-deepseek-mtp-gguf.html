@@ -5,7 +5,7 @@
      Registered in build.mjs CSS_BUNDLES; listed atop broadcasts.html. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="The 284B had a second brain. Every GGUF threw it away." desc="DeepSeek-V4 ships a built-in speculative decoder that no GGUF keeps and llama.cpp could not run. We built the missing converter and graph, measured when speculation pays on spill-bound MoE, and found the best DeepSeek file in existence was the conversion master itself." theme=external og=post ogtype=article ogtitle="The 284B had a second brain. Every GGUF threw it away." ogdesc="We built the first DeepSeek-V4-Flash GGUFs with the MTP head intact, and learned the best file was the un-requantized master all along: 88.3 MMLU at old-production speed." ogurl="https://rogerai.fyi/broadcasts-deepseek-mtp-gguf.html" ogimage="https://rogerai.fyi/assets/broadcasts/mtp-hero.png" -->
+  <!-- include: head.html title="The 284B had a second brain. Every GGUF threw it away." desc="DeepSeek-V4 ships a built-in speculative decoder that no GGUF keeps and llama.cpp could not run. We built the missing converter and MTP graph, measured when speculation pays on a spill-bound MoE, and found the best DeepSeek file was the conversion master itself." theme=external og=post ogtype=article ogtitle="The 284B had a second brain. Every GGUF threw it away." ogdesc="We built the first DeepSeek-V4-Flash GGUFs with the MTP head intact, and learned the best file was the un-requantized master all along: 88.3 MMLU at old-production speed." ogurl="https://rogerai.fyi/broadcasts-deepseek-mtp-gguf.html" ogimage="https://rogerai.fyi/assets/broadcasts/mtp-hero.png" -->
 </head>
 <body>
 
@@ -32,55 +32,54 @@
         </span>
         <h1 class="bc-post__title">The 284B had a second brain. Every GGUF threw it away.</h1>
         <p class="bc-post__dek">
-          DeepSeek-V4 ships a built-in speculative decoder that nobody could use: every public
-          GGUF strips it, and llama.cpp never learned to run it. We built the missing piece - and
-          discovered, one benchmark too late to be smug about it, that the best DeepSeek file in
-          existence was the "intermediate" our converter wrote on day one.
+          DeepSeek-V4 ships a built-in speculative decoder that nobody could use. Every public
+          GGUF strips it, and llama.cpp could not run it. We built the missing piece. Then we
+          learned that the best DeepSeek file in existence was the "intermediate" our converter
+          wrote on day one.
         </p>
       </header>
 
       <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
         <img src="assets/broadcasts/mtp-hero.png" width="1600" height="870" style="display:block;width:100%;height:auto;border-radius:6px;"
              alt="A vintage two-way radio transmitting two carrier waves at once, one solid and one dashed slightly ahead of it, in the RogerAI operating-manual style." loading="lazy" />
-        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 - THE SECOND CARRIER</figcaption>
+        <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 1 &middot; THE SECOND CARRIER</figcaption>
       </figure>
 
       <blockquote class="mono" style="margin:2rem 0;padding:1rem 1.25rem;border-left:3px solid #E0231C;background:rgba(224,35,28,.05);border-radius:0 6px 6px 0;line-height:1.6;" data-reveal>
-        <b>Quick answer.</b> DeepSeek-V4 models ship a multi-token-prediction (MTP) head - a
-        built-in self-drafting layer llama.cpp can use for speculative decoding (2.2x measured on
-        Qwen). Every public V4-Flash GGUF strips those tensors, because llama.cpp's converter
-        drops them and its C++ has no code to run them. We patched the converter, implemented the
-        MTP graph, and fixed three upstream bugs. The winning file turned out to be the conversion
-        master itself - experts at DeepSeek's original MXFP4 precision, head intact:
-        <b>88.3&nbsp;MMLU at 26-27&nbsp;tok/s</b> on four RTX PRO 4500s, against 79.6 for the quant
-        it replaced at the same speed. A Q3 speed build trades 4 MMLU points for 30.5&nbsp;tok/s.
+        <b>Quick answer.</b> DeepSeek-V4 models ship a multi-token-prediction (MTP) head: a
+        built-in drafting layer llama.cpp can use for speculative decoding. Every public
+        V4-Flash GGUF strips it, because llama.cpp's converter drops the tensors and its C++
+        cannot run them. We patched the converter, implemented the MTP graph, and fixed three
+        upstream bugs. The winning file was the conversion master itself, with experts at
+        DeepSeek's original MXFP4 precision and the head intact: <b>88.3&nbsp;MMLU at
+        26-27&nbsp;tok/s</b> on four RTX PRO 4500s. The quant it replaced scored 79.6 at the
+        same speed. A Q3 speed build trades 4 MMLU points for 30.5&nbsp;tok/s.
       </blockquote>
 
       <div class="bc-post__body">
 
         <p class="bc-post__lead" data-reveal>
-          Our last broadcast from this bench ended with a trade: the 284B thinks deepest, the 120B
-          serves fastest, pick your question. This one is about refusing the trade. Over one long
-          weekend on a Threadripper with four RTX PRO 4500 Blackwell cards (128&nbsp;GB VRAM,
-          128&nbsp;GB DDR5), three mysteries turned out to be one story: why the model was slow,
-          why the benchmarks could not tell us anything, and why the biggest speed lever on the
-          table did not exist in any file we could download. The answer to the third one was:
-          so build it.
+          Our last broadcast ended with a trade: the 284B thinks deepest, the 120B serves
+          fastest, pick one. This broadcast is about refusing the trade. Over one weekend on a
+          Threadripper with four RTX PRO 4500 Blackwell cards (128&nbsp;GB VRAM, 128&nbsp;GB
+          DDR5), three mysteries turned into one story. Why was the model slow? Why did the
+          benchmarks say nothing? And why did the biggest speed lever on the table not exist in
+          any file we could download? The answer to the third one was: build it.
         </p>
 
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;1 &middot; The 2 tok/s mystery</span>
           <h2>Why did a 284B model decode at 2 tokens per second?</h2>
           <p>
-            When DeepSeek-V4-Flash (284B total, 13B active, mixture-of-experts) first landed on
-            the box, warm decode cratered to ~2&nbsp;tok/s and no runtime flag moved it. That is
-            the tell of a build problem, not a config problem. The server's own load log
-            confessed: V4's sparse attention routes every token through a small <b>lightning
-            indexer</b>, and llama.cpp had merged that op CPU-only. Every single token bounced
-            GPU to CPU and back. A pull request with the CUDA kernel fixed it: 2 became a stable
-            26. Lesson one: when no flag moves a pathological number, stop tuning and read the
-            load log. Lesson two: V4 support was three weeks old, so the gap between "broken" and
-            "working" is often one unmerged branch. Remember that - it is the whole plot of &sect;4.
+            When DeepSeek-V4-Flash (284B total, 13B active, mixture-of-experts) landed on the
+            box, it decoded at about 2&nbsp;tok/s. No runtime flag moved the number. That
+            pattern means a build problem, not a config problem. The server's own load log
+            showed why: V4's sparse attention routes every token through a small <b>lightning
+            indexer</b>, and llama.cpp had merged that op CPU-only. Every token bounced from
+            GPU to CPU and back. A pull request with the CUDA kernel fixed it, and 2 became a
+            stable 26. Two lessons. When no flag moves a bad number, stop tuning and read the
+            load log. And V4 support was three weeks old, so the gap between broken and working
+            is often one unmerged branch. Keep that in mind for &sect;4.
           </p>
         </section>
 
@@ -88,22 +87,23 @@
           <span class="bc-sec__no">&sect;2 &middot; Saturation</span>
           <h2>How do you benchmark models that all score perfect?</h2>
           <p>
-            With the engine fixed we wanted to know what 284B parameters actually buy. Problem:
-            on standard suites every strong model tied at the ceiling. A benchmark everyone aces
-            measures nothing. So we moved to saturation-resistant tests - an MMLU knowledge
-            sample and an adversarial "tool hardmode" - and ran the whole stable through them.
+            With the engine fixed, we asked what 284B parameters actually buy. Standard suites
+            could not answer. Every strong model tied at the ceiling, and a benchmark everyone
+            aces measures nothing. So we switched to two saturation-resistant tests, an MMLU
+            knowledge sample and an adversarial tool-calling gauntlet, and ran the whole stable
+            through them.
           </p>
           <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
             <img src="assets/broadcasts/mtp-knowledge-vs-tools.png" width="2200" height="1000" style="display:block;width:100%;height:auto;border-radius:6px;"
                  alt="Two bar charts: DeepSeek with Q4 experts leads knowledge at 85 MMLU while a 35B MoE leads adversarial tool use at 87; no model wins both panels." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 2 - NO MODEL WINS BOTH</figcaption>
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 2 &middot; NO MODEL WINS BOTH</figcaption>
           </figure>
           <p>
-            Three findings. Knowledge and tool-calling are orthogonal: the best tool-caller is a
-            35B with 3B active, the deepest knowledge is the 284B, and parameter count predicts
-            neither. A 27B dense model tied our production 284B on MMLU, which should embarrass a
-            284B. And the finding that matters: two quants of the <em>same model</em> sat 5.4
-            points of MMLU and 13 points of tool-calling apart.
+            Three findings. Knowledge and tool-calling are separate skills: a 35B MoE with 3B
+            active won tools, the 284B won knowledge, and parameter count predicted neither. A
+            27B dense model tied our production 284B on MMLU, which should embarrass a 284B.
+            And the finding that matters most: two quants of the <em>same model</em> sat 5.4
+            MMLU points and 13 tool-calling points apart.
           </p>
         </section>
 
@@ -111,65 +111,62 @@
           <span class="bc-sec__no">&sect;3 &middot; The hidden lever</span>
           <h2>What precision are your experts?</h2>
           <p>
-            Our then-production quant (102&nbsp;GB) protected attention but ran the routed
-            experts - the part of an MoE that holds the knowledge - at roughly 2.3 bits. A
-            community Q4 quant (175&nbsp;GB) made the opposite trade and scored 85.0 MMLU to our
-            79.6, at a crawl: 16.5&nbsp;tok/s, because ~86&nbsp;GB of experts spill to DDR5.
-            <b>The "DeepSeek is weak at tools" result was mostly the 2-bit experts, not the
-            model.</b> So the menu read: smart at 16.5&nbsp;tok/s, or fast at 79.6 MMLU. The rest
-            of this broadcast is about rejecting that menu.
+            Our production quant (102&nbsp;GB) protected attention but squeezed the routed
+            experts, the part of an MoE that stores the knowledge, down to about 2.3 bits. A
+            community Q4 quant (175&nbsp;GB) made the opposite trade. It scored 85.0 MMLU to
+            our 79.6, but crawled at 16.5&nbsp;tok/s because ~86&nbsp;GB of experts spill into
+            DDR5. <b>The "DeepSeek is weak at tools" result was mostly the 2-bit experts, not
+            the model.</b> So the menu read: smart at 16.5&nbsp;tok/s, or fast at 79.6 MMLU.
+            The rest of this broadcast rejects that menu.
           </p>
         </section>
 
         <section class="bc-sec" data-reveal>
-          <span class="bc-sec__no">&sect;4 &middot; The missing head</span>
+          <span class="bc-sec__no">&sect;4 &middot; The missing MTP</span>
           <h2>What is MTP, and why does no DeepSeek GGUF have it?</h2>
           <p>
-            DeepSeek-V4 (and Qwen3.6) are trained with a <b>multi-token-prediction head</b>: an
-            extra network that predicts the next-next token. At inference it is a free
-            speculative decoder - the model drafts a token ahead of itself, then verifies the
+            DeepSeek-V4 and Qwen3.6 are trained with a <b>multi-token-prediction head</b>: an
+            extra network that predicts the token after next. At inference it works as a free
+            speculative decoder. The model drafts one token ahead of itself, then verifies the
             draft in a forward pass it was going to run anyway. llama.cpp supports it with one
-            flag. On Qwen3.6-27B we measured 27.0&nbsp;tok/s baseline, <b>59.3 with MTP on. 2.2x
-            from a flag.</b>
+            flag. On Qwen3.6-27B, that flag took us from 27.0 to 59.3&nbsp;tok/s. <b>2.2x from
+            a flag.</b>
           </p>
           <p>
-            So we went looking for a V4-Flash GGUF with the head intact. There isn't one. One
-            file even keeps the <code>nextn_predict_layers=1</code> metadata while shipping zero
-            MTP tensors - a label on an empty box. The reason is upstream: llama.cpp's converter
-            explicitly drops the <code>mtp.*</code> tensors, and the C++ side has no code that
-            could run them. And V4's head is no bolt-on: it is a <b>full extra transformer
-            layer</b> - its own attention, its own 256-expert MoE, its own hyper-connection
-            mixers. 1,575 tensors that every converter on earth throws away. This time there was
-            no unmerged branch to find. So we wrote it.
+            So we looked for a V4-Flash GGUF with the head intact. There isn't one. One file
+            even keeps the <code>nextn_predict_layers=1</code> metadata while shipping zero MTP
+            tensors: a label on an empty box. The cause is upstream. llama.cpp's converter
+            drops the <code>mtp.*</code> tensors, and the C++ side has no code to run them.
+            V4's head is also no small add-on. It is a <b>full extra transformer layer</b> with
+            its own attention, its own 256-expert MoE, and its own hyper-connection mixers:
+            1,575 tensors that every converter on earth throws away. This time there was no
+            unmerged branch to find. So we wrote it.
           </p>
         </section>
 
         <section class="bc-sec" data-reveal>
           <span class="bc-sec__no">&sect;5 &middot; The build</span>
-          <h2>How do you give llama.cpp the missing head?</h2>
+          <h2>How do you give llama.cpp the missing MTP?</h2>
           <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
             <img src="assets/broadcasts/mtp-nextn-layer.png" width="2200" height="1240" style="display:block;width:100%;height:auto;border-radius:6px;"
                  alt="Architecture diagram of DeepSeek-V4's NextN block: a draft token and the trunk hidden state meet in a projection, flow through a full V4 transformer layer with attention and a 256-expert MoE, and exit through the shared language-model head." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 - THE SECOND BRAIN IS A WHOLE LAYER</figcaption>
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 3 &middot; THE SECOND BRAIN IS A WHOLE LAYER</figcaption>
           </figure>
           <p>
             Three pieces. <b>The converter:</b> we rekey the <code>mtp.*</code> tensors to look
-            like an ordinary extra layer at ingestion, so the whole existing pipeline applies
-            unchanged; DeepSeek's two glue projections fold into llama.cpp's convention because
-            e_proj(e)&nbsp;+&nbsp;h_proj(x) is exactly eh_proj applied to their concatenation.
-            One property that looked like a footnote and turned out to be the ending: the routed
-            experts pass through at their <b>native MXFP4</b> - the exact 4-bit numbers DeepSeek
-            released, not a requantization of them. Hold that thought; &sect;7 comes back for it.
+            like one more ordinary layer, so the whole existing pipeline applies unchanged. One
+            detail matters later: the routed experts pass through at their <b>native MXFP4</b>,
+            the exact 4-bit numbers DeepSeek released, not a requantization of them.
           </p>
           <p>
             <b>The graph:</b> an MTP implementation for the deepseek4 architecture, reusing the
-            model's own attention, MoE and hyper-connection builders for the extra layer. The
-            wrinkle that earned its keep: V4's hyper-connections make the drafter's hidden-state
-            input four times wider than the embedding width, which broke assumptions all through
-            the speculative driver. <b>The bugs:</b> three genuine upstream finds fixed along the
-            way - a divide-by-zero crash on empty KV-cache filters, the quantizer choking on
-            integer routing tables, and a metadata-ordering trap. First light: coherent output,
-            82% draft acceptance, deterministic across runs. The head worked.
+            model's own attention, MoE, and hyper-connection builders for the extra layer. The
+            hard part: V4's hyper-connections make the drafter's hidden-state input four times
+            wider than the embedding width, which broke assumptions all through the speculative
+            driver. <b>The bugs:</b> three genuine upstream finds fixed along the way. A
+            divide-by-zero crash on empty KV-cache filters, a quantizer crash on integer
+            routing tables, and a metadata-ordering trap. First light: coherent output, 82%
+            draft acceptance, deterministic across runs. The head worked.
           </p>
           <p>And the model got <em>slower</em>.</p>
         </section>
@@ -180,27 +177,27 @@
           <p>
             That slowdown is the best lesson of the project. Speculative decoding assumes
             verifying N drafted tokens is nearly free, because a GPU batches them. But our
-            experts spill to DDR5, and in a mixture-of-experts every token activates
-            <em>different</em> experts - so verifying N tokens costs roughly N times the expert
-            reads through system RAM. The classic speculation economics invert.
+            experts spill into DDR5, and in a mixture-of-experts every token activates
+            <em>different</em> experts. So verifying N tokens costs about N times the expert
+            reads through system RAM, and the classic speculation economics invert.
           </p>
           <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
             <img src="assets/broadcasts/mtp-nmax-sweep.png" width="1800" height="1040" style="display:block;width:100%;height:auto;border-radius:6px;"
                  alt="Line chart of decode speed versus draft length: speed peaks at a draft of one token with 100 percent acceptance and falls at drafts of two and three." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 4 - DRAFT SHORTER, GO FASTER</figcaption>
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 4 &middot; DRAFT SHORTER, GO FASTER</figcaption>
           </figure>
           <p>
-            Draft exactly one token and it is accepted <b>100% of the time</b> - predicting the
-            single next token is literally the head's training objective, and that clean 100% at
-            temperature 0 is also the strongest evidence the graph is faithful. Draft more and
-            the DDR5 verify tax eats the gain. And the less you spill, the more speculation pays:
-            1.18x at 14 spilled layers, 1.30x at 10, and 2.2x on the fully GPU-resident Qwen
-            control.
+            Draft exactly one token and it is accepted <b>100% of the time</b>. Predicting the
+            single next token is literally the head's training objective, and that clean 100%
+            at temperature 0 is also the strongest evidence the graph is faithful. Draft more
+            and the DDR5 verify tax eats the gain. The less you spill, the more speculation
+            pays: 1.18x with 14 layers spilled, 1.30x with 10, and 2.2x on the fully
+            GPU-resident Qwen control.
           </p>
           <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
             <img src="assets/broadcasts/mtp-spill-vs-speedup.png" width="1800" height="1040" style="display:block;width:100%;height:auto;border-radius:6px;"
                  alt="Line chart of MTP speedup versus how many expert layers spill to system RAM: 1.18x at fourteen layers, 1.3x at ten, 2.2x at zero spill." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 5 - SPECULATION PAYS WHEN THE MODEL LIVES ON THE GPU</figcaption>
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 5 &middot; SPECULATION PAYS WHEN THE MODEL LIVES ON THE GPU</figcaption>
           </figure>
         </section>
 
@@ -209,49 +206,48 @@
           <h2>Why was the best file the master all along?</h2>
           <p>
             The plan was a quant sized so the spill nearly vanishes: <b>Q3_K_M-MTP</b>,
-            143&nbsp;GB - experts at Q3/Q4 (never starve the experts to 2 bits), MTP head and
-            attention pinned at Q8. It worked: 84.0 MMLU at 30.5&nbsp;tok/s, and it took over
-            production the same morning. Then we ran the one test we had skipped - adversarial
-            tool-calling - and it tied the <em>old</em> 2-bit quant. Knowledge recovers at Q3
-            experts; tool-calling does not. (A control run with drafting off settled something
-            else worth knowing: speculation does not change output quality. Every draft is
-            verified by the full model.)
+            143&nbsp;GB. Experts at Q3/Q4, never starved to 2 bits. MTP head and attention
+            pinned at Q8. It worked: 84.0 MMLU at 30.5&nbsp;tok/s, and it took over production
+            the same morning. Then we ran the one test we had skipped, adversarial
+            tool-calling, and it tied the <em>old</em> 2-bit quant. Knowledge recovers at Q3
+            experts. Tool-calling does not. A control run with drafting off settled one more
+            question: speculation does not change output quality, because every draft is
+            verified by the full model.
           </p>
           <p>
-            So we went hunting for tool quality, started requantizing the master to Q4 experts -
-            and killed the job eight minutes in, because the quantizer's own log gave the game
-            away. Remember the &sect;5 footnote: the master's experts are <b>DeepSeek's original
+            So we went hunting for tool quality and started requantizing the master to Q4
+            experts. We killed the job eight minutes in, because the quantizer's own log gave
+            the game away. Remember &sect;5: the master's experts are <b>DeepSeek's original
             MXFP4 bits</b>. Converting MXFP4 to Q4_K snaps every weight onto a different 4-bit
-            grid - a lossy round-trip that also spends more bytes. A sideways requant makes the
-            file bigger AND the model worse. Every community Q4 is exactly that sideways
+            grid. That is a lossy re-encode, and it spends more bytes doing it. The file gets
+            bigger and the model gets worse. Every community Q4 is exactly that sideways
             re-encode. The ceiling was never "build a better quant." The ceiling was the master
             we had written on day one, sitting on disk labeled as an intermediate.
           </p>
           <figure class="bc-figure" style="margin:2rem 0;padding:16px;background:#F3F1EA;border:1px solid rgba(21,20,15,.12);border-radius:12px;" data-reveal>
             <img src="assets/broadcasts/mtp-quality-vs-speed.png" width="1800" height="1120" style="display:block;width:100%;height:auto;border-radius:6px;"
                  alt="Scatter chart of MMLU versus decode speed for four DeepSeek files: the un-requantized Q8-MTP master sits above every quant at old-production speed, and the Q3 speed build is fastest." loading="lazy" />
-            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 6 - OFF THE MENU</figcaption>
+            <figcaption class="fig mono" style="margin-top:.6rem;">FIG. 6 &middot; OFF THE MENU</figcaption>
           </figure>
           <p>
             Measured on the same box against the same tests: the community Q4 is 15&nbsp;GB
-            <em>bigger</em> than the master and scores 3.3 MMLU points <em>lower</em>, at 60% of
-            the speed - the price of the sideways re-encode, in numbers. The master posts
-            <b>88.3 MMLU</b>, the best tool-scenario floor we have recorded on this hardware, and
-            the MTP head pays the spill penalty back to 26-27&nbsp;tok/s - the speed this box
-            served all month, with a much better model behind it. The quant lesson, compressed:
-            <b>quantize downward to shrink, never sideways.</b>
+            <em>bigger</em> than the master, scores 3.3 MMLU points <em>lower</em>, and runs at
+            60% of the speed. That is the price of the sideways re-encode, in numbers. The
+            master posts <b>88.3 MMLU</b>, the best tool-scenario floor we have recorded on
+            this hardware, and the MTP head pays the spill penalty back to 26-27&nbsp;tok/s,
+            the speed this box served all month. The quant lesson, compressed: <b>quantize
+            downward to shrink, never sideways.</b>
           </p>
           <p>
-            Both halves are out the door: the llama.cpp patches live on our
+            Both halves are out the door. The llama.cpp patches live on our
             <a href="https://github.com/rogerai-fyi/llama.cpp" rel="noopener">public fork</a>
-            (branch <code>dsv4-mtp</code>, upstream PR in flight), and the GGUFs - the master and
-            the Q3 speed build, as far as we know the only DeepSeek GGUFs anywhere with a working
-            MTP head - are on
-            <a href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" rel="noopener">Hugging Face</a>.
-            V4-Flash is MIT-licensed, so the derivatives are clean. And FIG. 5 says this is a
-            floor, not a ceiling: every gigabyte of spill you remove makes the head worth more.
-            See what operators serve on the <a href="/models.html">model directory</a> and the
-            <a href="/bands.html">bands</a>.
+            (branch <code>dsv4-mtp</code>, upstream PR in flight). The GGUFs are on
+            <a href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF" rel="noopener">Hugging Face</a>:
+            the master and the Q3 speed build, as far as we know the only DeepSeek GGUFs
+            anywhere with a working MTP head. V4-Flash is MIT-licensed, so the derivatives are
+            clean. And FIG. 5 says this is a floor, not a ceiling: every gigabyte of spill you
+            remove makes the head worth more. See what operators serve on the
+            <a href="/models.html">model directory</a> and the <a href="/bands.html">bands</a>.
           </p>
         </section>
 
@@ -260,17 +256,17 @@
           <h2>Frequently asked questions</h2>
           <dl class="bc-faq">
             <dt><b>What is an MTP head?</b></dt>
-            <dd>A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change - accepted tokens are verified by the full model.</dd>
+            <dd>A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change. Accepted tokens are verified by the full model.</dd>
             <dt><b>Why doesn't my DeepSeek GGUF support MTP?</b></dt>
             <dd>Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patched converter and graph are headed upstream, and our GGUFs ship with the head intact.</dd>
             <dt><b>Does speculative decoding always speed a model up?</b></dt>
-            <dd>No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot; the payoff grows as spill shrinks.</dd>
+            <dd>No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot, and the payoff grows as spill shrinks.</dd>
             <dt><b>Does quantization hurt a mixture-of-experts model?</b></dt>
-            <dd>Where you spend the bits matters more than the average. Starving the routed experts to ~2 bits cost our 284B five MMLU points and a big slice of its tool-calling. And requantizing sideways - MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are - costs measurable quality while making the file bigger. Quantize downward to shrink, never sideways.</dd>
+            <dd>Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways costs quality too: MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are, lose measurable quality while the file gets bigger. Quantize downward to shrink, never sideways.</dd>
             <dt><b>Why is 100% draft acceptance not suspicious?</b></dt>
-            <dd>At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for - predicting the single next token - and every draft is checked by the full model before it is kept. At draft lengths 2 and 3 acceptance drops to 89% and 78%, as expected.</dd>
+            <dd>At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for: predicting the single next token. Every draft is checked by the full model before it is kept. At draft lengths 2 and 3, acceptance drops to 89% and 78%, as expected.</dd>
             <dt><b>Can I run a 284B model at home?</b></dt>
-            <dd>Yes, with roughly 128 GB of VRAM plus system RAM for the spill - or skip the hardware and tune in to a station already serving one over RogerAI.</dd>
+            <dd>Yes, with roughly 128 GB of VRAM plus system RAM for the spill. Or skip the hardware and tune in to a station already serving one over RogerAI.</dd>
           </dl>
         </section>
 
@@ -290,7 +286,7 @@
 
   <!-- include: footer.html anchors=/ -->
 
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is an MTP head?","acceptedAnswer":{"@type":"Answer","text":"A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change - accepted tokens are verified by the full model."}},{"@type":"Question","name":"Why doesn't my DeepSeek GGUF support MTP?","acceptedAnswer":{"@type":"Answer","text":"Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patched converter and graph are headed upstream, and our GGUFs ship with the head intact."}},{"@type":"Question","name":"Does speculative decoding always speed a model up?","acceptedAnswer":{"@type":"Answer","text":"No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot; the payoff grows as spill shrinks."}},{"@type":"Question","name":"Does quantization hurt a mixture-of-experts model?","acceptedAnswer":{"@type":"Answer","text":"Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways - MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are - costs measurable quality while making the file bigger. Quantize downward to shrink, never sideways."}},{"@type":"Question","name":"Why is 100% draft acceptance not suspicious?","acceptedAnswer":{"@type":"Answer","text":"At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for - predicting the single next token - and every draft is checked by the full model before it is kept. At draft lengths 2 and 3 acceptance drops to 89% and 78%, as expected."}},{"@type":"Question","name":"Can I run a 284B model at home?","acceptedAnswer":{"@type":"Answer","text":"Yes, with roughly 128 GB of VRAM plus system RAM for the spill - or skip the hardware and tune in to a station already serving one over RogerAI."}}]}</script>
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"What is an MTP head?","acceptedAnswer":{"@type":"Answer","text":"A multi-token-prediction head: an extra network some models (DeepSeek-V4, Qwen3.6) are trained with that predicts the token after next. At inference it acts as a built-in speculative-decoding draft model, so the main model can accept pre-drafted tokens and decode faster with no quality change. Accepted tokens are verified by the full model."}},{"@type":"Question","name":"Why doesn't my DeepSeek GGUF support MTP?","acceptedAnswer":{"@type":"Answer","text":"Because every public DeepSeek-V4-Flash GGUF strips the MTP tensors: llama.cpp's converter dropped them and its C++ had no code to run them. The head is a full extra transformer layer, and nobody had implemented it. Our patched converter and graph are headed upstream, and our GGUFs ship with the head intact."}},{"@type":"Question","name":"Does speculative decoding always speed a model up?","acceptedAnswer":{"@type":"Answer","text":"No. It assumes verifying drafted tokens is nearly free, which holds when the model lives in VRAM. If an MoE's experts spill to system RAM, verifying N tokens costs about N times the expert reads, and long drafts make the model slower. On a spill-bound MoE a draft length of 1 was our sweet spot, and the payoff grows as spill shrinks."}},{"@type":"Question","name":"Does quantization hurt a mixture-of-experts model?","acceptedAnswer":{"@type":"Answer","text":"Where you spend the bits matters more than the average. Starving the routed experts to about 2 bits cost our 284B five MMLU points and a big slice of its tool-calling. Requantizing sideways costs quality too: MXFP4 experts re-encoded as Q4_K, which is what community Q4 files are, lose measurable quality while the file gets bigger. Quantize downward to shrink, never sideways."}},{"@type":"Question","name":"Why is 100% draft acceptance not suspicious?","acceptedAnswer":{"@type":"Answer","text":"At temperature 0 with a draft length of 1, the MTP head is doing exactly the job it was trained for: predicting the single next token. Every draft is checked by the full model before it is kept. At draft lengths 2 and 3, acceptance drops to 89% and 78%, as expected."}},{"@type":"Question","name":"Can I run a 284B model at home?","acceptedAnswer":{"@type":"Answer","text":"Yes, with roughly 128 GB of VRAM plus system RAM for the spill. Or skip the hardware and tune in to a station already serving one over RogerAI."}}]}</script>
 
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
