@@ -172,16 +172,21 @@ func TestChatArrowScrollsWhenNoHistory(t *testing.T) {
 	}
 }
 
-// TestChatHistoryRecallStillWorks: Up-arrow command-history recall is preserved even
-// with the scrollable transcript in place (history takes priority over scroll).
+// TestChatHistoryRecallStillWorks: command-history recall is preserved on ctrl+p with
+// the scrollable transcript in place, and Up scrolls instead of recalling (the wheel
+// arrives as arrow keys, so arrows must never type old messages).
 func TestChatHistoryRecallStillWorks(t *testing.T) {
 	m := tallChat(t, 60)
 	mm := asModel(m)
 	mm.chatHist.add("recall me")
 	m = mm
 	m, _ = m.Update(keyUp())
+	if got := asModel(m).chatIn.Value(); got != "" {
+		t.Fatalf("Up must scroll, not recall; input became %q", got)
+	}
+	m, _ = m.Update(keyRecallPrev())
 	if got := asModel(m).chatIn.Value(); got != "recall me" {
-		t.Fatalf("Up should recall command history, got %q", got)
+		t.Fatalf("ctrl+p should recall command history, got %q", got)
 	}
 }
 
@@ -269,8 +274,8 @@ func TestAgentTypingAndHistoryStillWork(t *testing.T) {
 	mm.agentIn.SetValue("")
 	mm.agentHist.add("earlier prompt")
 	m = mm
-	m, _ = m.Update(keyUp())
+	m, _ = m.Update(keyRecallPrev())
 	if got := asModel(m).agentIn.Value(); got != "earlier prompt" {
-		t.Fatalf("Up should recall the agent history, got %q", got)
+		t.Fatalf("ctrl+p should recall the agent history, got %q", got)
 	}
 }
