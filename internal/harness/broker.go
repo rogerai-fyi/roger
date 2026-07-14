@@ -26,10 +26,13 @@ type CostFunc func(credits float64, tokensIn, tokensOut int, tps float64)
 // over a minute, and a tool-use turn is a normal completion under the hood.
 const brokerTimeout = 300 * time.Second
 
-// PerCallCap is the hard per-model-call timeout the agent relay enforces (the
-// BrokerCompleter HTTP timeout). It is exported so the TUI's working line can surface
-// the ceiling ("cap 300s") - so a slow turn reads as bounded, not bottomless, and the
-// "is it stuck?" question has a concrete deadline. Mirrors brokerTimeout exactly.
+// PerCallCap is the per-model-call cap the TUI surfaces ("cap 300s") - so a slow turn
+// reads as bounded, not bottomless, and the "is it stuck?" question has a concrete
+// deadline. It is a SOFT ceiling when the caller supplies its own ctx deadline: the
+// TUI threads an ExtendableTimeout so the user can grant a legitimately slow call more
+// time at the cap (tab in the working line) instead of it being hard-killed. Callers
+// that supply NO deadline still get the hard default (brokerHTTPTimeout), so every
+// non-interactive path stays bounded exactly as before. Mirrors brokerTimeout.
 const PerCallCap = brokerTimeout
 
 // agentMaxTokens is the per-turn completion budget for the agent. It is the SAME shared
@@ -65,8 +68,16 @@ var brokerHTTPTimeout = brokerTimeout
 // user's explicit opt-in. Without this an agent turn could silently bind to an
 // exorbitant band (the harness relay previously sent no max-out at all).
 func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer {
-	httpClient := &http.Client{Timeout: brokerHTTPTimeout}
+	// No client-level Timeout: the per-call bound rides on the ctx, so an interactive
+	// caller (the TUI) can extend it mid-call. A ctx that arrives with no deadline gets
+	// the hard default below - non-interactive paths stay bounded exactly as before.
+	httpClient := &http.Client{}
 	return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) {
+		if _, has := ctx.Deadline(); !has {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, brokerHTTPTimeout)
+			defer cancel()
+		}
 		reqBody, _ := json.Marshal(map[string]any{
 			"model":    model,
 			"messages": messages,
@@ -92,11 +103,15 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 		req.Header.Set("X-Roger-Max-Price-Out", fmt.Sprintf("%g", client.EffectiveMaxOut(maxOut)))
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			// User aborted the turn (esc): a clean cancellation, not a network failure.
-			if errors.Is(err, context.Canceled) {
+			// User aborted the turn (esc): a clean cancellation, not a network failure. An
+			// ExtendableTimeout that expired cancels with cause DeadlineExceeded - that is
+			// a timeout, not an abort, so it falls through to the timeout branch below.
+			if errors.Is(err, context.Canceled) && !errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
 				return Message{}, fmt.Errorf("turn cancelled")
 			}
-			if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+			timedOut := errors.Is(err, context.DeadlineExceeded) ||
+				errors.Is(context.Cause(ctx), context.DeadlineExceeded)
+			if ne, ok := err.(interface{ Timeout() bool }); timedOut || (ok && ne.Timeout()) {
 				return Message{}, fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", brokerTimeout)
 			}
 			return Message{}, fmt.Errorf("could not reach the broker: %v", err)

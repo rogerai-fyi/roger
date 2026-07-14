@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -61,6 +62,64 @@ type agentRuntime struct {
 	// race two turns on one loop. Written by the goroutine, read on the UI goroutine, so it
 	// is atomic.
 	running atomic.Bool
+	// Per-model-call cap state (the founder's "what if something is legitimately taking
+	// longer?"). The completer stamps callStart/callSoft and parks an extend func here;
+	// the working line flips to a "past the cap · tab waits" prompt once now > callSoft,
+	// and tab pushes BOTH the soft mark and the underlying ExtendableTimeout deadline
+	// back by another PerCallCap. Left alone, the call auto-stops agentCapGrace after
+	// the soft mark, so an unattended session still reads as bounded. All four fields
+	// are written on the loop goroutine and read on the UI goroutine: callMu guards them.
+	callMu     sync.Mutex
+	callStart  time.Time // zero between model calls
+	callSoft   time.Time // when the past-cap prompt appears; +PerCallCap per tab
+	callExtend func(time.Duration)
+}
+
+// agentCapGrace is how long past the soft cap a model call keeps running while the
+// "tab waits / esc stops" prompt is showing, before it auto-stops. It keeps an
+// unattended agent bounded (nothing hangs forever waiting for a keypress) while giving
+// a present user a real window to grant more time.
+const agentCapGrace = 120 * time.Second
+
+// callState reports the in-flight model call's cap state for the working line:
+// whether a call is live, seconds since it started, whether it is past the soft cap,
+// and how long until the auto-stop. Zero-value safe: between calls (or in tests with
+// no runtime) it reports no live call.
+func (rt *agentRuntime) callState() (inCall bool, callSec int, pastCap bool, stopSec int) {
+	if rt == nil {
+		return false, 0, false, 0
+	}
+	rt.callMu.Lock()
+	defer rt.callMu.Unlock()
+	if rt.callStart.IsZero() {
+		return false, 0, false, 0
+	}
+	now := time.Now()
+	callSec = int(now.Sub(rt.callStart) / time.Second)
+	if now.After(rt.callSoft) {
+		pastCap = true
+		stopSec = int(rt.callSoft.Add(agentCapGrace).Sub(now) / time.Second)
+		if stopSec < 0 {
+			stopSec = 0
+		}
+	}
+	return true, callSec, pastCap, stopSec
+}
+
+// grantMoreTime pushes the in-flight call's soft cap and hard deadline back by
+// PerCallCap. Reports whether there was a live past-cap call to extend.
+func (rt *agentRuntime) grantMoreTime() bool {
+	if rt == nil {
+		return false
+	}
+	rt.callMu.Lock()
+	defer rt.callMu.Unlock()
+	if rt.callStart.IsZero() || rt.callExtend == nil || !time.Now().After(rt.callSoft) {
+		return false
+	}
+	rt.callSoft = rt.callSoft.Add(harness.PerCallCap)
+	rt.callExtend(harness.PerCallCap)
+	return true
 }
 
 // agentConfirm is one pending confirm for a side-effecting tool, surfaced as a y/N
@@ -325,7 +384,21 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
 		maxOut := m.limits.resolve(rt.model).MaxOut
-		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(ctx, messages, tools)
+		// The call cap is SOFT: PerCallCap raises the "tab waits" prompt, and unattended
+		// it auto-stops agentCapGrace later. Tab (grantMoreTime) pushes both back.
+		cctx, extend, done := harness.ExtendableTimeout(ctx, harness.PerCallCap+agentCapGrace)
+		rt.callMu.Lock()
+		rt.callStart = time.Now()
+		rt.callSoft = rt.callStart.Add(harness.PerCallCap)
+		rt.callExtend = extend
+		rt.callMu.Unlock()
+		defer func() {
+			done()
+			rt.callMu.Lock()
+			rt.callStart, rt.callSoft, rt.callExtend = time.Time{}, time.Time{}, nil
+			rt.callMu.Unlock()
+		}()
+		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
 		c := agentConfirm{tool: tool, args: args, resp: make(chan bool, 1)}
@@ -604,6 +677,17 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.ScrollDown(1)
 		return m, nil
 	case "tab":
+		// PAST-CAP GRANT: while a model call has outlived the soft cap (the working
+		// line is showing "tab waits"), tab grants it another PerCallCap instead of
+		// slash-completing. Only when the input is not a slash word, so completion
+		// keeps working even during a slow call.
+		if m.agentBusy && !strings.HasPrefix(strings.TrimSpace(m.agentIn.Value()), "/") {
+			if m.agent.grantMoreTime() {
+				capS := int(harness.PerCallCap / time.Second)
+				m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render(fmt.Sprintf("granted the call %ds more", capS)))
+				return m, nil
+			}
+		}
 		// Slash-command autocomplete (see agentCommands): a unique prefix match fills
 		// the input + a trailing space (word done - ready for args or enter); several
 		// matches CYCLE Minecraft-style on repeated Tab, completing against the
@@ -1508,6 +1592,16 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 			line += stDim.Render(meta)
 		}
 		return line
+	}
+	// PAST THE CAP: the in-flight model call outlived the soft cap. Instead of the old
+	// hard kill, offer the choice (the founder's "ask the user if they want to continue
+	// to wait or skip"): tab grants another PerCallCap, esc stops, and left alone the
+	// call auto-stops when the grace window runs out. The sweep is dropped: the ONLY
+	// honest signal here is the countdown.
+	if inCall, callSec, pastCap, stopSec := m.agent.callState(); inCall && pastCap {
+		return spin + stEmber.Render(fmt.Sprintf("  slow call: %ds, past the %ds cap", callSec, capSec)) +
+			stDim.Render("  · ") + stKey.Render("tab") + stDim.Render(fmt.Sprintf(" waits +%ds · ", capSec)) +
+			stKey.Render("esc") + stDim.Render(fmt.Sprintf(" stops · auto-stop in %ds", stopSec))
 	}
 	// STALLED: no event from the station for a genuinely long time — flag it with the out
 	// and DROP the sweep (a moving bar must never imply liveness that isn't there). A tool
