@@ -4,7 +4,7 @@
   93.1%  github.com/rogerai-fyi/roger/internal/agent
   90.3%  github.com/rogerai-fyi/roger/internal/audio
   96.9%  github.com/rogerai-fyi/roger/internal/capsule
-  94.8%  github.com/rogerai-fyi/roger/internal/client
+  94.9%  github.com/rogerai-fyi/roger/internal/client
   91.7%  github.com/rogerai-fyi/roger/internal/detect
  100.0%  github.com/rogerai-fyi/roger/internal/glyphs
   98.9%  github.com/rogerai-fyi/roger/internal/harness
