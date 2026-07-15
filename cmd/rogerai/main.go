@@ -94,6 +94,11 @@ type config struct {
 	// (loadOrCreateStation); the owner can rename it (`share --node`, or the TUI [2]
 	// SHARE `n` rename). The broker node id is derived as `<station>-<model-slug>`.
 	Station string `json:"station,omitempty"`
+	// AgentPerms is the PERSISTED default for the AGENT's tool-approval mode
+	// (confirm | edits | all) - `roger perms <mode>` writes it, the launch seeds
+	// ROGERAI_AGENT_PERMS from it (flag/env win per run), and the TUI masthead
+	// names any permissive mode so a saved bypass is never invisible.
+	AgentPerms string `json:"agent_perms,omitempty"`
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -679,6 +684,13 @@ func run(argv []string, cfg config) error {
 	// subcommands; strip them here so the dispatcher reads the real command, and resolve
 	// whether the console comes up (ON by default; saved config or --no-webui opts out).
 	rest, webuiOn, webuiPort := stripWebuiFlags(argv, cfg.webuiEnabled(), defaultWebuiPort)
+	// Global approval-mode flags (--yolo / --perms <mode>) apply to this run only;
+	// with no flag, a persisted `roger perms` default seeds the env the TUI reads.
+	rest, permsFlag, err := stripPermsFlags(rest)
+	if err != nil {
+		return err
+	}
+	applyPermsDefault(permsFlag, cfg.AgentPerms)
 	if len(rest) == 0 {
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
 		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
@@ -753,6 +765,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdVoices(cfg, args[1:])
 	case "share":
 		return cmdShare(cfg, args[1:])
+	case "perms", "permissions":
+		return cmdPerms(cfg, args[1:])
 	case "limits":
 		return cmdConfig(append([]string{"limits"}, args[1:]...))
 	case "limit":
@@ -2088,6 +2102,8 @@ func usage() {
   roger balance               your wallet balance
   roger topup <amt>           add funds to your wallet
   roger limit --monthly $X    cap your spend per calendar month  (0/off = no cap)
+  roger perms <mode>          agent tool approvals default: confirm | edits | all
+  roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
   roger remote                your private remote sessions: list · attach <code> · off · link
 
 providers (share your GPU):
