@@ -107,13 +107,14 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		if got.updateLine != "note" {
 			t.Errorf("RunWithController should set the notice, got %q", got.updateLine)
 		}
-		// Only AltScreen is passed: mouse capture is OFF by default so native drag-select +
-		// copy works on any text (opencode-style); the user opts into wheel-scroll via ctrl+o.
-		if len(opts) != 1 {
-			t.Errorf("RunWithController should pass alt-screen ONLY (1 opt; mouse capture off), got %d", len(opts))
+		// AltScreen + MouseCellMotion are passed: mouse capture is ON by default so the
+		// wheel scrolls the transcripts as real mouse events (arrows mean history);
+		// ctrl+o / /mouse toggles back to native drag-select.
+		if len(opts) != 2 {
+			t.Errorf("RunWithController should pass alt-screen + mouse capture (2 opts), got %d", len(opts))
 		}
-		if !got.mouseOff {
-			t.Errorf("RunWithController model should start mouseOff=true (native copy default)")
+		if got.mouseOff {
+			t.Errorf("RunWithController model should start mouseOff=false (wheel-scroll default)")
 		}
 	})
 }
