@@ -354,7 +354,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:321:		probeEvidenceRece
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
@@ -559,7 +559,7 @@ github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1294:	counterIncr
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1309:	setIfAbsent			90.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1370:	busPublishJob			90.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1392:	busClaimJob			70.0%
-github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1413:	busSubscribe			96.4%
+github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1413:	busSubscribe			92.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1459:	busSubscribeJobs		100.0%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1463:	busPublishResult		88.9%
 github.com/rogerai-fyi/roger/cmd/rogerai-broker/sharedstore.go:1477:	busSubscribeResult		100.0%
