@@ -81,19 +81,20 @@ func TestSlashCopyLastReplyAndAll(t *testing.T) {
 }
 
 func TestSlashMouseToggle(t *testing.T) {
-	// Default is native-select (mouseOff=true, copy works). /mouse toggles INTO wheel-scroll
-	// (mouseOff=false), and again back to native-select.
+	// Default is wheel-scroll (mouseOff=false: the wheel scrolls transcripts as real
+	// mouse events, arrows mean history). /mouse toggles OUT to native-select (copy
+	// without shift-drag), and again back to wheel-scroll.
 	m := chatModelForCopy()
-	if !m.mouseOff {
-		t.Fatal("default should be native-select (mouseOff=true) so copy works out of the box")
+	if m.mouseOff {
+		t.Fatal("default should be wheel-scroll (mouseOff=false) so the wheel scrolls the transcripts")
 	}
 	out, cmd := m.runSession("/mouse")
-	if asModel(out).mouseOff || cmd == nil {
-		t.Error("/mouse from the default should enable wheel-scroll (mouseOff=false) + a cmd")
+	if !asModel(out).mouseOff || cmd == nil {
+		t.Error("/mouse from the default should switch to native-select (mouseOff=true) + DisableMouse")
 	}
 	out2, cmd2 := asModel(out).runSession("/mouse")
-	if !asModel(out2).mouseOff || cmd2 == nil {
-		t.Error("/mouse again should restore native-select (mouseOff=true) + DisableMouse")
+	if asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("/mouse again should restore wheel-scroll (mouseOff=false) + a cmd")
 	}
 }
 
@@ -170,13 +171,14 @@ func TestChannelFooterDedupAndHints(t *testing.T) {
 }
 
 func TestCtrlOTogglesNativeSelect(t *testing.T) {
-	// Default native-select; ctrl+o toggles to wheel-scroll, then back to native-select.
+	// Default wheel-scroll; ctrl+o toggles to native-select (copy without shift-drag),
+	// then back to wheel-scroll.
 	out, cmd := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlO})
-	if asModel(out).mouseOff || cmd == nil {
-		t.Error("ctrl+o from the default should enable wheel-scroll (mouseOff=false) + a cmd")
+	if !asModel(out).mouseOff || cmd == nil {
+		t.Error("ctrl+o from the default should switch to native-select (mouseOff=true) + DisableMouse")
 	}
 	out2, cmd2 := asModel(out).Update(tea.KeyMsg{Type: tea.KeyCtrlO})
-	if !asModel(out2).mouseOff || cmd2 == nil {
-		t.Error("ctrl+o again should restore native-select (mouseOff=true) + a cmd")
+	if asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("ctrl+o again should restore wheel-scroll (mouseOff=false) + a cmd")
 	}
 }

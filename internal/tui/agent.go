@@ -572,6 +572,54 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = stDim.Render(djHasMicStatus)
 		}
 	}
+	// TRANSCRIPT focus (tab from the ask input): the response pane owns the keyboard.
+	// Scroll keys act on the viewport; esc / enter / tab hand the keyboard back to the
+	// input; any typed rune ALSO returns focus and types (the "just start typing" path),
+	// so the pane never traps the user. The past-cap tab grant still wins while busy
+	// (handled in the tab case below after focus returns - a grant needs the input).
+	if m.agentPaneFocus {
+		switch k.String() {
+		case "up", "k":
+			m.agentVP.ScrollUp(1)
+			return m, nil
+		case "down", "j":
+			m.agentVP.ScrollDown(1)
+			return m, nil
+		case "pgup":
+			m.agentVP.PageUp()
+			return m, nil
+		case "pgdown":
+			m.agentVP.PageDown()
+			return m, nil
+		case "ctrl+u":
+			m.agentVP.HalfPageUp()
+			return m, nil
+		case "ctrl+d":
+			m.agentVP.HalfPageDown()
+			return m, nil
+		case "home":
+			m.agentVP.GotoTop()
+			return m, nil
+		case "end":
+			m.agentVP.GotoBottom()
+			return m, nil
+		case "tab", "esc", "enter":
+			m.agentPaneFocus = false
+			m.agentIn.Focus()
+			m.status = stDim.Render("the mic is yours · type to ask")
+			return m, textinput.Blink
+		default:
+			if isPrintableKey(k) {
+				// Type-through: focus snaps back to the input and the rune lands there.
+				m.agentPaneFocus = false
+				m.agentIn.Focus()
+				var cmd tea.Cmd
+				m.agentIn, cmd = m.agentIn.Update(k)
+				return m, cmd
+			}
+			return m, nil
+		}
+	}
 	// Text-entry mode: enter submits (or QUEUES while a turn runs - see the enter case),
 	// esc cancels/leaves, the scroll/recall/copy keys below act, and everything else feeds
 	// the prompt input - typable even mid-turn so the next ask can be composed + queued.
@@ -650,14 +698,27 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.HalfPageDown()
 		return m, nil
 	case "up":
-		// Up/Down ALWAYS scroll the transcript. Terminals translate the mouse wheel
-		// into arrow keys while mouse capture is off (alternate scroll), so any recall
-		// behavior here made the wheel "type" old prompts instead of scrolling the
-		// responses (the founder's "I can't scroll and see the responses"). Prompt
-		// recall lives on ctrl+p / ctrl+n, shell-style.
+		// The INPUT owns the keyboard here (transcript focus is intercepted above):
+		// arrows mean shell-style history again - the wheel scrolls as REAL mouse
+		// events now that capture is on, so the two no longer collide. With nothing
+		// to recall, fall through to a line of scroll.
+		if !m.agentBusy {
+			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
+				m.agentIn.SetValue(v)
+				m.agentIn.CursorEnd()
+				return m, nil
+			}
+		}
 		m.agentVP.ScrollUp(1)
 		return m, nil
 	case "down":
+		if !m.agentBusy {
+			if v, ok := m.agentHist.next(); ok {
+				m.agentIn.SetValue(v)
+				m.agentIn.CursorEnd()
+				return m, nil
+			}
+		}
 		m.agentVP.ScrollDown(1)
 		return m, nil
 	case "end":
@@ -695,6 +756,15 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render(fmt.Sprintf("granted the call %ds more", capS)))
 				return m, nil
 			}
+		}
+		// Outside a slash word, tab hands the keyboard to the TRANSCRIPT pane (the
+		// founder's "tab from the input to the answer and it should highlight"):
+		// arrows scroll there, the seam lights up, esc/enter/typing come back.
+		if !strings.HasPrefix(strings.TrimSpace(m.agentIn.Value()), "/") {
+			m.agentPaneFocus = true
+			m.agentIn.Blur()
+			m.status = stDim.Render("transcript focused · ↑↓ pgup/pgdn scroll · end jumps live · tab/esc back to ask")
+			return m, nil
 		}
 		// Slash-command autocomplete (see agentCommands): a unique prefix match fills
 		// the input + a trailing space (word done - ready for args or enter); several
@@ -1447,16 +1517,27 @@ func (m model) agentView(w int) string {
 	// has scrolled up, one reserved row shows how far they are and the way back down,
 	// so "can I scroll this?" is never a mystery (the opencode-style separation).
 	scrolledUp := lineRows(content) > budget && !m.agentVP.AtBottom()
-	if scrolledUp {
+	seam := scrolledUp || m.agentPaneFocus
+	if seam {
 		m.agentVP.Height--
 	}
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
 	}
-	if scrolledUp {
-		pct := int(m.agentVP.ScrollPercent() * 100)
-		marker := fmt.Sprintf("  ── scrolled · %d%% · ↓ more below · end / pgdn for live ──", pct)
-		b.WriteString(truncVisible(stDim.Render(marker), w) + "\n")
+	if seam {
+		// The seam doubles as the FOCUS cue: lit + labeled while the transcript owns
+		// the keyboard, dim wayfinding while merely scrolled up.
+		switch {
+		case m.agentPaneFocus && scrolledUp:
+			pct := int(m.agentVP.ScrollPercent() * 100)
+			b.WriteString(truncVisible(stKey.Render(fmt.Sprintf("  ── ● transcript · %d%% · ↑↓ scroll · end live · tab/esc back ──", pct)), w) + "\n")
+		case m.agentPaneFocus:
+			b.WriteString(truncVisible(stKey.Render("  ── ● transcript · ↑↓ scroll · tab/esc back to ask ──"), w) + "\n")
+		default:
+			pct := int(m.agentVP.ScrollPercent() * 100)
+			marker := fmt.Sprintf("  ── scrolled · %d%% · ↓ more below · end / pgdn for live · tab focuses ──", pct)
+			b.WriteString(truncVisible(stDim.Render(marker), w) + "\n")
+		}
 	}
 	// The pre-launch plate (Phase 3): the ONE confirm between picking a guest and
 	// PATCHING YOU THROUGH - modal, so it renders instead of everything below.
@@ -1550,7 +1631,7 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  ⌃p history  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"

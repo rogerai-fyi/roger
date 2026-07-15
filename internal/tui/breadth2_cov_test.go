@@ -159,9 +159,9 @@ func TestAgentModelPickerKeys(t *testing.T) {
 }
 
 // TestAgentKeyScrollAndRecall covers the non-text AGENT keys: pgup/pgdown/ctrl+u/ctrl+d
-// scroll the transcript, ctrl+p/ctrl+n recall sent prompts (arrows scroll instead - the
-// wheel arrives as arrows), esc (idle) leaves to BROWSE, and esc (busy) cancels the
-// in-flight turn instead of leaving.
+// scroll the transcript, up/down recall sent prompts while the input owns focus (the
+// wheel scrolls as real mouse events), esc (idle) leaves to BROWSE, and esc (busy)
+// cancels the in-flight turn instead of leaving.
 func TestAgentKeyScrollAndRecall(t *testing.T) {
 	base := browseSeed(120)
 	base.connected = &offer{NodeID: "n", Model: "gpt-oss-20b", Online: true}
@@ -178,18 +178,13 @@ func TestAgentKeyScrollAndRecall(t *testing.T) {
 		}
 	}
 
-	// Arrows scroll, never recall (the wheel arrives as arrows).
+	// Up (input focused) recalls the most recent sent prompt onto the input.
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if v := asModel(m).agentIn.Value(); v != "" {
-		t.Errorf("up must scroll, not recall; input became %q", v)
-	}
-	// ctrl+p recalls the most recent sent prompt onto the input.
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
 	if v := asModel(m).agentIn.Value(); v != "second prompt" {
-		t.Errorf("ctrl+p should recall the latest sent prompt, got %q", v)
+		t.Errorf("up should recall the latest sent prompt, got %q", v)
 	}
-	// ctrl+n walks newer / restores the draft.
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	// Down walks newer / restores the draft.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
 
 	// esc while idle leaves AGENT for BROWSE.
 	im, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
