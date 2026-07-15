@@ -66,7 +66,7 @@ func lineAbovePrompt(t *testing.T, tm tea.Model) string {
 }
 
 // allCommandsStrip is the full sorted registry as the strip renders it on a bare "/".
-const allCommandsStrip = "/clear · /commands · /copy · /help · /model · /operator · /persona · /remote-control"
+const allCommandsStrip = "/clear · /commands · /copy · /help · /model · /operator · /perms · /persona · /remote-control"
 
 // TestAgentSlashStripMatrix drives the strip with real typed keys: which commands it
 // suggests for what input, and when it hides. Matching is case-insensitive and
@@ -78,9 +78,9 @@ func TestAgentSlashStripMatrix(t *testing.T) {
 		want  string // "" = NO strip (the blank separator above the prompt)
 	}{
 		{"bare slash lists ALL commands sorted", "/", allCommandsStrip},
-		{"slash-p narrows to persona", "/p", "/persona"},
+		{"slash-p lists both p-commands", "/p", "/perms · /persona"},
 		{"slash-c narrows to clear commands copy", "/c", "/clear · /commands · /copy"},
-		{"case-insensitive capital P", "/P", "/persona"},
+		{"case-insensitive capital P", "/P", "/perms · /persona"},
 		{"case-insensitive capital CL", "/CL", "/clear"},
 		{"no matches hides the strip", "/zz", ""},
 		{"leading text is not a slash command", "hello /p", ""},
@@ -88,7 +88,7 @@ func TestAgentSlashStripMatrix(t *testing.T) {
 		{"args after the word stay strip-free", "/model up", ""},
 		{"empty input has no strip", "", ""},
 		{"complete word without a space still shows", "/remote-control", "/remote-control"},
-		{"leading spaces match enter's trim", " /p", "/persona"},
+		{"leading spaces match enter's trim", " /p", "/perms · /persona"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -104,10 +104,10 @@ func TestAgentSlashStripMatrix(t *testing.T) {
 // a trailing space (ready for args / enter) and the strip hides; a second Tab is a
 // no-op (the word is complete and spaced - nothing to complete, nothing inserted).
 func TestAgentSlashTabUnique(t *testing.T) {
-	tm := typeRunes(agentReady(t), "/p")
+	tm := typeRunes(agentReady(t), "/pers")
 	tm = pressTab(tm)
 	if got := asModel(tm).agentIn.Value(); got != "/persona " {
-		t.Fatalf("Tab on the unique match /p should fill %q, got %q", "/persona ", got)
+		t.Fatalf("Tab on the unique match /pers should fill %q, got %q", "/persona ", got)
 	}
 	if got := lineAbovePrompt(t, tm); got != "" {
 		t.Fatalf("strip should hide after a completed word + space, still shows %q", got)
