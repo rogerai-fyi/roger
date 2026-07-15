@@ -366,10 +366,18 @@ func (m *model) refreshAgentModel() {
 	if m.agent == nil {
 		return
 	}
-	// A model chosen explicitly in this session (via /model) stays put unless a fresh
-	// channel is opened on top of it - the user's pick wins over auto-resolution.
-	if m.agentPicked && m.connected == nil {
-		return
+	// A model chosen explicitly via /model stays put: over turns, over re-entries, and
+	// over the channel that was ALREADY open at pick time (the old guard only held with
+	// no channel open, so picking deepseek while tuned to Qwen snapped back on the very
+	// next ask). Only tuning a DIFFERENT channel afterwards re-points the agent - that
+	// is a deliberate act (and the auto-tune path clears the pick itself).
+	if m.agentPicked {
+		cur := m.agentChannelIdent()
+		if cur == "" || cur == m.agentPickedOver {
+			return // no channel, or the same one as at pick time: the pick wins
+		}
+		m.agentPicked = false // a fresh channel was opened on top: follow it below
+		m.agentPickedOver = ""
 	}
 	want := m.resolveAgentModel()
 	if want == m.agent.model {
@@ -385,6 +393,16 @@ func (m *model) refreshAgentModel() {
 		// if the user sends a turn anyway, still surfaces once via the deduped failureHint.
 		m.status = agentNoModelStatus()
 	}
+}
+
+// agentChannelIdent is the open channel's identity for the /model pin: node + model,
+// "" when nothing is tuned in. Two different stations serving the same model count as
+// different channels (a re-tune is a deliberate act either way).
+func (m model) agentChannelIdent() string {
+	if m.connected == nil {
+		return ""
+	}
+	return m.connected.NodeID + "·" + m.connected.Model
 }
 
 // agentNoModelStatus is the status line shown when the AGENT has no model tuned in - the
@@ -410,6 +428,7 @@ func (m *model) pickAgentModel(mdl string) {
 		return
 	}
 	m.agentPicked = true
+	m.agentPickedOver = m.agentChannelIdent() // the pick survives turns on THIS channel
 	if mdl == m.agent.model {
 		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("already running on ")+stKey.Render(mdl))
 		return
