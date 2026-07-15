@@ -32,7 +32,7 @@
         </span>
 
         <h1 class="app-hero__title" data-reveal data-reveal-delay="60">
-          The band, in&nbsp;your&nbsp;pocket.
+          The band, <span class="app-hero__op">in&nbsp;your&nbsp;pocket</span>.
         </h1>
 
         <p class="app-hero__sub" data-reveal data-reveal-delay="120">
@@ -56,6 +56,12 @@
       <div class="app-hero__stage" data-reveal data-reveal-delay="240">
         <span class="fig" aria-hidden="true">FIG. 1 - ONE STATION, EVERY SET</span>
         <div class="app-hero__devices">
+          <!-- rubber-stamp certification: every plate on this page is the real app -->
+          <svg class="app-stamp" viewBox="0 0 160 44" width="160" height="44" aria-hidden="true" focusable="false">
+            <rect x="1.5" y="1.5" width="157" height="41" rx="5" fill="none" stroke="currentColor" stroke-width="2.5" />
+            <text x="80" y="19" text-anchor="middle">REAL APP</text>
+            <text x="80" y="34" text-anchor="middle">SHIPPED 2026.07</text>
+          </svg>
           <span class="app-shot app-shot--mac app-hero__mac">
             <img src="assets/app/mac-tunein.webp"
                  alt="The RogerAI Mac app: the Tune In room with the two-way-radio hero art and a private on-device station"
@@ -75,6 +81,7 @@
   <!-- ============================ §1 TUNE IN ============================ -->
   <section class="section app-feature" id="tunein">
     <div class="wrap app-feature__grid">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:8%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§1 / TUNE IN · LIVE</span>
         <h2>Talk to real machines.</h2>
@@ -85,23 +92,23 @@
           stations, and select or copy any part of a reply, the way you expect.
         </p>
         <ul class="app-feature__list mono">
-          <li><span class="ember">◉</span> on-device replies never leave the phone</li>
-          <li><span class="ember">◉</span> free stations show <b>$0/M</b> tokens</li>
-          <li><span class="ember">◉</span> photos in, on vision-capable stations</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg> on-device replies never leave the phone</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8.6 1.8 14 7.2a1.4 1.4 0 0 1 0 2L9.2 14a1.4 1.4 0 0 1-2 0L1.8 8.6V3.2A1.4 1.4 0 0 1 3.2 1.8Z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="5.4" cy="5.4" r="1.1" fill="currentColor"/></svg> free stations show <b>$0/M</b> tokens</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><rect x="1.8" y="4.2" width="12.4" height="9" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 4.2 6.8 2.4h2.4l1.3 1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8.6" r="2.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg> photos in, on vision-capable stations</li>
         </ul>
       </div>
       <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 2 - ON DEVICE, PRIVATE</span>
           <img src="assets/app/iphone-tunein-private.webp"
                alt="Tune In on iPhone: tuned to the on-device Apple station with try-asking prompts"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 2 - ON DEVICE, PRIVATE</span>
         </span>
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 3 - A FREE STATION</span>
           <img src="assets/app/iphone-tunein-free.webp"
                alt="Tune In on iPhone: tuned to gpt-oss-20b, a free station on the band"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 3 - A FREE STATION</span>
         </span>
       </div>
     </div>
@@ -110,6 +117,7 @@
   <!-- ============================ §2 THE BAND ============================ -->
   <section class="section app-feature app-feature--flip" id="band">
     <div class="wrap app-feature__grid">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:22%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§2 / THE BAND · THE MARKET</span>
         <h2>Pick your station by the numbers.</h2>
@@ -123,16 +131,16 @@
       </div>
       <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 4 - THE ROSTER, LIVE</span>
           <img src="assets/app/iphone-band.webp"
                alt="The Band on iPhone: a live station list with per-model prices, speeds and FREE tags"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 4 - THE ROSTER, LIVE</span>
         </span>
         <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 5 - SAME BAND, BIG SCREEN</span>
           <img src="assets/app/mac-band.webp"
                alt="The Band on the Mac: the same live station roster on the desk set"
                width="1280" height="800" loading="lazy" />
-          <span class="fig">FIG. 5 - SAME BAND, BIG SCREEN</span>
         </span>
       </div>
     </div>
@@ -141,6 +149,7 @@
   <!-- ============================ §3 TUNE THE DIAL ============================ -->
   <section class="section app-feature" id="routing">
     <div class="wrap app-feature__grid">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:36%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§3 / ROUTING · YOUR MARGINS</span>
         <h2>Tune the dial. Roger obeys.</h2>
@@ -151,22 +160,22 @@
           hardware attestation</b>, so the operator literally can't read your prompts.
         </p>
         <ul class="app-feature__list mono">
-          <li><span class="ember">◉</span> max price /1M · min speed t/s</li>
-          <li><span class="ember">◉</span> confidential ◆ = TEE-attested only</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 12.5a6.5 6.5 0 0 1 12 0" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 12.5 11.2 7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="12.5" r="1.2" fill="currentColor"/></svg> max price /1M · min speed t/s</li>
+          <li><svg class="app-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8 1.8 13.5 4v4.2c0 3.2-2.3 5.3-5.5 6.2-3.2-.9-5.5-3-5.5-6.2V4Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5.4 10.2 8 8 10.6 5.8 8Z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg> confidential ◆ = TEE-attested only</li>
         </ul>
       </div>
       <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
-        <span class="app-shot app-shot--phone">
+        <span class="app-shot app-shot--phone app-shot--crop">
+          <span class="fig">FIG. 6 - THE TUNE SHEET</span>
           <img src="assets/app/iphone-tune-routing.webp"
                alt="The Tune sheet on iPhone: Confidential TEE-attested-only toggle, max price per million and min speed"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 6 - THE TUNE SHEET</span>
         </span>
         <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 7 - CONFIDENTIAL, ON AIR</span>
           <img src="assets/app/mac-confidential.webp"
                alt="RogerAI on the Mac tuned to a free station with confidential routing - the operator can't read your prompts"
                width="1280" height="800" loading="lazy" />
-          <span class="fig">FIG. 7 - CONFIDENTIAL, ON AIR</span>
         </span>
       </div>
     </div>
@@ -175,6 +184,7 @@
   <!-- ============================ §4 THE OPERATOR ============================ -->
   <section class="section app-feature app-feature--flip" id="operator">
     <div class="wrap app-feature__grid">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:50%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§4 / THE OPERATOR · AGENT TOOLS</span>
         <h2>An agent, when you want one.</h2>
@@ -188,22 +198,22 @@
       </div>
       <div class="app-feature__media app-feature__media--trio" data-reveal data-reveal-delay="80">
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 8 - THE TOOL BENCH</span>
           <img src="assets/app/iphone-operator-tools.webp"
                alt="Operator settings on iPhone: per-tool toggles for opening links, running Shortcuts, reading web pages, calendar and clipboard"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 8 - THE TOOL BENCH</span>
         </span>
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 9 - AN ACTION, ANNOUNCED</span>
           <img src="assets/app/iphone-agent-action.webp"
                alt="A chat on iPhone where the agent opens the Songkick app to find concerts - the action is shown before it runs"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 9 - AN ACTION, ANNOUNCED</span>
         </span>
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 10 - HANDS-FREE</span>
           <img src="assets/app/iphone-operator-voice.webp"
                alt="Voice settings on iPhone: read replies aloud and a hands-free two-way mode, plus reminders and scratch-note tools"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 10 - HANDS-FREE</span>
         </span>
       </div>
     </div>
@@ -212,6 +222,7 @@
   <!-- ============================ §5 CONNECT ============================ -->
   <section class="section app-feature" id="connect">
     <div class="wrap app-feature__grid">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:64%"></div>
       <div class="app-feature__copy" data-reveal>
         <span class="sectionno">§5 / CONNECT · USE IT ANYWHERE</span>
         <h2>Your endpoint works everywhere.</h2>
@@ -224,16 +235,16 @@
       </div>
       <div class="app-feature__media app-feature__media--pair" data-reveal data-reveal-delay="80">
         <span class="app-shot app-shot--phone">
+          <span class="fig">FIG. 11 - MINT A KEY</span>
           <img src="assets/app/iphone-connect.webp"
                alt="Connect on iPhone: the broker base URL, a Mint-a-key button and step-by-step recipes for chat apps and editors"
                width="780" height="1688" loading="lazy" />
-          <span class="fig">FIG. 11 - MINT A KEY</span>
         </span>
         <span class="app-shot app-shot--mac">
+          <span class="fig">FIG. 12 - THE SAME KEY, ON THE DESK</span>
           <img src="assets/app/mac-connect.webp"
                alt="Connect on the Mac: the same endpoint recipes for chat apps, Cursor, Raycast and Python"
                width="1280" height="800" loading="lazy" />
-          <span class="fig">FIG. 12 - THE SAME KEY, ON THE DESK</span>
         </span>
       </div>
     </div>
@@ -242,6 +253,7 @@
   <!-- ============================ §6 THE DESK SET ============================ -->
   <section class="section app-desk" id="mac">
     <div class="wrap">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:78%"></div>
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§6 / THE DESK SET · MACOS</span>
         <h2>Native on the Mac.</h2>
@@ -253,10 +265,10 @@
       </div>
       <div class="app-desk__stage" data-reveal data-reveal-delay="80">
         <span class="app-shot app-shot--mac">
-          <img src="assets/app/mac-agent.webp"
-               alt="RogerAI on the Mac walking through opening iTunes step by step - an agent transcript on the desk set"
-               width="1280" height="800" loading="lazy" />
           <span class="fig">FIG. 13 - THE DESK SET, ON AIR</span>
+          <img src="assets/app/mac-tunein.webp"
+               alt="RogerAI on the Mac, full width: the Tune In room with the two-way-radio hero art, sidebar and a private on-device station"
+               width="1280" height="800" loading="lazy" />
         </span>
       </div>
     </div>
@@ -265,6 +277,7 @@
   <!-- ============================ §7 SPEC SHEET ============================ -->
   <section class="section app-spec" id="spec-sheet">
     <div class="wrap">
+      <div class="app-dialrule" aria-hidden="true" style="--dial-pos:92%"></div>
       <div class="section__head section__head--left" data-reveal>
         <span class="sectionno">§7 / THE SPEC SHEET</span>
         <h2>Read the plate.</h2>
@@ -283,8 +296,13 @@
   <!-- ============================ CLOSING CTA ============================ -->
   <section class="section app-cta">
     <div class="wrap app-cta__inner" data-reveal>
+      <!-- brandlocked Flux art (local ComfyUI, one-red rule enforced); the dark
+           variant is the polarity-preserving --dim remap, swapped in CSS so only
+           the active theme's file loads. Decorative - the copy carries the message. -->
+      <div class="app-cta__art" role="img"
+           aria-label="A hand holds the handheld two-way radio; the transmission tower's red beacon glows on the horizon"></div>
       <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
-      <h2 class="app-cta__title">Pick up the handheld.</h2>
+      <h2 class="app-cta__title">Pick up the <span class="app-hero__op">handheld</span>.</h2>
       <p class="app-cta__sub">Free on the App Store. The band is open.</p>
       <a class="app-badge app-badge--lg" href="https://apps.apple.com/us/app/rogerai-fyi/id6785743752"
          target="_blank" rel="noopener noreferrer">

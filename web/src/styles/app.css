@@ -7,16 +7,36 @@
    .wrap, .mono, .ember). Consumes tokens.css + base.css.
 
    Design language: the operating manual. Screenshots are FIGURES -
-   hairline-framed plates with a FIG. caption - not glossy device
-   mockups; the app's own UI carries the one red beacon.
+   mounted plates with a 2px ink top rule and the FIG. caption ABOVE
+   (the spec-plate treatment) - not glossy device mockups; the app's
+   own UI carries the one red beacon. The scroll is tuning across the
+   band: each numbered section opens with a dial rule whose red needle
+   moves §1 -> §7.
    ===================================================================== */
 
+/* faint radio static behind the hero and the closing CTA - scattered ink
+   grain plus two red motes, tiled small so it reads as paper texture. */
+:root {
+  --app-static: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='%2315140f' fill-opacity='.14'%3E%3Ccircle cx='14' cy='31' r='1'/%3E%3Ccircle cx='73' cy='9' r='1'/%3E%3Ccircle cx='128' cy='47' r='1'/%3E%3Ccircle cx='201' cy='22' r='1'/%3E%3Ccircle cx='44' cy='88' r='1'/%3E%3Ccircle cx='167' cy='101' r='1'/%3E%3Ccircle cx='226' cy='131' r='1'/%3E%3Ccircle cx='90' cy='139' r='1'/%3E%3Ccircle cx='23' cy='166' r='1'/%3E%3Ccircle cx='140' cy='183' r='1'/%3E%3Ccircle cx='197' cy='206' r='1'/%3E%3Ccircle cx='58' cy='219' r='1'/%3E%3C/g%3E%3Cg fill='%23e0231c' fill-opacity='.28'%3E%3Ccircle cx='108' cy='72' r='1.4'/%3E%3Ccircle cx='182' cy='158' r='1.4'/%3E%3C/g%3E%3C/svg%3E");
+}
+[data-theme="dark"] {
+  --app-static: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='%23f3f1ea' fill-opacity='.10'%3E%3Ccircle cx='14' cy='31' r='1'/%3E%3Ccircle cx='73' cy='9' r='1'/%3E%3Ccircle cx='128' cy='47' r='1'/%3E%3Ccircle cx='201' cy='22' r='1'/%3E%3Ccircle cx='44' cy='88' r='1'/%3E%3Ccircle cx='167' cy='101' r='1'/%3E%3Ccircle cx='226' cy='131' r='1'/%3E%3Ccircle cx='90' cy='139' r='1'/%3E%3Ccircle cx='23' cy='166' r='1'/%3E%3Ccircle cx='140' cy='183' r='1'/%3E%3Ccircle cx='197' cy='206' r='1'/%3E%3Ccircle cx='58' cy='219' r='1'/%3E%3C/g%3E%3Cg fill='%23ff4438' fill-opacity='.22'%3E%3Ccircle cx='108' cy='72' r='1.4'/%3E%3Ccircle cx='182' cy='158' r='1.4'/%3E%3C/g%3E%3C/svg%3E");
+}
+
 /* ---------- hero ------------------------------------------------ */
-.app-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
+/* tighter top block so the device composition crests a 900px fold */
+.app-hero { padding-block: clamp(48px, 6vw, 80px) calc(var(--section-y) * .8); position: relative; }
+.app-hero { background-image: var(--app-static); background-repeat: repeat; }
 .app-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
 .app-hero__title {
   margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
   letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+/* the operative phrase: ink + a single red on-air underline (index's H1 motif) */
+.app-hero__op { position: relative; white-space: nowrap; }
+.app-hero__op::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -0.04em;
+  height: 3px; background: var(--live);
 }
 .app-hero__sub {
   margin: var(--s-5) 0 0; max-width: 60ch; color: var(--ink-500);
@@ -34,7 +54,7 @@
 .app-badge--lg { margin-top: var(--s-5); }
 
 /* the composition: desk set behind, handheld in front */
-.app-hero__stage { margin-top: clamp(40px, 6vw, 72px); width: 100%; }
+.app-hero__stage { margin-top: clamp(28px, 4vw, 48px); width: 100%; }
 .app-hero__stage > .fig { display: block; margin-bottom: var(--s-3); }
 .app-hero__devices { position: relative; max-width: 840px; padding-bottom: clamp(24px, 5vw, 56px); }
 .app-hero__mac { display: block; width: min(100%, 720px); }
@@ -45,27 +65,79 @@
   position: absolute; right: 0; bottom: 0; width: clamp(130px, 24%, 200px);
   box-shadow: 0 18px 44px rgba(21, 20, 15, .18);
 }
+/* the hero desk set stays chromeless: the composition is the frame (no window
+   bar, no top rule - those belong to the manual figures below the fold). The
+   hero handheld keeps the full device bezel from .app-shot--phone. */
+.app-hero__devices .app-shot--mac img { border-top: 1px solid var(--hairline); border-radius: var(--r-md, 6px); }
+.app-hero__devices .app-shot--mac::before { content: none; }
+
+/* the rubber-stamp certification, cocked over the composition's top corner */
+.app-stamp {
+  position: absolute; right: 2%; top: -10px; z-index: 2;
+  color: var(--live); transform: rotate(-5deg); opacity: .9;
+  font-family: var(--font-mono); font-size: 11px; font-weight: var(--weight-semi);
+  letter-spacing: .12em;
+}
+.app-stamp text { fill: currentColor; }
 
 /* ---------- screenshots as manual figures ----------------------- */
-.app-shot { display: block; position: relative; }
+/* mounted plates: caption ABOVE, a 2px ink top rule (the spec-plate
+   treatment), soft shadow so the plate sits ON the paper, not in it. */
+.app-shot { display: flex; flex-direction: column; position: relative; }
+.app-shot > .fig { order: -1; display: block; margin: 0 0 var(--s-2); }
 .app-shot img {
   display: block; width: 100%; height: auto;
-  border: 1px solid var(--hairline); border-radius: var(--r-md, 6px);
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  border-radius: 0 0 var(--r-md, 6px) var(--r-md, 6px);
   background: var(--paper);
+  box-shadow: 0 10px 30px rgba(21, 20, 15, .08);
 }
-.app-shot > .fig { display: block; margin-top: var(--s-2); }
-/* the shots are light-UI captures; in the dark room, dim the plate a touch
+/* handheld plates read as the device: rounded corners, a fine full bezel */
+.app-shot--phone img {
+  border: 1.5px solid var(--ink-700); border-radius: clamp(12px, 4.5%, 22px);
+}
+/* the desk set gets window chrome: three dots + a mono title tape */
+.app-shot--mac::before {
+  content: "\25CF \25CF \25CF\2002 rogerai - the desk set";
+  display: block; padding: 4px 10px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-400);
+  background: var(--paper); border: 1px solid var(--hairline); border-bottom: 0;
+  border-top: 2px solid var(--ink-900);
+  border-radius: var(--r-md, 6px) var(--r-md, 6px) 0 0;
+}
+.app-shot--mac img { border-top: 1px solid var(--hairline); border-radius: 0 0 var(--r-md, 6px) var(--r-md, 6px); }
+/* the tune sheet: crop the empty scrim below the sheet so the plate is all signal */
+.app-shot--crop img { aspect-ratio: 780 / 1100; object-fit: cover; object-position: top; }
+/* the shots are light-UI captures; in the dark room, dim the plate properly
    so the page doesn't glare - the app's red beacon still reads. */
-[data-theme="dark"] .app-shot img { filter: brightness(.9) contrast(1.02); }
+[data-theme="dark"] .app-shot img { filter: brightness(.84) contrast(1.04) saturate(.95); border-color: var(--hairline); }
+[data-theme="dark"] .app-shot img,
+[data-theme="dark"] .app-shot--mac::before { border-top-color: var(--ink-900); }
 [data-theme="dark"] .app-hero__phone { box-shadow: 0 18px 44px rgba(0, 0, 0, .5); }
 
+/* ---------- the dial rule: the scroll tunes across the band ------ */
+/* a ruler strip with mono ticks; the red needle's position is set per
+   section via --dial-pos (§1 left ... §7 right). */
+.app-dialrule {
+  grid-column: 1 / -1; position: relative; height: 16px; margin-bottom: var(--s-6);
+  border-bottom: 1px solid var(--hairline-2, var(--hairline));
+  background:
+    repeating-linear-gradient(90deg, var(--hairline) 0 1px, transparent 1px 56px) 0 100% / 100% 12px no-repeat,
+    repeating-linear-gradient(90deg, var(--hairline) 0 1px, transparent 1px 14px) 0 100% / 100% 6px no-repeat;
+}
+.app-dialrule::after {
+  content: ""; position: absolute; left: var(--dial-pos, 0%); top: 0; bottom: -1px;
+  width: 2px; background: var(--live);
+}
+
 /* ---------- alternating feature plates -------------------------- */
-/* consecutive features share the page rhythm; the base .section padding
-   doubles up between two adjacent plates, so halve the seam. */
-.app-feature { padding-block: calc(var(--section-y) * .7); }
+/* hairline-bound sections with a tighter seam, so the plates bind into
+   one document instead of floating in voids. */
+.app-feature { padding-block: calc(var(--section-y) * .55); border-top: 1px solid var(--hairline); }
 .app-feature__grid {
   display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: var(--s-8) var(--s-10); align-items: center;
+  gap: var(--s-8) var(--s-10); align-items: start;
 }
 /* flipped plates swap the columns AND the widths - the media always keeps
    the wide 7fr track so the screenshots stay large. */
@@ -87,13 +159,18 @@
   display: flex; flex-direction: column; gap: var(--s-2);
   font-size: var(--t-sm); color: var(--ink-500); }
 .app-feature__list b { color: var(--ink-900); }
-.app-feature__list .ember { margin-right: var(--s-2); }
+.app-feature__list li { display: flex; align-items: center; gap: var(--s-2); }
+/* 16px mono line icons lead the bullets; ink-only - red stays reserved
+   for live signals. */
+.app-ico { flex: 0 0 auto; color: var(--ink-400); }
 
-/* media arrangements: a phone pair, a phone+mac pair, a phone trio */
+/* media arrangements: a phone pair, a phone-over-mac stack, a phone trio */
 .app-feature__media--pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-5); align-items: start; }
-.app-feature__media--pair .app-shot--mac { grid-column: span 1; align-self: center; }
-/* phone + mac: let the mac breathe wider than the phone */
-.app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: minmax(0, 2fr) minmax(0, 3.4fr); }
+/* phone + mac: STACK them - a 1280px mac UI squeezed beside a phone is
+   illegible grey mush; full-width below, it reads. The phone centers over it. */
+.app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: 1fr; gap: var(--s-6); }
+.app-feature__media--pair:has(.app-shot--mac) .app-shot--phone { max-width: 300px; justify-self: center; }
+.app-feature__media--pair:has(.app-shot--mac) .app-shot--mac { max-width: 700px; justify-self: center; width: 100%; }
 .app-feature__media--trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4); align-items: start; }
 
 /* ---------- the desk set (full-bleed mac plate) ------------------ */
@@ -118,7 +195,23 @@
 .app-spec__row dd { margin: 0; font-size: var(--t-sm); color: var(--ink-700); line-height: var(--lh-body); }
 
 /* ---------- closing CTA ------------------------------------------ */
+/* the conversion moment echoes the hero: static texture + the red underline */
+.app-cta { background-image: var(--app-static); background-repeat: repeat; }
 .app-cta__inner { display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* the brandlocked sign-off plate: a hand raises the handheld, the tower's
+   beacon on the horizon. Background-image (not <img>) so ONLY the active
+   theme's file is fetched; the spec-plate top rule mounts it like a figure. */
+.app-cta__art {
+  width: min(100%, 680px); aspect-ratio: 1600 / 896; margin-bottom: var(--s-8);
+  background: var(--paper) url("../assets/app/cta-handheld.webp") center / cover no-repeat;
+  border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  border-radius: 0 0 var(--r-md, 6px) var(--r-md, 6px);
+  box-shadow: 0 10px 30px rgba(21, 20, 15, .08);
+}
+[data-theme="dark"] .app-cta__art {
+  background-image: url("../assets/app/cta-handheld-dark.webp");
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+}
 .app-cta__title {
   margin: var(--s-3) 0 0; font-size: var(--t-h2); line-height: var(--lh-tight);
   letter-spacing: var(--tracking-h2); color: var(--ink-900); font-weight: var(--weight-bold);
@@ -128,15 +221,20 @@
 
 /* ---------- responsive ------------------------------------------ */
 @media (max-width: 860px) {
-  .app-feature__grid { grid-template-columns: 1fr; gap: var(--s-6); }
+  /* the flip variant repeats the selector at its full specificity - the base
+     .app-feature--flip .app-feature__grid rule (0,2,0) would otherwise beat a
+     bare .app-feature__grid override (0,1,0) and pin two columns on phones. */
+  .app-feature__grid,
+  .app-feature--flip .app-feature__grid { grid-template-columns: 1fr; gap: var(--s-6); }
   .app-feature--flip .app-feature__grid > .app-feature__copy { order: 0; }
   .app-feature--flip .app-feature__grid > .app-feature__media { order: 1; }
   .app-feature__media--trio { grid-template-columns: repeat(3, 1fr); gap: var(--s-3); }
+  .app-stamp { width: 120px; height: 33px; top: -6px; }
 }
 @media (max-width: 560px) {
-  .app-hero__phone { bottom: -6%; }
-  .app-feature__media--pair,
-  .app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: 1fr 1fr; }
+  /* carry the parent so this beats the base .app-hero__devices .app-hero__phone */
+  .app-hero__devices .app-hero__phone { bottom: -6%; }
+  .app-feature__media--pair { grid-template-columns: 1fr 1fr; }
   .app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: 1fr; }
   .app-feature__media--trio { grid-template-columns: 1fr 1fr; }
   .app-feature__media--trio .app-shot:last-child { grid-column: span 2; max-width: 60%; margin-inline: auto; }
