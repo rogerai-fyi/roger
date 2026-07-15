@@ -31,10 +31,9 @@
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
-  // The iOS app isn't live yet (bundle fyi.rogerai.app; Sign-in-with-Apple still a submission
-  // blocker), so there is no real numeric App Store id. PLACEHOLDER - swap in the real id at launch;
-  // the bubble says "coming soon" so this is never presented as a live listing.
-  var APP_STORE_URL = "https://apps.apple.com/app/rogerai/id000000000"; // TODO: real App Store ID once the app is live
+  // The live App Store listing (RogerAI.fyi, shipped 2026-07-09) - canonical form, kept in
+  // lockstep with the /app.html links.
+  var APP_STORE_URL = "https://apps.apple.com/us/app/rogerai-fyi/id6785743752";
   // pure: the argument tuple for a safe new-tab open - opener severed so the store tab can't touch us.
   function openArgs(url) { return [url, "_blank", "noopener,noreferrer"]; }
 
@@ -72,8 +71,8 @@
     arrow.textContent = "→";
     arrow.style.cssText = "color:#e0231c;font-weight:700;";
     line.appendChild(arrow);
-    var soon = document.createElement("div"); // honest: the listing isn't live yet (placeholder id)
-    soon.textContent = "coming soon";
+    var soon = document.createElement("div");
+    soon.textContent = "free on iPhone, iPad & Mac";
     soon.style.cssText = "margin-top:2px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-400,#9a968b);";
     var tail = document.createElement("div"); // little downward beak toward Ping
     tail.style.cssText = "position:absolute;left:50%;bottom:-5px;width:10px;height:10px;" +
