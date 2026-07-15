@@ -56,6 +56,18 @@ func TestAgentCtrlPCyclesPerms(t *testing.T) {
 	press(permConfirm)
 }
 
+// TestAgentIdleHelpAdvertisesPermsKey: the founder's root complaint was that toggling
+// perms felt invisible. The idle help tail must name the ⌃p key next to the mode, so
+// the shortcut is discoverable without reading docs.
+func TestAgentIdleHelpAdvertisesPermsKey(t *testing.T) {
+	m := agentSeed(t, "http://broker.local")
+	m.agentBusy = false
+	v := stripANSI(m.agentView(120))
+	if !strings.Contains(v, "⌃p") {
+		t.Errorf("idle help should advertise the ⌃p perms key, got:\n%s", v)
+	}
+}
+
 // TestAgentCtrlPWorksMidTurn: the founder pain - toggling approvals while a turn runs
 // must apply NOW (the mode is an atomic the confirmer reads live), never queue.
 func TestAgentCtrlPWorksMidTurn(t *testing.T) {
@@ -68,6 +80,66 @@ func TestAgentCtrlPWorksMidTurn(t *testing.T) {
 	}
 	if len(m.agentQueued) != 0 {
 		t.Fatalf("ctrl+p must never queue, got %d queued", len(m.agentQueued))
+	}
+}
+
+// TestAgentCtrlPAtConfirmGate: ctrl+p at a pending tool-approval confirm cycles perms
+// (never the surprise DENY the confirm modal's default branch used to give). When the
+// escalated mode now auto-approves the pending tool, the gate resolves as approved -
+// the intuitive "stop asking me, allow this"; otherwise it cycles and stays pending.
+func TestAgentCtrlPAtConfirmGate(t *testing.T) {
+	// run_shell: confirm -> edits (still gated) -> all (auto-approved).
+	m := agentSeed(t, "http://broker.local")
+	resp := make(chan bool, 1)
+	m.agentPendingConfirm = &agentConfirm{tool: "run_shell", resp: resp}
+	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = asModel(out)
+	if got := agentPermMode(m.agent.perms.Load()); got != permEdits {
+		t.Fatalf("first ctrl+p at gate -> %v want edits", got)
+	}
+	if m.agentPendingConfirm == nil {
+		t.Fatal("edits does not cover run_shell - the gate must stay pending, not resolve")
+	}
+	if len(resp) != 0 {
+		t.Fatal("the pending tool must NOT be answered while still gated")
+	}
+	out, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = asModel(out)
+	if got := agentPermMode(m.agent.perms.Load()); got != permAll {
+		t.Fatalf("second ctrl+p -> %v want all", got)
+	}
+	if m.agentPendingConfirm != nil {
+		t.Fatal("auto-all covers run_shell - the gate should resolve, not linger")
+	}
+	if got := <-resp; !got {
+		t.Fatal("escalating past the tool's bar should APPROVE it, not deny")
+	}
+
+	// write_file is covered the moment we reach edits - one press approves.
+	m2 := agentSeed(t, "http://broker.local")
+	resp2 := make(chan bool, 1)
+	m2.agentPendingConfirm = &agentConfirm{tool: "write_file", resp: resp2}
+	out, _ = m2.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m2 = asModel(out)
+	if m2.agentPendingConfirm != nil || len(resp2) != 1 || !<-resp2 {
+		t.Fatal("edits covers write_file - one ctrl+p should approve the gate")
+	}
+}
+
+// TestInstantCommandsAreRealCommands: every instantAgentCommand token must be a command
+// runAgentCommand actually dispatches - otherwise an instant token would fall through to
+// the model picker (the unknown-command default) instead of running now. Guards the two
+// parallel lists against drift (review finding).
+func TestInstantCommandsAreRealCommands(t *testing.T) {
+	for _, tok := range []string{"/perms", "/permissions", "/yolo", "/webui", "/console", "/web"} {
+		if !instantAgentCommand(tok) {
+			t.Fatalf("%s should classify as instant", tok)
+		}
+		m := agentSeed(t, "http://broker.local")
+		out, _ := m.runAgentCommand(tok)
+		if asModel(out).agentPicker {
+			t.Errorf("%s is instant but runAgentCommand did not handle it (fell to the model picker)", tok)
+		}
 	}
 }
 
@@ -128,8 +200,12 @@ func TestChatCtrlPNoLongerRecalls(t *testing.T) {
 	if got := asModel(m).chatIn.Value(); got != "a draft" {
 		t.Fatalf("ctrl+p must not touch the draft, got %q", got)
 	}
-	if s := stripANSI(asModel(m).status); !strings.Contains(s, "AGENT") {
-		t.Errorf("ctrl+p in chat should point at the AGENT, status = %q", s)
+	s := stripANSI(asModel(m).status)
+	if !strings.Contains(s, "AGENT") || !strings.Contains(s, "shift+tab") {
+		t.Errorf("ctrl+p in chat should point at the AGENT via shift+tab, status = %q", s)
+	}
+	if strings.Contains(s, "0 opens") || strings.Contains(s, "(or 0)") {
+		t.Errorf("chat has no 0-opens-agent binding - the hint must not claim it, status = %q", s)
 	}
 }
 

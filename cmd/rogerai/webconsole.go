@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -28,6 +29,13 @@ func (c config) webuiOpenEnabled() bool { return c.WebuiOpen != nil && *c.WebuiO
 // openBrowser is a seam over the guarded default-browser launcher, so a test can
 // observe the auto-open decision without spawning a process.
 var openBrowser = tui.OpenURL
+
+// webConsoleListen is a seam over webui.Server.Listen so a test can force the bind to
+// fail and cover startWebConsole's non-fatal return-"" branch (webui.Listen's OS-picked
+// fallback makes a real bind failure otherwise unreachable in a test).
+var webConsoleListen = func(s *webui.Server, addr string) (net.Listener, string, error) {
+	return s.Listen(addr)
+}
 
 // stripWebuiFlags removes the global --no-webui / --webui / --webui-port=N flags from a
 // raw argv tail and reports the resulting enabled state + port. They are global (not tied
@@ -59,7 +67,7 @@ func stripWebuiFlags(args []string, enabled bool, port string) (rest []string, o
 // non-fatal — the terminal front-end carries on.
 func startWebConsole(cfg config, ctrl *node.Controller, port string) string {
 	s := webui.New(ctrl, webui.Options{Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID()})
-	ln, url, err := s.Listen("127.0.0.1:" + port)
+	ln, url, err := webConsoleListen(s, "127.0.0.1:"+port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "web console: could not bind a localhost port:", err)
 		return ""

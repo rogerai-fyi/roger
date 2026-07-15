@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/node"
 	"github.com/rogerai-fyi/roger/internal/tui"
+	"github.com/rogerai-fyi/roger/internal/webui"
 )
 
 // stubDetectFull points the detectFull seam at a fake local-LLM detector so the
@@ -353,6 +356,30 @@ func TestStartWebConsole(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("console GET status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestStartWebConsoleListenFailure covers the true bind-failure branch (return "", no
+// browser open) by forcing the listen seam to error - the OS-fallback in webui.Listen
+// makes this branch otherwise unreachable in a test, so a seam is the only honest way
+// to exercise it.
+func TestStartWebConsoleListenFailure(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	origListen, origOpen := webConsoleListen, openBrowser
+	var opened []string
+	webConsoleListen = func(s *webui.Server, addr string) (net.Listener, string, error) {
+		return nil, "", errors.New("forced bind failure")
+	}
+	openBrowser = func(url string) { opened = append(opened, url) }
+	t.Cleanup(func() { webConsoleListen, openBrowser = origListen, origOpen })
+	on := true
+	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
+	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
+	if url := startWebConsole(cfg, ctrl, "0"); url != "" {
+		t.Fatalf("a bind failure should return no URL, got %q", url)
+	}
+	if len(opened) != 0 {
+		t.Fatalf("a bind failure must not open a browser, got %v", opened)
 	}
 }
 

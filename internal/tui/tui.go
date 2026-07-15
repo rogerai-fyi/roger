@@ -1865,7 +1865,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "ctrl+p":
 			// The PERMS key (founder respec 2026-07-14) - but tool approvals live in
 			// the AGENT, not the channel. Point there; Up/Down still recall history.
-			m.status = stDim.Render("tool approvals live in the AGENT - shift+tab (or 0) opens it, ctrl+p cycles /perms there")
+			m.status = stDim.Render("tool approvals live in the AGENT - shift+tab opens it, then ctrl+p cycles /perms")
 			return m, nil
 		case "ctrl+n":
 			// Recall a NEWER sent message; past the newest it restores the draft.
@@ -2114,12 +2114,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "w":
 			// w = web console: open this run's browser node console on demand - it no
 			// longer auto-opens at launch (founder respec 2026-07-14).
-			if m.hooks.ConsoleURL == "" {
-				m.status = stDim.Render("no web console this run - relaunch without --no-webui to serve it")
-				return m, nil
-			}
-			openURL(m.hooks.ConsoleURL)
-			m.status = stDim.Render("web console → ") + stKey.Render(m.hooks.ConsoleURL)
+			m.status = stDim.Render(m.openConsole())
 			return m, nil
 		case "/", ":":
 			m.mode = modeCommand
@@ -2395,12 +2390,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "webui", "console":
 		// /webui: open this run's browser node console on demand (same as `w` in BROWSE).
-		if m.hooks.ConsoleURL == "" {
-			sysLine("no web console this run - relaunch without --no-webui to serve it")
-			return m, nil
-		}
-		openURL(m.hooks.ConsoleURL)
-		sysLine("web console → " + m.hooks.ConsoleURL)
+		sysLine(m.openConsole())
 		return m, nil
 	case "help", "h", "?", "commands":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
@@ -2500,12 +2490,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("support: ") + stKey.Render(supportURL) + stDim.Render(" - community + Discord on the site")
 	case "webui", "console":
 		// /webui: open this run's browser node console on demand (same as the `w` key).
-		if m.hooks.ConsoleURL == "" {
-			m.status = stDim.Render("no web console this run - relaunch without --no-webui to serve it")
-			return m, nil
-		}
-		openURL(m.hooks.ConsoleURL)
-		m.status = stDim.Render("web console → ") + stKey.Render(m.hooks.ConsoleURL)
+		m.status = stDim.Render(m.openConsole())
 	case "ping", "zen":
 		// fullscreen Ping World screensaver from the command palette (any key wakes).
 		return m.enterPingWorld()
