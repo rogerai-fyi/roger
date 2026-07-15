@@ -126,9 +126,10 @@ func TestBrokerErrorBranches(t *testing.T) {
 	}
 }
 
-// TestTpsLevel covers the throughput->signal-bar mapping across every band boundary.
+// TestTpsLevel covers the throughput -> lit-bar-count mapping across every band
+// boundary of the 5-bar staircase meter.
 func TestTpsLevel(t *testing.T) {
-	cases := map[float64]int{0: 0, 10: 1, 30: 2, 100: 3, 200: 4, 400: 5, 700: 6}
+	cases := map[float64]int{0: 0, 10: 1, 30: 1, 100: 2, 200: 3, 400: 4, 700: 5}
 	for tps, want := range cases {
 		if got := tpsLevel(tps); got != want {
 			t.Errorf("tpsLevel(%v) = %d, want %d", tps, got, want)

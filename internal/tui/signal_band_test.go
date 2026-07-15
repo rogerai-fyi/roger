@@ -32,22 +32,28 @@ func TestBandSignalMeterUsesBrokerSignal(t *testing.T) {
 	}
 }
 
-// TestBandSignalLevelMapping checks the TUI's 0..100 -> 0..7 ramp matches the CLI's:
-// 0 is the no-signal sentinel, positive is always >= 1, ~43 lands mid-tower, 100 pins
-// the top of the 8-glyph ramp.
+// TestBandSignalLevelMapping checks the TUI's 0..100 -> lit-bar COUNT (0..5) matches
+// the CLI's: 0 is the no-signal sentinel, positive is always >= 1 bar, ~43 lands
+// mid-meter at 3 bars, 100 lights the full staircase.
 func TestBandSignalLevelMapping(t *testing.T) {
 	if signalLevel(0) != 0 {
 		t.Errorf("signalLevel(0) = %d want 0", signalLevel(0))
 	}
-	if signalLevel(1) < 1 {
-		t.Errorf("signalLevel(1) = %d want >= 1 (online never blank)", signalLevel(1))
+	if signalLevel(1) != 1 {
+		t.Errorf("signalLevel(1) = %d want 1 (online never blank)", signalLevel(1))
 	}
-	if l := signalLevel(43); l < 3 || l > 5 {
-		t.Errorf("signalLevel(43) = %d want mid-tower (~4)", l)
+	if l := signalLevel(43); l != 3 {
+		t.Errorf("signalLevel(43) = %d want 3 (mid-meter)", l)
 	}
-	top := len(signalRamp()) - 1
-	if l := signalLevel(100); l != top {
-		t.Errorf("signalLevel(100) = %d want %d (top of ramp)", l, top)
+	if l := signalLevel(100); l != 5 {
+		t.Errorf("signalLevel(100) = %d want 5 (full staircase)", l)
+	}
+	// The 20-point steps: each threshold adds exactly one bar.
+	for i, sig := range []int{20, 21, 40, 41, 60, 61, 80, 81} {
+		want := []int{1, 2, 2, 3, 3, 4, 4, 5}[i]
+		if l := signalLevel(sig); l != want {
+			t.Errorf("signalLevel(%d) = %d want %d", sig, l, want)
+		}
 	}
 }
 

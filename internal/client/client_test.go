@@ -249,22 +249,22 @@ func TestSignalTowerUsesBrokerSignal(t *testing.T) {
 	}
 }
 
-// TestSignalLevelMapping checks the 0..100 -> 0..7 ramp: 0 yields the "no signal"
-// sentinel (0), any positive signal is >= 1 (online never fully blank), ~43 lands
-// mid-tower, and 100 pins the top of the 8-glyph ramp.
+// TestSignalLevelMapping checks the 0..100 -> lit-bar COUNT (0..5): 0 yields the "no
+// signal" sentinel (0), any positive signal is >= 1 bar (online never fully blank),
+// ~43 lands mid-meter at 3 bars, and 100 lights the full staircase. Lock-step with
+// the TUI's mapping.
 func TestSignalLevelMapping(t *testing.T) {
 	if signalLevel(0) != 0 {
 		t.Errorf("signalLevel(0) = %d want 0 (no signal sentinel)", signalLevel(0))
 	}
-	if l := signalLevel(1); l < 1 {
-		t.Errorf("signalLevel(1) = %d want >= 1 (online never blank)", l)
+	if l := signalLevel(1); l != 1 {
+		t.Errorf("signalLevel(1) = %d want 1 (online never blank)", l)
 	}
-	if l := signalLevel(43); l < 3 || l > 5 {
-		t.Errorf("signalLevel(43) = %d want mid-tower (~4)", l)
+	if l := signalLevel(43); l != 3 {
+		t.Errorf("signalLevel(43) = %d want 3 (mid-meter)", l)
 	}
-	top := len(glyphs.Current().Signal) - 1 // 7 for the ▁..█ ramp
-	if l := signalLevel(100); l != top {
-		t.Errorf("signalLevel(100) = %d want %d (top of ramp)", l, top)
+	if l := signalLevel(100); l != 5 {
+		t.Errorf("signalLevel(100) = %d want 5 (full staircase)", l)
 	}
 	// Monotonic: stronger signal never reads shorter.
 	if signalLevel(20) > signalLevel(80) {
