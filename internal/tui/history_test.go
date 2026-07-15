@@ -233,10 +233,12 @@ func TestChatInputUpDownRecall(t *testing.T) {
 	if got := asModel(m).chatIn.Value(); got != "a draft" {
 		t.Fatalf("Down should restore the draft, got %q", got)
 	}
-	// ctrl+p / ctrl+n remain recall aliases.
+	// ctrl+p is the PERMS key now (founder respec 2026-07-14) - it must NOT recall.
+	// ctrl+n keeps its newer-recall alias.
+	m, _ = m.Update(keyUp())
 	m, _ = m.Update(keyRecallPrev())
 	if got := asModel(m).chatIn.Value(); got != "hello there" {
-		t.Fatalf("ctrl+p should recall the sent line, got %q", got)
+		t.Fatalf("ctrl+p must leave the recalled line untouched, got %q", got)
 	}
 	m, _ = m.Update(keyRecallNext())
 	if got := asModel(m).chatIn.Value(); got != "a draft" {

@@ -89,6 +89,7 @@ type config struct {
 	Voices    map[string]ShareVoice `json:"share_voices,omitempty"` // per-model voice identity (dj name / voice / speed / language / sample_url)
 	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
 	Webui     *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen *bool                 `json:"webui_open,omitempty"`   // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -712,7 +713,9 @@ func run(argv []string, cfg config) error {
 		hooks := tuiHooks(cfg)
 		ctrl := tui.NewController(cfg.Broker, hooks)
 		if webuiOn {
-			startWebConsoleFn(cfg, ctrl, webuiPort)
+			// The console URL rides into the TUI so `w` / /webui open it on demand
+			// (the console itself no longer auto-opens a browser by default).
+			hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort)
 		}
 		return runTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl)
 	}
@@ -1894,7 +1897,7 @@ func cmdAccount(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\n", c.Broker, c.User, c.webuiOpenEnabled())
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -1926,13 +1929,15 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.Broker)
 			case "user":
 				fmt.Println(c.User)
+			case "webui-open":
+				fmt.Println(c.webuiOpenEnabled())
 			}
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -1940,6 +1945,14 @@ func cmdConfig(args []string) error {
 			c.Broker = strings.TrimRight(args[2], "/")
 		case "user":
 			c.User = args[2]
+		case "webui-open":
+			// Auto-open the browser console at launch (OFF by default; `w` in the app
+			// opens it on demand either way).
+			on, err := strconv.ParseBool(args[2])
+			if err != nil {
+				return fmt.Errorf("usage: roger config set webui-open true|false")
+			}
+			c.WebuiOpen = &on
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}
@@ -2104,6 +2117,8 @@ func usage() {
 	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
 
   roger                       open the app (browse, tune in, chat) + browser console
+                              (press w in the app to open the console in your browser;
+                               auto-open at launch: roger config set webui-open true)
   roger --no-webui            open the app WITHOUT the browser console
   roger --ping                full-screen "Ping World" screensaver (or press z in the app)
   roger search                list models, cheapest first
