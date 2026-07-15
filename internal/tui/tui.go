@@ -849,7 +849,12 @@ type model struct {
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
 	// agentPickerCursor the selected row. See agent.go (openAgentModelPicker / the
 	// picker key + view).
-	agentPicked       bool     // the model was chosen via /model (sticky over auto-resolve)
+	agentPicked bool // the model was chosen via /model (sticky over auto-resolve)
+	// agentPickedOver is the channel identity (node+model) that was OPEN when the user
+	// picked via /model - the pick must survive turns on that same channel (the founder's
+	// "I switched to deepseek and the next ask snapped back to Qwen"). Only tuning a
+	// DIFFERENT channel afterwards re-points the agent. "" = nothing was open at pick time.
+	agentPickedOver   string
 	agentPicker       bool     // the /model picker modal is open
 	agentPickerRows   []string // candidate models in the open picker
 	agentPickerCursor int      // selected row in the picker
@@ -6559,6 +6564,7 @@ func (m *model) runAutoTune() tea.Cmd {
 		}
 		m.agent.model = o.Model
 		m.agentPicked = false
+		m.agentPickedOver = ""
 		// Keep focus where it is: if the user is on the FOCUSED desk (a guest scan landed
 		// first), a silent auto-tune must not yank them to the ask box mid-pick. Otherwise
 		// the ask box takes focus so a turn can be typed straight away.
