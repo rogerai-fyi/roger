@@ -677,8 +677,10 @@ type model struct {
 	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
 	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
 	lastReply string
-	// mouseOff: mouse reporting is off (the DEFAULT, keyboard-first like opencode) so the user
-	// can click-drag select+copy ANY text natively; ctrl+o / `/mouse` toggles wheel-scroll on.
+	// mouseOff: mouse reporting state. The DEFAULT is ON (wheel scrolls the transcripts
+	// as real mouse events, so arrow keys are free to mean history in the inputs - the
+	// founder's "up should show history, the wheel should scroll"). ctrl+o / /mouse
+	// toggles OFF for native drag-select + copy (shift+drag also selects while on).
 	mouseOff bool
 	// chatVP is the INDEPENDENT scroll region for the CHANNEL transcript: the
 	// response area scrolls (PgUp/PgDn, Ctrl+U/D, mouse wheel, and the arrow keys
@@ -881,6 +883,13 @@ type model struct {
 	// in agentSlashCandidates(agentTabPrefix) - the carated strip entry.
 	agentTabPrefix string
 	agentTabIdx    int
+	// agentPaneFocus: which AGENT pane owns the keyboard. false = the ask input (the
+	// default: arrows recall history, typing types). true = the TRANSCRIPT (tab from
+	// an empty/non-slash input): arrows + pgup/pgdn/home/end scroll, the seam row
+	// lights up as the focus cue, and esc / enter / any typed rune hand the keyboard
+	// back to the input. The mouse wheel scrolls the transcript in EITHER state
+	// (real wheel events; mouse capture is on by default).
+	agentPaneFocus bool
 	// async, cached update check (non-blocking)
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
@@ -1222,7 +1231,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// mouse capture OFF by default (keyboard-first, like opencode): the terminal owns the
 		// mouse so native drag-select + copy works on ANY text out of the box. ctrl+o / /mouse
 		// opts INTO wheel-scroll. Scrollback is always available via PgUp/PgDn + arrows.
-		mouseOff: true}
+		mouseOff: false}
 }
 
 func (m model) Init() tea.Cmd {
@@ -1808,13 +1817,22 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatVP.HalfPageDown()
 			return m, nil
 		case "up":
-			// Up/Down ALWAYS scroll the transcript (the wheel arrives as arrow keys
-			// while mouse capture is off, and it must never "type" old messages).
-			// Recall lives on ctrl+p / ctrl+n, shell-style - same split as AGENT.
-			m.chatVP.ScrollUp(1)
+			// Shell-style recall first (the wheel scrolls as REAL mouse events now, so
+			// arrows are free to mean history); with nothing to recall, scroll.
+			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
+				m.chatIn.SetValue(v)
+				m.chatIn.CursorEnd()
+			} else {
+				m.chatVP.ScrollUp(1)
+			}
 			return m, nil
 		case "down":
-			m.chatVP.ScrollDown(1)
+			if v, ok := m.chatHist.next(); ok {
+				m.chatIn.SetValue(v)
+				m.chatIn.CursorEnd()
+			} else {
+				m.chatVP.ScrollDown(1)
+			}
 			return m, nil
 		case "end":
 			m.chatVP.GotoBottom()
@@ -8968,11 +8986,12 @@ func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float6
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
-	// Mouse capture is OFF at startup (keyboard-first, like opencode) so the terminal owns the
-	// mouse and native drag-select + copy works on ANY text immediately. The user opts INTO
-	// wheel-scroll with ctrl+o / /mouse (EnableMouseCellMotion); scrollback also works via
-	// PgUp/PgDn + arrows regardless. (m.mouseOff defaults true to match this start state.)
-	return launchTUI(m, tea.WithAltScreen())
+	// Mouse capture is ON at startup: the wheel scrolls the transcripts as REAL mouse
+	// events, which frees the arrow keys to mean history in the inputs (with capture
+	// off, terminals deliver the wheel AS arrow keys and the two are indistinguishable).
+	// Native drag-select still works via shift+drag, and ctrl+o / /mouse toggles capture
+	// off entirely. (m.mouseOff defaults false to match this start state.)
+	return launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 }
 
 // runProgram launches a Bubble Tea program and returns its exit error. It is a
