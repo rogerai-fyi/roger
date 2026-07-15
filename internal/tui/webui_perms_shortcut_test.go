@@ -197,6 +197,12 @@ func TestBrowseWebuiCommand(t *testing.T) {
 	if len(*opened) != 2 {
 		t.Fatalf("no console URL - runSession(console) must not open, got %v", *opened)
 	}
+	// The /? short help stays in lock-step with what runSession accepts.
+	mh := asModel(tallChat(t, 5))
+	out, _ = mh.runSession("?")
+	if joined := stripANSI(strings.Join(asModel(out).transcript, "\n")); !strings.Contains(joined, "/webui") {
+		t.Errorf("/? should list /webui, got:\n%s", joined)
+	}
 }
 
 // TestAgentWebuiCommand: /webui in AGENT opens the console (an instant command - it

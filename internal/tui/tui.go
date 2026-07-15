@@ -2406,7 +2406,7 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /? (the short help; /help + /commands alias it).
 		sysLine("/agent (run the agent on this model) · /model (/tune /retune) · /clear · /save · /system <p> · /cost · /stats (/detail) · /confidential (/conf)")
-		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /support · /disconnect (/leave /dc) · /quit (/q) · /? (/help /h /commands)")
+		sysLine("/connect (/conn) · /endpoint (/ep) · /copy (/y) [all] · /mouse · /compact (/min · alt+m) · /ping (/zen) · /webui (/console) · /support · /disconnect (/leave /dc) · /quit (/q) · /? (/help /h /commands)")
 		sysLine("copy: DRAG to select any text (native) · ctrl+y last reply · /copy all  ·  scroll: PgUp/PgDn · arrows · ctrl+o for wheel")
 		sysLine("esc or /disconnect leaves this channel · /quit exits RogerAI · tab peeks at the band")
 		return m, nil

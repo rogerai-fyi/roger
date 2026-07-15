@@ -1929,6 +1929,8 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.Broker)
 			case "user":
 				fmt.Println(c.User)
+			case "webui-open":
+				fmt.Println(c.webuiOpenEnabled())
 			}
 			return nil
 		}

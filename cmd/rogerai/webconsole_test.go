@@ -108,6 +108,15 @@ func TestConfigWebuiOpenSetGet(t *testing.T) {
 	if !strings.Contains(out, "webui-open") {
 		t.Errorf("bare `roger config` should list webui-open, got:\n%s", out)
 	}
+	// `config get webui-open` answers too (audit finding: it was a silent no-output).
+	out = captureStdout(t, func() {
+		if err := cmdConfig([]string{"get", "webui-open"}); err != nil {
+			t.Errorf("get webui-open: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "false" {
+		t.Errorf("config get webui-open = %q, want false", strings.TrimSpace(out))
+	}
 }
 
 func TestWebuiEnabledDefault(t *testing.T) {
