@@ -114,6 +114,7 @@ func TestShortFailureShapes(t *testing.T) {
 		{"the station returned status 504 with no reply", "m", "no station is serving m right now (504)"},
 		{"the station sent an empty response (status 502)", "m", "no station is serving m right now (502)"},
 		{"context deadline exceeded", "m", "the station timed out"},
+		{"decode() failed: failed to process speculative batch", "m", "the station hit an internal error - try again, it usually recovers"},
 		{"could not reach the broker: dial tcp", "", "could not reach the broker"},
 		{"connection refused", "", "could not reach the broker"},
 		{"some other weird error", "", "some other weird error"},
