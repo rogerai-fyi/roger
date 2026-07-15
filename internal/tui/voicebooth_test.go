@@ -103,7 +103,7 @@ func TestVoiceBandsOnAirCount(t *testing.T) {
 	}
 }
 
-// The top-level "N models on air" headline counts LLM (chat) bands ONLY — it must NOT include the
+// The top-level "N bands" headline counts LLM (chat) bands ONLY — it must NOT include the
 // voice bands (which are excluded from the list and surfaced via the footnote). Otherwise the
 // number above the list disagrees with the rows shown. Same for the on-air station count.
 func TestHeadlineCountsExcludeVoices(t *testing.T) {
@@ -120,10 +120,10 @@ func TestHeadlineCountsExcludeVoices(t *testing.T) {
 		t.Fatalf("precondition: seed should have exactly 1 chat band, got %d", chat)
 	}
 	out := stripANSI(m.browseView(100))
-	if !strings.Contains(out, "1 models on air") && !strings.Contains(out, "1 model on air") {
+	if !strings.Contains(out, "1 band") {
 		t.Errorf("the headline should count the LLM bands only (1), not include voices; got:\n%s", out)
 	}
-	if strings.Contains(out, "4 models on air") {
+	if strings.Contains(out, "4 bands") {
 		t.Errorf("the headline must NOT count the 3 voice bands into 'models on air'; got:\n%s", out)
 	}
 	// The persistent ambient status ("N bands · M on air") also excludes voices.

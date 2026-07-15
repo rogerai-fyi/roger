@@ -491,7 +491,7 @@ func (m model) enterBooth() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeVoiceBooth
 	m.boothCursor = 0
-	m.status = stDim.Render("THE DJ BOOTH — voices on air · " + glyphs.Fold("▶") + " spin a sample · enter to cue")
+	m.status = stDim.Render("THE DJ BOOTH - voices on air · " + glyphs.Fold("▶") + " spin a sample · enter to cue")
 	return m, nil
 }
 
@@ -519,7 +519,7 @@ func (m model) onVoiceBoothKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeListeningPost
 		m.boothCursor = 0
-		m.status = stDim.Render("THE LISTENING POST — transcribers (send audio, not chat)")
+		m.status = stDim.Render("THE LISTENING POST - transcribers (send audio, not chat)")
 		return m, nil
 	case "up", "k":
 		if m.boothCursor > 0 {
@@ -587,9 +587,10 @@ func boothPricePer1k(b band) string {
 // obey the ASCII-fold rule (the DELTA's hard requirement after the un-foldable 🎤).
 func voiceBadgeGlyph(b band) string { return glyphs.Fold(voiceBadge(b)) }
 
-// emDash is the folded "none"/absent mark (—, folds to - on a legacy console). Used for the
-// Booth's not-yet-populated lang/sample cells so they degrade like every other glyph.
-func emDash() string { return glyphs.Fold("—") }
+// emDash is the "none"/absent mark. It renders a plain hyphen everywhere now: the
+// founder's house style bans the em dash character in user-facing text, and a bare
+// "-" is the conventional empty-cell mark anyway (no folding needed).
+func emDash() string { return "-" }
 
 // boothSampleGlyph is ♪ when the DJ published a broker-hosted sample clip, else — (none). The TUI
 // offer does not yet carry sample_url from /discover (that is producer-side plumbing, a separate

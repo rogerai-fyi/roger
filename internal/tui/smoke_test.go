@@ -253,8 +253,8 @@ func TestInTUIFlows(t *testing.T) {
 	var tm tea.Model = m
 	tm, _ = tm.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	// /help lists the new verbs.
-	hv := runCmd(tm, "help").View()
+	// /help lists the new verbs (the screen pages; the CONTENT carries the list).
+	hv := stripANSI(asModel(runCmd(tm, "help")).helpView())
 	for _, want := range []string{"/share", "/login", "/grant", "/topup"} {
 		if !strings.Contains(hv, want) {
 			t.Errorf("/help missing %q:\n%s", want, hv)
