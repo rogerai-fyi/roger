@@ -57,6 +57,7 @@ func TestHelpGlossaryRenders(t *testing.T) {
 		"confidential", "hardware-private",
 		"frequency code", "private-band",
 	}
+	v = stripANSI(m.helpView()) // the SCREEN pages this content; assert the content itself
 	for _, want := range jargon {
 		if !strings.Contains(v, want) {
 			t.Errorf("glossary missing jargon term/gloss %q:\n%s", want, v)
@@ -86,12 +87,12 @@ func TestSectionIndicatorAppearsOnce(t *testing.T) {
 	// Exactly one line is the header section BADGE (names the current section + [s]).
 	badgeLines := 0
 	for _, l := range lines {
-		if strings.Contains(l, "TUNE IN [s]") {
+		if strings.Contains(l, "R O G E R") && strings.Contains(l, "TUNE IN") {
 			badgeLines++
 		}
 	}
 	if badgeLines != 1 {
-		t.Errorf("the section badge ('TUNE IN [s]') should appear exactly once, got %d:\n%s", badgeLines, v)
+		t.Errorf("the header section badge ('TUNE IN') should appear exactly once, got %d:\n%s", badgeLines, v)
 	}
 
 	// The old triple-indicator clutter is gone: no "TUNE IN │ SHARE" toggle-pair badge
