@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/node"
 	"github.com/rogerai-fyi/roger/internal/tui"
+	"github.com/rogerai-fyi/roger/internal/webui"
 )
 
 // stubDetectFull points the detectFull seam at a fake local-LLM detector so the
@@ -257,13 +260,18 @@ func TestRunNoArgsLaunch(t *testing.T) {
 		if broker != "https://b" {
 			t.Errorf("runTUI got broker %q, want https://b", broker)
 		}
+		// The console URL must reach the TUI so `w` / /webui can open it on demand.
+		if hooks.ConsoleURL != "http://127.0.0.1:4180/?t=test" {
+			t.Errorf("runTUI got hooks.ConsoleURL %q, want the console URL", hooks.ConsoleURL)
+		}
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) {
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) string {
 		webCalled = true
 		if port != defaultWebuiPort {
 			t.Errorf("startWebConsoleFn got port %q, want %q", port, defaultWebuiPort)
 		}
+		return "http://127.0.0.1:4180/?t=test"
 	}
 	t.Cleanup(func() { runTUI, startWebConsoleFn = origTUI, origWeb })
 
@@ -285,7 +293,7 @@ func TestRunNoWebui(t *testing.T) {
 		tuiCalled = true
 		return nil
 	}
-	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) { webCalled = true }
+	startWebConsoleFn = func(cfg config, ctrl *node.Controller, port string) string { webCalled = true; return "" }
 	t.Cleanup(func() { runTUI, startWebConsoleFn = origTUI, origWeb })
 
 	if err := run([]string{"--no-webui"}, config{Broker: "https://b", User: "u", Onboarded: true}); err != nil {
@@ -351,15 +359,51 @@ func TestStartWebConsole(t *testing.T) {
 	}
 }
 
-// TestStartWebConsoleBindFailure covers the non-fatal bind-failure branch: a bogus port
-// string fails to bind and startWebConsole returns without panicking (the terminal
-// front-end carries on).
-func TestStartWebConsoleBindFailure(t *testing.T) {
+// TestStartWebConsoleListenFailure covers the true bind-failure branch (return "", no
+// browser open) by forcing the listen seam to error - the OS-fallback in webui.Listen
+// makes this branch otherwise unreachable in a test, so a seam is the only honest way
+// to exercise it.
+func TestStartWebConsoleListenFailure(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	cfg := config{Broker: "https://b", User: "u"}
+	origListen, origOpen := webConsoleListen, openBrowser
+	var opened []string
+	webConsoleListen = func(s *webui.Server, addr string) (net.Listener, string, error) {
+		return nil, "", errors.New("forced bind failure")
+	}
+	openBrowser = func(url string) { opened = append(opened, url) }
+	t.Cleanup(func() { webConsoleListen, openBrowser = origListen, origOpen })
+	on := true
+	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
 	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
-	// "99999999" is out of the valid TCP port range -> Listen fails -> early return.
-	startWebConsole(cfg, ctrl, "99999999")
+	if url := startWebConsole(cfg, ctrl, "0"); url != "" {
+		t.Fatalf("a bind failure should return no URL, got %q", url)
+	}
+	if len(opened) != 0 {
+		t.Fatalf("a bind failure must not open a browser, got %v", opened)
+	}
+}
+
+// TestStartWebConsoleBogusPortRescued: webui.Listen never dead-ends on a sane host - a
+// port string outside the TCP range falls through the upward scan to the OS-picked
+// last resort, so the console still serves, returns a real URL, and (with webui_open
+// on) auto-opens exactly that URL. The true bind-failure branch (no loopback at all)
+// is not reachable in a test environment.
+func TestStartWebConsoleBogusPortRescued(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	origOpen := openBrowser
+	var opened []string
+	openBrowser = func(url string) { opened = append(opened, url) }
+	t.Cleanup(func() { openBrowser = origOpen })
+	on := true
+	cfg := config{Broker: "https://b", User: "u", WebuiOpen: &on}
+	ctrl := tui.NewController(cfg.Broker, tuiHooks(cfg))
+	url := startWebConsole(cfg, ctrl, "99999999")
+	if url == "" || !strings.Contains(url, "127.0.0.1") {
+		t.Fatalf("a bogus port should be rescued by the OS-picked fallback, got %q", url)
+	}
+	if len(opened) != 1 || opened[0] != url {
+		t.Fatalf("webui_open=true should open the rescued URL once, got %v", opened)
+	}
 }
 
 // TestPayoutRequestAmountBranches drives payoutRequest's optional-[amount] validation

@@ -173,7 +173,8 @@ func TestChatArrowScrollsWhenNoHistory(t *testing.T) {
 }
 
 // TestChatHistoryRecallStillWorks: Up recalls command history while the input owns
-// focus (the wheel scrolls as real mouse events), and ctrl+p stays an alias.
+// focus (the wheel scrolls as real mouse events). ctrl+p is the PERMS key now
+// (founder respec 2026-07-14) and must NOT recall.
 func TestChatHistoryRecallStillWorks(t *testing.T) {
 	m := tallChat(t, 60)
 	mm := asModel(m)
@@ -188,8 +189,8 @@ func TestChatHistoryRecallStillWorks(t *testing.T) {
 	mm.chatHist.cursor = len(mm.chatHist.entries)
 	m = mm
 	m, _ = m.Update(keyRecallPrev())
-	if got := asModel(m).chatIn.Value(); got != "recall me" {
-		t.Fatalf("ctrl+p should recall command history, got %q", got)
+	if got := asModel(m).chatIn.Value(); got != "" {
+		t.Fatalf("ctrl+p must not recall anymore, got %q", got)
 	}
 }
 

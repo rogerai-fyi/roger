@@ -615,6 +615,23 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rcEmitConfirmDone(true, "local")
 			c.resp <- true
 			return m, m.waitAgentEvent()
+		case "ctrl+p":
+			// ctrl+p is the perms key even at the gate (founder: instant perms toggle
+			// even mid-turn) - NEVER the surprise DENY the default branch would give.
+			// Cycle the mode; if the escalated mode now auto-approves THIS tool, resolve
+			// the gate as approved (the intuitive "stop asking me, allow this"); else
+			// leave the gate pending so no accidental run happens.
+			next := (agentPermMode(m.agent.perms.Load()) + 1) % 3
+			m = m.applyPermMode(next)
+			if permAllows(next, c.tool) {
+				m.agentLines = append(m.agentLines, "  "+stLive.Render("✓ ")+stDim.Render("approved · running "+c.tool))
+				m.agentPendingConfirm = nil
+				m.rcConfirmID = ""
+				m.rcEmitConfirmDone(true, "local")
+				c.resp <- true
+				return m, m.waitAgentEvent()
+			}
+			return m, nil
 		default: // n / N / esc / anything else - default DENY
 			m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+c.tool+" was not run"))
 			m.agentPendingConfirm = nil
@@ -819,15 +836,13 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.GotoBottom()
 		return m, nil
 	case "ctrl+p":
-		// Shell-style recall: an OLDER sent prompt (stashing the live draft on the
-		// first press). Distinct from the chat's history. Ignored mid-turn, when
-		// edits to the in-flight prompt would be lost anyway.
-		if !m.agentBusy {
-			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
-				m.agentIn.SetValue(v)
-				m.agentIn.CursorEnd()
-			}
+		// The PERMS key (founder respec 2026-07-14): cycle the tool-approval mode
+		// exactly like bare /perms - INSTANTLY, even mid-turn (the mode is an atomic
+		// the confirmer reads live). History recall stays on Up/Down (+ ctrl+n).
+		if m.agent == nil {
+			return m, nil
 		}
+		m = m.applyPermMode((agentPermMode(m.agent.perms.Load()) + 1) % 3)
 		return m, nil
 	case "ctrl+n":
 		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
@@ -904,7 +919,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(p, "/") {
 			m.rcEmitLocalTurn(p)
 		}
-		if m.agentBusy {
+		if m.agentBusy && !instantAgentCommand(p) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
@@ -1060,7 +1075,7 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 // TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
 // Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
 // typable but are not suggested.
-var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control"}
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control", "/webui"}
 
 // agentSlashCandidates returns the agentCommands entries the input's command word
 // prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
@@ -1112,6 +1127,53 @@ func (m model) agentSlashStrip() string {
 // runAgentCommand handles the small set of in-AGENT slash commands (no chat turn):
 // /clear resets the session, /persona shows where dj.md lives + its first lines,
 // /help lists them. Anything else is a hint (never sent as a turn).
+// instantAgentCommand reports whether a slash line runs IMMEDIATELY even while a turn
+// is busy, instead of parking in the prompt queue. Only commands that touch local UI
+// state qualify (the perms atomic, a browser open) - queueing those is pure damage:
+// the founder's screenshot showed two "queued · /perms" firing after the turn and
+// double-cycling the mode through auto-all. Session-mutating commands (/clear, /model,
+// ...) still queue, as does every chat prompt.
+func instantAgentCommand(line string) bool {
+	f := strings.Fields(line)
+	if len(f) == 0 {
+		return false
+	}
+	switch f[0] {
+	case "/perms", "/permissions", "/yolo", "/webui", "/console", "/web":
+		return true
+	}
+	return false
+}
+
+// applyPermMode stores the new tool-approval mode and echoes ONE feedback line - loud
+// (ember, bang) at the full bypass, a quiet dim note otherwise - so the /perms command,
+// the ctrl+p key, and the confirm-gate escalation all report a mode change identically.
+// Every caller guards m.agent != nil (ctrl+p and /perms early-return, a pending confirm
+// implies a live agent), so this dereferences it directly - a nil here is a real bug.
+func (m model) applyPermMode(next agentPermMode) model {
+	m.agent.perms.Store(int32(next))
+	if next == permAll {
+		m.agentLines = append(m.agentLines, stEmber.Render("! tools "+next.String()+" - "+permsHelp(next)))
+	} else {
+		m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render("tools "+next.String()+" - "+permsHelp(next)))
+	}
+	return m
+}
+
+// openConsole opens this run's browser node console if one is serving and returns the
+// status line to show. The single source for the guard + wording, shared by the BROWSE
+// `w` key, /webui in the AGENT, and both channel command runners (review: 4-site dup).
+// The console no longer auto-opens at launch (founder respec 2026-07-14).
+func (m model) openConsole() string {
+	if m.hooks.ConsoleURL == "" {
+		// Honest about BOTH reasons the URL can be empty (review: the old message
+		// asserted --no-webui even when the console simply failed to bind).
+		return "no web console this run - it's off (--no-webui) or the port didn't bind"
+	}
+	openURL(m.hooks.ConsoleURL)
+	return "web console → " + m.hooks.ConsoleURL
+}
+
 func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 	fields := strings.Fields(line)
 	cmd := strings.TrimPrefix(fields[0], "/")
@@ -1153,20 +1215,19 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		case len(fields) >= 2:
 			mode, ok := parsePermMode(fields[1])
 			if !ok {
-				note("usage: /perms confirm | edits | all   (bare /perms cycles)")
+				note("usage: /perms confirm | edits | all   (bare /perms or ctrl+p cycles)")
 				return m, nil
 			}
 			next = mode
 		default:
 			next = (cur + 1) % 3 // bare /perms cycles confirm -> edits -> all -> confirm
 		}
-		m.agent.perms.Store(int32(next))
-		if next == permAll {
-			// The bypass is loud on purpose: an ember line, not a dim note.
-			m.agentLines = append(m.agentLines, stEmber.Render("! tools "+next.String()+" - "+permsHelp(next)))
-		} else {
-			note("tools " + next.String() + " - " + permsHelp(next))
-		}
+		m = m.applyPermMode(next)
+		return m, nil
+	case "webui", "console", "web":
+		// Open the browser node console on demand - it no longer auto-opens at launch
+		// (founder respec 2026-07-14). Instant even mid-turn (instantAgentCommand).
+		note(m.openConsole())
 		return m, nil
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
@@ -1755,7 +1816,7 @@ func (m model) agentView(w int) string {
 		if m.agent != nil {
 			permTail = permsHelp(agentPermMode(m.agent.perms.Load()))
 		}
-		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  " + permTail
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  ⌃p perms  ·  esc exits AGENT  ·  /clear  ·  " + permTail
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"
