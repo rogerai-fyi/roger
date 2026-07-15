@@ -43,7 +43,7 @@ test("openArgs: new tab with the opener severed (no window.opener leak to the st
   assert.ok(R.openArgs("u")[2].includes("noopener")); // security: store tab can't reach back via opener
 });
 
-test("APP_STORE_URL: a well-formed apps.apple.com deep link (id format locked for the real swap)", () => {
-  // Placeholder today; this lock still passes once a real numeric id replaces id000000000.
-  assert.match(R.APP_STORE_URL, /^https:\/\/apps\.apple\.com\/.+\/id\d+$/);
+test("APP_STORE_URL: the live RogerAI.fyi listing, canonical form (matches app.html)", () => {
+  assert.equal(R.APP_STORE_URL, "https://apps.apple.com/us/app/rogerai-fyi/id6785743752");
+  assert.match(R.APP_STORE_URL, /^https:\/\/apps\.apple\.com\/.+\/id\d+$/); // well-formed deep link, no trailing slash
 });
