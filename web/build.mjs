@@ -55,7 +55,7 @@ const CSS_BUNDLES = {
   "broadcasts-connect-bots-openai-api.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 007 · SEO field guide (connect bots / OpenAI API)
   "broadcasts-deepseek-mtp-gguf.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 008 · field guide (DeepSeek MTP GGUF build story)
   "bands.html":     [...CSS_MARKETING],                  // redirect shell: shared chrome only
-  "app.html":       [...CSS_MARKETING, "notfound.css"],  // "tuning up" placeholder: reuses the centered .lost plate
+  "app.html":       [...CSS_MARKETING, "app.css"],       // the App Store launch page (shipped 2026-07-09)
   "404.html":       [...CSS_MARKETING, "notfound.css"],
   // account (chrome) pages
   "account.html":   [...CSS_ACCOUNT, "account.css"],
