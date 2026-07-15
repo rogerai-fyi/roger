@@ -73,6 +73,69 @@ type agentRuntime struct {
 	callStart  time.Time // zero between model calls
 	callSoft   time.Time // when the past-cap prompt appears; +PerCallCap per tab
 	callExtend func(time.Duration)
+	// perms is the tool-approval mode (agentPermMode) - written on the UI goroutine
+	// (/perms), read on the loop goroutine (the confirmer), hence atomic.
+	perms atomic.Int32
+}
+
+// agentPermMode is the AGENT's tool-approval level - the Claude-Code-style permission
+// modes (the founder's "setting to bypass permissions"). Session-only: it always
+// resets to permConfirm on a fresh TUI (or via ROGERAI_AGENT_PERMS), and anything
+// permissive is named in the masthead so a bypass is never invisible.
+type agentPermMode int32
+
+const (
+	permConfirm agentPermMode = iota // every mutating tool asks y/N (the default)
+	permEdits                        // write_file auto-approves; run_shell still asks
+	permAll                          // every mutating tool auto-approves (the bypass)
+)
+
+func (p agentPermMode) String() string {
+	switch p {
+	case permEdits:
+		return "auto-edits"
+	case permAll:
+		return "auto-all"
+	}
+	return "confirm"
+}
+
+// permAllows reports whether mode p auto-approves the named mutating tool (read-only
+// tools never reach the confirmer at all).
+func permAllows(p agentPermMode, tool string) bool {
+	switch p {
+	case permAll:
+		return true
+	case permEdits:
+		return tool == "write_file"
+	}
+	return false
+}
+
+// parsePermMode accepts the /perms spellings (and the env default): confirm/ask,
+// edits/auto-edits, all/auto-all/yolo/bypass.
+func parsePermMode(s string) (agentPermMode, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "confirm", "ask", "default":
+		return permConfirm, true
+	case "edits", "auto-edits", "edit":
+		return permEdits, true
+	case "all", "auto-all", "yolo", "bypass":
+		return permAll, true
+	}
+	return permConfirm, false
+}
+
+// permsHelp is the one-line "what runs without asking" summary for the mode - shared
+// by /perms notes and the idle help tail so the two never drift.
+func permsHelp(p agentPermMode) string {
+	switch p {
+	case permEdits:
+		return "read/list + write auto · run_shell confirms"
+	case permAll:
+		return "ALL tools auto-run - nothing asks (/perms confirm restores the gate)"
+	}
+	return "read/list auto · write/run confirm"
 }
 
 // agentCapGrace is how long past the soft cap a model call keeps running while the
@@ -401,12 +464,23 @@ func (m model) newAgentRuntime() *agentRuntime {
 		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
+		// Permission modes: a permissive session auto-approves here (the masthead
+		// names the mode, so this is never silent). The operator money plate is a
+		// DIFFERENT flow and never passes through this gate.
+		if permAllows(agentPermMode(rt.perms.Load()), tool) {
+			return true
+		}
 		c := agentConfirm{tool: tool, args: args, resp: make(chan bool, 1)}
 		rt.confirmReq <- c // surfaced to the UI as agentConfirmMsg
 		return <-c.resp    // blocks until the user answers y/N
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
 	rt.loop = harness.NewLoop(agentRoot(), persona, completer, confirmer)
+	// Startup default for the approval mode: ROGERAI_AGENT_PERMS=confirm|edits|all
+	// (unset/invalid = confirm). Session-only from there; /perms toggles live.
+	if mode, ok := parsePermMode(os.Getenv("ROGERAI_AGENT_PERMS")); ok {
+		rt.perms.Store(int32(mode))
+	}
 	return rt
 }
 
@@ -967,7 +1041,7 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 // TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
 // Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
 // typable but are not suggested.
-var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/persona", "/remote-control"}
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control"}
 
 // agentSlashCandidates returns the agentCommands entries the input's command word
 // prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
@@ -1047,6 +1121,33 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// A cleared session IS the landing again: its one note is the new entry chrome,
 		// so THE DESK roster returns (desk_view: "/clear returns the landing").
 		m.agentLandingLines = len(m.agentLines)
+		return m, nil
+	case "perms", "permissions", "yolo":
+		if m.agent == nil {
+			return m, nil
+		}
+		cur := agentPermMode(m.agent.perms.Load())
+		next := cur
+		switch {
+		case cmd == "yolo":
+			next = permAll
+		case len(fields) >= 2:
+			mode, ok := parsePermMode(fields[1])
+			if !ok {
+				note("usage: /perms confirm | edits | all   (bare /perms cycles)")
+				return m, nil
+			}
+			next = mode
+		default:
+			next = (cur + 1) % 3 // bare /perms cycles confirm -> edits -> all -> confirm
+		}
+		m.agent.perms.Store(int32(next))
+		if next == permAll {
+			// The bypass is loud on purpose: an ember line, not a dim note.
+			m.agentLines = append(m.agentLines, stEmber.Render("! tools "+next.String()+" - "+permsHelp(next)))
+		} else {
+			note("tools " + next.String() + " - " + permsHelp(next))
+		}
 		return m, nil
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
@@ -1473,14 +1574,14 @@ func (m model) agentView(w int) string {
 	if m.compact {
 		// The windowshade folds the desk strip to a bare count (§3f) - "" with zero
 		// guests, so the zero-guest compact heading stays byte-identical.
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") + m.agentPermTag() +
 			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost)) + m.deskCompactCount()
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		if mdl != "" && !m.narrow() {
 			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
 		}
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") + m.agentPermTag() +
 			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
@@ -1631,7 +1732,11 @@ func (m model) agentView(w int) string {
 	if !m.compact {
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
-		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  read/list auto · write/run confirm"
+		permTail := permsHelp(permConfirm)
+		if m.agent != nil {
+			permTail = permsHelp(agentPermMode(m.agent.perms.Load()))
+		}
+		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  esc exits AGENT  ·  /clear  ·  " + permTail
 		switch {
 		case m.agentBusy && m.narrow():
 			help = "type queues · esc cancels (2× force)"
@@ -1643,6 +1748,22 @@ func (m model) agentView(w int) string {
 		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}
 	return b.String()
+}
+
+// agentPermTag is the masthead's approval-mode chip: empty at the confirm default
+// (the masthead stays byte-identical), a quiet key chip for auto-edits, an EMBER one
+// for the full bypass - a permissive session must be visible at a glance.
+func (m model) agentPermTag() string {
+	if m.agent == nil {
+		return ""
+	}
+	switch agentPermMode(m.agent.perms.Load()) {
+	case permEdits:
+		return stDim.Render(" · ") + stKey.Render("auto-edits")
+	case permAll:
+		return stDim.Render(" · ") + stEmber.Render("AUTO-ALL")
+	}
+	return ""
 }
 
 // agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule
