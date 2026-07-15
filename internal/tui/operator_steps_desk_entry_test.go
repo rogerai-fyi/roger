@@ -285,6 +285,7 @@ func (s *opBDD) noCostConfirmShown() error {
 	}
 	return nil
 }
+
 // onlyFreeBandSmallBesidePaidLarge seeds the model's market with a SINGLE band whose free
 // station has an 8k window and whose paid sibling has a 32k window - the mixed band the
 // handoff auto-tune must NOT bind the 8k free station onto (finding 2026-07-08). The band

@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -661,7 +662,17 @@ var (
 )
 
 func main() {
-	if err := run(os.Args[1:], loadConfig()); err != nil {
+	err := run(os.Args[1:], loadConfig())
+	if errors.Is(err, tui.ErrRestart) {
+		// The in-TUI upgrade finished and the user chose "restart now": re-exec the
+		// freshly installed binary in place (same argv/env).
+		if err := execRestart(); err != nil {
+			fmt.Fprintln(os.Stderr, "restart failed:", err, "- start roger again manually")
+			os.Exit(1)
+		}
+		return
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

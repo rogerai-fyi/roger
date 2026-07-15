@@ -898,8 +898,9 @@ type model struct {
 	// back to the input. The mouse wheel scrolls the transcript in EITHER state
 	// (real wheel events; mouse capture is on by default).
 	agentPaneFocus bool
-	// async, cached update check (non-blocking)
+	// async, cached update check (non-blocking) + the in-TUI upgrade banner state
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
+	upg        upgState
 	// in-TUI provider/account/money flows (TUI-V2-CRITIQUE D / audit C5)
 	hooks     Hooks          // host-supplied platform/auth bits (nil-safe)
 	share     *agent.Session // most-recently-shared in-process session (the panel's headline; nil = none)
@@ -1663,6 +1664,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rcConfirmID = protocol.NewRequestID()
 		m.rcEmitConfirmReq(&c, m.rcConfirmID)
 		return m, nil
+	case upgradeDoneMsg:
+		if msg.err != nil {
+			m.upg = upgFailed
+			tuiLog.Write([]byte("upgrade failed: " + msg.err.Error() + "\n"))
+		} else {
+			m.upg = upgDone
+		}
+		return m, nil
 	case agentCostMsg:
 		m.agentCost += msg.cost
 		m.agentTokensIn += msg.tokensIn // running ↑ billed tokens (broker re-count)
@@ -2238,6 +2247,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "re-scanning the band…"
 			m.scanErr, m.scanned = false, false // back to the loading pose while we retune
 			return m, fetchOffers(m.broker)
+		case "u", "x":
+			// The update banner's keys (upgrade now / restart / hide) - only when a
+			// notice is showing; otherwise the keys stay free for future browse use.
+			if nm, cmd, handled := m.onUpgradeKey(k.String()); handled {
+				return nm, cmd
+			}
 		}
 	}
 	return m, nil
@@ -8520,9 +8535,10 @@ func (m model) footer(w int) string {
 	if m.status != "" {
 		st = "\n" + stDim.Render("  ") + m.status
 	}
-	// A subtle non-blocking update notice rides in the status area when available.
-	if m.updateLine != "" {
-		st += "\n" + stDim.Render("  ") + stEmber.Render(m.updateLine)
+	// The update banner rides in the status area when available - actionable in
+	// BROWSE (u upgrades right here, x hides), passive prose elsewhere.
+	if b := m.upgradeBanner(); b != "" {
+		st += "\n" + stDim.Render("  ") + b
 	}
 	rule := stHeadRule.Render(strings.Repeat("─", w))
 	// Narrow: stack the keys above the bal/broker line (a two-line status bar) so
@@ -9080,7 +9096,14 @@ func RunWithController(broker, user string, limits *LimitStore, notice string, h
 	// off, terminals deliver the wheel AS arrow keys and the two are indistinguishable).
 	// Native drag-select still works via shift+drag, and ctrl+o / /mouse toggles capture
 	// off entirely. (m.mouseOff defaults false to match this start state.)
-	return launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	wantRestart = false
+	if err := launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion()); err != nil {
+		return err
+	}
+	if wantRestart {
+		return ErrRestart
+	}
+	return nil
 }
 
 // runProgram launches a Bubble Tea program and returns its exit error. It is a
