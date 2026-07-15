@@ -2012,6 +2012,11 @@ func shortFailure(raw, model string) string {
 		return noStationServing(model) + statusSuffix(s)
 	case strings.Contains(low, "timeout") || strings.Contains(low, "deadline exceeded") || strings.Contains(low, "timed out"):
 		return "the station timed out" + statusSuffix(s)
+	case strings.Contains(low, "decode() failed") || strings.Contains(low, "failed to process"):
+		// A station-side inference crash (e.g. llama.cpp 'failed to process
+		// speculative batch'): the band exists and usually recovers - say so instead
+		// of implying nobody is on air.
+		return "the station hit an internal error - try again, it usually recovers" + statusSuffix(s)
 	case strings.Contains(low, "could not reach the broker") || strings.Contains(low, "broker unreachable") || strings.Contains(low, "connection refused") || strings.Contains(low, "connection reset"):
 		return "could not reach the broker"
 	}
