@@ -689,7 +689,10 @@ type model struct {
 	// new output, but holds position when the user has scrolled up. Sized from the
 	// window each Update (see refreshScroll / chatView). The agent has its own
 	// agentVP. Source of truth stays m.transcript; the viewport renders from it.
-	chatVP    viewport.Model
+	chatVP viewport.Model
+	// helpVP scrolls the HELP screen (audit P0: at common terminal heights the
+	// "start here" section was clipped off-screen with no way to scroll).
+	helpVP    viewport.Model
 	connected *offer
 	endpoint  string
 	apikey    string
@@ -1648,8 +1651,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// DENY). The loop goroutine is blocked on the confirm's resp channel meanwhile.
 		c := agentConfirm(msg)
 		m.agentPendingConfirm = &c
-		m.agentLines = append(m.agentLines, "  "+stEmber.Render("? ")+stKey.Render(c.summary())+stDim.Render("   run it? [y/N]"))
-		m.status = stEmber.Render("! " + c.tool + " - y/n")
+		// ONE ask, not four (audit): the modal block below the transcript carries the
+		// full prompt (and the NOT-sandboxed warning) and the footer carries the keys.
+		// The transcript keeps only a dim record of WHAT asked; the resolution line
+		// (approved/denied) completes the story.
+		m.agentLines = append(m.agentLines, "  "+stEmber.Render("? ")+stKey.Render(c.summary()))
+		m.status = ""
 		// BASE STATION: give this confirm a fresh id and let any attached surface answer it.
 		// The id lets the host reject a STALE remote answer (for an already-resolved confirm)
 		// so a delayed 'approve' can never resolve a DIFFERENT mutating tool.
@@ -1924,13 +1931,35 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeBrowse
 		return m, nil
 	case modeHelp:
-		// A preset key jumps straight to its mode; any other key returns to browse.
-		if k.String() != "?" {
-			if nm, cmd, ok := m.presetForKey(k.String()); ok {
-				return nm, cmd
-			}
+		// HELP is a pager now (audit P0: it was taller than most terminals and any
+		// key exited, so the top - the part a new user needs - was unreachable).
+		// Scroll keys page it; esc/q/enter/? go back; a preset key still jumps.
+		switch k.String() {
+		case "up", "k":
+			m.helpVP.ScrollUp(1)
+			return m, nil
+		case "down", "j":
+			m.helpVP.ScrollDown(1)
+			return m, nil
+		case "pgup", "ctrl+u":
+			m.helpVP.HalfPageUp()
+			return m, nil
+		case "pgdown", "ctrl+d", " ":
+			m.helpVP.HalfPageDown()
+			return m, nil
+		case "home":
+			m.helpVP.GotoTop()
+			return m, nil
+		case "end":
+			m.helpVP.GotoBottom()
+			return m, nil
+		case "esc", "q", "enter", "?":
+			m.mode = modeBrowse
+			return m, nil
 		}
-		m.mode = modeBrowse
+		if nm, cmd, ok := m.presetForKey(k.String()); ok {
+			return nm, cmd
+		}
 		return m, nil
 	case modeConnectConfirm:
 		switch k.String() {
@@ -2204,6 +2233,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "?":
 			m.mode = modeHelp
+			m.helpVP.GotoTop()
 		case "r":
 			m.status = "re-scanning the band…"
 			m.scanErr, m.scanned = false, false // back to the loading pose while we retune
@@ -2424,6 +2454,7 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		}
 	case "help", "h":
 		m.mode = modeHelp
+		m.helpVP.GotoTop()
 	case "log", "logs":
 		m.mode = modeLog
 	case "support":
@@ -4344,6 +4375,7 @@ func (m model) presetForKey(key string) (tea.Model, tea.Cmd, bool) {
 		return nm, cmd, true
 	case "?":
 		m.mode = modeHelp
+		m.helpVP.GotoTop()
 		return m, nil, true
 	}
 	return m, nil, false
@@ -4373,7 +4405,23 @@ func (m model) View() string {
 	}
 	switch m.mode {
 	case modeHelp:
-		b.WriteString(m.helpView())
+		content := m.helpView()
+		budget := m.height - 8
+		if budget < 6 {
+			budget = 6
+		}
+		// No measured height (tests / pipes) renders the whole thing - the pager only
+		// engages when we KNOW the content will not fit.
+		if m.height <= 0 || lineRows(content) <= budget {
+			b.WriteString(content)
+		} else {
+			m.helpVP.Width = w
+			m.helpVP.Height = budget
+			m.helpVP.SetContent(content)
+			b.WriteString(m.helpVP.View() + "\n")
+			pct := int(m.helpVP.ScrollPercent() * 100)
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("── %d%% · ↑↓ / pgdn scroll · esc back ──", pct)) + "\n")
+		}
 	case modeLog:
 		b.WriteString(m.logView(w))
 	case modeChat:
@@ -4737,14 +4785,20 @@ func (m model) confirmView(w int) string {
 			if q.estReply > 0 {
 				reps = m.balance / q.estReply
 			}
-			b.WriteString(stDim.Render(fmt.Sprintf("    balance      %s   (~%.0f replies)", dollars(m.balance), reps)) + "\n")
+			if q.estReply <= 0 {
+				b.WriteString(stDim.Render(fmt.Sprintf("    balance      %s   · replies are free on this band", dollars(m.balance))) + "\n")
+			} else {
+				b.WriteString(stDim.Render(fmt.Sprintf("    balance      %s   (~%.0f replies)", dollars(m.balance), reps)) + "\n")
+			}
 		}
 		b.WriteString(stDim.Render("    locked       each reply price-locks at send; a hold pre-auths the session") + "\n")
 	}
 
 	b.WriteString("\n")
-	b.WriteString("       " + stLive.Render("accept · open channel") + "     " + stDim.Render("deny · back") + "     " + stDim.Render("more detail") + "\n")
-	b.WriteString("       " + stKey.Render("[ enter / y ]") + "         " + stDim.Render("[ esc / n ]") + "     " + stKey.Render("[ d ]") + "\n")
+	// One line, key beside its action (audit: the two-row form drifted, keys landing
+	// left of the wrong labels).
+	b.WriteString("       " + stKey.Render("[enter/y]") + " " + stLive.Render("accept · open channel") + "    " +
+		stKey.Render("[esc/n]") + " " + stDim.Render("deny · back") + "    " + stKey.Render("[d]") + " " + stDim.Render("detail") + "\n")
 	return b.String()
 }
 
@@ -4861,8 +4915,14 @@ func (m model) endpointBlock(w int) string {
 	row := func(label, value string) string {
 		return "  " + stDim.Render(pad(label, 9)) + stKey.Render(value)
 	}
+	// The full key never sits on screen (audit P0) - and the recovery hint only rides
+	// where it fits (narrow terminals keep the masked key alone).
+	keyHint := ""
+	if w >= 70 {
+		keyHint = stDim.Render("  (roger keys prints the full key)")
+	}
 	return row("BASE URL", m.endpoint) + "\n" +
-		row("API KEY", m.apikey) + "\n" +
+		row("API KEY", maskKey(m.apikey)+keyHint) + "\n" +
 		row("MODEL", model)
 }
 
@@ -5109,7 +5169,7 @@ func (m model) sectionBadge() string {
 	if m.inShareSection() {
 		return stEmber.Bold(true).Render("SHARE") + stDim.Render(" [s]")
 	}
-	return stSelText.Render("TUNE IN") + stDim.Render(" [s]")
+	return stSelText.Render("TUNE IN")
 }
 
 // modeName returns the current mode's short label for the indicator, so the
@@ -5126,9 +5186,9 @@ func (m model) modeName() string {
 	case modeOverLimit:
 		return "OVER LIMIT"
 	case modeLimits:
-		return "LIMITS"
+		return "SPEND LIMITS"
 	case modeShare:
-		return "PROVIDER TABLE"
+		return "SHARE"
 	case modeShareEditor:
 		return "PRICE + SCHEDULE"
 	case modeShareSetup:
@@ -5310,7 +5370,7 @@ func (m model) header(w int) string {
 	// limits / provider table / ...). On the resting BROWSE screen it just restated the
 	// section, so it is dropped there - the section badge alone is the "where am I".
 	if !m.narrow() && m.modeName() != "BROWSE" {
-		badge += stDim.Render("  ·  ") + stDim.Render("mode ") + stSelText.Render(m.modeName())
+		badge += stDim.Render("  ·  ") + stSelText.Render(m.modeName())
 	}
 	if m.onAir && m.share != nil {
 		badge = m.headlineBadge() + stDim.Render("  ·  ") + badge
@@ -5846,7 +5906,7 @@ func (m model) browseView(w int) string {
 		// "N models on air" counts LLM (chat) bands only — voice bands live in THE DJ BOOTH (the
 		// footnote), so counting them here would disagree with the LLM-only rows below.
 		b.WriteString("  " + stSelBar.Render("▌") + " " + stBrand.Render("THE BAND") +
-			stDim.Render(fmt.Sprintf("   %d models on air", m.llmBands())) + sortTag + freqTag + "\n")
+			stDim.Render("   "+plural(m.llmBands(), "band")) + sortTag + freqTag + "\n")
 	}
 	// FILTER line: shown while the live filter input is open (f) OR when a filter /
 	// toggle is applied. It carries the active name filter, the quick toggles, and the
@@ -8487,8 +8547,8 @@ func (m model) helpView() string {
 		{"↑↓ then enter", "TUNE IN: pick a band, open a channel, chat"},
 		{"f", "FILTER the band by name (live) - esc clears, enter keeps it applied"},
 		{"~", "PRIVATE FREQ: enter a frequency code to tune onto a hidden band - esc returns to OPEN MARKET"},
-		{"S · F/C/O", "SORT cycle (strongest/cheapest/fastest/most-stations) · toggles free-now / confidential / on-air"},
-		{"s · S", "SORT the band (strongest / cheapest / fastest / most-stations)"},
+		{"s", "SORT cycle (strongest / cheapest / fastest / most-stations)"},
+		{"F/C/O", "filters: free-now / confidential / on-air"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
@@ -8524,9 +8584,9 @@ func (m model) helpView() string {
 	for _, c := range start {
 		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-20s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
-	b.WriteString("\n" + stBrand.Render("  all commands") + stDim.Render("  (each is also a `rogerai <cmd>` you can script)") + "\n\n")
+	b.WriteString("\n" + stBrand.Render("  all commands") + stDim.Render("  (each is also a `roger <cmd>` you can script)") + "\n\n")
 	for _, c := range cmds {
-		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-22s", c[0])) + stDim.Render(c[1]) + "\n")
+		b.WriteString("  " + stKey.Render(fmt.Sprintf("%-24s", c[0])) + stDim.Render(c[1]) + "\n")
 	}
 	b.WriteString("\n  " + stDim.Render("in CHANNEL: /model /clear /save /system <p> /cost /endpoint /support /disconnect /quit") + "\n")
 	b.WriteString("  " + stDim.Render("sections: ") + stKey.Render("←/→") + stDim.Render(" switch section (cycle the [0]…[?] bar) · ") +
@@ -8569,7 +8629,7 @@ func (m model) helpView() string {
 	if helpVersion != "" {
 		lockup += " " + helpVersion
 	}
-	b.WriteString("\n  " + stDim.Render(lockup+" · press any key to go back") + "\n")
+	b.WriteString("\n  " + stDim.Render(lockup+" · ↑↓ scroll · esc back") + "\n")
 	return b.String()
 }
 

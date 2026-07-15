@@ -64,7 +64,9 @@ func TestStagedConnectSequence(t *testing.T) {
 	// (◆) - NOT a generic "verified" word.
 	mm.connectStage = connectStageDone
 	out := stripANSI(mm.connectingView(100))
-	for _, want := range []string{"CHANNEL OPEN", "confidential", "BASE URL", "API KEY", "MODEL", "http://127.0.0.1:4141/v1", "roger-local", "gpt-oss-20b", "roger that."} {
+	// The key renders MASKED (audit P0: never plaintext on screen) - assert the mask,
+	// and that the raw key is NOT visible.
+	for _, want := range []string{"CHANNEL OPEN", "confidential", "BASE URL", "API KEY", "MODEL", "http://127.0.0.1:4141/v1", maskKey("roger-local"), "gpt-oss-20b", "roger that."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("connect finale missing %q:\n%s", want, out)
 		}
@@ -128,7 +130,7 @@ func TestEndpointBlockAligned(t *testing.T) {
 	}
 	// The value column starts at the same offset on every row (aligned gutter).
 	off := func(line, val string) int { return strings.Index(line, val) }
-	if a, b, c := off(lines[0], "http://"), off(lines[1], "roger-local"), off(lines[2], "qwen3-coder-30b"); a != b || b != c {
+	if a, b, c := off(lines[0], "http://"), off(lines[1], maskKey("roger-local")), off(lines[2], "qwen3-coder-30b"); a != b || b != c {
 		t.Errorf("endpoint block values not aligned: %d/%d/%d\n%s", a, b, c, block)
 	}
 }
