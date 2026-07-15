@@ -293,7 +293,7 @@ var (
 //	glyphLineage ✓ signed-lineage / GitHub-verified-operator glint - the IDENTITY mark
 //	               on every co-signed channel + on login. Distinct from ◆: lineage
 //	               receipts are on ALL channels; ◆ is only the confidential tier.
-//	signalGlyphs ▁▂▃▄▅▆▇█  the signal-strength tower
+//	signalGlyphs ▃▄▅▇█ over a ▁ rail  the signal staircase (lit bars = strength)
 //
 // These degrade to plain runes under NO_COLOR (lipgloss strips the color, the
 // glyph itself is still a recognizable Unicode mark) and stay fixed-width. They are
@@ -5781,7 +5781,7 @@ func (m model) browseView(w int) string {
 		case loading:
 			return "\n  " + m.transmitLineFor(0) + "\n  " + stDim.Render("scanning the band…") + "\n"
 		default:
-			shimmer := tintSignal(signalBarsRaw(m.frame, 0, 0, true, 0, 0), 0, 0, true)
+			shimmer := tintSignal(signalBarsRaw(m.frame, 55, 0, true, 0, 0), 55, 0, true)
 			if m.narrow() {
 				// Slim: stack the shimmer above the trimmed CTA so neither overflows the
 				// real width (the empty-band line is not width-clamped).
@@ -8624,20 +8624,21 @@ func indentBlock(s, pad string) string {
 // legacy Windows console. signalPeak indexes into either ramp identically.
 func signalRamp() []rune { return glyphs.Current().Signal }
 
-// signalLevel maps the broker's 0..100 signal onto the 0..7 glyph-ramp level (▁..█).
-// A positive signal always returns >= 1, so an online node never reads fully blank;
-// ~43 (an on-air node with no traffic) lands mid-tower; 100 pins the top. 0 means
-// "no broker signal carried" so the caller can fall back to the tps-derived level.
-// Kept in lock-step with client.signalLevel (the plain-CLI tower) so both agree.
+// signalLevel maps the broker's 0..100 signal onto the LIT-BAR COUNT (0..5) of the
+// staircase meter: ceil(signal/20), so 1-20 -> 1 bar, 41-60 -> 3 bars (the ~43
+// baseline lands mid-meter), 81-100 -> the full 5. A positive signal always returns
+// >= 1 so an online node never reads blank. 0 means "no broker signal carried" so
+// the caller can fall back to the tps-derived count. Kept in lock-step with
+// client.signalLevel (the plain-CLI meter) so both agree.
 func signalLevel(signal int) int {
 	if signal <= 0 {
 		return 0
 	}
-	lvl := 1 + (signal*6+99)/100 // ceil((signal/100)*6) + 1 base; ~43 -> 4
-	if lvl > 7 {
-		lvl = 7
+	n := (signal*5 + 99) / 100 // ceil(signal/20)
+	if n > 5 {
+		n = 5
 	}
-	return lvl
+	return n
 }
 
 // signalFlat is the 5-cell "no signal" tower (offline / unmeasured) for the resolved
@@ -8655,14 +8656,12 @@ func signalBarsRaw(frame, signal int, tps float64, online bool, inFlight, statio
 	if base == 0 {
 		switch {
 		case tps >= 600:
-			base = 6
-		case tps >= 300:
 			base = 5
-		case tps >= 150:
+		case tps >= 300:
 			base = 4
-		case tps >= 60:
+		case tps >= 150:
 			base = 3
-		case tps >= 20:
+		case tps >= 60:
 			base = 2
 		case tps > 0:
 			base = 1
@@ -8670,18 +8669,21 @@ func signalBarsRaw(frame, signal int, tps float64, online bool, inFlight, statio
 	}
 	if base == 0 {
 		// Online with neither a broker signal nor measured tps: one faint bar, never
-		// a fully blank tower (online always reads as at least a carrier).
+		// a fully blank meter (online always reads as at least a carrier).
 		base = 1
 	}
-	// More stations on the band -> a stronger carrier: +1 notch per extra station
-	// beyond the first, capped at +2 so a single fast node and a crowded band stay
-	// distinguishable without pinning everything to the top.
+	// More stations on the band -> a stronger carrier: +1 bar per extra station
+	// beyond the first, capped at +2 (and at the meter's 5), so a single fast node
+	// and a crowded band stay distinguishable without pinning everything full.
 	if stations > 1 {
 		boost := stations - 1
 		if boost > 2 {
 			boost = 2
 		}
 		base += boost
+	}
+	if base > 5 {
+		base = 5
 	}
 	// ACTIVITY -> animation amplitude. amp is how far the scanning wave swings around the
 	// measured level: 0 = idle (a STEADY tower, no shimmer), 1..2 = actively serving
@@ -8693,22 +8695,41 @@ func signalBarsRaw(frame, signal int, tps float64, online bool, inFlight, statio
 	return signalTowerAt(anim(frame), base, amp)
 }
 
-// signalTowerAt renders the 5-cell tower at an ALREADY-RESOLVED frame (the caller has
-// applied any reduced-motion freeze via anim()/sigFrame). It is the pure render: level
-// = base, motion = a scanning wave of amplitude amp (amp==0 -> a dead-steady tower).
-// Split out so the animation is testable independent of the process-wide quiet freeze.
-func signalTowerAt(frame, base, amp int) string {
+// stairHeights are the glyph-ramp indices of the staircase meter's lit bars, low to
+// high: ▃▄▅▇█ on the Unicode ramp. The count of LIT bars is the signal (cellphone
+// style - instantly countable); an unlit cell renders the index-0 rail (▁) so every
+// slot stays visible. The top two stairs sit at/above signalPeak, so the existing red
+// glint lands only on a strong 4-5 bar carrier.
+var stairHeights = [5]int{2, 3, 4, 6, 7}
+
+// signalTowerAt renders the 5-cell staircase at an ALREADY-RESOLVED frame (the caller
+// has applied any reduced-motion freeze via anim()/sigFrame). count (0..5) is how many
+// bars are lit; motion = real activity, and it moves ONLY the top of the staircase so
+// the lit-bar COUNT never wavers: at amp 1 the top bar breathes one ramp step, at amp
+// 2 it swings both ways and the bar below ripples with it. The frozen frame (anim()
+// pins frame=1, where scanOffset returns 0) is exactly the pure staircase.
+func signalTowerAt(frame, count, amp int) string {
 	set := signalRamp()
+	if count > 5 {
+		count = 5
+	}
 	var sb strings.Builder
 	for i := 0; i < 5; i++ {
-		// A wave travels across the 5 cells (phase = frame+i); its swing is scaled by amp
-		// = real activity. Idle (amp==0) -> offset is always 0 -> every cell sits at the
-		// flat measured level (a STEADY tower). The wave only adds motion AROUND base
-		// within [-amp,+amp]; it never lifts the resting height, so the bar still reads
-		// the true signal even at peak swing.
-		lvl := base + scanOffset(frame+i, amp)
-		if lvl < 0 {
-			lvl = 0
+		if i >= count {
+			sb.WriteRune(set[0]) // the unlit rail: visible, clearly empty
+			continue
+		}
+		lvl := stairHeights[i]
+		switch {
+		case i == count-1:
+			lvl += scanOffset(frame, amp)
+		case amp >= 2 && i == count-2:
+			lvl += scanOffset(frame, 1)
+		}
+		// Clamp the swing: never down to the rail (the count stays honest) and never
+		// past the ramp top.
+		if lvl < 1 {
+			lvl = 1
 		}
 		if lvl >= len(set) {
 			lvl = len(set) - 1
@@ -8786,9 +8807,11 @@ func tintSignal(raw string, signal int, tps float64, online bool) string {
 		switch {
 		case lvl < 0: // a space / non-bar rune (alignment padding) - leave bare
 			b.WriteRune(r)
-		case lvl >= signalPeak: // peaking - the one red glint
+		case lvl == 0: // the unlit rail - visibly empty, never inked
+			b.WriteString(stDim.Render(string(r)))
+		case lvl >= signalPeak: // peaking - the one red glint (the 4th/5th stair)
 			b.WriteString(stRed.Render(string(r)))
-		default: // body of the tower - mono ink
+		default: // lit bars - mono ink
 			b.WriteString(stLive.Render(string(r)))
 		}
 	}

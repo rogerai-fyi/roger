@@ -153,45 +153,45 @@ func signalTower(signal int, tps float64, online bool) string {
 	if !online {
 		return glyphs.Current().SigOff
 	}
-	base := signalLevel(signal)
-	if base == 0 {
-		// No broker signal (legacy offer) - fall back to the tps-derived level so a
+	count := signalLevel(signal)
+	if count == 0 {
+		// No broker signal (legacy offer) - fall back to the tps-derived count so a
 		// node that DOES report throughput still meters.
-		base = tpsLevel(tps)
+		count = tpsLevel(tps)
 	}
-	if base == 0 {
+	if count == 0 {
 		// Online with neither a broker signal nor measured tps: show one bar, never a
-		// fully blank tower (online always reads as at least faint carrier).
-		base = 1
+		// fully blank meter (online always reads as at least faint carrier).
+		count = 1
 	}
+	// The staircase meter, lock-step with the TUI's stairHeights: lit bars ascend
+	// ▃▄▅▇█, unlit cells show the ▁ rail, and the COUNT of lit bars is the signal.
+	stairs := [5]int{2, 3, 4, 6, 7}
 	ramp := glyphs.Current().Signal
 	var b strings.Builder
 	for i := 0; i < 5; i++ {
-		lvl := base - (i % 2)
-		if lvl < 0 {
-			lvl = 0
+		if i >= count {
+			b.WriteRune(ramp[0])
+			continue
 		}
-		if lvl >= len(ramp) {
-			lvl = len(ramp) - 1
-		}
-		b.WriteRune(ramp[lvl])
+		b.WriteRune(ramp[stairs[i]])
 	}
 	return b.String()
 }
 
-// signalLevel maps the broker's 0..100 signal onto the 0..7 glyph ramp (▁..█). An
-// online node's baseline signal (~43 with no traffic) lands mid-tower; 100 pins
-// the top. 0 means "no broker signal" (the caller then falls back to tps).
+// signalLevel maps the broker's 0..100 signal onto the staircase's LIT-BAR COUNT
+// (0..5): ceil(signal/20). An online node's baseline (~43) lands mid-meter at 3
+// bars; 100 pins the full 5. 0 means "no broker signal" (the caller then falls
+// back to tps). Lock-step with the TUI's signalLevel.
 func signalLevel(signal int) int {
 	if signal <= 0 {
 		return 0
 	}
-	// 1..100 -> 1..7 (never 0 for a positive signal, so an online node always meters).
-	lvl := 1 + (signal*6+99)/100 // ceil((signal/100)*6), then +1 base; ~43 -> 4
-	if lvl > 7 {
-		lvl = 7
+	n := (signal*5 + 99) / 100 // ceil(signal/20)
+	if n > 5 {
+		n = 5
 	}
-	return lvl
+	return n
 }
 
 // tpsLevel is the legacy tok/s -> level mapping, kept as the fallback meter when an
@@ -199,14 +199,12 @@ func signalLevel(signal int) int {
 func tpsLevel(tps float64) int {
 	switch {
 	case tps >= 600:
-		return 6
-	case tps >= 300:
 		return 5
-	case tps >= 150:
+	case tps >= 300:
 		return 4
-	case tps >= 60:
+	case tps >= 150:
 		return 3
-	case tps >= 20:
+	case tps >= 60:
 		return 2
 	case tps > 0:
 		return 1
