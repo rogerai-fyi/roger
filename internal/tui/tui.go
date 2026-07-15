@@ -54,6 +54,10 @@ type Hooks struct {
 	// rename updates it live + persists via SaveStation.
 	Station     string
 	SaveStation func(station string) // persist a station rename (nil = in-session only; the TUI does no disk I/O)
+	// ConsoleURL is the tokenized URL of this run's browser node console ("" = no
+	// console this run, e.g. --no-webui). The console no longer auto-opens at launch
+	// (founder respec 2026-07-14); `w` in BROWSE and /webui in AGENT open it on demand.
+	ConsoleURL string
 	HW          string               // hardware label for the offer
 	GitHubID    string               // public GitHub OAuth client id (device flow)
 	LinkedLogin string               // the locally-linked GitHub login at startup ("" = anonymous)
@@ -1859,12 +1863,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatVP.GotoBottom()
 			return m, nil
 		case "ctrl+p":
-			// Shell-style recall: an OLDER sent message (stashing the live draft on
-			// the first press). Guarded to modeChat (the input is focused here).
-			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
-				m.chatIn.SetValue(v)
-				m.chatIn.CursorEnd()
-			}
+			// The PERMS key (founder respec 2026-07-14) - but tool approvals live in
+			// the AGENT, not the channel. Point there; Up/Down still recall history.
+			m.status = stDim.Render("tool approvals live in the AGENT - shift+tab (or 0) opens it, ctrl+p cycles /perms there")
 			return m, nil
 		case "ctrl+n":
 			// Recall a NEWER sent message; past the newest it restores the draft.
@@ -2110,6 +2111,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "z":
 			// z = zone out: drop into the fullscreen Ping World screensaver (any key wakes).
 			return m.enterPingWorld()
+		case "w":
+			// w = web console: open this run's browser node console on demand - it no
+			// longer auto-opens at launch (founder respec 2026-07-14).
+			if m.hooks.ConsoleURL == "" {
+				m.status = stDim.Render("no web console this run - relaunch without --no-webui to serve it")
+				return m, nil
+			}
+			openURL(m.hooks.ConsoleURL)
+			m.status = stDim.Render("web console → ") + stKey.Render(m.hooks.ConsoleURL)
+			return m, nil
 		case "/", ":":
 			m.mode = modeCommand
 			m.cmd.Focus()
@@ -2382,6 +2393,15 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		openURL(supportURL)
 		sysLine("support: " + supportURL + " · community + Discord on the site")
 		return m, nil
+	case "webui", "console":
+		// /webui: open this run's browser node console on demand (same as `w` in BROWSE).
+		if m.hooks.ConsoleURL == "" {
+			sysLine("no web console this run - relaunch without --no-webui to serve it")
+			return m, nil
+		}
+		openURL(m.hooks.ConsoleURL)
+		sysLine("web console → " + m.hooks.ConsoleURL)
+		return m, nil
 	case "help", "h", "?", "commands":
 		// Keep this listing in lock-step with what runSession actually accepts (incl. the
 		// aliases), so no real command is hidden from /? (the short help; /help + /commands alias it).
@@ -2478,6 +2498,14 @@ func (m model) run(cmd string) (tea.Model, tea.Cmd) {
 		// either way as the fallback.
 		openURL(supportURL)
 		m.status = stDim.Render("support: ") + stKey.Render(supportURL) + stDim.Render(" - community + Discord on the site")
+	case "webui", "console":
+		// /webui: open this run's browser node console on demand (same as the `w` key).
+		if m.hooks.ConsoleURL == "" {
+			m.status = stDim.Render("no web console this run - relaunch without --no-webui to serve it")
+			return m, nil
+		}
+		openURL(m.hooks.ConsoleURL)
+		m.status = stDim.Render("web console → ") + stKey.Render(m.hooks.ConsoleURL)
 	case "ping", "zen":
 		// fullscreen Ping World screensaver from the command palette (any key wakes).
 		return m.enterPingWorld()
@@ -4552,6 +4580,7 @@ var paletteCmds = []paletteCmd{
 	{"/config", "broker + identity", ""},
 	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
 	{"/ping", "the Ping World screensaver", "z"},
+	{"/webui", "open the browser node console", "w"},
 	{"/support", "rogerai.fyi - community + Discord", ""},
 	{"/help", "the full operating manual", "?"},
 	{"/log", "node + broker messages", ""},
@@ -8567,6 +8596,7 @@ func (m model) helpView() string {
 		{"F/C/O", "filters: free-now / confidential / on-air"},
 		{"m  ·  alt+m", "MINIMIZE to the dense compact windowshade · alt+m (or /compact) works from anywhere, even mid-chat"},
 		{"z", "SCREENSAVER: zone out to Ping's world (fullscreen, any key wakes) · also /ping"},
+		{"w", "WEB CONSOLE: open this station's browser console (it no longer auto-opens at launch)"},
 		{"esc (in a channel)", "disconnect - leave the channel, back to the band"},
 		{"q (browsing)", "quit RogerAI"},
 	}

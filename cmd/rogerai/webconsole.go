@@ -19,6 +19,16 @@ const defaultWebuiPort = "4180"
 // off for a single run (--webui forces it on). The flags are consumed by stripWebuiFlags.
 func (c config) webuiEnabled() bool { return c.Webui == nil || *c.Webui }
 
+// webuiOpenEnabled reports whether the console also auto-opens in a browser at launch.
+// OFF by default (founder respec 2026-07-14: on terminal-embedded browsers the auto-open
+// trapped the TUI); `roger config set webui-open true` opts back in. Either way the URL
+// is printed and `w` (BROWSE) / /webui (AGENT) open it on demand.
+func (c config) webuiOpenEnabled() bool { return c.WebuiOpen != nil && *c.WebuiOpen }
+
+// openBrowser is a seam over the guarded default-browser launcher, so a test can
+// observe the auto-open decision without spawning a process.
+var openBrowser = tui.OpenURL
+
 // stripWebuiFlags removes the global --no-webui / --webui / --webui-port=N flags from a
 // raw argv tail and reports the resulting enabled state + port. They are global (not tied
 // to a subcommand), so the dispatcher filters them before reading os.Args[1]; a real
@@ -43,15 +53,16 @@ func stripWebuiFlags(args []string, enabled bool, port string) (rest []string, o
 }
 
 // startWebConsole stands up the localhost browser console over ctrl (the SAME controller
-// the TUI/daemon drives), printing the tokenized URL and opening the browser. It returns
-// immediately; the server runs in a background goroutine for the life of the process. A
-// bind failure is non-fatal — the terminal front-end carries on.
-func startWebConsole(cfg config, ctrl *node.Controller, port string) {
+// the TUI/daemon drives), printing the tokenized URL, and returns that URL ("" on a bind
+// failure) so the TUI can open it on demand (`w` / /webui). It returns immediately; the
+// server runs in a background goroutine for the life of the process. A bind failure is
+// non-fatal — the terminal front-end carries on.
+func startWebConsole(cfg config, ctrl *node.Controller, port string) string {
 	s := webui.New(ctrl, webui.Options{Broker: cfg.Broker, User: cfg.User, ClientID: gitHubClientID()})
 	ln, url, err := s.Listen("127.0.0.1:" + port)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "web console: could not bind a localhost port:", err)
-		return
+		return ""
 	}
 	fmt.Printf("web console → %s\n", url)
 	go func() { _ = s.Serve(ln) }()
@@ -65,7 +76,12 @@ func startWebConsole(cfg config, ctrl *node.Controller, port string) {
 		// rewrite saved share config — that's reserved for an explicit re-detect.
 		ctrl.LoadRowsNoPersist(found)
 	}()
-	// Open the browser only on a real interactive terminal (the helper self-gates), so a
-	// headless `roger share` daemon prints the URL but never hijacks a browser.
-	tui.OpenURL(url)
+	// Auto-open ONLY when the saved config opts in (webui_open: true) - the default is
+	// to just print the URL (founder respec 2026-07-14: the auto-open trapped the TUI
+	// under terminal-embedded browsers). The launcher still self-gates on a real
+	// interactive terminal, so a headless `roger share` daemon never hijacks a browser.
+	if cfg.webuiOpenEnabled() {
+		openBrowser(url)
+	}
+	return url
 }

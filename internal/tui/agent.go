@@ -819,16 +819,10 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.GotoBottom()
 		return m, nil
 	case "ctrl+p":
-		// Shell-style recall: an OLDER sent prompt (stashing the live draft on the
-		// first press). Distinct from the chat's history. Ignored mid-turn, when
-		// edits to the in-flight prompt would be lost anyway.
-		if !m.agentBusy {
-			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
-				m.agentIn.SetValue(v)
-				m.agentIn.CursorEnd()
-			}
-		}
-		return m, nil
+		// The PERMS key (founder respec 2026-07-14): cycle the tool-approval mode
+		// exactly like bare /perms - INSTANTLY, even mid-turn (the mode is an atomic
+		// the confirmer reads live). History recall stays on Up/Down (+ ctrl+n).
+		return m.runAgentCommand("/perms")
 	case "ctrl+n":
 		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
 		if !m.agentBusy {
@@ -904,7 +898,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(p, "/") {
 			m.rcEmitLocalTurn(p)
 		}
-		if m.agentBusy {
+		if m.agentBusy && !instantAgentCommand(p) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
 			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
@@ -1060,7 +1054,7 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 // TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
 // Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
 // typable but are not suggested.
-var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control"}
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control", "/webui"}
 
 // agentSlashCandidates returns the agentCommands entries the input's command word
 // prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
@@ -1112,6 +1106,24 @@ func (m model) agentSlashStrip() string {
 // runAgentCommand handles the small set of in-AGENT slash commands (no chat turn):
 // /clear resets the session, /persona shows where dj.md lives + its first lines,
 // /help lists them. Anything else is a hint (never sent as a turn).
+// instantAgentCommand reports whether a slash line runs IMMEDIATELY even while a turn
+// is busy, instead of parking in the prompt queue. Only commands that touch local UI
+// state qualify (the perms atomic, a browser open) - queueing those is pure damage:
+// the founder's screenshot showed two "queued · /perms" firing after the turn and
+// double-cycling the mode through auto-all. Session-mutating commands (/clear, /model,
+// ...) still queue, as does every chat prompt.
+func instantAgentCommand(line string) bool {
+	f := strings.Fields(line)
+	if len(f) == 0 {
+		return false
+	}
+	switch f[0] {
+	case "/perms", "/permissions", "/yolo", "/webui", "/console", "/web":
+		return true
+	}
+	return false
+}
+
 func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 	fields := strings.Fields(line)
 	cmd := strings.TrimPrefix(fields[0], "/")
@@ -1153,7 +1165,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		case len(fields) >= 2:
 			mode, ok := parsePermMode(fields[1])
 			if !ok {
-				note("usage: /perms confirm | edits | all   (bare /perms cycles)")
+				note("usage: /perms confirm | edits | all   (bare /perms or ctrl+p cycles)")
 				return m, nil
 			}
 			next = mode
@@ -1167,6 +1179,16 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		} else {
 			note("tools " + next.String() + " - " + permsHelp(next))
 		}
+		return m, nil
+	case "webui", "console", "web":
+		// Open the browser node console on demand - it no longer auto-opens at launch
+		// (founder respec 2026-07-14). Instant even mid-turn (instantAgentCommand).
+		if m.hooks.ConsoleURL == "" {
+			note("no web console this run - relaunch without --no-webui to serve it")
+			return m, nil
+		}
+		openURL(m.hooks.ConsoleURL)
+		note("web console → " + m.hooks.ConsoleURL)
 		return m, nil
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
