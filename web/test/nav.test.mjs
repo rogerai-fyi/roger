@@ -101,7 +101,8 @@ test("footer keeps the FULL map: everything pulled from the bar is still reachab
 test("the App link resolves: /app.html is the live App Store launch page", () => {
   assert.ok(existsSync(path.join(DIST, "app.html")), "app.html builds to dist (the link 200s)");
   const app = readDist("app.html");
-  assert.match(app, /the band, in&nbsp;your&nbsp;pocket/i, "the launch page keeps the pocket-band headline");
+  // the operative phrase may carry the red-underline span (the index H1 motif)
+  assert.match(app, /the band, (?:<span[^>]*>)?in&nbsp;your&nbsp;pocket/i, "the launch page keeps the pocket-band headline");
   // the app SHIPPED 2026-07-09: the page is indexed now (in the sitemap), no placeholder leftovers
   assert.doesNotMatch(app, /name="robots" content="noindex"/, "launch page is indexed");
   assert.doesNotMatch(app, /tuning up/i, "no 'tuning up' placeholder copy survives");
