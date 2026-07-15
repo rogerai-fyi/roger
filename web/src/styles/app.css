@@ -1,0 +1,143 @@
+/* =====================================================================
+   RogerAI - app.css : the App Store launch page (/app.html).
+   The handheld hero (badge + a Mac/iPhone composition), alternating
+   feature plates with REAL screenshots as manual figures, the spec
+   plate, and the closing CTA. Reuses shared chrome from base.css
+   (.section, .section__head, .sectionno, .fig, .hero__eyebrow, .onair,
+   .wrap, .mono, .ember). Consumes tokens.css + base.css.
+
+   Design language: the operating manual. Screenshots are FIGURES -
+   hairline-framed plates with a FIG. caption - not glossy device
+   mockups; the app's own UI carries the one red beacon.
+   ===================================================================== */
+
+/* ---------- hero ------------------------------------------------ */
+.app-hero { padding-block: clamp(72px, 9vw, 120px) var(--section-y); position: relative; }
+.app-hero__inner { display: flex; flex-direction: column; align-items: flex-start; }
+.app-hero__title {
+  margin: var(--s-4) 0 0; font-size: var(--t-display); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.app-hero__sub {
+  margin: var(--s-5) 0 0; max-width: 60ch; color: var(--ink-500);
+  font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.app-hero__sub b { color: var(--ink-900); font-weight: var(--weight-semi); }
+
+.app-hero__cta { margin-top: var(--s-6); display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-4) var(--s-5); }
+.app-hero__meta { font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+
+/* the official badge: keep Apple's artwork verbatim, add only our hover */
+.app-badge { display: inline-flex; line-height: 0; transition: transform var(--d-2, .16s) ease, opacity var(--d-2, .16s) ease; }
+.app-badge:hover { transform: translateY(-2px); }
+.app-badge img { display: block; }
+.app-badge--lg { margin-top: var(--s-5); }
+
+/* the composition: desk set behind, handheld in front */
+.app-hero__stage { margin-top: clamp(40px, 6vw, 72px); width: 100%; }
+.app-hero__stage > .fig { display: block; margin-bottom: var(--s-3); }
+.app-hero__devices { position: relative; max-width: 840px; padding-bottom: clamp(24px, 5vw, 56px); }
+.app-hero__mac { display: block; width: min(100%, 720px); }
+/* the handheld overlaps the desk set's corner; the selector carries the parent
+   so the later .app-shot { position: relative } base can't flatten it back
+   into flow (equal specificity would let source order win). */
+.app-hero__devices .app-hero__phone {
+  position: absolute; right: 0; bottom: 0; width: clamp(130px, 24%, 200px);
+  box-shadow: 0 18px 44px rgba(21, 20, 15, .18);
+}
+
+/* ---------- screenshots as manual figures ----------------------- */
+.app-shot { display: block; position: relative; }
+.app-shot img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--hairline); border-radius: var(--r-md, 6px);
+  background: var(--paper);
+}
+.app-shot > .fig { display: block; margin-top: var(--s-2); }
+/* the shots are light-UI captures; in the dark room, dim the plate a touch
+   so the page doesn't glare - the app's red beacon still reads. */
+[data-theme="dark"] .app-shot img { filter: brightness(.9) contrast(1.02); }
+[data-theme="dark"] .app-hero__phone { box-shadow: 0 18px 44px rgba(0, 0, 0, .5); }
+
+/* ---------- alternating feature plates -------------------------- */
+/* consecutive features share the page rhythm; the base .section padding
+   doubles up between two adjacent plates, so halve the seam. */
+.app-feature { padding-block: calc(var(--section-y) * .7); }
+.app-feature__grid {
+  display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--s-8) var(--s-10); align-items: center;
+}
+/* flipped plates swap the columns AND the widths - the media always keeps
+   the wide 7fr track so the screenshots stay large. */
+.app-feature--flip .app-feature__grid { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.app-feature--flip .app-feature__grid > .app-feature__copy { order: 2; }
+.app-feature--flip .app-feature__grid > .app-feature__media { order: 1; }
+
+.app-feature__copy .sectionno { display: block; margin-bottom: var(--s-3); }
+.app-feature__copy h2 {
+  margin: 0; font-size: var(--t-h2); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-h2); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.app-feature__copy p { margin: var(--s-4) 0 0; max-width: 46ch; color: var(--ink-500); line-height: var(--lh-body); }
+.app-feature__copy p b { color: var(--ink-900); font-weight: var(--weight-semi); }
+.app-feature__copy a { color: var(--ink-700); border-bottom: 1px solid var(--hairline); }
+.app-feature__copy a:hover { color: var(--live); border-bottom-color: var(--live); }
+
+.app-feature__list { list-style: none; margin: var(--s-5) 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--s-2);
+  font-size: var(--t-sm); color: var(--ink-500); }
+.app-feature__list b { color: var(--ink-900); }
+.app-feature__list .ember { margin-right: var(--s-2); }
+
+/* media arrangements: a phone pair, a phone+mac pair, a phone trio */
+.app-feature__media--pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-5); align-items: start; }
+.app-feature__media--pair .app-shot--mac { grid-column: span 1; align-self: center; }
+/* phone + mac: let the mac breathe wider than the phone */
+.app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: minmax(0, 2fr) minmax(0, 3.4fr); }
+.app-feature__media--trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4); align-items: start; }
+
+/* ---------- the desk set (full-bleed mac plate) ------------------ */
+.app-desk__stage { max-width: 960px; }
+.app-desk__stage .app-shot img { box-shadow: 0 24px 56px rgba(21, 20, 15, .10); }
+[data-theme="dark"] .app-desk__stage .app-shot img { box-shadow: 0 24px 56px rgba(0, 0, 0, .45); }
+
+/* ---------- spec plate ------------------------------------------ */
+.app-spec__plate {
+  margin: 0; border: 1px solid var(--hairline); border-top: 2px solid var(--ink-900);
+  background: var(--paper); max-width: 760px;
+}
+.app-spec__row {
+  display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: var(--s-4);
+  padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--hairline);
+}
+.app-spec__row:last-child { border-bottom: 0; }
+.app-spec__row dt {
+  font-size: var(--t-micro); text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--ink-400); padding-top: 2px;
+}
+.app-spec__row dd { margin: 0; font-size: var(--t-sm); color: var(--ink-700); line-height: var(--lh-body); }
+
+/* ---------- closing CTA ------------------------------------------ */
+.app-cta__inner { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.app-cta__title {
+  margin: var(--s-3) 0 0; font-size: var(--t-h2); line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-h2); color: var(--ink-900); font-weight: var(--weight-bold);
+}
+.app-cta__sub { margin: var(--s-3) 0 0; color: var(--ink-500); }
+.app-cta__url { margin: var(--s-3) 0 0; font-size: var(--t-xs); letter-spacing: var(--tracking-label); color: var(--ink-400); }
+
+/* ---------- responsive ------------------------------------------ */
+@media (max-width: 860px) {
+  .app-feature__grid { grid-template-columns: 1fr; gap: var(--s-6); }
+  .app-feature--flip .app-feature__grid > .app-feature__copy { order: 0; }
+  .app-feature--flip .app-feature__grid > .app-feature__media { order: 1; }
+  .app-feature__media--trio { grid-template-columns: repeat(3, 1fr); gap: var(--s-3); }
+}
+@media (max-width: 560px) {
+  .app-hero__phone { bottom: -6%; }
+  .app-feature__media--pair,
+  .app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: 1fr 1fr; }
+  .app-feature__media--pair:has(.app-shot--mac) { grid-template-columns: 1fr; }
+  .app-feature__media--trio { grid-template-columns: 1fr 1fr; }
+  .app-feature__media--trio .app-shot:last-child { grid-column: span 2; max-width: 60%; margin-inline: auto; }
+}

@@ -98,11 +98,14 @@ test("footer keeps the FULL map: everything pulled from the bar is still reachab
   }
 });
 
-test("the App link resolves: /app.html is a real placeholder page, not a dead link", () => {
+test("the App link resolves: /app.html is the live App Store launch page", () => {
   assert.ok(existsSync(path.join(DIST, "app.html")), "app.html builds to dist (the link 200s)");
   const app = readDist("app.html");
-  assert.match(app, /the band, in your pocket/, "on-theme radio 'tuning up' copy");
-  assert.match(app, /name="robots" content="noindex"/, "the placeholder is noindex (not in sitemap yet)");
+  assert.match(app, /the band, in&nbsp;your&nbsp;pocket/i, "the launch page keeps the pocket-band headline");
+  // the app SHIPPED 2026-07-09: the page is indexed now (in the sitemap), no placeholder leftovers
+  assert.doesNotMatch(app, /name="robots" content="noindex"/, "launch page is indexed");
+  assert.doesNotMatch(app, /tuning up/i, "no 'tuning up' placeholder copy survives");
+  assert.match(app, /apps\.apple\.com\/us\/app\/rogerai-fyi\/id6785743752/, "links the real listing");
   assert.doesNotMatch(app, /<!--\s*include:|<!--\s*css-bundle\s*-->/, "all partial/css includes resolved");
 });
 
