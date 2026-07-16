@@ -83,6 +83,11 @@ func lamp(r paletteRole) lipgloss.AdaptiveColor {
 	}
 }
 
+// lampStyle is the render-side companion to lamp(): a foreground style in a role's
+// lamp color for the active palette mode. Chips light through this, so a call site
+// never names a hex and the one mono switch repoints them all (increment 1+ use it).
+func lampStyle(r paletteRole) lipgloss.Style { return lipgloss.NewStyle().Foreground(lamp(r)) }
+
 // canTint reports whether a Background() tint band may be painted at this terminal
 // profile. Colored TEXT (lamps, chips, meters, prowords) degrades for free via
 // lipgloss downsampling and needs no gate; a near-black truecolor BAND, however,
