@@ -37,13 +37,13 @@ func PlayBoot(w io.Writer, sleep func(time.Duration)) {
 		return
 	}
 	frames := bootFrames()
-	for i, f := range frames {
+	for _, f := range frames {
 		// The frames grow monotonically, so a bare carriage-return redraws in place - each
-		// longer frame fully covers the last (no clear-line escape needed).
+		// longer frame fully covers the last (no clear-line escape needed). Hold each frame
+		// ~420ms - including the last, so the settled "tuning in…" lingers a beat - a warm-up
+		// you can actually WATCH (founder: ~280ms flashed by too fast to see).
 		fmt.Fprint(w, "\r"+f)
-		if i < len(frames)-1 {
-			sleep(140 * time.Millisecond)
-		}
+		sleep(420 * time.Millisecond)
 	}
 	fmt.Fprint(w, "\n")
 }
