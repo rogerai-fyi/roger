@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
 // ── live telemetry meter ──────────────────────────────────────────────────────
@@ -18,8 +19,8 @@ import (
 // genuine stall DROPS the sweep (see agentWorkingLine) so motion never implies
 // progress that isn't happening.
 //
-// meterSweep is pure + rune-accurate + NO_COLOR-safe (glyphs only); tintBar adds
-// the mono accent (the one red stays on the eye pulse in the status line above).
+// carrierSweep is pure + self-tinted + has an ASCII fallback; the one red stays on the
+// eye pulse in the status line above.
 
 const (
 	meterWidth = 24 // sweep track width in glyphs (shown only with room: not narrow/compact/quiet)
@@ -27,23 +28,30 @@ const (
 	sweepStep  = 2  // frames per one-column advance (160ms tick -> a step every ~320ms)
 )
 
-// meterSweep renders the bare signal-sweep glyphs for the given frame and width: a
-// `sweepBlock`-wide run of ▰ entering from the left, crossing, exiting right, then
-// re-entering — a radio tuner sweeping the band. Pure: same (frame,width) -> same
-// string. width is clamped up so a degenerate size still renders a real bar.
-func meterSweep(frame, width int) string {
+// carrierSweep renders the radio CARRIER (design overhaul catalog #7): a `sweepBlock`-wide
+// run of ∿ (the modulated carrier) scrolling across a · quiet line - proof-of-life that a
+// station is transmitting during an AGENT turn (which has no true "% done"). Same slide
+// mechanic as the old meter sweep, but SELF-TINTED (tintBar only knows ▰): the wave rides
+// the accent, the quiet line is dim. Folds to ~ over . under ASCII, where the glyph itself
+// must carry the signal (no color to lean on). Pure: same (frame,width) -> same string; the
+// caller shows it only under the reduced-motion gate, and DROPS it on a stall.
+func carrierSweep(frame, width int) string {
 	if width < sweepBlock+2 {
 		width = sweepBlock + 2
+	}
+	wave, quiet := "∿", "·"
+	if glyphs.ASCII() {
+		wave, quiet = "~", "."
 	}
 	span := width + sweepBlock // travel off the right edge before wrapping back to the left
 	head := (frame / sweepStep) % span
 	var b strings.Builder
-	b.Grow(width * 3)
+	b.Grow(width * 8)
 	for i := 0; i < width; i++ {
 		if i < head && i >= head-sweepBlock {
-			b.WriteRune('▰')
+			b.WriteString(stLive.Render(wave))
 		} else {
-			b.WriteRune('◌')
+			b.WriteString(stDim.Render(quiet))
 		}
 	}
 	return b.String()
@@ -127,7 +135,7 @@ func meterBar(frac float64, width int) string {
 	return strings.Repeat("▰", fill) + strings.Repeat("▱", width-fill)
 }
 
-// tintBar styles a meterBar OR a meterSweep string: filled (▰) glyphs in fillStyle, the
+// tintBar styles a meterBar string: filled (▰) glyphs in fillStyle, the
 // empty track (▱ or ◌) dim. It only styles — it never adds or drops a glyph.
 func tintBar(bar string, fillStyle lipgloss.Style) string {
 	var b strings.Builder
