@@ -4429,7 +4429,7 @@ func (m model) View() string {
 		b.WriteString(m.compactHeader(w) + "\n")
 	} else {
 		// A blank spacer line sets the preset bar apart from the brand lockup below it, so
-		// the [1] TUNE IN ... bar and the ▟█▙ R O G E R · A I ((•)) logo read as two
+		// the [1] TUNE IN ... bar and the ▟▄▙ R O G E R · A I ((•)) logo read as two
 		// distinct rows instead of one cramped block. A single line keeps it tight on a
 		// short terminal; an empty line is inherently NO_COLOR / narrow-safe.
 		b.WriteString(m.presetBar(w) + "\n\n")
@@ -5371,7 +5371,9 @@ func truncVisibleTail(s string, n int) string {
 // once a channel is open (so you never lose "what am I on + my balance"), and the
 // [m] key toggles minimized vs expanded.
 func (m model) header(w int) string {
-	tower := stBrand.Render("▟█▙")
+	// ▟▄▙ - the radio: a low box body (▄) with two antenna nubs (▟'s + ▙'s top
+	// quadrants), replacing the ambiguous ▟█▙ "tower" that read as no particular thing.
+	tower := stBrand.Render("▟▄▙")
 	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I")
 	eye := onAirPulse(m.frame)
 	rule := stHeadRule.Render(strings.Repeat("─", w))
