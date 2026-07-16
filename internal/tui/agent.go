@@ -609,7 +609,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if c := m.agentPendingConfirm; c != nil {
 		switch k.String() {
 		case "y", "Y":
-			m.agentLines = append(m.agentLines, "  "+stLive.Render("✓ ")+stDim.Render("approved · running "+c.tool))
+			m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
 			m.agentPendingConfirm = nil
 			m.rcConfirmID = "" // BASE STATION: this confirm is resolved; a late remote answer is now stale
 			m.rcEmitConfirmDone(true, "local")
@@ -624,7 +624,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next := (agentPermMode(m.agent.perms.Load()) + 1) % 3
 			m = m.applyPermMode(next)
 			if permAllows(next, c.tool) {
-				m.agentLines = append(m.agentLines, "  "+stLive.Render("✓ ")+stDim.Render("approved · running "+c.tool))
+				m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
 				m.agentPendingConfirm = nil
 				m.rcConfirmID = ""
 				m.rcEmitConfirmDone(true, "local")
@@ -763,7 +763,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.agentBusy = false
 			m.agentCanceling = false
 			m.agentTurnState = poseWaiting
-			m.agentLines = append(m.agentLines, stRed.Render("✕ ")+stEmber.Render("turn stopped"))
+			m.agentLines = append(m.agentLines, stRed.Render("✕ ")+stEmber.Render("BREAK · turn stopped"))
 			m.status = stDim.Render("turn stopped · ask again, or esc to leave AGENT")
 			return m, nil
 		}
@@ -921,7 +921,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.agentBusy && !instantAgentCommand(p) {
 			m.agentQueued = append(m.agentQueued, queuedPrompt{text: p})
-			m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p)))
+			m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p)))
 			m.status = stDim.Render(plural(len(m.agentQueued), "queued msg") + " · sends when the turn finishes · esc cancels")
 			return m, nil
 		}
@@ -967,7 +967,7 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	p := q.text
 	if m.agent != nil && m.agent.running.Load() {
 		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...) // jump the queue: it was next
-		m.agentLines = append(m.agentLines, stDim.Render("⏳ queued · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
+		m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
 		return m, nil
 	}
 	// No model tuned in: don't fire a doomed turn (the "no station on air" spam). Echo the
@@ -1878,6 +1878,14 @@ func (m model) agentModeLine(w int) string {
 		line += stDim.Render("   ") + lampStyle(roleDial).Render(fmt.Sprintf("STANDBY %d", n))
 	}
 	return truncVisible(line, w)
+}
+
+// agentApprovedLine is the transcript echo when a side-effecting tool is approved at
+// the confirm gate: WILCO (radio "received + complying" - the approval AND that it's
+// running now), keeping the ✓ go-glint. One source for both approve paths (y and the
+// ctrl+p-escalate-to-auto-approve). Deny stays plain English (no proword for deny).
+func agentApprovedLine(tool string) string {
+	return "  " + stLive.Render("✓ ") + stDim.Render("WILCO · "+tool)
 }
 
 // agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule

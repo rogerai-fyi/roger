@@ -1453,7 +1453,7 @@ func (s *opBDD) noToolRuns() error {
 	if s.model().agentPendingConfirm != nil {
 		return fmt.Errorf("a confirm is pending")
 	}
-	if strings.Contains(s.view(), "approved · running") {
+	if strings.Contains(s.view(), "WILCO") { // the approve-and-run echo (design overhaul inc 2; was "approved · running")
 		return fmt.Errorf("a tool ran off a parked confirm")
 	}
 	return nil

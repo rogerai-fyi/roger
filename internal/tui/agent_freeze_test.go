@@ -139,9 +139,10 @@ func TestAgentQueueWhileBusy(t *testing.T) {
 	if !am.agentBusy {
 		t.Error("queuing must not end the current turn")
 	}
-	// The queued ask is visible in the transcript.
-	if !strings.Contains(stripANSI(strings.Join(am.agentLines, "\n")), "queued") {
-		t.Error("a queued ask should be shown (⏳ queued …) in the transcript")
+	// The queued ask is visible in the transcript as the STANDBY proword (design
+	// overhaul increment 2, founder-approved 2026-07-15; ⏳ glyph kept).
+	if !strings.Contains(stripANSI(strings.Join(am.agentLines, "\n")), "STANDBY") {
+		t.Error("a queued ask should be shown (⏳ STANDBY …) in the transcript")
 	}
 }
 
