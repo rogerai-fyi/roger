@@ -1741,9 +1741,9 @@ func (m model) agentView(w int) string {
 		switch {
 		case m.agentPaneFocus && scrolledUp:
 			pct := int(m.agentVP.ScrollPercent() * 100)
-			b.WriteString(truncVisible(stKey.Render(fmt.Sprintf("  ── ● transcript · %d%% · ↑↓ scroll · end live · tab/esc back ──", pct)), w) + "\n")
+			b.WriteString(truncVisible(stDim.Render("  ── ")+lampStyle(roleDial).Render("●")+stKey.Render(fmt.Sprintf(" transcript · %d%% · ↑↓ scroll · end live · tab/esc back ──", pct)), w) + "\n")
 		case m.agentPaneFocus:
-			b.WriteString(truncVisible(stKey.Render("  ── ● transcript · ↑↓ scroll · tab/esc back to ask ──"), w) + "\n")
+			b.WriteString(truncVisible(stDim.Render("  ── ")+lampStyle(roleDial).Render("●")+stKey.Render(" transcript · ↑↓ scroll · tab/esc back to ask ──"), w) + "\n")
 		default:
 			pct := int(m.agentVP.ScrollPercent() * 100)
 			marker := fmt.Sprintf("  ── scrolled · %d%% · ↓ more below · end / pgdn for live · tab focuses ──", pct)
