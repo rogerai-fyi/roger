@@ -131,10 +131,14 @@ func TestTintSMeter(t *testing.T) {
 		t.Error("a lit over-S9 + should light cSignal green")
 	}
 
-	// Mid, not over: no green (+ is dim), no red (S9 unlit).
+	// Mid, not over: the overzone is BLANK (no "+" at all - it appears only past S9),
+	// and there's no green or red peak.
 	mid := tintSMeter(sMeterRaw(1, 5, 0), 5, false, true)
 	if strings.Contains(mid, greenPlus) || strings.Contains(mid, redPeak) {
 		t.Error("no green + and no red peak below S9")
+	}
+	if strings.Contains(stripANSI(mid), "+") {
+		t.Error("a not-over meter must blank the overzone (no + until a node passes S9)")
 	}
 
 	// Offline: all dim, no lamp hues.

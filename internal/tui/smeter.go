@@ -110,9 +110,9 @@ func tintSMeter(raw string, units int, over, online bool) string {
 		switch {
 		case r == '+':
 			if over {
-				b.WriteString(lampStyle(roleSignal).Render("+"))
+				b.WriteString(lampStyle(roleSignal).Render("+")) // pushing past S9: the green overzone
 			} else {
-				b.WriteString(stDim.Render("+"))
+				b.WriteString(" ") // no over-signal: blank the overzone (constant width kept)
 			}
 		case r == '·' || r == ' ' || r == '░':
 			b.WriteString(stDim.Render(string(r)))
@@ -131,3 +131,16 @@ func tintSMeter(raw string, units int, over, online bool) string {
 // sMeterLegend is the S-scale legend, shown ONCE under the SIGNAL column header (never per
 // row): plain dim digits so it reads at every terminal profile.
 func sMeterLegend() string { return stDim.Render("1 3 5 7 9 +20") }
+
+// bandSMeter is the drop-in the band table + BROWSE header use: it maps a station's
+// signal/tps/in-flight/stations to the S-meter and renders it tinted, or - for the k9s
+// reverse-video cursor row - the RAW uncolored bar (raw=true) so the one accent governs
+// the whole row. Constant width, so the SIGNAL column stays aligned.
+func (m model) bandSMeter(frame, signal int, tps float64, online bool, inFlight, stations int, raw bool) string {
+	units, over := sUnits(signal, tps, online, inFlight, stations)
+	bar := sMeterRaw(frame, units, signalAmp(inFlight, tps))
+	if raw {
+		return bar
+	}
+	return tintSMeter(bar, units, over, online)
+}
