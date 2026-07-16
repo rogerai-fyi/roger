@@ -225,7 +225,7 @@ func TestEmptyBandCTAStatic(t *testing.T) {
 func TestWorkingSpinnerRotates(t *testing.T) {
 	withMotion(func() {
 		seen := map[string]bool{}
-		for f := 0; f < cornerCadence*len(workingPhrases); f += cornerCadence {
+		for f := 0; f < phraseCadence*len(workingPhrases); f += phraseCadence { // slowed cadence (founder: too fast to read)
 			seen[workingPhrase(f)] = true
 		}
 		if len(seen) != len(workingPhrases) {
