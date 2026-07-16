@@ -692,11 +692,11 @@ func TestCtxCell(t *testing.T) {
 
 // TestSlowTick: the calm compact cadence emits a tickMsg, just like the fast tick.
 func TestSlowTick(t *testing.T) {
-	if _, ok := slowTick()().(tickMsg); !ok {
-		t.Error("slowTick should produce a tickMsg")
+	if m, ok := slowTick(7)().(tickMsg); !ok || m.gen != 7 {
+		t.Error("slowTick should produce a tickMsg carrying its generation")
 	}
-	if _, ok := tick()().(tickMsg); !ok {
-		t.Error("tick should produce a tickMsg")
+	if m, ok := tick(7)().(tickMsg); !ok || m.gen != 7 {
+		t.Error("tick should produce a tickMsg carrying its generation")
 	}
 }
 

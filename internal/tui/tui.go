@@ -645,6 +645,7 @@ type model struct {
 	selectedModel string
 	width, height int
 	frame         int
+	tickGen       int // the live tick-chain generation; a kick bumps it so older chains die (see tick())
 	mode          mode
 	// prevMode + world back the in-TUI Ping World screensaver (`/ping` or z): we stash the
 	// mode we came from, run the same pingWorldModel the standalone `roger --ping` uses, and
@@ -1147,7 +1148,7 @@ type chatMsg struct {
 }
 type chatErrMsg string // a chat turn failed - surfaced INLINE in the CHANNEL transcript
 type errMsg string
-type tickMsg struct{}
+type tickMsg struct{ gen int } // gen: the tick-chain generation; a stale gen is a dead chain (see tick())
 
 // in-TUI flow result messages
 type loginMsg string                  // github login on success
@@ -1262,7 +1263,8 @@ func newBase(broker, user string, limits *LimitStore) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(fetchOffers(m.broker), fetchBalance(m.broker, m.user), tick())
+	// Seed the first tick chain at gen 0 (Init's model copy is discarded, so do NOT kick).
+	return tea.Batch(fetchOffers(m.broker), fetchBalance(m.broker, m.user), tick(m.tickGen))
 }
 
 // Update wraps the message dispatch with a transcript-scroll refresh, so any handler
@@ -1306,6 +1308,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
+		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
+		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
+		if msg.gen != m.tickGen {
+			return m, nil
+		}
 		// FRAME CLOCK + native-selection freeze: advance the animation clock ONLY when something is
 		// actually animating (a turn in flight, a staged tune-in, share-detect, the screensaver, or
 		// a transient toast clearing). When idle the frame FREEZES, so the rendered screen is
@@ -1345,9 +1352,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// m.world.data. The world advances on the CALM pingWorldTick (worldTickMs), NOT the
 			// app's fast 160ms tick, so it breathes like the standalone screensaver.
 			if m.broker != "" && m.world.frame%worldRescanFrames == 0 {
-				return m, tea.Batch(pingWorldTick(), fetchOffers(m.broker))
+				return m, tea.Batch(pingWorldTick(m.tickGen), fetchOffers(m.broker))
 			}
-			return m, pingWorldTick()
+			return m, pingWorldTick(m.tickGen)
 		}
 		// TOAST (A.6.6): auto-dismiss a transient status after toastFrames in the MAIN views, so
 		// confirmations don't linger forever. Modal screens keep their status (it's the prompt).
@@ -1374,16 +1381,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// agent replies) still arrive via their own Cmds and repaint on change. (This used to be
 		// compact-only; now EVERY idle view goes calm, which is also what makes copy work.)
 		if !animating {
-			return m, tea.Batch(slowTick(), fetchOffers(m.broker))
+			return m, tea.Batch(slowTick(m.tickGen), fetchOffers(m.broker))
 		}
 		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
 		// pull a fresh /discover so the band table + the "is a station on air" check
 		// stay live without the user pressing r. This keeps the consumer + share views
 		// honest about who is actually on air (the broker ages a node out at ~35s).
 		if m.frame%rescanEveryFrames == 0 {
-			return m, tea.Batch(tick(), fetchOffers(m.broker))
+			return m, tea.Batch(tick(m.tickGen), fetchOffers(m.broker))
 		}
-		return m, tick()
+		return m, tick(m.tickGen)
 	case freqResolvedMsg:
 		if !msg.ok {
 			// Uniform negative (wrong / revoked / expired / off air - indistinguishable).
@@ -1764,7 +1771,7 @@ func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	m.cmd.Blur()
 	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff),
 		data: buildWorldData(m.bands)} // seed the LIVE signal towers from the current on-air bands
-	return m, tick()
+	return m, m.kickTick() // one fresh chain; the tickMsg handler switches it to pingWorldTick
 }
 
 func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1778,11 +1785,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// blink Cmd-chain died while the world owned the tick), batched with the normal beat.
 		switch m.prevMode {
 		case modeChat:
-			return m, tea.Batch(tick(), m.chatIn.Focus())
+			return m, tea.Batch(m.kickTick(), m.chatIn.Focus())
 		case modeCommand:
-			return m, tea.Batch(tick(), m.cmd.Focus())
+			return m, tea.Batch(m.kickTick(), m.cmd.Focus())
 		}
-		return m, tick() // resume the normal beat
+		return m, m.kickTick() // resume the normal beat (fresh chain; the pingWorld chain dies)
 	}
 	// The quit-confirm modal owns every key while open (answer the on-air guard).
 	if m.mode == modeQuitConfirm {
@@ -2221,7 +2228,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
-			return m, tick() // kick the fast tick so the dial pointer glides now
+			return m, m.kickTick() // ONE fresh chain so rapid up/down never stacks parallel loops (dial glides)
 		case "down", "j":
 			if m.cursor < len(m.visibleBands())-1 { // navigate the FILTERED + SORTED view
 				m.cursor++
@@ -2229,7 +2236,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
-			return m, tick() // kick the fast tick so the dial pointer glides now
+			return m, m.kickTick() // ONE fresh chain so rapid up/down never stacks parallel loops (dial glides)
 		case "enter":
 			// Enter on the band you are ALREADY connected to jumps straight into the open
 			// channel (no re-tune, no staged sequence) - the connected row is a toggle:
@@ -3972,7 +3979,7 @@ func (m model) openChannel() (tea.Model, tea.Cmd) {
 		// tune-in churn.
 		return m.finishConnect()
 	}
-	return m, tick()
+	return m, m.kickTick() // start the staged tune-in on a fresh chain
 }
 
 // connectStages is the number of staged steps in the tune-in sequence (scan, lock,
@@ -3991,8 +3998,10 @@ const (
 // it reveals the next step; once every step is "ok" it drops into the live CHANNEL.
 // Called from the tick handler while in modeConnecting.
 func (m model) advanceConnect() (tea.Model, tea.Cmd) {
+	// Called FROM the tick handler - a continuation of the current chain, so reschedule with
+	// the same gen (never kick, or the connect sequence would churn the generation each frame).
 	if m.mode != modeConnecting {
-		return m, tick()
+		return m, tick(m.tickGen)
 	}
 	elapsed := m.frame - m.connectStartFrame
 	stage := elapsed / connectDwellFrames
@@ -4003,7 +4012,7 @@ func (m model) advanceConnect() (tea.Model, tea.Cmd) {
 	if stage >= connectStageDone {
 		return m.finishConnect()
 	}
-	return m, tick()
+	return m, tick(m.tickGen) // continuation of the tick chain (same gen)
 }
 
 // finishConnect drops the completed tune-in sequence into the live CHANNEL: it
@@ -9064,8 +9073,25 @@ const emptyScansToBlank = 3
 // ~60 frames (~10s) - slower than the browse rescan, because a screensaver should breathe.
 const worldRescanFrames = 60
 
-func tick() tea.Cmd {
-	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+// The tick loop carries a GENERATION token (tickMsg.gen). Bubble Tea Cmds don't merge, so
+// naively returning tick() from a key handler while the loop already has a tick pending would
+// spawn a SECOND, parallel chain - and each navigation keypress another - accumulating loops
+// that double the animation cadence and re-poll /discover (429 flicker). The rule: the handler
+// reschedules with the CURRENT gen (one chain continues); any KICK bumps m.tickGen and schedules
+// with the new gen, so every older chain's next tickMsg is stale (gen mismatch) and is dropped.
+// Net: always exactly ONE live tick chain.
+func tick(gen int) tea.Cmd {
+	return tea.Tick(160*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
+}
+
+// kickTick starts a FRESH fast tick chain: it bumps the generation (so any older chain's next
+// tickMsg is stale and dies) and returns the Cmd. Use it wherever a key or mode change must
+// restart the animation clock promptly WITHOUT stacking a second parallel loop. Pointer
+// receiver so the bump persists on the model the caller returns. (Never use it in Init(),
+// whose model copy is discarded - Init seeds gen 0 with tick(m.tickGen).)
+func (m *model) kickTick() tea.Cmd {
+	m.tickGen++
+	return tick(m.tickGen)
 }
 
 // slowTick is the compact ("windowshade") cadence: a calm ~5s beat that only drives
@@ -9073,16 +9099,16 @@ func tick() tea.Cmd {
 // without the rapid 160ms churn, so compact + idle is genuinely quiet. The instant
 // the user un-compacts, relays, or starts a staged tune-in, the tickMsg handler
 // switches back to the fast tick().
-func slowTick() tea.Cmd {
-	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return tickMsg{} })
+func slowTick(gen int) tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
 }
 
 // pingWorldTick is the CALM cadence the in-TUI Ping World screensaver advances on: the same
 // slow worldTickMs as the standalone `roger --ping` (NOT the app's fast 160ms tick). Without
 // this the in-TUI world ran ~3.4x too fast - the day<->night cycle raced by (founder: "day to
 // night in ~5 seconds"). A screensaver breathes; it should never ride the interactive tick.
-func pingWorldTick() tea.Cmd {
-	return tea.Tick(worldTickMs*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+func pingWorldTick(gen int) tea.Cmd {
+	return tea.Tick(worldTickMs*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{gen: gen} })
 }
 
 // fetchOffers pulls the FULL on-air set from the broker /discover (the broker does
