@@ -1661,7 +1661,10 @@ func (m model) agentView(w int) string {
 		if mdl != "" && !m.narrow() {
 			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
 		}
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") + m.agentPermTag() +
+		// The approval mode is NOT chipped here anymore: it lives on the always-on
+		// control-panel line under the input (agentModeLine), so the full masthead never
+		// repeats it. The compact windowshade keeps its inline permissive glint (above).
+		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
 			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
 			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
 		b.WriteString(truncVisible(head, w) + "\n")
@@ -1810,6 +1813,9 @@ func (m model) agentView(w int) string {
 	// to width so a long placeholder / echoed line never overflows.
 	b.WriteString("\n" + truncVisible("  "+stPrompt.Render("ask › ")+m.agentIn.View(), w) + "\n")
 	if !m.compact {
+		// The control-panel mode line, always on directly under the input: TOOLS: <mode>
+		// (never empty) + a STANDBY chip. The founder's original "did /perms toggle?" fix.
+		b.WriteString(m.agentModeLine(w) + "\n")
 		// Busy-aware help: while a turn streams, the one thing the user needs is how to
 		// STOP it (esc), so lead with that instead of the idle command list.
 		permTail := permsHelp(permConfirm)
@@ -1844,6 +1850,34 @@ func (m model) agentPermTag() string {
 		return stDim.Render(" · ") + stEmber.Render("AUTO-ALL")
 	}
 	return ""
+}
+
+// agentModeLine is the always-on control-panel readout under the AGENT prompt: the
+// tool-approval mode, NEVER empty (the founder's "did /perms toggle?" fix - at the
+// confirm default the masthead chip vanished, so a permissive or reverted session
+// was invisible). Colored by the increment-0 lamps: dim CONFIRM (the calm default),
+// amber AUTO-EDITS, red AUTO-ALL - a permissive board reads hot at a glance. A blue
+// STANDBY chip counts parked asks. Lives directly under the input, where the eye
+// rests to act; mono palette collapses the lamps via lampStyle for free.
+func (m model) agentModeLine(w int) string {
+	mode := permConfirm
+	if m.agent != nil {
+		mode = agentPermMode(m.agent.perms.Load())
+	}
+	var chip string
+	switch mode {
+	case permEdits:
+		chip = lampStyle(roleDialGlow).Render("AUTO-EDITS")
+	case permAll:
+		chip = lampStyle(roleLive).Bold(true).Render("AUTO-ALL")
+	default:
+		chip = stDim.Render("CONFIRM")
+	}
+	line := "  " + stDim.Render("TOOLS: ") + chip
+	if n := len(m.agentQueued); n > 0 {
+		line += stDim.Render("   ") + lampStyle(roleDial).Render(fmt.Sprintf("STANDBY %d", n))
+	}
+	return truncVisible(line, w)
 }
 
 // agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule
