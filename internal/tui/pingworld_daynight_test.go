@@ -187,22 +187,24 @@ func TestDayBoundedAndPlain(t *testing.T) {
 	}
 }
 
-// TestDayNightPaceIsCalm locks the real-time SPEED of the cycle. The founder reported it
-// "goes from day to night in ~5 seconds - ridiculously fast": the in-TUI screensaver was
-// riding the app's 160ms tick instead of the calm worldTickMs. Now BOTH the standalone
-// (`roger --ping`) and the in-TUI world advance on pingWorldTick == worldTickMs, so a
-// day->night transition (half the period) takes minutes. This guards against a shrunk
-// period OR a sped-up tick sneaking back in.
+// TestDayNightPaceIsCalm locks the two independent knobs that keep the screensaver both
+// SMOOTH and CALM. The founder first hit "day to night in ~5 seconds" (the in-TUI world
+// rode the app's fast 160ms tick), then "1,2,3 - break" stutter (a slow 540ms tick starves
+// the frame rate). The resolution decouples them: the FRAME rate stays smooth, and the CALM
+// lives in the day/night PERIOD. Both the standalone (`roger --ping`) and the in-TUI world
+// advance on pingWorldTick == worldTickMs. This guards against either regressing.
 func TestDayNightPaceIsCalm(t *testing.T) {
+	// (1) CALM cycle: a day->night transition (half the period) takes minutes, not seconds.
 	dayToNightSec := (dayNightPeriod / 2) * worldTickMs / 1000
-	const wantAtLeastSec = 300 // >= 5 minutes; today ~432s (1600/2 frames * 540ms)
+	const wantAtLeastSec = 300 // >= 5 minutes; today ~400s (4000/2 frames * 200ms)
 	if dayToNightSec < wantAtLeastSec {
 		t.Errorf("day->night is %ds - too fast; keep it >= %ds (period=%d frames, tick=%dms). "+
-			"If you shortened the cycle, this is the intentional-change gate: bump the bound with the design.",
+			"Lengthen dayNightPeriod, do NOT slow the tick (that stutters).",
 			dayToNightSec, wantAtLeastSec, dayNightPeriod, worldTickMs)
 	}
-	// The screensaver must breathe on its own slow cadence, never the app's fast 160ms tick.
-	if worldTickMs < 400 {
-		t.Errorf("worldTickMs = %dms - the screensaver tick must stay calm (>= 400ms)", worldTickMs)
+	// (2) SMOOTH motion: the frame cadence must stay fluid (>= ~4fps); starving it stutters.
+	if worldTickMs > 280 {
+		t.Errorf("worldTickMs = %dms - too choppy; keep the frame rate smooth (<= 280ms). "+
+			"Carry the calm in dayNightPeriod, not by slowing the tick.", worldTickMs)
 	}
 }

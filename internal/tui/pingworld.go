@@ -29,7 +29,11 @@ import (
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 )
 
-const worldTickMs = 540 // ~1.8fps: deliberately slow + calm for an ambient screensaver (was 120ms; founder asked ~4.5x slower)
+// worldTickMs is the screensaver's frame cadence. It must stay SMOOTH: at ~1.8fps (540ms)
+// the motion stuttered ("1,2,3 - break", founder). The CALM is carried by the DAY/NIGHT
+// PERIOD (frames per cycle), NOT by starving the frame rate - so the world moves smoothly
+// yet the sun/moon take minutes to cross. ~5fps reads as fluid without racing.
+const worldTickMs = 200
 
 // worldCell is one composited cell. eye=true is the ONLY thing rendered red; bright=true is a
 // near/foreground element drawn brighter (a depth cue, NEVER red - one-red is untouched); tone is
@@ -223,8 +227,10 @@ func starTier(i, seed int) int {
 	}
 }
 
-// dayNightPeriod is the frames in one full day<->night cycle (~a few minutes at ~140ms/frame).
-const dayNightPeriod = 1600
+// dayNightPeriod is the frames in one full day<->night cycle. Sized so the cycle is CALM
+// (~13 min full, ~6.7 min day->night at the smooth worldTickMs) WITHOUT slowing the frame
+// rate - the calm lives here, not in a starved tick (which stutters). See TestDayNightPaceIsCalm.
+const dayNightPeriod = 4000
 
 // dayNightDarkness returns 0..100 sky darkness: 100 = deep night (all stars out), 0 = midday
 // (only the brightest near stars + moon remain). A slow triangle wave, starting at night
