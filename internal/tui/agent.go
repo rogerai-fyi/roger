@@ -1692,7 +1692,7 @@ func (m model) agentView(w int) string {
 	// can page through (PgUp/PgDn, Ctrl+U/D, mouse wheel, arrows) even while a turn
 	// streams, so a long answer or tool dump can be read back. Sized to min(content,
 	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
-	content := transcriptContent(m.agentLines)
+	content := transcriptContent(m.agentLines, w)
 	m.agentVP.Width = w
 	budget := m.agentTranscriptRows(cornerRows)
 	m.agentVP.Height = clampRows(lineRows(content), budget)
