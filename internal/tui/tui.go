@@ -57,13 +57,13 @@ type Hooks struct {
 	// ConsoleURL is the tokenized URL of this run's browser node console ("" = no
 	// console this run, e.g. --no-webui). The console no longer auto-opens at launch
 	// (founder respec 2026-07-14); `w` in BROWSE and /webui in AGENT open it on demand.
-	ConsoleURL string
-	HW          string               // hardware label for the offer
-	GitHubID    string               // public GitHub OAuth client id (device flow)
-	LinkedLogin string               // the locally-linked GitHub login at startup ("" = anonymous)
-	ShareModel  string               // saved onboarding model (default offer)
-	SharePriceI float64              // saved input price (0 = free)
-	SharePriceO float64              // saved output price (0 = free)
+	ConsoleURL  string
+	HW          string  // hardware label for the offer
+	GitHubID    string  // public GitHub OAuth client id (device flow)
+	LinkedLogin string  // the locally-linked GitHub login at startup ("" = anonymous)
+	ShareModel  string  // saved onboarding model (default offer)
+	SharePriceI float64 // saved input price (0 = free)
+	SharePriceO float64 // saved output price (0 = free)
 	// ShareUpstream + ShareUpstreamKey seed the saved/verified local endpoint (and any
 	// bearer key it needs) from the host config, so a custom / key-protected upstream
 	// saved during onboarding is probed FIRST and reused on the TUI's first /share scan -
@@ -7104,10 +7104,20 @@ func revealBlock(lines []string, from, age int, reduce bool) []string {
 }
 
 // truncate here. An empty slice yields "" (zero rows).
-func transcriptContent(entries []string) string {
+// transcriptContent renders the transcript entries into the viewport body, each line
+// under the shared 2-space indent. Long lines are WRAPPED to the width (reflowing on
+// resize) instead of being clipped at the right edge by the viewport - the founder's
+// bug where a streamed reply past the margin ("…a layered \"cak") was lost. ansi.Wrap
+// is ANSI- and wide-char-aware, preserves the model's own newlines, and hard-breaks an
+// over-long unbroken token (a URL), so no reply text is ever dropped.
+func transcriptContent(entries []string, width int) string {
 	var b strings.Builder
 	first := true
+	wrapAt := width - 2 // the "  " indent below eats two columns
 	for _, e := range entries {
+		if wrapAt > 0 {
+			e = ansi.Wrap(e, wrapAt, "")
+		}
 		for _, ln := range strings.Split(e, "\n") {
 			if !first {
 				b.WriteByte('\n')
@@ -7204,7 +7214,7 @@ func (m model) refreshScroll() model {
 	if m.msgInFrame > 0 {
 		chatLines = revealBlock(m.transcript, m.msgInFrom, m.frame-m.msgInFrame, quiet || m.compact)
 	}
-	chatContent := transcriptContent(chatLines)
+	chatContent := transcriptContent(chatLines, w)
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(chatContent), m.chatTranscriptRows())
 	m.chatVP.SetContent(chatContent)
@@ -7213,7 +7223,7 @@ func (m model) refreshScroll() model {
 	}
 
 	agentBottom := m.agentVP.AtBottom()
-	agentContent := transcriptContent(m.agentLines)
+	agentContent := transcriptContent(m.agentLines, w)
 	m.agentVP.Width = w
 	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows()))
 	m.agentVP.SetContent(agentContent)
@@ -7250,7 +7260,7 @@ func (m model) chatView(w int) string {
 	// input below keeps typing. Sized to min(content, budget) so a short transcript reads
 	// exactly as before and a tall one caps + scrolls. The persisted scroll position (and
 	// auto-stick-to-bottom) is managed in refreshScroll; here we only render at it.
-	content := transcriptContent(m.transcript)
+	content := transcriptContent(m.transcript, w)
 	m.chatVP.Width = w
 	m.chatVP.Height = clampRows(lineRows(content), m.chatTranscriptRows())
 	m.chatVP.SetContent(content)
