@@ -793,30 +793,35 @@ type model struct {
 	// set (no broker-side pagination) - client windowing + filter covers realistic
 	// scale now; broker-side pagination + load-on-scroll is the next step IF on-air
 	// counts ever exceed a few hundred. See fetchOffers.
-	filterMode    bool            // the live filter input line is open (f)
-	filterIn      textinput.Model // the live name filter buffer
-	freqIn        textinput.Model // the private-frequency entry buffer (modeFreqEntry)
-	filterApplied string          // the applied name substring (kept after enter; lowercased compare)
-	sortMode      int             // band sort cycle (see sort* consts) - mirrors the /bands web page
-	fFree         bool            // toggle: only bands with a FREE-now station
-	fConf         bool            // toggle: only confidential / verified (lineage) bands
-	fOn           bool            // toggle: only bands with a station on air
-	browseTop     int             // first visible row index in the virtualized window
-	loadedOnce    bool            // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
-	q             quote           // the in-flight connect quote (confirm / over-limit)
-	editBuf       string          // inline numeric edit buffer (over-limit + limits edit)
-	editField     int             // which field is focused in the limits editor (0=out,1=tps)
-	limCursor     int             // cursor in the limits view
-	limModels     []string
-	watching      string    // band we are "wait & notify" watching (stub label)
-	detailBand    band      // the band whose expanded per-station view (modeBandDetail) is showing
-	showDetail    bool      // [d] expands the connect-confirm screen; default off (simple)
-	relaying      bool      // a chat request is in flight (drives Ping's transmit line)
-	relayStart    time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
-	scanErr       bool      // last band scan failed (broker unreachable) -> Ping "...static"
-	scanned       bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
-	emptyScans    int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
-	minimized     bool      // header toggle: thin one-line bar vs the full lockup
+	// dialPos / dialVel are the BROWSE tuning-dial pointer's spring state (harmonica): the
+	// ◆ glides toward the tuned band's detent as you scrub the list. Advanced in the tick
+	// loop, gated by `animating` like all motion (see dial.go / dialGlide).
+	dialPos, dialVel float64
+	dialInit         bool            // dialPos has been seeded to the tuned band (else snap, don't glide from 0)
+	filterMode       bool            // the live filter input line is open (f)
+	filterIn         textinput.Model // the live name filter buffer
+	freqIn           textinput.Model // the private-frequency entry buffer (modeFreqEntry)
+	filterApplied    string          // the applied name substring (kept after enter; lowercased compare)
+	sortMode         int             // band sort cycle (see sort* consts) - mirrors the /bands web page
+	fFree            bool            // toggle: only bands with a FREE-now station
+	fConf            bool            // toggle: only confidential / verified (lineage) bands
+	fOn              bool            // toggle: only bands with a station on air
+	browseTop        int             // first visible row index in the virtualized window
+	loadedOnce       bool            // a /discover scan has come back at least once (drives the initial ((•)) scanning pose)
+	q                quote           // the in-flight connect quote (confirm / over-limit)
+	editBuf          string          // inline numeric edit buffer (over-limit + limits edit)
+	editField        int             // which field is focused in the limits editor (0=out,1=tps)
+	limCursor        int             // cursor in the limits view
+	limModels        []string
+	watching         string    // band we are "wait & notify" watching (stub label)
+	detailBand       band      // the band whose expanded per-station view (modeBandDetail) is showing
+	showDetail       bool      // [d] expands the connect-confirm screen; default off (simple)
+	relaying         bool      // a chat request is in flight (drives Ping's transmit line)
+	relayStart       time.Time // when the in-flight chat began (for the elapsed "transmitting Ns")
+	scanErr          bool      // last band scan failed (broker unreachable) -> Ping "...static"
+	scanned          bool      // at least one scan has come back (good or empty) -> Ping idle, not tx
+	emptyScans       int       // consecutive EMPTY /discover scans; debounces a transient empty (a rescan that load-balanced onto a still-syncing broker instance) so a populated list doesn't flicker to "no stations". See the offersMsg handler.
+	minimized        bool      // header toggle: thin one-line bar vs the full lockup
 	// compact is the "windowshade" mode (XMMS/Winamp collapse): a calm, dense,
 	// animation-free alternate view toggled by [m] in every non-text-entry context.
 	// When set the header drops to one strip, all motion freezes (carrier beat, Ping,
@@ -1312,8 +1317,21 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// forever - without this bound, browse/command never freeze and native selection is wiped.
 		toastPending := m.status != "" && m.statusFrame > 0 && m.frame-m.statusFrame < toastFrames &&
 			(m.mode == modeBrowse || m.mode == modeCommand || m.mode == modeChat || m.mode == modeAgent)
+		// The BROWSE tuning-dial pointer glides toward the tuned band's detent (harmonica).
+		// Under quiet/reduced-motion it SNAPS (no animation); otherwise it eases, and while
+		// it's still settling it keeps the animation clock on (so the fast tick drives it).
+		dialSettling := false
+		if m.mode == modeBrowse {
+			target := m.dialTargetX()
+			switch {
+			case !m.dialInit || quiet: // first use / reduced-motion: SNAP onto the tuned band
+				m.dialPos, m.dialVel, m.dialInit = target, 0, true
+			default:
+				m.dialPos, m.dialVel, dialSettling = dialGlide(m.dialPos, m.dialVel, target)
+			}
+		}
 		animating := m.relaying || m.agentBusy || m.shareLoading ||
-			m.mode == modeConnecting || m.mode == modePingWorld || toastPending
+			m.mode == modeConnecting || m.mode == modePingWorld || toastPending || dialSettling
 		if animating {
 			m.frame++
 		}
@@ -2201,6 +2219,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
+			return m, tick() // kick the fast tick so the dial pointer glides now
 		case "down", "j":
 			if m.cursor < len(m.visibleBands())-1 { // navigate the FILTERED + SORTED view
 				m.cursor++
@@ -2208,6 +2227,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.syncSelected() // remember the band, so a re-sort keeps the cursor on it
 			m.scrollBrowse()
+			return m, tick() // kick the fast tick so the dial pointer glides now
 		case "enter":
 			// Enter on the band you are ALREADY connected to jumps straight into the open
 			// channel (no re-tune, no staged sequence) - the connected row is a toggle:
@@ -5969,6 +5989,26 @@ func (m model) browseView(w int) string {
 	if matched == 0 {
 		return b.String() + "  " + stEmber.Render("no bands match") +
 			stDim.Render(" - esc clears the filter, S re-sorts, the toggles widen it") + "\n"
+	}
+	// The TUNING DIAL (catalog #3): a ◆ pointer scrubbing across the band detents,
+	// gliding (harmonica) toward the tuned band as you move the cursor. Wide only (the
+	// narrow layout drops the extra chrome); the ◆ lights the dial-blue, the scale dims.
+	if !m.compact && !m.narrow() {
+		dw := m.dialWidth()
+		px := int(m.dialPos + 0.5)
+		if !m.dialInit { // before the first tick seeds it, park the ◆ on the tuned band
+			px = int(m.dialTargetX() + 0.5)
+		}
+		strip := dialStrip(px, dialDetents(matched, dw), dw)
+		var sb strings.Builder
+		for _, r := range strip {
+			if r == '◆' {
+				sb.WriteString(lampStyle(roleDial).Render(string(r)))
+			} else {
+				sb.WriteString(stDim.Render(string(r)))
+			}
+		}
+		b.WriteString("  " + sb.String() + "\n")
 	}
 	// Narrow (< 64 col): a slim three-column table (band · on air · price), dropping
 	// the signal + flags columns so nothing overflows the real width. Wide: the full
