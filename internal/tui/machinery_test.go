@@ -63,6 +63,34 @@ func TestToolOutputDToggle(t *testing.T) {
 	}
 }
 
+// E4 - the toolOutMark (\x1e RS control byte) must NEVER leak into the copy / RC-backfill /
+// operator-park transcript. ansi.Strip preserves C0 control bytes, so agentTranscriptText has
+// to un-mark the tagged preview lines itself; otherwise every tool-output line ships an
+// invisible \x1e into the clipboard and across the RC wire (claude-audit regression).
+func TestAgentTranscriptTextHasNoToolOutMark(t *testing.T) {
+	m := agentWithToolOutput(t)
+	// The mark is present in the raw buffer (that is how the toggle works)...
+	marked := false
+	for _, l := range m.agentLines {
+		if strings.HasPrefix(l, toolOutMark) {
+			marked = true
+			break
+		}
+	}
+	if !marked {
+		t.Fatal("precondition: the buffer should hold a toolOutMark-tagged preview line")
+	}
+	// ...but the exported transcript (copy / RC / park) must be clean of it, and must still
+	// carry the actual preview content.
+	txt := m.agentTranscriptText()
+	if strings.Contains(txt, toolOutMark) {
+		t.Errorf("agentTranscriptText leaked the toolOutMark control byte:\n%q", txt)
+	}
+	if !strings.Contains(txt, "a.go") {
+		t.Errorf("the transcript should still include the tool-output content:\n%q", txt)
+	}
+}
+
 // D1 - the tool call line is one DIM ⚙-prefixed line (tool + arg summary), never the old
 // bright ◉ + bright tool-name treatment.
 func TestAgentToolCallLineIsDim(t *testing.T) {
