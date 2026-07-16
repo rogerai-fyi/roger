@@ -1335,9 +1335,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if animating {
 			m.frame++
 		}
-		// The in-TUI Ping World owns the beat while it's up: advance its frame and keep the
-		// fast tick (it IS the motion), bypassing the compact/idle slow-tick below. Any key
-		// exits back to prevMode (see onKey's modePingWorld intercept).
+		// The in-TUI Ping World owns the beat while it's up: advance its frame on the CALM
+		// pingWorldTick (worldTickMs), bypassing both the compact/idle slow-tick and the
+		// interactive fast tick. Any key exits back to prevMode (onKey's modePingWorld intercept).
 		if m.mode == modePingWorld {
 			m.world.frame++
 			// keep the LIVE signal towers fresh: a calm re-scan every worldRescanFrames (the
@@ -1751,8 +1751,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // enterPingWorld stashes the current mode and drops into the fullscreen Ping World
-// screensaver - the very same world `roger --ping` runs (pingWorldModel). It advances on the
-// shared 160ms tick (tickMsg) and any key wakes back to prevMode (onKey's intercept).
+// screensaver - the very same world `roger --ping` runs (pingWorldModel). After the first
+// frame it advances on the calm pingWorldTick (worldTickMs), not the interactive tick, and
+// any key wakes back to prevMode (onKey's intercept).
 func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	m.prevMode = m.mode
 	m.mode = modePingWorld
