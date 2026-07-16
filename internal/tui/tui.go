@@ -7723,6 +7723,20 @@ func (m model) hasSchedule(row shareRow) bool {
 	return len(m.pricingFor(row.model).Windows) > 0
 }
 
+// pilotLamp is the SHARE dispatch console's per-model status lamp (catalog #6): ● on air
+// (green), ◐ warming / reconnecting (amber), ○ idle / off-air (dim) - so the whole fleet's
+// status reads in one glance down the column, like a dispatch console's unit-status lamps.
+// Rides the increment-0 lamps, so palette mono collapses it to the ink ramp.
+func pilotLamp(on bool, link agent.LinkState) (string, lipgloss.Style) {
+	if !on {
+		return "○", stDim
+	}
+	if link == agent.LinkOnAir {
+		return "●", lampStyle(roleSignal)
+	}
+	return "◐", lampStyle(roleDialGlow)
+}
+
 // shareView is the k9s-style provider table: one row per locally-detected model
 // with an unmistakable reverse-video selection cursor, a clear ON-AIR / OFF-AIR
 // status column, the price (FREE or $/1M out), and the live earning metrics
@@ -7815,6 +7829,12 @@ func (m model) shareView(w int) string {
 		sel := i == m.shareCursor
 		live := m.shares[row.model]
 		on := live != nil
+		// The dispatch pilot lamp for this model (● on air / ◐ warming / ○ idle).
+		link := agent.LinkConnecting
+		if live != nil {
+			link = live.Link()
+		}
+		lampG, lampS := pilotLamp(on, link)
 		// Status cell text (plain, so the reverse-video bar governs a selected row). A
 		// row on a private (hidden) band reads PRIVATE instead of ON-AIR so the operator
 		// sees at a glance which models are freq-code-only.
@@ -7864,7 +7884,7 @@ func (m model) shareView(w int) string {
 		// + price cells. This keeps the k9s "the cursor row is obvious" contract.
 		var plain string
 		if dense {
-			plain = fmt.Sprintf("  %-14s  %-8s  %s", pad(modelCell, 14), statusTxt, priceTxt)
+			plain = fmt.Sprintf("%s %-14s  %-8s  %s", lampG, pad(modelCell, 14), statusTxt, priceTxt)
 		} else {
 			served, outTok, earn := "-", "-", "-"
 			if on {
@@ -7873,8 +7893,8 @@ func (m model) shareView(w int) string {
 				outTok = fmt.Sprintf("%d", toks)
 				earn = dollars(live.Earnings())
 			}
-			plain = fmt.Sprintf("  %-24s  %-9s  %-12s  %-9s  %-10s  %s",
-				pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
+			plain = fmt.Sprintf("%s %-24s  %-9s  %-12s  %-9s  %-10s  %s",
+				lampG, pad(modelCell, nameW), statusTxt, priceTxt, served, outTok, earn)
 		}
 
 		if sel {
@@ -7892,7 +7912,7 @@ func (m model) shareView(w int) string {
 			if on {
 				stN = stRed.Render(pad(glyphOnAir+statusTxt, 8))
 			}
-			b.WriteString(selCarat(false) + "  " + stDim.Render(pad(modelCell, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
+			b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, 14)) + "  " + stN + "  " + sharePriceCell(priceTxt) + "\n")
 			continue
 		}
 		served, outTok, earn := stDim.Render(pad("-", 9)), stDim.Render(pad("-", 10)), stDim.Render("-")
@@ -7902,7 +7922,7 @@ func (m model) shareView(w int) string {
 			outTok = stDim.Render(pad(fmt.Sprintf("%d", toks), 10))
 			earn = stEmber.Render(dollars(live.Earnings()))
 		}
-		b.WriteString(selCarat(false) + "  " + stDim.Render(pad(modelCell, nameW)) + "  " + st + "  " +
+		b.WriteString(selCarat(false) + lampS.Render(lampG) + " " + stDim.Render(pad(modelCell, nameW)) + "  " + st + "  " +
 			sharePriceCell(pad(priceTxt, 12)) + "  " + served + "  " + outTok + "  " + earn + "\n")
 	}
 
