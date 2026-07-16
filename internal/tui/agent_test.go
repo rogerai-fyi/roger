@@ -131,7 +131,9 @@ func TestAgentToolResultPreviewLong(t *testing.T) {
 	am, _ = am.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	am, _ = am.Update(keyMsg("0"))
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: result})
-	out := stripANSI(asModel(am).View())
+	m := asModel(am)
+	m.showToolOutput = true // previews are default-hidden now (inc 7b); expand to assert the output
+	out := stripANSI(m.View())
 
 	if !strings.Contains(out, "list_dir") || !strings.Contains(out, "bytes") {
 		t.Errorf("summary line (tool + bytes) missing:\n%s", out)
@@ -155,7 +157,9 @@ func TestAgentToolResultPreviewShort(t *testing.T) {
 	am, _ = am.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	am, _ = am.Update(keyMsg("0"))
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "read_file", Result: "alpha\nbeta\ngamma\n"})
-	out := stripANSI(asModel(am).View())
+	m := asModel(am)
+	m.showToolOutput = true // previews are default-hidden now (inc 7b); expand to assert inline output
+	out := stripANSI(m.View())
 	for _, want := range []string{"alpha", "beta", "gamma"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("a short result should preview inline (missing %q):\n%s", want, out)
