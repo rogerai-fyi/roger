@@ -1626,10 +1626,8 @@ func (m model) agentView(w int) string {
 	}
 	var b strings.Builder
 	mdl := ""
-	root := "."
 	if m.agent != nil {
 		mdl = m.agent.model
-		root = m.agent.loop.Root
 	}
 	// With a model resolved the heading reads "on <model> · /model to switch"; with
 	// nothing tuned in it names the gap (not a stale default model) so the screen and
@@ -1658,15 +1656,27 @@ func (m model) agentView(w int) string {
 			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost)) + m.deskCompactCount()
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
-		if mdl != "" && !m.narrow() {
-			mdlCell += stDim.Render(" · ") + stKey.Render("/model") + stDim.Render(" to switch")
+		// The DIAL DECK (design overhaul §6): LOCK lamp · call sign · AGENT · S-meter ·
+		// meter bank. Replaces the old "▌ AGENT · tools" lead - the approval mode lives on
+		// the control line under the input now (agentModeLine), and files moved off the
+		// masthead. The compact windowshade (above) keeps its own terse heading.
+		lock, callsign := m.agentLockCell()
+		head := "  " + lock
+		if callsign != "" {
+			head += " " + stKey.Render(callsign)
 		}
-		// The approval mode is NOT chipped here anymore: it lives on the always-on
-		// control-panel line under the input (agentModeLine), so the full masthead never
-		// repeats it. The compact windowshade keeps its inline permissive glint (above).
-		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") +
-			stDim.Render("  ") + mdlCell + stDim.Render(" · files ") + stKey.Render(shortPath(root)) +
-			stDim.Render("   cost ") + stEmber.Render(dollars(m.agentCost))
+		head += stDim.Render(" · ") + stBrand.Render("AGENT") + mdlCell
+		// The tuned node's S-meter rides the deck (wide only, where a model is on the dial).
+		if m.connected != nil && mdl != "" && !m.narrow() {
+			o := m.connected
+			head += stDim.Render("   S ") + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
+		}
+		// The meter bank (catalog #19): ↑in ↓out · $cost, falling back to bare cost.
+		bank := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost)
+		if bank == "" {
+			bank = "cost " + dollars(m.agentCost)
+		}
+		head += stDim.Render("   ") + stDim.Render(bank)
 		b.WriteString(truncVisible(head, w) + "\n")
 		// The desk strip (§3a line 2): who is at the desk + how to hand off. "" with zero
 		// guests - the zero-guest screen is byte-identical (permanent regression).
@@ -1850,6 +1860,25 @@ func (m model) agentPermTag() string {
 		return stDim.Render(" · ") + stEmber.Render("AUTO-ALL")
 	}
 	return ""
+}
+
+// agentLockCell is the dial deck's LOCK lamp + call sign (catalog #5/#11): a green ◉
+// when tuned in (a model on the dial), an amber ◐ TUNING while auto-tuning, and a dim ○
+// when nothing is on the dial. The call sign is the tuned station's id (empty otherwise);
+// the caller styles + places it. Green/amber ride the increment-0 lamps, so mono collapses.
+func (m model) agentLockCell() (glyph, callsign string) {
+	switch {
+	case m.agent != nil && m.agent.model != "":
+		cs := ""
+		if m.connected != nil {
+			cs = m.connected.NodeID
+		}
+		return lampStyle(roleSignal).Render("◉"), cs
+	case m.autoTuning:
+		return lampStyle(roleDialGlow).Render("◐") + stDim.Render(" TUNING"), ""
+	default:
+		return stDim.Render("○"), ""
+	}
 }
 
 // agentModeLine is the always-on control-panel readout under the AGENT prompt: the

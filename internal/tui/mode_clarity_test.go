@@ -23,26 +23,28 @@ func TestModeHeadersDistinct(t *testing.T) {
 	if !strings.Contains(chat, "no tools") {
 		t.Errorf("the chat view should say it has no tools:\n%s", chat)
 	}
-	if strings.Contains(chat, "AGENT · tools") {
-		t.Errorf("the chat view must not show the AGENT · tools header:\n%s", chat)
+	if strings.Contains(chat, "TOOLS:") {
+		t.Errorf("the chat view must not show the AGENT TOOLS control line:\n%s", chat)
 	}
 
-	// AGENT header.
+	// AGENT header: the DIAL DECK (design overhaul §6) - the ◉ LOCK lamp + call sign +
+	// "· AGENT" - plus the AGENT-only "TOOLS:" control line under the input. The old
+	// "AGENT · tools" heading tag moved to that control line (increments 1/4).
 	base := browseSeed(120)
 	base.connected = &offer{NodeID: "n", Model: "gpt-oss-20b", Online: true}
 	am, _ := base.enterAgent()
 	agent := stripANSI(asModel(am).View())
-	if !strings.Contains(agent, "AGENT · tools") {
-		t.Errorf("the AGENT view should be headed 'AGENT · tools':\n%s", agent)
+	if !strings.Contains(agent, "· AGENT") || !strings.Contains(agent, "TOOLS:") {
+		t.Errorf("the AGENT view should show the dial deck '· AGENT' + the TOOLS control line:\n%s", agent)
 	}
 	if strings.Contains(agent, "TUNE-IN · chat") {
 		t.Errorf("the AGENT view must not show the TUNE-IN · chat header:\n%s", agent)
 	}
 
-	// The two heading accent bars use DIFFERENT colors (red for AGENT, mono for TUNE-IN) -
-	// a real accent distinction independent of the colorless test render.
-	if stSelBar.GetForeground() == stDim.GetForeground() {
-		t.Error("the AGENT (red) and TUNE-IN (mono) heading bars must use different accent colors")
+	// The AGENT deck leads with the green ◉ LOCK lamp; TUNE-IN uses a mono bar - a real
+	// accent distinction (lamp token vs mono ink), independent of the colorless render.
+	if lampStyle(roleSignal).GetForeground() == stDim.GetForeground() {
+		t.Error("the AGENT green ◉ LOCK lamp must differ from the mono ink")
 	}
 }
 
