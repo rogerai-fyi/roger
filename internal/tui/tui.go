@@ -5171,7 +5171,10 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	// GitHub Copilot CLI's animated banner; static under NO_COLOR / non-TTY.
 	// https://github.blog/engineering/from-pixels-to-characters-the-engineering-behind-github-copilot-clis-animated-ascii-banner/
 	f := anim(frame)
-	arcs := []int{1, 2, 3, 2}[f/2%4]
+	// A SLOW radio breath (founder: the beacon flickered too fast at the 160ms tick). Each
+	// arc step holds ~0.8s (f/5) so the ripple reads as a calm swell, not a jitter; §7
+	// "radios are alive but slow · don't animate faster than the eye reads."
+	arcs := []int{1, 2, 3, 2}[f/5%4]
 	if quiet {
 		// Freeze to the canonical two-arc ((•)) brand beacon (brand-ascii.txt §2)
 		// rather than the collapsed single arc a frozen frame happens to land on,
@@ -5182,10 +5185,9 @@ func pulseWith(frame int, eyeStyle lipgloss.Style) string {
 	clos := strings.Repeat(")", arcs)
 	// phosphor decay: the eye glows full on the breath peak, fades to a faint dot
 	// on the trough. Frozen to the bright eye under quiet (no churn in a pipe).
+	// The eye stays a STEADY bright • - the slow arc breath is the only motion now (founder:
+	// the beacon flickered too fast; the fast •/· phosphor blink was a chunk of that flicker).
 	eye := eyeStyle.Render("•")
-	if !quiet && f%4 == 0 {
-		eye = stDim.Render("·")
-	}
 	body := stLive.Render(open) + " " + eye + " " + stLive.Render(clos)
 	const stage = 9 // width of "((( • )))"
 	return lipgloss.PlaceHorizontal(stage, lipgloss.Center, body)
@@ -7402,15 +7404,20 @@ var workingPhrases = []string{
 	"Coming in clear…",
 }
 
-// workingPhrase returns the radio phrase for a frame: it advances every cornerCadence ticks
-// (~2.9s) so the words READ at a calm, deliberate pace, not a flicker - matching the corner Ping's
-// cadence. Under quiet (NO_COLOR / non-TTY) it freezes to the first phrase so a pipe sees a stable
-// line. (And while idle the frame is frozen entirely, so the working line only advances mid-turn.)
+// phraseCadence is how many ticks a working phrase holds. At the 160ms tick that is ~5.4s
+// per phrase - slow enough to READ a full sentence before it changes (founder: the words
+// were changing too fast to read). Deliberately slower than the corner-Ping cadence.
+const phraseCadence = 34
+
+// workingPhrase returns the radio phrase for a frame: it advances every phraseCadence ticks
+// so the words READ at a calm, deliberate pace, never a flicker. Under quiet (NO_COLOR /
+// non-TTY) it freezes to the first phrase so a pipe sees a stable line. (And while idle the
+// frame is frozen entirely, so the working line only advances mid-turn.)
 func workingPhrase(frame int) string {
 	if quiet {
 		return workingPhrases[0]
 	}
-	return workingPhrases[(frame/cornerCadence)%len(workingPhrases)]
+	return workingPhrases[(frame/phraseCadence)%len(workingPhrases)]
 }
 
 // workingSpinner is our answer to Claude Code's ✻ working spinner, in RogerAI's own
