@@ -7312,7 +7312,7 @@ func (m model) chatView(w int) string {
 	}
 	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
 	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
-	b.WriteString("\n  " + stPrompt.Render("you › ") + m.chatIn.View() + "\n")
+	b.WriteString("\n  " + bandUser("you › ") + m.chatIn.View() + "\n")
 	// Phase 2 (de-crowd): the single hint bar (the footer, Zone 4) is the ONE place the
 	// channel keys are taught - the duplicate in-view key line that used to print here is
 	// gone, giving the transcript back a row.
