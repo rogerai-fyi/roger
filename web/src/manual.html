@@ -8,7 +8,7 @@
   <!-- ===== running head: this page is one bound document ===== -->
   <div class="rail" aria-hidden="true">
     <span class="rail__head">RogerAI · Operating Manual</span>
-    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.06 · ((•))</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 · ((•))</span>
   </div>
 
   <!-- ============================ NAV ============================ -->
@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v5.3.9</b></span>
+          <span>Version: <b data-cli-version>v5.4.1</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -289,6 +289,12 @@
                   <tr><td>type + <kbd>Enter</kbd></td><td>give the agent a task; it loops until done</td></tr>
                   <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>recall your previous prompts (shell-style history)</td></tr>
                   <tr><td><code>/model</code></td><td>switch the model the agent runs on (picker, or by name)</td></tr>
+                  <tr><td><kbd>ctrl+p</kbd> · <code>/perms</code></td><td>cycle the tool-approval mode &mdash; <b>CONFIRM</b> (default: write/run ask first) &rarr; <b>AUTO-EDITS</b> (writes auto-run, shell still asks) &rarr; <b>AUTO-ALL</b> (nothing asks). Applies instantly, even mid-turn; the current mode always shows on the <code>TOOLS:</code> line under the input. (<code>/yolo</code> jumps to AUTO-ALL; <code>--yolo</code> / <code>--perms</code> set it per run; <code>roger perms</code> persists a default.)</td></tr>
+                  <tr><td><kbd>tab</kbd></td><td>focus the transcript to scroll it (arrows / PgUp-PgDn); <kbd>tab</kbd>/<kbd>esc</kbd> or typing hands the keyboard back</td></tr>
+                  <tr><td><kbd>d</kbd> <span class="man-note">(transcript focused)</span></td><td>expand / collapse the full tool OUTPUT &mdash; tool runs collapse to one dim <code>&#9881;</code> line by default, with the output a <kbd>d</kbd> away</td></tr>
+                  <tr><td><kbd>ctrl+y</kbd></td><td>copy the last reply to the clipboard</td></tr>
+                  <tr><td><code>/operator</code></td><td>hand the mic to a guest operator CLI (opencode / hermes / aider) on your tuned band</td></tr>
+                  <tr><td><code>/webui</code></td><td>open this station's browser console (aliases <code>/console</code>, <code>/web</code>)</td></tr>
                   <tr><td><code>/clear</code></td><td>reset the session and clear the transcript</td></tr>
                   <tr><td><code>/remote-control</code></td><td>put THIS live session on your private BASE STATION so you can continue it from another terminal, the web console, or the app (aliases: <code>/remote</code>, <code>/rc</code>; <code>off</code> takes it off the air). Private to your account, broker-relayed (not end-to-end encrypted); tools still run here and still ask first</td></tr>
                   <tr><td><code>/persona</code></td><td>show the <code>dj.md</code> path + its first line</td></tr>
@@ -297,6 +303,7 @@
                 </tbody>
               </table>
             </div>
+            <p class="man-lead">Reading the screen: the masthead is the <b>dial deck</b> &mdash; <code>&#9673;</code> LOCK (green when you're tuned in, amber <code>&#9680;</code> while tuning), the station call sign, the model, a live S-meter, and a <code>&uarr;in &darr;out&nbsp;·&nbsp;$cost</code> meter bank. In the transcript your turns ride a red <code>&#9612;</code> bar while the agent's answers sit on bare paper, and radio prowords tag the flow: <code>&#9203;&nbsp;STANDBY</code> (a queued ask), <code>&#10003;&nbsp;WILCO</code> (a tool approved &amp; running), <code>&#10007;&nbsp;BREAK</code> (you interrupted). While a turn streams a scrolling carrier shows it's transmitting, with <code>esc: BREAK</code> to stop.</p>
           </section>
 
           <!-- ============== §3 TUNE IN ============== -->
@@ -313,7 +320,11 @@
               <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> (or <kbd>j</kbd>/<kbd>k</kbd>),
               <kbd>Enter</kbd> to tune in. The list is virtualized, so a crowded band stays
               fast. When you are connected, <kbd>Enter</kbd> on that row jumps into the
-              chat, and <kbd>d</kbd> disconnects right from the list.</p>
+              chat, and <kbd>d</kbd> disconnects right from the list. As of v5.4.0 a
+              <b>tuning dial</b> rides above the table - a <code>&#9670;</code> pointer that
+              glides across the band as you move the cursor - and each row's SIGNAL is an
+              <b>S-meter</b> on a <code>1 3 5 7 9 +20</code> scale (a genuinely strong station
+              lights the <code>+20</code> over-scale in green).</p>
             <div class="man-table-wrap">
               <table class="man-table">
                 <caption>[1] TUNE IN - the band browser</caption>
@@ -502,7 +513,10 @@
               (a token refresh) and rides it out. The SHARE panel tells the truth about which
               state you are in: <b>ON AIR</b> when the broker is acknowledging your
               heartbeats, <b>RECONNECTING</b> while they are failing - never a green light
-              over a dead link.</p>
+              over a dead link. As of v5.4.0 the panel is a dispatch console: each shared
+              model leads its row with a pilot lamp - <code>&#9679;</code> on air (green),
+              <code>&#9680;</code> warming / reconnecting (amber), <code>&#9675;</code> idle
+              (dim) - so the whole fleet's state reads in one glance down the column.</p>
 
             <h3>Schedules and concurrency</h3>
             <div class="man-plate">
@@ -892,8 +906,9 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               user-config dir). It holds the broker URL, your user handle, saved spend
               limits, the onboarding state, and the saved share config. Inspect and set it
               with <code>roger config</code>.</p>
-            <pre><span class="p">$</span> roger config                       <span class="c"># print broker, user, limits, path</span>
+            <pre><span class="p">$</span> roger config                       <span class="c"># print broker, user, webui-open, palette, limits, path</span>
 <span class="p">$</span> roger config set broker https://broker.rogerai.fyi
+<span class="p">$</span> roger config set palette mono      <span class="c"># mono+red escape hatch (full = the lamp board, default)</span>
 <span class="p">$</span> roger config get broker</pre>
 
             <h3>Spend limits</h3>
@@ -908,6 +923,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <div class="man-plate">
               <div class="man-plate__row"><span class="man-plate__k">ROGER_BROKER</span><span class="man-plate__v">override the broker URL for one session (federation: pick who you trust)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGER_USER</span><span class="man-plate__v">override your user handle for one session</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">ROGER_PALETTE</span><span class="man-plate__v">override the TUI color layer for one session: <code>mono</code> (the mono+red escape hatch) or <code>full</code> (the lamp board, default). Persist with <code>roger config set palette</code></span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGERAI_INSTALL_DIR</span><span class="man-plate__v">where the installer puts the binary (default <code>~/.local/bin</code>)</span></div>
               <div class="man-plate__row"><span class="man-plate__k">ROGERAI_NO_UPDATE_CHECK</span><span class="man-plate__v">set to <code>1</code> to silence the startup update banner</span></div>
             </div>
@@ -921,7 +937,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.3.9</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v5.4.1</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -948,10 +964,13 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>logout</code></td><td>forget the local GitHub link</td></tr>
                   <tr><td><code>whoami</code></td><td>show your signed identity + linked GitHub</td></tr>
                   <tr><td><code>onboard</code></td><td>re-run the first-run setup (alias: <code>setup</code>)</td></tr>
-                  <tr><td><code>config</code></td><td>broker, user, spend limits: <code>config get/set broker|user</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
+                  <tr><td><code>config</code></td><td>broker, user, webui-open, palette, spend limits: <code>config get/set broker|user|webui-open|palette</code> · <code>config set-limit &lt;model|default&gt; --max-out P [--max-in P] [--min-tps N]</code> · <code>config clear-limit &lt;model&gt;</code> · <code>config limits</code> (see §8)</td></tr>
+                  <tr><td><code>perms</code> <span class="man-note">[confirm|edits|all]</span></td><td>set the persisted default for the AGENT's tool-approval mode (also <code>/perms</code> / <kbd>ctrl+p</kbd> in the app; <code>--yolo</code> / <code>--perms</code> override per run)</td></tr>
+                  <tr><td><code>context</code></td><td>export / import a signed conversation capsule to hand a session off between <code>roger</code> and the app: <code>context export</code> · <code>context import &lt;file&gt;</code></td></tr>
                   <tr><td><code>support</code></td><td>open the site (community, docs, and the Discord invite live in its footer) (aliases: <code>community</code>, <code>discord</code>, <code>help-me</code>)</td></tr>
                   <tr><td><code>upgrade</code></td><td>self-update the binary; <code>--check</code> only reports availability (aliases: <code>update</code>, <code>self-update</code>)</td></tr>
                   <tr><td><code>version</code></td><td>print the client version</td></tr>
+                  <tr><td><code>boot</code></td><td>replay the tube warm-up boot (the once-per-version launch animation), then exit</td></tr>
                   <tr><td><code>ping</code></td><td>easter egg: the mascot walks the terminal</td></tr>
                   <tr><td><code>--ping</code></td><td>easter egg: the full-screen "Ping World" screensaver (or <kbd>z</kbd> in the app)</td></tr>
                   <tr><td><code>help</code></td><td>usage (aliases: <code>-h</code>, <code>--help</code>)</td></tr>
@@ -1041,7 +1060,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               illegal content (CSAM and the like) is blocked <b>before</b> it ever reaches a
               provider. Before a prompt is relayed to a station - and on the public Ping
               concierge on the site - its text is checked against a moderation model. Today
-              that screen runs on <b>Groq's Llama Guard</b>, our moderation provider; the
+              that screen runs on an open-weight content-safety model
+              (<b>gpt-oss-safeguard</b>), served via Groq; the
               check happens <b>in transit</b> (the prompt is not stored for it) but it does
               mean the text is read by the screen, and sent to Groq, at dispatch time. That
               is the one honest exception to the broker being content-blind, and it is
@@ -1201,6 +1221,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v5.4.1</span><span class="man-plate__v">The tube warm-up boot and the on-air beacon read at a calm, watchable pace (motion tuned so the words never flicker past); <code>roger boot</code> replays the warm-up.</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">v5.4.0</span><span class="man-plate__v">The radio-operator overhaul. A lamp palette with a one-switch mono+red escape hatch (<code>roger config set palette mono</code>), an S-meter band scale (<code>1 3 5 7 9 +20</code>), the AGENT dial deck (<code>&#9673;</code> LOCK · call sign · S-meter · <code>&uarr;in &darr;out&nbsp;·&nbsp;$cost</code> meter bank), self-evident radio prowords in the transcript (<code>STANDBY</code> / <code>WILCO</code> / <code>BREAK</code>), a SHARE dispatch console with per-model pilot lamps, a BROWSE tuning dial, a persistent <code>TOOLS:</code> approval-mode line under the input, tool output tucked behind <code>d</code>, and a once-per-version tube warm-up boot.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.3.9</span><span class="man-plate__v">The browser console opens on demand (<code>w</code> in the band view, <code>/webui</code> in the agent) instead of auto-opening at launch; <code>ctrl+p</code> cycles agent tool-approval mode (<code>/perms</code>) instantly, even mid-turn.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.3.8</span><span class="man-plate__v">Updates upgrade themselves: the notice is a banner in the band view, <code>u</code> installs right there (checksum-verified) and offers a one-key restart into the new version.</span></div>
             <div class="man-plate__row"><span class="man-plate__k">v5.3.7</span><span class="man-plate__v"><code>--yolo</code> / <code>--perms</code> launch flags and a persisted <code>roger perms</code> default for agent tool approvals, plus honest copy when a station hits an internal inference error.</span></div>
