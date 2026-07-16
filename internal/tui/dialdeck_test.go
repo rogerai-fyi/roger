@@ -68,6 +68,60 @@ func TestDialDeckNoModel(t *testing.T) {
 	}
 }
 
+// G1 - the tube-glow: while a channel is open, a faint amber wash sits behind the brand
+// lockup (the "set is warm"). ANSI256+ only, full palette only.
+func TestTubeGlowWhenLive(t *testing.T) {
+	colorOn(t, true) // TrueColor => canTint true
+	rq := quiet
+	quiet = false // simulate an interactive TTY (tests run non-TTY, where canTint is off)
+	t.Cleanup(func() { quiet = rq })
+	m := browseSeed(96)
+	m.connected = &offer{NodeID: "n", Model: "gpt-oss-20b", Online: true}
+	glow := stBrand.Background(cTubeGlow).Render(" R O G E R")
+	if !strings.Contains(m.header(96), glow) {
+		t.Error("G1: a live session should wash the brand lockup with the amber tube-glow")
+	}
+}
+
+// G2 - the escape hatch: palette mono drops the glow entirely (the lockup renders plain),
+// so the mono+red fallback never carries a stray amber wash.
+func TestTubeGlowOffInMono(t *testing.T) {
+	colorOn(t, true)
+	restore := paletteMono
+	t.Cleanup(func() { paletteMono = restore })
+	paletteMono = true
+	rq := quiet
+	quiet = false
+	t.Cleanup(func() { quiet = rq })
+	m := browseSeed(96)
+	m.connected = &offer{NodeID: "n", Model: "gpt-oss-20b", Online: true}
+	if strings.Contains(m.header(96), stBrand.Background(cTubeGlow).Render(" R O G E R")) {
+		t.Error("G2: mono palette must not paint the tube-glow")
+	}
+}
+
+// G3 - no glow when nothing is tuned in (the set is cold).
+func TestTubeGlowOffWhenNotLive(t *testing.T) {
+	colorOn(t, true)
+	rq := quiet
+	quiet = false
+	t.Cleanup(func() { quiet = rq })
+	m := browseSeed(96)
+	m.connected = nil
+	if strings.Contains(m.header(96), stBrand.Background(cTubeGlow).Render(" R O G E R")) {
+		t.Error("G3: an idle (no channel) header must not glow")
+	}
+}
+
+// A1 - the ON AIR lamp (catalog #4): the sharing headline reads a red ON AIR (guard so
+// the dial-deck work doesn't disturb the existing on-air indicator).
+func TestOnAirLampReadsOnAir(t *testing.T) {
+	m := browseSeed(96)
+	if !strings.Contains(stripANSI(m.headlineBadge()), "ON AIR") {
+		t.Error("A1: the sharing headline badge must read ON AIR")
+	}
+}
+
 // K1 - the header brand lockup renders the ▟▄▙ radio, never the old ▟█▙ tower.
 func TestHeaderLockupIsRadio(t *testing.T) {
 	m := browseSeed(96)
