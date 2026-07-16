@@ -7,7 +7,61 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/harness"
 )
+
+// agentWithToolOutput drives an AGENT to a state with one previewable tool result.
+func agentWithToolOutput(t *testing.T) model {
+	t.Helper()
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(keyMsg("0")) // enter AGENT
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "a.go\nb.go\nc.go\n"})
+	return asModel(am)
+}
+
+// E1 - tool OUTPUT is HIDDEN by default; the result line carries a d·output hint instead.
+func TestToolOutputHiddenByDefault(t *testing.T) {
+	m := agentWithToolOutput(t)
+	joined := stripANSI(strings.Join(m.displayAgentLines(), "\n"))
+	if strings.Contains(joined, "a.go") {
+		t.Errorf("tool output must be hidden by default:\n%s", joined)
+	}
+	if !strings.Contains(joined, "d·output") {
+		t.Errorf("a hidden preview should advertise the d·output toggle:\n%s", joined)
+	}
+}
+
+// E2 - with showToolOutput the preview content expands (retroactive, over the whole view).
+func TestToolOutputExpands(t *testing.T) {
+	m := agentWithToolOutput(t)
+	m.showToolOutput = true
+	joined := stripANSI(strings.Join(m.displayAgentLines(), "\n"))
+	if !strings.Contains(joined, "a.go") || !strings.Contains(joined, "c.go") {
+		t.Errorf("expanded output should show the preview content:\n%s", joined)
+	}
+	if strings.Contains(joined, "d·output") {
+		t.Error("when expanded, the d·output hint should be gone")
+	}
+}
+
+// E3 - `d` while the transcript pane is focused toggles the output (never while typing).
+func TestToolOutputDToggle(t *testing.T) {
+	var am tea.Model = agentWithToolOutput(t)
+	am, _ = am.Update(tea.KeyMsg{Type: tea.KeyTab}) // focus the transcript pane
+	if !asModel(am).agentPaneFocus {
+		t.Fatal("tab should focus the transcript pane")
+	}
+	am, _ = am.Update(keyMsg("d"))
+	if !asModel(am).showToolOutput {
+		t.Error("d (pane focused) should expand the tool output")
+	}
+	am, _ = am.Update(keyMsg("d"))
+	if asModel(am).showToolOutput {
+		t.Error("d again should collapse it")
+	}
+}
 
 // D1 - the tool call line is one DIM ⚙-prefixed line (tool + arg summary), never the old
 // bright ◉ + bright tool-name treatment.

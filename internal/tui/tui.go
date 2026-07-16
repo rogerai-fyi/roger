@@ -906,6 +906,11 @@ type model struct {
 	// back to the input. The mouse wheel scrolls the transcript in EITHER state
 	// (real wheel events; mouse capture is on by default).
 	agentPaneFocus bool
+	// showToolOutput expands the (default-hidden) tool-result OUTPUT previews across the
+	// whole AGENT transcript; the `d` key (transcript pane focused) toggles it. Machinery
+	// dims to texture: the tool CALL + result stay one dim line each, the full output rides
+	// behind this toggle (design overhaul §4).
+	showToolOutput bool
 	// async, cached update check (non-blocking) + the in-TUI upgrade banner state
 	updateLine string // "update available v<cur> -> v<new>" or "" (set by updateMsg)
 	upg        upgState
@@ -7246,7 +7251,7 @@ func (m model) refreshScroll() model {
 	}
 
 	agentBottom := m.agentVP.AtBottom()
-	agentContent := transcriptContent(m.agentLines, w)
+	agentContent := transcriptContent(m.displayAgentLines(), w)
 	m.agentVP.Width = w
 	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows()))
 	m.agentVP.SetContent(agentContent)

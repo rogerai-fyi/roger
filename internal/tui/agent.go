@@ -714,6 +714,18 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "end":
 			m.agentVP.GotoBottom()
 			return m, nil
+		case "d":
+			// Expand / collapse the tool OUTPUT previews across the whole transcript
+			// (machinery dims to texture; the full output is a `d` away). Only here, with
+			// the pane focused - while typing, `d` is just a rune.
+			m.showToolOutput = !m.showToolOutput
+			m = m.refreshScroll()
+			if m.showToolOutput {
+				m.status = stDim.Render("tool output shown · d hides")
+			} else {
+				m.status = stDim.Render("tool output hidden · d shows")
+			}
+			return m, nil
 		case "tab", "esc", "enter":
 			m.agentPaneFocus = false
 			m.agentIn.Focus()
@@ -872,7 +884,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(strings.TrimSpace(m.agentIn.Value()), "/") {
 			m.agentPaneFocus = true
 			m.agentIn.Blur()
-			m.status = stDim.Render("transcript focused · ↑↓ pgup/pgdn scroll · end jumps live · tab/esc back to ask")
+			m.status = stDim.Render("transcript focused · ↑↓ pgup/pgdn scroll · d output · end jumps live · tab/esc back to ask")
 			return m, nil
 		}
 		// Slash-command autocomplete (see agentCommands): a unique prefix match fills
@@ -1416,7 +1428,11 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		// result keeps just the line above (its error text already rode in the tail). In
 		// compact mode the summary line is enough.
 		if !m.compact && !e.Denied && !e.IsError && previewableTool(e.Tool) {
-			m.agentLines = append(m.agentLines, resultPreview(e.Result)...)
+			// Tagged with toolOutMark: kept in the buffer but HIDDEN by default - the `d`
+			// toggle (displayAgentLines) expands the full output across the whole view.
+			for _, pl := range resultPreview(e.Result) {
+				m.agentLines = append(m.agentLines, toolOutMark+pl)
+			}
 		}
 	case harness.EventFinal:
 		m.agentTurnState = poseStreaming
@@ -1703,7 +1719,7 @@ func (m model) agentView(w int) string {
 	// can page through (PgUp/PgDn, Ctrl+U/D, mouse wheel, arrows) even while a turn
 	// streams, so a long answer or tool dump can be read back. Sized to min(content,
 	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
-	content := transcriptContent(m.agentLines, w)
+	content := transcriptContent(m.displayAgentLines(), w)
 	m.agentVP.Width = w
 	budget := m.agentTranscriptRows(cornerRows)
 	m.agentVP.Height = clampRows(lineRows(content), budget)
@@ -1916,6 +1932,34 @@ func (m model) agentModeLine(w int) string {
 // ctrl+p-escalate-to-auto-approve). Deny stays plain English (no proword for deny).
 func agentApprovedLine(tool string) string {
 	return "  " + stLive.Render("✓ ") + stDim.Render("WILCO · "+tool)
+}
+
+// toolOutMark tags a tool-OUTPUT preview line in agentLines: kept in the buffer but shown
+// only when showToolOutput is on. A control char (record separator) that never appears in
+// real content, so displayAgentLines can recognize + strip it.
+const toolOutMark = "\x1e"
+
+// displayAgentLines is the render view of agentLines with the tool-output toggle applied:
+// when showToolOutput is off (default), the tagged preview lines are dropped and the result
+// line above them gains a dim `d·output` hint; when on, the previews render (tag stripped).
+// So the machinery stays one dim line each by default, with the full output a `d` away.
+func (m model) displayAgentLines() []string {
+	out := make([]string, 0, len(m.agentLines))
+	hinted := false
+	for _, ln := range m.agentLines {
+		if strings.HasPrefix(ln, toolOutMark) {
+			if m.showToolOutput {
+				out = append(out, ln[len(toolOutMark):])
+			} else if len(out) > 0 && !hinted {
+				out[len(out)-1] += stDim.Render("   d·output") // hint on the result line, once per group
+				hinted = true
+			}
+			continue
+		}
+		hinted = false
+		out = append(out, ln)
+	}
+	return out
 }
 
 // agentToolCallLine renders a tool CALL as dim machinery-texture (design overhaul §4): a
