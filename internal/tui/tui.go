@@ -5386,7 +5386,7 @@ func (m model) header(w int) string {
 			stDim.Render(" · ") + m.accountTag(true) +
 			// CONNECTED header: the in-flight count is the live load on the open channel, so
 			// the meter scans with real throughput while the channel is actively serving.
-			"  " + tintSignal(signalBarsRaw(m.frame, o.Signal, o.TPS, true, o.InFlight, 0), o.Signal, o.TPS, true)
+			"  " + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
 		return bar + "\n" + rule
 	}
 
@@ -5985,8 +5985,20 @@ func (m model) browseView(w int) string {
 			if showCtx {
 				ctxHdr = "  " + fmt.Sprintf("%-6s", "ctx")
 			}
-			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s%s%s  %-8s  %s",
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s%s%s  %-11s  %s",
 				"band", "on air", "$/1M in·out", ctxHdr, tpsHdr, "signal", "flags")) + "\n")
+			// The S-scale legend, aligned under the SIGNAL column via the SAME template
+			// (blank labels), shown once. The 13-col legend overhangs the 11-col cell into
+			// the empty flags gap - harmless, this line carries no flags.
+			ctxBlank, tpsBlank := "", ""
+			if showCtx {
+				ctxBlank = "  " + fmt.Sprintf("%-6s", "")
+			}
+			if showTPS {
+				tpsBlank = "  " + fmt.Sprintf("%-5s", "")
+			}
+			b.WriteString("  " + stDim.Render(fmt.Sprintf("%-20s  %-9s  %-17s%s%s  %-11s  %s",
+				"", "", "", ctxBlank, tpsBlank, "1 3 5 7 9 +20", "")) + "\n")
 		}
 	}
 	// Table width for the k9s reverse-video selection bar (spans the whole row).
@@ -6117,14 +6129,14 @@ func (m model) browseView(w int) string {
 			// k9s-style: the cursor row is one unmistakable reverse-video bar. We use
 			// the raw (uncolored) signal glyphs so the single accent style governs the
 			// whole row (a colored cell inside an accent bg reads as noise).
-			rawSig := pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8)
+			rawSig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, true)
 			plain := fmt.Sprintf("%s  %s  %s%s%s  %s  %s",
 				pad(bd.model, nameW), pad(stationsLbl, 9), pad(priceInOutTier(bd, 17), 17), ctxSelCell, tpsSelCell, rawSig, plainBandBadge(bd, m.limits, connected))
 			b.WriteString(m.caratGutter() + rowSel(true, plain, tableW) + "\n")
 			continue
 		}
 		rng := stEmber.Render(pad(priceInOutTier(bd, 17), 17))
-		sig := tintSignal(pad(signalBarsRaw(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations), 8), sigSignal, sigTPS, online)
+		sig := m.bandSMeter(m.sigFrame(), sigSignal, sigTPS, online, sigInFlight, bd.stations, false)
 		nameCell := stDim.Render(pad(bd.model, nameW))
 		statCell := stDim.Render(pad(stationsLbl, 9))
 		if connected {
