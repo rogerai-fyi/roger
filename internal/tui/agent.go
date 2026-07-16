@@ -2054,7 +2054,9 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	}
 	line := withMeta(label)
 	if withBar {
-		line += "\n  " + tintBar(meterSweep(m.frame, meterWidth), stLive)
+		// The carrier (catalog #7): a scrolling ∿ proof-of-life that the station is
+		// transmitting, with the esc:BREAK interrupt named the radio way (inc-2 proword).
+		line += "\n  " + carrierSweep(m.frame, meterWidth) + stDim.Render("   esc: BREAK")
 	}
 	return line
 }
