@@ -1821,7 +1821,7 @@ func (m model) agentView(w int) string {
 	}
 	// The always-live prompt: `ask ›` + the input view (cursor + echoed text). Clipped
 	// to width so a long placeholder / echoed line never overflows.
-	b.WriteString("\n" + truncVisible("  "+stPrompt.Render("ask › ")+m.agentIn.View(), w) + "\n")
+	b.WriteString("\n" + truncVisible("  "+bandUser("ask › ")+m.agentIn.View(), w) + "\n")
 	if !m.compact {
 		// The control-panel mode line, always on directly under the input: TOOLS: <mode>
 		// (never empty) + a STANDBY chip. The founder's original "did /perms toggle?" fix.
@@ -1921,7 +1921,7 @@ func agentApprovedLine(tool string) string {
 // precedes it, chunking the transcript into visibly separate turns - the difference
 // between a wall of interleaved tool output and a session you can scan.
 func (m model) agentAskLines(p string) []string {
-	ask := stSelText.Render("▸ ") + p
+	ask := bandUser(p)
 	if len(m.agentLines) == 0 {
 		return []string{ask}
 	}

@@ -37,10 +37,10 @@ func TestStartQueuedPromptOriginDispatch(t *testing.T) {
 		wantMark string // a transcript marker proving which path ran
 	}{
 		{"local slash dispatches inline", queuedPrompt{text: "/clear"}, false, "session cleared"},
-		{"remote /operator is a chat turn, never a handoff", queuedPrompt{text: "/operator opencode", remote: true}, true, "▸ /operator opencode"},
-		{"remote /clear is a chat turn too (asymmetry removal intended)", queuedPrompt{text: "/clear", remote: true}, true, "▸ /clear"},
-		{"local chat text starts a turn", queuedPrompt{text: "hello there"}, true, "▸ hello there"},
-		{"remote chat text starts a turn", queuedPrompt{text: "hello there", remote: true}, true, "▸ hello there"},
+		{"remote /operator is a chat turn, never a handoff", queuedPrompt{text: "/operator opencode", remote: true}, true, "▌ /operator opencode"},
+		{"remote /clear is a chat turn too (asymmetry removal intended)", queuedPrompt{text: "/clear", remote: true}, true, "▌ /clear"},
+		{"local chat text starts a turn", queuedPrompt{text: "hello there"}, true, "▌ hello there"},
+		{"remote chat text starts a turn", queuedPrompt{text: "hello there", remote: true}, true, "▌ hello there"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

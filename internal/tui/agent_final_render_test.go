@@ -79,7 +79,7 @@ func TestAgentAskSeparator(t *testing.T) {
 	m := browseSeed(120)
 	m.agentLines = nil
 	first := m.agentAskLines("one")
-	if len(first) != 1 || !strings.Contains(stripANSI(first[0]), "▸ one") {
+	if len(first) != 1 || !strings.Contains(stripANSI(first[0]), "▌ one") {
 		t.Errorf("first ask should echo bare, got %q", first)
 	}
 	m.agentLines = append(m.agentLines, first...)
@@ -90,7 +90,7 @@ func TestAgentAskSeparator(t *testing.T) {
 	if !strings.Contains(stripANSI(second[1]), "──") {
 		t.Errorf("separator rule missing, got %q", stripANSI(second[1]))
 	}
-	if !strings.Contains(stripANSI(second[2]), "▸ two") {
+	if !strings.Contains(stripANSI(second[2]), "▌ two") {
 		t.Errorf("ask line missing, got %q", second)
 	}
 }

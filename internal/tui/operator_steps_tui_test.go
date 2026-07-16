@@ -1643,7 +1643,7 @@ func (s *opBDD) answeredAsChatTurn(text string) error {
 	if !m.agentBusy {
 		return fmt.Errorf("no chat turn started for the drained remote text")
 	}
-	if !strings.Contains(s.view(), "▸ "+text) {
+	if !strings.Contains(s.view(), "▌ "+text) { // the user-turn band bar (design overhaul inc 6; was ▸)
 		return fmt.Errorf("the transcript lacks the chat-turn echo for %q:\n%s", text, s.view())
 	}
 	return nil

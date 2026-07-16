@@ -33,6 +33,12 @@ var (
 	cDialGlow = lipgloss.AdaptiveColor{Light: "#92640F", Dark: "#F5A623"} // amber dial glow
 	cDial     = lipgloss.AdaptiveColor{Light: "#42608C", Dark: "#7EA6D8"} // dial blue-white
 
+	// cBand is the FAINT neutral warm tint band behind a USER turn + the input (catalog
+	// per §8.6) - a barely-there warm lift over the paper that marks "your line" as a zone
+	// distinct from the assistant's bare-paper prose. A Background() only, gated by canTint
+	// (ANSI256+) and full palette; mono / dumb terminals drop it to the bare red ▌ bar.
+	cBand = lipgloss.AdaptiveColor{Light: "#F1EFE8", Dark: "#191712"}
+
 	// cTubeGlow is the FAINT tube-glow WASH behind the brand lockup while a session is
 	// live (catalog #10) - the dim end of cDialGlow, a Background() only. Full cDialGlow
 	// would be a garish amber block; this is a barely-lit warm amber over the warm-black
@@ -94,6 +100,19 @@ func lamp(r paletteRole) lipgloss.AdaptiveColor {
 // lamp color for the active palette mode. Chips light through this, so a call site
 // never names a hex and the one mono switch repoints them all (increment 1+ use it).
 func lampStyle(r paletteRole) lipgloss.Style { return lipgloss.NewStyle().Foreground(lamp(r)) }
+
+// bandUser renders a USER line (an echoed ask or the input prompt) with the red ▌ left
+// bar and, where canTint allows (ANSI256+, not quiet) and the palette is full, a FAINT
+// neutral tint band behind it - so your turns separate from the assistant's bare-paper
+// prose. On mono / a dumb terminal it drops to the bare red ▌ bar (the §9 fallback), so
+// the escape hatch holds and the accent still reads at every profile.
+func bandUser(text string) string {
+	if !paletteMono && canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		return lipgloss.NewStyle().Foreground(cLive).Background(cBand).Bold(true).Render("▌ ") +
+			lipgloss.NewStyle().Background(cBand).Render(text)
+	}
+	return stSelBar.Render("▌ ") + text
+}
 
 // canTint reports whether a Background() tint band may be painted at this terminal
 // profile. Colored TEXT (lamps, chips, meters, prowords) degrades for free via
