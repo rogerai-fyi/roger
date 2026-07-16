@@ -1342,11 +1342,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.world.frame++
 			// keep the LIVE signal towers fresh: a calm re-scan every worldRescanFrames (the
 			// normal browse rescan is skipped while the world owns the tick). offersMsg rebuilds
-			// m.world.data. A screensaver should breathe, so this is slower than browse's ~5s.
+			// m.world.data. The world advances on the CALM pingWorldTick (worldTickMs), NOT the
+			// app's fast 160ms tick, so it breathes like the standalone screensaver.
 			if m.broker != "" && m.world.frame%worldRescanFrames == 0 {
-				return m, tea.Batch(tick(), fetchOffers(m.broker))
+				return m, tea.Batch(pingWorldTick(), fetchOffers(m.broker))
 			}
-			return m, tick()
+			return m, pingWorldTick()
 		}
 		// TOAST (A.6.6): auto-dismiss a transient status after toastFrames in the MAIN views, so
 		// confirmations don't linger forever. Modal screens keep their status (it's the prompt).
@@ -9073,6 +9074,14 @@ func tick() tea.Cmd {
 // switches back to the fast tick().
 func slowTick() tea.Cmd {
 	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// pingWorldTick is the CALM cadence the in-TUI Ping World screensaver advances on: the same
+// slow worldTickMs as the standalone `roger --ping` (NOT the app's fast 160ms tick). Without
+// this the in-TUI world ran ~3.4x too fast - the day<->night cycle raced by (founder: "day to
+// night in ~5 seconds"). A screensaver breathes; it should never ride the interactive tick.
+func pingWorldTick() tea.Cmd {
+	return tea.Tick(worldTickMs*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
 // fetchOffers pulls the FULL on-air set from the broker /discover (the broker does

@@ -186,3 +186,23 @@ func TestDayBoundedAndPlain(t *testing.T) {
 		t.Error("day scene emitted ANSI under NO_COLOR")
 	}
 }
+
+// TestDayNightPaceIsCalm locks the real-time SPEED of the cycle. The founder reported it
+// "goes from day to night in ~5 seconds - ridiculously fast": the in-TUI screensaver was
+// riding the app's 160ms tick instead of the calm worldTickMs. Now BOTH the standalone
+// (`roger --ping`) and the in-TUI world advance on pingWorldTick == worldTickMs, so a
+// day->night transition (half the period) takes minutes. This guards against a shrunk
+// period OR a sped-up tick sneaking back in.
+func TestDayNightPaceIsCalm(t *testing.T) {
+	dayToNightSec := (dayNightPeriod / 2) * worldTickMs / 1000
+	const wantAtLeastSec = 300 // >= 5 minutes; today ~432s (1600/2 frames * 540ms)
+	if dayToNightSec < wantAtLeastSec {
+		t.Errorf("day->night is %ds - too fast; keep it >= %ds (period=%d frames, tick=%dms). "+
+			"If you shortened the cycle, this is the intentional-change gate: bump the bound with the design.",
+			dayToNightSec, wantAtLeastSec, dayNightPeriod, worldTickMs)
+	}
+	// The screensaver must breathe on its own slow cadence, never the app's fast 160ms tick.
+	if worldTickMs < 400 {
+		t.Errorf("worldTickMs = %dms - the screensaver tick must stay calm (>= 400ms)", worldTickMs)
+	}
+}
