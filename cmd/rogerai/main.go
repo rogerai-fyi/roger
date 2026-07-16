@@ -80,17 +80,18 @@ type Limits struct {
 }
 
 type config struct {
-	Broker    string                `json:"broker"`
-	User      string                `json:"user"`
-	Limits    Limits                `json:"limits"`
-	Onboarded bool                  `json:"onboarded,omitempty"`    // first-run wizard completed
-	Share     *Share                `json:"share,omitempty"`        // saved provider config (the wizard's earn/free choice)
-	Prices    map[string]SharePrice `json:"share_prices,omitempty"` // per-model price + schedule from the in-TUI editor
-	Voices    map[string]ShareVoice `json:"share_voices,omitempty"` // per-model voice identity (dj name / voice / speed / language / sample_url)
-	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
-	Webui     *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
-	WebuiOpen *bool                 `json:"webui_open,omitempty"`   // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
-	Palette   string                `json:"palette,omitempty"`      // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	Broker          string                `json:"broker"`
+	User            string                `json:"user"`
+	Limits          Limits                `json:"limits"`
+	Onboarded       bool                  `json:"onboarded,omitempty"`         // first-run wizard completed
+	Share           *Share                `json:"share,omitempty"`             // saved provider config (the wizard's earn/free choice)
+	Prices          map[string]SharePrice `json:"share_prices,omitempty"`      // per-model price + schedule from the in-TUI editor
+	Voices          map[string]ShareVoice `json:"share_voices,omitempty"`      // per-model voice identity (dj name / voice / speed / language / sample_url)
+	Compact         bool                  `json:"compact,omitempty"`           // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
+	Webui           *bool                 `json:"webui,omitempty"`             // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
+	WebuiOpen       *bool                 `json:"webui_open,omitempty"`        // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette         string                `json:"palette,omitempty"`           // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
+	LastSeenVersion string                `json:"last_seen_version,omitempty"` // the Version last launched; the tube warm-up boot plays only when this differs (first run + after an upgrade). (design overhaul increment 10)
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -345,6 +346,11 @@ var knownConfigKeys = func() map[string]bool {
 	}
 	return m
 }()
+
+// bootShouldPlay reports whether the tube warm-up boot should play: on the first-ever run
+// (nothing seen yet) or whenever the last-seen version differs from this build (an upgrade
+// or downgrade), never on an ordinary same-version re-launch. Founder ruling §5.6.
+func bootShouldPlay(lastSeen, version string) bool { return lastSeen != version }
 
 // paletteFromConfig resolves the effective TUI color mode ("full" | "mono") from
 // the persisted config, with the ROGER_PALETTE env winning for the run (mirrors
@@ -721,6 +727,15 @@ func run(argv []string, cfg config) error {
 	}
 	applyPermsDefault(permsFlag, cfg.AgentPerms)
 	if len(rest) == 0 {
+		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
+		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
+		// tui.PlayBoot self-skips under quiet / NO_COLOR; we stamp last_seen_version either
+		// way so it plays at most once for this build.
+		if bootShouldPlay(cfg.LastSeenVersion, Version) {
+			tui.PlayBoot(os.Stdout, time.Sleep)
+			cfg.LastSeenVersion = Version
+			_ = saveConfig(cfg)
+		}
 		// First run: a tiny guided wizard (consume vs share, free vs earn) before the
 		// app. Non-interactive / already-onboarded runs skip it and launch straight in.
 		cfg = maybeOnboard(cfg)
