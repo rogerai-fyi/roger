@@ -138,7 +138,7 @@ func TestPlateAiderGreenAndTagline(t *testing.T) {
 	if !strings.Contains(block, stDim.Render("ai pair programming in your terminal")) {
 		t.Fatal("the tagline reads as a dim sentence under the art")
 	}
-	if strings.Contains(stripANSI(block), "▄") || strings.Contains(block, "255;68;56") { // cRed dark #FF4438
+	if strings.Contains(stripANSI(block), "▄") || strings.Contains(block, "255;86;54") { // cRed dark #FF5636
 		t.Fatal("no cursor glint on the aider plate (doc §3a ruling)")
 	}
 }
