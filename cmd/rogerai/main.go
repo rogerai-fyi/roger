@@ -90,6 +90,7 @@ type config struct {
 	Compact   bool                  `json:"compact,omitempty"`      // windowshade compact-mode toggle (the in-TUI [m] choice, persisted)
 	Webui     *bool                 `json:"webui,omitempty"`        // browser node console: nil/true = on (default), false = off; --no-webui overrides off for a run
 	WebuiOpen *bool                 `json:"webui_open,omitempty"`   // auto-open the console in a browser at launch: nil/false = no (default; founder respec 2026-07-14 - it hijacked terminal-embedded browsers), true = yes
+	Palette   string                `json:"palette,omitempty"`      // TUI color layer: ""/"full" = the lamp board (default), "mono" = the mono+red escape hatch. ROGER_PALETTE overrides per-run. (design overhaul increment 0)
 	// Station is this install's friendly, NON-SENSITIVE broadcast callsign (e.g.
 	// `brave-otter-37`). It is the public-facing identity in /discover - NOT the
 	// hostname - so it never leaks the machine name. Auto-generated once and persisted
@@ -344,6 +345,21 @@ var knownConfigKeys = func() map[string]bool {
 	}
 	return m
 }()
+
+// paletteFromConfig resolves the effective TUI color mode ("full" | "mono") from
+// the persisted config, with the ROGER_PALETTE env winning for the run (mirrors
+// ROGER_BROKER / ROGER_USER) - the test-time flip the design brief wants. An empty
+// or unrecognized value (config OR env) falls back to the full lamp board.
+func paletteFromConfig(c config) string {
+	pick := c.Palette
+	if env := os.Getenv("ROGER_PALETTE"); env == "full" || env == "mono" {
+		pick = env
+	}
+	if pick == "mono" {
+		return "mono"
+	}
+	return "full"
+}
 
 // configNeedsMerge reports whether the on-disk config carries state the plain struct write
 // would drop: a genuinely-UNKNOWN key (C1), or a field a concurrent writer changed that this
@@ -685,7 +701,8 @@ func main() {
 // or dispatches a subcommand. It returns an error instead of calling os.Exit so a test
 // can drive every branch; main() owns turning that error into a stderr line + exit 1.
 func run(argv []string, cfg config) error {
-	tui.SetVersion(Version) // help/about surfaces match `roger version`
+	tui.SetVersion(Version)                // help/about surfaces match `roger version`
+	tui.SetPalette(paletteFromConfig(cfg)) // point the lamp/mono color switch from config+ROGER_PALETTE
 	// Sweep a leftover binary from a prior Windows self-update (the locked .old that
 	// couldn't be deleted while the old process was still running). No-op elsewhere.
 	update.CleanupOld()
@@ -1897,7 +1914,7 @@ func cmdAccount(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\n", c.Broker, c.User, c.webuiOpenEnabled())
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\n", c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c))
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -1931,13 +1948,15 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.User)
 			case "webui-open":
 				fmt.Println(c.webuiOpenEnabled())
+			case "palette":
+				fmt.Println(paletteFromConfig(c))
 			}
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -1953,6 +1972,13 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("usage: roger config set webui-open true|false")
 			}
 			c.WebuiOpen = &on
+		case "palette":
+			// The TUI color layer: "full" = the radio lamp board (default), "mono" =
+			// the mono+red escape hatch. ROGER_PALETTE overrides per-run.
+			if args[2] != "full" && args[2] != "mono" {
+				return fmt.Errorf("usage: roger config set palette full|mono")
+			}
+			c.Palette = args[2]
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}

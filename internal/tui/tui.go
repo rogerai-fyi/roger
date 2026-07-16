@@ -235,12 +235,16 @@ const frozenFrame = 1
 // ramp (so the binary reads as a terminal twin of the site, not a different app).
 //
 // lipgloss.AdaptiveColor flips light/dark with the terminal background, matching
-// the web's "white room" / "ink room" pair: live red is #E0231C on light, lifted
-// to #FF4438 on dark for AA; the ink ramp warms toward the page neutrals.
+// the web's "white room" / "ink room" pair: the live red is the ON-AIR redish-amber
+// cLive (#C8391A on light, #FF5636 on dark; design overhaul §3); the ink ramp warms
+// toward the page neutrals.
 var (
-	// The one accent: the live-red on-air beacon (web --live). Light #E0231C / dark
-	// #FF4438. Used ONLY as a signal glint, never as a surface fill behind text.
-	cRed = lipgloss.AdaptiveColor{Light: "#E0231C", Dark: "#FF4438"}
+	// The one accent: the live on-air beacon, retinted to the redish-amber cLive of
+	// a real ON-AIR neon / nixie (incandescent-behind-ruby-glass), warming the old
+	// pure red per the founder (design overhaul §3). Light #C8391A / dark #FF5636.
+	// Used as a signal glint (beacon, selection, verified ◆) and the brand lockup;
+	// aliased to cLive (see palette.go) so the single warm red does triple duty.
+	cRed = lipgloss.AdaptiveColor{Light: "#C8391A", Dark: "#FF5636"}
 
 	// The monochrome ink ramp (warm near-black on paper / warm off-white on ink),
 	// tracking the web's --ink-900 / --ink-500 / --ink-400 / --hairline tokens.
@@ -5125,8 +5129,8 @@ func tpsPlain(tps float64, online bool) string {
 
 // onAirPulse returns the breathing ON-AIR beacon in a FIXED-width cell so the
 // header's right edge never jitters as the arcs grow/shrink. The eye is the one
-// live-red on-air beacon (cRed: #E0231C light / #FF4438 dark) matching the web's
-// --live carrier; the arcs are mono ink. Cadence is gated on a slow phase so it
+// live-red on-air beacon (cRed/cLive: #C8391A light / #FF5636 dark) matching the
+// web's --live carrier; the arcs are mono ink. Cadence is gated on a slow phase so it
 // reads as a calm breath, not a flicker. eyeStyle lets callers pass the beacon
 // style (the beacon and Ping's eye now share the same one red).
 func onAirPulse(frame int) string { return pulseWith(frame, stRed) }
