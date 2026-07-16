@@ -32,6 +32,13 @@ var (
 	cSignal   = lipgloss.AdaptiveColor{Light: "#43801F", Dark: "#84C255"} // magic-eye green
 	cDialGlow = lipgloss.AdaptiveColor{Light: "#92640F", Dark: "#F5A623"} // amber dial glow
 	cDial     = lipgloss.AdaptiveColor{Light: "#42608C", Dark: "#7EA6D8"} // dial blue-white
+
+	// cTubeGlow is the FAINT tube-glow WASH behind the brand lockup while a session is
+	// live (catalog #10) - the dim end of cDialGlow, a Background() only. Full cDialGlow
+	// would be a garish amber block; this is a barely-lit warm amber over the warm-black
+	// (dark) / a warm cream (light). Painted ONLY through canTint (ANSI256+) and never in
+	// mono, so it self-disables on the escape hatch and degrades cleanly on dumb terminals.
+	cTubeGlow = lipgloss.AdaptiveColor{Light: "#F5EBD2", Dark: "#241B09"}
 )
 
 // paletteRole is a semantic lamp slot; lamp() maps it to a concrete color for the

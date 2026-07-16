@@ -5371,10 +5371,19 @@ func truncVisibleTail(s string, n int) string {
 // once a channel is open (so you never lose "what am I on + my balance"), and the
 // [m] key toggles minimized vs expanded.
 func (m model) header(w int) string {
+	// The tube-glow (catalog #10): while a channel is open, a FAINT amber wash sits behind
+	// the brand lockup - the set is warm. Painted into the brand/tag styles themselves (a
+	// bg on a pre-rendered string would be reset mid-span), and ONLY where canTint allows
+	// (ANSI256+, not quiet) and the palette is full - so mono / dumb terminals stay plain.
+	brandSt, tagSt := stBrand, stTag
+	if m.connected != nil && !paletteMono && canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		brandSt = brandSt.Background(cTubeGlow)
+		tagSt = tagSt.Background(cTubeGlow)
+	}
 	// ▟▄▙ - the radio: a low box body (▄) with two antenna nubs (▟'s + ▙'s top
 	// quadrants), replacing the ambiguous ▟█▙ "tower" that read as no particular thing.
-	tower := stBrand.Render("▟▄▙")
-	name := stBrand.Render(" R O G E R") + stTag.Render(" · A I")
+	tower := brandSt.Render("▟▄▙")
+	name := brandSt.Render(" R O G E R") + tagSt.Render(" · A I")
 	eye := onAirPulse(m.frame)
 	rule := stHeadRule.Render(strings.Repeat("─", w))
 
