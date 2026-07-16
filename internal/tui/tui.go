@@ -2833,6 +2833,10 @@ func copiedToast(detail string) string {
 func (m model) agentTranscriptText() string {
 	lines := make([]string, 0, len(m.agentLines))
 	for _, l := range m.agentLines {
+		// Un-mark tool-output preview lines: toolOutMark (\x1e) is a C0 control byte that
+		// ansi.Strip preserves, so it would otherwise leak invisibly into the clipboard and
+		// across the RC wire. The full content is kept, only the tag byte is dropped.
+		l = strings.TrimPrefix(l, toolOutMark)
 		lines = append(lines, ansi.Strip(l))
 	}
 	return strings.Join(lines, "\n")
