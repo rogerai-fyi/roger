@@ -27,6 +27,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/harness"
 )
 
@@ -1395,7 +1396,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		}
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
-		m.agentLines = append(m.agentLines, "  "+stSelText.Render(glyphOnAir+" ")+stKey.Render(e.Tool)+stDim.Render(": ")+stDim.Render(toolArgSummary(e.Tool, e.Args)))
+		m.agentLines = append(m.agentLines, agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
 	case harness.EventToolResult:
 		m.agentTurnState = poseThinking // result is back; the model reasons on it next
 		var mark, tail string
@@ -1915,6 +1916,23 @@ func (m model) agentModeLine(w int) string {
 // ctrl+p-escalate-to-auto-approve). Deny stays plain English (no proword for deny).
 func agentApprovedLine(tool string) string {
 	return "  " + stLive.Render("✓ ") + stDim.Render("WILCO · "+tool)
+}
+
+// agentToolCallLine renders a tool CALL as dim machinery-texture (design overhaul §4): a
+// ⚙ gear + the tool + its arg summary, ALL dim, so the tool chatter recedes behind the
+// answer prose instead of competing with it (the old line led with a bright ◉ + the tool
+// name in the bright key style). The result line's ✓/✕ still carries the outcome. The ⚙
+// folds to a plain marker under ASCII, where the glyph itself must read.
+func agentToolCallLine(tool, argSummary string) string {
+	gear := "⚙"
+	if glyphs.ASCII() {
+		gear = "*"
+	}
+	s := gear + " " + tool
+	if argSummary != "" {
+		s += " " + argSummary
+	}
+	return "  " + stDim.Render(s)
 }
 
 // agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule

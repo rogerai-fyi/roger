@@ -109,7 +109,7 @@ func TestAgentEventRendering(t *testing.T) {
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "a.go\nb.go\n"})
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventFinal, Text: "there are two go files"})
 	out := stripANSI(asModel(am).View())
-	for _, want := range []string{"list_dir", glyphOnAir, "ok", "there are two go files"} {
+	for _, want := range []string{"list_dir", "⚙", "ok", "there are two go files"} { // ⚙ = dim tool-call machinery (design overhaul inc 7; was ◉)
 		if !strings.Contains(out, want) {
 			t.Errorf("agent transcript missing %q:\n%s", want, out)
 		}

@@ -56,6 +56,14 @@ func TestBandUserQuietFallback(t *testing.T) {
 	}
 }
 
+// B5 - the TUNE-IN chat input carries the same ▌ band as the AGENT input (parity).
+func TestChatInputUsesBand(t *testing.T) {
+	m := seedFor(120, modeChat, false)
+	if !strings.Contains(stripANSI(m.chatView(120)), "▌ you › ") {
+		t.Errorf("B5: the chat input should carry the ▌ band prompt:\n%s", stripANSI(m.chatView(120)))
+	}
+}
+
 // B4 - the echoed AGENT ask uses the band (the red ▌ bar), replacing the old ▸ marker.
 func TestAgentAskUsesBand(t *testing.T) {
 	m := agentAt(t, permConfirm)
