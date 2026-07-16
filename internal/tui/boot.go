@@ -45,13 +45,14 @@ func PlayBoot(w io.Writer, sleep func(time.Duration)) {
 		return
 	}
 	frames := bootFrames()
-	for _, f := range frames {
+	for i, f := range frames {
 		// The frames grow monotonically, so a bare carriage-return redraws in place - each
-		// longer frame fully covers the last (no clear-line escape needed). Hold each frame
-		// ~420ms - including the last, so the settled "tuning in…" lingers a beat - a warm-up
-		// you can actually WATCH (founder: ~280ms flashed by too fast to see).
+		// longer frame fully covers the last (no clear-line escape needed). The holds EASE
+		// IN: the dim ember frames pass quicker (~230ms, like a filament catching), slowing
+		// toward the settled brand (~560ms) so it doesn't feel sluggish at the start yet the
+		// warm-up still reads as a deliberate moment (founder feedback).
 		fmt.Fprint(w, "\r"+f)
-		sleep(450 * time.Millisecond)
+		sleep(time.Duration(230+i*55) * time.Millisecond)
 	}
 	fmt.Fprint(w, "\n")
 }

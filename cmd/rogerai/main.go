@@ -839,6 +839,11 @@ func dispatch(cfg config, args []string) error {
 		return tui.PingWorld(cfg.Broker) // the full-screen "Ping World" screensaver (live towers)
 	case "upgrade", "update", "self-update":
 		return cmdUpgrade(args[1:])
+	case "boot":
+		// Preview the tube warm-up boot: play it once and exit, so the once-per-version
+		// animation can be re-watched (and its timing tuned) without touching config.
+		tui.PlayBoot(os.Stdout, time.Sleep)
+		return nil
 	case "version":
 		fmt.Printf("rogerai %s\n", Version)
 		return nil
