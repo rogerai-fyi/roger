@@ -14,18 +14,26 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// bootFrames are the warm-up frames, low-to-full: dim amber lettering -> the settled brand
-// -> the brand + a "tuning in" S-meter sweep. Pure, so the frames are lockable in a test.
+// bootFrames are the warm-up frames: the lettering GLOWS UP an amber ramp (a barely-lit
+// ember -> full) like a tube heating, then the brand settles to full ink and the band tunes
+// in with an S-meter sweep. A gradual multi-step glow so the warm-up reads as a deliberate
+// moment, not a flash. Pure, so the frames are lockable in a test.
 func bootFrames() []string {
-	warmDim := lipgloss.NewStyle().Foreground(cDialGlow).Faint(true)
-	warm := lipgloss.NewStyle().Foreground(cDialGlow)
-	sweep := tintSMeter(sMeterRaw(6, 7, 2), 7, false, true) // a mid S-meter, mid-glide
-	return []string{
-		"  " + warmDim.Render("r o g e r · a i"),
-		"  " + warm.Render("▟▄▙ R O G E R · A I"),
-		"  " + stBrand.Render("▟▄▙") + stBrand.Render(" R O G E R") + stTag.Render(" · A I") +
-			"  " + sweep + "  " + stDim.Render("tuning in…"),
+	// A warm amber ramp, dark-to-bright (direct colors - this is a transient splash on the
+	// real terminal, not a palette surface). Each step is one notch hotter, like a filament.
+	ramp := []string{"#2a1d06", "#5c3f0a", "#92640F", "#c88a18", "#F5A623"}
+	brand := "▟▄▙ R O G E R · A I"
+	out := make([]string, 0, len(ramp)+2)
+	// the faint lowercase ember, then the brand glowing up through the ramp
+	out = append(out, "  "+lipgloss.NewStyle().Foreground(lipgloss.Color(ramp[0])).Render("r o g e r · a i"))
+	for _, c := range ramp {
+		out = append(out, "  "+lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Render(brand))
 	}
+	// settled: full ink brand + the band tuning in
+	sweep := tintSMeter(sMeterRaw(6, 7, 2), 7, false, true)
+	out = append(out, "  "+stBrand.Render("▟▄▙")+stBrand.Render(" R O G E R")+stTag.Render(" · A I")+
+		"  "+sweep+"  "+stDim.Render("tuning in…"))
+	return out
 }
 
 // PlayBoot draws the warm-up frames to w, each overwriting the last in place (~400ms
@@ -43,7 +51,7 @@ func PlayBoot(w io.Writer, sleep func(time.Duration)) {
 		// ~420ms - including the last, so the settled "tuning in…" lingers a beat - a warm-up
 		// you can actually WATCH (founder: ~280ms flashed by too fast to see).
 		fmt.Fprint(w, "\r"+f)
-		sleep(420 * time.Millisecond)
+		sleep(450 * time.Millisecond)
 	}
 	fmt.Fprint(w, "\n")
 }
