@@ -1916,7 +1916,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.sysPrompt != "" {
 				turn = m.sysPrompt + "\n\n" + p
 			}
-			m.transcript = append(m.transcript, stSelText.Render("▸ ")+p)
+			m.transcript = append(m.transcript, bandUser(p))
 			// Pre-flight: if no station for this band is on air right now, say so in the
 			// transcript immediately instead of firing a request the broker will bounce
 			// with a 503 the user might never see. (Best-effort: a stale scan still falls

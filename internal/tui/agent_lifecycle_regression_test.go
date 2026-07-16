@@ -63,7 +63,7 @@ func freeOffer(model string, ctx int) offer {
 func TestParkedPromptEchoOnceEach(t *testing.T) {
 	m := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
 
-	// Two asks submitted while no band is tuned -> both park, each echoed "▸ …" once.
+	// Two asks submitted while no band is tuned -> both park, each echoed "▌ …" once.
 	var tm tea.Model
 	tm, _ = m.submitAgentPrompt(queuedPrompt{text: "first ask"})
 	tm, _ = asModel(tm).submitAgentPrompt(queuedPrompt{text: "second ask"})
@@ -100,7 +100,7 @@ func TestParkedPromptEchoOnceEach(t *testing.T) {
 func TestParkedTurnRequeueEchoesOnce(t *testing.T) {
 	m := freshDeskAgent(t, []offer{freeOffer("gpt-oss-20b", 32768)})
 
-	// One ask parks while no band is tuned (echoed "▸ …" once at park time).
+	// One ask parks while no band is tuned (echoed "▌ …" once at park time).
 	tm, _ := m.submitAgentPrompt(queuedPrompt{text: "only ask"})
 	m = asModel(tm)
 	if len(m.agentPending) != 1 {
