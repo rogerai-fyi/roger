@@ -36,33 +36,33 @@ func leadLit(raw string) int {
 // U - the 0-100 (+tps +stations) scale remapped onto 9 S-units, with an over-S9 flag.
 func TestSUnitsMapping(t *testing.T) {
 	cases := []struct {
-		name              string
-		signal            int
-		tps               float64
-		online            bool
-		inFlight, station int
-		wantUnits         int
-		wantOver          bool
+		name      string
+		signal    int
+		tps       float64
+		online    bool
+		station   int
+		wantUnits int
+		wantOver  bool
 	}{
-		{"offline", 90, 0, false, 0, 1, 0, false},
-		{"full signal", 100, 0, true, 0, 1, 9, false},
-		{"one unit", 1, 0, true, 0, 1, 1, false},
-		{"mid", 56, 0, true, 0, 1, 6, false},         // ceil(56*9/100)=6
-		{"boundary 11", 11, 0, true, 0, 1, 1, false}, // ceil(0.99)=1
-		{"boundary 12", 12, 0, true, 0, 1, 2, false}, // ceil(1.08)=2
-		{"tps fallback strong", 0, 600, true, 0, 1, 9, false},
-		{"tps ladder 450", 0, 450, true, 0, 1, 8, false},
-		{"tps ladder 300", 0, 300, true, 0, 1, 7, false},
-		{"tps ladder 150", 0, 150, true, 0, 1, 5, false},
-		{"tps ladder 60", 0, 60, true, 0, 1, 3, false},
-		{"carrier only", 0, 0, true, 0, 1, 1, false},        // online, no reading -> never blank
-		{"station boost", 50, 0, true, 0, 3, 7, false},      // ceil(4.5)=5 +2
-		{"boost capped at +2", 10, 0, true, 0, 5, 3, false}, // raw 1 + min(4,2)=3, not 5
-		{"over S9 by boost", 100, 0, true, 0, 3, 9, true},   // 9+2 clamps to 9, over=true
-		{"over S9 by tps", 0, 800, true, 0, 1, 9, true},
+		{"offline", 90, 0, false, 1, 0, false},
+		{"full signal", 100, 0, true, 1, 9, false},
+		{"one unit", 1, 0, true, 1, 1, false},
+		{"mid", 56, 0, true, 1, 6, false},         // ceil(56*9/100)=6
+		{"boundary 11", 11, 0, true, 1, 1, false}, // ceil(0.99)=1
+		{"boundary 12", 12, 0, true, 1, 2, false}, // ceil(1.08)=2
+		{"tps fallback strong", 0, 600, true, 1, 9, false},
+		{"tps ladder 450", 0, 450, true, 1, 8, false},
+		{"tps ladder 300", 0, 300, true, 1, 7, false},
+		{"tps ladder 150", 0, 150, true, 1, 5, false},
+		{"tps ladder 60", 0, 60, true, 1, 3, false},
+		{"carrier only", 0, 0, true, 1, 1, false},        // online, no reading -> never blank
+		{"station boost", 50, 0, true, 3, 7, false},      // ceil(4.5)=5 +2
+		{"boost capped at +2", 10, 0, true, 5, 3, false}, // raw 1 + min(4,2)=3, not 5
+		{"over S9 by boost", 100, 0, true, 3, 9, true},   // 9+2 clamps to 9, over=true
+		{"over S9 by tps", 0, 800, true, 1, 9, true},
 	}
 	for _, c := range cases {
-		u, over := sUnits(c.signal, c.tps, c.online, c.inFlight, c.station)
+		u, over := sUnits(c.signal, c.tps, c.online, c.station)
 		if u != c.wantUnits || over != c.wantOver {
 			t.Errorf("%s: sUnits = (%d,%v), want (%d,%v)", c.name, u, over, c.wantUnits, c.wantOver)
 		}
