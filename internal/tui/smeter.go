@@ -15,8 +15,9 @@ const sMeterCells = 9
 // sUnits maps the broker's 0..100 signal (with the tps fallback + station boost, mirroring
 // signalBarsRaw) onto the 9-unit S-scale, returning the lit reading (0..9) and an over-S9
 // flag - a genuinely strong node that pushes past S9 lights the green "+". Offline reads
-// (0,false) so the caller renders dead air. Never blanks an online carrier (min S1).
-func sUnits(signal int, tps float64, online bool, inFlight, stations int) (int, bool) {
+// (0,false) so the caller renders dead air. Never blanks an online carrier (min S1). In-flight
+// jobs feed the frontier-cell ANIMATION (signalAmp), not the reading, so they aren't an arg.
+func sUnits(signal int, tps float64, online bool, stations int) (int, bool) {
 	if !online {
 		return 0, false
 	}
@@ -137,7 +138,7 @@ func sMeterLegend() string { return stDim.Render("1 3 5 7 9 +20") }
 // reverse-video cursor row - the RAW uncolored bar (raw=true) so the one accent governs
 // the whole row. Constant width, so the SIGNAL column stays aligned.
 func (m model) bandSMeter(frame, signal int, tps float64, online bool, inFlight, stations int, raw bool) string {
-	units, over := sUnits(signal, tps, online, inFlight, stations)
+	units, over := sUnits(signal, tps, online, stations)
 	bar := sMeterRaw(frame, units, signalAmp(inFlight, tps))
 	if raw {
 		return bar
