@@ -442,6 +442,42 @@ const livenessTTL = 10 * time.Minute
 // falls back to in-memory.
 const sharedOpTimeout = 750 * time.Millisecond
 
+// busSubscribe RETRY tuning. DO App Platform reaches the managed Valkey over PUBLIC networking,
+// so the pub/sub re-subscribe re-resolves the public hostname and intermittently hits DO's slow
+// public DNS (`dial tcp: lookup ...: i/o timeout`). A SINGLE such blip used to drop the whole
+// subscription to the in-memory fallback; these bound a short retry so an isolated timeout is
+// absorbed. A genuinely-down bus still falls back after the attempts are spent (worst case ~=
+// attempts*sharedOpTimeout + (attempts-1)*backoff, only on the already-degraded path).
+const (
+	busSubscribeAttempts = 3
+	busSubscribeBackoff  = 150 * time.Millisecond
+)
+
+// retrySubscribe runs fn up to attempts times, waiting backoff BETWEEN tries (never after the
+// final attempt or after a success), returning nil on the first success and the LAST error once
+// the attempts are exhausted. The backoff wait is interruptible: a cancelled ctx returns
+// promptly (surfacing the last subscribe error) instead of sleeping the remaining backoff.
+func retrySubscribe(ctx context.Context, attempts int, backoff time.Duration, fn func() error) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var err error
+	for i := 0; i < attempts; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		if i == attempts-1 {
+			break // no sleep after the final attempt
+		}
+		select {
+		case <-ctx.Done():
+			return err // cancelled mid-backoff: stop early, surface the real subscribe error
+		case <-time.After(backoff):
+		}
+	}
+	return err
+}
+
 // newValkeyStore parses a rediss://... (or redis://...) URL and connects. It does a
 // single bounded PING so a bad URL / unreachable server is detected at startup; the
 // CALLER decides what to do with the error (the broker logs a warning and falls back
@@ -1415,16 +1451,34 @@ func (v *valkeyStore) busSubscribe(ctx context.Context, channel string) (<-chan 
 		return nil, func() {}, errNoSharedStore
 	}
 	subCtx, cancel := context.WithCancel(ctx)
-	ps := v.rdb.Subscribe(subCtx, channel)
-	// Wait for the subscription to be confirmed so a Publish racing the Subscribe is not
-	// missed: Receive blocks for the subscribe confirmation. Bound it so a hung backend
-	// cannot stall the caller.
-	recvCtx, recvCancel := context.WithTimeout(subCtx, sharedOpTimeout)
-	_, err := ps.Receive(recvCtx)
-	recvCancel()
+	// Establish + confirm the subscription, retrying a transient failure (e.g. a DO public-DNS
+	// i/o timeout on the re-subscribe) before giving up: Receive blocks for the subscribe
+	// confirmation so a Publish racing the Subscribe is not missed, bounded by sharedOpTimeout
+	// so a hung backend cannot stall the caller. Each attempt re-creates the PubSub (the prior
+	// one is closed on failure), so on success `ps` is the live, confirmed subscription.
+	// Retry only while the bus is BELIEVED healthy: an isolated blip on an otherwise-live bus
+	// is worth absorbing, but once the store is already marked down (a sustained outage) the
+	// full retry would just add latency to EVERY cross-instance request before the inevitable
+	// in-memory fallback - so fail fast (attempts=1). The first success flips healthy() back on,
+	// so recovery costs one attempt, not zero retry-budget.
+	attempts := busSubscribeAttempts
+	if !v.healthy() {
+		attempts = 1
+	}
+	var ps *redis.PubSub
+	err := retrySubscribe(subCtx, attempts, busSubscribeBackoff, func() error {
+		ps = v.rdb.Subscribe(subCtx, channel)
+		recvCtx, recvCancel := context.WithTimeout(subCtx, sharedOpTimeout)
+		_, e := ps.Receive(recvCtx)
+		recvCancel()
+		if e != nil {
+			_ = ps.Close()
+			ps = nil
+		}
+		return e
+	})
 	if err != nil {
 		cancel()
-		_ = ps.Close()
 		v.noteErr("busSubscribe", err)
 		return nil, func() {}, err
 	}
