@@ -211,8 +211,14 @@ func TestChargebackExplicitRequestParity(t *testing.T) {
 			if !approx(clawed, 35) {
 				t.Errorf("[%s] clawed = %v, want 35 (whole named-request lot)", name, clawed)
 			}
-			// The OTHER request's lot survives intact.
-			if s, _ := db.EarningSplitOf("opx", now); !approx(s.Payable, 56) {
+			// The OTHER request's lot survives intact. Check the read error explicitly - a
+			// swallowed error here (e.g. a starved DB connection) used to masquerade as a
+			// zero-value Payable and read like a logic bug ("payable = 0").
+			s, serr := db.EarningSplitOf("opx", now)
+			if serr != nil {
+				t.Fatalf("[%s] EarningSplitOf(opx): %v", name, serr)
+			}
+			if !approx(s.Payable, 56) {
 				t.Errorf("[%s] opx payable = %v, want 56 (req-other survives)", name, s.Payable)
 			}
 			// The uncovered $15 (amount 50 - gross 35) is a platform loss.
