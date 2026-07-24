@@ -337,6 +337,14 @@ func (s *xiState) cleanup() {
 	for _, i := range s.inst {
 		i.srv.Close()
 	}
+	// Release the per-scenario Postgres pool. Without this each scenario leaked its (up to 8)
+	// conn pool for the whole test binary; across the cross-instance suites that piled up against
+	// the shared server-wide max_connections and starved connections - flaking these liveness
+	// scenarios AND internal/store money-path reads under the full parallel suite. Mirrors the
+	// t.Cleanup close nsTestStore/seed_failure already do.
+	if c, ok := s.db.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
 	nonStreamRelayWait = s.prevRelayWait
 }
 
