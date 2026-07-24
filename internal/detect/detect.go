@@ -661,6 +661,11 @@ func visionFromID(id string) bool {
 	return false
 }
 
+// VisionFromID exposes the shared id heuristic for callers outside detection (the broker's
+// market-layer fallback), so an obviously-vision model id surfaces "vision" even when the serving
+// node never declared it (older agent, or a share path that skipped detection).
+func VisionFromID(id string) bool { return visionFromID(id) }
+
 // visionFromMeta best-effort reads the server's /v1/models to see which models it REPORTS as
 // image-capable (authoritative when present): an entry whose modalities / input_modalities list
 // contains "image"/"vision", or a truthy "vision"/"supports_vision" field. Servers that don't
