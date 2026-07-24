@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
@@ -327,7 +328,19 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 // reported vision. The app shows the photo button on "vision" and name-heuristics otherwise -
 // correct for the non-vision models on air. (Restoring the text-only signal = TODO, off the
 // signed offer.) The [] path is kept so it lights up the moment that channel exists.
-func marketCapabilities(union map[string]bool, seen bool) []string {
+func marketCapabilities(model string, union map[string]bool, seen bool) []string {
+	// Id-heuristic fallback: "vision" is DECLARED by nodes, not probed, so a vision model served by
+	// a node that didn't declare it (older agent, or a share path that skipped detection) would
+	// surface no vision at all. Mirror detect/app's shared name heuristic so an obviously-vision
+	// model id still lights up the photo button. Served-metadata/declared vision still wins when
+	// present; this only ADDS vision, never removes a declared capability.
+	if detect.VisionFromID(model) {
+		if union == nil {
+			union = map[string]bool{}
+		}
+		union[protocol.CapVision] = true
+		seen = true
+	}
 	if !seen {
 		return nil
 	}
@@ -478,7 +491,7 @@ func (b *broker) computeMarket() any {
 		ref, _ := b.refOut(model)
 		tier := priceTier(a.minOut, ref, a.outPrices)
 		out = append(out, marketView{
-			Model: model, Modality: a.modality, Capabilities: marketCapabilities(a.capsUnion, a.capsSeen),
+			Model: model, Modality: a.modality, Capabilities: marketCapabilities(model, a.capsUnion, a.capsSeen),
 			Providers: a.providers, InFlight: a.inflight,
 			MinPrice: a.minPrice, PriceTier: tier, BestTPS: a.bestTPS, BestTTFTMs: round6(a.bestTTFT),
 			Quality:     round6(quality),

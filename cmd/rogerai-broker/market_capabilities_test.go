@@ -65,3 +65,17 @@ func TestMarketCapabilitiesUnion(t *testing.T) {
 		t.Errorf("single vision provider: /market caps = %v, want [vision]", got)
 	}
 }
+
+// TestMarketVisionIDFallback pins the id-heuristic fallback: an obviously-vision model id surfaces
+// "vision" even when NO provider declared it (older agent / detection-skipping share path). This is
+// what unblocked the iOS photo button for qwen3-vl-8b, which /market served without "vision".
+func TestMarketVisionIDFallback(t *testing.T) {
+	// Vision id, no provider declared vision -> vision surfaces from the id heuristic alone.
+	if got := marketCapsFor(t, "qwen3-vl-8b", nil); len(got) != 1 || got[0] != "vision" {
+		t.Errorf("vision-id, undeclared: /market caps = %v, want [vision] (id fallback)", got)
+	}
+	// A NON-vision id with no declaration must stay omitted - the fallback only adds for vision ids.
+	if got := marketCapsFor(t, "gpt-oss-120b", nil); got != nil {
+		t.Errorf("non-vision id, undeclared: /market caps = %v, want nil", got)
+	}
+}

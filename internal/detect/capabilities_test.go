@@ -8,16 +8,24 @@ import (
 )
 
 func TestVisionFromID(t *testing.T) {
-	vision := []string{"qwen2.5-vl-7b", "llava-1.6", "pixtral-12b", "gpt-4o", "llama-3.2-11b-vision", "internvl2", "minicpm-v", "gemma-3-27b", "moondream2", "some-vlm"}
+	// qwen3-vl-8b is the regression case: it was served as capabilities:["tools"] with no vision.
+	vision := []string{"qwen3-vl-8b", "qwen2.5-vl-7b", "llava-1.6", "pixtral-12b", "gpt-4o", "llama-3.2-11b-vision", "internvl2", "minicpm-v", "gemma-3-27b", "moondream2", "some-vlm"}
 	text := []string{"gpt-oss-20b", "qwen3-coder-next", "llama-3.1-8b", "mistral-7b", "gemma-2-9b", "phi-3-mini", "deepseek-r1"}
 	for _, id := range vision {
 		if !visionFromID(id) {
 			t.Errorf("visionFromID(%q) = false, want true", id)
 		}
+		// The exported wrapper must agree with the internal heuristic (the broker's market fallback).
+		if !VisionFromID(id) {
+			t.Errorf("VisionFromID(%q) = false, want true", id)
+		}
 	}
 	for _, id := range text {
 		if visionFromID(id) {
 			t.Errorf("visionFromID(%q) = true, want false", id)
+		}
+		if VisionFromID(id) {
+			t.Errorf("VisionFromID(%q) = true, want false", id)
 		}
 	}
 }
