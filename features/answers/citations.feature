@@ -66,6 +66,20 @@ Feature: Citations - sources derived from what was actually retrieved
       # inside one would forge an extra "[n] Title / URL" pair that the citation reader
       # would bind to somebody else's URL, dressing a stranger's page as trusted.
 
+    Scenario: a URL crafted to carry the marker's own wording is never a source
+      Given the model fetched a URL whose query contains the retrieval marker's own wording
+      Then no source is recorded for it
+      # Two independent reasons, both wanted. The marker's wording contains spaces, so such
+      # a URL cannot be retrieved at all (the request is rejected) - and even if it could,
+      # the marker is parsed anchored to BOTH ends of its line, so a URL can never truncate
+      # its own citation. The parse is pinned directly in TestSourcesDerivationEdges.
+
+    Scenario: a redirect cannot smuggle such a URL in either
+      Given a page that redirects to a URL whose query contains the marker's own wording
+      When the model fetches the redirecting URL
+      Then no source is recorded for it
+      # The redirect target is where an attacker would put it, since the model never sees it.
+
     Scenario: a URL fetched with stray whitespace is still one source
       Given the model fetched "https://a.example/x" and then the same URL with a trailing space
       Then the sources block lists it exactly once

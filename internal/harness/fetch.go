@@ -260,6 +260,11 @@ func webFetch(ctx context.Context, rawurl string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if isRedirect(resp.StatusCode) && strings.TrimSpace(resp.Header.Get("Location")) == "" {
+			resp.Body.Close()
+			// Readable body or not, there is no page here anyone could go and check.
+			return "", fmt.Errorf("unusable redirect: HTTP %d with no Location header at %q", resp.StatusCode, cur)
+		}
 		if loc := redirectTarget(resp); loc != "" {
 			resp.Body.Close()
 			next, err := url.Parse(loc)
@@ -320,12 +325,20 @@ func fetchOnce(ctx context.Context, rawurl, dialAddr string) (*http.Response, er
 
 // redirectTarget returns the Location of a redirect response, or "".
 func redirectTarget(resp *http.Response) string {
-	switch resp.StatusCode {
-	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
-		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+	if isRedirect(resp.StatusCode) {
 		return resp.Header.Get("Location")
 	}
 	return ""
+}
+
+// isRedirect reports whether status is one of the statuses webFetch follows.
+func isRedirect(status int) bool {
+	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
 }
 
 // extractText turns a fetched body into readable UTF-8 text: HTML is reduced to its text

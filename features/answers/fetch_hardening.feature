@@ -103,6 +103,14 @@ Feature: web_fetch hardening - SSRF guard and extraction
       When the model calls web_fetch
       Then the chain is abandoned after 5 hops with a clear tool result
 
+    Scenario: a redirect with nowhere to go is an error, not a page
+      Given a server that answers 302 with no Location header
+      When the model calls web_fetch
+      Then the tool result is an error naming the unusable redirect
+      And nothing is citable from it
+      # A redirect stub is not a page anyone can go and check, so it must never become a
+      # source just because the body happened to be readable.
+
     Scenario Outline: non-http(s) schemes remain refused
       When the model calls web_fetch with url "<url>"
       Then the fetch is refused
