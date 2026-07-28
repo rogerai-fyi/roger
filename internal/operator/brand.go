@@ -76,12 +76,11 @@ var (
 	inkClayB = BrandInk{Dark: "#D97757", Light: "#B85F41", Bold: true} // claude wordmark
 )
 
-// BrandArts returns all five doc plates keyed by guest name. opencode, hermes
-// and aider are wired into Registry(); claude and codex are the doc's shim-era
-// DRAFTS kept here as DORMANT data only - the registry deliberately has no home
-// for a non-detectable guest, and adding a row would change detection/picker
-// behavior (this pass is data-only). Returned fresh per call (the Registry()
-// idiom) so callers can never corrupt the shared art.
+// BrandArts returns all five doc plates keyed by guest name. opencode, hermes, aider and
+// claude are wired into Registry(); codex alone remains the doc's shim-era DRAFT, kept
+// here as DORMANT data - the registry deliberately has no home for a guest it cannot
+// launch. Returned fresh per call (the Registry() idiom) so callers can never corrupt
+// the shared art.
 func BrandArts() map[string]*BrandArt {
 	return map[string]*BrandArt{
 		// §1 opencode - the exact wordmark `opencode --help` prints (v1.17.x),
@@ -145,20 +144,27 @@ func BrandArts() map[string]*BrandArt {
 			Lockup:   BrandRow{Text: "aider", Ink: inkGreen},
 			ASCIIArt: true,
 		},
-		// §4 claude - shim-era DRAFT (dormant until the /v1/messages shim lands):
-		// the SHIPPED Claude Code mascot pose, mascot + wordmark one lockup, one hue.
+		// §4 claude - LIVE since v5.4.4 (the context-only guest). CHARACTER-EXACT to the
+		// mascot Claude Code 2.1.220 prints on its own welcome, captured from the real
+		// binary: three rows, no more (the earlier draft carried an invented fourth "ears"
+		// row - ▗ appears nowhere in the shipped art). The wordmark sits beside row 1 and
+		// the vendor byline beside row 2, at the same column the real welcome aligns its
+		// version/model lines to, so the plate reads the way the guest's own banner does.
+		// Byline in dim, the hermes "nous research" pattern. One hue throughout.
 		"claude": {
 			Rows: []BrandRow{
-				{Text: "  ▗   ▖", Ink: inkClay},
-				{Text: " ▐▛███▜▌", Ink: inkClay},
-				{Text: "▝▜█████▛▘   claude", Spans: []BrandSpan{
+				{Text: " ▐▛███▜▌   Claude Code", Spans: []BrandSpan{
+					{From: 0, To: 8, Ink: inkClay},
+					{From: 11, To: 22, Ink: inkClayB},
+				}},
+				{Text: "▝▜█████▛▘  anthropic", Spans: []BrandSpan{
 					{From: 0, To: 9, Ink: inkClay},
-					{From: 12, To: 18, Ink: inkClayB},
+					{From: 11, To: 20, Ink: BrandInk{Token: InkDim}},
 				}},
 				{Text: "  ▘▘ ▝▝", Ink: inkClay},
 			},
-			Width:  18,
-			Lockup: BrandRow{Text: "* claude", Ink: inkClay}, // ✻ pre-folded to * (house asciiFold idiom)
+			Width:  22,
+			Lockup: BrandRow{Text: "* Claude Code", Ink: inkClay}, // ✳ pre-folded to * (house asciiFold idiom)
 		},
 		// §5 codex - shim-era DRAFT (shape-only): no shipped terminal art exists and
 		// OpenAI's brand is hueless, so 100% mono + the red beat - their `>_` motif
