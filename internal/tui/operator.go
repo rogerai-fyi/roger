@@ -290,7 +290,10 @@ func (m model) buildOperatorRows() []operatorRow {
 	gateShut := m.operatorBandTooSmall() // the DJ row above is NEVER gated
 	for _, d := range m.operatorDetections {
 		r := operatorRow{label: d.Guest.Name, det: d}
-		if gateShut && !d.Guest.NeedsSetup {
+		// A CONTEXT-ONLY guest never touches the band, so the agent-ready floor does not
+		// apply to it - and "needs a 16k+ band" would be untrue copy blocking exactly the
+		// case this guest exists for: no useful band, local work, hand it to Claude Code.
+		if gateShut && !d.Guest.NeedsSetup && !bandlessGuest(d.Guest) {
 			// The agent-ready band gate (§6): still listed - the desk is honest about who
 			// exists - but disabled with the real reason; enter prints it, never a plate.
 			r.disabled, r.reason = true, "needs a 16k+ band"
@@ -624,6 +627,10 @@ func operatorCtxLabel(ctx int, est bool) string {
 
 // operatorBandTooSmall: the gate is shut only when the window is KNOWN (detected or
 // estimated) and under the floor. Unknown (ctx 0) is a plate warn, never a block (G2).
+// bandlessGuest reports whether a guest runs without touching the band at all, so every
+// band gate (a tuned channel, the 16k agent-ready floor) is irrelevant to it.
+func bandlessGuest(g operator.Guest) bool { return g.Strategy == operator.StrategyContextOnly }
+
 func (m model) operatorBandTooSmall() bool {
 	ctx, _ := m.operatorChannelCtx()
 	return ctx > 0 && ctx < operatorCtxFloor
@@ -677,7 +684,12 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 	// now would only hand the guest a wall of 502s. Rather than dead-end, try a SILENT
 	// auto-tune to a FREE band first (R1 - never a paid auto-spend); land the plate on
 	// success, a SINGLE honest refusal on failure.
-	if m.proxyHolder == nil || !m.proxyHolder.Connected() {
+	//
+	// A CONTEXT-ONLY guest skips all of this: it never relays through the proxy, so there
+	// is no 502 wall to avoid and nothing to auto-tune FOR. Requiring a band here would
+	// block the very case it exists for - local work, no useful band, hand it to a guest
+	// that runs on its own account.
+	if !bandlessGuest(d.Guest) && (m.proxyHolder == nil || !m.proxyHolder.Connected()) {
 		pick := pickAutoBand(m.bands, m.loggedInState())
 		// R1 money-safety: a SILENT handoff auto-tune may only bind a genuinely-FREE station
 		// (FreeNow / zero-priced), never pick.cheapest - the min-PRICE station across ALL of
@@ -730,8 +742,9 @@ func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.
 		return m, nil
 	}
 	// The agent-ready band gate (§6): a known window under the 16k floor is refused
-	// BEFORE any plate or staging - never fail on prompt one.
-	if m.operatorBandTooSmall() {
+	// BEFORE any plate or staging - never fail on prompt one. A context-only guest is
+	// exempt: it does not drive the band.
+	if m.operatorBandTooSmall() && !bandlessGuest(d.Guest) {
 		m.operatorPicker = false
 		m.operatorRows = nil
 		m.operatorRefuseSmallBand()
@@ -819,7 +832,12 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	if h == nil || h.execing {
 		return m, nil
 	}
-	if m.proxyHolder == nil { // defensive: staging outlived the proxy
+	// A CONTEXT-ONLY guest needs no proxy, no channel and no band window: it never relays.
+	// The three re-checks below exist to stop a guest being launched into a wall of 502s,
+	// which cannot happen to one that does not use the band at all - and gating it here
+	// would kill the handoff AFTER the user confirmed the plate.
+	bandless := bandlessGuest(h.det.Guest)
+	if m.proxyHolder == nil && !bandless { // defensive: staging outlived the proxy
 		m.operatorHandoff = nil
 		m.rcEmitDJBack()
 		return m, nil
@@ -850,7 +868,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// Re-check the CHANNEL at exec time too (iteration-1 finding #3): the desk gate ran
 	// before the 450ms staging beat, and a band drop inside it would launch the guest
 	// into a wall of 502/503s (a disconnected proxy refuses to spend - Phase 1 ruling 5).
-	if !m.proxyHolder.Connected() {
+	if !bandless && !m.proxyHolder.Connected() {
 		m.operatorHandoff = nil
 		m.agentLines = append(m.agentLines,
 			stRed.Render("✕ ")+stEmber.Render("the channel dropped while patching - no band to carry the guest"),
@@ -862,7 +880,7 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// Agent-ready gate re-check AT EXEC TIME (the Phase 1 live-options discipline): a
 	// re-tune during the staging beat can put a too-small station on the channel; the
 	// exec is aborted with the honest reason instead of failing on prompt one.
-	if m.operatorBandTooSmall() {
+	if !bandless && m.operatorBandTooSmall() {
 		ctx, est := m.operatorChannelCtx()
 		m.operatorHandoff = nil
 		m.agentLines = append(m.agentLines,
@@ -873,7 +891,10 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	}
 	// LIVE options at exec time - never the options frozen at first bind. The workdir is
 	// the one the user confirmed on the plate.
-	opts := m.proxyHolder.Get()
+	var opts client.ProxyOptions
+	if m.proxyHolder != nil {
+		opts = m.proxyHolder.Get()
+	}
 	wd := h.workdir
 	if wd == "" {
 		wd = operatorWorkdir() // defensive: a handoff always carries the plate's workdir
@@ -881,6 +902,55 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	sess := operator.Session{
 		BaseURL: m.endpoint, SessionKey: opts.SessionKey, Model: opts.Model,
 		Workdir: wd, ScratchRoot: operatorScratchRoot,
+	}
+	// The context handoff happens BEFORE Materialize: a context-only guest is launched with
+	// an opening prompt that names the brief, so the brief has to exist by then.
+	//
+	// Two MUTUALLY-EXCLUSIVE paths (a stranger must never also get the full local file -
+	// that would sidestep the redaction floor):
+	//
+	//   STRANGER (Stage 3, ratification-gated: ROGERAI_CAPSULE_STRANGER=1 + a known broker):
+	//   publish a SUMMARY-ONLY, signed, SEALED capsule to the broker's content-blind
+	//   rendezvous under a FRESH one-time code, and hand the guest the RAW code + broker via
+	//   the ENV reference channel (never inline bytes, never a frame field, no local file).
+	//
+	//   SAME-OWNER LOCAL (Stage 1, the default): drop the conversation as a signed
+	//   roger.context capsule the guest imports from its workdir, plus the readable BRIEF
+	//   beside it (a REFERENCE it reads, not bytes on a frame).
+	//
+	// Both are best-effort - a failure narrates but never aborts the handoff.
+	env := os.Environ()
+	// Clear any brief a PREVIOUS handoff left in this workdir before either path runs: on
+	// the stranger path no local brief is written at all, and a leftover one would point
+	// the guest at an old session as though it were the current one.
+	if err := m.clearHandoffBrief(wd); err != nil {
+		m.rcNote("stale brief not cleared: " + err.Error())
+	}
+	if broker := m.strangerHandoffBroker(); broker != "" {
+		code, _, _ := protocol.NewRCLinkCode() // fresh code; reuses the 40-bit band tail
+		if err := m.publishStrangerCapsule(broker, code); err != nil {
+			m.rcNote("stranger capsule not published: " + err.Error())
+		} else {
+			// the reference channel: the guest resolves the code from the broker itself.
+			env = append(env, "ROGERAI_CAPSULE_CODE="+code, "ROGERAI_CAPSULE_BROKER="+broker)
+			m.rcNote(fmt.Sprintf("published a summary capsule for %s · one-time code handed off", h.det.Guest.Name))
+		}
+	} else {
+		path, cerr := m.writeHandoffCapsule(wd)
+		if cerr != nil {
+			m.rcNote("context capsule not handed off: " + cerr.Error())
+		}
+		// ALWAYS, even with nothing to hand over: writeHandoffBrief clears a brief a
+		// PREVIOUS handoff left in this workdir. Skipping it here would point the guest at
+		// an old session as though it were the current one.
+		if berr := m.writeHandoffBrief(wd); berr != nil {
+			m.rcNote("brief not written: " + berr.Error())
+		}
+		if path != "" {
+			// len(m.ring) is what actually travels; ringTurn is a lifetime counter that
+			// never goes backwards (the same reason the plate reads the ring).
+			m.rcNote(fmt.Sprintf("handed the conversation to %s · %d turns", h.det.Guest.Name, len(m.ring)))
+		}
 	}
 	launch, cleanup, err := operator.Materialize(h.det.Guest, sess)
 	if err != nil {
@@ -894,46 +964,23 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// unless b raised it; 0 = uncapped, ruling B1), zero spend, zero calls - the summary
 	// and the 402 ceiling are THIS guest's numbers. The bearer key is NOT rotated (a
 	// re-tune mid-session keeps the guest's config working).
-	m.proxyHolder.SetBudget(h.budget)
-	m.proxyHolder.ResetSpend()
-	m.proxyHolder.ResetCalls()
+	// A CONTEXT-ONLY guest is not on the band at all: there is nothing to meter, and arming
+	// the meter would display a spend that can never move.
+	if h.det.Guest.Strategy != operator.StrategyContextOnly {
+		m.proxyHolder.SetBudget(h.budget)
+		m.proxyHolder.ResetSpend()
+		m.proxyHolder.ResetCalls()
+	}
 	h.launch, h.cleanup, h.start, h.execing = launch, cleanup, time.Now(), true
 	// BASE STATION interlock: announce the handoff, then PARK the bridge BEFORE the exec
 	// cmd is returned - inbound remote turns are dropped at the bridge with a status
 	// auto-frame (never queued, never replayed), backfill is answered from this snapshot.
-	if m.rcBridge != nil {
+	if m.rcBridge != nil && m.proxyHolder != nil {
 		// Enrichment from the LIVE holder (rc_enrichment.feature): the exec-time model and
 		// the freshly-reset spend ($0 - ResetSpend just ran); the bridge keeps the live
 		// Spent reader so parked auto-frames report the guest's spend so far at emit time.
 		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
 		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
-	}
-	// Context handoff. Two MUTUALLY-EXCLUSIVE paths (a stranger must never also get the full
-	// local file - that would sidestep the redaction floor):
-	//
-	//   STRANGER (Stage 3, ratification-gated: ROGERAI_CAPSULE_STRANGER=1 + a known broker):
-	//   publish a SUMMARY-ONLY, signed, SEALED capsule to the broker's content-blind rendezvous
-	//   under a FRESH one-time code, and hand the guest the RAW code + broker via the ENV
-	//   reference channel (never inline bytes, never a frame field, and NO full local file).
-	//
-	//   SAME-OWNER LOCAL (Stage 1, the default): drop the conversation as a signed roger.context
-	//   capsule the guest imports from its workdir (a REFERENCE it reads, not bytes on a frame).
-	//
-	// Both are best-effort - a failure narrates but never aborts the handoff.
-	env := os.Environ()
-	if broker := m.strangerHandoffBroker(); broker != "" {
-		code, _, _ := protocol.NewRCLinkCode() // fresh code; reuses the 40-bit band tail
-		if err := m.publishStrangerCapsule(broker, code); err != nil {
-			m.rcNote("stranger capsule not published: " + err.Error())
-		} else {
-			// the reference channel: the guest resolves the code from the broker itself.
-			env = append(env, "ROGERAI_CAPSULE_CODE="+code, "ROGERAI_CAPSULE_BROKER="+broker)
-			m.rcNote(fmt.Sprintf("published a summary capsule for %s · one-time code handed off", h.det.Guest.Name))
-		}
-	} else if path, err := m.writeHandoffCapsule(wd); err != nil {
-		m.rcNote("context capsule not handed off: " + err.Error())
-	} else if path != "" {
-		m.rcNote(fmt.Sprintf("handed the conversation to %s · %d turns", h.det.Guest.Name, m.ringTurn))
 	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
@@ -956,7 +1003,7 @@ func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
 	_, _ = io.WriteString(operatorTermOut, operatorResetSeq)
 	// Unpark the bridge and announce the DJ is back. Nil-safe and dead-bridge-safe: a
 	// revoke-all mid-handoff Stops the bridge; Unpark/Emit are no-ops then.
-	if m.rcBridge != nil {
+	if m.rcBridge != nil && m.proxyHolder != nil {
 		m.rcBridge.Unpark()
 		m.rcEmitDJBack()
 	}
@@ -968,6 +1015,13 @@ func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
 		m.rcNote("return capsule not merged: " + err.Error())
 	} else if n > 0 {
 		m.rcNote(fmt.Sprintf("merged %d turns back from %s", n, guest))
+	}
+	// The PLAIN note a guest without a signing key can leave (Claude Code cannot produce a
+	// signed capsule). Same append-only rule, same best-effort narration.
+	if ok, err := m.mergeReturnNote(h.workdir, guest); err != nil {
+		m.rcNote("note from " + guest + " not read: " + err.Error())
+	} else if ok {
+		m.rcNote("brought a note back from " + guest)
 	}
 	// The defensive reset just wrote ESC[?2004l AFTER bubbletea's RestoreTerminal had
 	// re-enabled paste, so bracketed paste must be re-armed here or it stays dead for
@@ -1068,6 +1122,22 @@ func (m model) operatorPatchView(w int) string {
 		b.WriteString(brand + "\n")
 	}
 	step("mic to", h.det.Guest.Name, "  (guest operator)")
+	// A CONTEXT-ONLY guest is not on the band at all. Showing it a BASE URL and a MODEL row
+	// would be a lie, and the failure mode that kept this guest out of the registry in the
+	// first place was billing the user silently - so the plate says whose account it runs on.
+	if h.det.Guest.Strategy == operator.StrategyContextOnly {
+		step("account", "runs on your own "+guestAccountName(h.det.Guest), "  - RogerAI is not metering this")
+		step("wire", "nothing is wired to the band", " - no key, no base URL, no model")
+		// len(m.ring) is what actually TRAVELS. ringTurn is a lifetime sequence that never
+		// goes backwards, so reading it would promise a guest context that /clear dropped.
+		handing := "nothing to hand over - the session is empty"
+		if n := len(m.ring); n > 0 {
+			handing = fmt.Sprintf("your session context · %d turns", n)
+		}
+		step("carrying", handing, "")
+		b.WriteString("\n" + truncVisibleTail("  "+stDim.Render("the radio steps aside while the guest is on the mic · exit the guest to come back"), w) + "\n")
+		return b.String()
+	}
 	// on band: name the station (via @<node>) and keep the "·" separators (doc §3d).
 	onBand := "  "
 	if m.connected != nil && m.connected.NodeID != "" {
@@ -1083,6 +1153,15 @@ func (m model) operatorPatchView(w int) string {
 	b.WriteString(truncVisibleTail(row("MODEL", mdl), w) + "\n\n")
 	b.WriteString(truncVisibleTail("  "+stDim.Render("the radio steps aside while the guest is on the mic · exit the guest to come back"), w) + "\n")
 	return b.String()
+}
+
+// guestAccountName names the account a context-only guest bills to, so the plate can be
+// specific instead of vaguely reassuring.
+func guestAccountName(g operator.Guest) string {
+	if g.Provider == "anthropic" {
+		return "Anthropic account"
+	}
+	return g.Provider + " account"
 }
 
 // --- the pre-launch plate (Phase 3, design doc §6) --------------------------------------

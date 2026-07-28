@@ -17,6 +17,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1063,6 +1064,10 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	now := time.Now()
 	m.agentStart = now
 	m.agentLastEvent = now // reset the stall clock; the first event re-stamps it
+	// The agent conversation travels too: record the prompt into the shared context ring
+	// so a guest handoff carries the work the user is ACTUALLY doing, not just the
+	// channel's turns (features/handoff/agent_turns.feature).
+	m.recordAgentPrompt(p)
 	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
 }
 
@@ -1086,6 +1091,7 @@ func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
 	now := time.Now()
 	m.agentStart = now
 	m.agentLastEvent = now
+	m.recordAgentPrompt(p)
 	return m, tea.Batch(m.startAgentTurn(p), m.waitAgentEvent())
 }
 
@@ -1247,6 +1253,8 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		if m.agent != nil {
 			m.agent.loop.Reset()
 		}
+		// What the user cleared from the screen must not still travel to a guest.
+		m.clearAgentTurns()
 		m.agentLines = nil
 		m.agentCost = 0
 		m.agentTokensIn = 0 // a fresh session zeroes the running ↑↓ token totals too
@@ -1458,6 +1466,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
 		m.agentLines = append(m.agentLines, agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
+		m.noteAgentToolCall(fmt.Sprintf("call_%d", len(m.agentTurnCalls)+1), e.Tool, argsJSON(e.Args))
 	case harness.EventToolResult:
 		m.agentTurnState = poseThinking // result is back; the model reasons on it next
 		var mark, tail string
@@ -1470,6 +1479,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			mark, tail = stLive.Render("  ✓ "), stDim.Render("ok"+resultHint(e.Result))
 		}
 		m.agentLines = append(m.agentLines, mark+stDim.Render(e.Tool+" · ")+tail)
+		m.noteAgentToolResult(harness.Event(e))
 		// Show the user the ACTUAL output, not just "ok · N bytes": a short preview of
 		// the result is the real UX gap behind a truncated answer (the user could never
 		// see the listing the model summarized). Read-only tools (the listing / file /
@@ -1498,6 +1508,10 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		default:
 			m.agentLines = append(m.agentLines, agentAnswerBlock(t)...)
 		}
+		// The completed turn joins the context ring, carrying the tool calls it made. An
+		// empty turn records nothing (recordAgentAnswer no-ops), but the pending calls are
+		// consumed either way so they cannot ride on the NEXT turn.
+		m.recordAgentAnswer(t)
 		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
 		// via the SHARED sessionFooter so the AGENT + CHANNEL money surfaces never drift.
 		if f := sessionFooter(m.agentTokensIn, m.agentTokensOut, m.agentCost); f != "" {
@@ -1514,6 +1528,10 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		}
 		m.agentTurnState = poseWaiting // the turn failed; the corner Ping stands back by
 		m.agentLines = append(m.agentLines, failureHint(e.Text, mdl, m.narrow())...)
+		// A turn that errors or is cancelled never reaches the answer that would consume
+		// its pending tool calls. Left behind, they would be recorded as work the NEXT
+		// answer did (features/handoff/agent_turns.feature).
+		m.agentTurnCalls = nil
 	}
 	m.rcTeeEvent(harness.Event(e)) // BASE STATION: mirror this step to any attached viewers
 	return m, m.waitAgentEvent()
@@ -1541,6 +1559,20 @@ func toolArgSummary(tool string, args map[string]any) string {
 		return clipLine(argStr(args["query"]))
 	}
 	return ""
+}
+
+// argsJSON renders a tool call's parsed arguments back to a JSON string for the capsule,
+// whose flat ToolCall carries Arguments as an already-escaped JSON string. An unmarshalable
+// map yields "{}" rather than failing a turn over a display detail.
+func argsJSON(args map[string]any) string {
+	if len(args) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(args)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }
 
 // resultHint adds a terse size hint after a successful tool ("ok · 412 bytes") so the
