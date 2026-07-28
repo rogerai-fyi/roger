@@ -282,9 +282,44 @@ func TestReregisterAlreadyRecovered(t *testing.T) {
 	}
 }
 
-// TestReregisterBackoffBounded: a broker that 500s for a while then accepts is
-// retried with bounded backoff and eventually heals (never gives up, never busy-
-// loops). We assert it recovers and the retry count stays small.
+// TestBackoffSchedule pins the retry schedule DIRECTLY, as a pure function: rising, then
+// held at the longest value forever. This is the assertion the old wall-clock version of
+// TestReregisterBackoffBounded was really trying to make - by counting server-side hits
+// inside a 10s window, which is unsound (the handler counts a request whose response the
+// client never received, so a loaded runner produced 15 "attempts" for a 3-attempt run and
+// the test flaked on main). The schedule is now checked without a clock at all.
+func TestBackoffSchedule(t *testing.T) {
+	for _, c := range []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{-1, 1 * time.Second}, // defensive: never a zero delay (that is a busy-loop)
+		{0, 1 * time.Second},
+		{1, 2 * time.Second},
+		{2, 5 * time.Second},
+		{3, 10 * time.Second},
+		{4, 10 * time.Second}, // held, not grown and not wrapped back to a hot retry
+		{50, 10 * time.Second},
+	} {
+		if got := backoffFor(c.attempt); got != c.want {
+			t.Errorf("backoffFor(%d) = %s, want %s", c.attempt, got, c.want)
+		}
+	}
+	for i := range reregisterBackoff {
+		if reregisterBackoff[i] <= 0 {
+			t.Errorf("backoff[%d] is %s - a non-positive delay is a busy-loop", i, reregisterBackoff[i])
+		}
+		if i > 0 && reregisterBackoff[i] <= reregisterBackoff[i-1] {
+			t.Errorf("backoff must rise: [%d]=%s is not longer than [%d]=%s",
+				i, reregisterBackoff[i], i-1, reregisterBackoff[i-1])
+		}
+	}
+}
+
+// TestReregisterBackoffBounded: a broker that 500s for a while then accepts is retried and
+// eventually HEALS - never gives up, never busy-loops. It no longer asserts an exact
+// server-side hit count: the handler counts requests whose responses the client may never
+// have received, which is what made this flake. The schedule itself is pinned above.
 func TestReregisterBackoffBounded(t *testing.T) {
 	var attempts int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +330,11 @@ func TestReregisterBackoffBounded(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
+
+	// Shorten the real schedule through the seam so this exercises the retry LOOP without
+	// racing seconds on a shared runner.
+	defer func(v []time.Duration) { reregisterBackoff = v }(reregisterBackoff)
+	reregisterBackoff = []time.Duration{time.Millisecond, 2 * time.Millisecond, 5 * time.Millisecond}
 
 	rr := newTestReregistrar(srv.URL)
 	_, gen0 := rr.curToken()
@@ -310,9 +350,10 @@ func TestReregisterBackoffBounded(t *testing.T) {
 	if _, gen1 := rr.curToken(); gen1 != gen0+1 {
 		t.Errorf("generation should advance once after eventual success, got %d", gen1)
 	}
-	// 1s + 2s backoff between the 3 attempts; should be only a few attempts.
-	if got := atomic.LoadInt32(&attempts); got != 3 {
-		t.Errorf("expected 3 attempts before success, got %d", got)
+	// It RETRIED (more than one attempt) and it did not spin: the schedule test above pins
+	// the delays, so all this needs to show is that the loop used them and stopped.
+	if got := atomic.LoadInt32(&attempts); got < 3 {
+		t.Errorf("expected the failing attempts to be retried, got %d", got)
 	}
 }
 
