@@ -215,8 +215,8 @@ type (
 	// agentDoneMsg marks the turn finished (the events channel closed), re-enabling input
 	// and auto-sending the next queued prompt (if any).
 	agentDoneMsg struct{}
-	// agentCostMsg adds one model-call's BILLED result — cost + the broker's billed
-	// prompt/completion token counts — to the running AGENT session totals (the cost
+	// agentCostMsg adds one model-call's BILLED result - cost + the broker's billed
+	// prompt/completion token counts - to the running AGENT session totals (the cost
 	// side-channel; see newAgentRuntime.costFn and waitAgentEvent).
 	agentCostMsg struct {
 		cost      float64
@@ -302,6 +302,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
 				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · files sandboxed to "+m.agent.loop.Root+" · run_shell runs there but is NOT sandboxed"),
 			)
+			m.agentLines = append(m.agentLines, agentBandToolsWarning(m.offers, m.agent.model, m.narrow())...)
 		} else if m.proxyHolder == nil {
 			// FRESH: nothing has ever been tuned in this session (no endpoint bound). The
 			// old behavior dropped into a dead ask box and spammed "no station on air" on
@@ -354,6 +355,54 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	// Async desk scan (Guest Operators): LookPath + bounded version probes off the event
 	// loop, landing as operatorDetectedMsg - the same pattern as onSharesDetected.
 	return m, tea.Batch(textinput.Blink, operatorScanCmd())
+}
+
+// agentBandToolsWarning returns the entry lines warning that the tuned band cannot drive
+// tools, or nil when there is nothing to say. The "tools" capability is EARNED broker-side
+// (a nonce-randomized canary probe, never a station's own claim), so a published set that
+// omits it is real evidence. An ABSENT set is NOT: it means undetermined, and warning on it
+// is how a live run against production caught this warning firing on deepseek-v4-flash, a
+// band that drives tools perfectly well but publishes no capability set. Same rule the
+// offer badges already follow - an absent set claims nothing. An unknown model (no matching
+// offer) likewise says nothing. Entry is never blocked: the loop degrades to plain chat, and
+// the user deserves to hear that up front instead of discovering it when the agent quietly
+// stops calling tools.
+func agentBandToolsWarning(offers []offer, model string, narrow bool) []string {
+	if strings.TrimSpace(model) == "" {
+		return nil
+	}
+	var determined bool
+	for _, o := range offers {
+		if !strings.EqualFold(strings.TrimSpace(o.Model), strings.TrimSpace(model)) {
+			continue
+		}
+		if offerHasCapability(o, "tools") {
+			return nil
+		}
+		if len(o.Capabilities) > 0 {
+			determined = true
+		}
+	}
+	if !determined {
+		return nil
+	}
+	hint := "tune to a tools-capable band (⌁ in the dial) to let the agent read, search, and run tools"
+	if narrow {
+		hint = "tune to a tools-capable band (⌁)"
+	}
+	return []string{
+		stEmber.Render("! ") + stDim.Render("this band cannot drive tools - the agent will answer as plain chat"),
+		stDim.Render("  ") + stDim.Render(hint),
+	}
+}
+
+// agentTools is the live agent's toolset, falling back to the builtin set before a runtime
+// exists (the /help line is reachable on the landing screen).
+func (m model) agentTools() []harness.Tool {
+	if m.agent != nil && m.agent.loop != nil {
+		return m.agent.loop.Tools()
+	}
+	return harness.BuiltinTools()
 }
 
 // refreshAgentModel re-resolves the agent's model (open channel, else this session's
@@ -1277,7 +1326,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// (Guest Operators Phase 2). Aliases /mic /guest /op are typable, never suggested.
 		return m.runOperatorCommand(fields[1:])
 	case "remote-control", "remote", "rc":
-		// Put THIS session on the air (BASE STATION) — continue it from another surface
+		// Put THIS session on the air (BASE STATION) - continue it from another surface
 		// logged into your account. `/remote-control off` takes it back off the air.
 		off := len(fields) >= 2 && strings.EqualFold(fields[1], "off")
 		return m.runRemoteCommand(off)
@@ -1285,7 +1334,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// "commands" matches the CHANNEL view's alias (tui.go) so the autocomplete
 		// strip's /commands pick dispatches here instead of falling to unknown.
 		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
-		note("the agent can read_file / list_dir / web_fetch on its own · write_file / run_shell ask first")
+		note(agentToolsNote(m.agentTools()))
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
 		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
 		return m, nil
@@ -1488,6 +1537,8 @@ func toolArgSummary(tool string, args map[string]any) string {
 		return p
 	case "web_fetch":
 		return clipLine(argStr(args["url"]))
+	case "web_search":
+		return clipLine(argStr(args["query"]))
 	}
 	return ""
 }
@@ -1547,16 +1598,35 @@ func clipLine(s string) string {
 }
 
 // previewableTool reports whether a tool's output is worth previewing under its result
-// line. The read-only tools (list_dir / read_file / web_fetch) show the user what they
-// asked to see; run_shell previews its captured output too. The mutating write_file
-// only returns a short "wrote N bytes" confirmation, so its existing summary line is
-// enough (no preview).
+// line. The read-only tools (list_dir / read_file / web_fetch / web_search) show the user
+// what they asked to see; run_shell previews its captured output too. The mutating
+// write_file only returns a short "wrote N bytes" confirmation, so its existing summary
+// line is enough (no preview).
 func previewableTool(tool string) bool {
 	switch tool {
-	case "list_dir", "read_file", "web_fetch", "run_shell":
+	case "list_dir", "read_file", "web_fetch", "web_search", "run_shell":
 		return true
 	}
 	return false
+}
+
+// agentToolsNote renders the /help line listing which tools run on their own and which
+// ask first. It is DERIVED from the toolset rather than hand-written, so it never
+// advertises web_search when no search provider is configured, and it cannot drift when
+// the builtin set changes. The caller passes the RUNNING loop's toolset (fixed at
+// NewLoop), not a fresh read: re-deriving would describe a toolset the agent does not
+// actually have if search.json appeared or vanished mid-session.
+func agentToolsNote(tools []harness.Tool) string {
+	var auto, asks []string
+	for _, t := range tools {
+		if t.Mutating {
+			asks = append(asks, t.Name)
+			continue
+		}
+		auto = append(auto, t.Name)
+	}
+	return "the agent can " + strings.Join(auto, " / ") + " on its own · " +
+		strings.Join(asks, " / ") + " ask first"
 }
 
 // previewMaxLines / previewMaxChars bound the inlined preview of a tool result so even a
@@ -2042,7 +2112,7 @@ const agentStallSec = 120
 
 // agentWorkingLine is the AGENT in-turn readout, smarter than a bare spinner. It always
 // surfaces the per-call cap so the wait reads as BOUNDED (not a bottomless hang), and:
-//   - while a tool runs (poseTool) it says so and never cries "stuck" — the tool is local
+//   - while a tool runs (poseTool) it says so and never cries "stuck" - the tool is local
 //     and self-bounded (run_shell <=60s, web_fetch <=20s), so the silence is EXPECTED
 //     (flagging it was a false-alarm source);
 //   - while waiting on / receiving from the station it reads "working…"/"receiving…", and
@@ -2065,7 +2135,7 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 		spin = stPingEye.Render(beaconDot())
 	}
 	capSec := int(harness.PerCallCap / time.Second)
-	// status line: spinner + state, then a dim meta tail — elapsed within the per-call
+	// status line: spinner + state, then a dim meta tail - elapsed within the per-call
 	// cap, and the honest running session telemetry once there is any: ↑in ↓out (the
 	// broker's BILLED token re-count) + cost (dust-safe via dollars()). The token half is
 	// part of the always-shown status line, so reduced-motion (quiet/compact/narrow) drops
@@ -2097,11 +2167,11 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 			stDim.Render("  · ") + stKey.Render("tab") + stDim.Render(fmt.Sprintf(" waits +%ds · ", capSec)) +
 			stKey.Render("esc") + stDim.Render(fmt.Sprintf(" stops · auto-stop in %ds", stopSec))
 	}
-	// STALLED: no event from the station for a genuinely long time — flag it with the out
+	// STALLED: no event from the station for a genuinely long time - flag it with the out
 	// and DROP the sweep (a moving bar must never imply liveness that isn't there). A tool
 	// running locally is exempt: its silence is expected + bounded, never a station stall.
 	if sinceLastSec >= agentStallSec && m.agentTurnState != poseTool {
-		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds — may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
+		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds - may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
 	}
 	// RECEIVING vs WORKING vs TOOL: prose arriving = the answer; a tool = local work;
 	// otherwise the model is thinking.

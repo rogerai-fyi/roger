@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -230,22 +231,22 @@ func TestListDirBranches(t *testing.T) {
 	ld := toolByName(t, "list_dir")
 
 	// resolveInRoot error (escape).
-	if _, err := ld.Run(root, map[string]any{"path": "../up"}); err == nil {
+	if _, err := ld.Run(context.Background(), root, map[string]any{"path": "../up"}); err == nil {
 		t.Error("list_dir should reject a sandbox escape")
 	}
 	// ReadDir error (missing dir).
-	if _, err := ld.Run(root, map[string]any{"path": "missing"}); err == nil {
+	if _, err := ld.Run(context.Background(), root, map[string]any{"path": "missing"}); err == nil {
 		t.Error("list_dir of a missing dir should error")
 	}
 	// A subdirectory is listed with a trailing slash; an empty subdir reports empty.
 	if err := os.Mkdir(filepath.Join(root, "sub"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := ld.Run(root, map[string]any{"path": "."})
+	out, err := ld.Run(context.Background(), root, map[string]any{"path": "."})
 	if err != nil || !strings.Contains(out, "sub/") {
 		t.Errorf("list_dir = %q/%v, want a 'sub/' entry", out, err)
 	}
-	empty, err := ld.Run(root, map[string]any{"path": "sub"})
+	empty, err := ld.Run(context.Background(), root, map[string]any{"path": "sub"})
 	if err != nil || empty != "(empty directory)" {
 		t.Errorf("list_dir(empty) = %q/%v, want '(empty directory)'", empty, err)
 	}
@@ -258,21 +259,21 @@ func TestWriteFileErrorBranches(t *testing.T) {
 	wf := toolByName(t, "write_file")
 
 	// resolveInRoot error (empty path).
-	if _, err := wf.Run(root, map[string]any{"path": "", "content": "x"}); err == nil {
+	if _, err := wf.Run(context.Background(), root, map[string]any{"path": "", "content": "x"}); err == nil {
 		t.Error("write_file with an empty path should error")
 	}
 	// MkdirAll failure: a regular file in the parent position.
 	if err := os.WriteFile(filepath.Join(root, "afile"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wf.Run(root, map[string]any{"path": "afile/child.txt", "content": "y"}); err == nil {
+	if _, err := wf.Run(context.Background(), root, map[string]any{"path": "afile/child.txt", "content": "y"}); err == nil {
 		t.Error("write_file under a file-as-dir should error (MkdirAll)")
 	}
 	// WriteFile failure: target path is an existing directory.
 	if err := os.Mkdir(filepath.Join(root, "adir"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := wf.Run(root, map[string]any{"path": "adir", "content": "z"}); err == nil {
+	if _, err := wf.Run(context.Background(), root, map[string]any{"path": "adir", "content": "z"}); err == nil {
 		t.Error("write_file onto a directory should error (WriteFile)")
 	}
 }
@@ -287,7 +288,7 @@ func TestResolveInRootEmpty(t *testing.T) {
 // TestRunShellEmptyOutputError covers runShell's "error with no output" arm: a command
 // that exits non-zero and prints nothing returns the bare error.
 func TestRunShellEmptyOutputError(t *testing.T) {
-	_, err := runShell(t.TempDir(), "false")
+	_, err := runShell(context.Background(), t.TempDir(), "false")
 	if err == nil {
 		t.Error("runShell('false') should return the exit error when there is no output")
 	}
@@ -299,7 +300,7 @@ func TestRunShellTimeout(t *testing.T) {
 	shellTimeout = 20 * time.Millisecond
 	defer func() { shellTimeout = orig }()
 
-	out, err := runShell(t.TempDir(), "sleep 2")
+	out, err := runShell(context.Background(), t.TempDir(), "sleep 2")
 	if err != nil {
 		t.Fatalf("timed-out runShell should not return an error, got %v", err)
 	}
@@ -308,9 +309,18 @@ func TestRunShellTimeout(t *testing.T) {
 	}
 }
 
-// TestWebFetchNetworkError covers webFetch's request-error arm (connection refused).
+// TestWebFetchNetworkError covers webFetch's request-error arm (connection refused). The
+// address guard would refuse loopback outright and never dial, so this permits 127.0.0.1
+// through the vetting seam to actually reach the dial - otherwise the test would pass on
+// the wrong error and this arm would go uncovered.
 func TestWebFetchNetworkError(t *testing.T) {
-	if _, err := webFetch("http://127.0.0.1:1"); err == nil {
-		t.Error("webFetch to a dead port should return a network error")
+	defer func(v func(net.IP) error) { fetchVetIP = v }(fetchVetIP)
+	fetchVetIP = allowLoopbackVet
+	_, err := webFetch(context.Background(), "http://127.0.0.1:1")
+	if err == nil {
+		t.Fatal("webFetch to a dead port should return a network error")
+	}
+	if strings.Contains(err.Error(), "blocked address") {
+		t.Errorf("got the guard's refusal, not a dial error: %v", err)
 	}
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,19 +26,15 @@ type Tool struct {
 	Params map[string]any
 	// Run executes the tool with the model-supplied args, sandboxed under root, and
 	// returns the textual result fed back to the model. An error is also surfaced to
-	// the model (as the tool result) so it can recover, not crash the loop.
-	Run func(root string, args map[string]any) (string, error)
+	// the model (as the tool result) so it can recover, not crash the loop. ctx is the
+	// TURN's context: a tool that reaches the network or spawns a process must honor it,
+	// so esc abandons work in flight instead of leaving the user waiting on it.
+	Run func(ctx context.Context, root string, args map[string]any) (string, error)
 }
 
 // maxToolOutput caps a tool result fed back to the model so a huge file or command
 // output can't blow the context (and the bill). Truncated results are marked.
 const maxToolOutput = 16 << 10 // 16 KiB
-
-// maxFetchBytes caps a web_fetch body read.
-const maxFetchBytes = 256 << 10
-
-// fetchTimeout bounds web_fetch so a slow URL can't hang the turn.
-const fetchTimeout = 20 * time.Second
 
 // shellTimeout bounds run_shell so a runaway command can't hang the turn. It is a
 // var (defaulting to 60s) only so a test can shorten it to exercise the timeout
@@ -48,11 +42,12 @@ const fetchTimeout = 20 * time.Second
 var shellTimeout = 60 * time.Second
 
 // BuiltinTools returns the small, bounded toolset, in a stable order. Read-only
-// tools (read_file, list_dir, web_fetch) auto-run; mutating tools (write_file,
-// run_shell) are confirm-gated by the loop. The filesystem tools are sandboxed to
-// root via resolveInRoot; web_fetch reaches the network (read-only, text only).
+// tools (read_file, list_dir, web_fetch, and web_search when a provider is configured)
+// auto-run; mutating tools (write_file, run_shell) are confirm-gated by the loop. The
+// filesystem tools are sandboxed to root via resolveInRoot; web_fetch reaches the network
+// through the fetch.go guard (read-only, text only).
 func BuiltinTools() []Tool {
-	return []Tool{
+	tools := []Tool{
 		{
 			Name:        "read_file",
 			Description: "Read a UTF-8 text file in the working directory and return its contents. Read-only.",
@@ -64,7 +59,7 @@ func BuiltinTools() []Tool {
 				},
 				"required": []any{"path"},
 			},
-			Run: func(root string, args map[string]any) (string, error) {
+			Run: func(_ context.Context, root string, args map[string]any) (string, error) {
 				p, err := resolveInRoot(root, str(args["path"]))
 				if err != nil {
 					return "", err
@@ -86,7 +81,7 @@ func BuiltinTools() []Tool {
 					"path": map[string]any{"type": "string", "description": "Directory path relative to the working directory. Defaults to '.'."},
 				},
 			},
-			Run: func(root string, args map[string]any) (string, error) {
+			Run: func(_ context.Context, root string, args map[string]any) (string, error) {
 				rel := str(args["path"])
 				if strings.TrimSpace(rel) == "" {
 					rel = "."
@@ -125,8 +120,8 @@ func BuiltinTools() []Tool {
 				},
 				"required": []any{"url"},
 			},
-			Run: func(_ string, args map[string]any) (string, error) {
-				return webFetch(str(args["url"]))
+			Run: func(ctx context.Context, _ string, args map[string]any) (string, error) {
+				return webFetch(ctx, str(args["url"]))
 			},
 		},
 		{
@@ -141,7 +136,7 @@ func BuiltinTools() []Tool {
 				},
 				"required": []any{"path", "content"},
 			},
-			Run: func(root string, args map[string]any) (string, error) {
+			Run: func(_ context.Context, root string, args map[string]any) (string, error) {
 				p, err := resolveInRoot(root, str(args["path"]))
 				if err != nil {
 					return "", err
@@ -167,11 +162,17 @@ func BuiltinTools() []Tool {
 				},
 				"required": []any{"cmd"},
 			},
-			Run: func(root string, args map[string]any) (string, error) {
-				return runShell(root, str(args["cmd"]))
+			Run: func(ctx context.Context, root string, args map[string]any) (string, error) {
+				return runShell(ctx, root, str(args["cmd"]))
 			},
 		},
 	}
+	// web_search rides ONLY when a provider is configured: advertising it otherwise would
+	// offer the model a tool that can only dead-end (features/answers/web_search.feature).
+	if cfg, ok := loadSearchConfig(); ok {
+		tools = append(tools, searchTool(cfg))
+	}
+	return tools
 }
 
 // ToolSchemas renders the toolset as the OpenAI `tools` array sent in the request
@@ -217,11 +218,14 @@ func resolveInRoot(root, rel string) (string, error) {
 // root (e.g. via an absolute path). The confirm gate (showing the literal user command,
 // not this internal shell wrapper) is the real control here; the persona/UI copy must not
 // imply run_shell is sandboxed.
-func runShell(root, cmd string) (string, error) {
+func runShell(ctx context.Context, root, cmd string) (string, error) {
 	if strings.TrimSpace(cmd) == "" {
 		return "", errors.New("empty command")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), shellTimeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, shellTimeout)
 	defer cancel()
 	c := shellCommand(ctx, cmd)
 	c.Dir = root
@@ -240,30 +244,6 @@ func runShell(root, cmd string) (string, error) {
 		return "(no output)", nil
 	}
 	return res, nil
-}
-
-// webFetch GETs url and returns the clipped text body. http(s) only; bounded read +
-// timeout. Read-only, so it auto-runs.
-func webFetch(url string) (string, error) {
-	url = strings.TrimSpace(url)
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", fmt.Errorf("only http(s) URLs are supported: %q", url)
-	}
-	client := &http.Client{Timeout: fetchTimeout}
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
-	body := clip(string(b))
-	if resp.StatusCode >= 400 {
-		return fmt.Sprintf("HTTP %d\n%s", resp.StatusCode, body), nil
-	}
-	if strings.TrimSpace(body) == "" {
-		return fmt.Sprintf("HTTP %d (empty body)", resp.StatusCode), nil
-	}
-	return body, nil
 }
 
 // clip truncates s to maxToolOutput, marking a truncation so the model knows the
