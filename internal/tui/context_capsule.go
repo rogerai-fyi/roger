@@ -3,12 +3,18 @@ package tui
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/rogerai-fyi/roger/internal/brief"
 	"github.com/rogerai-fyi/roger/internal/capsule"
 	"github.com/rogerai-fyi/roger/internal/client"
+	"github.com/rogerai-fyi/roger/internal/harness"
+	"github.com/rogerai-fyi/roger/internal/operator"
 )
 
 // context_capsule.go is the TUI side of roger.context.v1: a MINIMAL per-turn ring (ruling
@@ -40,17 +46,137 @@ const (
 // null in the capsule (distinct from an empty string). It is a no-op for an empty
 // role+content. The ring is bounded to contextRingCap (oldest ages out).
 func (m *model) recordTurn(role, content, agent string, mdl, provider *string) {
+	m.recordTurnWithCalls(role, content, agent, mdl, provider, nil)
+}
+
+// recordTurnWithCalls is recordTurn plus the tool calls the turn made. calls are serialized
+// through capsule.ToolCallsRaw so the at-rest bytes are already canonical (the signing
+// contract), and an empty set carries as an absent field rather than an empty array.
+func (m *model) recordTurnWithCalls(role, content, agent string, mdl, provider *string, calls []capsule.ToolCall) {
 	if role == "" && content == "" {
 		return
 	}
 	msg := capsule.Message{Role: role, Content: content, XRoger: capsule.XRoger{
 		Turn: m.ringTurn, Agent: agent, Model: mdl, Provider: provider, TS: time.Now().Unix(),
 	}}
+	if len(calls) > 0 {
+		msg.ToolCalls = capsule.ToolCallsRaw(calls)
+	}
 	m.ringTurn++
 	m.ring = append(m.ring, msg)
 	if len(m.ring) > contextRingCap {
 		m.ring = m.ring[len(m.ring)-contextRingCap:]
 	}
+}
+
+// capsuleResultCap bounds ONE tool result carried in the capsule. A capsule is handed to
+// another agent and may cross the wire; a single fetched page must not be able to make it
+// enormous. The transcript the user sees is unaffected - this is the travelling copy.
+const capsuleResultCap = 2 << 10 // 2 KiB
+
+// agentSurfaceUser / agentSurfacePrefix tag the turns that happened in the AGENT rather
+// than on the channel. The tag is what lets /clear drop exactly what the user cleared
+// from their screen, without touching the channel's turns in the same thread.
+const (
+	agentSurfaceUser   = "user:agent"
+	agentSurfacePrefix = "roger-agent"
+)
+
+// recordAgentPrompt records the user's agent prompt into the shared ring.
+func (m *model) recordAgentPrompt(text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	m.recordTurn("user", text, agentSurfaceUser, nil, nil)
+}
+
+// recordAgentAnswer records the agent's completed answer, carrying any tool calls the turn
+// made. The pending calls are consumed here, so they ride on the turn that made them and
+// never leak into the next one.
+func (m *model) recordAgentAnswer(text string) {
+	calls := m.agentTurnCalls
+	m.agentTurnCalls = nil
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	var mdl *string
+	agent := agentSurfacePrefix
+	if m.agent != nil && m.agent.model != "" {
+		model := m.agent.model
+		mdl = &model
+		agent = agentSurfacePrefix + ":" + model
+	}
+	m.recordTurnWithCalls("assistant", text, agent, mdl, nil, calls)
+}
+
+// noteAgentToolCall opens a tool call for the turn in flight. The result lands later
+// (noteAgentToolResult), which is why the two are separate: the capsule's flat ToolCall
+// carries the result INLINE on the call, so the pair has to be stitched back together.
+func (m *model) noteAgentToolCall(id, name, args string) {
+	m.agentTurnCalls = append(m.agentTurnCalls, capsule.ToolCall{ID: id, Name: name, Arguments: args})
+}
+
+// noteAgentToolResult closes the most recent open call of that tool with its outcome.
+func (m *model) noteAgentToolResult(e harness.Event) {
+	for i := len(m.agentTurnCalls) - 1; i >= 0; i-- {
+		c := &m.agentTurnCalls[i]
+		if c.Name != e.Tool || c.Result != nil || c.Denied {
+			continue
+		}
+		switch {
+		case e.Denied:
+			// A refusal is context: the call is kept, marked, and carries NO result
+			// because nothing ran.
+			c.Denied = true
+		case e.IsError:
+			c.Failed = true
+			res := clipCapsule(e.Result)
+			c.Result = &res
+		default:
+			res := clipCapsule(e.Result)
+			c.Result = &res
+		}
+		return
+	}
+}
+
+// clipCapsule bounds one carried tool result, marking any truncation so a reader (human or
+// agent) never mistakes a cut-off page for the whole of it.
+func clipCapsule(s string) string {
+	s = stripControlBytes(s)
+	if len(s) <= capsuleResultCap {
+		return s
+	}
+	return cutRunes(s, capsuleResultCap) + "\n... (truncated)"
+}
+
+// stripControlBytes removes C0 control bytes and DEL, keeping newline and tab. Tool results
+// are untrusted text (a fetched page, a command's output) and they travel from here into
+// another agent's context and another terminal.
+func stripControlBytes(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// clearAgentTurns drops the AGENT-surface turns from the ring, leaving the channel's turns
+// in place. What the user cleared from their screen must not still travel to a guest.
+func (m *model) clearAgentTurns() {
+	kept := m.ring[:0]
+	for _, msg := range m.ring {
+		if msg.XRoger.Agent == agentSurfaceUser || strings.HasPrefix(msg.XRoger.Agent, agentSurfacePrefix) {
+			continue
+		}
+		kept = append(kept, msg)
+	}
+	m.ring = kept
+	m.agentTurnCalls = nil
 }
 
 // contextThreadID returns this session's stable origin thread id, minting one on first use.
@@ -171,6 +297,105 @@ func (m *model) resolveStrangerRecall(broker, recallCode string) (int, error) {
 		return 0, err
 	}
 	return m.mergeReturnCapsule(raw)
+}
+
+// writeHandoffBrief writes the READABLE half of the handoff beside the capsule: the file a
+// guest is told to read first. The capsule is a merge format - perfect for appending a
+// returning thread, useless as another agent's opening context.
+func (m *model) writeHandoffBrief(workdir string) error {
+	path := filepath.Join(workdir, operator.BriefRelPath)
+	if len(m.ring) == 0 {
+		// Nothing to hand over: clear any brief a PREVIOUS handoff left here, or the guest
+		// would be pointed at an old session as though it were the current one.
+		_ = os.Remove(path)
+		return nil
+	}
+	cap, err := m.exportContextCapsule(false)
+	if err != nil {
+		return err
+	}
+	text := brief.Render(cap)
+	if strings.TrimSpace(text) == "" {
+		_ = os.Remove(path)
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(text), 0o600)
+}
+
+// clearHandoffBrief removes a brief left by an earlier handoff in this workdir.
+func (m *model) clearHandoffBrief(workdir string) error {
+	err := os.Remove(filepath.Join(workdir, operator.BriefRelPath))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// returnNoteFile is the PLAIN note a guest leaves behind. The signed return.rcap.json path
+// still works, but no guest that lacks a key can produce one - and Claude Code cannot. This
+// file needs no signature: it was written by a process THIS session launched, in a directory
+// this session created, on this machine, by this user. A guest that wanted to forge context
+// could already run `roger context export` with the user's own key; the signature protects
+// the STRANGER path, where "did this really come from them" is the whole question.
+var returnNoteFile = filepath.Base(brief.ReturnNoteRelPath)
+
+// returnNoteCap bounds what a returning guest can append. It goes into the ring and travels
+// in every capsule after it.
+const returnNoteCap = 8 << 10
+
+// readReturnNote reads the guest's plain note, returning the text to append (empty when
+// there is nothing to bring back). A note that is not text is refused rather than pasted
+// into the transcript.
+func (m *model) readReturnNote(workdir, guest string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(workdir, handoffDir, returnNoteFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	if !utf8.Valid(raw) {
+		return "", fmt.Errorf("the note from %s is not readable text", guest)
+	}
+	text := strings.TrimSpace(stripControlBytes(string(raw)))
+	if text == "" {
+		return "", nil
+	}
+	if len(text) > returnNoteCap {
+		text = cutRunes(text, returnNoteCap) + "\n... (truncated)"
+	}
+	return text, nil
+}
+
+// cutRunes truncates to at most n bytes without splitting a multi-byte rune - the note was
+// validated as UTF-8 before the cut, and it must still be UTF-8 after it.
+func cutRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// mergeReturnNote appends a guest's note to the thread as ONE turn attributed to the guest.
+// Attribution comes from WHO wrote the file, never from what the file says, so a note that
+// claims to be a user turn from the band is still recorded as the guest speaking.
+func (m *model) mergeReturnNote(workdir, guest string) (bool, error) {
+	text, err := m.readReturnNote(workdir, guest)
+	// The note is a ONE-TIME rendezvous: consume it either way. Left behind it would merge
+	// again on every later handoff in this workdir, attributed to whichever guest came next
+	// - and an unreadable one would re-narrate its failure forever.
+	_ = os.Remove(filepath.Join(workdir, handoffDir, returnNoteFile))
+	if err != nil || text == "" {
+		return false, err
+	}
+	m.recordTurn("assistant", text, "guest:"+guest, nil, nil)
+	return true, nil
 }
 
 // readRecallCapsule merges a guest's return capsule (if it left one under the workdir) back
