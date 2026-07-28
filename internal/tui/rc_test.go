@@ -19,6 +19,10 @@ type fakeBridge struct {
 	stopped bool
 	parked  string // the guest-operator interlock ("" = unparked)
 	snap    string
+	// parkModel / parkSpend are the enrichment handed over at park time - what a remote
+	// viewer is told this handoff is running on, and what it has spent.
+	parkModel string
+	parkSpend func() float64
 }
 
 func newFakeBridge() *fakeBridge {
@@ -31,8 +35,17 @@ func (b *fakeBridge) SessionID() string                  { return b.sid }
 func (b *fakeBridge) Disable() error                     { b.stop(); return nil }
 func (b *fakeBridge) Stop()                              { b.stop() }
 func (b *fakeBridge) Run()                               { b.ran = true }
-func (b *fakeBridge) Park(op, snapshot, _ string, _ func() float64) {
-	b.parked, b.snap = op, snapshot
+func (b *fakeBridge) Park(op, snapshot, model string, spend func() float64) {
+	b.parked, b.snap, b.parkModel, b.parkSpend = op, snapshot, model, spend
+}
+
+// ParkedSpend reads what the bridge would report for a parked handoff ($0 when no reader
+// was handed over) - the figure a remote viewer actually sees.
+func (b *fakeBridge) ParkedSpend() float64 {
+	if b.parkSpend == nil {
+		return 0
+	}
+	return b.parkSpend()
 }
 func (b *fakeBridge) Unpark() { b.parked, b.snap = "", "" }
 func (b *fakeBridge) stop() {

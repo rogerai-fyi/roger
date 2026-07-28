@@ -1,9 +1,10 @@
 # GUEST OPERATORS — Phase 2: agent-CLI detection (THE DESK roster source).
 #
 # A static REGISTRY of guest operators (design doc §4 empirical table) is the ONE source of
-# who can ever appear at the desk. MVP set: opencode, hermes, aider. claude and codex are
-# EXCLUDED in v1 (Anthropic /v1/messages + Responses-API wire; naive launch silently falls
-# back to the user's REAL Anthropic account — the exact failure §4 measured). Detection is a
+# who can ever appear at the desk: opencode, hermes, aider (wired to the band) and claude
+# (CONTEXT-ONLY - see features/handoff/claude_guest.feature). codex stays EXCLUDED
+# (Responses-API wire; a naive launch silently falls back to the user's own account — the
+# exact failure §4 measured). Detection is a
 # pure function over an injectable Env seam (the internal/audio/audio.go:35 Env pattern:
 # LookPath + a bounded version Probe), so every PATH/version permutation is table-testable
 # with no real binary and the TUI can deliver results async like onSharesDetected
@@ -32,9 +33,12 @@ Feature: Guest operator detection registry
   Background:
     Given the guest operator registry
 
-  Scenario: The MVP registry is exactly opencode, hermes, aider — claude and codex excluded
-    Then the registry lists exactly "opencode", "hermes", "aider" in that order
-    And no registry entry is named "claude" or "codex"
+  Scenario: The registry is opencode, hermes, aider, claude — codex excluded
+    Then the registry lists exactly "opencode", "hermes", "aider", "claude" in that order
+    And no registry entry is named "codex"
+    # claude joined as a CONTEXT-ONLY guest: it reroutes no model, so the silent-billing
+    # failure that excluded it cannot happen (features/handoff/claude_guest.feature).
+    # codex stays out - same wire problem, and no context story yet.
     And every entry carries a name, a PATH binary, a provider tag, an install hint, and a known-good version
 
   Scenario: Registry entries carry the empirically-proven wiring strategy

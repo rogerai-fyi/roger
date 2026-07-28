@@ -683,6 +683,10 @@ type model struct {
 	ring     []capsule.Message
 	ringTurn int
 	threadID string
+	// agentTurnCalls accumulates the tool calls of the AGENT turn in flight; they are
+	// consumed onto the assistant turn when it completes (context_capsule.go), so a call
+	// rides on the turn that made it and never leaks into the next one.
+	agentTurnCalls []capsule.ToolCall
 	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
 	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
 	lastReply string

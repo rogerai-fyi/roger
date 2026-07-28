@@ -295,13 +295,16 @@ func TestRegistryCarriesBrandArts(t *testing.T) {
 			t.Fatalf("%s registry plate must equal BrandArts()[%q]", name, name)
 		}
 	}
-	for _, name := range []string{"claude", "codex"} {
-		if _, inRegistry := byName[name]; inRegistry {
-			t.Fatalf("%s stays a dormant draft - BrandArts() data only, no registry row", name)
-		}
-		if arts[name] == nil {
-			t.Fatalf("the %s shim-era draft must be present as dormant data", name)
-		}
+	// codex alone stays a dormant draft; claude's plate went live with the context-only
+	// guest (features/handoff/claude_guest.feature).
+	if _, inRegistry := byName["codex"]; inRegistry {
+		t.Fatal("codex stays a dormant draft - BrandArts() data only, no registry row")
+	}
+	if arts["codex"] == nil {
+		t.Fatal("the codex shim-era draft must be present as dormant data")
+	}
+	if g, ok := byName["claude"]; !ok || g.Brand == nil || !reflect.DeepEqual(g.Brand, arts["claude"]) {
+		t.Fatal("claude's registry row must carry its BrandArts plate")
 	}
 }
 

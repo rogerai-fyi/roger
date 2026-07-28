@@ -1722,8 +1722,8 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── detection.feature (pure) ──────────────────────────────────────────────
 	sc.Step(`^the guest operator registry$`, st.theGuestOperatorRegistry)
-	sc.Step(`^the registry lists exactly "([^"]*)", "([^"]*)", "([^"]*)" in that order$`, st.registryListsExactly)
-	sc.Step(`^no registry entry is named "([^"]*)" or "([^"]*)"$`, st.noRegistryEntryNamed)
+	sc.Step(`^the registry lists exactly "([^"]*)", "([^"]*)", "([^"]*)", "([^"]*)" in that order$`, st.registryListsExactly)
+	sc.Step(`^no registry entry is named "([^"]*)"$`, st.noRegistryEntryNamed)
 	sc.Step(`^every entry carries a name, a PATH binary, a provider tag, an install hint, and a known-good version$`, st.everyEntryCarriesFields)
 	sc.Step(`^the "([^"]*)" entry uses the (scratch-config|scratch-home) strategy with known-good version "([^"]*)"$`,
 		func(name, strat, v string) error { return st.entryUsesStrategyWithVersion(name, strat, v) })
