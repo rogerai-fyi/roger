@@ -66,7 +66,7 @@ Feature: The desk tells the truth about a context-only guest
       # through the door and then kill it after the user had already said yes.
 
     Scenario: a remote viewer is told the same thing the plate says
-      Given a context-only handoff after an earlier guest that did spend
+      Given a context-only handoff on a session bound to a band
       When the handoff is announced to the base station
       Then the announced spend is zero
       And no band is named in the announcement
