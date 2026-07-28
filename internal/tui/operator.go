@@ -975,12 +975,22 @@ func (m model) onOperatorExec() (tea.Model, tea.Cmd) {
 	// BASE STATION interlock: announce the handoff, then PARK the bridge BEFORE the exec
 	// cmd is returned - inbound remote turns are dropped at the bridge with a status
 	// auto-frame (never queued, never replayed), backfill is answered from this snapshot.
-	if m.rcBridge != nil && m.proxyHolder != nil {
+	if m.rcBridge != nil && (bandless || m.proxyHolder != nil) {
 		// Enrichment from the LIVE holder (rc_enrichment.feature): the exec-time model and
 		// the freshly-reset spend ($0 - ResetSpend just ran); the bridge keeps the live
 		// Spent reader so parked auto-frames report the guest's spend so far at emit time.
-		m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
-		m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
+		//
+		// A CONTEXT-ONLY guest has NO spend and no band: ResetSpend was deliberately
+		// skipped for it, so reporting the live figure would attribute a PREVIOUS guest's
+		// residual spend to a handoff the plate calls unmetered. Report zero and keep it
+		// zero, so the remote surface says the same thing the plate does.
+		if bandless {
+			m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, "", 0))
+			m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), "", func() float64 { return 0 })
+		} else {
+			m.rcEmit(client.OperatorStatusFrame(h.det.Guest.Name, opts.Model, m.proxyHolder.Spent()))
+			m.rcBridge.Park(h.det.Guest.Name, m.agentTranscriptText(), opts.Model, m.proxyHolder.Spent)
+		}
 	}
 	c := operator.Command(launch, h.det.Path, sess.Workdir, env)
 	return m, operatorExec(c, func(err error) tea.Msg { return operatorDoneMsg{err: err} })
@@ -1002,8 +1012,10 @@ func (m model) onOperatorDone(msg operatorDoneMsg) (tea.Model, tea.Cmd) {
 	// bracketed-paste modes on), then re-enable only what the radio uses (below).
 	_, _ = io.WriteString(operatorTermOut, operatorResetSeq)
 	// Unpark the bridge and announce the DJ is back. Nil-safe and dead-bridge-safe: a
-	// revoke-all mid-handoff Stops the bridge; Unpark/Emit are no-ops then.
-	if m.rcBridge != nil && m.proxyHolder != nil {
+	// revoke-all mid-handoff Stops the bridge; Unpark/Emit are no-ops then. This is
+	// UNCONDITIONAL on the proxy: whatever parked the bridge must unpark it, or the remote
+	// surface stays stuck on "guest has the mic" forever.
+	if m.rcBridge != nil {
 		m.rcBridge.Unpark()
 		m.rcEmitDJBack()
 	}
