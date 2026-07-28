@@ -223,11 +223,8 @@ func (s *handoffDeskState) notRefusedForSmallBand() error {
 	return nil
 }
 
-func (s *handoffDeskState) handoffAfterASpendingGuest() error {
+func (s *handoffDeskState) contextOnlyHandoffOnBoundBand() error {
 	s.m = &model{mode: modeAgent}
-	// A REAL holder carrying a previous guest's spend. ResetSpend is deliberately skipped
-	// for a context-only handoff, so without the fix the live figure - that guest's - is
-	// what the base station would be told.
 	// A REAL holder bound to a band. The context-only branch must announce NEITHER the band
 	// nor the holder's spend reader. The BAND is what discriminates fixed from unfixed here:
 	// the holder's spend is 0 on a fresh holder (addSpend is unexported, so a prior guest's
@@ -646,7 +643,7 @@ func TestHandoffDeskAndReturnBDD(t *testing.T) {
 			sc.Step(`^that turn is attributed to the guest, not to the user and not to the band$`, st.attributedToGuest)
 			sc.Step(`^the tuned band is below the 16k agent-ready floor$`, st.bandBelowFloor)
 			sc.Step(`^the user confirmed the plate for claude$`, st.confirmedPlateForClaude)
-			sc.Step(`^a context-only handoff on a session bound to a band$`, st.handoffAfterASpendingGuest)
+			sc.Step(`^a context-only handoff on a session bound to a band$`, st.contextOnlyHandoffOnBoundBand)
 			sc.Step(`^the handoff is announced to the base station$`, st.announcedToBaseStation)
 			sc.Step(`^the announced spend is zero$`, st.announcedSpendIsZero)
 			sc.Step(`^no band is named in the announcement$`, st.noBandNamed)
