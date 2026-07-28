@@ -21,7 +21,9 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/rogerai-fyi/roger/internal/brief"
 	"github.com/rogerai-fyi/roger/internal/capsule"
+	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/operator"
+	"github.com/rogerai-fyi/roger/internal/protocol"
 )
 
 type handoffDeskState struct {
@@ -217,6 +219,62 @@ func (s *handoffDeskState) notRefusedForSmallBand() error {
 	}
 	if s.m.operatorPlate == nil {
 		return fmt.Errorf("no plate was staged - the handoff did not proceed")
+	}
+	return nil
+}
+
+func (s *handoffDeskState) handoffAfterASpendingGuest() error {
+	s.m = &model{mode: modeAgent}
+	// A REAL holder carrying a previous guest's spend. ResetSpend is deliberately skipped
+	// for a context-only handoff, so without the fix the live figure - that guest's - is
+	// what the base station would be told.
+	// A REAL holder bound to a band. The context-only branch must announce NEITHER that
+	// band nor the holder's spend - and the band is the discriminator that makes this
+	// scenario fail against the unfixed code, which would report both.
+	s.m.proxyHolder = client.NewProxyOptionsHolder(client.ProxyOptions{Model: "gpt-oss-20b", User: "tester"})
+	s.m.rcBridge = newFakeBridge()
+	s.m.operatorHandoff = &operatorHandoff{
+		det:     operator.Detection{Guest: s.find("claude"), Path: "/usr/bin/claude", Version: "2.1.220"},
+		workdir: s.workdir,
+	}
+	return nil
+}
+
+func (s *handoffDeskState) announcedToBaseStation() error {
+	return s.reachesExecStage()
+}
+
+func (s *handoffDeskState) announcedSpendIsZero() error {
+	fb, ok := s.m.rcBridge.(*fakeBridge)
+	if !ok {
+		return fmt.Errorf("unexpected bridge type")
+	}
+	// It must actually have been ANNOUNCED - "nothing was emitted" would pass a spend
+	// check trivially while leaving remote viewers with no idea a guest took the mic.
+	var announced bool
+	for _, f := range fb.emitted {
+		if f.Kind != protocol.RCKindStatus || f.Operator == "" {
+			continue
+		}
+		announced = true
+		if f.Spend != 0 {
+			return fmt.Errorf("the base station was told the handoff had spent %v, want 0 - the plate calls it unmetered", f.Spend)
+		}
+		if f.Model != "" {
+			return fmt.Errorf("the base station was told the handoff runs on %q - it is not on the band at all", f.Model)
+		}
+	}
+	if !announced {
+		return fmt.Errorf("no status frame was emitted at all: %+v", fb.emitted)
+	}
+	if fb.parked == "" {
+		return fmt.Errorf("the bridge was never parked for the handoff")
+	}
+	if got := fb.ParkedSpend(); got != 0 {
+		return fmt.Errorf("the parked spend reader reports %v, want 0", got)
+	}
+	if fb.parkModel != "" {
+		return fmt.Errorf("the parked enrichment names band %q for a guest that is not on it", fb.parkModel)
 	}
 	return nil
 }
@@ -574,6 +632,10 @@ func TestHandoffDeskAndReturnBDD(t *testing.T) {
 			sc.Step(`^that turn is attributed to the guest, not to the user and not to the band$`, st.attributedToGuest)
 			sc.Step(`^the tuned band is below the 16k agent-ready floor$`, st.bandBelowFloor)
 			sc.Step(`^the user confirmed the plate for claude$`, st.confirmedPlateForClaude)
+			sc.Step(`^a context-only handoff after an earlier guest that did spend$`, st.handoffAfterASpendingGuest)
+			sc.Step(`^the handoff is announced to the base station$`, st.announcedToBaseStation)
+			sc.Step(`^the announced spend is zero$`, st.announcedSpendIsZero)
+			sc.Step(`^no band is named in the announcement$`, func() error { return nil })
 			sc.Step(`^the handoff reaches the exec stage$`, st.reachesExecStage)
 			sc.Step(`^it is not aborted for the band$`, st.notAbortedForBand)
 			sc.Step(`^claude is still selectable at the desk$`, st.claudeSelectable)

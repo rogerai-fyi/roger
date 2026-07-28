@@ -64,3 +64,12 @@ Feature: The desk tells the truth about a context-only guest
       # The desk gates and the exec gates are separate: the exec re-checks exist because a
       # band can drop during the staging beat. Exempting only the desk would let a guest
       # through the door and then kill it after the user had already said yes.
+
+    Scenario: a remote viewer is told the same thing the plate says
+      Given a context-only handoff after an earlier guest that did spend
+      When the handoff is announced to the base station
+      Then the announced spend is zero
+      And no band is named in the announcement
+      # The plate calls this handoff unmetered and shows no band. Reporting the live
+      # accumulator and the tuned model would tell a remote viewer the opposite - and
+      # would attribute a PREVIOUS guest's residual spend to it.
