@@ -101,7 +101,28 @@ type Loop struct {
 	// can't loop forever (and run up the bill). A turn that hits the cap returns the
 	// last assistant text as the final answer.
 	MaxSteps int
+
+	// turnStart marks where the CURRENT turn begins in messages, so sources are derived
+	// from this turn's retrievals only (a citation list must not accumulate across turns).
+	turnStart int
+	// searches / fetches are this turn's retrieval spend against the per-turn budget.
+	// They reset on every Send: the budget bounds one answer, not a session.
+	searches int
+	fetches  int
 }
+
+// The per-turn retrieval budget (founder-approved 2026-07-27). It bounds the tokens a
+// single answer can pull in, the fan-out a hostile page can provoke, and the wall-clock a
+// turn can spend on the network. Exceeding it is INFORMATION fed back to the model, not an
+// error: the turn still answers, with whatever it gathered.
+// NOTE on the interaction with MaxSteps: a model that calls tools one at a time is bounded
+// by MaxSteps first. These budgets bind when a model BATCHES tool calls in one assistant
+// message - which is exactly the shape a hostile page provokes - so they are the ceiling
+// that survives the adversarial case.
+const (
+	maxSearchesPerTurn = 3
+	maxFetchesPerTurn  = 8
+)
 
 // NewLoop builds an agent loop rooted at root, with the given persona, completer,
 // and confirm gate. The persona seeds the system message; the conversation is
@@ -130,6 +151,28 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
 // Tools exposes the toolset (for the UI to describe the available capabilities).
 func (l *Loop) Tools() []Tool { return l.tools }
 
+// sources returns the citations for the CURRENT (most recent) turn, derived from what was
+// actually retrieved. See sources.go for why this is the only derivation.
+func (l *Loop) sources() []source {
+	if l.turnStart < 0 || l.turnStart > len(l.messages) {
+		return nil
+	}
+	return sourcesFrom(l.messages[l.turnStart:])
+}
+
+// withSources appends the citation block to an answer. Presentation only - the block is
+// never written back into the conversation.
+func (l *Loop) withSources(answer string) string {
+	block := sourcesBlock(l.sources())
+	if block == "" {
+		return answer
+	}
+	if strings.TrimSpace(answer) == "" {
+		return block
+	}
+	return answer + "\n\n" + block
+}
+
 // Send runs one user turn through the agent loop and streams each step to emit. It
 // appends the user message, then repeatedly: asks the model for the next assistant
 // message, and if that message requests tool calls, executes them (confirm-gating
@@ -147,6 +190,9 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// A new turn: its own citation window and its own retrieval budget.
+	l.turnStart = len(l.messages)
+	l.searches, l.fetches = 0, 0
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})
 
 	for step := 0; step < l.MaxSteps; step++ {
@@ -171,13 +217,15 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 		if len(msg.ToolCalls) == 0 {
 			// Final answer (or a plain-chat model that ignored the tools).
 			final := strings.TrimSpace(msg.Content)
-			if final == "" && msg.Thought != "" {
+			final = l.withSources(final)
+			if strings.TrimSpace(msg.Content) == "" && msg.Thought != "" {
 				// A thinking model that never spoke: surface the reasoning, marked as
 				// thought so the UI renders it as thinking aloud (the founder's "the
 				// agent finished with no text" dead end had the words sitting right
 				// here in reasoning_content).
-				emit(Event{Kind: EventFinal, Text: msg.Thought, Thought: true, Truncated: msg.Truncated})
-				return msg.Thought, nil
+				thought := l.withSources(msg.Thought)
+				emit(Event{Kind: EventFinal, Text: thought, Thought: true, Truncated: msg.Truncated})
+				return thought, nil
 			}
 			emit(Event{Kind: EventFinal, Text: final, Truncated: msg.Truncated})
 			return final, nil
@@ -188,13 +236,20 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			emit(Event{Kind: EventAssistant, Text: t})
 		}
 		for _, call := range msg.ToolCalls {
-			l.runOne(call, emit)
+			// Cancellation is checked per CALL, not just per step: one assistant message can
+			// queue several tool calls, and a hostile page's whole play is to provoke exactly
+			// that churn. Without this, esc still ran (and still confirm-prompted for) every
+			// remaining call in the batch.
+			if ctx.Err() != nil {
+				break
+			}
+			l.runOne(ctx, call, emit)
 		}
 		// Loop: feed the tool results (appended below in runOne) back to the model.
 	}
 
 	// Hit the step cap: return the last assistant text we have as the final answer.
-	last := l.lastAssistantText()
+	last := l.withSources(l.lastAssistantText())
 	emit(Event{Kind: EventFinal, Text: last})
 	return last, nil
 }
@@ -202,7 +257,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 // runOne executes a single tool call: it parses the args, confirm-gates a mutating
 // tool, runs it (or records a denial), emits the call + result events, and appends a
 // tool-role result message so the next model turn sees the outcome.
-func (l *Loop) runOne(call ToolCall, emit func(Event)) {
+func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 	name := call.Function.Name
 	args := parseArgs(call.Function.Arguments)
 	emit(Event{Kind: EventToolCall, Tool: name, Args: args})
@@ -228,7 +283,17 @@ func (l *Loop) runOne(call ToolCall, emit func(Event)) {
 		}
 	}
 
-	out, err := tool.Run(l.Root, args)
+	// RETRIEVAL BUDGET: charged BEFORE the tool runs, so an exhausted budget costs no
+	// network round trip - which is also what makes it useless as an injection lever.
+	if over := l.chargeRetrieval(name); over != "" {
+		// Not IsError: an exhausted budget is information the model acts on, not a failure
+		// (features/answers/answers_mode.feature - "budget-exhausted is information").
+		emit(Event{Kind: EventToolResult, Tool: name, Result: over})
+		l.appendToolResult(call, over)
+		return
+	}
+
+	out, err := tool.Run(ctx, l.Root, args)
 	if err != nil {
 		res := "error: " + err.Error()
 		emit(Event{Kind: EventToolResult, Tool: name, Result: res, IsError: true})
@@ -237,6 +302,24 @@ func (l *Loop) runOne(call ToolCall, emit func(Event)) {
 	}
 	emit(Event{Kind: EventToolResult, Tool: name, Result: out})
 	l.appendToolResult(call, out)
+}
+
+// chargeRetrieval charges one retrieval against this turn's budget, returning "" when the
+// call may proceed or the refusal to feed back when the budget is spent.
+func (l *Loop) chargeRetrieval(name string) string {
+	switch name {
+	case "web_search":
+		if l.searches >= maxSearchesPerTurn {
+			return fmt.Sprintf("retrieval budget for this turn is used up (%d searches) - answer with what you already have", maxSearchesPerTurn)
+		}
+		l.searches++
+	case "web_fetch":
+		if l.fetches >= maxFetchesPerTurn {
+			return fmt.Sprintf("retrieval budget for this turn is used up (%d fetches) - answer with what you already have", maxFetchesPerTurn)
+		}
+		l.fetches++
+	}
+	return ""
 }
 
 // appendToolResult records a tool-role message tying result back to the originating

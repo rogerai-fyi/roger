@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,46 +31,50 @@ func TestBuiltinToolsRun(t *testing.T) {
 
 	// write_file (mutating) then read_file.
 	wf := toolByName(t, "write_file")
-	if _, err := wf.Run(root, map[string]any{"path": "note.txt", "content": "hello world"}); err != nil {
+	if _, err := wf.Run(context.Background(), root, map[string]any{"path": "note.txt", "content": "hello world"}); err != nil {
 		t.Fatalf("write_file: %v", err)
 	}
 	rf := toolByName(t, "read_file")
-	out, err := rf.Run(root, map[string]any{"path": "note.txt"})
+	out, err := rf.Run(context.Background(), root, map[string]any{"path": "note.txt"})
 	if err != nil || out != "hello world" {
 		t.Fatalf("read_file = %q/%v, want hello world", out, err)
 	}
 	// read_file path-escape is rejected (sandbox).
-	if _, err := rf.Run(root, map[string]any{"path": "../escape"}); err == nil {
+	if _, err := rf.Run(context.Background(), root, map[string]any{"path": "../escape"}); err == nil {
 		t.Error("read_file should reject a path escaping the sandbox")
 	}
 
 	// list_dir shows the file we wrote.
 	ld := toolByName(t, "list_dir")
-	if out, err := ld.Run(root, map[string]any{}); err != nil || !strings.Contains(out, "note.txt") {
+	if out, err := ld.Run(context.Background(), root, map[string]any{}); err != nil || !strings.Contains(out, "note.txt") {
 		t.Errorf("list_dir = %q/%v, want it to list note.txt", out, err)
 	}
 
 	// run_shell echoes (mutating tool, but we invoke Run directly past the confirm gate).
 	rs := toolByName(t, "run_shell")
-	if out, err := rs.Run(root, map[string]any{"cmd": "echo harness-ok"}); err != nil || !strings.Contains(out, "harness-ok") {
+	if out, err := rs.Run(context.Background(), root, map[string]any{"cmd": "echo harness-ok"}); err != nil || !strings.Contains(out, "harness-ok") {
 		t.Errorf("run_shell = %q/%v, want harness-ok", out, err)
 	}
 	// empty command -> error.
-	if _, err := rs.Run(root, map[string]any{"cmd": "  "}); err == nil {
+	if _, err := rs.Run(context.Background(), root, map[string]any{"cmd": "  "}); err == nil {
 		t.Error("run_shell with an empty command should error")
 	}
 
-	// web_fetch against a local server.
+	// web_fetch against a local server. The address guard (fetch.go) blocks loopback for
+	// model-supplied URLs, so this covers the tool wiring through the same seam the
+	// fetch-hardening suite uses - the rest of the policy stays real.
+	defer func(v func(net.IP) error) { fetchVetIP = v }(fetchVetIP)
+	fetchVetIP = allowLoopbackVet
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("fetched body"))
 	}))
 	defer srv.Close()
 	wfetch := toolByName(t, "web_fetch")
-	if out, err := wfetch.Run(root, map[string]any{"url": srv.URL}); err != nil || !strings.Contains(out, "fetched body") {
+	if out, err := wfetch.Run(context.Background(), root, map[string]any{"url": srv.URL}); err != nil || !strings.Contains(out, "fetched body") {
 		t.Errorf("web_fetch = %q/%v, want fetched body", out, err)
 	}
 	// non-http scheme -> error.
-	if _, err := wfetch.Run(root, map[string]any{"url": "ftp://x"}); err == nil {
+	if _, err := wfetch.Run(context.Background(), root, map[string]any{"url": "ftp://x"}); err == nil {
 		t.Error("web_fetch should reject a non-http(s) URL")
 	}
 }
@@ -193,26 +198,29 @@ func TestHelperBranches(t *testing.T) {
 		t.Errorf("clip should truncate + mark; len=%d", len(out))
 	}
 
-	// webFetch: a 4xx surfaces the status; an empty 200 says so.
+	// webFetch: a 4xx surfaces the status; an empty 200 says so (loopback permitted via
+	// the vetting seam, as above).
+	defer func(v func(net.IP) error) { fetchVetIP = v }(fetchVetIP)
+	fetchVetIP = allowLoopbackVet
 	notFound := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusNotFound)
 	}))
 	defer notFound.Close()
-	if out, _ := webFetch(notFound.URL); !strings.Contains(out, "HTTP 404") {
+	if out, _ := webFetch(context.Background(), notFound.URL); !strings.Contains(out, "HTTP 404") {
 		t.Errorf("webFetch(404) = %q, want HTTP 404", out)
 	}
 	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer empty.Close()
-	if out, _ := webFetch(empty.URL); !strings.Contains(out, "empty body") {
+	if out, _ := webFetch(context.Background(), empty.URL); !strings.Contains(out, "empty body") {
 		t.Errorf("webFetch(empty) = %q, want empty body note", out)
 	}
 
 	// runShell: a non-zero exit surfaces the exit info; a no-output success says so.
 	root := t.TempDir()
-	if out, err := runShell(root, "echo oops; exit 3"); err != nil || !strings.Contains(out, "exit") {
+	if out, err := runShell(context.Background(), root, "echo oops; exit 3"); err != nil || !strings.Contains(out, "exit") {
 		t.Errorf("runShell(exit 3) = %q/%v, want exit note", out, err)
 	}
-	if out, _ := runShell(root, "true"); out != "(no output)" {
+	if out, _ := runShell(context.Background(), root, "true"); out != "(no output)" {
 		t.Errorf("runShell(true) = %q, want (no output)", out)
 	}
 }
