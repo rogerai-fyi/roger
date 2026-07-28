@@ -78,21 +78,21 @@ func (s *opBDD) detectionNames() []string {
 
 func (s *opBDD) theGuestOperatorRegistry() error { return nil } // Background anchor
 
-func (s *opBDD) registryListsExactly(a, b, c string) error {
+func (s *opBDD) registryListsExactly(a, b, c, d string) error {
 	var names []string
 	for _, g := range operator.Registry() {
 		names = append(names, g.Name)
 	}
-	if want := []string{a, b, c}; !reflect.DeepEqual(names, want) {
+	if want := []string{a, b, c, d}; !reflect.DeepEqual(names, want) {
 		return fmt.Errorf("registry = %v, want %v", names, want)
 	}
 	return nil
 }
 
-func (s *opBDD) noRegistryEntryNamed(a, b string) error {
+func (s *opBDD) noRegistryEntryNamed(name string) error {
 	for _, g := range operator.Registry() {
-		if g.Name == a || g.Name == b {
-			return fmt.Errorf("registry lists excluded entry %q", g.Name)
+		if g.Name == name {
+			return fmt.Errorf("registry contains %q", name)
 		}
 	}
 	return nil

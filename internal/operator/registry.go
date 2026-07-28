@@ -24,6 +24,11 @@ const (
 	// StrategyEnvFlags: pure env + flags, zero generated files (aider): OPENAI_API_BASE +
 	// OPENAI_API_KEY in the child env, model + safety flags on the argv.
 	StrategyEnvFlags = "env-and-flags"
+	// StrategyContextOnly: hand over the CONTEXT and nothing else. No config, no base URL,
+	// no session key, no model - the guest runs on its own account, exactly as the user's
+	// own install would. It is defined by what it does NOT inject: that absence is what
+	// makes the billing story honest (see the claude entry below).
+	StrategyContextOnly = "context-only"
 )
 
 // Guest is one registry entry: an agent CLI that can take the mic at THE DESK.
@@ -48,12 +53,21 @@ type Guest struct {
 	Brand *BrandArt
 }
 
-// Registry is the ONE source of who can ever appear at the desk (MVP set, design doc §4/§6).
-// claude and codex are EXCLUDED in v1: they speak the Anthropic /v1/messages + Responses-API
-// wire, and a naive launch silently falls back to the user's REAL Anthropic account - the
-// exact failure §4 measured. Order is the desk display order.
+// Registry is the ONE source of who can ever appear at the desk. Order is the desk display
+// order.
+//
+// codex stays EXCLUDED: it speaks the Responses-API wire, so a naive launch silently falls
+// back to the user's own account - the exact failure §4 measured - and it has no context
+// story yet.
+//
+// claude is IN, but as a CONTEXT-ONLY guest. The original exclusion was about REROUTING THE
+// MODEL: pointing Claude Code at the band would silently bill the user's Anthropic account
+// while they believed they were on RogerAI. This entry reroutes nothing. It hands over the
+// session context and lets Claude Code run on its own account by design, which the desk
+// says out loud - turning the silent-billing failure into an informed choice. That is why
+// it needs no /v1/messages shim.
 func Registry() []Guest {
-	plates := BrandArts() // the §1-§3 plates ride as data; claude/codex stay dormant in BrandArts()
+	plates := BrandArts() // codex alone stays dormant in BrandArts(); claude's plate is now live
 	return []Guest{
 		{
 			Name: "opencode", Bin: "opencode", Provider: "openai",
@@ -75,6 +89,13 @@ func Registry() []Guest {
 			KnownGood:   "0.86.2", // verified at GREEN stage (founder ruling 6): installed + run live 2026-07-06
 			Strategy:    StrategyEnvFlags,
 			Brand:       plates["aider"],
+		},
+		{
+			Name: "claude", Bin: "claude", Provider: "anthropic",
+			InstallHint: "npm install -g @anthropic-ai/claude-code",
+			KnownGood:   "2.1.220", // verified on the dev box, 2026-07-28
+			Strategy:    StrategyContextOnly,
+			Brand:       plates["claude"],
 		},
 	}
 }

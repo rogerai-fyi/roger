@@ -58,12 +58,18 @@ func TestRegistryMVPSet(t *testing.T) {
 	for _, g := range reg {
 		names = append(names, g.Name)
 	}
-	if want := []string{"opencode", "hermes", "aider"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("registry must be the MVP set in order %v, got %v", want, names)
+	if want := []string{"opencode", "hermes", "aider", "claude"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("registry must be the guest set in order %v, got %v", want, names)
 	}
 	for _, g := range reg {
-		if g.Name == "claude" || g.Name == "codex" {
-			t.Fatalf("claude/codex are EXCLUDED v1, registry lists %q", g.Name)
+		// codex stays excluded: it speaks the Responses-API wire and has no context story.
+		// claude is IN as a CONTEXT-ONLY guest - it reroutes nothing, so the silent-billing
+		// failure that excluded it cannot happen (features/handoff/claude_guest.feature).
+		if g.Name == "codex" {
+			t.Fatalf("codex is EXCLUDED, registry lists %q", g.Name)
+		}
+		if g.Name == "claude" && g.Strategy != StrategyContextOnly {
+			t.Fatalf("claude must be context-only, got strategy %q", g.Strategy)
 		}
 		if g.Bin == "" || g.Provider == "" || g.InstallHint == "" {
 			t.Fatalf("%s: every entry carries bin/provider/install hint, got %+v", g.Name, g)
