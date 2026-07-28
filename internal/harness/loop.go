@@ -240,8 +240,14 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			// queue several tool calls, and a hostile page's whole play is to provoke exactly
 			// that churn. Without this, esc still ran (and still confirm-prompted for) every
 			// remaining call in the batch.
+			//
+			// The cancelled calls are RECORDED, not skipped: an assistant message carrying
+			// tool_calls with no matching tool result is a shape strict OpenAI-compatible
+			// stations reject, and the TUI keeps this session across turns - so simply
+			// breaking out would poison every later turn until /clear.
 			if ctx.Err() != nil {
-				break
+				l.cancelRemaining(call, emit)
+				continue
 			}
 			l.runOne(ctx, call, emit)
 		}
@@ -302,6 +308,15 @@ func (l *Loop) runOne(ctx context.Context, call ToolCall, emit func(Event)) {
 	}
 	emit(Event{Kind: EventToolResult, Tool: name, Result: out})
 	l.appendToolResult(call, out)
+}
+
+// cancelRemaining records a queued call the turn was cancelled before reaching: nothing
+// runs, nothing is confirmed, but the call gets its result so the transcript stays
+// well-formed for the next turn.
+func (l *Loop) cancelRemaining(call ToolCall, emit func(Event)) {
+	res := "turn cancelled by the user - this " + call.Function.Name + " call was not run"
+	emit(Event{Kind: EventToolResult, Tool: call.Function.Name, Result: res, IsError: true})
+	l.appendToolResult(call, res)
 }
 
 // chargeRetrieval charges one retrieval against this turn's budget, returning "" when the

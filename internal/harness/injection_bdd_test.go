@@ -494,6 +494,106 @@ func (s *injectState) stopsPromptlyNoFurtherBilling() error {
 	return nil
 }
 
+// --- a cancelled batch must leave a WELL-FORMED transcript ----------------------
+
+func (s *injectState) batchQueued() error {
+	// A model that queues several calls in ONE assistant message - the shape a hostile
+	// page provokes, and the shape that made the naive "break out of the batch" fix wrong.
+	s.marker = filepath.Join(s.t.TempDir(), "batch.txt")
+	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done() // slow: the cancel lands mid-batch
+	}))
+	s.pageURL = s.srv.URL + "/"
+	s.modelCalls = 0
+	complete := func(_ context.Context, _ []Message, _ []map[string]any) (Message, error) {
+		s.modelCalls++
+		return Message{Role: "assistant", ToolCalls: []ToolCall{
+			call("b1", "web_fetch", fetchArgs(s.pageURL)),
+			call("b2", "web_fetch", fetchArgs(s.pageURL)),
+			call("b3", "write_file", fmt.Sprintf(`{"path":%q,"content":"x"}`, s.marker)),
+		}}, nil
+	}
+	confirm := func(name string, args map[string]any) bool {
+		s.confirms = append(s.confirms, name)
+		return true // even an APPROVING user must not see a prompt after the cancel
+	}
+	s.loop = NewLoop(s.t.TempDir(), "sys", complete, confirm)
+	return nil
+}
+
+func (s *injectState) escMidBatch() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		cancel()
+	}()
+	s.final, s.err = s.loop.Send(ctx, "read those", func(e Event) { s.events = append(s.events, e) })
+	return nil
+}
+
+func (s *injectState) everyQueuedCallHasResult() error {
+	// The OpenAI contract the stations enforce: every tool_call id in an assistant message
+	// has a matching tool-role result. Without it the session is malformed from here on.
+	want := map[string]bool{}
+	for _, m := range s.loop.messages {
+		for _, tc := range m.ToolCalls {
+			want[tc.ID] = true
+		}
+	}
+	got := map[string]bool{}
+	for _, m := range s.loop.messages {
+		if m.Role == "tool" {
+			got[m.ToolCallID] = true
+		}
+	}
+	for id := range want {
+		if !got[id] {
+			return fmt.Errorf("tool_call %q has no result: the transcript is malformed and every later turn would be rejected", id)
+		}
+	}
+	// The cancel must not have RUN the remaining work, nor prompted for it.
+	if _, err := os.Stat(s.marker); err == nil {
+		return fmt.Errorf("a queued write_file ran after the cancel")
+	}
+	if len(s.confirms) != 0 {
+		return fmt.Errorf("a confirm was asked for %v after the cancel", s.confirms)
+	}
+	return nil
+}
+
+func (s *injectState) nextTurnCompletes() error {
+	// Replay the retained history to a station that enforces the tool_calls/results
+	// pairing, exactly as a real relay would.
+	for i, m := range s.loop.messages {
+		if len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			var paired bool
+			for _, later := range s.loop.messages[i+1:] {
+				if later.Role == "tool" && later.ToolCallID == tc.ID {
+					paired = true
+					break
+				}
+			}
+			if !paired {
+				return fmt.Errorf("call %q is never answered in the retained history", tc.ID)
+			}
+		}
+	}
+	s.loop.complete = func(_ context.Context, _ []Message, _ []map[string]any) (Message, error) {
+		return Message{Role: "assistant", Content: "second turn fine"}, nil
+	}
+	final, err := s.loop.Send(context.Background(), "carry on", nil)
+	if err != nil {
+		return fmt.Errorf("the turn after an esc-cancelled batch failed: %v", err)
+	}
+	if final == "" {
+		return fmt.Errorf("the turn after an esc-cancelled batch produced no answer")
+	}
+	return nil
+}
+
 func TestInjectionBDD(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -545,6 +645,11 @@ func TestInjectionBDD(t *testing.T) {
 			sc.Step(`^a fetched page instructs the model to fetch one more URL$`, st.pageInstructsOneMore)
 			sc.Step(`^the model emits another web_fetch call$`, st.modelEmitsAnotherFetch)
 			sc.Step(`^the call returns the budget-exhausted result without touching the network$`, st.budgetResultWithoutNetwork)
+			sc.Step(`^a turn whose model queued several tool calls in one message$`, st.batchQueued)
+			sc.Step(`^the user presses esc part way through the batch$`, st.escMidBatch)
+			sc.Step(`^every queued call still has a result in the transcript$`, st.everyQueuedCallHasResult)
+			sc.Step(`^the next turn completes normally$`, st.nextTurnCompletes)
+
 			sc.Step(`^a turn deep in retrieval churn$`, st.turnDeepInChurn)
 			sc.Step(`^the user presses esc$`, st.userPressesEsc)
 			sc.Step(`^the turn stops promptly and no further model call is billed$`, st.stopsPromptlyNoFurtherBilling)

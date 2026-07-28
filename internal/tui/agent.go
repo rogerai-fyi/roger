@@ -396,6 +396,15 @@ func agentBandToolsWarning(offers []offer, model string, narrow bool) []string {
 	}
 }
 
+// agentTools is the live agent's toolset, falling back to the builtin set before a runtime
+// exists (the /help line is reachable on the landing screen).
+func (m model) agentTools() []harness.Tool {
+	if m.agent != nil && m.agent.loop != nil {
+		return m.agent.loop.Tools()
+	}
+	return harness.BuiltinTools()
+}
+
 // refreshAgentModel re-resolves the agent's model (open channel, else this session's
 // last-tuned band). It is a no-op when the model already matches; on a change it
 // updates the runtime and drops a one-line note into the transcript so the heading +
@@ -1325,7 +1334,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// "commands" matches the CHANNEL view's alias (tui.go) so the autocomplete
 		// strip's /commands pick dispatches here instead of falling to unknown.
 		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
-		note(agentToolsNote())
+		note(agentToolsNote(m.agentTools()))
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
 		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
 		return m, nil
@@ -1602,12 +1611,14 @@ func previewableTool(tool string) bool {
 }
 
 // agentToolsNote renders the /help line listing which tools run on their own and which
-// ask first. It is DERIVED from the live toolset rather than hand-written, so it never
+// ask first. It is DERIVED from the toolset rather than hand-written, so it never
 // advertises web_search when no search provider is configured, and it cannot drift when
-// the builtin set changes.
-func agentToolsNote() string {
+// the builtin set changes. The caller passes the RUNNING loop's toolset (fixed at
+// NewLoop), not a fresh read: re-deriving would describe a toolset the agent does not
+// actually have if search.json appeared or vanished mid-session.
+func agentToolsNote(tools []harness.Tool) string {
 	var auto, asks []string
-	for _, t := range harness.BuiltinTools() {
+	for _, t := range tools {
 		if t.Mutating {
 			asks = append(asks, t.Name)
 			continue

@@ -97,3 +97,14 @@ Feature: Retrieved content is untrusted - harness invariants under injection
       When the user presses esc
       Then the turn stops promptly and no further model call is billed
       # Same invariant as features/agent/agent.feature, re-pinned under adversarial load.
+
+    Scenario: a cancelled batch leaves the session usable
+      Given a turn whose model queued several tool calls in one message
+      When the user presses esc part way through the batch
+      Then every queued call still has a result in the transcript
+      And the next turn completes normally
+      # Stopping promptly is not enough: the transcript must stay WELL-FORMED. An assistant
+      # message carrying tool_calls with no matching tool results is a shape strict
+      # OpenAI-compatible stations reject, and the TUI keeps the session across turns - so
+      # a single esc would otherwise poison every later turn until /clear. The remaining
+      # calls are recorded as cancelled-and-not-run: no tool runs, no confirm is asked.

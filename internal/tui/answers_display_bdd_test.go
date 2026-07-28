@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
+	"github.com/rogerai-fyi/roger/internal/harness"
 )
 
 type answersDisplayState struct {
@@ -204,7 +205,10 @@ func (s *answersDisplayState) copiedHasNumberedURLs() error {
 // --- the derived toolset line ---------------------------------------------------
 
 func (s *answersDisplayState) showToolsetLine() error {
-	s.line = agentToolsNote()
+	// The line describes the toolset the LOOP is carrying, which is what the agent will
+	// actually run - so build it the way the TUI does, from a live loop's tools.
+	loop := harness.NewLoop(s.t.TempDir(), "", nil, nil)
+	s.line = agentToolsNote(loop.Tools())
 	return nil
 }
 
