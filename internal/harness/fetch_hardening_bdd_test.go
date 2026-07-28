@@ -227,6 +227,33 @@ func (s *fetchState) noRequestToInternal() error {
 	return nil
 }
 
+func (s *fetchState) redirectWithoutLocation() error {
+	fetchVetIP = allowLoopbackVet
+	s.srvURL = s.serve(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusFound) // 302 with NO Location
+		_, _ = w.Write([]byte("<html><body><p>readable but going nowhere</p></body></html>"))
+	})
+	return nil
+}
+
+func (s *fetchState) errorNamesUnusableRedirect() error {
+	if s.err == nil {
+		return fmt.Errorf("a redirect with no Location was treated as a page: %q", tail(s.result))
+	}
+	if !strings.Contains(strings.ToLower(s.err.Error()), "redirect") {
+		return fmt.Errorf("the error should name the unusable redirect, got %v", s.err)
+	}
+	return nil
+}
+
+func (s *fetchState) nothingCitableFromIt() error {
+	if retrievedURL(s.result) != "" {
+		return fmt.Errorf("a redirect stub was marked as a citable retrieval: %q", tail(s.result))
+	}
+	return nil
+}
+
 func (s *fetchState) serverRedirectsNTimes(n int) error {
 	fetchVetIP = allowLoopbackVet
 	var base string
@@ -657,6 +684,9 @@ func TestFetchHardeningBDD(t *testing.T) {
 			sc.Step(`^the model calls web_fetch on the public URL$`, st.fetchPublicURL)
 			sc.Step(`^the redirect target is vetted like a fresh URL and refused$`, st.redirectVettedAndRefused)
 			sc.Step(`^no request is sent to the internal address$`, st.noRequestToInternal)
+			sc.Step(`^a server that answers 302 with no Location header$`, st.redirectWithoutLocation)
+			sc.Step(`^the tool result is an error naming the unusable redirect$`, st.errorNamesUnusableRedirect)
+			sc.Step(`^nothing is citable from it$`, st.nothingCitableFromIt)
 			sc.Step(`^a public server that redirects (\d+) times$`, st.serverRedirectsNTimes)
 			sc.Step(`^the model calls web_fetch$`, st.fetchIt)
 			sc.Step(`^the chain is abandoned after (\d+) hops with a clear tool result$`, st.chainAbandonedAfter)

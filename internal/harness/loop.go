@@ -217,7 +217,6 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 		if len(msg.ToolCalls) == 0 {
 			// Final answer (or a plain-chat model that ignored the tools).
 			final := strings.TrimSpace(msg.Content)
-			final = l.withSources(final)
 			if strings.TrimSpace(msg.Content) == "" && msg.Thought != "" {
 				// A thinking model that never spoke: surface the reasoning, marked as
 				// thought so the UI renders it as thinking aloud (the founder's "the
@@ -227,6 +226,7 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 				emit(Event{Kind: EventFinal, Text: thought, Thought: true, Truncated: msg.Truncated})
 				return thought, nil
 			}
+			final = l.withSources(final)
 			emit(Event{Kind: EventFinal, Text: final, Truncated: msg.Truncated})
 			return final, nil
 		}

@@ -34,16 +34,23 @@ func wrapRetrieved(u, body string) string {
 // retrievedURL returns the URL a wrapped tool result records, or "" if the content is not
 // a successful retrieval (an error, a denial, a budget refusal, or an HTTP error status
 // are all unwrapped, so they can never become sources).
+//
+// The parse is anchored to the FIRST LINE and to both ends of it: a URL can never contain
+// a newline, so line one is exactly prefix + url + suffix. Matching the first suffix
+// occurrence instead would let a URL whose own query carries the suffix text truncate its
+// citation - and an attacker can choose that URL, via a redirect the model never sees.
 func retrievedURL(content string) string {
-	if !strings.HasPrefix(content, retrievedPrefix) {
+	line := content
+	if i := strings.IndexByte(content, '\n'); i >= 0 {
+		line = content[:i]
+	}
+	if !strings.HasPrefix(line, retrievedPrefix) || !strings.HasSuffix(line, retrievedSuffix) {
 		return ""
 	}
-	rest := content[len(retrievedPrefix):]
-	end := strings.Index(rest, retrievedSuffix)
-	if end < 0 {
+	if len(line) < len(retrievedPrefix)+len(retrievedSuffix) {
 		return ""
 	}
-	return rest[:end]
+	return line[len(retrievedPrefix) : len(line)-len(retrievedSuffix)]
 }
 
 // source is one cited retrieval: a URL that was actually fetched in this turn, with the

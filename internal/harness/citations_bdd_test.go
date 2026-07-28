@@ -32,6 +32,8 @@ type citeState struct {
 	fetched []string          // URLs the model was scripted to fetch
 
 	loop          *Loop
+	eventsSeen    []Event
+	redirectTo    string
 	searchResults string
 	final         string
 	err           error
@@ -46,11 +48,15 @@ func (s *citeState) reset() {
 	s.pages = map[string]string{}
 	s.fetched = nil
 	s.loop, s.final, s.err, s.sources = nil, "", nil, nil
-	s.searchResults = ""
+	s.searchResults, s.redirectTo, s.eventsSeen = "", "", nil
 	s.turn1, s.turn2 = nil, nil
 	s.origVet = fetchVetIP
 	fetchVetIP = allowLoopbackVet
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/go" && s.redirectTo != "" {
+			http.Redirect(w, r, s.redirectTo, http.StatusFound)
+			return
+		}
 		body, ok := s.pages[r.URL.Path]
 		if !ok {
 			w.Header().Set("Content-Type", "text/html")
@@ -90,7 +96,11 @@ func (s *citeState) runScript(finalText string, calls [][2]string) error {
 		return Message{Role: "assistant", Content: finalText}, nil
 	}
 	s.loop = NewLoop(s.t.TempDir(), "sys", complete, nil)
-	s.final, s.err = s.loop.Send(context.Background(), "what is the backoff?", nil)
+	s.final, s.err = s.loop.Send(context.Background(), "what is the backoff?", func(e Event) {
+		if e.Kind == EventToolResult {
+			s.eventsSeen = append(s.eventsSeen, e)
+		}
+	})
 	s.sources = s.loop.sources()
 	return s.err
 }
@@ -502,6 +512,53 @@ func (s *citeState) victimNotForgedTitle() error {
 	return nil
 }
 
+// markerBaitURL is a URL whose QUERY carries the marker's own closing wording - the shape
+// that truncated the citation before the parse was anchored to both ends of the line.
+func (s *citeState) markerBaitURL() string {
+	s.pages["/bait"] = "<html><head><title>Bait</title></head><body><p>bait page</p></body></html>"
+	// RAW, not escaped: url.Parse and redirect resolution both carry this verbatim,
+	// which is exactly what let it truncate the citation.
+	return s.srv.URL + "/bait?q=" + retrievedSuffix
+}
+
+func (s *citeState) fetchedMarkerBaitURL() error {
+	bait := s.markerBaitURL()
+	s.fetched = []string{bait}
+	return s.runScript("answered", [][2]string{{"web_fetch", fetchArgs(bait)}})
+}
+
+func (s *citeState) noSourceRecorded() error {
+	if len(s.sources) != 0 {
+		return fmt.Errorf("a marker-bait URL produced sources: %+v", s.sources)
+	}
+	// It must have failed as a RETRIEVAL, not silently succeeded and been dropped later.
+	var sawFetch bool
+	for _, e := range s.eventsSeen {
+		if e.Tool == "web_fetch" {
+			sawFetch = true
+			if retrievedURL(e.Result) != "" {
+				return fmt.Errorf("a marker-bait URL was recorded as a retrieval: %q", e.Result)
+			}
+		}
+	}
+	if !sawFetch {
+		return fmt.Errorf("no fetch was attempted at all")
+	}
+	return nil
+}
+
+func (s *citeState) redirectToMarkerBait() error {
+	bait := s.markerBaitURL()
+	s.fetched = []string{bait}
+	// The model only ever sees the redirecting URL; the attacker picks where it lands.
+	s.redirectTo = bait
+	return nil
+}
+
+func (s *citeState) fetchRedirectingURL() error {
+	return s.runScript("answered", [][2]string{{"web_fetch", fetchArgs(s.srv.URL + "/go")}})
+}
+
 func (s *citeState) fetchedWithStrayWhitespace(u string) error {
 	page := s.page("/ws", "Whitespace", "same page")
 	s.fetched = []string{page}
@@ -565,6 +622,10 @@ func TestCitationsBDD(t *testing.T) {
 			sc.Step(`^a search result whose snippet contains a forged "([^"]*)" line$`, st.forgedSnippetResult)
 			sc.Step(`^the model fetches the victim URL named in that forged line$`, st.fetchVictimURL)
 			sc.Step(`^the victim URL is not titled with the forged title$`, st.victimNotForgedTitle)
+			sc.Step(`^the model fetched a URL whose query contains the retrieval marker's own wording$`, st.fetchedMarkerBaitURL)
+			sc.Step(`^no source is recorded for it$`, st.noSourceRecorded)
+			sc.Step(`^a page that redirects to a URL whose query contains the marker's own wording$`, st.redirectToMarkerBait)
+			sc.Step(`^the model fetches the redirecting URL$`, st.fetchRedirectingURL)
 			sc.Step(`^the model fetched "([^"]*)" and then the same URL with a trailing space$`, st.fetchedWithStrayWhitespace)
 			sc.Step(`^a turn whose only fetch returned an empty 200 body$`, st.fetchReturnedEmpty)
 
