@@ -333,19 +333,28 @@ func TestReregisterBackoffBounded(t *testing.T) {
 
 	// Shorten the real schedule through the seam so this exercises the retry LOOP without
 	// racing seconds on a shared runner.
-	defer func(v []time.Duration) { reregisterBackoff = v }(reregisterBackoff)
+	saved := reregisterBackoff
 	reregisterBackoff = []time.Duration{time.Millisecond, 2 * time.Millisecond, 5 * time.Millisecond}
 
 	rr := newTestReregistrar(srv.URL)
 	_, gen0 := rr.curToken()
 	stop := make(chan struct{})
-
 	done := make(chan struct{})
+	// STOP the goroutine and wait for it BEFORE restoring the seam: on the timeout path
+	// below, recover() is still reading reregisterBackoff, and restoring it underneath a
+	// live reader would add a spurious -race report to an already-failing run.
+	defer func() {
+		close(stop)
+		<-done
+		reregisterBackoff = saved
+	}()
+
 	go func() { rr.recover(gen0, stop); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
-		t.Fatal("recover did not heal within 10s (backoff unbounded or stuck)")
+		t.Error("recover did not heal within 10s (backoff unbounded or stuck)")
+		return
 	}
 	if _, gen1 := rr.curToken(); gen1 != gen0+1 {
 		t.Errorf("generation should advance once after eventual success, got %d", gen1)
