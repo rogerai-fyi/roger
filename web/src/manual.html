@@ -35,7 +35,7 @@
         </p>
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v5.4.4</b></span>
+          <span>Version: <b data-cli-version>v5.4.5</b></span>
           <span>Broker: <b>broker.rogerai.fyi</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -937,7 +937,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.4.4</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v5.4.5</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
               by context. Run any command with <code>--help</code> for its flags; advanced
               flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
@@ -1221,6 +1221,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v5.4.5</span><span class="man-plate__v">Desk polish for the new guest: the <b>claude</b> plate is now character-exact to the mascot Claude Code prints on its own welcome (the first draft carried a row the real art does not have), set beside its wordmark and vendor byline the way the guest's own banner reads.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.4</span><span class="man-plate__v">Hand your session to Claude Code. <code>/operator</code> now lists <b>claude</b> as a CONTEXT-ONLY guest: it takes your conversation with it - what you asked, what the tools returned, and anything you refused - and runs on <b>your own Anthropic account</b>, which the desk says plainly (no band, no key, nothing metered by RogerAI). It needs no tuned band at all. What the guest did comes back: leave a note in <code>.roger/return.md</code> and it merges into the conversation on exit. The agent's own turns now travel in the context capsule too - until now every guest handoff from the agent carried an empty one.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.3</span><span class="man-plate__v">Answers with sources. The agent can search the web (<code>web_search</code>, once a provider key is set in <code>search.json</code>) and read pages, and every answer it builds that way ends with a numbered <b>Sources</b> list - derived from the pages actually retrieved, never from URLs the model merely mentions. Fetching is hardened for the open web: blocked private, loopback, cloud-metadata and tunnelled address space, per-hop redirect vetting, HTML reduced to readable text, and control bytes stripped before anything reaches the transcript. Retrieval is bounded per turn, and <code>esc</code> abandons a fetch in flight.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.2</span><span class="man-plate__v">The first release of the radio-operator overhaul (see v5.4.0): the tube warm-up boot + on-air beacon read at a calm, watchable pace and the screensaver moves smoothly (motion tuned; the tick loop now runs a single chain, no stacked animation loops or extra polling), and <code>roger boot</code> replays the warm-up.</span></div>

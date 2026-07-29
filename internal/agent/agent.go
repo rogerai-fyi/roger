@@ -251,7 +251,6 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 	// offers/HW so the node reappears identically in /market + /discover). The
 	// only mutated fields are a fresh anti-replay timestamp + signature and a
 	// fresh bridge token, so the broker's tunnel adopts the token we will now use.
-	backoff := []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
 	attempt := 0
 	for {
 		select {
@@ -293,10 +292,8 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 			log.Printf("broker restarted - re-registered node %s", rr.reg.NodeID)
 			return
 		}
-		d := backoff[attempt]
-		if attempt < len(backoff)-1 {
-			attempt++
-		}
+		d := backoffFor(attempt)
+		attempt++
 		select {
 		case <-stop:
 			rr.finishBusy()
@@ -304,6 +301,25 @@ func (rr *reregistrar) recover(seenGen uint64, stop <-chan struct{}) {
 		case <-time.After(d):
 		}
 	}
+}
+
+// reregisterBackoff is the retry schedule for re-registering against a down broker:
+// rising, then HELD at the last value forever (never gives up, never busy-loops). It is a
+// var only so a test can shorten it - the house shellTimeout / ProbeTimeout idiom -
+// because a test that races the real seconds is a test that flakes on a loaded runner.
+var reregisterBackoff = []time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second}
+
+// backoffFor is the pure schedule: the delay before the attempt AFTER this one. Past the
+// end of the table it holds at the last (longest) value rather than growing without bound
+// or wrapping back to a hot retry.
+func backoffFor(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	if attempt >= len(reregisterBackoff) {
+		return reregisterBackoff[len(reregisterBackoff)-1]
+	}
+	return reregisterBackoff[attempt]
 }
 
 // finishBusy clears the single-flight gate without advancing the generation
