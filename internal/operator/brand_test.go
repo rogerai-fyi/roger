@@ -288,10 +288,10 @@ func TestBrandCodexSpans(t *testing.T) {
 	}
 }
 
-// TestRegistryCarriesBrandArts: the three MVP guests carry their plate as registry
-// data; claude and codex stay DORMANT in BrandArts() only - the doc's shim-era
-// drafts have no Registry() row (adding one would change detection/picker behavior,
-// and this pass is data-only).
+// TestRegistryCarriesBrandArts: every launchable guest carries its plate as registry data -
+// opencode, hermes, aider and (since v5.4.4) claude. codex alone stays DORMANT in
+// BrandArts(), the last of the doc's shim-era drafts with no Registry() row, because there
+// is still no way to launch it honestly.
 func TestRegistryCarriesBrandArts(t *testing.T) {
 	arts := BrandArts()
 	byName := map[string]Guest{}
