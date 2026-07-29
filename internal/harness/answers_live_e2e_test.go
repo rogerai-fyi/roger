@@ -238,11 +238,13 @@ func liveTurn(t *testing.T, broker, model, persona, ask string) liveResult {
 // answers mode is not configured on this machine. It is what lets the chain subtest run
 // against the live provider here and still be runnable on a box with no key.
 func configuredBraveKey() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	// Mirror searchConfigPath: os.UserConfigDir, not a hardcoded ~/.config, or the real-Brave
+	// mode would silently never trigger on macOS despite a configured key.
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
 		return ""
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".config", "rogerai", "search.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "rogerai", "search.json"))
 	if err != nil {
 		return ""
 	}

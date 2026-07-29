@@ -397,6 +397,14 @@ func (s *searchState) noMarkupSurvives() error {
 	return nil
 }
 
+func (s *searchState) providerReturnsEscapedMarkup(esc string) error {
+	s.results = []map[string]any{{
+		"title": "Valkey", "url": "https://valkey.io/",
+		"description": "Valkey is " + esc + "fast" + strings.Replace(esc, "&lt;", "&lt;/", 1),
+	}}
+	return s.callSearchQuery("escaped")
+}
+
 func (s *searchState) providerReturnsEntities(a, b string) error {
 	s.results = []map[string]any{{
 		"title": "Ben " + a + " Jerry" + b + "s", "url": "https://x.example/", "description": "snip",
@@ -704,6 +712,7 @@ func TestWebSearchBDD(t *testing.T) {
 			sc.Step(`^the provider returns a snippet marked up with "([^"]*)" around the match$`, st.providerReturnsMarkedUpSnippet)
 			sc.Step(`^the snippet reaches the model as plain text$`, st.snippetIsPlainText)
 			sc.Step(`^no markup tags survive$`, st.noMarkupSurvives)
+			sc.Step(`^the provider returns a snippet containing "([^"]*)"$`, st.providerReturnsEscapedMarkup)
 			sc.Step(`^the provider returns a title containing "([^"]*)" and "([^"]*)"$`, st.providerReturnsEntities)
 			sc.Step(`^the title reaches the model with those characters decoded$`, st.entitiesDecoded)
 			sc.Step(`^the provider returns a result with url "([^"]*)"$`, st.providerReturnsURL)
