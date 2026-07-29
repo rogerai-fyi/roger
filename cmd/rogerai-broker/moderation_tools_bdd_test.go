@@ -132,12 +132,16 @@ func (s *toolsBddState) extractedContains(sub string) error {
 	return nil
 }
 
-func (s *toolsBddState) extractedContainsHarmfulTool() error { return s.extractedContains(tbHarmfulTool) }
-func (s *toolsBddState) extractedContainsBenignMsg() error   { return s.extractedContains(tbBenignMsg) }
+func (s *toolsBddState) extractedContainsHarmfulTool() error {
+	return s.extractedContains(tbHarmfulTool)
+}
+func (s *toolsBddState) extractedContainsBenignMsg() error { return s.extractedContains(tbBenignMsg) }
 func (s *toolsBddState) extractedContainsHarmfulParam() error {
 	return s.extractedContains(tbHarmfulParam)
 }
-func (s *toolsBddState) extractedContainsHarmfulFunc() error { return s.extractedContains(tbHarmfulFunc) }
+func (s *toolsBddState) extractedContainsHarmfulFunc() error {
+	return s.extractedContains(tbHarmfulFunc)
+}
 
 func (s *toolsBddState) extractedContainsBothMultimodal() error {
 	if err := s.extractedContains(tbMultimodalPart); err != nil {

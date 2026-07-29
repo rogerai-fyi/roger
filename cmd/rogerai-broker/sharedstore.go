@@ -331,7 +331,9 @@ func (m *memStore) liveness() (map[string]time.Time, error) { return nil, errNoS
 // these are no-ops (the flag-OFF / no-Redis path never mirrors a verdict).
 func (m *memStore) markToolsVerified(string, string, time.Duration) error { return errNoSharedStore }
 func (m *memStore) clearToolsVerified(string, string) error               { return errNoSharedStore }
-func (m *memStore) toolsVerified(time.Duration) (map[string]bool, error)  { return nil, errNoSharedStore }
+func (m *memStore) toolsVerified(time.Duration) (map[string]bool, error) {
+	return nil, errNoSharedStore
+}
 
 // cacheGet on memStore is always a MISS (no backend), so call sites compute directly.
 func (m *memStore) cacheGet(string) ([]byte, bool, error) { return nil, false, errNoSharedStore }
@@ -374,7 +376,7 @@ func (m *memStore) busPublishJob(string, []byte) (int, error) { return 0, errNoS
 func (m *memStore) busSubscribeJobs(context.Context, string) (<-chan []byte, func(), error) {
 	return nil, func() {}, errNoSharedStore
 }
-func (m *memStore) busClaimJob(string) (bool, error) { return false, errNoSharedStore }
+func (m *memStore) busClaimJob(string) (bool, error)      { return false, errNoSharedStore }
 func (m *memStore) busPublishResult(string, []byte) error { return errNoSharedStore }
 func (m *memStore) busSubscribeResult(context.Context, string) (<-chan []byte, func(), error) {
 	return nil, func() {}, errNoSharedStore

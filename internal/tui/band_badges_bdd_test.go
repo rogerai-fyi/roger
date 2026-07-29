@@ -186,7 +186,7 @@ func TestBandBadgesBDD(t *testing.T) {
 			sc.Step(`^the badge legend names the inferred suffix as "([^"]*)"$`, st.legendNames)
 			sc.Step(`^the badge legend names the vision mark as "([^"]*)"$`, st.legendNames)
 		},
-		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/tui"}, TestingT: t, Strict: true},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../../features/tui/band_badges.feature"}, TestingT: t, Strict: true},
 	}
 	if suite.Run() != 0 {
 		t.Fatal("band-badge scenarios failed (see godog output above)")

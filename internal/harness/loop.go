@@ -69,6 +69,10 @@ type Event struct {
 	// Truncated marks an EventFinal cut off by the completion budget
 	// (finish_reason=length), so the UI can say WHY there is little or no text.
 	Truncated bool
+	// Step/MaxSteps identify the model iteration that produced this event. They are
+	// presentation metadata for live progress surfaces; zero means unavailable.
+	Step     int
+	MaxSteps int
 }
 
 // EventKind tags an Event.
@@ -196,20 +200,24 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 	l.messages = append(l.messages, Message{Role: "user", Content: userText})
 
 	for step := 0; step < l.MaxSteps; step++ {
+		emitStep := func(e Event) {
+			e.Step, e.MaxSteps = step+1, l.MaxSteps
+			emit(e)
+		}
 		// Stop promptly if the turn was cancelled between steps (e.g. after a tool round)
 		// so an aborted turn never fires another billed model call.
 		if ctx.Err() != nil {
-			emit(Event{Kind: EventError, Text: "turn cancelled"})
+			emitStep(Event{Kind: EventError, Text: "turn cancelled"})
 			return "", ctx.Err()
 		}
 		msg, err := l.complete(ctx, l.messages, ToolSchemas(l.tools))
 		if err != nil {
 			// A cancelled context surfaces as a clean "cancelled", not a scary network error.
 			if ctx.Err() != nil {
-				emit(Event{Kind: EventError, Text: "turn cancelled"})
+				emitStep(Event{Kind: EventError, Text: "turn cancelled"})
 				return "", ctx.Err()
 			}
-			emit(Event{Kind: EventError, Text: err.Error()})
+			emitStep(Event{Kind: EventError, Text: err.Error()})
 			return "", err
 		}
 		l.messages = append(l.messages, msg)
@@ -223,17 +231,17 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 				// agent finished with no text" dead end had the words sitting right
 				// here in reasoning_content).
 				thought := l.withSources(msg.Thought)
-				emit(Event{Kind: EventFinal, Text: thought, Thought: true, Truncated: msg.Truncated})
+				emitStep(Event{Kind: EventFinal, Text: thought, Thought: true, Truncated: msg.Truncated})
 				return thought, nil
 			}
 			final = l.withSources(final)
-			emit(Event{Kind: EventFinal, Text: final, Truncated: msg.Truncated})
+			emitStep(Event{Kind: EventFinal, Text: final, Truncated: msg.Truncated})
 			return final, nil
 		}
 
 		// The model wants tools. Any interim prose rides along first.
 		if t := strings.TrimSpace(msg.Content); t != "" {
-			emit(Event{Kind: EventAssistant, Text: t})
+			emitStep(Event{Kind: EventAssistant, Text: t})
 		}
 		for _, call := range msg.ToolCalls {
 			// Cancellation is checked per CALL, not just per step: one assistant message can
@@ -246,17 +254,17 @@ func (l *Loop) Send(ctx context.Context, userText string, emit func(Event)) (str
 			// stations reject, and the TUI keeps this session across turns - so simply
 			// breaking out would poison every later turn until /clear.
 			if ctx.Err() != nil {
-				l.cancelRemaining(call, emit)
+				l.cancelRemaining(call, emitStep)
 				continue
 			}
-			l.runOne(ctx, call, emit)
+			l.runOne(ctx, call, emitStep)
 		}
 		// Loop: feed the tool results (appended below in runOne) back to the model.
 	}
 
 	// Hit the step cap: return the last assistant text we have as the final answer.
 	last := l.withSources(l.lastAssistantText())
-	emit(Event{Kind: EventFinal, Text: last})
+	emit(Event{Kind: EventFinal, Text: last, Step: l.MaxSteps, MaxSteps: l.MaxSteps})
 	return last, nil
 }
 

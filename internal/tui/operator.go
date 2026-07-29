@@ -1173,6 +1173,9 @@ func guestAccountName(g operator.Guest) string {
 	if g.Provider == "anthropic" {
 		return "Anthropic account"
 	}
+	if g.Provider == "openai" {
+		return "OpenAI account"
+	}
 	return g.Provider + " account"
 }
 
@@ -1357,6 +1360,9 @@ func (m model) deskRosterBlock(w int) string {
 	if len(ds) == 0 || m.compact {
 		return "" // the zero-guest byte-identical invariant: no guests, no desk chrome
 	}
+	if strings.TrimSpace(m.agentIn.Value()) != "" {
+		return "" // authored input owns the vertical budget; decorative landing chrome yields
+	}
 	if len(m.agentLines) != m.agentLandingLines || m.agentBusy || (m.agent != nil && m.agent.running.Load()) {
 		return "" // any line beyond the entry chrome = the conversation started
 	}
@@ -1382,6 +1388,14 @@ func (m model) deskRosterView(w, cursor int, focused bool) string {
 	}
 	var b strings.Builder
 	b.WriteString("\n" + truncVisible("  "+stSelBar.Render("▌")+" "+stBrand.Render("THE DESK")+"    "+stDim.Render(sub), w) + "\n")
+	if !focused {
+		// The ask surface only needs a quiet availability cue. The detailed roster and
+		// brand marquee remain in the focused desk and /operator picker, where they are
+		// actionable instead of competing with the composer.
+		b.WriteString(truncVisible("    "+stDim.Render(plural(len(ds), "guest")+" ready  ·  ")+
+			stKey.Render("/operator")+stDim.Render(" opens the handoff desk"), w) + "\n")
+		return b.String()
+	}
 	// The operator's plate as a marquee, in its ONE canonical hue. Focused: the cursor drives
 	// which operator's plate shows. NOT focused (refinement 2, amends R2 / §6): the static
 	// preview anchors on the resident DJ's house plate (cursor 0 = djBrandArt) - guest plates

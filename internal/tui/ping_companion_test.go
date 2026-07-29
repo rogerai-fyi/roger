@@ -274,6 +274,18 @@ func TestCornerPingNoColorNarrowSafe(t *testing.T) {
 	}
 }
 
+func TestCornerPingUsesDepthPlanes(t *testing.T) {
+	top := tintEyeLineDepth("(( • ))", "•", 0)
+	mid := tintEyeLineDepth(" │ R │ ", "•", 1)
+	base := tintEyeLineDepth(" ╰───╯ ", "•", 2)
+	if top == mid || mid == base || top == base {
+		t.Fatalf("full-size Ping should use distinct highlight/body/shadow planes")
+	}
+	if !strings.Contains(top, stPingEye.Render("•")) {
+		t.Fatalf("depth shading must preserve Ping's red eye: %q", top)
+	}
+}
+
 // TestOfflineBandMarked: a band with no station on air reads "offline" in the on-air
 // column (not a bare "-"), so it is obvious you cannot connect until a station is up.
 func TestOfflineBandMarked(t *testing.T) {
