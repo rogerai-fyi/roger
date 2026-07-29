@@ -12,8 +12,9 @@
 # guests = a transcript note, never a one-row picker); rows are detected guests plus AT
 # MOST ONE dim not-installed suggestion at the bottom that the cursor SKIPS;
 # installed-but-not-configured rows are selectable but print a setup note instead of
-# execing (reserved in v1 for the future claude row — every MVP guest is config-generated,
-# so none of the three can be "not configured"); the DJ row keeps the current session.
+# execing (no guest sets NeedsSetup today - the three wired ones are config-generated and
+# claude, a live guest since v5.4.4, needs no configuring at all - but the gate stays for a
+# future guest that needs a key of its own); the DJ row keeps the current session.
 #
 # Phase boundary: THIS file specs command dispatch + picker state. What happens after a
 # valid pick (preconditions, staging, exec) is handoff_lifecycle.feature. THE DESK roster
