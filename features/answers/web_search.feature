@@ -76,6 +76,28 @@ Feature: web_search - the retrieval tool that finds sources
       Then the result is clipped to maxToolOutput and marked truncated
       # Same clip() contract as every other builtin.
 
+  Rule: provider text is cleaned before the model sees it
+
+    Scenario: markup in a snippet is stripped
+      Given the provider returns a snippet marked up with "<strong>" around the match
+      When the model calls web_search
+      Then the snippet reaches the model as plain text
+      And no markup tags survive
+      # Brave wraps query-term matches in <strong>. Passing that through spends the model's
+      # context on markup and hands an agent tag-shaped text it has no reason to trust.
+
+    Scenario: escaped markup cannot re-form into tags after decoding
+      Given the provider returns a snippet containing "&lt;strong&gt;"
+      When the model calls web_search
+      Then no markup tags survive
+      # Stripping runs before decoding, so a snippet that ESCAPES its markup would
+      # otherwise decode into tag-shaped text after the stripper had already gone past.
+
+    Scenario: escaped entities are decoded
+      Given the provider returns a title containing "&amp;" and "&#39;"
+      When the model calls web_search
+      Then the title reaches the model with those characters decoded
+
   Rule: provider failures surface to the model as recoverable results, never crash the loop
 
     Scenario Outline: provider errors become tool results the model can react to
