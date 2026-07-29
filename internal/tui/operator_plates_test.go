@@ -41,8 +41,9 @@ func plateGuest(t *testing.T, name string) operator.Guest {
 	return operator.Guest{}
 }
 
-// dormantGuest wraps a dormant BrandArts() draft (claude/codex) in a Guest so the
-// render seam can be exercised without a registry row.
+// dormantGuest wraps a BrandArts() plate in a Guest so the render seam can be exercised
+// without a registry row. codex is the only plate that still needs it (it has no registry
+// entry); claude is a LIVE guest and is fixtured from the registry via plateGuest.
 func dormantGuest(t *testing.T, name string) operator.Guest {
 	t.Helper()
 	art := operator.BrandArts()[name]
@@ -151,7 +152,7 @@ func TestPlateClaudeCodexPlates(t *testing.T) {
 	colorOn(t, true)
 	clay := lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#B85F41", Dark: "#D97757"})
 	clayB := clay.Bold(true)
-	claude := operatorBrandBlock(dormantGuest(t, "claude"), 120)
+	claude := operatorBrandBlock(plateGuest(t, "claude"), 120)
 	if got, want := plainLines(claude), []string{
 		"   ▐▛███▜▌   Claude Code",
 		"  ▝▜█████▛▘  anthropic",
@@ -220,7 +221,7 @@ func TestPlateASCIILockups(t *testing.T) {
 			"  \\__,_|_\\__,_\\___|_|",
 			"  ai pair programming in your terminal",
 		}},
-		{dormantGuest(t, "claude"), []string{"  * Claude Code"}},
+		{plateGuest(t, "claude"), []string{"  * Claude Code"}},
 		{dormantGuest(t, "codex"), []string{"  >_ codex . openai"}},
 	}
 	for _, tc := range cases {
@@ -259,8 +260,8 @@ func TestPlateNarrowSwap(t *testing.T) {
 	}{
 		{plateGuest(t, "opencode"), 44, "█▀▀█", "opencode _"},
 		{plateGuest(t, "hermes"), 53, "██╗", "H E R M E S · nous research"},
-		{plateGuest(t, "aider"), 38, "__ _(_)__", "aider"},          // the tagline (36) governs the swap, not the wordmark
-		{dormantGuest(t, "claude"), 24, "▐▛███▜▌", "* Claude Code"}, // 2 + the 22-cell row 1
+		{plateGuest(t, "aider"), 38, "__ _(_)__", "aider"},        // the tagline (36) governs the swap, not the wordmark
+		{plateGuest(t, "claude"), 24, "▐▛███▜▌", "* Claude Code"}, // 2 + the 22-cell row 1
 		// codex's full lockup (19 cells with indent) is itself clamped at width 16,
 		// so the probe is the un-cropped head of the lockup.
 		{dormantGuest(t, "codex"), 17, "▀█▄", ">_ codex"},
