@@ -232,9 +232,10 @@ func TestBrandAiderInks(t *testing.T) {
 	}
 }
 
-// TestBrandClaudeLockupSpans pins §4a: mascot rows in #D97757 (#B85F41 light),
-// row 3 = art cols 0-8 + bold wordmark cols 12-17, and the §4c `* claude` lockup
-// (the ✻ spark pre-folded to * per the house asciiFold idiom).
+// TestBrandClaudeLockupSpans pins §4a: the mascot in #D97757 (#B85F41 light) across all
+// three shipped rows, the "Claude Code" wordmark bold beside row 1 (cols 11-22), the dim
+// "anthropic" byline beside row 2 (cols 11-20), and the §4c `* Claude Code` lockup (the
+// ✳ spark pre-folded to * per the house asciiFold idiom).
 func TestBrandClaudeLockupSpans(t *testing.T) {
 	art := BrandArts()["claude"]
 	if len(art.Rows) != 3 {
