@@ -212,8 +212,15 @@ func renderResults(rs []searchResult) string {
 // title or snippet would forge an extra "[n] Title / URL" pair that the citation reader
 // would then bind to somebody else's URL.
 func flatten(s string) string {
-	return strings.Join(strings.Fields(html.UnescapeString(stripTags(s))), " ")
+	// Strip, then decode, then NEUTRALIZE what decoding may have re-formed: a snippet
+	// carrying &lt;strong&gt; would otherwise decode into literal tag-shaped text after the
+	// stripper had already run. Decoding first instead would eat legitimate prose ("a < b"),
+	// so the angle brackets are blanked rather than the order reversed.
+	return strings.Join(strings.Fields(angleBrackets.Replace(html.UnescapeString(stripTags(s)))), " ")
 }
+
+// angleBrackets blanks any angle bracket surviving the strip+decode pass.
+var angleBrackets = strings.NewReplacer("<", " ", ">", " ")
 
 // stripTags removes anything between angle brackets. Provider snippets are HTML fragments,
 // not documents, so this is deliberately blunt: no parser, no partial-tag ambiguity, and an
