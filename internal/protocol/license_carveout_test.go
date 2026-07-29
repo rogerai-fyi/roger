@@ -23,7 +23,10 @@ var apacheFiles = map[string]bool{
 	"auth.go":     true,
 }
 
-const spdxApache = "// SPDX-License-Identifier: Apache-2.0"
+// spdxApache is SPLIT so this file does not contain the marker it searches for. Whole, it
+// would sit inside the scan window of its own source and make the guard flag itself the
+// moment the comment above shrank.
+const spdxApache = "// SPDX-License-Identifier: " + "Apache-2.0"
 
 func TestLicenseCarveout(t *testing.T) {
 	entries, err := os.ReadDir(".")
