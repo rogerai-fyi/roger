@@ -668,7 +668,7 @@ func (m *model) operatorRefuseSmallBand() {
 // with it any scratch config, budget change, or spend - begins only when the plate is
 // accepted with an explicit local y.
 func (m model) startOperatorHandoff(d operator.Detection, fromPicker bool) (tea.Model, tea.Cmd) {
-	// Installed-but-not-configured (reserved for the future claude row): a setup note on
+	// Installed-but-not-configured: a setup note on
 	// EVERY path to the desk - never a plate, never an exec. THE one NeedsSetup gate -
 	// it covers the picker's enter AND the /operator <name> direct-jump (iteration-1
 	// finding #5: the direct-jump used to skip the picker's copy of this check).
@@ -1290,7 +1290,7 @@ func (m model) operatorPlateView(w int) string {
 // --- THE DESK on the AGENT landing (Phase 3, design doc §3a/§3f) -------------------------
 
 // deskGuests returns the detections in DESK display order: registry order first, then
-// any non-registry detections (the future claude row) in detection order.
+// any non-registry detections in detection order.
 func deskGuests(ds []operator.Detection) []operator.Detection {
 	if len(ds) == 0 {
 		return nil

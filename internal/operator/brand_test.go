@@ -83,13 +83,15 @@ func TestBrandArtsExactBytes(t *testing.T) {
 		},
 		{
 			name: "claude",
+			// Character-exact to what `claude` 2.1.220 prints on its own welcome, captured
+			// from the real binary. The earlier draft carried a fourth "ears" row that the
+			// shipped art does not have (▗ appears nowhere in it).
 			rows: []string{
-				"  ▗   ▖",
-				" ▐▛███▜▌",
-				"▝▜█████▛▘   claude",
+				" ▐▛███▜▌   Claude Code",
+				"▝▜█████▛▘  anthropic",
 				"  ▘▘ ▝▝",
 			},
-			lockup: "* claude",
+			lockup: "* Claude Code",
 		},
 		{
 			name: "codex",
@@ -129,9 +131,9 @@ func TestBrandArtsExactBytes(t *testing.T) {
 // TestBrandArtWidths pins each plate's narrow-swap width (§7: full art renders
 // whenever termWidth >= 2 + artWidth; opencode 42, hermes 51, aider 36 (the tagline
 // is the WIDEST row, so it gates the swap - iteration-2 fix so the tagline never
-// clips), claude 18, codex 15).
+// clips), claude 22 (row 1: 8-cell mascot + gap + the "Claude Code" wordmark), codex 15).
 func TestBrandArtWidths(t *testing.T) {
-	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 36, "claude": 18, "codex": 15}
+	want := map[string]int{"opencode": 42, "hermes": 51, "aider": 36, "claude": 22, "codex": 15}
 	arts := BrandArts()
 	for name, w := range want {
 		if got := arts[name].Width; got != w {
@@ -230,22 +232,32 @@ func TestBrandAiderInks(t *testing.T) {
 	}
 }
 
-// TestBrandClaudeLockupSpans pins §4a: mascot rows in #D97757 (#B85F41 light),
-// row 3 = art cols 0-8 + bold wordmark cols 12-17, and the §4c `* claude` lockup
-// (the ✻ spark pre-folded to * per the house asciiFold idiom).
+// TestBrandClaudeLockupSpans pins §4a: the mascot in #D97757 (#B85F41 light) across all
+// three shipped rows, the "Claude Code" wordmark bold beside row 1 (cols 11-22), the dim
+// "anthropic" byline beside row 2 (cols 11-20), and the §4c `* Claude Code` lockup (the
+// ✳ spark pre-folded to * per the house asciiFold idiom).
 func TestBrandClaudeLockupSpans(t *testing.T) {
 	art := BrandArts()["claude"]
-	for _, i := range []int{0, 1, 3} {
-		if got := art.Rows[i].Ink; got != wantClay {
-			t.Fatalf("row %d ink: got %+v, want %+v", i+1, got, wantClay)
-		}
+	if len(art.Rows) != 3 {
+		t.Fatalf("claude art has %d rows, want the 3 the shipped welcome prints", len(art.Rows))
 	}
-	wantRow3 := []BrandSpan{
+	// Row 3 is the whole-row hue; rows 1-2 carry the mascot plus their text spans.
+	if got := art.Rows[2].Ink; got != wantClay {
+		t.Fatalf("row 3 ink: got %+v, want %+v", got, wantClay)
+	}
+	wantRow1 := []BrandSpan{
+		{From: 0, To: 8, Ink: wantClay},
+		{From: 11, To: 22, Ink: wantClayB}, // the wordmark, bold
+	}
+	if !reflect.DeepEqual(art.Rows[0].Spans, wantRow1) {
+		t.Fatalf("row 1 spans: got %+v, want %+v", art.Rows[0].Spans, wantRow1)
+	}
+	wantRow2 := []BrandSpan{
 		{From: 0, To: 9, Ink: wantClay},
-		{From: 12, To: 18, Ink: wantClayB},
+		{From: 11, To: 20, Ink: BrandInk{Token: InkDim}}, // the vendor byline, dim
 	}
-	if !reflect.DeepEqual(art.Rows[2].Spans, wantRow3) {
-		t.Fatalf("row 3 spans: got %+v, want %+v", art.Rows[2].Spans, wantRow3)
+	if !reflect.DeepEqual(art.Rows[1].Spans, wantRow2) {
+		t.Fatalf("row 2 spans: got %+v, want %+v", art.Rows[1].Spans, wantRow2)
 	}
 	if got := art.Lockup.Ink; got != wantClay {
 		t.Fatalf("lockup ink: got %+v, want %+v", got, wantClay)
@@ -276,10 +288,10 @@ func TestBrandCodexSpans(t *testing.T) {
 	}
 }
 
-// TestRegistryCarriesBrandArts: the three MVP guests carry their plate as registry
-// data; claude and codex stay DORMANT in BrandArts() only - the doc's shim-era
-// drafts have no Registry() row (adding one would change detection/picker behavior,
-// and this pass is data-only).
+// TestRegistryCarriesBrandArts: every launchable guest carries its plate as registry data -
+// opencode, hermes, aider and (since v5.4.4) claude. codex alone stays DORMANT in
+// BrandArts(), the last of the doc's shim-era drafts with no Registry() row, because there
+// is still no way to launch it honestly.
 func TestRegistryCarriesBrandArts(t *testing.T) {
 	arts := BrandArts()
 	byName := map[string]Guest{}
@@ -312,3 +324,41 @@ func TestRegistryCarriesBrandArts(t *testing.T) {
 // BrandGlyph seam was deleted (iteration-2 minimization), so there is no field a guest
 // could ever carry a picker glyph on, and the picker renderer has no glyph slot. The
 // identity moment lives only on the PATCHING plate - one hue, one beat, once.
+
+// TestBrandSpansWithinRows pins a cross-plate invariant the per-plate tests cannot: every
+// span must address runes that actually exist in its row. A From/To computed against the
+// wrong index base (these rows are block characters, 3 bytes each) or left behind after an
+// edit would otherwise silently mis-colour, or index past the end of, a shipped plate.
+func TestBrandSpansWithinRows(t *testing.T) {
+	for name, art := range BrandArts() {
+		if art == nil {
+			t.Fatalf("%s: nil plate", name)
+		}
+		rows := append(append([]BrandRow{}, art.Rows...), art.Lockup)
+		for i, r := range rows {
+			n := len([]rune(r.Text))
+			for j, sp := range r.Spans {
+				switch {
+				case sp.From < 0 || sp.To < 0:
+					t.Errorf("%s row %d span %d: negative bounds %+v", name, i+1, j, sp)
+				case sp.From > sp.To:
+					t.Errorf("%s row %d span %d: From %d is past To %d", name, i+1, j, sp.From, sp.To)
+				case sp.To > n:
+					t.Errorf("%s row %d span %d: To %d is past the row's %d runes (%q)",
+						name, i+1, j, sp.To, n, r.Text)
+				}
+			}
+		}
+		// The declared Width gates the narrow swap, so it must be the widest row - a Width
+		// under it would let the plate render clipped rather than swapping to the lockup.
+		widest := 0
+		for _, r := range art.Rows {
+			if n := len([]rune(r.Text)); n > widest {
+				widest = n
+			}
+		}
+		if art.Width != widest {
+			t.Errorf("%s: Width %d but the widest row is %d runes", name, art.Width, widest)
+		}
+	}
+}

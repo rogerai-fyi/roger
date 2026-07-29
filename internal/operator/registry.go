@@ -41,9 +41,10 @@ type Guest struct {
 	// (or unparsable) degrades the detection to UNVERIFIED - never hidden (§8 version skew).
 	KnownGood string
 	Strategy  string // one of the Strategy* constants
-	// NeedsSetup marks a guest that is detectable but not launchable without user setup
-	// (reserved for the future claude row - picking it prints SetupNote instead of execing).
-	// Every MVP guest is config-generated, so none of the three sets it.
+	// NeedsSetup marks a guest that is detectable but not launchable without user setup:
+	// picking it prints SetupNote instead of execing. No guest sets it today - the three
+	// wired ones are config-generated and claude needs no configuring at all - but the gate
+	// stays, because a future guest that needs a key of its own must not silently launch.
 	NeedsSetup bool
 	SetupNote  string
 
