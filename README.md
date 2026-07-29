@@ -112,6 +112,11 @@ go test ./...
 
 ## License
 
-[PolyForm Perimeter 1.0.0](LICENSE) - source-available, free for any non-competing use. You can
-self-host your own broker for your own community; you can't run it as a competing commercial
-marketplace service. See the LICENSE for the exact grant.
+Two licenses, side by side ([LICENSING.md](LICENSING.md) has the exact file list):
+
+- **The node-agent protocol and the usage-receipt SDK are [Apache-2.0](LICENSE-APACHE-2.0).**
+  Anyone can implement a compatible node, or verify what they were charged, without asking.
+  An interoperability surface only counts as open if it is actually open.
+- **Everything else is [PolyForm Perimeter 1.0.0](LICENSE)** - source-available, free for any
+  non-competing use. You can self-host your own broker for your own community; you can't run
+  it as a competing commercial marketplace service. See the LICENSE for the exact grant.

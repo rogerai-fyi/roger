@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 RogerAI
+//
+// This file is part of the RogerAI node-agent protocol + usage-receipt SDK, released
+// under the Apache License 2.0 so anyone can implement a compatible node or verify a
+// receipt independently. The rest of the RogerAI platform is licensed separately (see
+// LICENSING.md). Do not add platform logic to this file.
+
 // Package protocol holds the shared types for RogerAI P0: model offers, node
 // registration, and the hash-chained, co-signed UsageReceipt that is the basis
 // of the "model-lineage guarantee" - every served request produces a receipt
