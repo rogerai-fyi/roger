@@ -14,8 +14,9 @@
 #
 # Grounding: heading style stSelBar ▌ + stBrand (agent.go:1086); resident ◉ in the house
 # red like the connected band row (tui.go:5758-5760); rows follow operator.Registry()
-# order; the needs-a-key status is the Guest.NeedsSetup seam (registry.go, reserved for
-# the future claude row); the single not-installed suggestion mirrors buildOperatorRows
+# order; the needs-a-key status is the Guest.NeedsSetup seam (registry.go - no guest sets
+# it today, but it gates any future guest that needs a key of its own); the single
+# not-installed suggestion mirrors buildOperatorRows
 # (operator.go:153 — at most ONE, only while the desk is sparse).
 #
 # Phase boundary: the desk STRIP (heading line 2) + the windowshade count are
