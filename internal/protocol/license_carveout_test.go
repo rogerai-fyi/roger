@@ -33,7 +33,7 @@ func TestLicenseCarveout(t *testing.T) {
 	seen := map[string]bool{}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if e.IsDir() || !strings.HasSuffix(name, ".go") {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Clean(name))
@@ -45,6 +45,16 @@ func TestLicenseCarveout(t *testing.T) {
 			head = head[:600]
 		}
 		carved := strings.Contains(head, spdxApache)
+		if strings.HasSuffix(name, "_test.go") {
+			// Tests are never part of the published surface. A header here would claim a
+			// grant over code nobody receives, so it is always wrong - and skipping test
+			// files outright would have let one sit unnoticed.
+			if carved {
+				t.Errorf("%s is a test file carrying an Apache-2.0 header - tests are not part "+
+					"of the carve-out", name)
+			}
+			continue
+		}
 		seen[name] = true
 
 		switch {
