@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<!-- Broadcast 009: capacity-aware model routing. The animated plate is explicitly a
+     simulation, grounded in router.go + tunnel.go. No live/fabricated market data. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Ten stations. One model. No single point of waiting." desc="How RogerAI routes requests across many independent stations serving the same open model: hard eligibility filters, reliability, request-aware speed, capacity-normalized load, exploration, and power-of-two choices." theme=external og=post ogtype=article ogtitle="Ten stations. One model. No single point of waiting." ogdesc="Inside RogerAI's capacity-aware router: why the strongest healthy stations win without becoming traffic magnets, and where the next request goes when one fills up." ogurl="https://rogerai.fyi/broadcasts-how-rogerai-routes-models.html" ogimage="https://rogerai.fyi/assets/broadcasts/router-airwaves-hero.png" -->
+</head>
+<body>
+
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Field Guide</span>
+    <span class="rail__rev"><!-- include: orange3d.html id=rail --> Rev. 2026.07 &middot; ((&bull;))</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+  <article class="bc-post route-post">
+    <div class="wrap bc-post__wrap">
+
+      <a class="bc-post__back mono" href="/broadcasts.html">&larr; all broadcasts</a>
+
+      <header class="bc-post__head" data-reveal>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">BROADCAST 009 &middot; FIELD GUIDE</span>
+          <span class="hero__sep" aria-hidden="true">&middot;</span>
+          <time datetime="2026-07-28">JULY 2026</time>
+        </span>
+        <h1 class="bc-post__title">Ten stations. One model. No single point of waiting.</h1>
+        <p class="bc-post__dek">
+          If ten people put DeepSeek or Qwen3.6 on the air, which GPU gets your prompt?
+          The answer is not “the fastest one, forever.” It is a small, measured decision
+          made again for every request.
+        </p>
+      </header>
+
+      <figure class="bc-figure route-hero" data-reveal>
+        <img src="assets/broadcasts/router-airwaves-hero.png" width="1700" height="925"
+             alt="A mid-century technical illustration of ten independent radio stations connected to one central tuning console, with two selected routes shown in red." />
+        <figcaption class="fig mono">FIG. 1 &middot; MANY OPERATORS, ONE OPEN FREQUENCY</figcaption>
+      </figure>
+
+      <blockquote class="route-answer mono" data-reveal>
+        <b>Quick answer.</b> RogerAI first removes stations that cannot satisfy the request.
+        It then scores the healthy remainder by reliability, request-aware speed, price,
+        live load, and measured capacity. From the reliable top band it compares two
+        candidates and sends the request to the less-loaded one. When that station fills,
+        its score falls automatically, so the next request moves elsewhere.
+      </blockquote>
+
+      <div class="bc-post__body">
+        <p class="bc-post__lead" data-reveal>
+          A model name is a frequency. A station is one operator actually serving it.
+          Ten stations can all carry <code>deepseek-v4-flash</code>; to your app they are
+          one OpenAI-compatible endpoint. The interesting work happens between those two facts.
+        </p>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;1 &middot; Watch the dial</span>
+          <h2>What happens when requests arrive together?</h2>
+          <p>
+            This plate is a deterministic illustration, not live market data. All ten stations
+            serve the same model. Their signal combines recent serving proof, success, speed,
+            latency, trust, and congestion. Press “next request” to walk the load across the band.
+          </p>
+
+          <div class="route-sim" id="routeSim" data-step="0">
+            <div class="route-sim__head">
+              <div>
+                <span class="route-sim__kicker mono">SIMULATION &middot; DEEPSEEK-V4-FLASH</span>
+                <h3>One frequency, ten stations.</h3>
+              </div>
+              <button class="route-sim__next mono" id="routeNext" type="button">
+                next request <span aria-hidden="true">&rarr;</span>
+              </button>
+            </div>
+
+            <div class="route-sim__stage" role="img" aria-labelledby="routeSimTitle routeSimDesc">
+              <span id="routeSimTitle" class="sr-only">Capacity-aware routing simulation</span>
+              <span id="routeSimDesc" class="sr-only">Ten stations serving one model. Requests move among healthy stations as their normalized load changes.</span>
+              <svg class="route-lines" viewBox="0 0 1000 510" aria-hidden="true">
+                <path class="route-line" data-route="0" d="M500 420 C445 350 160 342 130 110"/>
+                <path class="route-line" data-route="1" d="M500 420 C470 330 330 275 315 75"/>
+                <path class="route-line" data-route="2" d="M500 420 C495 320 482 255 500 58"/>
+                <path class="route-line" data-route="3" d="M500 420 C530 330 648 270 685 82"/>
+                <path class="route-line" data-route="4" d="M500 420 C570 350 845 338 875 110"/>
+                <path class="route-line" data-route="5" d="M500 420 C405 390 115 420 95 280"/>
+                <path class="route-line" data-route="6" d="M500 420 C455 390 330 415 300 300"/>
+                <path class="route-line" data-route="7" d="M500 420 C535 390 650 410 700 300"/>
+                <path class="route-line" data-route="8" d="M500 420 C600 390 880 420 905 280"/>
+                <path class="route-line" data-route="9" d="M500 420 C500 382 500 370 500 325"/>
+              </svg>
+
+              <div class="route-router">
+                <span class="route-router__eye" aria-hidden="true">&bull;</span>
+                <b class="mono">ROUTER</b>
+                <span class="mono">request <i id="routeRequest">01</i></span>
+              </div>
+
+              <ol class="route-stations">
+                <li class="route-station" data-station="0"><b>A1</b><span>92</span><small>0 / 2</small></li>
+                <li class="route-station" data-station="1"><b>B7</b><span>89</span><small>0 / 4</small></li>
+                <li class="route-station" data-station="2"><b>C3</b><span>87</span><small>0 / 1</small></li>
+                <li class="route-station" data-station="3"><b>D9</b><span>84</span><small>0 / 2</small></li>
+                <li class="route-station" data-station="4"><b>E2</b><span>81</span><small>0 / 1</small></li>
+                <li class="route-station" data-station="5"><b>F6</b><span>77</span><small>0 / 2</small></li>
+                <li class="route-station" data-station="6"><b>G4</b><span>74</span><small>0 / 1</small></li>
+                <li class="route-station" data-station="7"><b>H8</b><span>71</span><small>0 / 4</small></li>
+                <li class="route-station" data-station="8"><b>J5</b><span>68</span><small>0 / 2</small></li>
+                <li class="route-station" data-station="9"><b>K0</b><span>63</span><small>0 / 1</small></li>
+              </ol>
+            </div>
+
+            <div class="route-sim__readout" aria-live="polite">
+              <div><span class="mono">ROUTE</span><b id="routeChoice">A1</b></div>
+              <p id="routeWhy">Strong recent evidence and open capacity.</p>
+              <div class="route-legend mono">
+                <span><i class="route-key route-key--signal"></i> signal</span>
+                <span><i class="route-key route-key--load"></i> inflight / capacity</span>
+                <span><i class="route-key route-key--route"></i> selected route</span>
+              </div>
+            </div>
+          </div>
+
+          <figure class="bc-figure route-process" data-reveal>
+            <div class="route-process__image">
+              <img src="assets/broadcasts/router-three-stage.png" width="1820" height="864"
+                   alt="Three technical illustrations show ten stations entering consideration, one healthy station receiving the first request, and a second station receiving concurrent work when the first station is occupied." />
+              <i class="route-process__sweep" aria-hidden="true"></i>
+            </div>
+            <div class="route-process__steps mono" aria-hidden="true">
+              <span><b>01</b> discover + filter</span>
+              <span><b>02</b> rank + select</span>
+              <span><b>03</b> spill by capacity</span>
+            </div>
+            <figcaption class="fig mono">FIG. 2 &middot; THE ROUTE IS RECOMPUTED FOR EVERY REQUEST</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;2 &middot; The gate</span>
+          <h2>Does every station enter the race?</h2>
+          <p>
+            No. Scoring starts only after hard constraints. The model and modality must match.
+            The station must be heartbeat-fresh, not banned, within your input/output price caps,
+            above any minimum-speed requirement, and inside a private-band or grant allow-list
+            when one applies. Confidential requests stay on confidential-capable stations.
+          </p>
+          <div class="route-gates mono" aria-label="Router eligibility gates">
+            <span>MODEL</span><i>&rarr;</i><span>MODALITY</span><i>&rarr;</i><span>PRICE</span>
+            <i>&rarr;</i><span>HEALTH</span><i>&rarr;</i><span>ACCESS</span>
+          </div>
+          <p>
+            A station with a sustained failed-canary streak is removed from routing entirely.
+            One successful probe resets that streak and puts it back in contention. Availability
+            is dynamic; a machine is not branded “bad” forever because it rebooted once.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;3 &middot; The score</span>
+          <h2>What does “best signal” actually mean?</h2>
+          <p>
+            The public signal is a readable summary. Selection uses a request-local score:
+          </p>
+          <div class="route-formula mono">
+            <span>score</span>
+            <b>=</b>
+            <span class="route-formula__group">UCB( reliability &times; speed fit &times; price modifier )</span>
+            <b>&times;</b>
+            <span>load factor</span>
+          </div>
+          <dl class="route-terms">
+            <div><dt>Reliability</dt><dd>Recent canary proof, organic success, and trust multiply. A cheap or fast station cannot buy back repeated failure.</dd></div>
+            <div><dt>Speed fit</dt><dd>Throughput saturates once it is fast enough. Prompt size is folded into effective time-to-first-token, so long prompts avoid weak prefill hardware.</dd></div>
+            <div><dt>Price</dt><dd>A bounded preference inside your allowed range. Free is neutral—not an infinite advantage that lets a flaky station win.</dd></div>
+            <div><dt>Load</dt><dd><code>1 / (1 + inflight / capacity)</code>. A four-slot rig absorbs more work before congestion lowers its score than a one-slot laptop.</dd></div>
+            <div><dt>Exploration</dt><dd>A small, self-extinguishing lift lets newly verified capacity earn real evidence instead of starving behind incumbents forever.</dd></div>
+          </dl>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;4 &middot; The choice</span>
+          <h2>Why not always pick the number-one station?</h2>
+          <p>
+            Because the number-one station would become a magnet. RogerAI builds a reliable top
+            band—candidates close enough to the best score—then samples two, weighted toward
+            merit, and picks the one with lower normalized load. This is the
+            <b>power-of-two-choices</b> result: two tiny comparisons avoid a global queue.
+          </p>
+          <p>
+            Suppose A1 and B7 are the strongest stations. User one may land on A1. Its inflight
+            count rises immediately, reducing its load factor. User two can land on B7 before A1
+            is “down.” When A1 reaches capacity, it naturally falls behind other healthy stations.
+            The route bends; the API does not.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;5 &middot; Failure</span>
+          <h2>What if the chosen station fails mid-request?</h2>
+          <p>
+            The client re-discovers and ranks an alternative that still satisfies every original
+            constraint: exact model, confidentiality, minimum speed, price ceilings, access rules.
+            It does not silently downgrade the model or cross a privacy boundary. Failed work
+            releases its credit hold; completed work is settled against signed token lineage.
+          </p>
+          <p>
+            This is also why routing is not DNS round-robin. RogerAI knows the request, the offer,
+            the current load, the measured serving evidence, and the price lock. The next station
+            is compatible by construction.
+          </p>
+          <figure class="bc-figure route-process route-process--failover" data-reveal>
+            <div class="route-process__image">
+              <img src="assets/broadcasts/router-exact-failover.png" width="1870" height="841"
+                   alt="A radio routing console encounters an interrupted station and reroutes the same waveform to a healthy replacement without changing frequency." />
+              <i class="route-process__carrier" aria-hidden="true"></i>
+            </div>
+            <div class="route-process__steps route-process__steps--failover mono" aria-hidden="true">
+              <span><b>01</b> attempt interrupted</span>
+              <span><b>02</b> constraints preserved</span>
+              <span><b>03</b> same model, new station</span>
+            </div>
+            <figcaption class="fig mono">FIG. 3 &middot; THE STATION CHANGES; THE REQUEST CONTRACT DOES NOT</figcaption>
+          </figure>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;6 &middot; The network effect</span>
+          <h2>What changes when a model gains ten operators?</h2>
+          <p>
+            Supply becomes graceful. One home rig can sleep, another can fill, a new one can prove
+            itself, and a larger one can carry long prompts. Users still ask for one model name.
+            Operators remain independent. The model becomes more available without becoming owned
+            by one data center.
+          </p>
+          <p>
+            That is the point of the radio metaphor: a band is valuable because many stations can
+            carry it. Signal decides who should answer now; open compatibility means someone else
+            can answer next.
+          </p>
+        </section>
+
+        <section class="bc-sec" data-reveal>
+          <span class="bc-sec__no">&sect;7 &middot; FAQ</span>
+          <h2>Frequently asked questions</h2>
+          <dl class="bc-faq">
+            <dt><b>Does RogerAI always choose the station with the highest signal?</b></dt>
+            <dd>No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band.</dd>
+            <dt><b>What happens when the strongest station is full?</b></dt>
+            <dd>Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints.</dd>
+            <dt><b>Can a small home GPU ever receive traffic?</b></dt>
+            <dd>Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence.</dd>
+            <dt><b>Can a cheaper station beat a more reliable one?</b></dt>
+            <dd>Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap.</dd>
+            <dt><b>Does failover silently change my model?</b></dt>
+            <dd>No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries.</dd>
+          </dl>
+        </section>
+
+        <div class="man-note man-note--live">
+          <span class="man-note__tag">roger that</span>
+          Put another station on the band, or tune your app into the network:
+          <code>roger share &lt;model&gt;</code> &middot; <code>roger use &lt;model&gt;</code>
+        </div>
+      </div>
+    </div>
+  </article>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"FAQPage","mainEntity":[{"@type":"Question","name":"Does RogerAI always choose the station with the highest signal?","acceptedAnswer":{"@type":"Answer","text":"No. Signal is a public summary. The router first applies hard request constraints, scores healthy candidates with request-aware speed, reliability, price, capacity, and load, then uses power-of-two choices inside a reliable top band."}},{"@type":"Question","name":"What happens when the strongest station is full?","acceptedAnswer":{"@type":"Answer","text":"Its capacity-normalized load rises and its routing score falls. A concurrent request is directed to another healthy station that still satisfies the same model, price, speed, privacy, and access constraints."}},{"@type":"Question","name":"Can a small home GPU ever receive traffic?","acceptedAnswer":{"@type":"Answer","text":"Yes. Capacity normalization prevents a laptop from being judged like a four-GPU rig, while canary-gated exploration gives newly verified stations a chance to build real serving evidence."}},{"@type":"Question","name":"Can a cheaper station beat a more reliable one?","acceptedAnswer":{"@type":"Answer","text":"Price is only a bounded modifier inside the user's allowed range. Reliability is multiplicative, so repeated failure cannot be erased by being free or unusually cheap."}},{"@type":"Question","name":"Does failover silently change my model?","acceptedAnswer":{"@type":"Answer","text":"No. Failover re-selects an alternative that satisfies the original routing constraints and exact requested model. It never silently crosses confidentiality, price, or minimum-speed boundaries."}}]}</script>
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+  <script src="js/routing-demo.js" defer></script>
+</body>
+</html>
