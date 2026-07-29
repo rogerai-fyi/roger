@@ -52,6 +52,7 @@ func (s *opBDD) rosterLines() []string {
 func (s *opBDD) rosterRowFor(name string) (string, error) {
 	for _, ln := range s.rosterLines() {
 		t := strings.TrimSpace(ln)
+		t = strings.TrimPrefix(t, "▸ ")
 		t = strings.TrimPrefix(t, glyphOnAir+" ") // the DJ row leads with the on-air mark
 		if strings.HasPrefix(t, name+" ") || t == name {
 			return ln, nil
@@ -521,6 +522,28 @@ func (s *opBDD) staticPreviewShowsDJPlate() error {
 	return nil
 }
 
+func (s *opBDD) detailedDeskFocused() error {
+	s.mutate(func(m *model) {
+		m.deskFocused = true
+		m.deskCursor = 0
+	})
+	return nil
+}
+
+func (s *opBDD) staticPreviewAtMostTwoRows() error {
+	if rows := len(s.rosterLines()); rows > 2 {
+		return fmt.Errorf("static preview has %d non-empty rows, want at most 2:\n%s", rows, s.roster())
+	}
+	return nil
+}
+
+func (s *opBDD) staticPreviewHidesDJPlate() error {
+	if strings.Contains(s.roster(), "the house agent") {
+		return fmt.Errorf("static preview still renders the resident DJ house plate:\n%s", s.roster())
+	}
+	return nil
+}
+
 // agentFooterShows / agentFooterOmits pin refinement 3's footer copy. s.view() is the full
 // rendered screen including the modal footer / status line.
 func (s *opBDD) agentFooterShows(text string) error {
@@ -532,15 +555,6 @@ func (s *opBDD) agentFooterShows(text string) error {
 func (s *opBDD) agentFooterOmits(text string) error {
 	if strings.Contains(s.view(), text) {
 		return fmt.Errorf("the AGENT footer unexpectedly shows %q:\n%s", text, s.view())
-	}
-	return nil
-}
-
-// agentIdleHelpShows pins the in-body idle help copy (the one-line command hint under the
-// ask prompt, in agentView).
-func (s *opBDD) agentIdleHelpShows(text string) error {
-	if !strings.Contains(s.agentViewText(), text) {
-		return fmt.Errorf("the in-body idle help lacks %q:\n%s", text, s.agentViewText())
 	}
 	return nil
 }
@@ -1243,9 +1257,11 @@ func initializePhase3Steps(st *opBDD, sc *godog.ScenarioContext) {
 	sc.Step(`^the ask prompt echoes "([^"]*)"$`, st.askPromptEchoes)
 	sc.Step(`^the AGENT landing renders THE DESK roster$`, st.landingRendersRoster)
 	sc.Step(`^the static preview shows the resident DJ house plate$`, st.staticPreviewShowsDJPlate)
+	sc.Step(`^the detailed desk is focused$`, st.detailedDeskFocused)
+	sc.Step(`^the static preview is at most two non-empty rows$`, st.staticPreviewAtMostTwoRows)
+	sc.Step(`^the static preview does not show the resident DJ house plate$`, st.staticPreviewHidesDJPlate)
 	sc.Step(`^the AGENT footer shows "([^"]*)"$`, st.agentFooterShows)
 	sc.Step(`^the AGENT footer does not show "([^"]*)"$`, st.agentFooterOmits)
-	sc.Step(`^the in-body idle help shows "([^"]*)"$`, st.agentIdleHelpShows)
 	sc.Step(`^the roster heading reads "([^"]*)"$`, st.rosterHeadingReads)
 	sc.Step(`^the roster heading subtitle reads "([^"]*)"$`, st.rosterSubtitleReads)
 	sc.Step(`^the roster heading subtitle does not name a model$`, st.rosterSubtitleNamesNoModel)

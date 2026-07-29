@@ -62,7 +62,7 @@ func TestAgentCtrlPCyclesPerms(t *testing.T) {
 func TestAgentIdleHelpAdvertisesPermsKey(t *testing.T) {
 	m := agentSeed(t, "http://broker.local")
 	m.agentBusy = false
-	v := stripANSI(m.agentView(120))
+	v := stripANSI(m.footer(120))
 	if !strings.Contains(v, "⌃p") {
 		t.Errorf("idle help should advertise the ⌃p perms key, got:\n%s", v)
 	}

@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/rogerai-fyi/roger/internal/harness"
 	"github.com/rogerai-fyi/roger/internal/protocol"
 )
@@ -87,6 +88,9 @@ func TestAgentConfirmGate(t *testing.T) {
 	if !strings.Contains(out, "run_shell") || !strings.Contains(out, "rm -rf /") || !strings.Contains(out, "[y/N]") {
 		t.Errorf("confirm gate should show the tool + the command + y/N:\n%s", out)
 	}
+	if !strings.Contains(out, "● APPROVAL REQUIRED") || !strings.Contains(out, "deny=default") {
+		t.Errorf("confirm gate should carry an unmistakable approval lamp and safe default:\n%s", out)
+	}
 	if !strings.Contains(strings.ToLower(out), "not sandboxed") {
 		t.Errorf("run_shell confirm must say it is NOT sandboxed:\n%s", out)
 	}
@@ -100,8 +104,169 @@ func TestAgentConfirmGate(t *testing.T) {
 	}
 }
 
-// TestAgentEventRendering: streamed loop events render the tool call + result lines
-// with the shared iconography and the final answer.
+func TestAgentPromptWrapPreservesEveryCharacter(t *testing.T) {
+	m := browseSeed(80)
+	m.agentIn.SetValue(strings.Repeat("abcdefghij", 12))
+	lines := m.agentPromptLines(80)
+	if len(lines) < 2 {
+		t.Fatalf("120-column prompt should wrap at width 80, got %d line(s): %q", len(lines), lines)
+	}
+	var rebuilt strings.Builder
+	for i, line := range lines {
+		plain := stripANSI(line)
+		if i == 0 {
+			plain = strings.TrimPrefix(plain, "  ▌ ask › ")
+		} else {
+			plain = strings.TrimPrefix(plain, "          ")
+		}
+		rebuilt.WriteString(strings.TrimRight(plain, " "))
+	}
+	if got, want := rebuilt.String(), m.agentIn.Value(); got != want {
+		t.Fatalf("wrapped prompt lost or changed characters:\n got %q\nwant %q", got, want)
+	}
+	for _, line := range lines {
+		if got := utf8.RuneCountInString(stripANSI(line)); got > 80 {
+			t.Errorf("wrapped prompt line is %d columns wide, want <= 80: %q", got, stripANSI(line))
+		}
+	}
+}
+
+func TestAgentPromptPlaceholderReflectsLastTurnOutcome(t *testing.T) {
+	tests := []struct {
+		name  string
+		event agentEventMsg
+		want  string
+	}{
+		{"file change", agentEventMsg{Kind: harness.EventToolResult, Tool: "write_file", Result: "ok"}, "run the tests"},
+		{"tool failure", agentEventMsg{Kind: harness.EventToolResult, Tool: "run_shell", Result: "exit 1", IsError: true}, "fix the error"},
+		{"turn failure", agentEventMsg{Kind: harness.EventError, Text: "station failed"}, "retry"},
+		{"agent question", agentEventMsg{Kind: harness.EventFinal, Text: "Which target should I use?"}, "answer the agent's question"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := browseSeed(100)
+			m.agent = m.newAgentRuntime()
+			out, _ := m.onAgentEvent(tt.event)
+			got := asModel(out).agentPromptPlaceholder()
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("placeholder = %q, want it to contain %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentPromptPlaceholderReactsToToolResult(t *testing.T) {
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(keyMsg("0"))
+	m := asModel(am)
+	if got := m.agentPromptPlaceholder(); got != "ask the agent to do something" {
+		t.Fatalf("idle placeholder = %q", got)
+	}
+	am, _ = m.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "ok"})
+	if got := asModel(am).agentPromptPlaceholder(); got != "continue with the next step" {
+		t.Fatalf("post-tool placeholder = %q", got)
+	}
+}
+
+func TestAgentPromptSeamAlwaysSeparatesTranscript(t *testing.T) {
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(keyMsg("0"))
+	out := stripANSI(asModel(am).agentView(100))
+	if !strings.Contains(out, "── ask ") {
+		t.Fatalf("non-empty transcript should always have a prompt seam:\n%s", out)
+	}
+}
+
+func TestAgentAnswerBlockRendersCodingStructure(t *testing.T) {
+	got := strings.Join(agentAnswerBlock("**Edited 2 files**\n\n- `agent.go` prompt rendering\n```diff\n-old\n+new\n@@ seam @@\n```"), "\n")
+	plain := stripANSI(got)
+	for _, want := range []string{"Edited 2 files", "• agent.go prompt rendering", "DIFF", "-old", "+new", "@@ seam @@"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("coding answer missing %q:\n%s", want, plain)
+		}
+	}
+	for _, raw := range []string{"**", "```"} {
+		if strings.Contains(plain, raw) {
+			t.Errorf("coding answer leaked raw markdown %q:\n%s", raw, plain)
+		}
+	}
+	if !strings.Contains(got, lampStyle(roleSignal).Render("+new")) {
+		t.Errorf("diff addition should use the signal/green semantic role: %q", got)
+	}
+	if !strings.Contains(got, lampStyle(roleLive).Render("-old")) {
+		t.Errorf("diff removal should use the live/red semantic role: %q", got)
+	}
+}
+
+func TestAgentAnswerBlockInfersUnlabeledDiffFence(t *testing.T) {
+	got := strings.Join(agentAnswerBlock("```\ndiff --git a/a.go b/a.go\n-old\n+new\n@@ -1 +1 @@\n```"), "\n")
+	plain := stripANSI(got)
+	if !strings.Contains(plain, "DIFF") {
+		t.Fatalf("unlabeled diff fence should be identified as DIFF:\n%s", plain)
+	}
+	for _, want := range []string{"-old", "+new", "@@ -1 +1 @@"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("inferred diff lost %q:\n%s", want, plain)
+		}
+	}
+}
+
+func TestAgentNativeMultilinePastePreservesNewlines(t *testing.T) {
+	var am tea.Model = browseSeed(80)
+	am, _ = am.Update(keyMsg("0"))
+	pasted := "printf 'one\\n'\nprintf 'two\\n'"
+	am, _ = am.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted)})
+	if got := asModel(am).agentIn.Value(); got != pasted {
+		t.Fatalf("multiline paste was corrupted:\n got %q\nwant %q", got, pasted)
+	}
+}
+
+func TestAgentPromptWrapIsCellAwareAndLossless(t *testing.T) {
+	m := browseSeed(40)
+	value := strings.Repeat("界", 35) + "\n" + strings.Repeat("🙂", 18)
+	m.agentIn.SetValue(value)
+	m.agentIn.Focus()
+	lines := m.agentPromptLines(40)
+	if got := m.agentIn.Value(); got != value {
+		t.Fatalf("rendering changed the prompt:\n got %q\nwant %q", got, value)
+	}
+	if len(lines) < 3 {
+		t.Fatalf("wide-character prompt should wrap to multiple rows, got %d: %q", len(lines), lines)
+	}
+	for _, line := range lines {
+		if got := lipgloss.Width(line); got > 40 {
+			t.Errorf("prompt line is %d terminal cells wide, want <=40: %q", got, stripANSI(line))
+		}
+	}
+}
+
+func TestAgentCopyPreservesCanonicalMarkdown(t *testing.T) {
+	raw := "**Edited `agent.go`**\n```diff\n-old\n+new\n```\nLiteral backticks: ``code ` inside``"
+	var am tea.Model = browseSeed(100)
+	am, _ = am.Update(keyMsg("0"))
+	am, _ = am.Update(agentEventMsg{Kind: harness.EventFinal, Text: raw})
+	copied := asModel(am).agentTranscriptText()
+	if !strings.Contains(copied, raw) {
+		t.Fatalf("copied transcript changed canonical markdown:\n%s", copied)
+	}
+	rendered := stripANSI(asModel(am).agentView(100))
+	if strings.Contains(rendered, "```") {
+		t.Fatalf("visual transcript should render rather than leak fences:\n%s", rendered)
+	}
+}
+
+func TestAgentDynamicPromptRowsReduceTranscriptBudget(t *testing.T) {
+	m := browseSeed(40)
+	m.height = 20
+	m.agentIn.SetValue(strings.Repeat("wide prompt ", 30))
+	oneRow := m.agentTranscriptRows(0, 1)
+	manyRows := m.agentTranscriptRows(0, m.agentPromptRowCount(40))
+	if manyRows >= oneRow {
+		t.Fatalf("wrapped prompt must give transcript rows back: one=%d wrapped=%d", oneRow, manyRows)
+	}
+}
+
+// TestAgentEventRendering: the running tool card settles in place, then the final answer follows.
 func TestAgentEventRendering(t *testing.T) {
 	var am tea.Model = browseSeed(100)
 	am, _ = am.Update(keyMsg("0"))
@@ -109,7 +274,7 @@ func TestAgentEventRendering(t *testing.T) {
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventToolResult, Tool: "list_dir", Result: "a.go\nb.go\n"})
 	am, _ = am.Update(agentEventMsg{Kind: harness.EventFinal, Text: "there are two go files"})
 	out := stripANSI(asModel(am).View())
-	for _, want := range []string{"list_dir", "⚙", "ok", "there are two go files"} { // ⚙ = dim tool-call machinery (design overhaul inc 7; was ◉)
+	for _, want := range []string{"✓ list_dir", ".", "ok", "9 bytes", "there are two go files"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("agent transcript missing %q:\n%s", want, out)
 		}

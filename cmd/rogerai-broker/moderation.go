@@ -176,17 +176,18 @@ const verdictTokenTrimCutset = " \t.,;:!?()[]{}<>\"'`*_-"
 // unexpected separator must NOT be missed - especially a CSAM (S4) code, which must never pass.
 //
 // Coarse-then-fine, each token trimmed of surrounding punctuation:
-//   COARSE: split on WHITESPACE + comma only and add each token WHOLE, so a multi-character
-//     csamCats token like "sexual/minors" (or a configured custom one) survives intact for the
-//     CSAM check (its internal slash is not a separator here).
-//   FINE: for each coarse token, additionally split on ANY non-alphanumeric rune and add the
-//     parts, so a code joined to another by ANY separator - "S4/S5", "S1;S3", "S4.S5", "S1-S4",
-//     "S4+S5", a tab, a pipe - is still recovered and re-checked (a CSAM S4 can never hide behind
-//     an unexpected joiner).
-//   EXCEPTION: the literal whole-range token "S1-S8" (case-insensitive) - the policy's own name
-//     for the entire code set - is left un-split, so a rambling verdict that merely echoes the
-//     range is not shattered into S1..S8 and false-positive-blocked. It is not a valid single
-//     code, so leaving it whole lean-passes it.
+//
+//	COARSE: split on WHITESPACE + comma only and add each token WHOLE, so a multi-character
+//	  csamCats token like "sexual/minors" (or a configured custom one) survives intact for the
+//	  CSAM check (its internal slash is not a separator here).
+//	FINE: for each coarse token, additionally split on ANY non-alphanumeric rune and add the
+//	  parts, so a code joined to another by ANY separator - "S4/S5", "S1;S3", "S4.S5", "S1-S4",
+//	  "S4+S5", a tab, a pipe - is still recovered and re-checked (a CSAM S4 can never hide behind
+//	  an unexpected joiner).
+//	EXCEPTION: the literal whole-range token "S1-S8" (case-insensitive) - the policy's own name
+//	  for the entire code set - is left un-split, so a rambling verdict that merely echoes the
+//	  range is not shattered into S1..S8 and false-positive-blocked. It is not a valid single
+//	  code, so leaving it whole lean-passes it.
 func verdictTokens(verdict string) []string {
 	seen := map[string]bool{}
 	var out []string

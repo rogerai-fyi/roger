@@ -79,8 +79,11 @@ func TestPhase3DeskRosterOnLanding(t *testing.T) {
 				if !strings.Contains(v, "THE DESK") {
 					t.Fatalf("the landing must render THE DESK roster (Phase 3 not implemented yet):\n%s", v)
 				}
-				if !strings.Contains(v, "resident") {
-					t.Fatalf("the DJ resident row is part of the roster:\n%s", v)
+				if !strings.Contains(v, "guest ready") || !strings.Contains(v, "/operator opens the handoff desk") {
+					t.Fatalf("the tuned landing must use the compact actionable desk preview:\n%s", v)
+				}
+				if strings.Contains(v, "operator     wire") {
+					t.Fatalf("the tuned landing must reserve the detailed roster for the focused desk:\n%s", v)
 				}
 			} else if strings.Contains(v, "THE DESK") {
 				t.Fatalf("the roster must collapse off the landing state:\n%s", v)

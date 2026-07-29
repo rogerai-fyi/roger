@@ -41,7 +41,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "5.4.5"
+var Version = "5.4.6"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -103,6 +103,9 @@ type config struct {
 	// ROGERAI_AGENT_PERMS from it (flag/env win per run), and the TUI masthead
 	// names any permissive mode so a saved bypass is never invisible.
 	AgentPerms string `json:"agent_perms,omitempty"`
+	// AgentTimeoutSeconds is the optional per-model-call AGENT timeout. Zero is the
+	// default and means unlimited; a positive value enables the soft cap + grace UI.
+	AgentTimeoutSeconds int `json:"agent_timeout_seconds,omitempty"`
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -726,6 +729,7 @@ func run(argv []string, cfg config) error {
 		return err
 	}
 	applyPermsDefault(permsFlag, cfg.AgentPerms)
+	applyAgentTimeoutDefault(cfg.AgentTimeoutSeconds)
 	if len(rest) == 0 {
 		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
@@ -1934,7 +1938,8 @@ func cmdAccount(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\n", c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c))
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\nagent-timeout = %s\n",
+			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), formatAgentTimeout(c.AgentTimeoutSeconds))
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -1970,13 +1975,15 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.webuiOpenEnabled())
 			case "palette":
 				fmt.Println(paletteFromConfig(c))
+			case "agent-timeout":
+				fmt.Println(formatAgentTimeout(c.AgentTimeoutSeconds))
 			}
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -1999,6 +2006,12 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("usage: roger config set palette full|mono")
 			}
 			c.Palette = args[2]
+		case "agent-timeout":
+			seconds, err := parseAgentTimeout(args[2])
+			if err != nil {
+				return err
+			}
+			c.AgentTimeoutSeconds = seconds
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}

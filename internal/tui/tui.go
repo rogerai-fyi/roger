@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -667,7 +669,7 @@ type model struct {
 	// cmdHist is the command palette's recall buffer (prior run commands), distinct from
 	// the chat/agent histories; persists to <config>/rogerai/history-command. See history.go.
 	cmdHist *inputHistory
-	chatIn  textinput.Model
+	chatIn  textarea.Model
 	// chatHist is the CHANNEL chat input's shell-style recall buffer (Up = older sent
 	// message, Down = newer; Down past the newest restores the in-progress draft). It
 	// persists to <config>/rogerai/history-chat, distinct from the agent's history. See
@@ -847,24 +849,31 @@ type model struct {
 	// confirm sub-state (agentPendingConfirm) pauses the turn for a y/N on a mutating
 	// tool. agentCost is the running session cost. See agent.go for the wiring.
 	agent   *agentRuntime // nil until first entered; built lazily
-	agentIn textinput.Model
+	agentIn textarea.Model
 	// agentHist is the [0] AGENT prompt's shell-style recall buffer, separate from the
 	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
 	// draft). It persists to <config>/rogerai/history-agent. See history.go.
-	agentHist           *inputHistory
-	agentLines          []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
-	agentVP             viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
-	agentBusy           bool           // a turn is in flight (drives the working line)
-	agentCanceling      bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
-	agentQueued         []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
-	agentLastEvent      time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
-	agentTurnState      agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
-	agentStart          time.Time      // when the in-flight turn began (elapsed readout)
-	agentPendingConfirm *agentConfirm  // non-nil while a mutating tool awaits y/N
-	agentCost           float64        // running AGENT session cost in dollars
-	agentTokensIn       int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
-	agentTokensOut      int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
-	agentTPS            float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
+	agentHist            *inputHistory
+	agentLines           []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
+	agentVP              viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
+	agentBusy            bool           // a turn is in flight (drives the working line)
+	agentCanceling       bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
+	agentQueued          []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
+	agentLastEvent       time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
+	agentTurnState       agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
+	agentHadToolResult   bool           // the current/previous turn produced a result; drives the next-step prompt hint
+	agentNextHint        string         // outcome-derived next action shown by the idle composer
+	agentStart           time.Time      // when the in-flight turn began (elapsed readout)
+	agentPendingConfirm  *agentConfirm  // non-nil while a mutating tool awaits y/N
+	agentCost            float64        // running AGENT session cost in dollars
+	agentTokensIn        int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
+	agentTokensOut       int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
+	agentTPS             float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
+	agentActivityLine    int            // agentLines index of the currently-running compact tool card; -1 when none
+	agentActivityTarget  string         // target summary carried from call into its result card
+	agentActivityRunning bool           // distinguishes a real index 0 card from no active tool
+	agentStep            int            // current model/tool-loop iteration (1-based; 0 between untouched turns)
+	agentMaxSteps        int            // harness safety ceiling shown in the truthful session rail
 	// /model selection state. agentPicked marks that the user chose the model
 	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
@@ -1240,12 +1249,39 @@ func newBase(broker, user string, limits *LimitStore) model {
 	// prompt of its own (avoids a doubled marker). Its View() still echoes live.
 	ci.Prompt = ""
 	ci.Placeholder = "search · connect · chat · share · login · topup · grant · limits · balance · help · quit"
-	ch := textinput.New()
+	ch := textarea.New()
 	ch.Prompt = ""
 	ch.Placeholder = "type to talk  ·  /? for commands  ·  drag to copy"
-	ag := textinput.New()
+	ch.ShowLineNumbers = false
+	ch.SetPromptFunc(chatPromptLeadWidth, func(line int) string {
+		if line == 0 {
+			return chatPromptLead
+		}
+		return strings.Repeat(" ", chatPromptLeadWidth)
+	})
+	ch.FocusedStyle.Prompt = stSelBar
+	ch.BlurredStyle.Prompt = stSelBar
+	ch.MaxHeight = chatPromptMaxRows
+	// A blinking Bubbles cursor emits a message every ~530ms. Bubble Tea repaints for
+	// each message, which clears native terminal selection even when the visible frame
+	// is otherwise idle. Roger is native-select-first, so composers use a crisp steady
+	// cursor; actual key events still repaint immediately.
+	ch.Cursor.SetMode(cursor.CursorStatic)
+	ag := textarea.New()
 	ag.Prompt = ""
 	ag.Placeholder = "ask the agent to do something"
+	ag.ShowLineNumbers = false
+	ag.SetPromptFunc(agentPromptLeadWidth, func(line int) string {
+		if line == 0 {
+			return agentPromptLead
+		}
+		return strings.Repeat(" ", agentPromptLeadWidth)
+	})
+	ag.FocusedStyle.Prompt = stSelBar
+	ag.BlurredStyle.Prompt = stSelBar
+	ag.MaxHeight = agentPromptMaxRows
+	ag.SetHeight(1)
+	ag.Cursor.SetMode(cursor.CursorStatic)
 	fi := textinput.New()
 	fi.Prompt = ""
 	fi.Placeholder = "type to filter bands by name"
@@ -1263,7 +1299,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// mouse capture OFF by default (keyboard-first, like opencode): the terminal owns the
 		// mouse so native drag-select + copy works on ANY text out of the box. ctrl+o / /mouse
 		// opts INTO wheel-scroll. Scrollback is always available via PgUp/PgDn + arrows.
-		mouseOff: false}
+		mouseOff: true}
 }
 
 func (m model) Init() tea.Cmd {
@@ -1276,6 +1312,10 @@ func (m model) Init() tea.Cmd {
 // line) re-sizes + re-feeds its viewport and auto-sticks to the bottom (only when the
 // user is already there) without every return site having to remember to.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Textarea geometry must live on the editable models, not only on temporary View
+	// copies. Bubbles uses the stored width while processing bursts/pastes; leaving its
+	// default width in place can preserve Value() yet paint an empty viewport.
+	m = m.syncComposerGeometry()
 	prevStatus := m.status
 	tm, cmd := m.update(msg)
 	if mm, ok := tm.(model); ok {
@@ -1285,9 +1325,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if mm.status != prevStatus && mm.status != "" {
 			mm.statusFrame = mm.frame
 		}
+		mm = mm.syncComposerGeometry()
 		return mm.refreshScroll(), cmd
 	}
 	return tm, cmd
+}
+
+func (m model) syncComposerGeometry() model {
+	w := m.effWidth()
+	setTextareaGeometry(&m.chatIn, max(chatPromptLeadWidth+1, w), m.chatPromptRowCount(w))
+	setTextareaGeometry(&m.agentIn, max(agentPromptLeadWidth+1, w), m.agentPromptRowCount(w))
+	return m
+}
+
+// setTextareaGeometry keeps Bubbles' private viewport in sync when a composer grows.
+// SetHeight alone does not reduce an existing YOffset: after a one-row viewport scrolls
+// to the new continuation, growing it to two rows still starts at row 2 and hides row 1.
+// Re-seeding the same value resets that private viewport to the top; cursor location and
+// focus remain intact.
+func setTextareaGeometry(input *textarea.Model, width, height int) {
+	oldHeight := input.Height()
+	line := input.Line()
+	info := input.LineInfo()
+	col := info.StartColumn + info.ColumnOffset
+	value := input.Value()
+
+	input.SetWidth(width)
+	input.SetHeight(height)
+	if height <= oldHeight || value == "" {
+		return
+	}
+	input.SetValue(value)
+	for input.Line() > line {
+		input.CursorUp()
+	}
+	input.SetCursor(col)
 }
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1385,6 +1457,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// agent replies) still arrive via their own Cmds and repaint on change. (This used to be
 		// compact-only; now EVERY idle view goes calm, which is also what makes copy work.)
 		if !animating {
+			if !m.idleDiscoveryEnabled() {
+				return m, slowTick(m.tickGen)
+			}
 			return m, tea.Batch(slowTick(m.tickGen), fetchOffers(m.broker))
 		}
 		// Periodic band re-scan: the tick is 160ms; every ~rescanEveryFrames (~5s) we
@@ -1761,6 +1836,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// idleDiscoveryEnabled reports whether the calm tick may refresh /discover. Native
+// terminal selection must survive indefinitely; even an identical offer response
+// triggers a Bubble Tea update that can clear the terminal's highlighted cells.
+func (m model) idleDiscoveryEnabled() bool {
+	return !m.mouseOff
+}
+
 // enterPingWorld stashes the current mode and drops into the fullscreen Ping World
 // screensaver - the very same world `roger --ping` runs (pingWorldModel). After the first
 // frame it advances on the calm pingWorldTick (worldTickMs), not the interactive tick, and
@@ -1882,6 +1964,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chatVP.HalfPageDown()
 			return m, nil
 		case "up":
+			if textareaCanMoveUp(m.chatIn) {
+				var c tea.Cmd
+				m.chatIn, c = m.chatIn.Update(k)
+				return m, c
+			}
 			// Shell-style recall first (the wheel scrolls as REAL mouse events now, so
 			// arrows are free to mean history); with nothing to recall, scroll.
 			if v, ok := m.chatHist.prev(m.chatIn.Value()); ok {
@@ -1892,6 +1979,11 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down":
+			if textareaCanMoveDown(m.chatIn) {
+				var c tea.Cmd
+				m.chatIn, c = m.chatIn.Update(k)
+				return m, c
+			}
 			if v, ok := m.chatHist.next(); ok {
 				m.chatIn.SetValue(v)
 				m.chatIn.CursorEnd()
@@ -2304,6 +2396,16 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func textareaCanMoveUp(input textarea.Model) bool {
+	info := input.LineInfo()
+	return input.Line() > 0 || info.RowOffset > 0
+}
+
+func textareaCanMoveDown(input textarea.Model) bool {
+	info := input.LineInfo()
+	return input.Line() < input.LineCount()-1 || info.RowOffset < info.Height-1
 }
 
 // runSession dispatches an in-CHANNEL slash command (the pi.dev-style session
@@ -2837,6 +2939,10 @@ func copiedToast(detail string) string {
 func (m model) agentTranscriptText() string {
 	lines := make([]string, 0, len(m.agentLines))
 	for _, l := range m.agentLines {
+		if strings.HasPrefix(l, agentAnswerMark) {
+			lines = append(lines, strings.TrimPrefix(l, agentAnswerMark))
+			continue
+		}
 		// Un-mark tool-output preview lines: toolOutMark (\x1e) is a C0 control byte that
 		// ansi.Strip preserves, so it would otherwise leak invisibly into the clipboard and
 		// across the RC wire. The full content is kept, only the tag byte is dropped.
@@ -7256,9 +7362,14 @@ func (m model) chatTranscriptRows() int {
 	if m.updateLine != "" {
 		chrome++
 	}
+	chrome += max(0, m.chatPromptRowCount(m.effWidth())-1)
 	max := m.height - chrome
 	if max < 6 {
-		max = 12
+		if m.height > 0 {
+			max = 1
+		} else {
+			max = 12
+		}
 	}
 	return max
 }
@@ -7277,15 +7388,28 @@ func (m model) agentCornerRows() int {
 }
 
 // agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
-func (m model) agentTranscriptRows(cornerRows int) int {
-	max := m.height - 8 - cornerRows
+func (m model) agentTranscriptRows(cornerRows, promptRows int) int {
+	// Expanded AGENT lives inside the global preset/header/footer chrome (7 rows)
+	// and owns its deck, desk strip, seam, prompt, and mode row (6 more). Keeping
+	// those 13 rows out of the viewport budget pins the top identity in place.
+	budgetMax := m.height - 13 - cornerRows
 	if m.compact {
-		max = m.height - 6 - cornerRows
+		budgetMax = m.height - 6 - cornerRows
 	}
-	if max < 6 {
-		max = 12
+	// The original budget reserved one prompt row. Wrapped/multiline input gives
+	// back its extra rows, and a non-empty transcript reserves one separator seam.
+	budgetMax -= max(0, promptRows-1)
+	if len(m.agentLines) > 0 {
+		budgetMax--
 	}
-	return max
+	minRows := 3
+	if m.height > 0 {
+		minRows = 1
+	}
+	if budgetMax < minRows {
+		budgetMax = minRows
+	}
+	return budgetMax
 }
 
 // refreshScroll keeps both transcript viewports sized to the window and fed from the
@@ -7314,7 +7438,7 @@ func (m model) refreshScroll() model {
 	agentBottom := m.agentVP.AtBottom()
 	agentContent := transcriptContent(m.displayAgentLines(), w)
 	m.agentVP.Width = w
-	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows()))
+	m.agentVP.Height = clampRows(lineRows(agentContent), m.agentTranscriptRows(m.agentCornerRows(), m.agentPromptRowCount(w)))
 	m.agentVP.SetContent(agentContent)
 	if agentBottom {
 		m.agentVP.GotoBottom()
@@ -7376,13 +7500,41 @@ func (m model) chatView(w int) string {
 		}
 		b.WriteString(line + "\n")
 	}
-	// The always-live channel prompt: `you ›` + the textinput View() (cursor +
-	// echoed text), updated every keystroke. Same live-echo contract as promptLine.
-	b.WriteString("\n  " + bandUser("you › ") + m.chatIn.View() + "\n")
+	// The always-live channel prompt uses the same lossless, cell-aware textarea
+	// contract as AGENT. Continuation rows align under the authored value.
+	b.WriteString("\n" + strings.Join(m.chatPromptLines(w), "\n") + "\n")
 	// Phase 2 (de-crowd): the single hint bar (the footer, Zone 4) is the ONE place the
 	// channel keys are taught - the duplicate in-view key line that used to print here is
 	// gone, giving the transcript back a row.
 	return b.String()
+}
+
+const (
+	chatPromptLead      = "  ▌ you › "
+	chatPromptLeadWidth = 10
+	chatPromptMaxRows   = 6
+)
+
+func (m model) chatPromptRowCount(w int) int {
+	contentWidth := max(1, w-chatPromptLeadWidth)
+	value := m.chatIn.Value()
+	if value == "" {
+		return 1
+	}
+	rows := 0
+	for _, logical := range strings.Split(value, "\n") {
+		wrapped := ansi.Wrap(logical, contentWidth, "")
+		rows += max(1, lineRows(wrapped))
+	}
+	return min(chatPromptMaxRows, max(1, rows))
+}
+
+func (m model) chatPromptLines(w int) []string {
+	input := m.chatIn
+	input.SetWidth(max(chatPromptLeadWidth+1, w))
+	input.SetHeight(m.chatPromptRowCount(w))
+	view := strings.TrimSuffix(input.View(), "\n")
+	return strings.Split(view, "\n")
 }
 
 // emptyBandCTA is the single static actionable line for the quiet empty band (audit
@@ -8589,9 +8741,16 @@ func (m model) footer(w int) string {
 				left = stDim.Render("y run · n/esc deny")
 			}
 		default:
-			left = stDim.Render("type to ask  ·  /model  ·  /operator  ·  /clear  ·  esc exits AGENT")
-			if m.narrow() {
-				left = stDim.Render("ask · /model · esc exit")
+			if m.agentBusy {
+				left = stDim.Render("enter queue  ·  esc cancel (2× force)  ·  ") + stKey.Render("⌃y") + stDim.Render(" copy  ·  ⌃c quit")
+			} else {
+				left = stDim.Render("enter ask  ·  tab transcript  ·  ") + stKey.Render("⌃y") +
+					stDim.Render(" copy  ·  ⌃p perms  ·  /model  ·  /operator  ·  esc exit")
+			}
+			if m.effWidth() < 60 {
+				left = stDim.Render("ask · tab · copy · perms · exit")
+			} else if m.effWidth() < 100 {
+				left = stDim.Render("ask · tab transcript · ") + stKey.Render("⌃y") + stDim.Render(" copy · ⌃p perms · esc exit")
 			}
 		}
 		return modalFooter(m.effWidth(), left, m.accountTag(true), m.status)
@@ -8686,13 +8845,13 @@ func (m model) footer(w int) string {
 	// Narrow: stack the keys above the bal/broker line (a two-line status bar) so
 	// neither half is forced to overflow the real width. (TUI-V2-CRITIQUE A §5.)
 	if m.narrow() {
-		return rule + "\n" + left + "\n" + right + st
+		return rule + "\n" + truncVisible(left, w) + "\n" + truncVisible(right, w) + st
 	}
 	gap := w - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		// The key-hint line + balance can't share one row at this width: stack them so
 		// neither half overflows (balance is the load-bearing half on its own line).
-		return rule + "\n" + left + "\n" + right + st
+		return rule + "\n" + truncVisible(left, w) + "\n" + truncVisible(right, w) + st
 	}
 	return rule + "\n" + left + strings.Repeat(" ", gap) + right + st
 }
@@ -9259,13 +9418,11 @@ func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float6
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
-	// Mouse capture is ON at startup: the wheel scrolls the transcripts as REAL mouse
-	// events, which frees the arrow keys to mean history in the inputs (with capture
-	// off, terminals deliver the wheel AS arrow keys and the two are indistinguishable).
-	// Native drag-select still works via shift+drag, and ctrl+o / /mouse toggles capture
-	// off entirely. (m.mouseOff defaults false to match this start state.)
+	// Native selection owns the mouse at startup, matching the on-screen “drag to copy”
+	// promise. /mouse or ctrl+o explicitly opts into captured wheel scrolling; keyboard
+	// transcript scrolling remains available without capture.
 	wantRestart = false
-	if err := launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion()); err != nil {
+	if err := launchTUI(m, tea.WithAltScreen()); err != nil {
 		return err
 	}
 	if wantRestart {

@@ -91,8 +91,7 @@ func TestAgentTranscriptTextHasNoToolOutMark(t *testing.T) {
 	}
 }
 
-// D1 - the tool call line is one DIM ⚙-prefixed line (tool + arg summary), never the old
-// bright ◉ + bright tool-name treatment.
+// D1 - the running activity card uses one blue state lamp plus dim machinery text.
 func TestAgentToolCallLineIsDim(t *testing.T) {
 	colorOn(t, true)
 	line := agentToolCallLine("run_shell", "git diff")
@@ -106,8 +105,8 @@ func TestAgentToolCallLineIsDim(t *testing.T) {
 	if strings.Contains(line, stKey.Render("run_shell")) {
 		t.Error("the tool name must be DIM machinery texture, not the bright key style")
 	}
-	if !strings.Contains(line, stDim.Render("⚙ run_shell git diff")) {
-		t.Error("the whole call line should be one dim string")
+	if !strings.Contains(flat, "◐") || !strings.Contains(flat, "running") {
+		t.Error("the running card should carry its blue state lamp and state")
 	}
 }
 
