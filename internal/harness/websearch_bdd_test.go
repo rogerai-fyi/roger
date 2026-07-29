@@ -370,6 +370,55 @@ func (s *searchState) atMostNResults(n int) error {
 	return nil
 }
 
+func (s *searchState) providerReturnsMarkedUpSnippet(tag string) error {
+	s.results = []map[string]any{{
+		"title": "Valkey", "url": "https://valkey.io/",
+		"description": "Valkey is " + tag + "an open source" + strings.Replace(tag, "<", "</", 1) + " datastore",
+	}}
+	return s.callSearchQuery("valkey")
+}
+
+func (s *searchState) snippetIsPlainText() error {
+	if s.err != nil {
+		return fmt.Errorf("web_search errored: %v", s.err)
+	}
+	if !strings.Contains(s.result, "Valkey is an open source datastore") {
+		return fmt.Errorf("the snippet text did not survive stripping: %q", s.result)
+	}
+	return nil
+}
+
+func (s *searchState) noMarkupSurvives() error {
+	for _, bad := range []string{"<strong>", "</strong>", "<", ">"} {
+		if strings.Contains(s.result, bad) {
+			return fmt.Errorf("markup %q reached the model: %q", bad, s.result)
+		}
+	}
+	return nil
+}
+
+func (s *searchState) providerReturnsEscapedMarkup(esc string) error {
+	s.results = []map[string]any{{
+		"title": "Valkey", "url": "https://valkey.io/",
+		"description": "Valkey is " + esc + "fast" + strings.Replace(esc, "&lt;", "&lt;/", 1),
+	}}
+	return s.callSearchQuery("escaped")
+}
+
+func (s *searchState) providerReturnsEntities(a, b string) error {
+	s.results = []map[string]any{{
+		"title": "Ben " + a + " Jerry" + b + "s", "url": "https://x.example/", "description": "snip",
+	}}
+	return s.callSearchQuery("entities")
+}
+
+func (s *searchState) entitiesDecoded() error {
+	if !strings.Contains(s.result, "Ben & Jerry's") {
+		return fmt.Errorf("entities were not decoded: %q", s.result)
+	}
+	return nil
+}
+
 func (s *searchState) providerReturnsURL(u string) error {
 	s.results = append([]map[string]any{{"title": "bad scheme", "url": u, "description": "should be dropped"}}, s.results...)
 	return nil
@@ -660,6 +709,12 @@ func TestWebSearchBDD(t *testing.T) {
 			sc.Step(`^the model calls web_search with count ?(\d*)$`, st.callSearchCount)
 			sc.Step(`^at most (\d+) results are returned$`, st.atMostNResults)
 
+			sc.Step(`^the provider returns a snippet marked up with "([^"]*)" around the match$`, st.providerReturnsMarkedUpSnippet)
+			sc.Step(`^the snippet reaches the model as plain text$`, st.snippetIsPlainText)
+			sc.Step(`^no markup tags survive$`, st.noMarkupSurvives)
+			sc.Step(`^the provider returns a snippet containing "([^"]*)"$`, st.providerReturnsEscapedMarkup)
+			sc.Step(`^the provider returns a title containing "([^"]*)" and "([^"]*)"$`, st.providerReturnsEntities)
+			sc.Step(`^the title reaches the model with those characters decoded$`, st.entitiesDecoded)
 			sc.Step(`^the provider returns a result with url "([^"]*)"$`, st.providerReturnsURL)
 			sc.Step(`^the results are shaped$`, st.resultsAreShaped)
 			sc.Step(`^that result is dropped$`, st.badResultDropped)

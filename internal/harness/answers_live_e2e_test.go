@@ -21,13 +21,14 @@ package harness
 //	                    lack of a key: proves the degradation path (the turn still answers,
 //	                    with no sources) against the actual provider.
 //	search_fetch_cite   the full chain a real answer takes: the model searches, picks a
-//	                    result, fetches it, and cites it. The SEARCH RESULTS ARE REAL (live
-//	                    Wikipedia search over a real corpus) and the fetched page is real;
-//	                    only the response SHAPE is translated to Brave's by a local shim,
-//	                    because no Brave key exists on this machine. So this does NOT prove
-//	                    Brave's success-response parsing - that is covered by the unit and
-//	                    BDD suites against Brave's documented shape, and needs one live run
-//	                    with a real key to be closed out.
+//	                    result, fetches it, and cites it. When a Brave key is configured in
+//	                    search.json it runs against the REAL Brave API - which also proves
+//	                    the adapter's success-response parsing against the live shape. With
+//	                    no key it falls back to a local shim that performs a REAL search
+//	                    (live Wikipedia over a real corpus) and re-shapes the answer to
+//	                    Brave's format, so the chain is still exercised end to end; only the
+//	                    shape translation is stood in for, and the subtest says which mode
+//	                    it ran in.
 //
 // Env knobs: ROGER_E2E_BROKER (default https://broker.rogerai.fyi), ROGER_E2E_MODEL (the
 // band to tune), ROGER_E2E_URL (the page fetch_and_cite reads).
@@ -108,12 +109,19 @@ func TestAnswersLiveE2E(t *testing.T) {
 		}
 	})
 
-	// The full chain, with REAL search results over a real corpus and a REAL fetched page.
+	// The full chain, with REAL search results and a REAL fetched page.
 	t.Run("search_fetch_cite", func(t *testing.T) {
-		shim := realSearchShim(t)
-		defer shim.Close()
-		restore := liveSearchConfig(t, shim.URL, "shim")
-		defer restore()
+		if key := configuredBraveKey(); key != "" {
+			t.Log("mode: REAL Brave API (a key is configured) - this also proves the adapter's success-response parsing")
+			restore := liveSearchConfig(t, braveDefaultEndpoint, key)
+			defer restore()
+		} else {
+			t.Log("mode: shim (no Brave key configured) - real search results, Brave's shape stood in for")
+			shim := realSearchShim(t)
+			defer shim.Close()
+			restore := liveSearchConfig(t, shim.URL, "shim")
+			defer restore()
+		}
 
 		res := liveTurn(t, broker, model, liveResearchPersona,
 			"Search the web for the Valkey project, then read the most relevant result and "+
@@ -226,6 +234,29 @@ func liveTurn(t *testing.T, broker, model, persona, ask string) liveResult {
 	return res
 }
 
+// configuredBraveKey returns the key from the operator's REAL search.json, or "" when
+// answers mode is not configured on this machine. It is what lets the chain subtest run
+// against the live provider here and still be runnable on a box with no key.
+func configuredBraveKey() string {
+	// Mirror searchConfigPath: os.UserConfigDir, not a hardcoded ~/.config, or the real-Brave
+	// mode would silently never trigger on macOS despite a configured key.
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "rogerai", "search.json"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Key)
+}
+
 // liveSearchConfig points the search adapter at endpoint for the duration of a subtest. It
 // copies the REAL config dir (so the broker still sees the real signing identity) into a
 // temp XDG_CONFIG_HOME and adds search.json there, rather than writing into the user's live
@@ -335,30 +366,16 @@ func realSearchShim(t *testing.T) *httptest.Server {
 			out.Web.Results = append(out.Web.Results, braveResult{
 				Title: s.Title,
 				URL:   "https://en.wikipedia.org/wiki/" + strings.ReplaceAll(s.Title, " ", "_"),
-				// Wikipedia snippets carry markup; strip it the crude way (the adapter
-				// flattens whitespace itself, which is the behavior under test).
-				Description: stripTags(s.Snippet),
+				// Wikipedia snippets carry <span> highlights, exactly as Brave carries
+				// <strong> ones - so the shim hands them over raw and lets the ADAPTER's
+				// own cleaning (flatten) be what is under test.
+				Description: s.Snippet,
 			})
 		}
 		t.Logf("shim: real search for %q returned %d results", q, len(out.Web.Results))
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
 	}))
-}
-
-// stripTags removes the <span> markup Wikipedia wraps match highlights in.
-func stripTags(s string) string {
-	for {
-		i := strings.IndexByte(s, '<')
-		if i < 0 {
-			return s
-		}
-		j := strings.IndexByte(s[i:], '>')
-		if j < 0 {
-			return s[:i]
-		}
-		s = s[:i] + s[i+j+1:]
-	}
 }
 
 // envOr returns the env var or a default.
