@@ -53,8 +53,8 @@ func TestPingAnimationArms(t *testing.T) {
 
 	// agentCornerPing full (multi-row) block + cornerWord vary by state.
 	full := agentCornerPing(poseStreaming, 1, false, false, true)
-	if len(full) != 3 {
-		t.Errorf("the full corner-Ping should be a 3-line head, got %d lines", len(full))
+	if len(full) != 5 {
+		t.Errorf("the full corner-Ping should be a 5-line Tube Ping, got %d lines", len(full))
 	}
 	if cornerWord(poseStreaming, 0) == cornerWord(poseWaiting, 0) {
 		t.Error("cornerWord should differ between streaming and waiting")

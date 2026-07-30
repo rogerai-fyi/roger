@@ -12,7 +12,7 @@
   </div>
 
   <!-- ============================ NAV ============================ -->
-  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 manualcurrent='aria-current="page"' -->
 
   <main id="top">
 
@@ -34,8 +34,8 @@
           lineage on every token. Read it once, keep it by the dial.
         </p>
         <div class="man-cover__meta">
-          <span>Set: <b>rogerai</b></span>
-          <span>Version: <b data-cli-version>v5.4.7</b></span>
+          <span>Set: <b>roger</b></span>
+          <span>Version: <b data-cli-version>v5.4.8</b></span>
           <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
@@ -65,7 +65,7 @@
         <div class="man-quick__card">
           <span class="man-quick__step">2 · Use a model</span>
           <p>Open a local OpenAI-compatible endpoint for your bots, or just run
-            <code>rogerai</code> to browse the band.</p>
+            <code>roger</code> to browse the band.</p>
           <pre><span class="p">$</span> roger use qwen3-coder-30b
   BASE URL  http://127.0.0.1:4141/v1
   API KEY   roger-local
@@ -186,20 +186,20 @@
             <p>The whole client is one Go binary in the public repo. With a Go toolchain:</p>
             <pre><span class="p">$</span> git clone https://github.com/rogerai-fyi/roger
 <span class="p">$</span> cd roger
-<span class="p">$</span> go build -o rogerai ./cmd/rogerai</pre>
+<span class="p">$</span> go build -o roger ./cmd/rogerai</pre>
           </section>
 
           <!-- ============== §2 FIRST CONTACT ============== -->
           <section class="man-sec" id="s2">
             <span class="man-sec__no">§2 · First contact</span>
             <h2>The first run</h2>
-            <p>Run <code>rogerai</code> with no arguments. On a real terminal, a tiny
+            <p>Run <code>roger</code> with no arguments. On a real terminal, a tiny
               first-run wizard asks the one question that matters - are you here to
               <b>use</b> models or to <b>share</b> your GPU - then drops you into the app.
               Everything else (the model, the context length, a free local port) is
               auto-detected. The wizard runs once; re-run it any time with
               <code>roger onboard</code>.</p>
-            <pre><span class="p">$</span> rogerai
+            <pre><span class="p">$</span> roger
   Welcome to RogerAI - a two-way radio for GPUs.
   Are you here to use models, or to share your GPU?
    <span class="p">&gt;</span> Just use models (open the app)
@@ -315,7 +315,7 @@
               headless local endpoint your tools talk to.</p>
 
             <h3>The app (the dial)</h3>
-            <p>Run <code>rogerai</code> to open the app and press <kbd>1</kbd> for
+            <p>Run <code>roger</code> to open the app and press <kbd>1</kbd> for
               <b>TUNE IN</b>: the live band, sorted strongest first. Move the cursor with
               <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> (or <kbd>j</kbd>/<kbd>k</kbd>),
               <kbd>Enter</kbd> to tune in. The list is virtualized, so a crowded band stays
@@ -937,19 +937,27 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="s9">
             <span class="man-sec__no">§9 · Command reference</span>
             <h2>Every command, every key</h2>
-            <p>The full surface as of <b data-cli-version>v5.4.7</b>: the top-level CLI
+            <p>The full surface as of <b data-cli-version>v5.4.8</b>: the top-level CLI
               commands with their key flags, then the in-app keys and slash commands grouped
-              by context. Run any command with <code>--help</code> for its flags; advanced
-              flags hide behind <code>--advanced</code>. Run <code>rogerai</code> with no
-              arguments to open the app.</p>
+              by context. Commands with flag surfaces document <code>--help</code>; advanced
+              flags hide behind <code>--advanced</code>. Run <code>roger</code> with no
+              arguments to open the app. The legacy <code>rogerai</code> executable remains
+              a compatibility alias.</p>
+
+            <div class="man-callout">
+              <b>Mouse copy:</b> smart selection is on by default in TUNE IN and AGENT.
+              Drag transcript text and release to copy it; Roger reports the exact character
+              count. Press <kbd>ctrl+o</kbd> or run <code>/mouse</code> for native terminal
+              selection, and use the same toggle to return to smart selection.
+            </div>
 
             <h3>CLI commands</h3>
             <div class="man-table-wrap">
               <table class="man-table">
-                <caption>rogerai &lt;command&gt; [flags]</caption>
+                <caption>roger &lt;command&gt; [flags]</caption>
                 <thead><tr><th>Command</th><th>Description &amp; key flags</th></tr></thead>
                 <tbody>
-                  <tr><td><code>rogerai</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
+                  <tr><td><code>roger</code></td><td>open the interactive app (browse, tune in, chat); first run shows the onboarding wizard</td></tr>
                   <tr><td><code>search</code></td><td>list models, cheapest first (aliases: <code>discover</code>, <code>models</code>)</td></tr>
                   <tr><td><code>use &lt;model&gt;</code></td><td>open a local OpenAI endpoint for your bots (aliases: <code>connect</code>, <code>tune</code>). Flags: <code>--max-out $</code> (headline cap, skip stations above this $/1M out) · <code>--yes</code> (skip the connect confirm) · <code>--advanced</code> reveals <code>--port</code> (0 = auto-pick) · <code>--max-in</code> · <code>--min-tps</code> · <code>--confidential</code> · <code>--raw</code> (keep raw model output; skip the reasoning-as-answer fallback)</td></tr>
                   <tr><td><code>balance</code></td><td>wallet balance ($). <code>balance --topup [usd]</code> (or <code>balance topup [usd]</code>) opens checkout; bare top-up is $10</td></tr>
@@ -960,6 +968,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
                   <tr><td><code>payout</code></td><td>cash out provider earnings (login + KYC gated): <code>status</code> (default) · <code>onboard</code> (Stripe Connect KYC) · <code>request</code> (pays your payable balance) · <code>history</code> (aliases: <code>payouts</code> / <code>cashout</code>; <code>withdraw</code> for <code>request</code>)</td></tr>
                   <tr><td><code>account</code></td><td>who you are; <code>account login</code> / <code>account logout</code> (alias: <code>identity</code>)</td></tr>
                   <tr><td><code>remote</code></td><td>your private BASE STATION sessions (aliases: <code>rc</code>): <code>list</code> (default) · <code>attach &lt;code&gt;</code> (continue a session from another terminal) · <code>off [id]</code> (end one or all) · <code>link</code> (how to put a session on the air). Enable one from inside the app with <code>/remote-control</code></td></tr>
+                  <tr><td><code>resume [session-id]</code></td><td>resume a saved local AGENT session from the interactive picker or a known ID (alias: <code>continue</code>; <code>--help</code> prints usage)</td></tr>
                   <tr><td><code>login</code></td><td>link GitHub (device flow) - only needed to earn</td></tr>
                   <tr><td><code>logout</code></td><td>forget the local GitHub link</td></tr>
                   <tr><td><code>whoami</code></td><td>show your signed identity + linked GitHub</td></tr>
@@ -1217,10 +1226,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
           <section class="man-sec" id="schangelog">
             <span class="man-sec__no">Appendix C · Changelog</span>
             <h2>What changed, by version</h2>
-            <p class="man-lead">The shipped milestones of the <code>rogerai</code> set.
+            <p class="man-lead">The shipped milestones of the <code>roger</code> set.
               Newest first. The set self-updates - <code>roger upgrade</code> pulls the
               latest, <code>roger upgrade --check</code> just reports.</p>
             <div class="man-plate">
+              <div class="man-plate__row"><span class="man-plate__k">v5.4.8</span><span class="man-plate__v">Tube Ping now has one canonical dimensional silhouette across the AGENT desk, screensaver debut, and RogerAI Labs identity. Smart transcript selection copies on mouse release by default with an exact character-count notification; <code>ctrl+o</code> or <code>/mouse</code> restores native terminal selection. Resume retains the web console and update notice, and the CLI/manual consistently lead with <code>roger</code>.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.7</span><span class="man-plate__v">Resume local AGENT sessions from an interactive picker or a known session ID with <code>roger resume</code> (also <code>roger continue</code>). Completed conversation turns are saved privately and restored without replaying tools or persisting their arguments and results.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.6</span><span class="man-plate__v">A cleaner, more expressive AGENT workspace: lossless multi-row composers in AGENT and TUNE IN, syntax-aware code and diff responses, compact stateful tool activity, a responsive session/token/spend rail, reliable native terminal selection, clearer approval gates, and unlimited model calls by default with an optional configured timeout.</span></div>
               <div class="man-plate__row"><span class="man-plate__k">v5.4.5</span><span class="man-plate__v">Desk polish for the new guest: the <b>claude</b> plate is now character-exact to the mascot Claude Code prints on its own welcome (the first draft carried a row the real art does not have), set beside its wordmark and vendor byline the way the guest's own banner reads.</span></div>

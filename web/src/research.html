@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI Research - models for local hardware" desc="RogerAI Labs builds and optimizes models for practical inference on local hardware, from workstations to embedded devices." theme=external og=post ogtype=website ogtitle="RogerAI Research - models for local hardware" ogdesc="Small models, local inference, and measured optimization work." ogurl="https://rogerai.fm/research.html" ogimage="https://rogerai.fm/og.png" -->
+  <!-- include: head.html title="RogerAI Research - models for local hardware" desc="RogerAI Labs builds and optimizes models for practical inference on local hardware, from workstations to embedded devices." theme=external og=post ogtype=website ogtitle="RogerAI Labs - models built for local constraints" ogdesc="Wave Nano v1.0, right-sized model research, and evidence with every release." ogurl="https://rogerai.fm/research.html" ogimage="https://rogerai.fm/og-research.png" -->
 </head>
 <body data-onair="idle">
   <div class="rail" aria-hidden="true">
@@ -13,20 +13,26 @@
 
   <main id="top">
     <section class="research-hero">
-      <div class="wrap">
+      <div class="wrap research-hero__layout">
+        <div>
         <span class="hero__eyebrow">
           <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
           <span class="hero__callsign">ROGERAI LABS</span>
         </span>
         <h1>Models built for local constraints.</h1>
         <p class="research-hero__lead">
-          We make useful models smaller, faster, and easier to run on local hardware.
-          Every project has a specific job, a visible status, and evidence you can inspect.
+          We make useful models smaller and faster on local hardware.
+          Every project has a specific job, visible status, and inspectable evidence.
         </p>
         <div class="research-actions">
           <a class="research-button research-button--primary" href="#models">Explore models</a>
           <a class="research-button" href="/broadcasts.html">Read the evidence</a>
           <a class="research-button" href="https://huggingface.co/rogerai-fyi">View weights</a>
+        </div>
+        </div>
+        <div class="research-hero__mascot">
+          <!-- include: tube-ping.html -->
+          <p class="release-ticker"><b>AVAILABLE</b><span>Wave Nano v1.0</span><span>350M</span><span>Apache-2.0</span></p>
         </div>
       </div>
     </section>
@@ -35,7 +41,8 @@
       <div class="wrap research-distinction__grid">
         <div><span class="research-kicker">RESEARCH PROGRAMS</span><b>This page</b> shows model and optimization work.</div>
         <div><span class="research-kicker">LIVE NETWORK MODELS</span><b><a href="/models.html">Models on air</a></b> are available through the network now.</div>
-        <p>A research program is not automatically a released model or a live network station.</p>
+        <p>Every artifact carries its own program status; live network availability is
+           tracked separately.</p>
       </div>
     </aside>
 
@@ -43,9 +50,153 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">§1 / MODELS</span>
-          <h2>One model for each operating envelope.</h2>
-          <p>No Wave checkpoint has been released. Programs remain labeled as research or
-             design work until they pass their release gates.</p>
+          <h2>A model family sized to the work.</h2>
+          <p>Wave is the RogerAI-designed open model program. No checkpoint is called open
+             source before weights, code, license, and reproducibility record are released.</p>
+        </div>
+
+        <figure class="size-spectrum" aria-labelledby="size-spectrum-title size-spectrum-caption">
+          <div class="size-spectrum__head">
+            <span id="size-spectrum-title">WAVE SIZE SPECTRUM</span>
+            <span>smaller footprint <span aria-hidden="true">→</span> broader capability</span>
+          </div>
+          <ol>
+            <li style="--reach:18%">
+              <span class="size-spectrum__bar"></span>
+              <b>Roger Edge</b>
+              <small>KB–10M · fixed tasks</small>
+            </li>
+            <li style="--reach:42%">
+              <span class="size-spectrum__bar"></span>
+              <b>Wave Micro</b>
+              <small>&lt;100M · specialists</small>
+            </li>
+            <li style="--reach:68%">
+              <span class="size-spectrum__bar"></span>
+              <b>Wave Nano</b>
+              <small>~350M · text + tools</small>
+            </li>
+            <li style="--reach:100%">
+              <span class="size-spectrum__bar"></span>
+              <b>Wave Core</b>
+              <small>1B-class · local reasoning</small>
+            </li>
+          </ol>
+          <figcaption id="size-spectrum-caption">Parameter classes in increasing order.
+            Wave Nano v1.0 is released; the other RogerAI-designed classes remain research
+            or design programs until their own release gates pass.</figcaption>
+        </figure>
+
+        <div class="model-group-head">
+          <div>
+            <span class="research-kicker">DESIGNED BY ROGERAI</span>
+            <h3>Wave models</h3>
+          </div>
+          <p>Wave Nano v1.0 available · other rungs retain their own program status</p>
+        </div>
+
+        <div class="model-list model-list--native">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN DESIGN</span>
+              <h3>Roger Edge</h3>
+              <p class="research-parent">KB–10M · Microcontrollers</p>
+              <code class="model-id">roger-edge-&lt;task&gt;-&lt;size&gt;</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Wake, voice activity, sensing, and fixed commands need reliable task models,
+                 not miniature chatbots.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Hardware and dataset design</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN DESIGN</span>
+              <h3>Wave Micro</h3>
+              <p class="research-parent">&lt;100M · ARM and NPU systems</p>
+              <code class="model-id">wave-micro-&lt;size&gt;-&lt;task&gt;</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Fast routing, extraction, and triage without carrying the memory and compute
+                 cost of a chat model.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Sequenced after Wave Nano</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row" id="wave-nano-350m-instruct">
+            <div class="model-row__identity">
+              <span class="status status--available">AVAILABLE</span>
+              <h3>Wave Nano</h3>
+              <p class="research-parent">350M · instruct · Pi, phone, and edge computer</p>
+              <code class="model-id">wave-nano-350m-instruct v1.0 · GGUF · Q4_K_M</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>Bounded local text and tool use where a general cloud model adds unnecessary
+                 latency, cost, or exposure.</p>
+              <p class="model-license"><b>Artifact license: Apache-2.0.</b>
+                 Local use does not require RogerAI or its broker. Optional network
+                 services, including publication, routing, payments, failover, and signed
+                 receipts, use separate network terms and do not modify the artifact license.</p>
+              <dl class="release-evidence" aria-label="Wave Nano v1.0 evidence contract">
+                <div><dt>Tested hardware</dt><dd>Versioned in the artifact model card</dd></div>
+                <div><dt>Runtime</dt><dd>Versioned in the artifact model card</dd></div>
+                <div><dt>Context</dt><dd>Versioned in the artifact model card</dd></div>
+                <div><dt>Peak memory</dt><dd>Measured in the artifact model card</dd></div>
+                <div><dt>Measured speed</dt><dd>Raw results in the artifact model card</dd></div>
+              </dl>
+              <div class="model-row__actions">
+                <a class="model-download" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct">Download / model card</a>
+                <a class="model-note" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct/tree/main">Weights</a>
+                <a class="model-note" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct/blob/main/LICENSE">License</a>
+                <a class="model-note" href="https://github.com/rogerai-fyi/roger/tree/main/models/wave-nano-350m-instruct">Source + recipe</a>
+                <a class="model-note" href="https://github.com/rogerai-fyi/roger/tree/main/models/wave-nano-350m-instruct/evals">Evaluations</a>
+                <a class="model-note" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct#limitations">Limitations</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN DESIGN</span>
+              <h3>Wave Core</h3>
+              <p class="research-parent">1B-class · Laptop and workstation</p>
+              <code class="model-id">wave-core-1b-instruct</code>
+            </div>
+            <div>
+              <span class="research-kicker">ROLE</span>
+              <p>General local reasoning, longer synthesis, and multi-step tool use when
+                 Nano is too constrained but local control still matters.</p>
+              <div class="model-row__actions">
+                <span class="model-stage">Architecture and data design</span>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <p class="model-roadmap"><b>Roadmap, gated on Wave Nano.</b>
+          Wave Tool, Wave Vision, and Wave Audio remain design programs with no release
+          dates, downloads, benchmark claims, or device claims.</p>
+
+        <p class="model-roadmap"><b>License boundary.</b> The released Wave Nano v1.0
+          artifact is Apache-2.0. Downloading and running it locally does not require
+          RogerAI or its broker. Broker publication, routing, payments, failover, and
+          signed receipts are optional network services under separate terms; those
+          terms do not modify the artifact license.</p>
+
+        <div class="model-group-head model-group-head--upstream">
+          <div>
+            <span class="research-kicker">FRONTIER OPTIMIZATION</span>
+            <h3>Workstation-scale research</h3>
+          </div>
+          <p>Runtime, compression, and hardware-fit experiments</p>
         </div>
 
         <div class="model-list">
@@ -53,12 +204,14 @@
             <div class="model-row__identity">
               <span class="status">RESEARCH BUILD</span>
               <h3>DeepSeek-V4-Flash MTP</h3>
-              <p class="research-parent">Optimized by RogerAI · Upstream: DeepSeek-V4-Flash</p>
+              <p class="research-parent"><b>Optimized by RogerAI</b> ·
+                Upstream: DeepSeek-V4-Flash · MIT License</p>
+              <code class="model-id">284B total · 13B active · MTP · GGUF</code>
             </div>
             <div>
-              <span class="research-kicker">WHY IT EXISTS</span>
+              <span class="research-kicker">ROLE</span>
               <p>Converter, runtime, MTP, and GGUF work for more practical local inference
-                 with a large upstream model.</p>
+                 with a frontier-scale model.</p>
               <div class="model-row__actions">
                 <a class="model-download" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF">Hugging Face</a>
                 <a class="model-note" href="/broadcasts-deepseek-mtp-gguf.html">Field note</a>
@@ -70,66 +223,25 @@
             <div class="model-row__identity">
               <span class="status">IN PROGRESS</span>
               <h3>Kimi-K3</h3>
-              <p class="research-parent">Optimized by RogerAI · Upstream: Kimi-K3</p>
+              <p class="research-parent"><b>Optimized by RogerAI</b> ·
+                Upstream: Kimi-K3 · Kimi K3 License</p>
+              <code class="model-id">2.8T total · 104B active · MXFP4</code>
             </div>
             <div>
-              <span class="research-kicker">WHY IT EXISTS</span>
+              <span class="research-kicker">ROLE</span>
               <p>Test whether pruning, low-precision execution, and conversion can fit a
-                 frontier-scale upstream model on one high-memory workstation.</p>
+                 frontier-scale model on one high-memory workstation.</p>
               <div class="model-row__actions">
-                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="model-row">
-            <div class="model-row__identity">
-              <span class="status">IN PROGRESS</span>
-              <h3>Wave Nano</h3>
-              <p class="research-parent">About 350M parameters · Pi, phone, and edge computer</p>
-            </div>
-            <div>
-              <span class="research-kicker">WHY IT EXISTS</span>
-              <p>Bounded local text and tool use where a general cloud model adds unnecessary
-                 latency, cost, or exposure.</p>
-              <div class="model-row__actions">
-                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="model-row">
-            <div class="model-row__identity">
-              <span class="status">IN DESIGN</span>
-              <h3>Wave Micro</h3>
-              <p class="research-parent">Under 100M parameters · ARM and NPU systems</p>
-            </div>
-            <div>
-              <span class="research-kicker">WHY IT EXISTS</span>
-              <p>Fast routing, extraction, and triage without carrying the memory and compute
-                 cost of a chat model.</p>
-              <div class="model-row__actions">
-                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
-              </div>
-            </div>
-          </article>
-
-          <article class="model-row">
-            <div class="model-row__identity">
-              <span class="status">IN DESIGN</span>
-              <h3>Roger Edge</h3>
-              <p class="research-parent">KB to MB scale · Microcontrollers</p>
-            </div>
-            <div>
-              <span class="research-kicker">WHY IT EXISTS</span>
-              <p>Wake, voice activity, sensing, and fixed commands need reliable task models,
-                 not miniature chatbots.</p>
-              <div class="model-row__actions">
-                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
+                <span class="model-stage">Current gate · 16K saliency calibration</span>
+                <a class="model-note" href="/broadcasts.html">Follow measurements</a>
               </div>
             </div>
           </article>
         </div>
+
+        <p class="model-naming"><b>Naming contract.</b> Public artifact IDs use
+          Family · parameter class · variant. Model cards declare <code>base_model</code>,
+          relationship, license, library, task, datasets, evaluations, and limitations.</p>
       </div>
     </section>
 
@@ -144,7 +256,7 @@
           <p><b>Reproducible.</b> Published measurements name the hardware, artifact,
              runtime, settings, and raw results.</p>
           <p><b>Honest lineage.</b> We distinguish training from adaptation, optimization,
-             and verification. Upstream work keeps its original name and license.</p>
+             and verification. Required lineage and license records travel with each artifact.</p>
           <p><b>Durable.</b> Negative results remain available. Qualifying artifacts use
              standard formats and runtimes.</p>
           <p><b>Local first.</b> You may download and run qualifying artifacts locally.
@@ -153,12 +265,54 @@
       </div>
     </section>
 
+    <section class="section" id="industry">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">§3 / DEPLOYMENT</span>
+          <h2>Local inference where the network stops.</h2>
+          <p>Deployment patterns, not customer case studies. Models remain advisory and
+             stay out of real-time closed-loop control.</p>
+        </div>
+        <div class="deployment-grid">
+          <article><b>Manufacturing</b><p>Inspection and maintenance context beside segmented plant systems.</p></article>
+          <article><b>Warehouses and logistics</b><p>Local vision and routing across intermittent uplinks.</p></article>
+          <article><b>Energy and heavy assets</b><p>Air-gapped analysis near oil, gas, generation, and field equipment.</p></article>
+          <article><b>Defense and public sector</b><p>On-premises inference inside sensitive boundaries.</p></article>
+        </div>
+        <div class="device-contract" id="devices">
+          <p><b>Device evidence contract.</b> A device claim names the exact board,
+             runtime, format, quantization, context, peak memory, and measured speed.</p>
+          <p><b>Raspberry Pi and NPU.</b> Pi results name model and RAM. NPU results report
+             full delegation, partial delegation, and CPU fallback, not merely a successful load.</p>
+          <p><b>ESP32.</b> Roger Edge covers wake, VAD, sensing, and fixed commands.
+             ESP32 does not run Wave Nano; ESP32-P4 claims name the companion radio.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-tone" id="services">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">§4 / ENGAGEMENTS</span>
+          <h2>Engineering without lock-in.</h2>
+          <p>Model use never requires buying services, and services never require the network.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>Optimization engineering.</b> Quantization, pruning, conversion, runtime fit.</p>
+          <p><b>Edge deployment.</b> Reproducible packaging for local hardware.</p>
+          <p><b>Benchmarking.</b> Hardware evaluation with raw results and limitations.</p>
+          <p><b>Industrial pilots.</b> Advisory workloads beside existing safety systems.
+             <a href="mailto:labs@rogerai.fm">Contact RogerAI Labs</a>.</p>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="developers">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">§3 / DEVELOPERS</span>
+          <span class="sectionno">§5 / DEVELOPERS</span>
           <h2>From artifact to local endpoint.</h2>
-          <p>Released model cards will carry exact commands. The flow stays the same across
+          <p>Released model cards carry exact commands. The flow stays the same across
              the family.</p>
         </div>
         <div class="developer-steps">
@@ -166,7 +320,7 @@
             <span class="developer-step__no">01</span>
             <h3>Download</h3>
             <p>Pull a released artifact and its model card from Hugging Face.</p>
-            <code>huggingface-cli download rogerai-fyi/&lt;model&gt;</code>
+            <code>huggingface-cli download rogerai-fyi/wave-nano-350m-instruct</code>
           </article>
           <article class="developer-step">
             <span class="developer-step__no">02</span>
@@ -187,10 +341,10 @@
 
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">§4 / FOLLOW THE WORK</span>
+        <span class="sectionno">§6 / FOLLOW THE WORK</span>
         <h2>Weights, source, and field notes.</h2>
-        <p>Release detail lives with the artifact. Engineering decisions and measurements
-           live in Open Air Waves.</p>
+        <p>Release detail lives with the artifact; decisions and measurements live in
+           Open Air Waves.</p>
         <div class="research-actions">
           <a class="research-button research-button--primary" href="https://huggingface.co/rogerai-fyi">Weights</a>
           <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>

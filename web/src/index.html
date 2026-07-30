@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI - run models across local GPUs" desc="One OpenAI-compatible local endpoint for models running across community and private hardware, with routing, failover, metering, and signed receipts." theme=inline css=site og=1 -->
+  <!-- include: head.html title="RogerAI - local AI models and inference infrastructure" desc="RogerAI is an American AI research and infrastructure company building Wave Nano and models for constrained hardware alongside an OpenAI-compatible network." theme=inline css=site og=1 -->
 </head>
 <body data-onair="idle">
 
@@ -23,21 +23,22 @@
   <section class="hero">
     <div class="wrap hero__inner">
 
-      <span class="hero__eyebrow" data-reveal>
+      <span class="hero__eyebrow">
         <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
         <span class="hero__callsign">ROGERAI</span>
         <span class="hero__sep" aria-hidden="true">·</span>
-        local inference infrastructure
+        American AI research + infrastructure
       </span>
 
-      <h1 class="hero__title" data-reveal data-reveal-delay="60">
+      <h1 class="hero__title">
         Run models through<br /><span class="hero__op">one local endpoint</span>.<br /><span class="hero__fast">On hardware you choose.</span>
       </h1>
 
-      <p class="hero__sub" data-reveal data-reveal-delay="120">
-        RogerAI connects OpenAI-compatible models across community and private
-        hardware. It handles discovery, routing, failover, metering, and signed
-        receipts. Operators keep control of their machines and open no inbound ports.
+      <p class="hero__sub">
+        RogerAI pairs open model research for constrained hardware with one
+        OpenAI-compatible local endpoint across community and private hardware.
+        It handles discovery, routing, failover, metering, and signed receipts while
+        operators keep control of their machines.
       </p>
 
       <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
@@ -51,25 +52,18 @@
            now-playing display). Clicking the mascot OR the banner opens a small
            record-player chat (Ping concierge) for typing. Sits right after the
            subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
-      <span class="hero__ping" id="pingDock" data-reveal data-reveal-delay="160">
+      <a class="hero__proof" href="/research.html#wave-nano-350m-instruct"
+         aria-label="Wave Nano v1.0 release from RogerAI Labs">
+        <span>ROGERAI LABS</span>
+        <b>WAVE NANO v1.0</b>
+        <span>AVAILABLE · 350M · APACHE-2.0</span>
+      </a>
+
+      <span class="hero__ping" id="pingDock">
         <button class="hero__ping-trigger" id="pingTrigger" type="button"
                 aria-haspopup="dialog" aria-expanded="false" aria-controls="pingDeck"
                 aria-label="Talk to Ping, the RogerAI on-air concierge">
-          <svg class="ping" viewBox="0 0 64 72" fill="currentColor" focusable="false" aria-hidden="true">
-            <g class="ping__waves" fill="none" stroke="var(--live)" stroke-linecap="round" stroke-width="2">
-              <path class="ping__wave ping__wave--a" d="M22 12 A11 11 0 0 1 42 12" opacity="0"/>
-              <path class="ping__wave ping__wave--b" d="M16 11 A16 16 0 0 1 48 11" opacity="0"/>
-            </g>
-            <g class="ping__body">
-              <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
-              <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
-              <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
-              <rect x="25" y="64" width="5" height="5" rx="1"/>
-              <rect x="34" y="64" width="5" height="5" rx="1"/>
-            </g>
-            <circle class="ping__glow" cx="32" cy="18" r="9" fill="var(--live)" opacity="0.3"/>
-            <circle class="ping__eye" cx="32" cy="18" r="5" fill="var(--live)"/>
-          </svg>
+          <!-- include: tube-ping.html -->
           <span class="hero__ping-tag mono" id="pingTag">standing by</span>
         </button>
 
@@ -132,7 +126,7 @@
       </span>
 
       <!-- FIG.1 - THE hero object: the install command (command-as-hero). -->
-      <div class="install" data-reveal data-reveal-delay="200">
+      <div class="install">
         <span class="fig" aria-hidden="true">FIG. 1 - TUNE IN</span>
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
@@ -156,14 +150,17 @@
 
       <!-- FIG.2 - the band teaser. A COMPACT fake-dial tuner: a short frequency
            strip auto-sweeps + re-locks band to band, proving "browse a band ->
-           tune in". Representative data, gently animated, no mouse interaction.
+           tune in". Historical sample data, gently animated, no mouse interaction.
            Smaller + LEFT-ALIGNED with the command above (same left edge / max
            width). The whole figure links to /models.html, where the full
            INTERACTIVE dial (real data) lives. teaser.js owns #pingTag / [data-onair]. -->
       <a class="teaser" id="teaser" data-reveal data-reveal-delay="240"
          href="/models.html" aria-label="Browse the models on the live dial">
         <span class="fig teaser__fig" aria-hidden="true">FIG. 2 - THE BAND · AT A GLANCE</span>
-        <p class="teaser__bridge">Some models that have been available - browse the full band on the dial:</p>
+        <p class="teaser__bridge">
+          Historical interface sample · authored July 2026 · not live.
+          <span>Browse the current band on the dial:</span>
+        </p>
         <div class="teaser__face" style="--lock:1;--sig:0.87">
           <div class="teaser__top">
             <span class="teaser__locked mono" id="teaserLocked">LOCKED · <b>qwen3-coder-30b</b></span>
@@ -206,6 +203,23 @@
 
     </div>
   </section>
+
+  <aside class="institution-strip" aria-label="RogerAI institutions">
+    <div class="wrap institution-strip__grid">
+      <a class="institution-strip__item" href="/company.html">
+        <span class="institution-strip__label">RogerAI Network</span>
+        <span class="institution-strip__copy">Local endpoints, routing, metering, and receipts.</span>
+      </a>
+      <a class="institution-strip__item" href="/research.html">
+        <span class="institution-strip__label">RogerAI Labs</span>
+        <span class="institution-strip__copy">Models designed around real hardware envelopes.</span>
+      </a>
+      <a class="institution-strip__item" href="/broadcasts.html">
+        <span class="institution-strip__label">Open Air Waves</span>
+        <span class="institution-strip__copy">Research notes, evidence, and technical broadcasts.</span>
+      </a>
+    </div>
+  </aside>
 
   <!-- ===================== TERMINAL DEMO (multi-demo player) ===================== -->
   <section class="demo" id="demo">
@@ -311,7 +325,7 @@
         <div class="market__bar">
           <span class="market__status" id="marketStatus">
             <span class="beacon" aria-hidden="true">((<span class="beacon__dot"></span>))</span>
-            <span id="marketStatusText">tuning in to the broker…</span>
+            <span id="marketStatusText">Live market · awaiting JavaScript</span>
           </span>
           <span class="market__meta">
             <button class="market__refresh" id="marketRefresh" type="button"
@@ -328,16 +342,18 @@
           <span class="mkt-cell mkt-cell--price">price · out</span>
         </div>
 
-        <!-- the live rows render here -->
+        <!-- Live rows replace this honest static fallback after a successful read. -->
         <ul class="mkt-list" id="marketList" aria-live="polite">
-          <li class="mkt-skel" aria-hidden="true"></li>
-          <li class="mkt-skel" aria-hidden="true"></li>
-          <li class="mkt-skel" aria-hidden="true"></li>
-          <li class="mkt-skel" aria-hidden="true"></li>
+          <li class="mkt-quiet">
+            <span class="mkt-quiet__txt">
+              Live data loads when JavaScript is available.
+              <a href="/models.html">Open the Models directory &rarr;</a>
+            </span>
+          </li>
         </ul>
 
         <p class="market__foot mono" id="marketFoot">
-          reading <span class="ember">broker.rogerai.fm/market</span> · prices in $ / 1M tokens
+          No live data loaded yet · prices appear only after a broker response
         </p>
         <p class="market__tune mono">
           <a href="/models.html">tune the dial - browse every model &amp; station &rarr;</a>
@@ -351,17 +367,73 @@
       <div class="meter" aria-label="What it costs">
         <span id="meterRate"><span class="meter__k">RATE</span><b>live market</b>, set by operators</span>
         <span id="meterReply"><span class="meter__k">REPLY</span><b>priced per token</b>, in and out</span>
-        <span><span class="meter__k">WALLET</span><b>debited live</b>, per token</span>
+        <span><span class="meter__k">WALLET</span><b>debited per request</b>, per token</span>
       </div>
     </div>
   </section>
-  </main>
+
+  <!-- ===================== COMPANY ===================== -->
+  <section class="section company" id="company">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§3 / COMPANY</span>
+        <h2>Infrastructure and models for practical local AI.</h2>
+        <p>RogerAI is an AI company based in Orange County, California, building
+          American research and infrastructure. It is independently owned and not
+          venture funded.</p>
+      </div>
+
+      <div class="company__grid" data-reveal data-reveal-delay="60">
+        <article class="company__card">
+          <span class="company__label">PRODUCT</span>
+          <h3>The radio for GPUs</h3>
+          <p>RogerAI gives developers and teams an OpenAI-compatible endpoint for
+            models running across community and private hardware. It handles
+            discovery, routing, failover, metering, and signed receipts while
+            operators keep control of their machines.</p>
+          <p>Open model and runtime work ships under its stated artifact license.
+            The network and broker remain source-visible under PolyForm Perimeter.</p>
+          <p class="company__links">
+            <a href="/company.html">About the company</a>
+            <a href="/models.html">Browse models</a>
+            <a href="/manual.html">Read the manual</a>
+            <a href="#top">Install and evaluate</a>
+          </p>
+        </article>
+
+        <article class="company__card company__card--labs">
+          <!-- include: tube-ping.html -->
+          <span class="company__label">ROGERAI LABS · WAVE NANO v1.0</span>
+          <h3>One released checkpoint, one exact contract.</h3>
+          <p><span class="status status--available">AVAILABLE</span>
+            <code>wave-nano-350m-instruct</code> · 350M · instruct · GGUF · Q4_K_M.</p>
+          <p><b>Artifact license: Apache-2.0.</b> Local use does not require RogerAI
+            or its broker. Optional network services, including publication, routing,
+            payments, failover, and signed receipts, use separate network terms and do
+            not modify the artifact license.</p>
+          <p class="company__links">
+            <a class="company__primary" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct">Download or Run Wave</a>
+            <a href="/research.html">Full Research record</a>
+            <a href="/broadcasts.html">Open Air Waves</a>
+          </p>
+        </article>
+      </div>
+
+      <ol class="home-spectrum" aria-label="RogerAI model size spectrum">
+        <li><span>KB–10M</span><b>Roger Edge</b><small>fixed sensing · microcontrollers</small></li>
+        <li><span>&lt;100M</span><b>Wave Micro</b><small>routing + extraction · ARM/NPU</small></li>
+        <li class="is-available"><span>350M · AVAILABLE</span><b>Wave Nano</b><small>local text + tools · Pi/phone/edge</small></li>
+        <li><span>1B-class</span><b>Wave Core</b><small>local reasoning · laptop/workstation</small></li>
+        <li class="home-spectrum__more"><a href="/research.html">Full program status &rarr;</a></li>
+      </ol>
+    </div>
+  </section>
 
   <!-- ===================== THE TUNE ===================== -->
   <section class="section band" id="what">
     <div class="wrap">
       <div class="section__head" data-reveal>
-        <span class="sectionno">§3 / THE TUNE</span>
+        <span class="sectionno">§4 / THE TUNE</span>
         <h2>Two sides of the same network.</h2>
         <p>Use remote model capacity through a local endpoint, or make an
           OpenAI-compatible model available at a price and schedule you control.</p>
@@ -395,7 +467,7 @@
   <section class="section" id="spec">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§4 / SPECIFICATIONS</span>
+        <span class="sectionno">§5 / SPECIFICATIONS</span>
         <h2>Read the spec sheet.</h2>
         <p>The whole instrument, on one plate. No surprises behind the dial.</p>
       </div>
@@ -445,7 +517,7 @@
   <section class="section" id="how">
     <div class="wrap">
       <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§5 / OPERATING NOTES</span>
+        <span class="sectionno">§6 / OPERATING NOTES</span>
         <h2>Four notes before you transmit.</h2>
       </div>
 
@@ -478,7 +550,7 @@
   <section class="section band" id="monetize">
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
-        <span class="sectionno">§6 / MONETIZE</span>
+        <span class="sectionno">§7 / MONETIZE</span>
         <h2>Put idle GPU capacity to work.</h2>
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
           stations broadcast for the love of the band.</p>
@@ -490,64 +562,28 @@
         </ul>
       </div>
 
-      <aside class="earn" data-reveal data-reveal-delay="100" aria-label="Example operator panel">
+      <aside class="earn"
+             data-rate="0.30" data-volume-min="10000000" data-volume-max="30000000"
+             data-uptime="0.50" data-share="0.70"
+             data-reveal data-reveal-delay="100" aria-label="Illustrative operator earnings panel">
         <span class="fig" aria-hidden="true">FIG. 4 - OPERATOR PANEL</span>
         <div class="earn__head">
           <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
-          <span class="earn__onair"><span class="dot"></span> ON AIR</span>
+          <span class="earn__mode">ILLUSTRATIVE</span>
         </div>
         <div class="earn__row"><span>model</span><b class="mono">qwen3-coder-30b</b></div>
-        <div class="earn__row"><span>rate · out</span><b class="mono">$0.30 / 1M</b></div>
-        <div class="earn__row"><span>rate · in</span><b class="mono">$0.18 / 1M</b></div>
+        <div class="earn__row"><span>rate</span><b class="mono">$0.30 / 1M out</b></div>
+        <div class="earn__row"><span>volume</span><b class="mono">10M - 30M out / day</b></div>
+        <div class="earn__row"><span>uptime</span><b class="mono">50%</b></div>
+        <div class="earn__row"><span>your share</span><b class="mono">70%</b></div>
         <div class="earn__spark">
-          <span class="earn__label">est. / day</span>
+          <span class="earn__label">illustrative / day</span>
           <span class="earn__bars" aria-hidden="true"></span>
-          <b class="mono earn__amt">$1.10 - $3.40</b>
+          <b class="mono earn__amt">$1.05 - $3.15</b>
         </div>
-        <div class="earn__foot mono">you'll appear in the band within ~10s</div>
+        <div class="earn__formula mono">rate × volume × uptime × share</div>
+        <div class="earn__foot mono">example assumptions · demand and earnings are not guaranteed</div>
       </aside>
-    </div>
-  </section>
-
-  <!-- ===================== COMPANY ===================== -->
-  <section class="section company" id="company">
-    <div class="wrap">
-      <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§7 / COMPANY</span>
-        <h2>Infrastructure and models for practical local AI.</h2>
-        <p>RogerAI is an AI company building a simpler way to run, share, and use
-          models on real hardware.</p>
-      </div>
-
-      <div class="company__grid" data-reveal data-reveal-delay="60">
-        <article class="company__card">
-          <span class="company__label">PRODUCT</span>
-          <h3>The radio for GPUs</h3>
-          <p>RogerAI gives developers and teams an OpenAI-compatible endpoint for
-            models running across community and private hardware. It handles
-            discovery, routing, failover, metering, and signed receipts while
-            operators keep control of their machines.</p>
-          <p class="company__links">
-            <a href="/company.html">About the company</a>
-            <a href="/models.html">Browse models</a>
-            <a href="/manual.html">Read the manual</a>
-            <a href="#top">Install and evaluate</a>
-          </p>
-        </article>
-
-        <article class="company__card company__card--labs">
-          <span class="company__label">ROGERAI LABS</span>
-          <h3>Models for local constraints</h3>
-          <p>RogerAI Labs works across a clear size ladder: frontier-scale
-            optimization for workstations, Wave Nano for local text and tools,
-            Wave Micro for routing and extraction, and Roger Edge for sensing
-            and fixed commands. Each program exists for a specific hardware envelope.</p>
-          <p class="company__links">
-            <a href="/research.html">Explore Research</a>
-            <a href="/broadcasts.html">Open Air Waves</a>
-          </p>
-        </article>
-      </div>
     </div>
   </section>
 
@@ -573,6 +609,7 @@
       </div>
     </div>
   </section>
+  </main>
 
   <!-- ============================ FOOTER ============================ -->
   <!-- include: footer.html anchors= -->

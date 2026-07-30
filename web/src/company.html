@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="Company - RogerAI" desc="RogerAI is an American AI research and infrastructure company in Orange County, California. We build local-first inference infrastructure and open edge models for industrial and embedded deployment." theme=external og=post ogtype=website ogtitle="RogerAI - an American AI research and infrastructure company" ogdesc="Local-first inference infrastructure and open edge models for oil and gas, power generation, manufacturing, and aerospace." ogurl="https://rogerai.fm/company.html" ogimage="https://rogerai.fm/og.png" -->
+  <!-- include: head.html title="RogerAI Company - American AI research and infrastructure" desc="RogerAI is an independently owned AI company in Orange County, California, building local models and inference infrastructure for practical deployment." theme=external og=post ogtype=website ogtitle="RogerAI - built in Orange County, useful anywhere" ogdesc="An independently owned AI company building models and inference infrastructure for practical local AI." ogurl="https://rogerai.fm/company.html" ogimage="https://rogerai.fm/og-company.png" -->
 </head>
 <body data-onair="idle">
   <div class="rail" aria-hidden="true">
@@ -71,7 +71,8 @@
             <p>Open model and inference research for edge, embedded, and industrial use:
                quantization, pruning, runtime work, and the <b>Wave</b> family of
                device-first small models. Every result publishes its hardware, harness, and
-               raw outputs. No Wave checkpoint has been released yet, and the page says so.</p>
+               raw outputs. Wave Nano v1.0 is the released checkpoint; every other rung
+               retains its own research or design status.</p>
             <dl>
               <div><dt>Programs</dt><dd><a href="/research.html">Research notebook</a></dd></div>
               <div><dt>Evidence</dt><dd><a href="/broadcasts.html">Open Air Waves</a></dd></div>
@@ -102,10 +103,12 @@
         </div>
         <div class="research-prose">
           <p><b>A right-sized ladder.</b> Roger Edge handles fixed signals and commands;
-             Wave Micro targets sub-100M specialist work; Wave Nano targets 350M-class text
+             Wave Micro targets sub-100M specialist work; Wave Nano is a 350M-class released model for text
              and tools; frontier-scale optimization brings upstream models with
              tens or hundreds of billions of parameters toward local hardware.
-             There is no released Wave checkpoint.</p>
+             The released checkpoint is
+             <a href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct"><code>wave-nano-350m-instruct</code></a>;
+             the other rungs keep their own research or design status.</p>
           <p><b>Industrial deployment.</b> Our focus spans oil and gas, power generation,
              manufacturing, and aerospace: advisory workloads beside existing control
              systems, never replacing deterministic protection or safety paths.</p>
@@ -135,6 +138,11 @@
              licensed under PolyForm Perimeter 1.0.0. We publish the source, but do not call
              that component open source. Each artifact carries its own license rather than
              borrowing a broader marketing label.</p>
+          <p><b>Artifact license: Apache-2.0.</b> The released Wave Nano v1.0
+             artifact may be used locally without the network.
+             Optional broker publication, routing, payments, failover, and receipts are
+             network services governed by separate network terms; those terms do not modify the
+             artifact license.</p>
         </div>
       </div>
     </section>

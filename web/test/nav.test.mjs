@@ -122,3 +122,36 @@ test("source partial: no stray {{APP_STORE_URL}} marker (would ship literally)",
   // plain token, not a {{...}} marker that would silently blank inside the shipped comment.
   assert.doesNotMatch(readSrc("_partials/nav.html"), /\{\{\s*APP_STORE_URL\s*\}\}/);
 });
+
+test("each first-class destination marks exactly one matching current nav link", () => {
+  const destinations = new Map([
+    ["models.html", "/models.html"],
+    ["research.html", "/research.html"],
+    ["voices.html", "/voices.html"],
+    ["app.html", "/app.html"],
+    ["company.html", "/company.html"],
+    ["manual.html", "/manual.html"],
+  ]);
+  for (const [page, href] of destinations) {
+    const html = readFileSync(path.join(DIST, page), "utf8");
+    const current = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]+aria-current="page"[^>]*>/g)];
+    assert.equal(current.length, 1, `${page} has exactly one current nav link`);
+    assert.equal(current[0][1], href, `${page} marks its matching destination`);
+  }
+  const home = readFileSync(path.join(DIST, "index.html"), "utf8");
+  assert.doesNotMatch(home, /aria-current="page"/);
+});
+
+test("current navigation uses a stable red underline with reduced-motion safety", () => {
+  const css = readFileSync(path.join(SRC, "styles", "base.css"), "utf8");
+  assert.match(css, /\.nav__link\[aria-current="page"\]/);
+  assert.match(css, /aria-current="page"[\s\S]*?color:\s*var\(--ink-900\)/);
+  const currentRule = css.match(/\.nav__link\[aria-current="page"\]::after\s*\{([^}]*)\}/)?.[1] || "";
+  assert.match(currentRule, /height:\s*2px/);
+  assert.match(currentRule, /background:\s*var\(--live\)/);
+  assert.match(currentRule, /transform:\s*scaleX\(1\)/);
+  const reducedMotion = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g) || [];
+  assert.ok(reducedMotion.some((block) =>
+    /\.nav__link:not\(\.nav__link--ghost\)::after\s*\{\s*transition:\s*none;\s*\}/.test(block)
+  ), "reduced motion disables the nav underline transition");
+});

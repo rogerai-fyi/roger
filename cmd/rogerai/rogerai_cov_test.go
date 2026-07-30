@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -189,8 +190,8 @@ func TestDispatchRouting(t *testing.T) {
 		}
 	}
 	// Unknown command -> the sentinel error (main turns it into exit 1).
-	if err := dispatch(cfg, []string{"bogus-verb"}); err != errUnknownCommand {
-		t.Errorf("dispatch(unknown) = %v, want errUnknownCommand", err)
+	if err := dispatch(cfg, []string{"bogus-verb"}); !errors.Is(err, errUnknownCommand) {
+		t.Errorf("dispatch(unknown) = %v, want wrapped errUnknownCommand", err)
 	}
 }
 

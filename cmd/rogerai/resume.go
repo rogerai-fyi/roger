@@ -22,6 +22,15 @@ var (
 )
 
 func cmdResume(cfg config, args []string) error {
+	return cmdResumeWithRuntime(cfg, args, "", false, defaultWebuiPort)
+}
+
+func cmdResumeWithRuntime(cfg config, args []string, notice string, webuiOn bool, webuiPort string) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Println("usage: roger resume [session-id]")
+		fmt.Println("       roger continue [session-id]")
+		return nil
+	}
 	if len(args) > 1 {
 		return fmt.Errorf("usage: roger resume [session-id]")
 	}
@@ -67,5 +76,8 @@ func cmdResume(cfg config, args []string) error {
 	selected.WorkdirAvailable = statErr == nil && info.IsDir()
 	hooks := tuiHooks(cfg)
 	ctrl := tui.NewController(cfg.Broker, hooks)
-	return runResumedTUI(cfg.Broker, cfg.User, tuiLimits(cfg), "", hooks, ctrl, selected)
+	if webuiOn {
+		hooks.ConsoleURL = startWebConsoleFn(cfg, ctrl, webuiPort)
+	}
+	return runResumedTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl, selected)
 }

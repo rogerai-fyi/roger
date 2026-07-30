@@ -9,11 +9,19 @@ import (
 )
 
 const approvedTubePing = "" +
-	"     ▄██████▄\n" +
-	"((  █   •   █▓  ))\n" +
-	"    █  ROG  █▓\n" +
-	"     ▀█▄▄▄▄█▀▒\n" +
-	"      ▀    ▀"
+	"   ▄██████▄\n" +
+	"(  █    • █▓  )\n" +
+	"   █  ROG █▓\n" +
+	"    ▀█▄▄█▀▒\n" +
+	"     ▀  ▀"
+
+var approvedCompactTubePing = []string{
+	"   ▄██████▄",
+	"(  █    • █▓  )",
+	"   █  ROG █▓",
+	"    ▀█▄▄█▀▒",
+	"     ▀  ▀",
+}
 
 func tubePingWorldPosition(buf [][]worldCell) (int, bool) {
 	for _, row := range buf {
@@ -43,6 +51,82 @@ func TestTubePingCanonicalSilhouette(t *testing.T) {
 	if got != approvedTubePing {
 		t.Fatalf("Tube Ping silhouette drifted:\n%s\nwant:\n%s", got, approvedTubePing)
 	}
+}
+
+func TestTubePingEyeUsesOpticallyCorrectedColumn(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		pose   tubePingPose
+		marker string
+	}{
+		{name: "idle", pose: tubePingIdle, marker: "•"},
+		{name: "transmit", pose: tubePingTransmit, marker: "O"},
+		{name: "blink", pose: tubePingBlink, marker: "─"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Split(stripANSI(renderTubePingPose(80, 0, tc.pose)), "\n")
+			if len(got) < 3 {
+				t.Fatalf("Tube Ping has %d rows, want at least 3", len(got))
+			}
+			wordmarkRow := ""
+			for _, line := range got {
+				if strings.Contains(line, "ROG") {
+					wordmarkRow = line
+					break
+				}
+			}
+			if wordmarkRow == "" {
+				t.Fatalf("Tube Ping has no ROG wordmark:\n%s", strings.Join(got, "\n"))
+			}
+			eye := terminalCellBefore(t, got[1], tc.marker)
+			wordmarkCenter := terminalCellBefore(t, wordmarkRow, "O")
+			if eye != wordmarkCenter+1 {
+				t.Fatalf("%s eye column=%d, want one-cell optical correction right of ROG center=%d:\n%s",
+					tc.name, eye, wordmarkCenter, strings.Join(got, "\n"))
+			}
+			for row, line := range got {
+				if width, want := lipgloss.Width(line), lipgloss.Width(tubePingRows[row]); width != want {
+					t.Fatalf("%s row %d width=%d, want stable width=%d", tc.name, row, width, want)
+				}
+			}
+		})
+	}
+}
+
+func TestTubePingWalkerUsesOpticallyCorrectedEyeAndStableBounds(t *testing.T) {
+	baselineWidth := 0
+	for frame, rows := range tubePingWalkFrames {
+		eye := terminalCellBefore(t, rows[1], "•")
+		wordmarkCenter := terminalCellBefore(t, rows[2], "O")
+		if eye != wordmarkCenter+1 {
+			t.Fatalf("walker frame %d eye column=%d, want one-cell optical correction right of ROG center=%d:\n%s",
+				frame, eye, wordmarkCenter, strings.Join(rows, "\n"))
+		}
+		maxWidth := 0
+		for row, line := range rows {
+			width := lipgloss.Width(line)
+			if width > tubePingWalkW {
+				t.Fatalf("walker frame %d row %d width=%d exceeds bound %d", frame, row, width, tubePingWalkW)
+			}
+			if width > maxWidth {
+				maxWidth = width
+			}
+		}
+		if frame == 0 {
+			baselineWidth = maxWidth
+		} else if maxWidth != baselineWidth {
+			t.Fatalf("walker frame %d occupied width=%d, want stable width=%d", frame, maxWidth, baselineWidth)
+		}
+	}
+}
+
+func terminalCellBefore(t *testing.T, line, marker string) int {
+	t.Helper()
+	index := strings.Index(line, marker)
+	if index < 0 {
+		t.Fatalf("marker %q missing from %q", marker, line)
+	}
+	return lipgloss.Width(line[:index])
 }
 
 func TestTubePingFallsBackToClassicAtTinyWidth(t *testing.T) {
@@ -146,84 +230,45 @@ func TestHeaderUsesCompactTubePingStationBug(t *testing.T) {
 func TestAgentCornerUsesCompactTubePingFamily(t *testing.T) {
 	for _, state := range []agentPose{poseWaiting, poseThinking, poseStreaming, poseTool} {
 		lines := agentCornerPing(state, 24, false, false, true)
-		if len(lines) != 3 {
-			t.Fatalf("state %d returned %d rows, want stable 3-row mark", state, len(lines))
+		if len(lines) != len(approvedCompactTubePing) {
+			t.Fatalf("state %d returned %d rows, want stable %d-row mark", state, len(lines), len(approvedCompactTubePing))
 		}
 		plain := stripANSI(strings.Join(lines, "\n"))
 		if !strings.Contains(plain, "ROG") || !strings.Contains(plain, "▓") {
 			t.Fatalf("state %d is not a compact Tube Ping:\n%s", state, plain)
 		}
+		if state == poseWaiting {
+			corner := stripANSI(strings.Join(compactTubePingCorner(state, 0, true), "\n"))
+			if corner == strings.Join(approvedCompactTubePing, "\n") {
+				continue
+			}
+			t.Fatalf("waiting Tube Ping silhouette drifted:\n%s\nwant:\n%s",
+				corner, strings.Join(approvedCompactTubePing, "\n"))
+		}
 	}
 }
 
-// cornerBodySpan reports the first and last column occupied by the receiver ITSELF
-// on one corner row - excluding the carrier waves, the tool arms, and the depth
-// plane, which are all decoration hung off the body rather than part of it.
-func cornerBodySpan(row string) (first, last int) {
-	const decoration = " ()‹›∩▓▒"
-	first, last = -1, -1
-	for c, ch := range []rune(stripANSI(row)) {
-		if strings.ContainsRune(decoration, ch) {
-			continue
-		}
-		if first < 0 {
-			first = c
-		}
-		last = c
-	}
-	return first, last
-}
-
-// The 3-row AGENT corner has to read as ONE object. Every row shares a left and a
-// right edge column, and the depth plane (▓ on the lit rows, ▒ on the base) sits in
-// a single column all the way down. The first pass floated a 3-cell head over a
-// 5-cell body and stepped the shadow between columns 5 and 6, which on a real
-// terminal read as a small head sitting on a detached white slab.
+// The AGENT corner has to read as one stable object. Each state retains the same
+// occupied row widths; the side plane stays vertical and the bevel steps inward.
 func TestAgentCornerSharesOneBoundingBoxAndOneShadowColumn(t *testing.T) {
 	for _, state := range []agentPose{poseWaiting, poseThinking, poseStreaming, poseTool} {
 		rows := compactTubePingCorner(state, 0, true)
-		if len(rows) != 3 {
-			t.Fatalf("state %d: %d rows, want 3", state, len(rows))
+		if len(rows) != len(approvedCompactTubePing) {
+			t.Fatalf("state %d: %d rows, want %d", state, len(rows), len(approvedCompactTubePing))
 		}
 		dump := stripANSI(strings.Join(rows, "\n"))
-
-		wantFirst, wantLast := cornerBodySpan(rows[0])
 		for i, row := range rows {
-			first, last := cornerBodySpan(row)
-			if first != wantFirst || last != wantLast {
-				t.Errorf("state %d row %d spans columns %d-%d, want %d-%d (one bounding box):\n%s",
-					state, i, first, last, wantFirst, wantLast, dump)
+			if got, want := lipgloss.Width(stripANSI(row)), lipgloss.Width(approvedCompactTubePing[i]); got != want {
+				t.Errorf("state %d row %d width=%d, want stable width=%d:\n%s",
+					state, i, got, want, dump)
 			}
 		}
-
-		shadowCol := -1
-		for i, row := range rows {
-			col := -1
-			for c, ch := range []rune(stripANSI(row)) {
-				if ch != '▓' && ch != '▒' {
-					continue
-				}
-				if col >= 0 {
-					t.Fatalf("state %d row %d has more than one depth glyph:\n%s", state, i, dump)
-				}
-				col = c
-			}
-			if col < 0 {
-				t.Errorf("state %d row %d has no depth plane:\n%s", state, i, dump)
-				continue
-			}
-			if shadowCol < 0 {
-				shadowCol = col
-				continue
-			}
-			if col != shadowCol {
-				t.Errorf("state %d row %d puts the depth plane in column %d, want %d (one plane, one column):\n%s",
-					state, i, col, shadowCol, dump)
-			}
-		}
-		if shadowCol >= 0 && shadowCol != wantLast+1 {
-			t.Errorf("state %d: depth plane sits in column %d, want %d - immediately right of the body:\n%s",
-				state, shadowCol, wantLast+1, dump)
+		faceDepth := terminalCellBefore(t, stripANSI(rows[1]), "▓")
+		wordmarkDepth := terminalCellBefore(t, stripANSI(rows[2]), "▓")
+		bevelDepth := terminalCellBefore(t, stripANSI(rows[3]), "▒")
+		if faceDepth != wordmarkDepth || bevelDepth != faceDepth-1 {
+			t.Errorf("state %d has incoherent 3D planes: face=%d wordmark=%d bevel=%d:\n%s",
+				state, faceDepth, wordmarkDepth, bevelDepth, dump)
 		}
 	}
 }
@@ -250,9 +295,15 @@ func TestTubePingHeroAnimationPreservesIdentity(t *testing.T) {
 		if strings.Count(got, "O") != 2 { // widened eye plus the O in ROG
 			t.Fatalf("transmit pose must have one widened eye and the unchanged wordmark:\n%s", got)
 		}
-		if strings.Count(got, "((") != strings.Count(got, "))") {
-			t.Fatalf("transmit waves are asymmetric:\n%s", got)
-		}
+	}
+	if !strings.Contains(tx0, "(  █") || !strings.Contains(tx0, "█▓  )") {
+		t.Fatalf("transmit rest frame lost the canonical matched carriers:\n%s", tx0)
+	}
+	if !strings.Contains(tx1, "(( █") || !strings.Contains(tx1, "█▓ ))") {
+		t.Fatalf("transmit live frame did not grow both carriers:\n%s", tx1)
+	}
+	if tx0 == tx1 {
+		t.Fatal("transmit carrier animation is motionless")
 	}
 
 	blink := stripANSI(renderTubePingPose(80, 0, tubePingBlink))
@@ -275,7 +326,7 @@ func TestTubePingTitleUsesCompactIdentityLockup(t *testing.T) {
 	lines := strings.Split(got, "\n")
 	rogRow, lockupRow := -1, -1
 	for i, line := range lines {
-		if strings.Contains(line, "█  ROG  █") {
+		if strings.Contains(line, "█  ROG █") {
 			rogRow = i
 		}
 		if strings.Contains(line, "ROGER·AI  ·  TUBE PING") {

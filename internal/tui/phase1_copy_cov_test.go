@@ -81,19 +81,19 @@ func TestSlashCopyLastReplyAndAll(t *testing.T) {
 }
 
 func TestSlashMouseToggle(t *testing.T) {
-	// Default is native-select so the advertised ordinary drag-to-copy works. /mouse
-	// opts into captured wheel-scroll, and again returns to native selection.
+	// Default is smart select. /mouse restores native selection, and again returns
+	// to application-owned drag-copy plus wheel scrolling.
 	m := chatModelForCopy()
-	if !m.mouseOff {
-		t.Fatal("default should be native-select (mouseOff=true)")
+	if m.mouseOff {
+		t.Fatal("default should be smart-select (mouseOff=false)")
 	}
 	out, cmd := m.runSession("/mouse")
-	if asModel(out).mouseOff || cmd == nil {
-		t.Error("/mouse from the default should enable captured wheel-scroll")
+	if !asModel(out).mouseOff || cmd == nil {
+		t.Error("/mouse from the default should restore native selection")
 	}
 	out2, cmd2 := asModel(out).runSession("/mouse")
-	if !asModel(out2).mouseOff || cmd2 == nil {
-		t.Error("/mouse again should restore native-select + DisableMouse")
+	if asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("/mouse again should restore smart select + wheel scrolling")
 	}
 }
 
@@ -170,14 +170,14 @@ func TestChannelFooterDedupAndHints(t *testing.T) {
 }
 
 func TestCtrlOTogglesNativeSelect(t *testing.T) {
-	// Default native-select; ctrl+o opts into wheel-scroll, then restores selection.
+	// Default smart-select; ctrl+o restores native selection, then smart selection.
 	out, cmd := chatModelForCopy().Update(tea.KeyMsg{Type: tea.KeyCtrlO})
-	if asModel(out).mouseOff || cmd == nil {
-		t.Error("ctrl+o from the default should enable captured wheel-scroll")
+	if !asModel(out).mouseOff || cmd == nil {
+		t.Error("ctrl+o from the default should restore native selection")
 	}
 	out2, cmd2 := asModel(out).Update(tea.KeyMsg{Type: tea.KeyCtrlO})
-	if !asModel(out2).mouseOff || cmd2 == nil {
-		t.Error("ctrl+o again should restore native selection")
+	if asModel(out2).mouseOff || cmd2 == nil {
+		t.Error("ctrl+o again should restore smart selection")
 	}
 }
 
@@ -186,18 +186,18 @@ func TestAgentCanToggleMouseCapture(t *testing.T) {
 	m.mode = modeAgent
 	m.agent = m.newAgentRuntime()
 	m.agentIn.Focus()
-	if !m.mouseOff {
-		t.Fatal("native selection must own the mouse initially")
+	if m.mouseOff {
+		t.Fatal("smart selection must own the mouse initially")
 	}
 	out, cmd := m.onAgentKey(tea.KeyMsg{Type: tea.KeyCtrlO})
 	m = asModel(out)
-	if m.mouseOff || cmd == nil {
-		t.Fatal("AGENT ctrl+o must enable captured wheel scrolling")
+	if !m.mouseOff || cmd == nil {
+		t.Fatal("AGENT ctrl+o must restore native selection")
 	}
 	out, cmd = m.runAgentCommand("/mouse")
 	m = asModel(out)
-	if !m.mouseOff || cmd == nil {
-		t.Fatal("AGENT /mouse must restore native selection")
+	if m.mouseOff || cmd == nil {
+		t.Fatal("AGENT /mouse must restore smart selection")
 	}
 }
 

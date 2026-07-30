@@ -26,6 +26,56 @@ test("homepage leads with a concrete product promise", () => {
   assert.doesNotMatch(home, /pays rent while you sleep|Pick up the mic/i);
 });
 
+test("homepage masthead joins the company identity to the product promise", () => {
+  const home = readFileSync(path.join(DIST, "index.html"), "utf8");
+  const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
+  assert.match(hero, /American AI research \+ infrastructure/i);
+  assert.match(compact(hero), /one OpenAI-compatible local endpoint/i);
+  assert.match(hero, /open model research/i);
+  assert.match(hero, /routing/i);
+  assert.match(hero, /failover/i);
+  assert.match(hero, /metering/i);
+  assert.match(hero, /signed receipts/i);
+  assert.ok(hero.indexOf('class="install"') > hero.indexOf("<h1"), "install remains in the hero");
+});
+
+test("a compact institutional strip separates Network, Labs, and evidence", () => {
+  const home = readFileSync(path.join(DIST, "index.html"), "utf8");
+  const strip = home.match(/<aside class="institution-strip"[\s\S]*?<\/aside>/)?.[0] || "";
+  assert.match(strip, /RogerAI Network/);
+  assert.match(strip, /RogerAI Labs/);
+  assert.match(strip, /Open Air Waves/);
+  assert.match(strip, /href="\/company\.html"/);
+  assert.match(strip, /href="\/research\.html"/);
+  assert.match(strip, /href="\/broadcasts\.html"/);
+  assert.equal((strip.match(/<a\b/g) || []).length, 3, "one focused link per surface");
+});
+
+test("Company and Labs appear before technical detail and monetization", () => {
+  const home = readFileSync(path.join(DIST, "index.html"), "utf8");
+  const at = (id) => home.indexOf(`id="${id}"`);
+  assert.ok(at("demo") > 0 && at("market") > at("demo"), "product proof leads");
+  assert.ok(at("company") > at("market"), "company follows product and live proof");
+  assert.ok(at("company") < at("what"), "company precedes network detail");
+  assert.ok(at("company") < at("spec"), "company precedes specifications");
+  assert.ok(at("company") < at("monetize"), "company precedes monetization");
+  for (const marker of [
+    "§1 / OPERATING PROCEDURE",
+    "§2 / THE BAND",
+    "§3 / COMPANY",
+    "§4 / THE TUNE",
+    "§5 / SPECIFICATIONS",
+    "§6 / OPERATING NOTES",
+    "§7 / MONETIZE",
+    "§8 / GO",
+  ]) assert.match(home, new RegExp(marker.replace("/", "\\/")));
+  const main = home.match(/<main\b[\s\S]*?<\/main>/)?.[0] || "";
+  for (const id of ["demo", "market", "company", "what", "spec", "how", "monetize"]) {
+    assert.match(main, new RegExp(`id="${id}"`), `${id} remains in the main landmark`);
+  }
+  assert.match(main, /class="cta"/, "the closing CTA remains in the main landmark");
+});
+
 test("homepage connects company, product, audience, evaluation, and research", () => {
   const home = readFileSync(path.join(DIST, "index.html"), "utf8");
   const section = home.match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)?.[0];

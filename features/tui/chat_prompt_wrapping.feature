@@ -22,24 +22,26 @@ Feature: TUNE IN prompt wrapping and vertical fit
     When the terminal is 80 columns by 18 rows
     Then the TUNE IN composer occupies one row
 
-  Scenario: Native mouse selection works by default
+  Scenario: Smart select-and-copy works by default
     Given I launch the RogerAI TUI
-    Then terminal mouse reporting is disabled
-    And ordinary click-drag selection belongs to the terminal
+    Then terminal mouse reporting is enabled
+    And releasing selected transcript text copies it to the clipboard
+    And a counted copy notification is visible
     And keyboard transcript scrolling remains available
 
-  Scenario: Mouse-wheel transcript scrolling remains opt-in
+  Scenario: Native terminal selection remains one toggle away
     Given I launch the RogerAI TUI
     When I run "/mouse"
-    Then terminal mouse reporting is enabled
-    And running "/mouse" again restores native selection
+    Then terminal mouse reporting is disabled
+    And ordinary click-drag selection belongs to the terminal
+    And running "/mouse" again restores smart selection and wheel scrolling
 
   Scenario: Mouse mode can be changed from AGENT
     Given I am typing in AGENT mode
     When I press ctrl+o
-    Then terminal mouse reporting is enabled
-    When I run the AGENT command "/mouse"
     Then terminal mouse reporting is disabled
+    When I run the AGENT command "/mouse"
+    Then terminal mouse reporting is enabled
 
   Scenario: Native selection is not erased by idle discovery repaint
     Given I launch the RogerAI TUI

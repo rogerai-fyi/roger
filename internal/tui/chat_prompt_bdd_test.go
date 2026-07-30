@@ -13,10 +13,12 @@ import (
 )
 
 type chatPromptBDD struct {
-	m model
+	m      model
+	copies []string
 }
 
 func (s *chatPromptBDD) reset() {
+	s.copies = nil
 	s.m = browseSeed(80)
 	s.m.width, s.m.height = 80, 18
 	s.m.mode = modeChat
@@ -121,16 +123,49 @@ func (s *chatPromptBDD) runMouse() error {
 
 func (s *chatPromptBDD) mouseEnabled() error {
 	if s.m.mouseOff {
-		return fmt.Errorf("mouse reporting remains disabled after /mouse")
+		return fmt.Errorf("mouse reporting is disabled")
 	}
 	return nil
 }
 
-func (s *chatPromptBDD) mouseAgainRestores() error {
+func (s *chatPromptBDD) selectedTranscriptCopies() error {
+	if s.m.mouseOff {
+		return fmt.Errorf("native selection cannot report a release to Roger")
+	}
+	s.m.width, s.m.height = 100, 40
+	s.m.transcript = []string{"There are six words."}
+	out, _ := s.m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	s.m = asModel(out)
+	top := s.m.transcriptTop()
+	out, _ = s.m.Update(mousePress(2, top))
+	out, _ = asModel(out).Update(mouseMotion(21, top))
+	out, cmd := asModel(out).Update(mouseRelease(21, top))
+	s.m = asModel(out)
+	if cmd == nil {
+		return fmt.Errorf("mouse release emitted no clipboard command")
+	}
+	if msg := cmd(); msg != nil {
+		out, _ = s.m.Update(msg)
+		s.m = asModel(out)
+	}
+	if len(s.copies) != 1 || s.copies[0] != "There are six words." {
+		return fmt.Errorf("release copies = %q, want exact transcript once", s.copies)
+	}
+	return nil
+}
+
+func (s *chatPromptBDD) countedCopyNotification() error {
+	if !strings.Contains(stripANSI(s.m.status), "Copied 20 characters to clipboard") {
+		return fmt.Errorf("counted copy notification missing: %q", stripANSI(s.m.status))
+	}
+	return nil
+}
+
+func (s *chatPromptBDD) mouseAgainRestoresSmart() error {
 	if err := s.runMouse(); err != nil {
 		return err
 	}
-	return s.mouseDisabled()
+	return s.mouseEnabled()
 }
 
 func (s *chatPromptBDD) typingAgent() error {
@@ -158,7 +193,16 @@ func (s *chatPromptBDD) runAgentMouse(_ string) error {
 	return nil
 }
 
-func (s *chatPromptBDD) nativeOwnsMouse() error { return s.mouseDisabled() }
+func (s *chatPromptBDD) nativeOwnsMouse() error {
+	if !s.m.mouseOff {
+		out, cmd := s.m.runSession("/mouse")
+		s.m = asModel(out)
+		if cmd == nil {
+			return fmt.Errorf("/mouse emitted no native-selection command")
+		}
+	}
+	return s.mouseDisabled()
+}
 
 func (s *chatPromptBDD) idleDoesNotPoll() error {
 	if s.m.idleDiscoveryEnabled() {
@@ -176,6 +220,15 @@ func (s *chatPromptBDD) tuneInCursorSteady() error {
 
 func TestChatPromptBDD(t *testing.T) {
 	st := &chatPromptBDD{}
+	origTool, origOSC := smartClipTool, smartOSC52
+	smartClipTool = func(text string) bool {
+		st.copies = append(st.copies, text)
+		return true
+	}
+	smartOSC52 = func(string) bool { return false }
+	t.Cleanup(func() {
+		smartClipTool, smartOSC52 = origTool, origOSC
+	})
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -198,7 +251,9 @@ func TestChatPromptBDD(t *testing.T) {
 			sc.Step(`^keyboard transcript scrolling remains available$`, st.keyboardScroll)
 			sc.Step(`^I run "/mouse"$`, st.runMouse)
 			sc.Step(`^terminal mouse reporting is enabled$`, st.mouseEnabled)
-			sc.Step(`^running "/mouse" again restores native selection$`, st.mouseAgainRestores)
+			sc.Step(`^releasing selected transcript text copies it to the clipboard$`, st.selectedTranscriptCopies)
+			sc.Step(`^a counted copy notification is visible$`, st.countedCopyNotification)
+			sc.Step(`^running "/mouse" again restores smart selection and wheel scrolling$`, st.mouseAgainRestoresSmart)
 			sc.Step(`^I am typing in AGENT mode$`, st.typingAgent)
 			sc.Step(`^I press ctrl\+o$`, st.pressCtrlO)
 			sc.Step(`^I run the AGENT command "([^"]*)"$`, st.runAgentMouse)

@@ -1,7 +1,7 @@
 package tui
 
 // smartselect_test.go - the unit contract for the "Smart mouse mode copies an
-// application-owned selection on release" and "Native selection remains the safe
+// application-owned selection on release" and "Smart select-and-copy is the
 // default" rules in features/tui/conversation_hierarchy_and_selection.feature.
 //
 // The selection is APPLICATION-owned: it lives in screen cells over the transcript
@@ -270,10 +270,10 @@ func TestTranscriptTopMatchesRenderedFrame(t *testing.T) {
 
 // ---------- wiring: the drag life cycle ----------
 
-func TestDefaultMouseOwnershipIsNative(t *testing.T) {
+func TestDefaultMouseOwnershipIsSmartSelect(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := New("http://broker.local", "tester")
-	require.True(t, m.mouseOff, "mouse capture must be OFF by default - native terminal selection owns the mouse")
+	require.False(t, m.mouseOff, "mouse capture must be ON by default so release can copy and notify")
 }
 
 func TestSmartDragCopiesExactVisibleSelection(t *testing.T) {

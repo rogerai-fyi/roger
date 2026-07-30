@@ -146,6 +146,7 @@
   var inflight = false;
   var retryAfterMs = 0;            // a 429's Retry-After hint (ms) applied to the NEXT poll only
   var holdStreak = 0;              // consecutive holds so far; a 200-with-data resets it. Bounds the hold (see decideRender / HOLD_MAX)
+  var lastLiveReadAt = 0;          // visible provenance for a held read; never call stale data live
 
   /* ---------- tiny DOM helpers ----------------------------------- */
   function el(tag, cls, html) {
@@ -305,6 +306,7 @@
   function paintQuiet() {
     stopShimmer();
     rendered = [];
+    listEl.classList.remove("is-stale");
     listEl.innerHTML =
       '<li class="mkt-quiet">' +
         '<span class="mkt-quiet__txt">The band is quiet right now - no stations on air yet. ' +
@@ -419,6 +421,8 @@
 
   function paint(channels, animate) {
     rendered = channels.slice(0, 6);
+    listEl.classList.remove("is-stale");
+    if (rendered.some(function (c) { return c && c.live; })) lastLiveReadAt = Date.now();
     listEl.innerHTML = "";
     rendered.forEach(function (c, i) {
       var li = el("li", "mkt-row" + (c.live ? "" : " mkt-row--idle"), rowHTML(c, animate));
@@ -466,6 +470,7 @@
     if (statusText) statusText.textContent = text;
     if (statusWrap) {
       statusWrap.classList.toggle("is-live", mode === "live");
+      statusWrap.classList.toggle("is-stale", mode === "stale");
       statusWrap.classList.toggle("is-demo", mode === "demo");
       statusWrap.classList.toggle("is-off", mode === "off");
     }
@@ -479,10 +484,17 @@
   // running) and only refreshes the status line.
   function holdLastKnown() {
     var live = rendered.filter(function (c) { return c && c.live; }).length;
-    setStatus("holding the last band read · re-tuning…", "live");
-    setFoot('holding the last read from <span class="ember">broker.rogerai.fm</span> · ' +
+    stopShimmer();
+    listEl.classList.add("is-stale");
+    var readAt = lastLiveReadAt
+      ? new Date(lastLiveReadAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "an earlier poll";
+    listEl.querySelectorAll(".mkt-prov").forEach(function (n) {
+      if (n.textContent.indexOf("last read · ") !== 0) n.textContent = "last read · " + n.textContent;
+    });
+    setStatus("last band read · re-tuning…", "stale");
+    setFoot('last read at ' + esc(readAt) + ' from <span class="ember">broker.rogerai.fm</span> · ' +
       (live ? live + ' band' + (live === 1 ? '' : 's') + ' shown' : 'retrying') + ' · auto-refresh 30s');
-    startShimmer();
   }
 
   function load() {

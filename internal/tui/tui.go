@@ -702,10 +702,9 @@ type model struct {
 	// lastReply is the RAW (unstyled) text of the most recent station reply, kept so
 	// ctrl+y / `/copy` yank clean text to the clipboard (the transcript holds styled lines).
 	lastReply string
-	// mouseOff: mouse reporting state. The DEFAULT is ON (wheel scrolls the transcripts
-	// as real mouse events, so arrow keys are free to mean history in the inputs - the
-	// founder's "up should show history, the wheel should scroll"). ctrl+o / /mouse
-	// toggles OFF for native drag-select + copy (shift+drag also selects while on).
+	// mouseOff: mouse reporting state. The default is false: Roger owns transcript
+	// dragging so release can copy exactly and report the character count. ctrl+o /
+	// /mouse sets it true to restore native terminal selection immediately.
 	mouseOff bool
 	// smartSel: the application-owned drag selection while mouse capture is ON
 	// (smart mouse mode) - anchor/head cells, drag/held state (smartselect.go).
@@ -1311,10 +1310,9 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// from the window on the first WindowSizeMsg (refreshScroll).
 		chatVP: viewport.New(0, 0), agentVP: viewport.New(0, 0),
 		proxyAddr: "127.0.0.1:4141", status: "tuning in…", alert: &alertBox{}, limits: limits,
-		// mouse capture OFF by default (keyboard-first, like opencode): the terminal owns the
-		// mouse so native drag-select + copy works on ANY text out of the box. ctrl+o / /mouse
-		// opts INTO wheel-scroll. Scrollback is always available via PgUp/PgDn + arrows.
-		mouseOff: true}
+		// Smart selection owns transcript drags by default: release copies exactly once and
+		// produces counted feedback. ctrl+o / /mouse restores native terminal selection.
+		mouseOff: false}
 	m.sessionWorkdir = agentRoot()
 	m.sessionWorkdirAvailable = true
 	return m
@@ -7426,7 +7424,13 @@ func (m model) agentCornerRows() int {
 	if mdl == "" {
 		return 0
 	}
-	return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact, m.agentBusy))
+	return len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.agentMascotCompact(), m.agentBusy))
+}
+
+// agentMascotCompact protects short terminals while allowing the roomier five-row
+// Tube Ping to breathe in ordinary AGENT layouts.
+func (m model) agentMascotCompact() bool {
+	return m.compact || (m.height > 0 && m.height < 20)
 }
 
 // agentTranscriptRows is chatTranscriptRows for the AGENT view (minus the corner Ping).
@@ -9546,11 +9550,10 @@ func sendChat(broker, user, mdl, prompt string, confidential bool, maxOut float6
 func RunWithController(broker, user string, limits *LimitStore, notice string, hooks Hooks, ctrl *node.Controller) error {
 	m := NewWithHooksController(broker, user, limits, hooks, ctrl)
 	m.updateLine = notice
-	// Native selection owns the mouse at startup, matching the on-screen “drag to copy”
-	// promise. /mouse or ctrl+o explicitly opts into captured wheel scrolling; keyboard
-	// transcript scrolling remains available without capture.
+	// Smart selection owns transcript drags at startup so mouse release can copy and
+	// report an honest character count. /mouse or ctrl+o restores native selection.
 	wantRestart = false
-	if err := launchTUI(m, tea.WithAltScreen()); err != nil {
+	if err := launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion()); err != nil {
 		return err
 	}
 	if wantRestart {
@@ -9575,7 +9578,7 @@ func RunResumedWithController(
 	}
 	m.updateLine = notice
 	wantRestart = false
-	if err := launchTUI(m, tea.WithAltScreen()); err != nil {
+	if err := launchTUI(m, tea.WithAltScreen(), tea.WithMouseCellMotion()); err != nil {
 		return err
 	}
 	if wantRestart {
