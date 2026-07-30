@@ -29,6 +29,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/client"
 	"github.com/rogerai-fyi/roger/internal/detect"
 	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/session"
 	"github.com/rogerai-fyi/roger/internal/tui"
 	"github.com/rogerai-fyi/roger/internal/update"
 )
@@ -41,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "5.4.6"
+var Version = "5.4.7"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -488,6 +489,7 @@ func tuiLimits(cfg config) *tui.LimitStore {
 // the public GitHub client id, the saved share config) plus the login/topup/grant
 // closures, so the in-TUI /share, /login, /topup, /grant flows are real actions.
 func tuiHooks(cfg config) tui.Hooks {
+	sessionStore := session.NewStore(session.DefaultDir())
 	h := tui.Hooks{
 		// Station is the PUBLIC, NON-SENSITIVE callsign the TUI derives every band's node
 		// id from (`<station>-<model>`). It is the saved/auto-generated station, NEVER the
@@ -560,6 +562,7 @@ func tuiHooks(cfg config) tui.Hooks {
 			c.Compact = on
 			_ = saveConfig(c)
 		},
+		SaveSession: sessionStore.Save,
 		// BASE STATION / remote control (v5.0.0): the host bridge + roster/stream closures,
 		// wrapping the internal/client RC funcs. *client.RCBridge satisfies tui.RemoteBridge
 		// structurally (shared protocol types), so it is returned directly.
@@ -811,6 +814,8 @@ func dispatch(cfg config, args []string) error {
 		return cmdSay(cfg, args[1:])
 	case "remote", "rc":
 		return cmdRemote(cfg, args[1:])
+	case "resume", "continue":
+		return cmdResume(cfg, args[1:])
 	case "voices":
 		return cmdVoices(cfg, args[1:])
 	case "share":
@@ -2190,6 +2195,7 @@ func usage() {
   roger perms <mode>          agent tool approvals default: confirm | edits | all
   roger --perms <m> / --yolo  same, for THIS run only (yolo = all)
   roger remote                your private remote sessions: list · attach <code> · off · link
+  roger resume [session-id]   resume a saved local AGENT session  (alias: continue)
 
 providers (share your GPU):
   roger share <model>         go on air - FREE by default, no login (auto-detects your model)

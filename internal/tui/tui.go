@@ -42,6 +42,7 @@ import (
 	"github.com/rogerai-fyi/roger/internal/operator"
 	"github.com/rogerai-fyi/roger/internal/pricetier"
 	"github.com/rogerai-fyi/roger/internal/protocol"
+	"github.com/rogerai-fyi/roger/internal/session"
 )
 
 // Hooks lets the host (cmd/rogerai) supply the few platform/auth bits the TUI
@@ -114,6 +115,9 @@ type Hooks struct {
 	// SaveCompact persists the compact toggle when the user presses [m], so the calm
 	// view is remembered next launch (nil = session-only; no disk I/O in the TUI).
 	SaveCompact func(bool)
+	// SaveSession atomically persists a completed AGENT conversation. The host owns the
+	// private session directory; nil keeps the historical session-only behavior.
+	SaveSession func(session.Snapshot) error
 	// --- BASE STATION / remote control (v5.0.0). All nil-safe (a labeled hint degrades). ---
 	// RCEnable starts a remote-control session for THIS machine's live agent and returns a
 	// host bridge (tees agent events out, drains remote turns/confirms) + the one-time
@@ -685,6 +689,12 @@ type model struct {
 	ring     []capsule.Message
 	ringTurn int
 	threadID string
+	// Durable AGENT session metadata. The semantic ring remains the source of truth;
+	// only completed user/assistant pairs are handed to SaveSession.
+	sessionTitle            string
+	sessionWorkdir          string
+	sessionWorkdirAvailable bool
+	sessionCreated          time.Time
 	// agentTurnCalls accumulates the tool calls of the AGENT turn in flight; they are
 	// consumed onto the assistant turn when it completes (context_capsule.go), so a call
 	// rides on the turn that made it and never leaks into the next one.
@@ -1293,7 +1303,7 @@ func newBase(broker, user string, limits *LimitStore) model {
 	fq := textinput.New()
 	fq.Prompt = ""
 	fq.Placeholder = "frequency code"
-	return model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, freqIn: fq,
+	m := model{broker: broker, user: user, cmd: ci, chatIn: ch, agentIn: ag, filterIn: fi, freqIn: fq,
 		// Per-surface input history (distinct files; load tolerates a missing/corrupt file).
 		cmdHist:  newInputHistory("history-command"),
 		chatHist: newInputHistory("history-chat"), agentHist: newInputHistory("history-agent"),
@@ -1305,6 +1315,9 @@ func newBase(broker, user string, limits *LimitStore) model {
 		// mouse so native drag-select + copy works on ANY text out of the box. ctrl+o / /mouse
 		// opts INTO wheel-scroll. Scrollback is always available via PgUp/PgDn + arrows.
 		mouseOff: true}
+	m.sessionWorkdir = agentRoot()
+	m.sessionWorkdirAvailable = true
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -9536,6 +9549,31 @@ func RunWithController(broker, user string, limits *LimitStore, notice string, h
 	// Native selection owns the mouse at startup, matching the on-screen “drag to copy”
 	// promise. /mouse or ctrl+o explicitly opts into captured wheel scrolling; keyboard
 	// transcript scrolling remains available without capture.
+	wantRestart = false
+	if err := launchTUI(m, tea.WithAltScreen()); err != nil {
+		return err
+	}
+	if wantRestart {
+		return ErrRestart
+	}
+	return nil
+}
+
+// RunResumedWithController is RunWithController with a durable local AGENT snapshot
+// restored before the first frame.
+func RunResumedWithController(
+	broker, user string,
+	limits *LimitStore,
+	notice string,
+	hooks Hooks,
+	ctrl *node.Controller,
+	item session.Snapshot,
+) error {
+	m, err := NewResumedWithHooksController(broker, user, limits, hooks, ctrl, item)
+	if err != nil {
+		return err
+	}
+	m.updateLine = notice
 	wantRestart = false
 	if err := launchTUI(m, tea.WithAltScreen()); err != nil {
 		return err
