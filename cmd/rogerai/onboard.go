@@ -174,7 +174,8 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 		if picked, ok := guidedUpstream(cfg.Broker, needKey); ok {
 			found = []detect.Found{picked}
 		} else {
-			fmt.Println("no local LLM detected (tried Ollama / LM Studio / llama.cpp / vLLM / Jan / LiteLLM and your open ports).")
+			fmt.Println("no local LLM detected (tried common hosts including Ollama / LM Studio / Unsloth / llama.cpp / vLLM / Jan / LiteLLM and your open ports).")
+			fmt.Println("any other OpenAI-compatible host works too: pass its URL with --upstream.")
 			fmt.Println("start one, then run `roger share` (or `roger onboard`).")
 			cfg.Onboarded = true
 			return cfg, true, nil
@@ -232,6 +233,7 @@ func finishShare(cfg config, earn bool, opts wizardOpts) (config, bool, error) {
 var startOneLiner = map[string]string{
 	"ollama":    "ollama serve   # then:  ollama run llama3.2   (serves http://127.0.0.1:11434)",
 	"lm-studio": "open LM Studio -> Developer tab -> Start Server   (serves http://127.0.0.1:1234)",
+	"unsloth":   "open Unsloth Studio -> load a model -> Settings -> API -> copy the endpoint + key   (defaults to http://127.0.0.1:8888)",
 	"vllm":      "vllm serve <model> --port 8000   (serves http://127.0.0.1:8000)",
 	"llamacpp":  "llama-server -m <model>.gguf --port 8080   (serves http://127.0.0.1:8080)",
 }
@@ -287,6 +289,7 @@ func guidedUpstream(broker string, needKey []string) (detect.Found, bool) {
 			Options(
 				huh.NewOption("Ollama", "ollama"),
 				huh.NewOption("LM Studio", "lm-studio"),
+				huh.NewOption("Unsloth Studio", "unsloth"),
 				huh.NewOption("vLLM", "vllm"),
 				huh.NewOption("llama.cpp", "llamacpp"),
 				huh.NewOption("Other - paste a URL", "other"),

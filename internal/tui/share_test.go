@@ -284,10 +284,19 @@ func TestGuidedFallbackWizard(t *testing.T) {
 	if !strings.Contains(v, "SET UP A MODEL") {
 		t.Fatalf("no-detection /share should open the guided setup:\n%s", v)
 	}
-	for _, want := range []string{"SET UP A MODEL", "Ollama", "LM Studio", "vLLM", "llama.cpp", "Other"} {
+	for _, want := range []string{"SET UP A MODEL", "Ollama", "LM Studio", "Unsloth Studio", "vLLM", "llama.cpp", "Other"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("guided fallback missing %q:\n%s", want, v)
 		}
+	}
+	var unslothGuide string
+	for _, option := range setupOptions {
+		if option.key == "unsloth" {
+			unslothGuide = option.oneLiner
+		}
+	}
+	if !strings.Contains(unslothGuide, "load a model") || !strings.Contains(unslothGuide, "API") || !strings.Contains(unslothGuide, "copy endpoint + key") {
+		t.Errorf("Unsloth setup must explain the endpoint and key, got %q", unslothGuide)
 	}
 	// Move to the "Other - paste a URL" row; it becomes a URL input.
 	for i := 0; i < len(setupOptions)-1; i++ {
