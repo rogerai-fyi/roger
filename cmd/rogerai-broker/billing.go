@@ -44,8 +44,8 @@ func loadBilling() billing {
 	b := billing{
 		secretKey:     stripeSecretKey(),
 		webhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
-		successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fyi/topup/success"),
-		cancelURL:     envOr("STRIPE_CANCEL_URL", "https://rogerai.fyi/topup/cancel"),
+		successURL:    envOr("STRIPE_SUCCESS_URL", "https://rogerai.fm/topup/success"),
+		cancelURL:     envOr("STRIPE_CANCEL_URL", "https://rogerai.fm/topup/cancel"),
 		creditUSD:     cu,
 	}
 	if requireLive() && !strings.HasPrefix(b.secretKey, "sk_live") {

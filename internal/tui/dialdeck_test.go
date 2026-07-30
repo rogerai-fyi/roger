@@ -122,14 +122,15 @@ func TestOnAirLampReadsOnAir(t *testing.T) {
 	}
 }
 
-// K1 - the header brand lockup renders the ▟▄▙ radio, never the old ▟█▙ tower.
-func TestHeaderLockupIsRadio(t *testing.T) {
+// K1 - the header brand lockup renders Tube Ping's compact station bug, never
+// either of the pre-mascot radio/tower marks.
+func TestHeaderLockupIsTubePing(t *testing.T) {
 	m := browseSeed(96)
 	head := stripANSI(m.header(96))
-	if !strings.Contains(head, "▟▄▙") {
-		t.Errorf("the brand lockup should render the ▟▄▙ radio:\n%s", head)
+	if !strings.Contains(head, "▟•▙▓") {
+		t.Errorf("the brand lockup should render compact Tube Ping:\n%s", head)
 	}
-	if strings.Contains(head, "▟█▙") {
-		t.Error("the ambiguous ▟█▙ tower must be gone from the lockup")
+	if strings.Contains(head, "▟▄▙") || strings.Contains(head, "▟█▙") {
+		t.Error("the old radio/tower marks must be gone from the lockup")
 	}
 }

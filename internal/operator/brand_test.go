@@ -288,17 +288,14 @@ func TestBrandCodexSpans(t *testing.T) {
 	}
 }
 
-// TestRegistryCarriesBrandArts: every launchable guest carries its plate as registry data -
-// opencode, hermes, aider and (since v5.4.4) claude. codex alone stays DORMANT in
-// BrandArts(), the last of the doc's shim-era drafts with no Registry() row, because there
-// is still no way to launch it honestly.
+// TestRegistryCarriesBrandArts: every launchable guest carries its plate as registry data.
 func TestRegistryCarriesBrandArts(t *testing.T) {
 	arts := BrandArts()
 	byName := map[string]Guest{}
 	for _, g := range Registry() {
 		byName[g.Name] = g
 	}
-	for _, name := range []string{"opencode", "hermes", "aider"} {
+	for _, name := range []string{"opencode", "hermes", "aider", "claude", "codex"} {
 		g, ok := byName[name]
 		if !ok || g.Brand == nil {
 			t.Fatalf("%s must carry its BrandArt in the registry", name)
@@ -306,17 +303,6 @@ func TestRegistryCarriesBrandArts(t *testing.T) {
 		if !reflect.DeepEqual(g.Brand, arts[name]) {
 			t.Fatalf("%s registry plate must equal BrandArts()[%q]", name, name)
 		}
-	}
-	// codex alone stays a dormant draft; claude's plate went live with the context-only
-	// guest (features/handoff/claude_guest.feature).
-	if _, inRegistry := byName["codex"]; inRegistry {
-		t.Fatal("codex stays a dormant draft - BrandArts() data only, no registry row")
-	}
-	if arts["codex"] == nil {
-		t.Fatal("the codex shim-era draft must be present as dormant data")
-	}
-	if g, ok := byName["claude"]; !ok || g.Brand == nil || !reflect.DeepEqual(g.Brand, arts["claude"]) {
-		t.Fatal("claude's registry row must carry its BrandArts plate")
 	}
 }
 

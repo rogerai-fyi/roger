@@ -3,7 +3,7 @@
 
    A small accessible modal opened by any [.report-btn]. It posts to the
    broker:
-       POST https://broker.rogerai.fyi/report
+       POST https://broker.rogerai.fm/report
        { "category": "abuse|csam|spam|quality|other",
          "node_id":    "<the station, may be empty>",
          "request_id": "<optional>",
@@ -17,7 +17,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   var modal    = document.getElementById("reportModal");
   if (!modal) return;
@@ -132,12 +132,12 @@
         setTimeout(close, 2200);
       } else {
         if (submitEl) { submitEl.disabled = false; submitEl.textContent = "send report"; }
-        setStatus("We couldn't submit that just now. Email abuse@rogerai.fyi instead.", "err");
+        setStatus("We couldn't submit that just now. Email abuse@rogerai.fm instead.", "err");
       }
     }).catch(function () {
       clearTimeout(to);
       if (submitEl) { submitEl.disabled = false; submitEl.textContent = "send report"; }
-      setStatus("Network error - couldn't reach the broker. Email abuse@rogerai.fyi instead.", "err");
+      setStatus("Network error - couldn't reach the broker. Email abuse@rogerai.fm instead.", "err");
     });
   });
 })();

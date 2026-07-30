@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   function api(path, opts) { opts = opts || {}; opts.credentials = "include"; return fetch(BROKER + path, opts); }
   function $(id) { return document.getElementById(id); }
   function show(id) { var el = $(id); if (el) el.hidden = false; }
@@ -251,7 +251,7 @@
         $("linkName").textContent = s.name || s.id;
         var short = res.code_short || "";
         $("linkCode").textContent = short;
-        var url = "https://rogerai.fyi/r.html#" + short;
+        var url = "https://rogerai.fm/r.html#" + short;
         var a = $("linkURL"); a.textContent = url; a.href = url;
         $("copyLink").setAttribute("data-url", url);
         show("linkWrap");

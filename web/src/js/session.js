@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   // The /account check is a CREDENTIALED request that returns 401 for a logged-out
   // visitor (and CORS-fails entirely off the production origin). We can't read the real

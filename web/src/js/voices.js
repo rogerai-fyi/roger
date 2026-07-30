@@ -33,7 +33,7 @@
   var section = document.getElementById("directory");
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var VOICES = BROKER + "/voices";
   var POLL_MS = 30000;             // re-read the roster every 30s
 
@@ -206,7 +206,7 @@
             if (lastCount > 0) lastCount = 0;   // bounded hold expired: stop holding a dead roster
             paintQuiet();
             setStatus("couldn't reach the broker just now", "off");
-            setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
+            setFoot('couldn\'t reach <span class="ember">broker.rogerai.fm</span> · no live roster to show');
           }
           return null;
         }
@@ -222,7 +222,7 @@
           lastCount = voices.length;
           var n = voices.length;
           setStatus(n + " voice" + (n === 1 ? "" : "s") + " on air · live from /voices", "live");
-          setFoot('live from <span class="ember">broker.rogerai.fyi/voices</span> · metered by the character · prices in $ / 1k chars · auto-refresh 30s');
+          setFoot('live from <span class="ember">broker.rogerai.fm/voices</span> · metered by the character · prices in $ / 1k chars · auto-refresh 30s');
         } else {
           // broker reachable but genuinely empty: honest quiet roster, no fake voices
           paintQuiet();
@@ -242,7 +242,7 @@
           if (lastCount > 0) lastCount = 0;   // bounded hold expired
           paintQuiet();
           setStatus("couldn't reach the broker just now", "off");
-          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live roster to show');
+          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fm</span> · no live roster to show');
         }
       })
       .then(function () { inflight = false; });

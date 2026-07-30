@@ -15,10 +15,12 @@
 //   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs                 # dry-run (no network writes)
 //   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs --apply         # write the rules
 //   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs --apply --report-only   # CSP as Report-Only
+//   CF_API_TOKEN=...  node web/scripts/cf-edge.mjs --legacy-redirect --apply  # legacy -> canonical
 //
 // Env: CF_API_TOKEN (or CLOUDFLARE_API_TOKEN) - required for --apply; a token with Zone:Read +
-//      Zone Transform Rules:Edit + Dynamic URL Redirects:Edit on the rogerai.fyi zone.
-//      CF_ZONE overrides the zone name (default rogerai.fyi).
+//      Zone Transform Rules:Edit + Dynamic URL Redirects:Edit on the rogerai.fm zone.
+//      CF_ZONE overrides the zone name (default rogerai.fm).
+//      CF_LEGACY_ZONE overrides the legacy zone (default rogerai.fyi) for --legacy-redirect.
 //
 // Dependency-free: Node >=18 (global fetch). No npm install.
 
@@ -28,7 +30,8 @@ import path from "node:path";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, "..", "src");
-const ZONE = process.env.CF_ZONE || "rogerai.fyi";
+const ZONE = process.env.CF_ZONE || "rogerai.fm";
+const LEGACY_ZONE = process.env.CF_LEGACY_ZONE || "rogerai.fyi";
 const APEX = ZONE;
 const WWW = "www." + ZONE;
 const API = "https://api.cloudflare.com/client/v4";
@@ -36,13 +39,15 @@ const API = "https://api.cloudflare.com/client/v4";
 const apply = process.argv.includes("--apply");
 const reportOnly = process.argv.includes("--report-only");
 const check = process.argv.includes("--check");
+const legacyRedirect = process.argv.includes("--legacy-redirect");
 
 // stable markers so re-runs update our rules instead of stacking duplicates.
 const DESC_HEADERS = "rogerai:security-headers";
 const DESC_REDIRECT = "rogerai:www-to-apex";
+const DESC_LEGACY = "rogerai:legacy-to-canonical";
 
 // ---- parse the `/*` block of web/src/_headers into an ordered {name,value} list ----------
-function parseHeaders() {
+export function parseHeaders() {
   const lines = readFileSync(path.join(SRC, "_headers"), "utf8").split("\n");
   const out = [];
   let inStar = false;
@@ -67,37 +72,81 @@ function parseRedirect() {
   return line; // informational; the rule below encodes the same intent declaratively
 }
 
-// ---- build the two rule objects -----------------------------------------------------------
-function headerRule(headers) {
+// ---- build the rule objects ---------------------------------------------------------------
+// Every expression below is an EXACT host test (`in {...}` / `eq`), never a suffix or wildcard
+// match. That is load-bearing: broker.* carries API, SSE and WebSocket traffic that must never
+// be redirected or rewritten, and the compatibility contract keeps the legacy broker live
+// indefinitely for already-installed clients.
+export function headerRule(headers, opts = {}) {
+  const zone = opts.zone || ZONE;
+  const asReportOnly = opts.reportOnly ?? reportOnly;
   const map = {};
   for (const { name, value } of headers) {
-    const key = reportOnly && name.toLowerCase() === "content-security-policy"
+    const key = asReportOnly && name.toLowerCase() === "content-security-policy"
       ? "Content-Security-Policy-Report-Only" : name;
     map[key] = { operation: "set", value };
   }
   return {
     action: "rewrite",
     action_parameters: { headers: map },
-    expression: `(http.host in {"${APEX}" "${WWW}"})`,
+    expression: `(http.host in {"${zone}" "www.${zone}"})`,
     description: DESC_HEADERS,
     enabled: true,
   };
 }
 
-function redirectRule() {
+export function redirectRule(opts = {}) {
+  const zone = opts.zone || ZONE;
   return {
     action: "redirect",
     action_parameters: {
       from_value: {
         status_code: 301,
-        target_url: { expression: `concat("https://${APEX}", http.request.uri.path)` },
+        target_url: { expression: `concat("https://${zone}", http.request.uri.path)` },
         preserve_query_string: true,
       },
     },
-    expression: `(http.host eq "${WWW}")`,
+    expression: `(http.host eq "www.${zone}")`,
     description: DESC_REDIRECT,
     enabled: true,
   };
+}
+
+// One permanent, path-preserving hop from the legacy site to the canonical one. Lives in the
+// LEGACY zone. Matches the legacy apex and www only - broker and control keep serving.
+export function legacyRedirectRule(opts = {}) {
+  const legacy = opts.legacyZone || LEGACY_ZONE;
+  const canonical = opts.canonicalZone || ZONE;
+  return {
+    action: "redirect",
+    action_parameters: {
+      from_value: {
+        status_code: 301,
+        target_url: { expression: `concat("https://${canonical}", http.request.uri.path)` },
+        preserve_query_string: true,
+      },
+    },
+    expression: `(http.host in {"${legacy}" "www.${legacy}"})`,
+    description: DESC_LEGACY,
+    enabled: true,
+  };
+}
+
+// The legacy redirect is only safe once the canonical site actually answers over TLS -
+// enabling it earlier would send every visitor and every search result into a dead host.
+export async function canonicalSiteReady(host, fetchImpl = fetch) {
+  try {
+    const res = await fetchImpl(`https://${host}/`, { method: "GET", redirect: "manual" });
+    if (res.status !== 200) {
+      return { ready: false, reason: `https://${host}/ returned ${res.status}, expected 200` };
+    }
+    return { ready: true, reason: `https://${host}/ answered 200 over a valid certificate` };
+  } catch (e) {
+    return {
+      ready: false,
+      reason: `https://${host}/ is unreachable or its certificate is not yet valid: ${e.message}`,
+    };
+  }
 }
 
 // ---- Cloudflare API helpers ---------------------------------------------------------------
@@ -116,10 +165,10 @@ async function cf(method, urlPath, body) {
   return { status: res.status, json };
 }
 
-async function zoneId() {
-  const { json } = await cf("GET", `/zones?name=${encodeURIComponent(ZONE)}`);
+async function zoneId(name = ZONE) {
+  const { json } = await cf("GET", `/zones?name=${encodeURIComponent(name)}`);
   const id = json.result && json.result[0] && json.result[0].id;
-  if (!id) throw new Error(`zone ${ZONE} not found (check the token's zone access)`);
+  if (!id) throw new Error(`zone ${name} not found (check the token's zone access)`);
   return id;
 }
 
@@ -140,10 +189,17 @@ function stripReadOnly(r) {
 }
 
 // ---- main ---------------------------------------------------------------------------------
+// Importable: the CLI only runs when this file is executed directly, so the tests can drive
+// the rule builders above without triggering network writes or process.exit.
+const isMain = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
 const headers = parseHeaders();
 const redirectLine = parseRedirect();
 const hRule = headerRule(headers);
 const rRule = redirectRule();
+const lRule = legacyRedirectRule();
 
 console.log(`zone:        ${ZONE}`);
 console.log(`headers:     ${headers.length} (${headers.map((h) => h.name).join(", ")})`);
@@ -178,6 +234,31 @@ if (check) {
   process.exit(0);
 }
 
+if (legacyRedirect) {
+  // Sends the legacy site to the canonical one. Gated on the canonical site being live,
+  // because the whole point of the gate is that a redirect to a dead host is unrecoverable
+  // for visitors and search engines alike.
+  console.log(`legacy zone: ${LEGACY_ZONE}  ->  https://${APEX}`);
+  const gate = await canonicalSiteReady(APEX);
+  console.log(`gate:        ${gate.ready ? "OPEN" : "CLOSED"} - ${gate.reason}`);
+  if (!gate.ready) {
+    console.error(`\nRefusing to redirect ${LEGACY_ZONE} until https://${APEX}/ serves the site.`);
+    process.exit(1);
+  }
+  if (!apply) {
+    console.log("\nDRY RUN (no changes). Payload that --apply would PUT to the legacy zone:\n");
+    console.log(JSON.stringify({ rules: [lRule] }, null, 2));
+    console.log("\nRe-run with --legacy-redirect --apply (and CF_API_TOKEN set) to write it.");
+    process.exit(0);
+  }
+  const lzid = await zoneId(LEGACY_ZONE);
+  const c = await upsert(lzid, "http_request_dynamic_redirect", lRule);
+  console.log(`legacy redirect: applied (${c.kept} other rule(s) preserved, ${c.total} total)`);
+  console.log(`\nDone. Verify:  curl -sSI https://${LEGACY_ZONE}/broadcasts.html | grep -i location`);
+  console.log(`              curl -sSI https://broker.${LEGACY_ZONE}/health   # must stay 200, NOT 301`);
+  process.exit(0);
+}
+
 if (!apply) {
   console.log("DRY RUN (no changes). Payloads that --apply would PUT:\n");
   console.log("# http_response_headers_transform / entrypoint  (appended to your existing rules)");
@@ -194,5 +275,6 @@ const a = await upsert(zid, "http_response_headers_transform", hRule);
 console.log(`headers rule: applied (${a.kept} other rule(s) preserved, ${a.total} total)`);
 const b = await upsert(zid, "http_request_dynamic_redirect", rRule);
 console.log(`redirect rule: applied (${b.kept} other rule(s) preserved, ${b.total} total)`);
-console.log("\nDone. Verify:  curl -sSI https://rogerai.fyi/ | grep -iE 'content-security|strict-transport|x-frame'");
-console.log("              curl -sSI https://www.rogerai.fyi/ | grep -i location");
+console.log("\nDone. Verify:  curl -sSI https://rogerai.fm/ | grep -iE 'content-security|strict-transport|x-frame'");
+console.log("              curl -sSI https://www.rogerai.fm/ | grep -i location");
+}

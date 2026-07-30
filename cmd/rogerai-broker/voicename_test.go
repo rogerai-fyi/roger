@@ -300,7 +300,7 @@ func TestVoicesHTTPHandler(t *testing.T) {
 	t.Run("CORS preflight short-circuits", func(t *testing.T) {
 		b := handlerBroker()
 		r := httptest.NewRequest(http.MethodOptions, "/voices", nil)
-		r.Header.Set("Origin", "https://rogerai.fyi")
+		r.Header.Set("Origin", "https://rogerai.fm")
 		r.Header.Set("Access-Control-Request-Method", "GET")
 		w := httptest.NewRecorder()
 		b.voices(w, r)

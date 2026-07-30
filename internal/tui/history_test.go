@@ -194,6 +194,43 @@ func TestChatAndAgentHistoriesSeparate(t *testing.T) {
 	}
 }
 
+func TestMultilineHistoryRoundTripsAsOneEntry(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	const prompt = "first line\nsecond line\nthird line"
+	h := newInputHistory("history-agent")
+	h.add(prompt)
+	reloaded := newInputHistory("history-agent")
+	if len(reloaded.entries) != 1 || reloaded.entries[0] != prompt {
+		t.Fatalf("multiline history reloaded as %#v, want one exact entry %q", reloaded.entries, prompt)
+	}
+}
+
+func TestAgentMultilineArrowsEditBeforeHistoryRecall(t *testing.T) {
+	m := browseSeed(100)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m.agentIn.Focus()
+	m.agentHist = &inputHistory{entries: []string{"older prompt"}, cursor: 1}
+	const draft = "first line\nsecond line\nthird line"
+	m.agentIn.SetValue(draft)
+
+	out, _ := m.onAgentKey(keyMsg("up"))
+	m = asModel(out)
+	if m.agentIn.Value() != draft || m.agentIn.Line() != 1 {
+		t.Fatalf("Up inside multiline draft recalled history instead of moving the cursor: value=%q line=%d", m.agentIn.Value(), m.agentIn.Line())
+	}
+	out, _ = m.onAgentKey(keyMsg("up"))
+	m = asModel(out)
+	if m.agentIn.Value() != draft || m.agentIn.Line() != 0 {
+		t.Fatalf("second Up should reach first logical line: value=%q line=%d", m.agentIn.Value(), m.agentIn.Line())
+	}
+	out, _ = m.onAgentKey(keyMsg("up"))
+	m = asModel(out)
+	if m.agentIn.Value() != "older prompt" {
+		t.Fatalf("Up at first visual line should recall history, got %q", m.agentIn.Value())
+	}
+}
+
 // --- end-to-end through the model key handlers -------------------------------
 
 // TestChatInputUpDownRecall: typing + sending in modeChat records the line, and Up

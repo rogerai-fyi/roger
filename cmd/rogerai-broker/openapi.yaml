@@ -23,7 +23,7 @@ info:
     counter-signed by the broker (the "lineage" guarantee).
   license: { name: PolyForm Perimeter 1.0.0, url: https://polyformproject.org/licenses/perimeter/1.0.0 }
 servers:
-  - url: https://broker.rogerai.fyi
+  - url: https://broker.rogerai.fm
   - url: http://127.0.0.1:7070
 
 tags:
@@ -341,7 +341,7 @@ paths:
       description: |
         Browser login (separate from the CLI device flow). Sets a short-lived signed
         state cookie (CSRF) and redirects to GitHub's authorize page with the public
-        client id and `redirect_uri=https://rogerai.fyi/auth/github/callback`.
+        client id and `redirect_uri=https://rogerai.fm/auth/github/callback`.
       responses:
         "302": { description: redirect to GitHub authorize }
         "503": { description: web GitHub login not configured (no client id/secret) }

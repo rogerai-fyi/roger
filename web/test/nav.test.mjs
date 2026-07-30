@@ -41,12 +41,12 @@ const topbar = (html) => {
 const liveHrefs = (block) =>
   [...block.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<a\b[^>]*href="([^"]*)"/g)].map((m) => m[1]);
 
-test("marketing top bar: Models · Voices · App and NOTHING else in the sections group", () => {
+test("marketing top bar: Models · Research · Voices · App · Company and NOTHING else in the sections group", () => {
   const bar = topbar(readDist("index.html"));
   const sections = bar.match(/<div class="nav__sections">[\s\S]*?<\/div>/)[0];
   const hrefs = liveHrefs(sections);
-  assert.deepEqual(hrefs, ["/models.html", "/voices.html", "/app.html"],
-    "sections are exactly Models, Voices, App - the #spec/#how/#monetize anchors are gone");
+  assert.deepEqual(hrefs, ["/models.html", "/research.html", "/voices.html", "/app.html", "/company.html"],
+    "sections are exactly Models, Research, Voices, App, Company - the #spec/#how/#monetize anchors are gone");
 });
 
 test("marketing top bar: the removed items are NOT live links anywhere in the bar", () => {
@@ -56,11 +56,11 @@ test("marketing top bar: the removed items are NOT live links anywhere in the ba
   }
 });
 
-test("marketing top bar: order is Models·Voices·App | Manual·Source·Log in (then the reserved slot + toggle)", () => {
+test("marketing top bar: order is Models·Research·Voices·App·Company | Manual·Source·Log in (then the reserved slot + toggle)", () => {
   const links = liveHrefs(topbar(readDist("index.html")));
   assert.deepEqual(links, [
     "#top",                                   // brand
-    "/models.html", "/voices.html", "/app.html",
+    "/models.html", "/research.html", "/voices.html", "/app.html", "/company.html",
     "/manual.html",
     "https://github.com/rogerai-fyi/roger",   // Source (ghost)
     "/login.html",

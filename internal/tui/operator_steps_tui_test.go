@@ -48,6 +48,8 @@ type opBDD struct {
 	ds          []operator.Detection
 	parsed      string
 	parsedOK    bool
+	resolvePath string
+	resolveRoot string
 
 	// sandbox roots (per scenario)
 	scratchRoot string
@@ -1722,16 +1724,20 @@ func initializeOperatorScenarios(t *testing.T, st *opBDD, sc *godog.ScenarioCont
 
 	// ── detection.feature (pure) ──────────────────────────────────────────────
 	sc.Step(`^the guest operator registry$`, st.theGuestOperatorRegistry)
-	sc.Step(`^the registry lists exactly "([^"]*)", "([^"]*)", "([^"]*)", "([^"]*)" in that order$`, st.registryListsExactly)
+	sc.Step(`^the registry lists exactly "([^"]*)", "([^"]*)", "([^"]*)", "([^"]*)", "([^"]*)" in that order$`, st.registryListsExactly)
 	sc.Step(`^no registry entry is named "([^"]*)"$`, st.noRegistryEntryNamed)
 	sc.Step(`^every entry carries a name, a PATH binary, a provider tag, an install hint, and a known-good version$`, st.everyEntryCarriesFields)
-	sc.Step(`^the "([^"]*)" entry uses the (scratch-config|scratch-home) strategy with known-good version "([^"]*)"$`,
+	sc.Step(`^the "([^"]*)" entry uses the (scratch-config|scratch-home|context-only) strategy with known-good version "([^"]*)"$`,
 		func(name, strat, v string) error { return st.entryUsesStrategyWithVersion(name, strat, v) })
 	sc.Step(`^the "aider" entry uses the env-and-flags strategy with no config file at all$`, st.aiderEnvFlagsNoConfig)
 	sc.Step(`^LookPath resolves "([^"]*)" to "([^"]*)"$`, st.lookPathResolves)
 	sc.Step(`^LookPath fails for "([^"]*)" with "([^"]*)"$`, st.lookPathFails)
 	sc.Step(`^LookPath fails for every binary$`, st.lookPathFailsForEverything)
 	sc.Step(`^LookPath resolves every registry binary$`, st.lookPathResolvesEveryRegistryBinary)
+	sc.Step(`^"([^"]*)" is executable at "([^"]*)"$`, st.guestExecutableAt)
+	sc.Step(`^the inherited GUI PATH does not include "([^"]*)"$`, func(string) error { return nil })
+	sc.Step(`^the default desk environment resolves "([^"]*)"$`, st.defaultDeskResolves)
+	sc.Step(`^it returns "([^"]*)"$`, st.resolutionReturns)
 	sc.Step(`^the version probe answers "([^"]*)" with "([^"]*)"$`, st.probeAnswers)
 	sc.Step(`^the version probe fails for "([^"]*)" with "([^"]*)"$`, st.probeFails)
 	sc.Step(`^the version probe for "([^"]*)" blocks past its deadline$`, st.probeBlocksPastDeadline)

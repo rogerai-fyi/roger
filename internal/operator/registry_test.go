@@ -22,7 +22,10 @@ package operator
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +45,40 @@ func lookup(paths map[string]string) func(string) (string, error) {
 	}
 }
 
+func TestCodexContextOnlyLaunchIsCredentialBlind(t *testing.T) {
+	var codex Guest
+	for _, g := range Registry() {
+		if g.Name == "codex" {
+			codex = g
+		}
+	}
+	workdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workdir, ".roger"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, BriefRelPath), []byte("# handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launch, cleanup, err := Materialize(codex, Session{
+		BaseURL: "https://broker.invalid", SessionKey: "sk-secret", Model: "band-model",
+		Workdir: workdir, ScratchRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	blob := strings.Join(append(append([]string{}, launch.Argv...), launch.Env...), "\x00")
+	for _, secret := range []string{"https://broker.invalid", "sk-secret", "band-model"} {
+		if strings.Contains(blob, secret) {
+			t.Fatalf("context-only Codex launch leaked %q in %q", secret, blob)
+		}
+	}
+	if len(launch.Argv) != 2 || launch.Argv[0] != "codex" ||
+		!strings.Contains(launch.Argv[1], BriefRelPath) {
+		t.Fatalf("Codex launch should carry exactly one handoff prompt: %q", launch.Argv)
+	}
+}
+
 func detectionNames(ds []Detection) []string {
 	var names []string
 	for _, d := range ds {
@@ -50,26 +87,19 @@ func detectionNames(ds []Detection) []string {
 	return names
 }
 
-// TestRegistryMVPSet: the registry is exactly the §4-proven MVP set, in order, with
-// claude/codex excluded and every field populated.
+// TestRegistryMVPSet pins the desk order and context-only safety boundary.
 func TestRegistryMVPSet(t *testing.T) {
 	reg := Registry()
 	var names []string
 	for _, g := range reg {
 		names = append(names, g.Name)
 	}
-	if want := []string{"opencode", "hermes", "aider", "claude"}; !reflect.DeepEqual(names, want) {
+	if want := []string{"opencode", "hermes", "aider", "claude", "codex"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("registry must be the guest set in order %v, got %v", want, names)
 	}
 	for _, g := range reg {
-		// codex stays excluded: it speaks the Responses-API wire and has no context story.
-		// claude is IN as a CONTEXT-ONLY guest - it reroutes nothing, so the silent-billing
-		// failure that excluded it cannot happen (features/handoff/claude_guest.feature).
-		if g.Name == "codex" {
-			t.Fatalf("codex is EXCLUDED, registry lists %q", g.Name)
-		}
-		if g.Name == "claude" && g.Strategy != StrategyContextOnly {
-			t.Fatalf("claude must be context-only, got strategy %q", g.Strategy)
+		if (g.Name == "claude" || g.Name == "codex") && g.Strategy != StrategyContextOnly {
+			t.Fatalf("%s must be context-only, got strategy %q", g.Name, g.Strategy)
 		}
 		if g.Bin == "" || g.Provider == "" || g.InstallHint == "" {
 			t.Fatalf("%s: every entry carries bin/provider/install hint, got %+v", g.Name, g)
@@ -88,6 +118,9 @@ func TestRegistryWiringStrategies(t *testing.T) {
 	}
 	if v := byName["hermes"].KnownGood; v != "0.16.0" {
 		t.Fatalf("hermes known-good must pin 0.16.0 (dev box, 2026-07-06), got %q", v)
+	}
+	if v := byName["codex"].KnownGood; v != "0.1.0" {
+		t.Fatalf("codex compatibility floor must pin 0.1.0, got %q", v)
 	}
 	// aider: no known-good pin yet — not installed on the dev box; founder ruling pending.
 	for _, n := range []string{"opencode", "hermes", "aider"} {

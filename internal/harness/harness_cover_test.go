@@ -51,8 +51,8 @@ func TestBrokerCompleterUnreachable(t *testing.T) {
 }
 
 // TestBrokerCompleterTimeout: when the request times out, the completer returns the
-// "no reply from the station" message (the Timeout() branch). Uses the brokerHTTPTimeout
-// seam shortened to a hair against a server that blocks.
+// "no reply from the station" message (the Timeout() branch) using the public explicit
+// fallback seam against a server that blocks.
 func TestBrokerCompleterTimeout(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -64,14 +64,27 @@ func TestBrokerCompleterTimeout(t *testing.T) {
 	defer srv.Close()
 	defer close(block)
 
-	orig := brokerHTTPTimeout
-	brokerHTTPTimeout = 20 * time.Millisecond
-	defer func() { brokerHTTPTimeout = orig }()
-
-	comp := BrokerCompleter(srv.URL, "u", "m", false, 0, nil)
+	comp := BrokerCompleterWithTimeout(srv.URL, "u", "m", false, 0, nil, 20*time.Millisecond)
 	_, err := comp(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil)
-	if err == nil || !strings.Contains(err.Error(), "no reply from the station") {
-		t.Fatalf("timeout err = %v, want 'no reply from the station'", err)
+	if err == nil || !strings.Contains(err.Error(), "no reply from the station within 20ms") {
+		t.Fatalf("timeout err = %v, want truthful 20ms timeout", err)
+	}
+}
+
+func TestBrokerCompleterActiveDeadlineNeverReportsZeroSeconds(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	defer srv.Close()
+	defer close(block)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	comp := BrokerCompleterWithTimeout(srv.URL, "u", "m", false, 0, nil, 0)
+	_, err := comp(ctx, []Message{{Role: "user", Content: "hi"}}, nil)
+	if err == nil || strings.Contains(err.Error(), "within 0s") || !strings.Contains(err.Error(), "active deadline") {
+		t.Fatalf("active-deadline timeout err = %v, want truthful non-zero/deadline wording", err)
 	}
 }
 

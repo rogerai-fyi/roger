@@ -157,6 +157,29 @@ func tintEyeLine(line, eyeGlyph string) string {
 	return stPingBody.Render(pre) + stPingEye.Render(eyeGlyph) + stPingBody.Render(post)
 }
 
+// tintEyeLineDepth gives the compact AGENT companion three terminal-native planes:
+// a cool dial-light upper edge, warm body ink, and a dim lower shadow. The eye
+// remains the single saturated Roger-red light source through every plane.
+func tintEyeLineDepth(line, eyeGlyph string, row int) string {
+	body := stKey
+	switch row {
+	case 0:
+		body = lampStyle(roleDial).Bold(true)
+	case 2:
+		body = stPingDim
+	}
+	if eyeGlyph == "" {
+		return body.Render(line)
+	}
+	idx := strings.Index(line, eyeGlyph)
+	if idx < 0 {
+		return body.Render(line)
+	}
+	pre := line[:idx]
+	post := line[idx+len(eyeGlyph):]
+	return body.Render(pre) + stPingEye.Render(eyeGlyph) + body.Render(post)
+}
+
 // pingHash is a tiny deterministic hash of an integer (a SplitMix-style finalizer),
 // used to derive desynchronized, non-periodic timing for the idle repertoire from
 // the frame counter. It is fully deterministic (same frame -> same value) so tests
@@ -401,13 +424,11 @@ func agentCornerPing(state agentPose, frame int, narrow, compact, live bool) []s
 	word := cornerWord(state, frame)
 	// Narrow / compact / quiet: one clean status line, no multi-row art.
 	if narrow || compact {
-		eye := stPingEye.Render("•")
-		return []string{stPingDim.Render("((") + " " + eye + " " + stPingDim.Render("))") + "  " + stPingDim.Render(word)}
+		return []string{compactTubePingMark() + "  " + stPingDim.Render(word)}
 	}
-	head, eye := cornerFrameFor(state, frame, live)
-	out := make([]string, 0, 3)
-	for i, ln := range head.lines {
-		line := tintEyeLine(ln, eye)
+	head := compactTubePingCorner(state, frame, live)
+	out := make([]string, 0, len(head))
+	for i, line := range head {
 		if i == 0 {
 			line += "   " + stPingDim.Render(word)
 		}

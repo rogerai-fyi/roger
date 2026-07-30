@@ -23,13 +23,23 @@ func lastAgentLines(m model, n int) []string {
 func TestAgentFinalRenderShapes(t *testing.T) {
 	base := browseSeed(120)
 
-	// Spoken multi-line answer: "◂" on the first line, the quiet bar on the rest.
+	// Spoken multi-line answer is stored canonically so copy preserves markdown,
+	// then shaped only at display time: "◂" first, quiet bar on the rest.
 	m := base
 	n := len(m.agentLines)
 	nm, _ := m.Update(agentEventMsg{Kind: harness.EventFinal, Text: "first\nsecond"})
-	got := lastAgentLines(asModel(nm), n)
-	if len(got) < 2 || !strings.HasPrefix(got[0], "◂ first") || !strings.HasPrefix(got[1], "▏ second") {
-		t.Errorf("answer block = %q", got)
+	rendered := asModel(nm)
+	stored := rendered.agentLines[n:]
+	if len(stored) != 1 || stored[0] != agentAnswerMark+"first\nsecond" {
+		t.Fatalf("canonical answer storage = %q", stored)
+	}
+	got := rendered.displayAgentLines()
+	got = got[len(got)-2:]
+	if !strings.HasPrefix(stripANSI(got[0]), "◂ first") || !strings.HasPrefix(stripANSI(got[1]), "▏ second") {
+		t.Errorf("display answer block = %q", got)
+	}
+	if transcript := rendered.agentTranscriptText(); !strings.Contains(transcript, "first\nsecond") {
+		t.Errorf("copied transcript lost canonical answer: %q", transcript)
 	}
 
 	// Thought-only final: labeled as thinking aloud, gutters dimmed, tail clipped.

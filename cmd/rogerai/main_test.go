@@ -288,13 +288,13 @@ func TestSeedSharePricing(t *testing.T) {
 // station, and a free-vs-earning mode, ending at the website.
 func TestOnAirLine(t *testing.T) {
 	free := onAirLine("gpt-oss-120b", "brave-otter-37", 0, 0, false)
-	for _, want := range []string{"on air", "gpt-oss-120b", "brave-otter-37", "free", "rogerai.fyi"} {
+	for _, want := range []string{"on air", "gpt-oss-120b", "brave-otter-37", "free", "rogerai.fm"} {
 		if !strings.Contains(free, want) {
 			t.Errorf("free on-air line %q missing %q", free, want)
 		}
 	}
 	earn := onAirLine("qwen3-coder", "calm-fox-9", 0.20, 0.30, false)
-	for _, want := range []string{"qwen3-coder", "calm-fox-9", "earning", "$0.20", "$0.30", "rogerai.fyi"} {
+	for _, want := range []string{"qwen3-coder", "calm-fox-9", "earning", "$0.20", "$0.30", "rogerai.fm"} {
 		if !strings.Contains(earn, want) {
 			t.Errorf("earning on-air line %q missing %q", earn, want)
 		}
@@ -320,7 +320,7 @@ func TestOnAirLine(t *testing.T) {
 // earnings show up.
 func TestEarningsLine(t *testing.T) {
 	got := earningsLine()
-	for _, want := range []string{"earnings", "rogerai.fyi/dashboard.html", "roger payout status"} {
+	for _, want := range []string{"earnings", "rogerai.fm/dashboard.html", "roger payout status"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("earnings line %q missing %q", got, want)
 		}

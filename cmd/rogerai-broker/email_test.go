@@ -20,7 +20,7 @@ import (
 func enabledMailer(do func(*http.Request) (*http.Response, error)) *mailer {
 	return &mailer{
 		apiKey:   "re_test_key",
-		from:     "RogerAI <noreply@rogerai.fyi>",
+		from:     "RogerAI <noreply@rogerai.fm>",
 		endpoint: "https://api.resend.com/emails",
 		httpDo:   do,
 		timeout:  5 * time.Second,
@@ -74,7 +74,7 @@ func TestMailerBuildsCorrectRequest(t *testing.T) {
 	if gotBody["subject"] != "Payout sent" || gotBody["html"] != "<p>hi</p>" || gotBody["text"] != "hi" {
 		t.Errorf("body fields wrong: %#v", gotBody)
 	}
-	if gotBody["from"] != "RogerAI <noreply@rogerai.fyi>" {
+	if gotBody["from"] != "RogerAI <noreply@rogerai.fm>" {
 		t.Errorf("from = %v", gotBody["from"])
 	}
 	to, _ := gotBody["to"].([]any)
@@ -287,13 +287,13 @@ func TestTouchpointHTMLIsBrandedAndHasCTA(t *testing.T) {
 		fire func(b *broker)
 		cta  string // expected CTA href substring
 	}{
-		{"payout-sent", func(b *broker) { b.emailPayoutSent("op@example.com", 12.34, "tr_abc") }, "rogerai.fyi/payouts.html"},
-		{"payout-reversed", func(b *broker) { b.emailPayoutReversed("op@example.com", 5, "dp_1") }, "rogerai.fyi/payouts.html"},
-		{"dispute-opened", func(b *broker) { b.emailDisputeOpened("op@example.com", 5, "dp_2") }, "rogerai.fyi/account.html"},
-		{"account-warning", func(b *broker) { b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5) }, "rogerai.fyi/account.html"},
-		{"account-banned", func(b *broker) { b.emailAccountBanned("op@example.com", "impossible_input", `{"x":1}`) }, "rogerai.fyi/account.html"},
-		{"cap-80", func(b *broker) { b.emailCapNotice("ownerpk", "80", 8, 10, time.Now()) }, "rogerai.fyi/billing.html"},
-		{"cap-100", func(b *broker) { b.emailCapNotice("ownerpk", "100", 10, 10, time.Now()) }, "rogerai.fyi/billing.html"},
+		{"payout-sent", func(b *broker) { b.emailPayoutSent("op@example.com", 12.34, "tr_abc") }, "rogerai.fm/payouts.html"},
+		{"payout-reversed", func(b *broker) { b.emailPayoutReversed("op@example.com", 5, "dp_1") }, "rogerai.fm/payouts.html"},
+		{"dispute-opened", func(b *broker) { b.emailDisputeOpened("op@example.com", 5, "dp_2") }, "rogerai.fm/account.html"},
+		{"account-warning", func(b *broker) { b.emailAccountWarning("op@example.com", "empty_output", `{"x":1}`, 3, 5) }, "rogerai.fm/account.html"},
+		{"account-banned", func(b *broker) { b.emailAccountBanned("op@example.com", "impossible_input", `{"x":1}`) }, "rogerai.fm/account.html"},
+		{"cap-80", func(b *broker) { b.emailCapNotice("ownerpk", "80", 8, 10, time.Now()) }, "rogerai.fm/billing.html"},
+		{"cap-100", func(b *broker) { b.emailCapNotice("ownerpk", "100", 10, 10, time.Now()) }, "rogerai.fm/billing.html"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

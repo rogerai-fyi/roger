@@ -20,7 +20,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   // credentialed fetch: the session cookie IS the owner auth (CORS echoes the origin).
   function api(path, opts) {

@@ -46,12 +46,6 @@ const PerCallCap = brokerTimeout
 // here, not a knob hunt.
 const agentMaxTokens = client.MaxAnswerTokens
 
-// brokerHTTPTimeout is the per-request timeout for the agent relay. It defaults to
-// brokerTimeout and exists as a var ONLY so a test can shorten it to exercise the
-// "no reply within ..." timeout branch; production is byte-for-byte unchanged (the
-// default value is the constant).
-var brokerHTTPTimeout = brokerTimeout
-
 // BrokerCompleter returns a Completer that relays one completion through the broker's
 // OpenAI-compatible endpoint (POST {broker}/v1/chat/completions), exactly like the
 // TUI's plain chat - but it sends the `tools` array AND parses any `tool_calls` back.
@@ -69,14 +63,21 @@ var brokerHTTPTimeout = brokerTimeout
 // user's explicit opt-in. Without this an agent turn could silently bind to an
 // exorbitant band (the harness relay previously sent no max-out at all).
 func BrokerCompleter(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc) Completer {
+	return BrokerCompleterWithTimeout(broker, user, model, confidential, maxOut, onCost, brokerTimeout)
+}
+
+// BrokerCompleterWithTimeout is BrokerCompleter with an explicit fallback duration.
+// A zero timeout intentionally leaves an otherwise deadline-free context unlimited;
+// interactive callers still retain immediate cancellation through that context.
+func BrokerCompleterWithTimeout(broker, user, model string, confidential bool, maxOut float64, onCost CostFunc, fallbackTimeout time.Duration) Completer {
 	// No client-level Timeout: the per-call bound rides on the ctx, so an interactive
 	// caller (the TUI) can extend it mid-call. A ctx that arrives with no deadline gets
 	// the hard default below - non-interactive paths stay bounded exactly as before.
 	httpClient := &http.Client{}
 	return func(ctx context.Context, messages []Message, tools []map[string]any) (Message, error) {
-		if _, has := ctx.Deadline(); !has {
+		if _, has := ctx.Deadline(); !has && fallbackTimeout > 0 {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, brokerHTTPTimeout)
+			ctx, cancel = context.WithTimeout(ctx, fallbackTimeout)
 			defer cancel()
 		}
 		reqBody, _ := json.Marshal(map[string]any{
@@ -113,7 +114,11 @@ func BrokerCompleter(broker, user, model string, confidential bool, maxOut float
 			timedOut := errors.Is(err, context.DeadlineExceeded) ||
 				errors.Is(context.Cause(ctx), context.DeadlineExceeded)
 			if ne, ok := err.(interface{ Timeout() bool }); timedOut || (ok && ne.Timeout()) {
-				return Message{}, fmt.Errorf("no reply from the station within %s (it may be slow or offline) - try again or re-tune", brokerTimeout)
+				window := "before the active deadline"
+				if fallbackTimeout > 0 {
+					window = "within " + fallbackTimeout.String()
+				}
+				return Message{}, fmt.Errorf("no reply from the station %s (it may be slow or offline) - try again or re-tune", window)
 			}
 			return Message{}, fmt.Errorf("could not reach the broker: %v", err)
 		}

@@ -17,6 +17,7 @@ func TestAgentWorkingLineCapPrompt(t *testing.T) {
 	m := browseSeed(120)
 	m.agentTurnState = poseThinking
 	rt := &agentRuntime{}
+	rt.callLimit = harness.PerCallCap
 	m.agent = rt
 
 	// A call within the cap: the normal working readout, no cap prompt.
@@ -44,8 +45,8 @@ func TestAgentWorkingLineCapPrompt(t *testing.T) {
 	}
 
 	// grantMoreTime: extends the underlying deadline once and clears the prompt.
-	if !rt.grantMoreTime() {
-		t.Fatal("grantMoreTime should succeed on a live past-cap call")
+	if got := rt.grantMoreTime(); got != harness.PerCallCap {
+		t.Fatalf("grantMoreTime = %s, want %s", got, harness.PerCallCap)
 	}
 	if granted != 1 {
 		t.Fatalf("grantMoreTime should call the extend func once, got %d", granted)
@@ -55,7 +56,7 @@ func TestAgentWorkingLineCapPrompt(t *testing.T) {
 		t.Errorf("after a grant the prompt should clear until the next soft mark, got %q", line)
 	}
 	// Not past the (new) cap: a second grant is refused.
-	if rt.grantMoreTime() {
+	if got := rt.grantMoreTime(); got != 0 {
 		t.Error("grantMoreTime must refuse when the call is not past the soft cap")
 	}
 
@@ -65,5 +66,23 @@ func TestAgentWorkingLineCapPrompt(t *testing.T) {
 	rt.callMu.Unlock()
 	if in, _, past, _ := rt.callState(); in || past {
 		t.Error("cleared call state must read as no live call")
+	}
+}
+
+func TestAgentGrantToastUsesConfiguredTimeout(t *testing.T) {
+	m := browseSeed(120)
+	m.mode = modeAgent
+	m.agent = m.newAgentRuntime()
+	m.agentIn.Focus()
+	m.agentBusy = true
+	m.agent.callLimit = 10 * time.Minute
+	m.agent.callStart = time.Now().Add(-11 * time.Minute)
+	m.agent.callSoft = m.agent.callStart.Add(m.agent.callLimit)
+	m.agent.callExtend = func(time.Duration) {}
+
+	out, _ := m.onAgentKey(keyMsg("tab"))
+	m = asModel(out)
+	if got := stripANSI(strings.Join(m.agentLines, "\n")); !strings.Contains(got, "600s more") {
+		t.Fatalf("grant toast must name configured 600s extension, got:\n%s", got)
 	}
 }

@@ -231,8 +231,8 @@ func TestAgentWorkingLineReceivingVsStalled(t *testing.T) {
 	if !strings.Contains(recv, "receiving") {
 		t.Errorf("recent streaming should read 'receiving…', got %q", recv)
 	}
-	if !strings.Contains(recv, "cap 300s") {
-		t.Errorf("the working line should surface the per-call cap, got %q", recv)
+	if !strings.Contains(recv, "unlimited") {
+		t.Errorf("the default working line should disclose unlimited duration, got %q", recv)
 	}
 
 	// Thinking + recent event -> "working…" (not "receiving").
@@ -250,8 +250,8 @@ func TestAgentWorkingLineReceivingVsStalled(t *testing.T) {
 	if !strings.Contains(stalled, "esc to cancel") {
 		t.Errorf("the stall line should offer esc as the out, got %q", stalled)
 	}
-	if !strings.Contains(stalled, "cap 300s") {
-		t.Errorf("the stall line should surface the cap, got %q", stalled)
+	if !strings.Contains(stalled, "unlimited") {
+		t.Errorf("the default stall line should disclose unlimited duration, got %q", stalled)
 	}
 
 	// A TOOL running is exempt from the stall warning even after a long silence (the tool is

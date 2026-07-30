@@ -290,5 +290,5 @@ func grantView(g store.Grant, u store.GrantUsage) map[string]any {
 // selfURL is the broker's externally-reachable base URL, for the ready-to-paste
 // grant env lines. Overridable via ROGERAI_BROKER_URL.
 func (b *broker) selfURL() string {
-	return envOr("ROGERAI_BROKER_URL", "https://broker.rogerai.fyi")
+	return envOr("ROGERAI_BROKER_URL", "https://broker.rogerai.fm")
 }

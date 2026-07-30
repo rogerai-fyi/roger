@@ -63,7 +63,7 @@ func rcSeedHost(t *testing.T, fb *fakeBridge) model {
 	m.ghLogin = "lramos85"
 	m.hooks.Station = "brave-otter-37"
 	m.hooks.RCEnable = func(broker, name string) (RemoteBridge, RemoteInfo, error) {
-		return fb, RemoteInfo{SessionID: fb.sid, Name: name, Code: "RC 147.520 MHz · 8FK3-9MQ2", CodeShort: "8FK3-9MQ2", LinkURL: "https://rogerai.fyi/r#8FK3-9MQ2"}, nil
+		return fb, RemoteInfo{SessionID: fb.sid, Name: name, Code: "RC 147.520 MHz · 8FK3-9MQ2", CodeShort: "8FK3-9MQ2", LinkURL: "https://rogerai.fm/r#8FK3-9MQ2"}, nil
 	}
 	var tm tea.Model = m
 	tm, _ = tm.Update(keyMsg("0")) // enter [0] AGENT
@@ -83,7 +83,7 @@ func TestRemoteControlEnable(t *testing.T) {
 	var tm tea.Model = gm
 	tm, _ = tm.Update(remoteEnabledMsg{bridge: fb, info: RemoteInfo{
 		SessionID: fb.sid, Name: "brave-otter-37 · RogerAI", Code: "RC …", CodeShort: "8FK3-9MQ2",
-		LinkURL: "https://rogerai.fyi/r#8FK3-9MQ2",
+		LinkURL: "https://rogerai.fm/r#8FK3-9MQ2",
 	}})
 	gm = asModel(tm)
 	if gm.rcBridge == nil {
@@ -96,7 +96,7 @@ func TestRemoteControlEnable(t *testing.T) {
 	if !strings.Contains(out, "REMOTE CONTROL") || !strings.Contains(out, "not end-to-end encrypted") {
 		t.Fatalf("enable block should print the honest label:\n%s", out)
 	}
-	if !strings.Contains(out, "rogerai.fyi/r#8FK3-9MQ2") {
+	if !strings.Contains(out, "rogerai.fm/r#8FK3-9MQ2") {
 		t.Fatalf("enable block should print the link URL:\n%s", out)
 	}
 }
