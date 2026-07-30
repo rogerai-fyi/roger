@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // This file is the per-model METRICS views: what the caller's account SERVES as a

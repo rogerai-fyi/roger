@@ -26,8 +26,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
 	"golang.org/x/crypto/hkdf"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // transportSalt is the fixed HKDF salt, versioned so a future key-derivation change is a new

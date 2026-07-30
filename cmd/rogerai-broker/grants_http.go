@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // The /grants endpoints (GRANT-KEYS-DESIGN section 6.1). All are owner-auth via

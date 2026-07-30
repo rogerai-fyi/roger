@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestShareModelArg covers the positional-model parsing for `roger share`: a leading

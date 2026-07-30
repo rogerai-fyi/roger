@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // errStripeTransfer is the sentinel for a rejected/empty Stripe Transfer response.

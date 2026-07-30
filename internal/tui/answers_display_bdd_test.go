@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 type answersDisplayState struct {

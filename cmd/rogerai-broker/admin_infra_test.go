@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // liveInfra drives an admin-keyed GET /admin/live and returns the parsed infra + health blocks.

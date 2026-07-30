@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestReversalRetryOnce covers the silent-money-leak recovery pass: a pending reversal is

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // Band is an owner-issued PRIVATE channel: a "frequency code" that makes a node

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestStartReturnsRegisterError: Start surfaces a failed initial registration (the prod

@@ -34,9 +34,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
 	"golang.org/x/sync/singleflight"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // version is the broker's reported version (also in ServiceInfo + logs).

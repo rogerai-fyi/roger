@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/agent"
+	"rogerai.fm/roger/internal/agent"
 )
 
 func TestRenderBrowse(t *testing.T) {

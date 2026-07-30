@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // Per-account MONTHLY SPEND CAP enforcement (a budget limit, modeled on Groq's "set a

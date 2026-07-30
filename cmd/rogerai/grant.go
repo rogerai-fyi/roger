@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/client"
+	"rogerai.fm/roger/internal/client"
 )
 
 // defaultGrantDailyCap is the conservative non-zero daily token cap a fresh grant

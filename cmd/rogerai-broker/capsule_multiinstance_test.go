@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // sharedBroker builds a broker whose capsule rendezvous is backed by the shared store at url.

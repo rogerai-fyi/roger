@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/detect"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // normalizedMarketQuery builds the STABLE cache key suffix for the PUBLIC market

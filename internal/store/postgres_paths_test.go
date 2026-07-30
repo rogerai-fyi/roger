@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestEmptyRequestIDSettleParity covers the legacy no-idempotency-key settle path on BOTH

@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/pricetier"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/pricetier"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 type ptState struct {

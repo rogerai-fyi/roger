@@ -12,11 +12,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/glyphs"
-	"github.com/rogerai-fyi/roger/internal/operator"
-	"github.com/rogerai-fyi/roger/internal/pricetier"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/operator"
+	"rogerai.fm/roger/internal/pricetier"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // operator.go is the TUI glue for Guest Operators Phase 2 (THE DESK): the /operator

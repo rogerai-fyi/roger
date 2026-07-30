@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/glyphs"
 )
 
 // TestChatSendsRaisedMaxTokens: the in-channel chat must request the shared raised

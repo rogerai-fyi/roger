@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // gitHubAPI is the GitHub REST base (overridable in tests).

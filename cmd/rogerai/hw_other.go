@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 )
 
 // detectHWClass returns the PRIVACY-BUCKETED hardware class for macOS/BSD. On Apple

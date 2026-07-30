@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // benchRouteBroker builds a broker with n healthy, probed, on-air nodes all offering "m" at

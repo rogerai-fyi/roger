@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 )
 
 // detectHWClass returns the PRIVACY-BUCKETED hardware class a Windows node

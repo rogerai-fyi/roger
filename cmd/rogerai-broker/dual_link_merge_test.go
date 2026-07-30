@@ -17,7 +17,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 func TestDualLinkMergesAppleBalanceIntoGitHub(t *testing.T) {

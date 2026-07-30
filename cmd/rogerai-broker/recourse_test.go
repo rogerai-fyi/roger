@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // unhealthyStore wraps a Mem store but reports a store-backend failure from Healthy, so

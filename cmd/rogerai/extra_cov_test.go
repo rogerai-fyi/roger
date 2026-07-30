@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/update"
+	"rogerai.fm/roger/internal/update"
 )
 
 // TestCmdUpgrade covers cmdUpgrade's --check (available + up-to-date) and the install

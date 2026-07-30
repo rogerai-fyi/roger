@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // transcriptText pulls the screenable text out of an STT result body. The OpenAI STT

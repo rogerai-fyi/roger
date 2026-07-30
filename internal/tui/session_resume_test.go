@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
-	"github.com/rogerai-fyi/roger/internal/session"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/internal/session"
 )
 
 func resumedFixture() session.Snapshot {

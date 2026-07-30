@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestJitterWindowAndProbeOnce covers the probe jitter math + a probeOnce round over an

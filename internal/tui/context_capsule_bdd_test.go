@@ -14,8 +14,8 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/capsule"
-	"github.com/rogerai-fyi/roger/internal/client"
+	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/internal/client"
 )
 
 type handoffBDD struct {

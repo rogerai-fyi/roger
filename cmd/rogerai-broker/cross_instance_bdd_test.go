@@ -40,8 +40,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
 	"github.com/redis/go-redis/v9"
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // xiRedisURL returns the shared-state backend URL for one scenario: the REAL Valkey

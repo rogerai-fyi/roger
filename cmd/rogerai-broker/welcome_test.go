@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // ghUserStub points gitHubAPI at a server returning a fixed user. An empty email is

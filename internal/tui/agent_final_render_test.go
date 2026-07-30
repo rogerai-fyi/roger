@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // lastAgentLines returns the transcript entries appended after n existing ones,

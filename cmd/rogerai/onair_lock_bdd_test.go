@@ -29,8 +29,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/agent"
-	"github.com/rogerai-fyi/roger/internal/node"
+	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/internal/node"
 )
 
 // TestOnAirLockHelper is the RE-EXEC entry point, not a test: it only runs when the

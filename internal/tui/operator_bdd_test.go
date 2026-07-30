@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/operator"
 )
 
 func TestGuestOperatorBDD(t *testing.T) {

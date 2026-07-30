@@ -33,8 +33,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // sfGitHubIDs gives each scenario persona a stable account wallet (u_gh_<id>).

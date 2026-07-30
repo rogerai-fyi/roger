@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
+	"rogerai.fm/roger/internal/capsule"
 )
 
 const (

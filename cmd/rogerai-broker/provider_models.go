@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // providerModels handles /provider/models - the owner's per-model PRICING + time-of-use

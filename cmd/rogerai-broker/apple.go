@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // Sign in with Apple (App Store Guideline 4.8). The SiwA analogue of authGitHub: the iOS

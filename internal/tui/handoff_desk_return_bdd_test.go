@@ -19,11 +19,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/brief"
-	"github.com/rogerai-fyi/roger/internal/capsule"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/operator"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/brief"
+	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/operator"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 type handoffDeskState struct {

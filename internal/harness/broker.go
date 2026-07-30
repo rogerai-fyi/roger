@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/client"
+	"rogerai.fm/roger/internal/client"
 )
 
 // CostFunc receives one model-call's BILLED result parsed from the relay's response

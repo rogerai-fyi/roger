@@ -1,4 +1,4 @@
-module github.com/rogerai-fyi/roger
+module rogerai.fm/roger
 
 go 1.25.0
 

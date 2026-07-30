@@ -14,7 +14,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 func TestMeLinkedProviders(t *testing.T) {

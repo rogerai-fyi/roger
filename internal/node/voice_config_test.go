@@ -12,7 +12,7 @@ package node
 import (
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/agent"
+	"rogerai.fm/roger/internal/agent"
 )
 
 // swapStartAgent replaces the process-edge start seam with fn for the duration of a test and

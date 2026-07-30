@@ -26,7 +26,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/glyphs"
 )
 
 // worldTickMs is the screensaver's frame cadence. It must stay SMOOTH: at ~1.8fps (540ms)

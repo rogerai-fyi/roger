@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/agent"
-	"github.com/rogerai-fyi/roger/internal/detect"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/internal/detect"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // captureShareConfig points cmdShare's register seam at a stub that records the agent.Config it

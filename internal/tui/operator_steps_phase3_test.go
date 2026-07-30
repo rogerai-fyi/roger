@@ -19,9 +19,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
 	"github.com/muesli/termenv"
-	"github.com/rogerai-fyi/roger/internal/operator"
-	"github.com/rogerai-fyi/roger/internal/pricetier"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/operator"
+	"rogerai.fm/roger/internal/pricetier"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // --- render access helpers ------------------------------------------------------------------

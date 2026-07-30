@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/tui"
+	"rogerai.fm/roger/internal/tui"
 )
 
 // TestTuiHooksClosures invokes the TUI hook closures built from config so their bodies

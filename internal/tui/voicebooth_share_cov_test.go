@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/node"
+	"rogerai.fm/roger/internal/node"
 )
 
 // TestBoothLocalPreviewSuccess drives the SUCCESS path of the local preview + audition against a

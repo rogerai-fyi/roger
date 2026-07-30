@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // jsonServer is a tiny per-test broker stub that answers every request with the given

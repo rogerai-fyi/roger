@@ -16,9 +16,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/operator"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/operator"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // opRegressionSeed stages a handoff-capable AGENT model with a live holder and one

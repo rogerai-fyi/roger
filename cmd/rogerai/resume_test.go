@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/node"
-	"github.com/rogerai-fyi/roger/internal/session"
-	"github.com/rogerai-fyi/roger/internal/tui"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/internal/node"
+	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/internal/tui"
 )
 
 func TestCmdResumeHelpDoesNotTouchSessionStore(t *testing.T) {

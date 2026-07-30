@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // gaOwner is one test identity: its signing key + how it is bound.

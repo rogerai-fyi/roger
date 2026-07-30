@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 func TestTuneInConversationHasStructuralRoleHierarchy(t *testing.T) {

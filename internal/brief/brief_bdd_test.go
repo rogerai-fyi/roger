@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/capsule"
+	"rogerai.fm/roger/internal/capsule"
 )
 
 type briefState struct {

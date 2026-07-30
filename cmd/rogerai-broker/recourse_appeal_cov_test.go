@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestOwnerAppealMethodNotAllowed locks the appeal handler's method guard: a PUT is

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestGrantsHTTPCRUD exercises the owner-auth /grants endpoints end to end: an

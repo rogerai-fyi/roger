@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // buildPayoutBrokerForTest builds a payout broker reading the payout policy from the

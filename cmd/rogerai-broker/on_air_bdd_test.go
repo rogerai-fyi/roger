@@ -26,8 +26,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/node"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/node"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 type onAirState struct {

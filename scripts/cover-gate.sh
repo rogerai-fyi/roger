@@ -19,7 +19,11 @@ set -uo pipefail
 GREEN_BAR=90
 MIN_TOTAL="${1:-$GREEN_BAR}"
 PROFILE="${COVER_PROFILE:-cover.out}"
-MOD="github.com/rogerai-fyi/roger"
+# Derived, never hardcoded: a stale literal here does not fail loudly, it makes the
+# per-package extraction below match nothing, so every package silently skips its floor
+# and only the module total is enforced. Ask the toolchain instead.
+MOD="$(go list -m)"
+[ -n "$MOD" ] || { echo "[cover] cannot determine module path (go list -m)" >&2; exit 1; }
 
 # Every package's floor is the 90% GREEN bar (aim 95%). No per-package exemptions — the
 # founder's rule is no green below the bar. Honestly-untestable glue (main()/serve loops)

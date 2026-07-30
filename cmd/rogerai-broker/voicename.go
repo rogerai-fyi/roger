@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
 	"golang.org/x/text/unicode/norm"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // voicename.go computes the voice-name SLUG that forms the second segment of a public voice's
