@@ -152,6 +152,25 @@ func NewLoop(root, persona string, complete Completer, confirm Confirmer) *Loop 
 	return l
 }
 
+// RestoreConversation seeds a newly constructed loop with completed semantic user/assistant
+// turns. It deliberately refuses system prompts, tool messages/calls, and local runtime flags:
+// resuming history must never replay a tool or replace the current dj.md persona.
+func (l *Loop) RestoreConversation(history []Message) error {
+	restored := make([]Message, 0, len(history))
+	for i, msg := range history {
+		if msg.Role != "user" && msg.Role != "assistant" {
+			return fmt.Errorf("restore message %d has unsupported role %q", i, msg.Role)
+		}
+		if len(msg.ToolCalls) > 0 || msg.ToolCallID != "" || msg.Name != "" || msg.Thought != "" || msg.Truncated {
+			return fmt.Errorf("restore message %d contains live tool or runtime state", i)
+		}
+		restored = append(restored, Message{Role: msg.Role, Content: msg.Content})
+	}
+	l.Reset()
+	l.messages = append(l.messages, restored...)
+	return nil
+}
+
 // Tools exposes the toolset (for the UI to describe the available capabilities).
 func (l *Loop) Tools() []Tool { return l.tools }
 

@@ -320,7 +320,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 		m.agentMaxSteps = m.agent.loop.MaxSteps
 		if m.agent.model != "" {
 			m.agentLines = append(m.agentLines,
-				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
+				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · local session history"),
 				stDim.Render("· ")+stDim.Render("/model switches model · read/list/fetch run on their own · write/run ask first · files sandboxed to "+m.agent.loop.Root+" · run_shell runs there but is NOT sandboxed"),
 			)
 			m.agentLines = append(m.agentLines, agentBandToolsWarning(m.offers, m.agent.model, m.narrow())...)
@@ -333,7 +333,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			// selectable operator picker (R3, onOperatorDetected). The auto-tune outcome is
 			// noted once, when it resolves - never a per-turn "no station" pile-up.
 			m.agentLines = append(m.agentLines,
-				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"))
+				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · local session history"))
 			m.autoTuneBeatLen = len(m.agentLines) // the beat below is swapped for the outcome
 			m.agentLines = append(m.agentLines,
 				agentFindingBandBeat())
@@ -347,7 +347,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 			// session): keep the honest up-front hint - the turn is still allowed and falls
 			// into the same actionable hint.
 			m.agentLines = append(m.agentLines,
-				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · session-only (no memory)"),
+				stDim.Render("· ")+stDim.Render("AGENT ready · dj.md persona · local session history"),
 				stRed.Render("✕ ")+stEmber.Render("no model tuned in"),
 				hintTuneOrShare(m.narrow()),
 			)
@@ -575,7 +575,11 @@ func (m model) newAgentRuntime() *agentRuntime {
 		return <-c.resp    // blocks until the user answers y/N
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
-	rt.loop = harness.NewLoop(agentRoot(), persona, completer, confirmer)
+	root := agentRoot()
+	if m.sessionWorkdir != "" && m.sessionWorkdirAvailable {
+		root = m.sessionWorkdir
+	}
+	rt.loop = harness.NewLoop(root, persona, completer, confirmer)
 	rt.callLimit = agentTimeoutFromEnv()
 	// Startup default for the approval mode: ROGERAI_AGENT_PERMS=confirm|edits|all
 	// (unset/invalid = confirm). Session-only from there; /perms toggles live.
@@ -1027,6 +1031,10 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if p == "" {
 			return m, nil
 		}
+		if m.agent == nil && !m.sessionWorkdirAvailable && !strings.HasPrefix(p, "/") {
+			m.status = stDim.Render("saved workdir is missing · use /cwd <existing-directory> before running the agent")
+			return m, nil
+		}
 		m.agentIn.SetValue("")
 		// Record the sent prompt in the AGENT recall history (collapses a repeat of the
 		// previous entry, resets the Up/Down cursor). Both chat turns and /commands count.
@@ -1322,6 +1330,9 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		// What the user cleared from the screen must not still travel to a guest.
 		m.clearAgentTurns()
+		m.threadID = ""
+		m.sessionTitle = ""
+		m.sessionCreated = time.Time{}
 		m.agentLines = nil
 		m.agentCost = 0
 		m.agentTokensIn = 0 // a fresh session zeroes the running ↑↓ token totals too
@@ -1337,10 +1348,42 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.autoTuning = false
 		m.autoTuneBeatLen = 0
 		m.rcEmitCleared() // BASE STATION: tell viewers, so a dropped queued turn doesn't dangle
-		note("session cleared - the agent starts fresh (still no long-term memory)")
+		note("session cleared - the agent starts a fresh local history")
 		// A cleared session IS the landing again: its one note is the new entry chrome,
 		// so THE DESK roster returns (desk_view: "/clear returns the landing").
 		m.agentLandingLines = len(m.agentLines)
+		return m, nil
+	case "cwd":
+		rawRoot := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		if rawRoot == "" {
+			note("usage: /cwd <existing-directory>")
+			return m, nil
+		}
+		root, err := filepath.Abs(rawRoot)
+		if err != nil {
+			note("could not resolve workdir: " + err.Error())
+			return m, nil
+		}
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			note("workdir does not exist or is not a directory: " + root)
+			return m, nil
+		}
+		m.sessionWorkdir = filepath.Clean(root)
+		m.sessionWorkdirAvailable = true
+		m.agent = m.newAgentRuntime()
+		history, err := restoredHarnessMessages(m.ring)
+		if err != nil {
+			m.agent = nil
+			note("could not restore conversation: " + err.Error())
+			return m, nil
+		}
+		if err := m.agent.loop.RestoreConversation(history); err != nil {
+			m.agent = nil
+			note("could not restore conversation: " + err.Error())
+			return m, nil
+		}
+		note("tools now use " + m.sessionWorkdir)
 		return m, nil
 	case "perms", "permissions", "yolo":
 		if m.agent == nil {
@@ -1418,7 +1461,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 	case "help", "h", "commands":
 		// "commands" matches the CHANNEL view's alias (tui.go) so the autocomplete
 		// strip's /commands pick dispatches here instead of falling to unknown.
-		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /mouse toggles wheel/select · /persona shows dj.md · esc exits")
+		note("/model switches model · /clear resets · /cwd changes a missing root · /copy yanks the transcript (⌃y) · /mouse toggles wheel/select · /persona shows dj.md · esc exits")
 		note(agentToolsNote(m.agentTools()))
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
 		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
@@ -1622,6 +1665,9 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		// empty turn records nothing (recordAgentAnswer no-ops), but the pending calls are
 		// consumed either way so they cannot ride on the NEXT turn.
 		m.recordAgentAnswer(t)
+		if err := m.saveCompletedSession(); err != nil {
+			m.agentLines = append(m.agentLines, stDim.Render("· session save failed: "+err.Error()))
+		}
 		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
 		// via the SHARED sessionFooter so the AGENT + CHANNEL money surfaces never drift.
 		if f := sessionFooter(m.agentTokensIn, m.agentTokensOut, m.agentCost); f != "" {
