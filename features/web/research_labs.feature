@@ -178,10 +178,27 @@ Feature: RogerAI Research presents real model science without confusing it with 
 
   Scenario: Industry use cases are deployment patterns, not case studies
     Given the visitor reads the industry section
-    Then manufacturing, warehouses and logistics, energy and heavy assets, and defense and public sector are described
+    Then oil and gas, power generation, manufacturing, and aerospace and defense are described
     And each use case describes on-premises or air-gapped local inference
     And the page states these are patterns and does not name or imply customers RogerAI does not have
     And advisory models are kept out of real-time closed-loop control
+
+  # An industrial buyer and a grant reviewer both check the same thing first: does
+  # this vendor speak the plant's language, and does it know where its box is
+  # allowed to sit? Naming the standards is the cheapest, highest-signal proof that
+  # the work is grounded in operational technology rather than in a demo.
+  Scenario: The industrial interface is described in the plant's own standards
+    Given the visitor reads the industry section
+    Then the tag and transport standards name OPC UA, Modbus, and MQTT Sparkplug B
+    And the asset-model standard names ISA-95
+    And the device-health status vocabulary names NAMUR NE 107
+    And the network-placement standard names IEC 62443 and the Purdue levels
+    And the page states the deployment initiates outbound and exposes no inbound listener
+
+  Scenario: The industrial pitch states what the model must never touch
+    Given the visitor reads the industry section
+    Then the page states that protection, interlocks, and safety-instrumented systems stay deterministic
+    And the page positions the model as a reasoning layer beside classical analytics rather than a replacement
 
   Scenario: Services are offered without conditioning model use on them
     Given the visitor reads the services section

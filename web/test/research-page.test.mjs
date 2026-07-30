@@ -19,7 +19,12 @@ test("Research is a concise first-class destination", () => {
   assert.match(page, /aria-current="page"/);
   assert.match(page, /rel="canonical" href="https:\/\/rogerai\.fm\/research\.html"/);
   const main = page.match(/<main[\s\S]*?<\/main>/)?.[0] || "";
-  assert.ok(main.length < 18000, `research content is concise (${main.length} bytes)`);
+  // Budget raised 18000 -> 19500 on founder direction: the industry section now names
+  // the four focus markets (oil and gas, power generation, manufacturing, aerospace)
+  // and the plant-interface standards an OT buyer checks for. That is the substance a
+  // grant or enterprise reviewer came for, so it earns its bytes - but the ceiling stays
+  // low on purpose. If a change needs more room, cut something before raising this.
+  assert.ok(main.length < 19500, `research content is concise (${main.length} bytes)`);
 });
 
 test("the page leads with the work, not a biography of the company", () => {
@@ -174,15 +179,43 @@ test("research and the live network directory remain distinct", () => {
 test("company handoff resolves to concise industry deployment patterns", () => {
   const page = read("research.html");
   assert.match(page, /<section[^>]+id="industry"/);
+  // The founder-named focus markets, in the founder's own terms.
   for (const market of [
+    /oil and gas/i,
+    /power generation/i,
     /manufacturing/i,
-    /warehouses and logistics/i,
-    /energy and heavy assets/i,
-    /defense and public sector/i,
+    /aerospace/i,
   ]) assert.match(page, market);
   assert.match(page, /deployment patterns, not customer case studies/i);
   assert.match(page, /advisory/i);
   assert.match(page, /closed-loop control/i);
+});
+
+// An industrial buyer and a grant reviewer both check the same thing first: does
+// this vendor speak the plant's language, and does it know where its box is
+// allowed to sit? Naming the standards is the cheapest, highest-signal proof that
+// the work is grounded in operational technology rather than in a demo.
+test("the industrial interface is described in the plant's own standards", () => {
+  const copy = text("research.html");
+  for (const standard of [
+    /OPC UA/,             // tags
+    /Modbus/,             // brownfield fieldbus
+    /Sparkplug B/,        // MQTT payload spec behind the unified namespace
+    /ISA-95/,             // asset hierarchy
+    /NE 107/,             // NAMUR device-health status
+    /IEC 62443/,          // zones and conduits
+    /Purdue/,             // network level placement
+  ]) assert.match(copy, standard, `names ${standard}`);
+  // The one architectural promise an OT security team asks for by name.
+  assert.match(copy, /outbound/i);
+  assert.match(copy, /no inbound|without.{0,20}inbound|exposes no inbound/i);
+});
+
+test("the industrial pitch states what the model must never touch", () => {
+  const copy = text("research.html");
+  assert.match(copy, /protection|interlock|safety-instrumented/i);
+  assert.match(copy, /deterministic/i);
+  assert.match(copy, /beside|alongside/i, "positioned next to classical analytics, not replacing it");
 });
 
 test("device and roadmap claims remain gated", () => {

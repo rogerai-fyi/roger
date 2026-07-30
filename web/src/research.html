@@ -274,10 +274,28 @@
              stay out of real-time closed-loop control.</p>
         </div>
         <div class="deployment-grid">
-          <article><b>Manufacturing</b><p>Inspection and maintenance context beside segmented plant systems.</p></article>
-          <article><b>Warehouses and logistics</b><p>Local vision and routing across intermittent uplinks.</p></article>
-          <article><b>Energy and heavy assets</b><p>Air-gapped analysis near oil, gas, generation, and field equipment.</p></article>
-          <article><b>Defense and public sector</b><p>On-premises inference inside sensitive boundaries.</p></article>
+          <article><b>Oil and gas</b><p>Rotating-equipment anomaly explanation and operator copilots
+             grounded in the OEM manuals and P&amp;IDs already on site.</p></article>
+          <article><b>Power generation</b><p>Historian questions in plain language, alarm-flood triage,
+             and work-order drafting for turbines and substation assets.</p></article>
+          <article><b>Manufacturing</b><p>Prompt-defined inspection over the existing classifier, and
+             shift notes, maintenance logs, and fault codes read together.</p></article>
+          <article><b>Aerospace and defense</b><p>Document intelligence and assistant workloads on
+             disconnected networks, where deployment is the security model.</p></article>
+        </div>
+
+        <!-- The plant-interface contract. An OT buyer and a grant reviewer check the same
+             thing first: does this vendor speak the plant's language, and does it know
+             where its box is allowed to sit. -->
+        <div class="device-contract">
+          <p><b>Signals.</b> OPC UA and Modbus for tags; MQTT Sparkplug B over a unified
+             namespace for transport. The deployment initiates outbound and exposes no
+             inbound listener.</p>
+          <p><b>Models.</b> ISA-95 for the asset hierarchy and NAMUR NE 107 for device-health
+             status, so a verdict lands in the vocabulary operators already use.</p>
+          <p><b>Placement.</b> IEC 62443 zones and the Purdue levels decide where the box sits.
+             Protection, interlocks, and safety-instrumented systems stay deterministic; the
+             model reasons beside classical analytics, never in place of it.</p>
         </div>
         <div class="device-contract" id="devices">
           <p><b>Device evidence contract.</b> A device claim names the exact board,
