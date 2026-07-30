@@ -11,14 +11,14 @@ Feature: Tube Ping makes a terminal-native 3D debut
 
     Scenario: Full Tube Ping uses the founder-approved pixel receiver silhouette
       When the canonical Tube Ping hero renders
-      Then it has a rounded block face, one centered live eye, a ROG wordmark, two feet, and a right-side depth plane
+      Then it has a rounded block face, one optically corrected live eye, a ROG wordmark, two feet, and a right-side depth plane
       And its visible silhouette matches:
         """
-                ▄██████▄
-           ((  █   •   █▓  ))
-               █  ROG  █▓
-                ▀█▄▄▄▄█▀▒
-                 ▀    ▀
+              ▄██████▄
+           (  █    • █▓  )
+              █  ROG █▓
+               ▀█▄▄█▀▒
+                ▀  ▀
         """
       And trailing whitespace is not significant
       And each body plane is styled as a contiguous span rather than one ANSI span per glyph
@@ -34,7 +34,7 @@ Feature: Tube Ping makes a terminal-native 3D debut
     Scenario: Depth reads without color
       Given NO_COLOR or the mono palette is active
       Then the body, right plane, and lower shadow still use distinct block densities
-      And the centered eye and ROG wordmark remain visible
+      And the optically corrected eye and ROG wordmark remain visible
       And no ANSI color escapes are emitted under NO_COLOR
 
     Scenario: Legacy ASCII keeps classic Ping instead of a broken approximation
@@ -76,7 +76,15 @@ Feature: Tube Ping makes a terminal-native 3D debut
 
     Scenario: AGENT uses the compact Tube Ping reaction poses
       Given the AGENT corner mascot is visible
-      Then waiting, thinking, streaming, and tool states use the compact Tube Ping family
+      Then waiting, thinking, streaming, and tool states use this roomier Tube Ping silhouette:
+        """
+              ▄██████▄
+           (  █    • █▓  )
+              █  ROG █▓
+               ▀█▄▄█▀▒
+                ▀  ▀
+        """
+      And the eye, face, right depth plane, lower bevel, and feet remain visually distinct
       And each pose preserves the same bounding box
       And transcript height does not jump when the pose changes
 
@@ -134,7 +142,7 @@ Feature: Tube Ping makes a terminal-native 3D debut
     Scenario: Idle depth animation changes light, not identity
       Given Tube Ping is animating in a capable terminal
       Then a slow two-frame breathe may shift one highlight or shadow plane
-      And the silhouette, centered eye, wordmark, and occupied bounding box remain stable
+      And the silhouette, optically corrected eye, wordmark, and occupied bounding box remain stable
 
     Scenario: Transmit animation grows radio waves symmetrically
       Given Tube Ping enters its transmit pose

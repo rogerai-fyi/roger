@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#252329"/>
+  <path d="M0 88H1200M0 542H1200" stroke="#48444b"/>
+  <path d="M72 0V630M1128 0V630" stroke="#48444b"/>
+  <circle cx="1010" cy="116" r="7" fill="#f04a3e"/>
+  <text x="82" y="135" fill="#f5f0e8" font-family="DejaVu Sans Mono,monospace" font-size="32" font-weight="700" letter-spacing="6">ROGERAI · COMPANY</text>
+  <text x="82" y="278" fill="#f5f0e8" font-family="DejaVu Sans,sans-serif" font-size="61" font-weight="700">Built in Orange County.</text>
+  <text x="82" y="354" fill="#f5f0e8" font-family="DejaVu Sans,sans-serif" font-size="61" font-weight="700">Useful anywhere.</text>
+  <text x="86" y="420" fill="#bbb3aa" font-family="DejaVu Sans Mono,monospace" font-size="23">INDEPENDENTLY OWNED · NOT VENTURE FUNDED</text>
+  <g transform="translate(890 215)">
+    <circle cx="100" cy="100" r="88" fill="#f59e0b"/>
+    <circle cx="73" cy="70" r="29" fill="#ffd77a" opacity=".55"/>
+    <path d="M97 13c25-34 68-28 77-7-5 27-45 35-75 23z" fill="#78a84d"/>
+    <path d="M100 26c16-12 32-18 61-20" fill="none" stroke="#456d34" stroke-width="5"/>
+  </g>
+  <text x="84" y="582" fill="#f5f0e8" font-family="DejaVu Sans Mono,monospace" font-size="19">MODELS + INFRASTRUCTURE FOR PRACTICAL LOCAL AI · ROGERAI.FM</text>
+</svg>

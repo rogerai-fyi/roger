@@ -23,11 +23,11 @@ const (
 )
 
 var tubePingRows = []string{
-	"     ▄██████▄",
-	"((  █   •   █▓  ))",
-	"    █  ROG  █▓",
-	"     ▀█▄▄▄▄█▀▒",
-	"      ▀    ▀",
+	"   ▄██████▄",
+	"(  █    • █▓  )",
+	"   █  ROG █▓",
+	"    ▀█▄▄█▀▒",
+	"     ▀  ▀",
 }
 
 // tubePingWalkFrames are the scene-sized form of the founder-approved pixel receiver.
@@ -35,14 +35,14 @@ var tubePingRows = []string{
 var tubePingWalkFrames = [][]string{
 	{
 		"  ▄██████▄",
-		" █   •   █▓",
+		" █    •  █▓",
 		" █  ROG  █▓",
 		"  ▀█▄▄▄▄█▀▒",
 		"   ▀    ▀",
 	},
 	{
 		"  ▄██████▄",
-		" █   •   █▓",
+		" █    •  █▓",
 		" █  ROG  █▓",
 		"  ▀█▄▄▄▄█▀▒",
 		"  ▀      ▀",
@@ -101,8 +101,8 @@ func renderTubePingPose(width, frame int, pose tubePingPose) string {
 	case tubePingTransmit:
 		eye = "O"
 		if frame%2 != 0 {
-			rows[1] = strings.Replace(rows[1], "((  ", "((( ", 1)
-			rows[1] = strings.Replace(rows[1], "  ))", " )))", 1)
+			rows[1] = strings.Replace(rows[1], "(  ", "(( ", 1)
+			rows[1] = strings.Replace(rows[1], "  )", " ))", 1)
 		}
 	case tubePingBlink:
 		if frame%2 == 0 {
@@ -127,12 +127,11 @@ func compactTubePingMark() string {
 	return stKey.Render("▟") + stPingEye.Render("•") + stKey.Render("▙") + stPingBody.Render("▓")
 }
 
-// compactTubePingCorner renders the three-row reactive AGENT form. All states keep
+// compactTubePingCorner renders the five-row reactive AGENT form. All states keep
 // the same bounding box; only the carrier, eye, or dial arm changes.
 func compactTubePingCorner(state agentPose, frame int, live bool) []string {
 	eye := "•"
 	left, right := "(", ")"
-	armL, armR := " ", " "
 	switch state {
 	case poseThinking:
 		if (frame/cornerCadence)%2 != 0 {
@@ -143,31 +142,26 @@ func compactTubePingCorner(state agentPose, frame int, live bool) []string {
 		left, right = "(", ")"
 	case poseTool:
 		if (frame/cornerCadence)%2 == 0 {
-			armR = "∩"
+			right = "∩"
 		} else {
-			armL = "∩"
+			left = "∩"
 		}
 	}
 	if !live && state == poseWaiting {
 		eye = "•"
 	}
-	// One object, one bounding box, one depth plane. The capped head, the wordmark
-	// body, and the bevelled base all span columns 2-6, and the ▓/▒ shadow sits in
-	// column 7 on every row. Carrier waves and tool arms hang OUTSIDE that box, so a
-	// pose can never change the silhouette. The first pass floated a 3-cell head
-	// (▟•▙) over a 5-cell body and stepped the shadow between columns 5 and 6, which
-	// on a real terminal read as a small head perched on a detached white slab.
-	//
-	// The wordmark stays on the quiet plane. At five cells there is no room for the
-	// canonical `█  ROG  █` breathing space, so separating ROG from the walls by
-	// COLOUR is what stops the row collapsing into one bright block - and it keeps
-	// the eye, not the lettering, as the brightest thing on the mark.
-	top := stPingDim.Render(left+" ") + stKey.Render("▄█") + stPingEye.Render(eye) +
-		stKey.Render("█▄") + stPingBody.Render("▓") + stPingDim.Render(" "+right)
-	mid := stPingDim.Render(" ") + stPingDim.Render(armL) + stKey.Render("█") +
-		stPingBody.Render("ROG") + stKey.Render("█") + stPingBody.Render("▓") + stPingDim.Render(armR)
-	base := stPingDim.Render("  ") + stKey.Render("▀█▄█▀") + stPingDim.Render("▒")
-	return []string{top, mid, base}
+	// The roomier corner mark preserves the hero's four readable planes: bright
+	// face, ▓ side wall, ▒ lower bevel, and detached feet. Carrier/tool gestures
+	// live outside the body, leaving its occupied box stable across every pose.
+	rows := append([]string(nil), tubePingRows...)
+	rows[1] = strings.Replace(rows[1], "(  ", left+"  ", 1)
+	rows[1] = strings.Replace(rows[1], "  )", "  "+right, 1)
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		row = strings.Replace(row, "•", "\x00", 1)
+		out[i] = strings.Replace(styleTubePingRow(row), "\x00", stPingEye.Render(eye), 1)
+	}
+	return out
 }
 
 func tubePingWorldSprite(frame int) []string {

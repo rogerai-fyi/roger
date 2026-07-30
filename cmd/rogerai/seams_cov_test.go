@@ -311,8 +311,20 @@ func TestRunDispatch(t *testing.T) {
 	if err := run([]string{"version"}, config{Broker: "https://b", User: "u"}); err != nil {
 		t.Fatalf("run(version) = %v", err)
 	}
-	if err := run([]string{"bogus-verb"}, config{Broker: "https://b", User: "u"}); err != errUnknownCommand {
-		t.Fatalf("run(bogus) = %v, want errUnknownCommand", err)
+	var unknownErr error
+	out := captureStdout(t, func() {
+		unknownErr = run([]string{"bogus-verb"}, config{Broker: "https://b", User: "u"})
+	})
+	if !errors.Is(unknownErr, errUnknownCommand) {
+		t.Fatalf("run(bogus) = %v, want wrapped errUnknownCommand", unknownErr)
+	}
+	if out != "" {
+		t.Fatalf("unknown command printed a usage wall to stdout:\n%s", out)
+	}
+	for _, want := range []string{"bogus-verb", "roger help"} {
+		if !strings.Contains(unknownErr.Error(), want) {
+			t.Errorf("unknown error %q missing %q", unknownErr, want)
+		}
 	}
 }
 

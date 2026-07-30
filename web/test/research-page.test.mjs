@@ -19,7 +19,7 @@ test("Research is a concise first-class destination", () => {
   assert.match(page, /aria-current="page"/);
   assert.match(page, /rel="canonical" href="https:\/\/rogerai\.fm\/research\.html"/);
   const main = page.match(/<main[\s\S]*?<\/main>/)?.[0] || "";
-  assert.ok(main.length < 15000, `research content is concise (${main.length} bytes)`);
+  assert.ok(main.length < 18000, `research content is concise (${main.length} bytes)`);
 });
 
 test("the page leads with the work, not a biography of the company", () => {
@@ -34,6 +34,7 @@ test("the model list gives every program a reason and honest status", () => {
   for (const model of [
     "DeepSeek-V4-Flash MTP",
     "Kimi-K3",
+    "Wave Core",
     "Wave Nano",
     "Wave Micro",
     "Roger Edge",
@@ -41,21 +42,62 @@ test("the model list gives every program a reason and honest status", () => {
   for (const reason of [
     /practical local inference/i,
     /high-memory workstation/i,
+    /general local reasoning/i,
     /local text and tool use/i,
     /routing, extraction, and triage/i,
     /wake, voice activity, sensing, and fixed commands/i,
   ]) assert.match(page, reason);
   assert.match(page, /Research build/i);
-  assert.match(page, /In progress/i);
+  assert.match(page, /Available/i);
   assert.match(page, /In design/i);
-  assert.match(page, /No Wave checkpoint has been released/i);
+  assert.match(page, /wave-nano-350m-instruct v1\.0/i);
 });
 
-test("upstream work is never presented as RogerAI pretraining", () => {
+test("the model ladder is visually sorted by increasing parameter class", () => {
+  const page = read("research.html");
+  const css = read("styles/research.css");
+  const spectrum = page.match(/<figure class="size-spectrum"[\s\S]*?<\/figure>/)?.[0];
+  assert.ok(spectrum, "size spectrum exists");
+  const order = ["Roger Edge", "Wave Micro", "Wave Nano", "Wave Core"];
+  let cursor = -1;
+  for (const name of order) {
+    const next = spectrum.indexOf(name);
+    assert.ok(next > cursor, `${name} follows the smaller tier`);
+    cursor = next;
+  }
+  for (const size of ["KB–10M", "&lt;100M", "~350M", "1B-class"]) {
+    assert.match(spectrum, new RegExp(size));
+  }
+  assert.match(page, /RogerAI-designed open model program/i);
+  assert.match(page, /Wave Nano v1\.0 available/i);
+  assert.match(text("research.html"), /Roger Edge.*(?:task|microcontroller)/i);
+  assert.doesNotMatch(page, /Wave Edge/i);
+  for (const selector of [".size-spectrum", ".size-spectrum__bar", ".model-group-head"]) {
+    assert.match(css, new RegExp(selector.replace(".", "\\.")), `${selector} is styled`);
+  }
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*size-spectrum/i);
+});
+
+test("model identity follows family size variant conventions", () => {
+  const page = read("research.html");
+  for (const id of [
+    "roger-edge-&lt;task&gt;-&lt;size&gt;",
+    "wave-micro-&lt;size&gt;-&lt;task&gt;",
+    "wave-nano-350m-instruct",
+    "wave-core-1b-instruct",
+  ]) assert.match(page, new RegExp(id));
+  assert.match(page, /Family · parameter class · variant/i);
+});
+
+test("upstream optimization keeps visible lineage and license", () => {
   const page = read("research.html");
   assert.match(page, /Optimized by RogerAI/);
   assert.match(page, /Upstream: DeepSeek-V4-Flash/);
   assert.match(page, /Upstream: Kimi-K3/);
+  assert.match(page, /MIT License/i);
+  assert.match(page, /Kimi K3 License/i);
+  assert.match(page, /284B total[^<]*13B active/i);
+  assert.match(page, /2\.8T total[^<]*104B active/i);
   assert.doesNotMatch(page, /RogerAI (?:pre)?trained (?:DeepSeek|Kimi)/i);
 });
 
@@ -71,12 +113,43 @@ test("evidence and local-use promises stay explicit", () => {
   assert.match(html, /href="https:\/\/github\.com\/rogerai-fyi\/roger"/);
 });
 
-test("downloads are real or clearly marked as coming soon", () => {
+test("only released artifacts present download controls", () => {
   const page = read("research.html");
   assert.match(page, /href="https:\/\/huggingface\.co\/rogerai-fyi\/DeepSeek-V4-Flash-MTP-GGUF"/);
-  assert.equal((page.match(/Hugging Face · coming soon/g) || []).length, 4);
-  assert.equal((page.match(/aria-disabled="true"/g) || []).length, 4);
+  assert.equal((page.match(/class="model-download"/g) || []).length, 2);
+  assert.doesNotMatch(page, /coming soon/i);
+  assert.doesNotMatch(page, /aria-disabled="true"/);
+  for (const stage of [
+    /16K saliency calibration/,
+    /Sequenced after Wave Nano/,
+    /Architecture and data design/,
+    /Hardware and dataset design/,
+  ]) assert.match(page, stage);
   assert.doesNotMatch(page, /href="[^"]*(?:placeholder|coming-soon)[^"]*"/i);
+});
+
+test("the released Wave Nano checkpoint publishes its release contract", () => {
+  const page = read("research.html");
+  const card = page.match(/<article class="model-row"[^>]*id="wave-nano-350m-instruct"[\s\S]*?<\/article>/)?.[0] || "";
+  const cardText = card.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  for (const fact of [
+    /AVAILABLE/,
+    /wave-nano-350m-instruct/,
+    /v1\.0/,
+    /350M/,
+    /instruct/,
+    /GGUF/,
+    /Q4_K_M/,
+    /Artifact license: Apache-2\.0/i,
+  ]) assert.match(cardText, fact);
+  assert.doesNotMatch(cardText, /Apache-2\.0 intended|pending final legal confirmation/i);
+  assert.match(card, /href="https:\/\/huggingface\.co\/rogerai-fyi\/wave-nano-350m-instruct"/);
+  assert.match(card, /Weights|Model card|License|Source|Evaluations|Limitations/i);
+  assert.match(text("research.html"), /local use does not require RogerAI or its broker/i);
+  assert.match(text("research.html"), /separate network terms/i);
+  for (const field of [/tested hardware/i, /runtime/i, /context/i, /peak memory/i, /measured speed/i]) {
+    assert.match(cardText, field);
+  }
 });
 
 test("developers have a compact path from artifact to local inference", () => {
@@ -96,6 +169,48 @@ test("research and the live network directory remain distinct", () => {
   assert.match(page, /href="\/models\.html"/);
   assert.match(page, /live network models/i);
   assert.match(page, /research programs/i);
+});
+
+test("company handoff resolves to concise industry deployment patterns", () => {
+  const page = read("research.html");
+  assert.match(page, /<section[^>]+id="industry"/);
+  for (const market of [
+    /manufacturing/i,
+    /warehouses and logistics/i,
+    /energy and heavy assets/i,
+    /defense and public sector/i,
+  ]) assert.match(page, market);
+  assert.match(page, /deployment patterns, not customer case studies/i);
+  assert.match(page, /advisory/i);
+  assert.match(page, /closed-loop control/i);
+});
+
+test("device and roadmap claims remain gated", () => {
+  const page = read("research.html");
+  const copy = text("research.html");
+  assert.match(page, /Raspberry Pi/i);
+  assert.match(page, /ESP32/i);
+  assert.match(copy, /exact board.*runtime.*format.*quantization/i);
+  assert.match(copy, /does not run Wave Nano/i);
+  assert.match(copy, /full delegation.*partial delegation.*CPU fallback/i);
+  for (const roadmap of ["Wave Tool", "Wave Vision", "Wave Audio"]) {
+    assert.match(page, new RegExp(roadmap));
+  }
+  assert.match(page, /gated on Wave Nano/i);
+});
+
+test("services are optional and preserve local model independence", () => {
+  const page = read("research.html");
+  assert.match(page, /id="services"/);
+  for (const service of [
+    /optimization engineering/i,
+    /edge deployment/i,
+    /benchmarking/i,
+    /industrial pilots/i,
+  ]) assert.match(page, service);
+  assert.match(page, /never requires buying services/i);
+  assert.match(page, /services never require the network/i);
+  assert.match(page, /mailto:labs@rogerai\.fm/);
 });
 
 test("new institutional pages contain no em dash character", () => {

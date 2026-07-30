@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f3efe7"/>
+  <path d="M0 88H1200M0 542H1200" stroke="#d5cfc4"/>
+  <path d="M72 0V630M1128 0V630" stroke="#d5cfc4"/>
+  <circle cx="1010" cy="116" r="7" fill="#e23b2f"/>
+  <g fill="none" stroke="#26252b" stroke-width="12">
+    <path d="M82 72h54v24h-30v58h30v24H82zM218 72h-54v24h30v58h-30v24h54z"/>
+  </g>
+  <circle cx="150" cy="125" r="16" fill="#e23b2f"/>
+  <text x="270" y="136" fill="#26252b" font-family="DejaVu Sans Mono,monospace" font-size="34" font-weight="700" letter-spacing="7">ROGERAI</text>
+  <text x="82" y="282" fill="#26252b" font-family="DejaVu Sans,sans-serif" font-size="64" font-weight="700">Local AI models.</text>
+  <text x="82" y="356" fill="#26252b" font-family="DejaVu Sans,sans-serif" font-size="64" font-weight="700">Inference infrastructure.</text>
+  <text x="86" y="422" fill="#605d63" font-family="DejaVu Sans Mono,monospace" font-size="24">ONE OPENAI-COMPATIBLE LOCAL ENDPOINT</text>
+  <g transform="translate(800 112)" fill="none" stroke-linecap="round">
+    <path d="M0 78C58 18 116 18 174 78S290 138 348 78" stroke="#d5cfc4" stroke-width="9"/>
+    <path d="M0 78C58 42 116 42 174 78S290 114 348 78" stroke="#e23b2f" stroke-width="6"/>
+    <circle cx="174" cy="78" r="14" fill="#e23b2f" stroke="none"/>
+  </g>
+  <text x="84" y="582" fill="#26252b" font-family="DejaVu Sans Mono,monospace" font-size="19">AMERICAN AI RESEARCH + INFRASTRUCTURE · ROGERAI.FM</text>
+</svg>

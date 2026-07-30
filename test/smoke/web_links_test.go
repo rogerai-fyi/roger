@@ -52,6 +52,8 @@ func distDir(t *testing.T) string {
 // versionRe pulls the value out of `const Version = "X.Y.Z"` (or `var Version = ...`,
 // since the version is now linker-stampable) in main.go.
 var versionRe = regexp.MustCompile(`(?m)^(?:const|var) Version = "([0-9][^"]*)"`)
+var manualVersionRe = regexp.MustCompile(`data-cli-version>v([^<]+)<`)
+var changelogVersionRe = regexp.MustCompile(`man-plate__k">v([^<]+)<`)
 
 // TestManualMentionsCLIVersion is the sync guard: the built operating manual
 // (web/dist/manual.html) MUST mention the current CLI version from
@@ -75,9 +77,22 @@ func TestManualMentionsCLIVersion(t *testing.T) {
 	if err != nil {
 		t.Skipf("web/dist/manual.html not built (%v); run `make site` first", err)
 	}
-	if !strings.Contains(string(b), version) {
-		t.Errorf("web/dist/manual.html does not mention current CLI version %q; "+
-			"update web/src/manual.html (cover + changelog) and re-run `node web/build.mjs`", version)
+	manualVersions := manualVersionRe.FindAllStringSubmatch(string(b), -1)
+	if len(manualVersions) != 2 {
+		t.Fatalf("manual has %d data-cli-version values, want exactly cover + command reference", len(manualVersions))
+	}
+	for _, got := range manualVersions {
+		if got[1] != version {
+			t.Errorf("manual data-cli-version = %q, want %q", got[1], version)
+		}
+	}
+	changelogHTML := string(b)
+	if i := strings.Index(changelogHTML, `id="schangelog"`); i >= 0 {
+		changelogHTML = changelogHTML[i:]
+	}
+	changelog := changelogVersionRe.FindStringSubmatch(changelogHTML)
+	if changelog == nil || changelog[1] != version {
+		t.Errorf("newest manual changelog = %q, want %q", changelog, version)
 	}
 }
 

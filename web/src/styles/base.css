@@ -121,22 +121,53 @@ code, pre { font-family: var(--font-mono); }
 }
 
 /* ---------- reveal primitive ------------------------------------ */
-/* Only HIDE when JS is present to bring it back: head.html adds `html.js`
-   before first paint, so with JS off (or a <noscript>) nothing is hidden and
-   the hero headline + install command render fully. site.js also reveals any
-   already-intersecting node synchronously so above-the-fold never flashes. */
+/* Reveal motion is observational: content is visible before deferred scripts
+   run. JavaScript may settle the small vertical offset, never restore opacity. */
 html.js [data-reveal] {
-  opacity: 0; transform: translateY(16px);
-  transition: opacity var(--d-4) var(--ease-out-quint), transform var(--d-4) var(--ease-out-quint);
+  opacity: 1; transform: translateY(10px);
+  transition: transform var(--d-4) var(--ease-out-quint);
 }
-/* Must out-specify `html.js [data-reveal]` above (specificity 0,2,1): scope the
-   revealed rule under `html.js` too so this (0,3,1) selector wins and content
-   actually becomes visible once `is-revealed` lands. Without the `html.js`
-   prefix the hide rule kept opacity:0 even after reveal and the page rendered
-   blank. */
+/* Keep the scoped specificity so is-revealed wins the transform declaration. */
 html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html.js [data-reveal] { opacity: 1; transform: none; transition: none; }
+}
+
+/* Canonical Tube Ping component. Its glyph geometry comes from the shared
+   partial; these planes make the same silhouette legible everywhere. */
+.tube-ping {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: end;
+  gap: var(--s-5);
+  margin: 0 0 var(--s-6);
+  padding-bottom: var(--s-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.tube-ping__sprite {
+  margin: 0;
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: clamp(.88rem, 1.2vw, 1.02rem);
+  font-weight: var(--weight-semi);
+  line-height: 1.08;
+  white-space: pre;
+}
+.tube-ping__eye { color: var(--live); }
+.tube-ping__depth { color: var(--ink-500); }
+.tube-ping__shadow { color: var(--ink-300); }
+.tube-ping figcaption {
+  display: grid;
+  gap: 3px;
+  color: var(--ink-500);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: .06em;
+}
+.tube-ping figcaption b { color: var(--ink-900); letter-spacing: .12em; }
+@media (max-width: 420px) {
+  .tube-ping { grid-template-columns: 1fr; align-items: start; }
+  .tube-ping__sprite { font-size: .84rem; }
 }
 
 /* ---------- live dot -------------------------------------------- */
@@ -345,6 +376,12 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 .nav__link:not(.nav__link--ghost):hover { color: var(--ink-900); }
 .nav__link:not(.nav__link--ghost):hover::after { transform: scaleX(1); }
+.nav__link[aria-current="page"] { color: var(--ink-900); }
+.nav__link[aria-current="page"]::after {
+  height: 2px;
+  background: var(--live);
+  transform: scaleX(1);
+}
 .nav__link--ghost {
   padding: 6px 12px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
   color: var(--ink-900); background: var(--white); box-shadow: none;

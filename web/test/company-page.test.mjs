@@ -100,9 +100,11 @@ test("the company page routes real enquiries and names the legal entity source",
 
 test("the company page makes no unearned model claims", () => {
   const page = visible(readDist("company.html"));
-  // Wave has no released checkpoint; the page must not imply one
-  assert.doesNotMatch(page, /download Wave|Wave .{0,20}available now/i);
-  assert.match(page, /no released Wave checkpoint/i);
+  assert.match(page, /wave-nano-350m-instruct/i);
+  assert.match(page, /350M-class released model/i);
+  assert.match(page, /href="https:\/\/huggingface\.co\/rogerai-fyi\/wave-nano-350m-instruct"/);
+  assert.doesNotMatch(page, /Wave (?:Micro|Core).{0,30}available/i);
+  assert.doesNotMatch(page, /No Wave checkpoint has been released/i);
   // optimization of an upstream is never described as RogerAI pretraining
   assert.doesNotMatch(page, /we (pre)?trained (DeepSeek|Kimi)/i);
 });
@@ -119,7 +121,7 @@ test("the company page presents an honest model-size ladder", () => {
   assert.match(page, /350M-class/i);
   assert.match(page, /tens or hundreds of billions/i);
   assert.match(page, /right-sized|smallest model/i);
-  assert.match(page, /no released Wave checkpoint/i);
+  assert.match(page, /wave-nano-350m-instruct/i);
 });
 
 test("American-made and openness claims are component-specific", () => {
@@ -129,6 +131,10 @@ test("American-made and openness claims are component-specific", () => {
   assert.match(page, /upstream models? (?:and|,).*global|global research community/i);
   assert.match(page, /open-source model and runtime work/i);
   assert.match(page, /PolyForm Perimeter/i);
+  assert.match(page, /Artifact license: Apache-2\.0/i);
+  assert.doesNotMatch(page, /Apache-2\.0 intended|pending final legal confirmation/i);
+  assert.match(page, /network services/i);
+  assert.match(page, /separate network terms/i);
   assert.doesNotMatch(page, /open-source (?:network|broker)/i);
 });
 

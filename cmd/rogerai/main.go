@@ -42,7 +42,7 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "5.4.7"
+var Version = "5.4.8"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
@@ -758,6 +758,9 @@ func run(argv []string, cfg config) error {
 		}
 		return runTUI(cfg.Broker, cfg.User, tuiLimits(cfg), notice, hooks, ctrl)
 	}
+	if rest[0] == "resume" || rest[0] == "continue" {
+		return cmdResumeWithRuntime(cfg, rest[1:], notice, webuiOn, webuiPort)
+	}
 	// On plain CLI subcommands (not the TUI / the upgrade command itself), print the
 	// banner to stderr so scripted stdout stays clean.
 	if notice != "" {
@@ -854,15 +857,13 @@ func dispatch(cfg config, args []string) error {
 		tui.PlayBoot(os.Stdout, time.Sleep)
 		return nil
 	case "version":
-		fmt.Printf("rogerai %s\n", Version)
+		fmt.Printf("roger %s\n", Version)
 		return nil
 	case "-h", "--help", "help":
 		usage()
 		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n", args[0])
-		usage()
-		return errUnknownCommand
+		return fmt.Errorf("%w %q; run 'roger help'", errUnknownCommand, args[0])
 	}
 }
 
@@ -2178,7 +2179,7 @@ func normalizeUpstream(u string) string {
 }
 
 func usage() {
-	fmt.Printf(`rogerai - a two-way radio for GPUs. run with no args for the interactive app.
+	fmt.Printf(`roger - a two-way radio for GPUs. run with no args for the interactive app.
 
   roger                       open the app (browse, tune in, chat) + browser console
                               (press w in the app to open the console in your browser;

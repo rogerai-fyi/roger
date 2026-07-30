@@ -187,3 +187,12 @@ test("parseRetryAfter: integer seconds -> ms; absent/garbage -> 0", () => {
   assert.equal(R.parseRetryAfter({}), 0);           // no headers
   assert.equal(R.parseRetryAfter(null), 0);         // no response at all
 });
+
+test("held data is styled as stale and stops live signal motion", () => {
+  const hold = src.match(/function holdLastKnown\(\)[\s\S]*?\n  }/)?.[0] || "";
+  assert.match(hold, /setStatus\([^;]+,\s*"stale"\)/);
+  assert.match(hold, /stopShimmer\(\)/);
+  assert.match(hold, /classList\.add\("is-stale"\)/);
+  assert.match(hold, /last read/i);
+  assert.doesNotMatch(hold, /startShimmer\(\)/);
+});

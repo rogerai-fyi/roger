@@ -40,19 +40,22 @@ Feature: RogerAI presents a clear company, product, and research story
     And each market is grounded in edge, embedded, operational-technology, or air-gapped constraints
     And the patterns are not represented as customer case studies
 
-  Scenario: The model ladder is honest
-    Given no Wave checkpoint has passed release gates
+  Scenario: The model ladder presents the shipping Wave line honestly
+    Given a Wave checkpoint has passed release gates
     Then Roger Edge is described as task-specific microcontroller work
     And Wave Micro is described as sub-100M specialist research
-    And Wave Nano is described as a 350M-class program
+    And Wave Nano is described as a 350M-class released model
     And frontier-scale optimization covers upstream models with tens or hundreds of billions of parameters
-    And no rung invents availability, performance, or a release date
+    And the released checkpoint links its weights, model card, license, source, evaluations, and limitations
+    And no unreleased rung borrows the released checkpoint's availability or performance
 
   Scenario: Origin and openness claims are component-specific
     Given a visitor reads the Company page
     Then RogerAI is described as built in Orange County, California
     And American-made does not erase upstream models or the global research community
     And open-source model and runtime work is distinguished from the PolyForm Perimeter network and broker
+    And the released model status is distinguished from final legal confirmation of the intended Apache-2.0 Wave artifact license
+    And broker-use terms are described separately from the model artifact license
 
   # ---------------------------------------------------------------------------
   # A dedicated company page. The homepage Company SECTION answers "is this a
@@ -104,6 +107,6 @@ Feature: RogerAI presents a clear company, product, and research story
 
   Scenario: The company page makes no unearned claims
     Given a visitor reads the company page
-    Then the page does not name a customer RogerAI does not have
-    And the page does not claim a released Wave checkpoint
+      Then the page does not name a customer RogerAI does not have
+    And the page claims a released Wave checkpoint only when its real artifact is linked
     And the page does not describe an optimization of an upstream model as RogerAI pretraining

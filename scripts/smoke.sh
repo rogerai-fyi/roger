@@ -127,11 +127,16 @@ if [ -z "$cli_ver" ]; then
 	red "read Version from cmd/rogerai/main.go"
 elif [ ! -f "$ROOT/web/dist/manual.html" ]; then
 	red "manual mentions CLI version v$cli_ver (web/dist/manual.html missing - run node web/build.mjs)"
-elif grep -q "$cli_ver" "$ROOT/web/dist/manual.html"; then
-	green "manual mentions current CLI version (v$cli_ver)"
 else
-	red "manual mentions current CLI version (v$cli_ver)"
-	info "web/dist/manual.html does not contain '$cli_ver' - update web/src/manual.html (cover + changelog) and re-run node web/build.mjs"
+	manual_versions=$(grep -o 'data-cli-version>v[^<]*<' "$ROOT/web/dist/manual.html" || true)
+	manual_count=$(printf '%s\n' "$manual_versions" | grep -c "^data-cli-version>v$cli_ver<$" || true)
+	changelog_version=$(sed -n '/id="schangelog"/,$p' "$ROOT/web/dist/manual.html" | grep -o 'man-plate__k">v[^<]*<' | head -n 1 || true)
+	if [ "$manual_count" -eq 2 ] && [ "$changelog_version" = "man-plate__k\">v$cli_ver<" ]; then
+		green "manual cover, reference, and changelog match CLI version (v$cli_ver)"
+	else
+		red "manual cover, reference, and changelog match CLI version (v$cli_ver)"
+		info "update both data-cli-version values and the newest changelog entry, then run node web/build.mjs"
+	fi
 fi
 
 # ============================================================================

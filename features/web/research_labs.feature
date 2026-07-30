@@ -46,11 +46,13 @@ Feature: RogerAI Research presents real model science without confusing it with 
     And unresolved A_log and quality gates remain visible until resolved
     And the page does not say RogerAI pretrained Kimi
 
-  Scenario: An unreleased Wave model is presented as a project
-    Given no Wave checkpoint has passed release gates
-    Then Wave Nano is labeled "Research" or "In progress"
-    And no download count, benchmark victory, or device compatibility is invented
-    And future modalities are shown as roadmap items rather than available models
+  Scenario: A released Wave model is presented as a product of RogerAI Labs
+    Given a Wave checkpoint has passed release gates
+    Then its exact model ID and version are visible
+    And it links weights, source, recipe, raw evaluations, and limitations
+    And its license, format, precision, tested hardware, runtime, context, peak memory, and measured speed are visible
+    And download count, benchmark, and device claims come only from published evidence
+    And future modalities remain roadmap items rather than inheriting the released model's status
 
   Scenario: A released model card exposes its artifact contract
     Given a RogerAI model has passed release gates
@@ -68,6 +70,14 @@ Feature: RogerAI Research presents real model science without confusing it with 
     And the page does not call the PolyForm broker open source
     And an open-weight-only model is labeled "open weights"
     And "Open Source AI" is used only when the release satisfies the published RogerAI reproducibility checklist
+
+  Scenario: The Wave license plan does not misuse the Apache name
+    Given RogerAI intends to release qualifying Wave artifacts under Apache-2.0
+    Then a shipping model's intended Apache-2.0 artifact license remains labeled pending final legal confirmation until counsel confirms it
+    And no broker-use restriction is inserted into a license still called Apache-2.0
+    And model-local use remains independent from RogerAI network terms
+    And any separate broker publication, routing, payment, or receipt terms are identified as network terms
+    And if material model-use restrictions remain, the final license receives its own accurate name and legal review
 
   Scenario: Local use is not conditioned on RogerAI
     Then the page says users may download and run qualifying open models locally
@@ -158,11 +168,12 @@ Feature: RogerAI Research presents real model science without confusing it with 
     And canonical and social metadata resolve to the Research page
     And the metadata does not claim an unreleased model is available
 
-  Scenario: The Wave family is presented as programs, not products
-    Given no Wave checkpoint has passed release gates
-    Then Wave Nano and Wave Micro are labeled programs in design or pending bake-off
-    And Wave Tool, Wave Vision, and Wave Audio are shown as roadmap tiers gated on Nano
-    And no Wave tier claims a release date, download, benchmark victory, or device support
+  Scenario: The Wave family distinguishes released models from roadmap programs
+    Given at least one Wave checkpoint has passed release gates
+    Then the released model is labeled available with its exact artifact link
+    And research, release-candidate, and planned tiers retain their actual statuses
+    And Wave Tool, Wave Vision, and Wave Audio show their actual release state
+    And no Wave tier borrows another tier's download, benchmark, or device support
     And microcontroller-class artifacts remain Roger Edge task models below the Wave line
 
   Scenario: Industry use cases are deployment patterns, not case studies

@@ -1,8 +1,8 @@
 # Founder captures + independent review, 2026-07-29.
 #
 # This spec makes conversation roles scannable, closes the over-cap composer
-# viewport regression, and adds an honest application-owned select-to-copy mode
-# without taking native terminal selection away by default.
+# viewport regression, and makes honest application-owned select-to-copy the
+# default while retaining native terminal selection as an immediate opt-in.
 
 Feature: Clean conversation hierarchy and deliberate text selection
   RogerAI should make a prompt, its answer, and its metadata instantly distinguishable,
@@ -136,15 +136,16 @@ Feature: Clean conversation hierarchy and deliberate text selection
       And that card becomes the eventual success or failure card in place
       And no WILCO or second result card is appended
 
-  Rule: Native selection remains the safe default
+  Rule: Smart select-and-copy is the default
 
-    Scenario: Default mouse ownership remains with the terminal
-      Given Roger starts with native selection enabled
-      Then ordinary terminal drag selection remains available in every view
-      And Roger does not claim it copied text it cannot observe
-      And ctrl+o or "/mouse" offers smart mouse mode
+    Scenario: Default mouse ownership provides Claude-style copy on release
+      Given Roger starts in TUNE IN or AGENT
+      Then smart mouse mode owns transcript dragging
+      And releasing a non-empty selection copies it exactly once
+      And a toast reports "Copied <count> characters to clipboard"
+      And ctrl+o or "/mouse" immediately restores native terminal selection
 
-    Scenario: Idle rendering does not erase native terminal selection
+    Scenario: Opt-in native selection remains stable
       Given native terminal text is selected while Roger is idle
       Then animation and discovery ticks do not repaint the frame
       And the native selection remains highlighted until the terminal clears it

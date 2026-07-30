@@ -92,7 +92,7 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		}
 	})
 
-	t.Run("reuses the shared controller + altscreen (no mouse capture)", func(t *testing.T) {
+	t.Run("reuses the shared controller + altscreen + smart mouse capture", func(t *testing.T) {
 		var got model
 		var opts []tea.ProgramOption
 		restore := withStubRunProgram(nil, func(m tea.Model, o []tea.ProgramOption) { got = m.(model); opts = o })
@@ -107,12 +107,12 @@ func TestRunSeamEntryPoints(t *testing.T) {
 		if got.updateLine != "note" {
 			t.Errorf("RunWithController should set the notice, got %q", got.updateLine)
 		}
-		// Native drag selection is the truthful default; only AltScreen is passed.
-		if len(opts) != 1 {
-			t.Errorf("RunWithController should pass alt-screen only (1 opt), got %d", len(opts))
+		// Smart drag-copy is the default; AltScreen and mouse-cell motion are passed.
+		if len(opts) != 2 {
+			t.Errorf("RunWithController should pass alt-screen + mouse capture (2 opts), got %d", len(opts))
 		}
-		if !got.mouseOff {
-			t.Errorf("RunWithController model should start mouseOff=true (native-select default)")
+		if got.mouseOff {
+			t.Errorf("RunWithController model should start mouseOff=false (smart-select default)")
 		}
 	})
 }

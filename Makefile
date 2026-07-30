@@ -65,8 +65,10 @@ cover-gate-fast:
 	@go vet ./...
 	@node web/build.mjs >/dev/null
 	@ver=$$(sed -n 's/^\(const\|var\) Version = "\([0-9][^"]*\)".*/\2/p' cmd/rogerai/main.go | head -n1); \
-		if grep -q "$$ver" web/dist/manual.html; then echo "[cover-gate-fast] OK - built manual mentions v$$ver"; \
-		else echo "[cover-gate-fast] FAIL - web/dist/manual.html missing v$$ver (update web/src/manual.html)"; exit 1; fi
+		count=$$(grep -o 'data-cli-version>v[^<]*<' web/dist/manual.html | grep -c "^data-cli-version>v$$ver<$$" || true); \
+		newest=$$(sed -n '/id="schangelog"/,$$p' web/dist/manual.html | grep -o 'man-plate__k">v[^<]*<' | head -n1); \
+		if [ "$$count" -eq 2 ] && [ "$$newest" = "man-plate__k\">v$$ver<" ]; then echo "[cover-gate-fast] OK - manual release metadata matches v$$ver"; \
+		else echo "[cover-gate-fast] FAIL - sync manual cover, reference, and newest changelog to v$$ver"; exit 1; fi
 
 # tdd: red-green watch loop for one package - make tdd PKG=./internal/store
 tdd:

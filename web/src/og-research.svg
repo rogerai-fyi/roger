@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#eeedf8"/>
+  <path d="M0 88H1200M0 542H1200" stroke="#cac8dc"/>
+  <path d="M72 0V630M1128 0V630" stroke="#cac8dc"/>
+  <circle cx="1010" cy="116" r="7" fill="#e23b2f"/>
+  <text x="82" y="135" fill="#252432" font-family="DejaVu Sans Mono,monospace" font-size="32" font-weight="700" letter-spacing="6">ROGERAI LABS</text>
+  <text x="82" y="286" fill="#252432" font-family="DejaVu Sans,sans-serif" font-size="62" font-weight="700">Models built for</text>
+  <text x="82" y="360" fill="#252432" font-family="DejaVu Sans,sans-serif" font-size="62" font-weight="700">local constraints.</text>
+  <text x="86" y="428" fill="#646176" font-family="DejaVu Sans Mono,monospace" font-size="23">WAVE NANO v1.0 · 350M · AVAILABLE</text>
+  <g transform="translate(835 205)">
+    <path d="M48 49C18 65 18 125 48 141M22 35C-22 63-22 127 22 155M286 49c30 16 30 76 0 92M312 35c44 28 44 92 0 120" fill="none" stroke="#777389" stroke-width="8" stroke-linecap="square"/>
+    <path d="M82 16h168v22H70V28h12z" fill="#252432"/>
+    <path d="M58 38h24v112H58zM238 38h24v112h-24zM82 128h156v22h-20v20H102v-20H82z" fill="#252432"/>
+    <path d="M262 45h16v105h-16zM238 150h18v20h-18z" fill="#59566a"/>
+    <path d="M256 170h18v18h-18z" fill="#777389"/>
+    <circle cx="160" cy="76" r="7" fill="#e23b2f"/>
+    <text x="160" y="122" text-anchor="middle" fill="#252432" font-family="DejaVu Sans Mono,monospace" font-size="30" font-weight="700">ROG</text>
+    <path d="M110 170v20h28M210 170v20h-28" fill="none" stroke="#252432" stroke-width="18"/>
+  </g>
+  <text x="84" y="582" fill="#252432" font-family="DejaVu Sans Mono,monospace" font-size="19">RIGHT-SIZED INTELLIGENCE · EVIDENCE WITH EVERY RELEASE · ROGERAI.FM</text>
+</svg>

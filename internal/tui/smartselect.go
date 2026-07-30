@@ -4,9 +4,9 @@ package tui
 // (features/tui/conversation_hierarchy_and_selection.feature, "Smart mouse mode
 // copies an application-owned selection on release").
 //
-// Native terminal selection stays the DEFAULT (mouse capture off). When the user
-// opts into capture (ctrl+o / /mouse), the wheel scrolls - and a left-drag over
-// the CHANNEL/AGENT transcript becomes a smart selection: the covered cells
+// Smart selection is the DEFAULT (mouse capture on): the wheel scrolls and a
+// left-drag over the CHANNEL/AGENT transcript becomes an application-owned
+// selection. ctrl+o / /mouse restores native terminal selection. The covered cells
 // highlight during the drag, and on release exactly the visible text is copied.
 // "Exactly the visible text" means: decorative gutters (▏ ◂ ▌), role labels
 // (YOU › / ROGER ›), the 2-space indent, and ANSI styling are excluded; a
@@ -267,7 +267,7 @@ func (m model) transcriptTop() int {
 			mdl = m.agent.model
 		}
 		if mdl != "" {
-			top += len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact, m.agentBusy))
+			top += len(agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.agentMascotCompact(), m.agentBusy))
 		}
 		return top
 	}

@@ -1979,7 +1979,7 @@ func (m model) agentView(w int) string {
 	if mdl != "" {
 		// live = the animation clock is advancing (a turn is in flight); when idle the frame
 		// is frozen, so the corner shows the open-eye standing-by frame, never a stuck blink.
-		corner := agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.compact, m.agentBusy)
+		corner := agentCornerPing(m.agentTurnState, anim(m.frame), m.narrow(), m.agentMascotCompact(), m.agentBusy)
 		for _, l := range corner {
 			b.WriteString(truncVisible("  "+l, w) + "\n")
 		}
