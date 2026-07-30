@@ -11,8 +11,20 @@ import path from "node:path";
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
+const compact = (value) => value.replace(/\s+/g, " ");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
+
+test("homepage leads with a concrete product promise", () => {
+  const home = readFileSync(path.join(DIST, "index.html"), "utf8");
+  const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0];
+  assert.ok(hero, "homepage has a hero");
+  assert.match(hero, /OpenAI-compatible/i);
+  assert.match(hero, /local endpoint/i);
+  assert.match(compact(hero), /community and private hardware/i);
+  assert.doesNotMatch(hero, /ham radio/i);
+  assert.doesNotMatch(home, /pays rent while you sleep|Pick up the mic/i);
+});
 
 test("homepage connects company, product, audience, evaluation, and research", () => {
   const home = readFileSync(path.join(DIST, "index.html"), "utf8");
@@ -30,7 +42,7 @@ test("homepage connects company, product, audience, evaluation, and research", (
   assert.match(section, /href="\/company\.html"/);
   assert.match(section, /RogerAI Labs/);
   assert.match(section, /Open Air Waves/);
-  assert.match(section, /Wave models/i);
+  assert.match(section, /Wave Nano/i);
   assert.match(section, /edge|manufacturing|industrial|personal/i);
 });
 
