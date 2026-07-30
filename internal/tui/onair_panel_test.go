@@ -82,6 +82,32 @@ func TestOnAirPanelListsAllBands(t *testing.T) {
 	}
 }
 
+func TestOnAirPanelUsesDistinctLiveSurface(t *testing.T) {
+	colorOn(t, true)
+	restore := paletteMono
+	restoreQuiet := quiet
+	paletteMono = false
+	quiet = false
+	t.Cleanup(func() {
+		paletteMono = restore
+		quiet = restoreQuiet
+	})
+
+	srv := okBroker(t)
+	defer srv.Close()
+	mm := New(srv.URL, "tester")
+	startShares(t, &mm, srv.URL, 1)
+	waitBadge(t, &mm, "ON AIR")
+
+	panel := mm.onAirPanel(80)
+	if !strings.Contains(panel, "\x1b[48;") {
+		t.Fatalf("live panel has no distinct background: %q", panel)
+	}
+	if plain := stripANSI(panel); !strings.Contains(plain, "ON AIR") || !strings.Contains(plain, "/share off") {
+		t.Fatalf("live surface lost textual truth cues:\n%s", plain)
+	}
+}
+
 // TestOnAirPanelManyBandsFold: past onAirMaxRows, the extra bands fold into a single
 // "+K more on air" line while the TOTALS line still sums EVERY band.
 func TestOnAirPanelManyBandsFold(t *testing.T) {

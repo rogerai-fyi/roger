@@ -45,7 +45,7 @@ var Version = "5.4.6"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
-const defaultBroker = "https://broker.rogerai.fyi"
+const defaultBroker = "https://broker.rogerai.fm"
 
 // defaultGitHubClientID is the PUBLIC OAuth client id of the org-owned "RogerAI"
 // GitHub app (Device Flow enabled). Public by design; overridable for forks via
@@ -864,7 +864,7 @@ func dispatch(cfg config, args []string) error {
 // supportURL is the website (community + Discord link live in its footer). Per the
 // founder, `roger support` / the TUI's /support point here, not straight at Discord,
 // so the footer stays the single source of truth for the community link.
-const supportURL = "https://rogerai.fyi"
+const supportURL = "https://rogerai.fm"
 
 // cmdSupport opens the website where the community / Discord link lives. tui.OpenURL
 // self-gates on an interactive TTY (never auto-opens headless / piped), and we print
@@ -1371,7 +1371,7 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 	if override {
 		mode += " (broker override active)"
 	}
-	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fyi", model, station, mode)
+	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fm", model, station, mode)
 }
 
 // earningsLine is the provider's money-OUT pointer printed right under the go-live
@@ -1379,14 +1379,14 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 // is on air with no idea where their money shows up. One tasteful line, mirroring the
 // single on-air line above.
 func earningsLine() string {
-	return "earnings: rogerai.fyi/dashboard.html  (or: roger payout status)"
+	return "earnings: rogerai.fm/dashboard.html  (or: roger payout status)"
 }
 
 // confidentialApplyURL is where an operator with qualifying data-center silicon applies to
 // the gated confidential ◆ tier. The tier is NOT self-serve (it needs hardware almost
 // nobody running a home GPU has - see confidentialIneligibleMsg), so the CLI points here
 // rather than implying anyone can flip it on.
-const confidentialApplyURL = "https://rogerai.fyi/confidential"
+const confidentialApplyURL = "https://rogerai.fm/confidential"
 
 // confidentialIneligibleMsg is the guidance printed when `roger share --confidential` runs
 // on a host with no SEV-SNP device. It is honest about WHY this is not consumer hardware

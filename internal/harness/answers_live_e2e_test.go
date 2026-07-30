@@ -30,7 +30,7 @@ package harness
 //	                    shape translation is stood in for, and the subtest says which mode
 //	                    it ran in.
 //
-// Env knobs: ROGER_E2E_BROKER (default https://broker.rogerai.fyi), ROGER_E2E_MODEL (the
+// Env knobs: ROGER_E2E_BROKER (default https://broker.rogerai.fm), ROGER_E2E_MODEL (the
 // band to tune), ROGER_E2E_URL (the page fetch_and_cite reads).
 
 import (
@@ -55,7 +55,7 @@ func TestAnswersLiveE2E(t *testing.T) {
 	if os.Getenv("ANSWERS_E2E") != "1" {
 		t.Skip("live answers E2E: set ANSWERS_E2E=1 (talks to the real broker and the real web)")
 	}
-	broker := envOr("ROGER_E2E_BROKER", "https://broker.rogerai.fyi")
+	broker := envOr("ROGER_E2E_BROKER", "https://broker.rogerai.fm")
 	model := envOr("ROGER_E2E_MODEL", "deepseek-v4-flash")
 
 	t.Run("fetch_and_cite", func(t *testing.T) {
@@ -327,7 +327,7 @@ func realSearchShim(t *testing.T) *httptest.Server {
 			return
 		}
 		// Wikipedia 403s the default Go user-agent; a live run found this the hard way.
-		req.Header.Set("User-Agent", "RogerAI-answers-e2e/1.0 (https://rogerai.fyi)")
+		req.Header.Set("User-Agent", "RogerAI-answers-e2e/1.0 (https://rogerai.fm)")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)

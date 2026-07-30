@@ -14,7 +14,7 @@ section below, and **[`EDGE.md`](EDGE.md)** for the Cloudflare edge rules.
 ## What's on the page
 
 1. **Hero - the install command first.** A copy-on-click box with
-   `curl -fsSL https://rogerai.fyi/install.sh | sh`. That's the primary CTA,
+   `curl -fsSL https://rogerai.fm/install.sh | sh`. That's the primary CTA,
    the way bun.sh / starship / deno do it.
 2. **Animated terminal demo.** A hand-built, asciinema-style replay of the radio
    TUI: run `rogerai` → browse stations by **signal bars** → **tune in** → get a

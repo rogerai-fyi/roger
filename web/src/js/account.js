@@ -6,7 +6,7 @@
 // broker behind the credentialed session cookie (no tokens ever touch JS), matching
 // the pattern in js/auth.js. Logged-out visitors are routed to /login.
 (function () {
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   function api(path, opts) {
     opts = opts || {};

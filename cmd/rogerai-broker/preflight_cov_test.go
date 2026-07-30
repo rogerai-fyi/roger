@@ -53,7 +53,7 @@ func TestCORSPreflightShortCircuits(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodOptions, "/"+name, nil)
-			r.Header.Set("Origin", "https://app.rogerai.fyi")
+			r.Header.Set("Origin", "https://app.rogerai.fm")
 			h(w, r)
 			if w.Code != http.StatusNoContent {
 				t.Fatalf("OPTIONS %s = %d, want 204 (preflight short-circuit)", name, w.Code)

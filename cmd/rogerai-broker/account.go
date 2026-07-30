@@ -97,7 +97,7 @@ func (b *broker) accountDelete(w http.ResponseWriter, r *http.Request) {
 	if login == "" {
 		// A bound account with no web login (e.g. Apple-only) — DeleteAccount keys on login, and
 		// deleting by an empty login would match the wrong row. Direct them to the web for now.
-		jsonErr(w, http.StatusConflict, "this account can't be deleted in-app yet — delete it from rogerai.fyi")
+		jsonErr(w, http.StatusConflict, "this account can't be deleted in-app yet — delete it from rogerai.fm")
 		return
 	}
 	// Guard 1: positive consumer balance must be spent/withdrawn first.

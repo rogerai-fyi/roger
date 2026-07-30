@@ -88,7 +88,7 @@
   function deck(lit) {
     return [
       PROMPT + head("roger"), "",
-      "  " + BRAND + "   " + ok("◉ carrier acquired") + dim("   broker.rogerai.fyi"), "",
+      "  " + BRAND + "   " + ok("◉ carrier acquired") + dim("   broker.rogerai.fm"), "",
       presetLine(lit || "TUNE IN"),
       dim("      dial a band · ◉ on  ○ off  ◆ lineage-verified · ") + dim("[m] compact")
     ];
@@ -219,7 +219,7 @@
               PROMPT + head("roger"), "",
               "  " + BRAND, "",
               dim("  acquiring carrier  ") + carrier(p) +
-                (p >= 8 ? "  " + ok("◉ locked") : dim("  broker.rogerai.fyi"))
+                (p >= 8 ? "  " + ok("◉ locked") : dim("  broker.rogerai.fm"))
             ], 130);
           }
           // the resting dial: brand + carrier line + preset bank + legend.

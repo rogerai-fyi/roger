@@ -9,7 +9,7 @@
   %LOCALAPPDATA%\Programs\rogerai, and adds that folder to your *user* PATH.
 
   One-liner (PowerShell):
-      irm https://rogerai.fyi/install.ps1 | iex
+      irm https://rogerai.fm/install.ps1 | iex
 
   Idempotent: re-running updates the binary in place and never duplicates the
   PATH entry. Touches only the current user - no admin rights required.

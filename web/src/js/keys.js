@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   // ---- tiny DOM helpers (mirrors account.js / metrics.js) ----
   function $(id) { return document.getElementById(id); }

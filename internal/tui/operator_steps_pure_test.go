@@ -78,12 +78,12 @@ func (s *opBDD) detectionNames() []string {
 
 func (s *opBDD) theGuestOperatorRegistry() error { return nil } // Background anchor
 
-func (s *opBDD) registryListsExactly(a, b, c, d string) error {
+func (s *opBDD) registryListsExactly(a, b, c, d, e string) error {
 	var names []string
 	for _, g := range operator.Registry() {
 		names = append(names, g.Name)
 	}
-	if want := []string{a, b, c, d}; !reflect.DeepEqual(names, want) {
+	if want := []string{a, b, c, d, e}; !reflect.DeepEqual(names, want) {
 		return fmt.Errorf("registry = %v, want %v", names, want)
 	}
 	return nil
@@ -164,6 +164,39 @@ func (s *opBDD) lookPathFailsForEverything() error {
 func (s *opBDD) lookPathResolvesEveryRegistryBinary() error {
 	for _, g := range operator.Registry() {
 		s.pathOf[g.Bin] = "/fake/" + g.Bin
+	}
+	return nil
+}
+
+func (s *opBDD) guestExecutableAt(bin, path string) error {
+	root := s.t.TempDir()
+	home := filepath.Join(root, "home", "u")
+	actual := filepath.Join(home, strings.TrimPrefix(path, "/home/u/"))
+	if err := os.MkdirAll(filepath.Dir(actual), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(actual, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		return err
+	}
+	s.resolveRoot = home
+	s.pathOf[bin] = path
+	return nil
+}
+
+func (s *opBDD) defaultDeskResolves(bin string) error {
+	got, err := operator.ResolveGuestBinary(bin, s.resolveRoot, func(string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if err != nil {
+		return err
+	}
+	s.resolvePath = strings.Replace(got, s.resolveRoot, "/home/u", 1)
+	return nil
+}
+
+func (s *opBDD) resolutionReturns(want string) error {
+	if s.resolvePath != want {
+		return fmt.Errorf("resolved %q, want %q", s.resolvePath, want)
 	}
 	return nil
 }

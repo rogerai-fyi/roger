@@ -25,7 +25,7 @@ by the broker, tracing the response back to the model that produced it. Owners m
 hardware; users get cheap, diverse access.
 
 ```
-curl -fsSL https://rogerai.fyi/install.sh | sh
+curl -fsSL https://rogerai.fm/install.sh | sh
 ```
 
 Or via **Homebrew** (macOS + Linux). Homebrew 6+ makes you trust a third-party tap once, so
@@ -80,7 +80,7 @@ any tool that talks to OpenAI talks to RogerAI.
 ## How it works
 
 ```
-rogerai ──► broker (broker.rogerai.fyi) ──► your node ──► your local model
+rogerai ──► broker (broker.rogerai.fm) ──► your node ──► your local model
  discover     registry · wallet · relay      dials out      (Ollama/llama.cpp/LM Studio/vLLM/Osaurus/…)
  use/topup    match · meter · co-sign         serve+sign
 ```

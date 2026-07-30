@@ -48,8 +48,8 @@ func TestConfirmGate(t *testing.T) {
 // FRAGMENT so it never reaches server logs; an empty short yields the bare page.
 func TestRCLinkURLShape(t *testing.T) {
 	cases := []struct{ short, want string }{
-		{"", "https://rogerai.fyi/r.html"},
-		{"8FK3-9MQ2", "https://rogerai.fyi/r.html#8FK3-9MQ2"},
+		{"", "https://rogerai.fm/r.html"},
+		{"8FK3-9MQ2", "https://rogerai.fm/r.html#8FK3-9MQ2"},
 	}
 	for _, tc := range cases {
 		if got := rcLinkURL(tc.short); got != tc.want {
@@ -171,7 +171,7 @@ func TestRemoteLinkCode(t *testing.T) {
 			t.Errorf("remoteLinkCode: %v", err)
 		}
 	})
-	for _, want := range []string{"RC 8FK3-9MQ2", "https://rogerai.fyi/r.html#8FK3-9MQ2", "roger remote attach 8FK3-9MQ2"} {
+	for _, want := range []string{"RC 8FK3-9MQ2", "https://rogerai.fm/r.html#8FK3-9MQ2", "roger remote attach 8FK3-9MQ2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("link output missing %q:\n%s", want, out)
 		}
@@ -195,7 +195,7 @@ func TestRemoteLinkHelp(t *testing.T) {
 			t.Errorf("remoteLinkHelp: %v", err)
 		}
 	})
-	for _, want := range []string{"/remote-control", "rogerai.fyi/r.html#<code>", "roger remote link <session-id>", "roger remote attach <code>"} {
+	for _, want := range []string{"/remote-control", "rogerai.fm/r.html#<code>", "roger remote link <session-id>", "roger remote attach <code>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q:\n%s", want, out)
 		}
@@ -510,7 +510,7 @@ func TestTuiHooksRCClosures(t *testing.T) {
 		t.Fatalf("RCEnable hook: bridge=%v err=%v", br, err)
 	}
 	defer br.Stop()
-	if info.SessionID != "rcs_h" || info.CodeShort != "8FK3-9MQ2" || info.LinkURL != "https://rogerai.fyi/r.html#8FK3-9MQ2" {
+	if info.SessionID != "rcs_h" || info.CodeShort != "8FK3-9MQ2" || info.LinkURL != "https://rogerai.fm/r.html#8FK3-9MQ2" {
 		t.Fatalf("RCEnable info = %+v, want the parsed result + the r.html deep link", info)
 	}
 

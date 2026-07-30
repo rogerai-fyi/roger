@@ -48,7 +48,7 @@ type mailer struct {
 func loadMailer() *mailer {
 	return &mailer{
 		apiKey:   os.Getenv("RESEND_API_KEY"),
-		from:     envStr("RESEND_FROM", "RogerAI <noreply@rogerai.fyi>"),
+		from:     envStr("RESEND_FROM", "RogerAI <noreply@rogerai.fm>"),
 		endpoint: resendEndpoint,
 		timeout:  15 * time.Second,
 		sentCaps: map[string]bool{},

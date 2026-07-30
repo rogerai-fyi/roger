@@ -691,7 +691,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if c := m.agentPendingConfirm; c != nil {
 		switch k.String() {
 		case "y", "Y":
-			m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
+			m.markAgentActivityApproved(c.tool)
 			m.agentPendingConfirm = nil
 			m.rcConfirmID = "" // BASE STATION: this confirm is resolved; a late remote answer is now stale
 			m.rcEmitConfirmDone(true, "local")
@@ -706,7 +706,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next := (agentPermMode(m.agent.perms.Load()) + 1) % 3
 			m = m.applyPermMode(next)
 			if permAllows(next, c.tool) {
-				m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
+				m.markAgentActivityApproved(c.tool)
 				m.agentPendingConfirm = nil
 				m.rcConfirmID = ""
 				m.rcEmitConfirmDone(true, "local")
@@ -715,13 +715,22 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default: // n / N / esc / anything else - default DENY
-			m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+c.tool+" was not run"))
+			m.markAgentActivityDenied(c.tool)
 			m.agentPendingConfirm = nil
 			m.rcConfirmID = ""
 			m.rcEmitConfirmDone(false, "local")
 			c.resp <- false
 			return m, m.waitAgentEvent()
 		}
+	}
+	// Right Arrow accepts a grounded next-action hint only into an empty focused
+	// composer. It edits the draft but never sends; authored text retains normal
+	// textarea cursor movement.
+	if k.String() == "right" && m.agentIn.Focused() && m.agentIn.Value() == "" && m.agentNextHint != "" {
+		m.agentIn.SetValue(m.agentNextHint)
+		m.agentIn.CursorEnd()
+		m.agentNextHint = ""
+		return m, nil
 	}
 	// THE DESK has focus (the [0] landing with nothing tuned in, R3): arrows move the
 	// operator cursor, Enter on the DJ focuses the ask box, Enter on a guest opens the
@@ -862,6 +871,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentIn.Blur()
+		m.agentNextHint = ""
 		// Clear the DESK focus on the way out, so a re-entry never lands in a dual-focus
 		// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
 		// box and any fresh scan re-arms the desk from a known-clean base.
@@ -949,11 +959,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+o":
 		m.mouseOff = !m.mouseOff
+		m.smartSel = smartSelState{}
+		m.status = mouseStatusLine(m.mouseOff)
 		if m.mouseOff {
-			m.status = stLive.Render("native select ON · drag to copy · ctrl+o restores scroll")
 			return m, tea.DisableMouse
 		}
-		m.status = stDim.Render("scroll ON · ctrl+o for native select/copy")
 		return m, tea.EnableMouseCellMotion
 	case "ctrl+n":
 		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
@@ -1046,6 +1056,9 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ask (the enter handler above parks it). Only the modal sub-states (picker / confirm,
 	// handled earlier) own the keys.
 	var c tea.Cmd
+	if len(k.Runes) > 0 || k.Type == tea.KeyBackspace || k.Type == tea.KeyDelete {
+		m.agentNextHint = ""
+	}
 	m.agentIn, c = m.agentIn.Update(k)
 	return m, c
 }
@@ -1315,6 +1328,8 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentTokensOut = 0
 		m.agentTPS = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
+		m.agentNextHint = ""
+		m.agentHadToolResult = false
 		// Also disarm any in-flight auto-tune and drop the prompts parked while no band was
 		// tuned. Without this a prompt parked before /clear fired as a phantom turn (its echo
 		// already wiped by the clear) when the auto-tune landed (audit finding, MAJOR).
@@ -1355,11 +1370,11 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "mouse":
 		m.mouseOff = !m.mouseOff
+		m.smartSel = smartSelState{}
+		note(ansi.Strip(mouseStatusLine(m.mouseOff)))
 		if m.mouseOff {
-			note("native select ON · drag to copy · /mouse restores scroll")
 			return m, tea.DisableMouse
 		}
-		note("scroll ON · /mouse for native select/copy")
 		return m, tea.EnableMouseCellMotion
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
@@ -1532,8 +1547,10 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		m.agentTurnState = poseTool
 		m.agentLines = append(m.agentLines, agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
 		m.agentActivityLine = len(m.agentLines) - 1
+		m.agentActivityTool = e.Tool
 		m.agentActivityTarget = toolArgSummary(e.Tool, e.Args)
 		m.agentActivityRunning = true
+		m.agentActivityApproved = false
 		m.noteAgentToolCall(fmt.Sprintf("call_%d", len(m.agentTurnCalls)+1), e.Tool, argsJSON(e.Args))
 	case harness.EventToolResult:
 		m.agentTurnState = poseThinking // result is back; the model reasons on it next
@@ -1559,13 +1576,16 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		if m.agentActivityTarget != "" {
 			card += stDim.Render("   " + m.agentActivityTarget)
 		}
+		if m.agentActivityApproved && !e.Denied {
+			card += stDim.Render(" · approved")
+		}
 		card += stDim.Render(" · ") + tail
 		if m.agentActivityRunning && m.agentActivityLine >= 0 && m.agentActivityLine < len(m.agentLines) {
 			m.agentLines[m.agentActivityLine] = card
 		} else {
 			m.agentLines = append(m.agentLines, card)
 		}
-		m.agentActivityLine, m.agentActivityTarget, m.agentActivityRunning = -1, "", false
+		m.agentActivityLine, m.agentActivityTool, m.agentActivityTarget, m.agentActivityRunning, m.agentActivityApproved = -1, "", "", false, false
 		m.noteAgentToolResult(harness.Event(e))
 		// Show the user the ACTUAL output, not just "ok · N bytes": a short preview of
 		// the result is the real UX gap behind a truncated answer (the user could never
@@ -1863,7 +1883,11 @@ func (m model) agentView(w int) string {
 		// The windowshade folds the desk strip to a bare count (§3f) - "" with zero
 		// guests, so the zero-guest compact heading stays byte-identical.
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") + m.agentPermTag() +
-			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + m.agentSessionDeck(w) + m.deskCompactCount()
+			stDim.Render(" ") + mdlCell
+		if rail := m.agentSessionDeck(w); rail != "" {
+			head += stDim.Render(" · ") + rail
+		}
+		head += m.deskCompactCount()
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		// The DIAL DECK (design overhaul §6): LOCK lamp · call sign · AGENT · S-meter ·
@@ -1882,7 +1906,9 @@ func (m model) agentView(w int) string {
 			head += stDim.Render("   S ") + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
 		}
 		rail := m.agentSessionDeck(w)
-		if w >= 110 {
+		if rail == "" {
+			// Untouched landing: no separator or alignment padding for absent data.
+		} else if w >= 110 {
 			gap := w - lipgloss.Width(head) - lipgloss.Width(rail) - 2
 			if gap > 0 {
 				head += strings.Repeat(" ", gap) + rail
@@ -1927,9 +1953,13 @@ func (m model) agentView(w int) string {
 	// scrolled up, the same reserved row becomes navigation/focus wayfinding.
 	scrolledUp := lineRows(content) > budget && !m.agentVP.AtBottom()
 	seam := lineRows(content) > 0
+	desk := m.deskRosterBlock(w)
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
 	}
+	// Desk availability belongs to the transcript side of the seam. Keeping it
+	// above the separator leaves `── ask` immediately adjacent to the composer.
+	b.WriteString(desk)
 	if seam {
 		// The seam doubles as the FOCUS cue: lit + labeled while the transcript owns
 		// the keyboard, dim wayfinding while merely scrolled up.
@@ -1955,7 +1985,6 @@ func (m model) agentView(w int) string {
 	}
 	// THE DESK roster (Phase 3): the static landing preview of who can take the mic;
 	// deskRosterBlock returns "" off the landing state (and always with zero guests).
-	b.WriteString(m.deskRosterBlock(w))
 	// The /operator hand-the-mic picker (Guest Operators Phase 2): same modal shape as
 	// the /model picker directly below.
 	if m.operatorPicker {
@@ -2047,7 +2076,10 @@ func (m model) agentView(w int) string {
 // agentSessionDeck is the responsive, truthful usage rail. Wide terminals get
 // labeled instrument cells; medium/narrow layouts collapse those same real values.
 func (m model) agentSessionDeck(w int) string {
-	step := "—"
+	if !m.agentBusy && m.agentStep == 0 && m.agentTokensIn == 0 && m.agentTokensOut == 0 && m.agentCost == 0 {
+		return ""
+	}
+	step := "·"
 	if m.agentStep > 0 {
 		step = fmt.Sprintf("%d", m.agentStep)
 	}
@@ -2118,12 +2150,12 @@ func (m model) agentPromptRowCount(w int) int {
 // scrolling, and cursor placement to Bubbles textarea. The model copy is sized
 // for this frame so View remains pure.
 func (m model) agentPromptLines(w int) []string {
-	input := m.agentIn
-	input.Placeholder = m.agentPromptPlaceholder()
-	input.SetWidth(max(agentPromptLeadWidth+1, w))
-	input.SetHeight(m.agentPromptRowCount(w))
-	view := strings.TrimSuffix(input.View(), "\n")
-	return strings.Split(view, "\n")
+	placeholder := m.agentPromptPlaceholder()
+	if m.agentNextHint != "" && m.agentIn.Focused() && m.agentIn.Value() == "" {
+		placeholder += "   → accept"
+	}
+	view := renderComposer(m.agentIn, placeholder, agentPromptLead, agentPromptLeadWidth, w, m.agentPromptRowCount(w))
+	return tintComposerLines(strings.Split(view, "\n"), w)
 }
 
 // agentPermTag is the masthead's approval-mode chip: empty at the confirm default
@@ -2189,12 +2221,39 @@ func (m model) agentModeLine(w int) string {
 	return truncVisible(line, w)
 }
 
-// agentApprovedLine is the transcript echo when a side-effecting tool is approved at
-// the confirm gate: WILCO (radio "received + complying" - the approval AND that it's
-// running now), keeping the ✓ go-glint. One source for both approve paths (y and the
-// ctrl+p-escalate-to-auto-approve). Deny stays plain English (no proword for deny).
-func agentApprovedLine(tool string) string {
-	return "  " + stLive.Render("✓ ") + stDim.Render("WILCO · "+tool)
+func (m *model) markAgentActivityApproved(tool string) {
+	m.agentActivityApproved = true
+	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
+		m.agentLines = append(m.agentLines, "  "+lampStyle(roleDial).Render("◐")+stDim.Render(" ⚙ "+tool+" · approved · running"))
+		m.agentActivityLine = len(m.agentLines) - 1
+		m.agentActivityTool = tool
+		m.agentActivityRunning = true
+		return
+	}
+	target := m.agentActivityTarget
+	if tool == "" {
+		tool = m.agentActivityTool
+	}
+	line := "  " + lampStyle(roleDial).Render("◐") + stDim.Render(" ⚙ "+tool)
+	if target != "" {
+		line += stDim.Render("   " + target)
+	}
+	m.agentLines[m.agentActivityLine] = line + stDim.Render(" · approved · running")
+}
+
+func (m *model) markAgentActivityDenied(tool string) {
+	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
+		m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+tool+" was not run"))
+		return
+	}
+	if tool == "" {
+		tool = m.agentActivityTool
+	}
+	line := "  " + stRed.Render("✕ ") + stDim.Render(tool)
+	if m.agentActivityTarget != "" {
+		line += stDim.Render("   " + m.agentActivityTarget)
+	}
+	m.agentLines[m.agentActivityLine] = line + stEmber.Render(" · denied · not run")
 }
 
 // agentAnswerMark tags canonical assistant Markdown. It stays byte-for-byte intact
@@ -2213,7 +2272,12 @@ const toolOutMark = "\x1e"
 func (m model) displayAgentLines() []string {
 	out := make([]string, 0, len(m.agentLines))
 	hinted := false
-	for _, ln := range m.agentLines {
+	for i, ln := range m.agentLines {
+		// The confirmation gate is the sole command surface while approval is
+		// pending. The same activity card returns in-place after the decision.
+		if m.agentPendingConfirm != nil && m.agentActivityRunning && i == m.agentActivityLine {
+			continue
+		}
 		if strings.HasPrefix(ln, agentAnswerMark) {
 			out = append(out, agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark))...)
 			hinted = false

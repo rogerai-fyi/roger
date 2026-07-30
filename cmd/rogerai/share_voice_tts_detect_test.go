@@ -42,7 +42,7 @@ import (
 // the full identity is pinned).
 var operatorProfile = ShareVoice{
 	Name: "roger-operator", Language: "en-US",
-	SampleURL: "https://rogerai.fyi/assets/voice-samples/roger-operator-1950s.mp3",
+	SampleURL: "https://rogerai.fm/assets/voice-samples/roger-operator-1950s.mp3",
 	Voice:     "af_heart:0.5+af_aoede:0.5", Speed: 1.25,
 }
 

@@ -13,7 +13,7 @@
 //   POST /billing/checkout { usd } -> { url }   (Stripe Checkout, unchanged)
 // Every added panel degrades to honest-empty (hidden) if its feed is missing.
 (function () {
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   function api(path, opts) {
     opts = opts || {};

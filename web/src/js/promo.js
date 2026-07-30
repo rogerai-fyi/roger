@@ -14,7 +14,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var STORE_KEY = "roger-promo-dismissed-v1";
   var bar = document.getElementById("promoBar");
   if (!bar) return;

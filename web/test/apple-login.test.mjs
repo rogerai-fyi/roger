@@ -1,4 +1,4 @@
-// Regression lock for web Sign in with Apple (the browser flow on rogerai.fyi).
+// Regression lock for web Sign in with Apple (the browser flow on rogerai.fm).
 // Unlike the NATIVE bind (/auth/apple, device Ed25519 signed), the web flow is a
 // SERVER-SIDE redirect handled entirely by the broker (apple_web.go:
 //   GET /auth/apple/web/login  -> 302 Apple authorize (Services ID, state+nonce)
@@ -21,12 +21,12 @@ const login = read("login.html");
 
 test("login: a 'Continue with Apple' link beside GitHub, pointing at the broker web flow", () => {
   // both providers offered, same .gh ink plate.
-  assert.match(login, /href="https:\/\/broker\.rogerai\.fyi\/auth\/github\/login"/, "GitHub link still present");
-  assert.match(login, /href="https:\/\/broker\.rogerai\.fyi\/auth\/apple\/web\/login"/, "Apple link points at the broker web-login route");
+  assert.match(login, /href="https:\/\/broker\.rogerai\.fm\/auth\/github\/login"/, "GitHub link still present");
+  assert.match(login, /href="https:\/\/broker\.rogerai\.fm\/auth\/apple\/web\/login"/, "Apple link points at the broker web-login route");
   // it's a labelled <a class="gh"> like GitHub (full-page navigation, not a button+JS).
   assert.match(
     login,
-    /<a class="gh"[^>]*href="https:\/\/broker\.rogerai\.fyi\/auth\/apple\/web\/login"[\s\S]*?Apple[\s\S]*?<\/a>/,
+    /<a class="gh"[^>]*href="https:\/\/broker\.rogerai\.fm\/auth\/apple\/web\/login"[\s\S]*?Apple[\s\S]*?<\/a>/,
     "Apple is an <a class=gh> link labelled Apple",
   );
 });

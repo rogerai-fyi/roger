@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  var INSTALL_CMD = "curl -fsSL https://rogerai.fyi/install.sh | sh";
+  var INSTALL_CMD = "curl -fsSL https://rogerai.fm/install.sh | sh";
 
   /* ---- theme toggle (light <-> dark) ----------------------------- */
   var STORE_KEY = "roger-theme";
@@ -196,7 +196,7 @@
      swap the primary command (both boxes + the copy target) to the PowerShell
      one-liner and flip the helper note. mac/linux detection is kept for the
      note copy only. */
-  var WIN_CMD = "irm https://rogerai.fyi/install.ps1 | iex";
+  var WIN_CMD = "irm https://rogerai.fm/install.ps1 | iex";
 
   function detectOS() {
     // Prefer the modern, high-entropy hint (Edge/Chromium support it).
@@ -232,11 +232,11 @@
     }
     var noteWin = document.getElementById("installNoteWin");
     if (noteWin) {
-      noteWin.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fyi/install.sh | sh</code>';
+      noteWin.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fm/install.sh | sh</code>';
     }
     var noteWin2 = document.getElementById("installNoteWin2");
     if (noteWin2) {
-      noteWin2.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fyi/install.sh | sh</code>';
+      noteWin2.innerHTML = 'On macOS / Linux: <code class="inline">curl -fsSL https://rogerai.fm/install.sh | sh</code>';
     }
   }
 

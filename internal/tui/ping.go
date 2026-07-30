@@ -424,13 +424,11 @@ func agentCornerPing(state agentPose, frame int, narrow, compact, live bool) []s
 	word := cornerWord(state, frame)
 	// Narrow / compact / quiet: one clean status line, no multi-row art.
 	if narrow || compact {
-		eye := stPingEye.Render("•")
-		return []string{stPingDim.Render("((") + " " + eye + " " + stPingDim.Render("))") + "  " + stPingDim.Render(word)}
+		return []string{compactTubePingMark() + "  " + stPingDim.Render(word)}
 	}
-	head, eye := cornerFrameFor(state, frame, live)
-	out := make([]string, 0, 3)
-	for i, ln := range head.lines {
-		line := tintEyeLineDepth(ln, eye, i)
+	head := compactTubePingCorner(state, frame, live)
+	out := make([]string, 0, len(head))
+	for i, line := range head {
 		if i == 0 {
 			line += "   " + stPingDim.Render(word)
 		}

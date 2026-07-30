@@ -34,7 +34,7 @@
   "use strict";
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var POLL_MS = 30000;
   var BARGLYPH = "▁▂▃▄▅▆▇█"; // ▁▂▃▄▅▆▇█
   var HISTORY_KEY = "roger-seen-models";

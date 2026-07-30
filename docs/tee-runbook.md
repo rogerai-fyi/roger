@@ -16,7 +16,7 @@ operator stands that allowlist up and how a provider becomes eligible.
 > node needs BOTH an AMD EPYC Milan+ host with SEV-SNP **and** an H100-class confidential
 > GPU — because the model runs in **VRAM**, which SEV-SNP does not protect, so a CPU TEE
 > alone is not enough. No consumer CPU/GPU qualifies. Eligibility + the apply path:
-> `docs/tee-eligibility.md` / https://rogerai.fyi/confidential. This runbook is for an
+> `docs/tee-eligibility.md` / https://rogerai.fm/confidential. This runbook is for an
 > approved operator standing the tier up.
 
 ---

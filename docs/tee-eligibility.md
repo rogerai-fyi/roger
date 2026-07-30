@@ -5,7 +5,7 @@ answer to "can I run a confidential node?" — and for almost everyone running a
 the answer is no, by physics, not policy. The **standard** tier is the path for everyone
 else, and it still earns the same way with verifiable, co-signed lineage receipts.
 
-> Apply (if you qualify): **https://rogerai.fyi/confidential**
+> Apply (if you qualify): **https://rogerai.fm/confidential**
 > Operator setup (once approved): `docs/tee-runbook.md`
 
 ## What "confidential" actually requires

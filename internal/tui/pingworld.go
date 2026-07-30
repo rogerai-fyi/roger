@@ -134,6 +134,7 @@ type pingWorldModel struct {
 	w, h   int
 	frame  int
 	seed   int
+	debut  bool       // in-TUI z entry only; standalone --ping opens directly on the world
 	data   *worldData // LIVE on-air snapshot (nil = the seeded world); set by the host
 	broker string     // standalone only: the broker to /discover for live towers ("" = seeded)
 }
@@ -199,7 +200,12 @@ func worldFetch(broker string) tea.Cmd {
 	}
 }
 
-func (m pingWorldModel) View() string { return renderWorldData(m.w, m.h, m.frame, m.seed, m.data) }
+func (m pingWorldModel) View() string {
+	if m.debut && m.frame < tubePingDebutFrames {
+		return tubePingTitle(m.w, m.h, m.frame)
+	}
+	return renderWorldData(m.w, m.h, m.frame, m.seed, m.data)
+}
 
 // worldHash is the deterministic desync for star placement/twinkle + wanderer spawn - pure in
 // (a,b,seed) so the world is reproducible yet never metronomic (like idleScene's pingHash use).
@@ -1111,13 +1117,36 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		}
 	}
 
-	// LAYER 5 — Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
+	// Resolve classic Ping's position first so the larger cameo can keep a respectful
+	// distance instead of painting through the original mascot.
+	pingSpan := maxI(1, w-pingWalkW)
+	px, pdir, pingTurning, pingBeat := worldPingMotion(frame, seed, pingSpan)
+
+	// LAYER 5 — Tube Ping makes a slow foreground circuit on layouts with enough room.
+	// Classic Ping remains the lead character below; this is a true scene cameo, not the
+	// title card pasted over the world. The two-frame feet alternate while its position
+	// ping-pongs across the rim, so it visibly walks instead of sliding.
+	if w >= 72 && h >= 20 {
+		sprite := tubePingWorldSprite(frame)
+		span := maxI(1, w-tubePingWalkW)
+		dist := frame / 3
+		period := maxI(2, span*2)
+		p := dist % period
+		tx := p
+		if p > span {
+			tx = period - p
+		}
+		if absI(tx-px) < tubePingWalkW+2 {
+			tx = span - tx
+		}
+		blit(buf, tx, horizon-len(sprite)+1, sprite, '•')
+	}
+
+	// Classic Ping lives along the rim: a seeded behavior loop (amble / pause / look / run /
 	// transmit), now ping-ponging edge-to-edge instead of teleporting back. When he reaches an
 	// edge he plays a brief "73, signing off → tuning back in" WAVE, then turns and ambles back
 	// (worldPingMotion). The eye stays the red '•' through the wave; the always-on-screen baby
 	// duckling below (and the on-air ◉) still carry the "at least one red eye" law regardless.
-	pingSpan := maxI(1, w-pingWalkW)
-	px, pdir, pingTurning, pingBeat := worldPingMotion(frame, seed, pingSpan) // always fully on-screen
 	var pingLines []string
 	var pingEye rune
 	if pingTurning {

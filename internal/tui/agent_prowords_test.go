@@ -20,9 +20,7 @@ import (
 // allLines joins the transcript, ANSI stripped, for substring assertions.
 func allLines(m model) string { return stripANSI(strings.Join(m.agentLines, "\n")) }
 
-// W1/W3/W4 - approving a tool at the confirm gate reads WILCO (received + complying),
-// keeps the ✓ go-glint, drops the old "approved · running", and still answers the
-// loop's resp channel; denying stays PLAIN English (no proword for deny).
+// Approving a tool transitions one truthful activity card and still answers the loop.
 func TestProwordWilcoOnApprove(t *testing.T) {
 	m := agentSeed(t, "http://broker.local")
 	resp := make(chan bool, 1)
@@ -32,23 +30,18 @@ func TestProwordWilcoOnApprove(t *testing.T) {
 	m = asModel(out)
 
 	line := allLines(m)
-	if !strings.Contains(line, "WILCO") || !strings.Contains(line, "run_shell") {
-		t.Errorf("W1: approve should read `WILCO · run_shell`, got %q", line)
+	if !strings.Contains(line, "approved · running") || !strings.Contains(line, "run_shell") {
+		t.Errorf("approve should transition the run_shell card, got %q", line)
 	}
-	if !strings.Contains(line, "✓") {
-		t.Error("W1: keep the ✓ go-glint on the WILCO line")
-	}
-	if strings.Contains(line, "approved · running") {
-		t.Error("W1: the old `approved · running` copy must be gone")
+	if strings.Contains(line, "WILCO") {
+		t.Error("approval must not append duplicate WILCO narration")
 	}
 	if got := <-resp; !got {
 		t.Error("W3: the loop's resp channel must still receive true (copy-only change)")
 	}
 }
 
-// W2 - the ctrl+p-escalate-to-auto-approve path resolves the SAME gate and must emit
-// the same WILCO line (shared helper, not a second copy). write_file is covered the
-// moment perms reach `edits`, so one ctrl+p approves it.
+// The ctrl+p escalation resolves the same gate through the same stateful-card path.
 func TestProwordWilcoOnEscalateApprove(t *testing.T) {
 	m := agentSeed(t, "http://broker.local")
 	resp := make(chan bool, 1)
@@ -57,8 +50,8 @@ func TestProwordWilcoOnEscalateApprove(t *testing.T) {
 	out, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
 	m = asModel(out)
 
-	if line := allLines(m); !strings.Contains(line, "WILCO") || !strings.Contains(line, "write_file") {
-		t.Errorf("W2: ctrl+p auto-approve should also read `WILCO · write_file`, got %q", line)
+	if line := allLines(m); !strings.Contains(line, "approved · running") || !strings.Contains(line, "write_file") || strings.Contains(line, "WILCO") {
+		t.Errorf("ctrl+p auto-approve should transition one write_file card, got %q", line)
 	}
 	if m.agentPendingConfirm != nil || len(resp) != 1 || !<-resp {
 		t.Fatal("W2: edits covers write_file - the gate should resolve as approved")

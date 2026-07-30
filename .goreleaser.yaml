@@ -130,7 +130,7 @@ scoops:
       name: scoop-bucket
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: bucket
-    homepage: "https://rogerai.fyi"
+    homepage: "https://rogerai.fm"
     description: "RogerAI - a two-way radio for GPUs."
     license: "PolyForm-Perimeter-1.0.0"
     skip_upload: auto

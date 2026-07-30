@@ -32,7 +32,7 @@ import (
 const alertSubjectPrefix = "[RogerAI ALERT] "
 
 // alertControlURL is the founder control panel the alert CTA links to.
-const alertControlURL = "https://control.rogerai.fyi"
+const alertControlURL = "https://control.rogerai.fm"
 
 // alertCheckInterval is how often the periodic checker re-evaluates the STATE/threshold
 // conditions (0-providers, db/valkey health, CSAM SLA). Frequent enough to page promptly,

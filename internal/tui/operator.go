@@ -1410,7 +1410,9 @@ func (m model) deskRosterView(w, cursor int, focused bool) string {
 	b.WriteString(truncVisible(deskGutter(focused && cursor == 0)+stRed.Render(glyphOnAir)+" "+stKey.Render(pad("DJ", 12))+" "+stDim.Render(pad("in the TUI", 10)+" resident · dj.md persona · read/list auto, write/run confirm"), w) + "\n")
 	for i, d := range ds {
 		status := "guest · on PATH · patches into your open channel"
-		if d.Guest.NeedsSetup {
+		if d.Guest.Strategy == operator.StrategyContextOnly {
+			status = "context handoff · uses your " + guestAccountName(d.Guest)
+		} else if d.Guest.NeedsSetup {
 			status = "guest · needs a key first - /operator " + d.Guest.Name + " shows how"
 		} else if d.Unverified {
 			v := d.Version

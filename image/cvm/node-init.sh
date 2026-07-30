@@ -13,7 +13,7 @@ set -euo pipefail
 
 # Broker + model come from the kernel cmdline (measured) with sane fallbacks.
 BROKER="$(sed -n 's/.*roger\.broker=\([^ ]*\).*/\1/p' /proc/cmdline)"
-BROKER="${BROKER:-https://broker.rogerai.fyi}"
+BROKER="${BROKER:-https://broker.rogerai.fm}"
 MODEL="${ROGER_MODEL:-}"          # TODO: pin the served model for the fleet
 UPSTREAM="${ROGER_UPSTREAM:-http://127.0.0.1:8000/v1}"
 

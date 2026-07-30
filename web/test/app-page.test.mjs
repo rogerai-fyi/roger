@@ -54,8 +54,8 @@ test("screenshots are self-hosted, sized, and lazy (CSP allows img-src 'self' on
 
 test("social card: og=post with the page's own absolute PNG", () => {
   assert.match(app, /og=post/);
-  assert.match(app, /ogurl="https:\/\/rogerai\.fyi\/app\.html"/);
-  assert.match(app, /ogimage="https:\/\/rogerai\.fyi\/assets\/app\/og-app\.png"/);
+  assert.match(app, /ogurl="https:\/\/rogerai\.fm\/app\.html"/);
+  assert.match(app, /ogimage="https:\/\/rogerai\.fm\/assets\/app\/og-app\.png"/);
 });
 
 test("the App Store badge is the self-hosted official SVG", () => {

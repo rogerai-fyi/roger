@@ -47,8 +47,8 @@ type connect struct {
 func loadConnect() connect {
 	c := connect{
 		secretKey:  stripeSecretKey(), // Connect reuses the platform secret key (prod-aware)
-		refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fyi/payouts?onboard=refresh"),
-		returnURL:  envOr("STRIPE_CONNECT_RETURN_URL", "https://rogerai.fyi/payouts?onboard=done"),
+		refreshURL: envOr("STRIPE_CONNECT_REFRESH_URL", "https://rogerai.fm/payouts?onboard=refresh"),
+		returnURL:  envOr("STRIPE_CONNECT_RETURN_URL", "https://rogerai.fm/payouts?onboard=done"),
 		policy:     store.LoadPayoutPolicy(),
 	}
 	// Fail-closed in production, mirroring billing: if ROGERAI_REQUIRE_LIVE is set, the
