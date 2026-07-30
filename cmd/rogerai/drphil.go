@@ -138,7 +138,7 @@ func cmdDrPhil(cfg config, args []string) error {
 		statusline("fail", "found a local server at "+needKey[0]+" but it needs an API key")
 		redFlags = append(redFlags, "give the local server its key: roger share --upstream-key <key>")
 	default:
-		statusline("fail", "no local LLM detected (Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM)")
+		statusline("fail", "no local LLM detected (common hosts include Ollama/LM Studio/Unsloth/llama.cpp/vLLM/Jan/LiteLLM; any compatible host works with --upstream)")
 		redFlags = append(redFlags, "start a local model server, then `roger share`")
 	}
 

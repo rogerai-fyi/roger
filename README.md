@@ -71,11 +71,16 @@ roger share                                    # auto-detects your local model, 
 #          --confidential (TEE-attested), --upstream <your OpenAI endpoint>
 ```
 
-**Bring your own runner.** The node relays to any **OpenAI-compatible** endpoint, so it works with
-whatever you already host - **Ollama, llama.cpp, LM Studio, vLLM, Osaurus, Jan, LocalAI, TGI,
-SGLang, KoboldCpp, text-generation-webui** - and anything else that speaks the OpenAI API (point it
-with `--upstream`). Same on the other side: `roger use` gives you an OpenAI-compatible endpoint, so
-any tool that talks to OpenAI talks to RogerAI.
+**Bring your preferred model host.** Compatibility is determined by the served API, not the
+trainer, optimizer, quantizer, model format, or vendor. RogerAI auto-detects common local hosts,
+including **Ollama, llama.cpp, LM Studio, Unsloth Studio, vLLM, Osaurus, Jan, and LiteLLM**.
+**LocalAI, TGI, SGLang, KoboldCpp, text-generation-webui**, and any other host implementing the
+supported OpenAI-compatible API work through `--upstream` (and `--upstream-key` when needed). An
+Unsloth-trained or Unsloth-quantized model also works when served by any compatible host.
+
+Named integrations make discovery easier; they are not a vendor allowlist. See
+[hosting compatibility and current gaps](docs/hosting-compatibility.md) for the exact upstream
+contract. On the other side, `roger use` gives clients an OpenAI-compatible endpoint too.
 
 ## How it works
 

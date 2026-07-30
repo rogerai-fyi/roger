@@ -1,6 +1,7 @@
 // Package detect finds local OpenAI-compatible LLM servers so `roger share`
 // can make you a provider with zero config if you already run Ollama, LM Studio,
-// llama.cpp, vLLM, Jan, LiteLLM, or anything else that serves /v1/models.
+// Unsloth Studio, llama.cpp, vLLM, Jan, LiteLLM, or anything else that serves
+// /v1/models.
 //
 // Detection v2 is grounded (no brute port scan, no assumptions about one fixed
 // setup). It gathers candidate base URLs from, in order:
@@ -68,6 +69,7 @@ const (
 var probes = []struct{ name, base string }{
 	{"ollama", "http://127.0.0.1:11434/v1"},
 	{"lm-studio", "http://127.0.0.1:1234/v1"},
+	{"unsloth", "http://127.0.0.1:8888/v1"},
 	{"jan", "http://127.0.0.1:1337/v1"},
 	{"litellm", "http://127.0.0.1:4000/v1"},
 	{"gpt4all", "http://127.0.0.1:4891/v1"},
@@ -196,7 +198,13 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 	cands := priority
 	// (a) documented default endpoints.
 	for _, p := range probes {
-		cands = append(cands, candidate{name: p.name, base: p.base})
+		c := candidate{name: p.name, base: p.base}
+		// Unlike OPENAI_API_KEY and the legacy global key pool, Unsloth's key is
+		// scoped to Unsloth candidates. Never try it against another known host.
+		if p.name == "unsloth" {
+			c.key = unslothKey()
+		}
+		cands = append(cands, c)
 	}
 	// (b) environment variables the user's tooling already exports.
 	cands = append(cands, envCands()...)
@@ -226,6 +234,13 @@ func detectWith(priority []candidate) (found []Found, needKey []string) {
 		// the user explicitly supplies a key for a server they actually recognize.
 		tryKeys := keys
 		if strings.HasPrefix(c.name, "port:") {
+			tryKeys = nil
+		}
+		// Same reasoning for Unsloth's default: :8888 is also JupyterLab's default
+		// port, and Jupyter answers 403 unauthenticated. A named candidate normally
+		// earns the harvested-key retry, but this one is a coin flip on what is
+		// actually listening, so it gets its own key and nothing else.
+		if c.name == "unsloth" {
 			tryKeys = nil
 		}
 		// Try this candidate's own paired key first (e.g. OPENAI_API_KEY for an
@@ -420,7 +435,23 @@ func envCandidates() []candidate {
 	for _, k := range []string{"LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LMSTUDIO_HOST"} {
 		add("env:"+k, os.Getenv(k), lmKey)
 	}
+	// Unsloth Studio serves its authenticated OpenAI-compatible API on :8888 and
+	// documents no client-side base-URL variable, so UNSLOTH_STUDIO_URL is ours:
+	// it points RogerAI at a Studio started on another port (`unsloth studio -p`).
+	add("unsloth", os.Getenv("UNSLOTH_STUDIO_URL"), unslothKey())
 	return out
+}
+
+// unslothKey returns the API key for an Unsloth Studio endpoint. Unsloth's own
+// docs tell providers to export UNSLOTH_STUDIO_AUTH_TOKEN, so that is what a
+// Studio user actually has set; UNSLOTH_API_KEY is a RogerAI-side alias kept for
+// providers who name it after the other hosts in our table. Neither is sent
+// anywhere but an Unsloth candidate.
+func unslothKey() string {
+	if k := strings.TrimSpace(os.Getenv("UNSLOTH_STUDIO_AUTH_TOKEN")); k != "" {
+		return k
+	}
+	return strings.TrimSpace(os.Getenv("UNSLOTH_API_KEY"))
 }
 
 // envKeys returns API keys the user's tooling already exports, tried (as a Bearer)

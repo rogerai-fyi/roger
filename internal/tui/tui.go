@@ -3223,6 +3223,7 @@ func (m model) enterShareSetup() model {
 var setupOptions = []struct{ key, label, oneLiner string }{
 	{"ollama", "Ollama", "ollama serve   then:  ollama run llama3.2   (→ :11434)"},
 	{"lm-studio", "LM Studio", "LM Studio → Developer → Start Server   (→ :1234)"},
+	{"unsloth", "Unsloth Studio", "Unsloth Studio → load a model → Settings → API → copy endpoint + key   (→ :8888)"},
 	{"vllm", "vLLM", "vllm serve <model> --port 8000   (→ :8000)"},
 	{"llamacpp", "llama.cpp", "llama-server -m <model>.gguf --port 8080   (→ :8080)"},
 	{"other", "Other - paste a URL", ""},

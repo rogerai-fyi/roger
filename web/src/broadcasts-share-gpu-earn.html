@@ -63,9 +63,10 @@
           <span class="bc-sec__no">&sect;1 &middot; Going on air</span>
           <h2>How do I share my GPU?</h2>
           <p>
-            One command: <code>roger share</code>. It auto-detects your local, OpenAI-compatible
-            model server - Ollama, LM Studio, llama.cpp, vLLM, Jan, LiteLLM, or anything serving
-            <code>/v1/models</code> - and puts that model on the air. Bare <code>roger share</code> is
+            One command: <code>roger share</code>. It auto-detects common local,
+            OpenAI-compatible model hosts such as Ollama, LM Studio, Unsloth Studio, llama.cpp,
+            vLLM, Jan, and LiteLLM. Any preferred host implementing the same API works through
+            <code>--upstream</code>; the host brand is not an allowlist. Bare <code>roger share</code> is
             <b>free and needs no account</b>. First time out:
           </p>
           <ul class="bc-dial">

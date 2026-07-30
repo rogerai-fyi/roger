@@ -1108,7 +1108,7 @@ needs no login. When you earn, payouts are 120-day hold, $25 min, monthly.
 				if len(needKey) > 0 {
 					return fmt.Errorf("found a local server at %s but it needs an API key - pass --upstream-key <key> (or set OPENAI_API_KEY)", needKey[0])
 				}
-				return fmt.Errorf("no local LLM detected (tried Ollama/LM Studio/llama.cpp/vLLM/Jan/LiteLLM and your open ports). Start one, then `roger share`, or pass --upstream <url>")
+				return fmt.Errorf("no local LLM detected (tried common hosts including Ollama, LM Studio, Unsloth, llama.cpp, vLLM, Jan, LiteLLM, plus your open ports). Start one, then `roger share`; any other OpenAI-compatible host works with --upstream <url>")
 			}
 			found = []detect.Found{picked}
 		}

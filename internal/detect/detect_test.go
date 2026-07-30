@@ -150,6 +150,201 @@ func TestDetectEnvVar(t *testing.T) {
 	}
 }
 
+// TestUnslothStudioAuthTokenIsRead pins the variable Unsloth ITSELF documents for
+// its local API key: UNSLOTH_STUDIO_AUTH_TOKEN, holding an sk-unsloth-* key (see
+// its "Connect Python SDK to Unsloth" docs). A provider who followed Unsloth's own
+// setup exports only this one, so reading it is what actually makes an
+// authenticated Studio zero-config. UNSLOTH_API_KEY is a RogerAI-side alias, not
+// something Unsloth exports.
+func TestUnslothStudioAuthTokenIsRead(t *testing.T) {
+	t.Run("default endpoint", func(t *testing.T) {
+		defer quietSources(t)()
+		srv := keyedServer("sk-unsloth-documented", "unsloth/model-GGUF")
+		defer srv.Close()
+
+		old := probes
+		probes = []struct{ name, base string }{{"unsloth", srv.URL + "/v1"}}
+		defer func() { probes = old }()
+		t.Setenv("UNSLOTH_API_KEY", "")
+		t.Setenv("UNSLOTH_STUDIO_AUTH_TOKEN", "sk-unsloth-documented")
+
+		found, needKey := DetectFull()
+		if len(needKey) != 0 || len(found) != 1 {
+			t.Fatalf("UNSLOTH_STUDIO_AUTH_TOKEN not used: found %+v, needKey %v", found, needKey)
+		}
+		if found[0].Name != "unsloth" || found[0].Key != "sk-unsloth-documented" {
+			t.Fatalf("Unsloth result = %+v", found[0])
+		}
+	})
+
+	t.Run("paired with a custom URL", func(t *testing.T) {
+		t.Setenv("UNSLOTH_API_KEY", "")
+		t.Setenv("UNSLOTH_STUDIO_AUTH_TOKEN", "sk-unsloth-documented")
+		t.Setenv("UNSLOTH_STUDIO_URL", "http://127.0.0.1:8899")
+
+		for _, c := range envCandidates() {
+			if c.name == "unsloth" {
+				if c.key != "sk-unsloth-documented" {
+					t.Fatalf("custom-URL Unsloth candidate key = %q, want the documented token", c.key)
+				}
+				return
+			}
+		}
+		t.Fatal("no Unsloth candidate produced")
+	})
+
+	// The documented token is a local host credential like any other: it must stay
+	// scoped to Unsloth candidates and never be sprayed at another named host.
+	t.Run("stays scoped to Unsloth", func(t *testing.T) {
+		defer quietSources(t)()
+		var received string
+		other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			received = r.Header.Get("Authorization")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		}))
+		defer other.Close()
+
+		old := probes
+		probes = []struct{ name, base string }{{"vllm/tgi", other.URL + "/v1"}}
+		defer func() { probes = old }()
+		t.Setenv("UNSLOTH_STUDIO_AUTH_TOKEN", "sk-unsloth-documented")
+
+		DetectFull()
+		if received != "" {
+			t.Fatalf("documented Unsloth token leaked to a non-Unsloth candidate: %q", received)
+		}
+	})
+}
+
+// TestUnslothDefaultPortDoesNotGetTheGlobalKeyPool guards a collision the port
+// number makes likely: :8888 is JupyterLab's default, and Jupyter answers 403 to
+// an unauthenticated caller. Because the Unsloth default is a NAMED candidate it
+// escapes the "port:" blind-scan guard, so without this it would receive every
+// harvested key (OPENAI_API_KEY and friends) as a Bearer. A local service that is
+// not a model server must never be handed the user's cloud credentials.
+func TestUnslothDefaultPortDoesNotGetTheGlobalKeyPool(t *testing.T) {
+	defer quietSources(t)()
+	var seen []string
+	jupyterish := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a := r.Header.Get("Authorization"); a != "" {
+			seen = append(seen, a)
+		}
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer jupyterish.Close()
+
+	old := probes
+	probes = []struct{ name, base string }{{"unsloth", jupyterish.URL + "/v1"}}
+	defer func() { probes = old }()
+
+	oldKeys := envKeysFn
+	envKeysFn = func() []string { return []string{"sk-openai-secret", "sk-litellm-secret"} }
+	defer func() { envKeysFn = oldKeys }()
+	t.Setenv("UNSLOTH_STUDIO_AUTH_TOKEN", "")
+	t.Setenv("UNSLOTH_API_KEY", "")
+
+	DetectFull()
+	for _, a := range seen {
+		if strings.Contains(a, "sk-openai-secret") || strings.Contains(a, "sk-litellm-secret") {
+			t.Fatalf("global key pool sprayed at the Unsloth default port: %q", a)
+		}
+	}
+}
+
+// TestUnslothDiscoveryContract pins Unsloth Studio's public local API contract:
+// its default OpenAI-compatible endpoint is :8888, plus RogerAI's own
+// UNSLOTH_STUDIO_URL/UNSLOTH_API_KEY override pair, carried together so an
+// authenticated custom-port Studio is still zero-config.
+func TestUnslothDiscoveryContract(t *testing.T) {
+	t.Run("default endpoint", func(t *testing.T) {
+		var got string
+		for _, p := range probes {
+			if p.name == "unsloth" {
+				got = p.base
+				break
+			}
+		}
+		if got != "http://127.0.0.1:8888/v1" {
+			t.Fatalf("unsloth default probe = %q, want http://127.0.0.1:8888/v1", got)
+		}
+	})
+
+	t.Run("custom authenticated endpoint", func(t *testing.T) {
+		t.Setenv("UNSLOTH_STUDIO_URL", "http://127.0.0.1:8899")
+		t.Setenv("UNSLOTH_API_KEY", "sk-unsloth-local")
+
+		var got *candidate
+		for _, c := range envCandidates() {
+			if c.name == "unsloth" {
+				copy := c
+				got = &copy
+				break
+			}
+		}
+		if got == nil {
+			t.Fatal("UNSLOTH_STUDIO_URL did not produce an Unsloth candidate")
+		}
+		if got.base != "http://127.0.0.1:8899/v1" || got.key != "sk-unsloth-local" {
+			t.Fatalf("unsloth env candidate = %+v", *got)
+		}
+	})
+}
+
+// TestDetectUnslothWithItsEnvKey proves the environment key is not merely
+// harvested: it authenticates the paired Unsloth endpoint and is retained for
+// the local relay.
+func TestDetectUnslothWithItsEnvKey(t *testing.T) {
+	defer quietSources(t)()
+	srv := keyedServer("sk-unsloth-local", "unsloth/model-GGUF")
+	defer srv.Close()
+
+	old := probes
+	probes = nil
+	defer func() { probes = old }()
+	t.Setenv("UNSLOTH_STUDIO_URL", srv.URL)
+	t.Setenv("UNSLOTH_API_KEY", "sk-unsloth-local")
+	// Re-enabling the REAL env scan is the point of this test, so the developer's own
+	// ambient endpoints must be cleared first: a live Ollama or LM Studio on this box
+	// would add a second Found and fail the assertion below for no good reason.
+	for _, k := range []string{
+		"OPENAI_BASE_URL", "OPENAI_API_BASE", "OLLAMA_HOST",
+		"LMSTUDIO_BASE_URL", "LMSTUDIO_API_BASE", "LMSTUDIO_HOST",
+	} {
+		t.Setenv(k, "")
+	}
+	envCands = envCandidates
+
+	found, needKey := DetectFull()
+	if len(needKey) != 0 || len(found) != 1 {
+		t.Fatalf("Unsloth detection = found %+v, needKey %v", found, needKey)
+	}
+	if found[0].Name != "unsloth" || found[0].Key != "sk-unsloth-local" {
+		t.Fatalf("Unsloth result = %+v", found[0])
+	}
+}
+
+// TestUnslothKeyIsScopedToUnslothCandidates prevents a local host credential
+// from being sprayed at another named default server that happens to return 401.
+func TestUnslothKeyIsScopedToUnslothCandidates(t *testing.T) {
+	defer quietSources(t)()
+	var received string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = r.Header.Get("Authorization")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer other.Close()
+
+	old := probes
+	probes = []struct{ name, base string }{{"vllm/tgi", other.URL + "/v1"}}
+	defer func() { probes = old }()
+	t.Setenv("UNSLOTH_API_KEY", "sk-unsloth-secret")
+
+	DetectFull()
+	if received != "" {
+		t.Fatalf("Unsloth key leaked to a non-Unsloth candidate: %q", received)
+	}
+}
+
 // TestDetectDedup: the same server reachable via two sources (a default probe and
 // the port enumerator) yields ONE Found, not a duplicate.
 func TestDetectDedup(t *testing.T) {
