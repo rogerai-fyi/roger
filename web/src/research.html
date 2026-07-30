@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI Research - open edge models and inference systems" desc="RogerAI Labs conducts open edge-model and inference research: reproducible model work for local hardware, ARM devices, and optional community routing." theme=external og=post ogtype=website ogtitle="RogerAI Research - open models for the devices people own" ogdesc="Open edge-model and inference research, with lineage, limitations, and raw evidence." ogurl="https://rogerai.fm/research.html" ogimage="https://rogerai.fm/og.png" -->
+  <!-- include: head.html title="RogerAI Research - models for local hardware" desc="RogerAI Labs builds and optimizes models for practical inference on local hardware, from workstations to embedded devices." theme=external og=post ogtype=website ogtitle="RogerAI Research - models for local hardware" ogdesc="Small models, local inference, and measured optimization work." ogurl="https://rogerai.fm/research.html" ogimage="https://rogerai.fm/og.png" -->
 </head>
 <body data-onair="idle">
   <div class="rail" aria-hidden="true">
-    <span class="rail__head">RogerAI · Research Notebook</span>
+    <span class="rail__head">RogerAI · Research</span>
     <span class="rail__rev">Rev. 2026.07 · LABS</span>
   </div>
 
@@ -17,285 +17,138 @@
         <span class="hero__eyebrow">
           <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
           <span class="hero__callsign">ROGERAI LABS</span>
-          <span class="hero__sep" aria-hidden="true">·</span>
-          public research notebook
         </span>
-        <h1>Open models for the devices people already own.</h1>
+        <h1>Models built for local constraints.</h1>
         <p class="research-hero__lead">
-          RogerAI Labs conducts independent model and inference research. We build
-          reproducible, local-first systems for CPUs, GPUs, phones, ARM boards, and
-          small embedded devices. The network is an option—not a condition of local use.
+          We make useful models smaller, faster, and easier to run on local hardware.
+          Every project has a specific job, a visible status, and evidence you can inspect.
         </p>
         <div class="research-actions">
-          <a class="research-button research-button--primary" href="#projects">Explore projects</a>
+          <a class="research-button research-button--primary" href="#models">Explore models</a>
           <a class="research-button" href="/broadcasts.html">Read the evidence</a>
-          <a class="research-button" href="https://github.com/rogerai-fyi/roger">View source</a>
+          <a class="research-button" href="https://huggingface.co/rogerai-fyi">View weights</a>
         </div>
       </div>
     </section>
 
     <aside class="research-distinction">
       <div class="wrap research-distinction__grid">
-        <div><span class="research-kicker">RESEARCH</span><b>This page</b> lists RogerAI research artifacts and active projects.</div>
-        <div><span class="research-kicker">THE LIVE BAND</span><b><a href="/models.html">/models.html</a></b> lists live broker stations.</div>
-        <p>Not every research artifact or project is currently served, and not every broker station is a RogerAI model.</p>
+        <div><span class="research-kicker">RESEARCH PROGRAMS</span><b>This page</b> shows model and optimization work.</div>
+        <div><span class="research-kicker">LIVE NETWORK MODELS</span><b><a href="/models.html">Models on air</a></b> are available through the network now.</div>
+        <p>A research program is not automatically a released model or a live network station.</p>
       </div>
     </aside>
 
-    <section class="section" id="projects">
+    <section class="section" id="models">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">§1 / OPEN BUILDS · ACTIVE</span>
-          <h2>Work with the labels left on.</h2>
-          <p>Upstream lineage and unresolved gates stay visible. Optimization is not pretraining.</p>
+          <span class="sectionno">§1 / MODELS</span>
+          <h2>One model for each operating envelope.</h2>
+          <p>No Wave checkpoint has been released. Programs remain labeled as research or
+             design work until they pass their release gates.</p>
         </div>
-        <div class="research-grid">
-          <article class="research-card">
-            <header><span class="lineage lineage--optimized">Optimized by RogerAI</span><span class="status">ACTIVE</span></header>
-            <h3>DeepSeek-V4-Flash MTP</h3>
-            <p class="research-parent">Upstream parent: <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash">DeepSeek-V4-Flash</a> · <a href="https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/blob/main/LICENSE">MIT License</a></p>
-            <p>Converter, runtime, MTP, benchmark, and artifact work for locally friendlier inference.</p>
-            <p>This is a project summary, not a stable model card: the published GGUF research builds have not passed the new RogerAI Labs release contract.</p>
-            <dl><div><dt>Evidence</dt><dd><a href="/broadcasts-deepseek-mtp-gguf.html">Engineering field note</a> · <a href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF">research weights</a></dd></div><div><dt>Status</dt><dd>Research build</dd></div></dl>
+
+        <div class="model-list">
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">RESEARCH BUILD</span>
+              <h3>DeepSeek-V4-Flash MTP</h3>
+              <p class="research-parent">Optimized by RogerAI · Upstream: DeepSeek-V4-Flash</p>
+            </div>
+            <div>
+              <span class="research-kicker">WHY IT EXISTS</span>
+              <p>Converter, runtime, MTP, and GGUF work for more practical local inference
+                 with a large upstream model.</p>
+              <div class="model-row__actions">
+                <a class="model-download" href="https://huggingface.co/rogerai-fyi/DeepSeek-V4-Flash-MTP-GGUF">Hugging Face</a>
+                <a class="model-note" href="/broadcasts-deepseek-mtp-gguf.html">Field note</a>
+              </div>
+            </div>
           </article>
-          <article class="research-card">
-            <header><span class="lineage lineage--optimized">Optimized by RogerAI</span><span class="status">IN PROGRESS</span></header>
-            <h3>Kimi-K3 on a 256 GB system</h3>
-            <p class="research-parent">Upstream parent: <a href="https://huggingface.co/moonshotai/Kimi-K3">Kimi-K3</a> · <a href="https://huggingface.co/moonshotai/Kimi-K3/blob/main/LICENSE">Kimi K3 License</a></p>
-            <p>Streaming REAP analysis, expert pruning, MXFP4 execution, conversion, and hardware-fit validation.</p>
-            <div class="research-caution"><b>Measured:</b> a paired 16,376-token held-out evaluation selected the per-head-truncated <code>A_log</code> interpretation; its NLL advantage had a bootstrap interval wholly above zero. Pruning quality and serialized fit gates remain unresolved.</div>
-            <dl><div><dt>Target</dt><dd>One 256 GB-class workstation</dd></div><div><dt>Status</dt><dd>Arithmetic resolved · no released checkpoint</dd></div></dl>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN PROGRESS</span>
+              <h3>Kimi-K3</h3>
+              <p class="research-parent">Optimized by RogerAI · Upstream: Kimi-K3</p>
+            </div>
+            <div>
+              <span class="research-kicker">WHY IT EXISTS</span>
+              <p>Test whether pruning, low-precision execution, and conversion can fit a
+                 frontier-scale upstream model on one high-memory workstation.</p>
+              <div class="model-row__actions">
+                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
+              </div>
+            </div>
           </article>
-          <article class="research-card">
-            <header><span class="lineage lineage--research">Research</span><span class="status">IN PROGRESS</span></header>
-            <h3>Roger Wave Nano</h3>
-            <p class="research-parent"><b>Prototype parents:</b> Granite-4.0-350M for Tool · SmolLM2-360M-Instruct for Text/control · Apache-2.0</p>
-            <p>The unmodified bake-off is complete. A matched, fail-closed LoRA grid now tests whether Wave Nano becomes one combined Tool/Text model, two specialists, or no release.</p>
-            <dl><div><dt>Measured</dt><dd>Held-out BPB · F16/Q4 edge tasks · artifact bytes</dd></div><div><dt>Next gate</dt><dd>Expanded unseen suite, reviewed data, resume smoke, explicit training approval</dd></div></dl>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN PROGRESS</span>
+              <h3>Wave Nano</h3>
+              <p class="research-parent">About 350M parameters · Pi, phone, and edge computer</p>
+            </div>
+            <div>
+              <span class="research-kicker">WHY IT EXISTS</span>
+              <p>Bounded local text and tool use where a general cloud model adds unnecessary
+                 latency, cost, or exposure.</p>
+              <div class="model-row__actions">
+                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN DESIGN</span>
+              <h3>Wave Micro</h3>
+              <p class="research-parent">Under 100M parameters · ARM and NPU systems</p>
+            </div>
+            <div>
+              <span class="research-kicker">WHY IT EXISTS</span>
+              <p>Fast routing, extraction, and triage without carrying the memory and compute
+                 cost of a chat model.</p>
+              <div class="model-row__actions">
+                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="model-row">
+            <div class="model-row__identity">
+              <span class="status">IN DESIGN</span>
+              <h3>Roger Edge</h3>
+              <p class="research-parent">KB to MB scale · Microcontrollers</p>
+            </div>
+            <div>
+              <span class="research-kicker">WHY IT EXISTS</span>
+              <p>Wake, voice activity, sensing, and fixed commands need reliable task models,
+                 not miniature chatbots.</p>
+              <div class="model-row__actions">
+                <span class="model-download is-disabled" aria-disabled="true">Hugging Face · coming soon</span>
+              </div>
+            </div>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="section" id="wave">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">§2 / THE WAVE FAMILY · IN DESIGN</span>
-          <h2>Small models, sized to the machine they live on.</h2>
-          <p>Wave is the RogerAI Labs model family for edge hardware. Every tier below is a
-             program with gates, not a product: no Wave checkpoint has been released, and no
-             tier ships until it passes the release contract on real devices.</p>
-        </div>
-        <figure class="wave-map" aria-labelledby="wave-map-title wave-map-caption">
-          <svg viewBox="0 0 1040 390" role="img">
-            <title id="wave-map-title">The Wave family from sensor endpoint to local multimodal system</title>
-            <desc>Roger Edge produces typed events. Wave Micro filters and routes them. Wave Nano reasons and calls approved tools. Wave Embed grounds Nano in local documents. Future Wave Vision and Audio models add local perception.</desc>
-            <defs>
-              <marker id="wave-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
-                <path d="M0 0L9 4.5L0 9Z" class="wave-map__arrowhead"/>
-              </marker>
-            </defs>
-            <path class="wave-map__flow" marker-end="url(#wave-arrow)" d="M200 142H280"/>
-            <path class="wave-map__flow" marker-end="url(#wave-arrow)" d="M466 142H546"/>
-            <path class="wave-map__support" marker-end="url(#wave-arrow)" d="M655 302V226"/>
-            <path class="wave-map__future" marker-end="url(#wave-arrow)" d="M736 142H816"/>
-
-            <g class="wave-map__node wave-map__node--edge">
-              <rect x="24" y="72" width="176" height="140" rx="4"/>
-              <text x="42" y="101" class="wave-map__eyebrow">SENSE · FIXED ACTIONS</text>
-              <text x="42" y="132" class="wave-map__name">Roger Edge</text>
-              <text x="42" y="158" class="wave-map__size">KB–MB · ESP32</text>
-              <text x="42" y="188" class="wave-map__job">wake · VAD · events</text>
-            </g>
-            <g class="wave-map__node">
-              <rect x="280" y="72" width="186" height="140" rx="4"/>
-              <text x="298" y="101" class="wave-map__eyebrow">FILTER · ROUTE</text>
-              <text x="298" y="132" class="wave-map__name">Wave Micro</text>
-              <text x="298" y="158" class="wave-map__size">&lt;100M · ARM/NPU</text>
-              <text x="298" y="188" class="wave-map__job">intent · extract · triage</text>
-            </g>
-            <g class="wave-map__node wave-map__node--active">
-              <rect x="546" y="60" width="190" height="164" rx="4"/>
-              <text x="564" y="92" class="wave-map__eyebrow">REASON · USE TOOLS</text>
-              <text x="564" y="126" class="wave-map__name">Wave Nano</text>
-              <text x="564" y="154" class="wave-map__size">~350M · Pi/phone/IPC</text>
-              <text x="564" y="184" class="wave-map__job">Tool + Text prototypes</text>
-              <text x="564" y="205" class="wave-map__state">first measured program</text>
-            </g>
-            <g class="wave-map__node wave-map__node--future">
-              <rect x="816" y="72" width="200" height="140" rx="4"/>
-              <text x="834" y="101" class="wave-map__eyebrow">SEE · HEAR</text>
-              <text x="834" y="132" class="wave-map__name">Wave VL + Audio</text>
-              <text x="834" y="158" class="wave-map__size">~0.3–2B · NPU/GPU</text>
-              <text x="834" y="188" class="wave-map__job">inspection · floor voice</text>
-            </g>
-            <g class="wave-map__node wave-map__node--support">
-              <rect x="546" y="278" width="190" height="94" rx="4"/>
-              <text x="564" y="307" class="wave-map__eyebrow">GROUND LOCALLY</text>
-              <text x="564" y="336" class="wave-map__name">Wave Embed</text>
-              <text x="564" y="358" class="wave-map__size">100–300M · local retrieval</text>
-            </g>
-          </svg>
-          <figcaption id="wave-map-caption">
-            <b>One local stack, separate contracts.</b> Sensors become typed events; Micro
-            filters; Nano reasons over approved context and tools. Retrieval, vision, and
-            audio earn their own models only when their own evaluations exist.
-          </figcaption>
-        </figure>
-        <div class="research-grid">
-          <article class="research-card">
-            <header><span class="lineage lineage--research">Program</span><span class="status">PROTOTYPE GRID DESIGNED</span></header>
-            <h3>Wave Nano</h3>
-            <p>Two ~350M-class prototypes now enter a matched adaptation grid:
-               Granite for typed tools and SmolLM2 for the text control. Both consume the same
-               example bytes and evaluation policy; neither may train until the data ledger,
-               expanded unseen suite, token budget, and approval are complete.</p>
-            <dl><div><dt>First jobs</dt><dd>Typed tools · bounded text transformation</dd></div><div><dt>Decision</dt><dd>One combined model, two specialists, or no v0 release</dd></div></dl>
-          </article>
-          <article class="research-card">
-            <header><span class="lineage lineage--research">Program</span><span class="status">IN DESIGN</span></header>
-            <h3>Wave Micro</h3>
-            <p>Sub-100M task specialists: classification, extraction, routing, intent, and
-               sensor-adjacent inference for NPUs and constrained ARM boards. Micro models do
-               one job each and publish their exact operating envelope — they are not chat
-               models shrunk until they fib.</p>
-            <dl><div><dt>First jobs</dt><dd>Intent, extraction, anomaly triage</dd></div><div><dt>Delivery</dt><dd>Quantized, per-device measured</dd></div></dl>
-          </article>
-          <article class="research-card">
-            <header><span class="lineage lineage--research">Roadmap</span><span class="status">AFTER NANO</span></header>
-            <h3>Wave Embed · Wave VL · Wave Audio</h3>
-            <p>Technical retrieval is the next high-leverage local component. Compact vision
-               and speech/audio variants open only after Nano and Micro prove the workflow.
-               Inspection and floor-voice claims require their own domain-shift and noise
-               evaluations.</p>
-            <dl><div><dt>Order</dt><dd>Nano · Micro/Embed · VL · Audio</dd></div></dl>
-          </article>
-        </div>
-        <p class="research-parent">Below the Wave line, <b>Roger Edge</b> covers
-           microcontroller-class artifacts — wake, VAD, fixed commands, sensing — described in
-           §4. An ESP32 gets a task model, not a language model.</p>
-      </div>
-    </section>
-
-    <section class="section research-tone">
+    <section class="section research-tone" id="principles">
       <div class="wrap research-split">
         <div>
-          <span class="sectionno">§3 / LINEAGE</span>
-          <h2>Four verbs, four claims.</h2>
-          <p>The badge describes the work RogerAI actually performed.</p>
-        </div>
-        <dl class="lineage-list">
-          <div><dt><span class="lineage">Trained by RogerAI</span></dt><dd>Pretrained by RogerAI from an initialized architecture.</dd></div>
-          <div><dt><span class="lineage">Adapted by RogerAI</span></dt><dd>Continually pretrained or post-trained by RogerAI.</dd></div>
-          <div><dt><span class="lineage">Optimized by RogerAI</span></dt><dd>Pruned, quantized, converted, or runtime-modified.</dd></div>
-          <div><dt><span class="lineage">Verified by RogerAI</span></dt><dd>Tested unchanged in the RogerAI harness.</dd></div>
-        </dl>
-      </div>
-    </section>
-
-    <section class="section" id="devices">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">§4 / RUN ANYWHERE · PROVE EACHWHERE</span>
-          <h2>“Edge” is not one machine.</h2>
-          <p>Compatibility follows measurements, not memory-size guesses.</p>
-        </div>
-        <div class="device-grid">
-          <article class="device-card">
-            <span class="device-tier">WAVE · ARM LINUX</span>
-            <h3>Raspberry Pi</h3>
-            <p>Raspberry Pi evidence names the exact board and RAM, OS, runtime, format, quantization, and context.</p>
-            <p class="device-proof">Required record: cold load · peak memory · prompt speed · decode speed · temperature and throttling.</p>
-            <p>One Pi result is not generalized to every ARM device.</p>
-          </article>
-          <article class="device-card">
-            <span class="device-tier">WAVE · ACCELERATORS</span>
-            <h3>GPU and NPU</h3>
-            <p>Generic NPU support is not claimed from CPU or GPU evidence. Every NPU claim names the exact SoC and accelerator, compiled backend, full delegation, partial delegation, and CPU fallback.</p>
-          </article>
-          <article class="device-card device-card--wide">
-            <span class="device-tier">EDGE · MICROCONTROLLERS</span>
-            <h3>ESP32 and LILYGO T-Embed</h3>
-            <p>An ESP32 does not run a 350M Roger Wave model. Roger Edge artifacts are task-specific: wake, VAD, fixed commands, sensing, or vision—not open-ended generation or general speech recognition.</p>
-            <p>Wi-Fi-equipped boards such as a LILYGO T-Embed can keep allowlisted controls offline and, under configured consent, ask a nearby trusted Pi or phone before optional internet routing.</p>
-            <p>Remote results are structured data. Local firmware validates the action, typed arguments, nonce, expiry, and issuer. ESP32-P4 has no native Wi-Fi or Bluetooth; a wireless P4 artifact must name its companion C6 or other connectivity board.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="industry">
-      <div class="wrap">
-        <div class="section__head section__head--left">
-          <span class="sectionno">§5 / INDUSTRY · WHERE LOCAL MODELS GO TO WORK</span>
-          <h2>The data never wanted to leave the building.</h2>
-          <p>The industrial-IoT platform era proved it: cloud-first analytics died at the OT
-             firewall. Plants, warehouses, and field sites run separated, often air-gapped
-             networks — and that constraint is exactly where local models fit. These are the
-             deployment patterns RogerAI Labs builds and consults on.</p>
-        </div>
-        <div class="research-grid">
-          <article class="research-card">
-            <header><span class="research-kicker">MANUFACTURING</span></header>
-            <h3>Plant floor, without the cloud</h3>
-            <p>Operator copilots that troubleshoot from OEM manuals and site history on the
-               plant network. Alarm-flood triage in plain language — what changed before the
-               alarm, not another threshold. Maintenance-log and shift-note fusion that
-               classical time-series systems always ignored. Vision-model inspection at the
-               station, prompt-defined instead of a bespoke CV project.</p>
-          </article>
-          <article class="research-card">
-            <header><span class="research-kicker">WAREHOUSES &amp; LOGISTICS</span></header>
-            <h3>Docks, picks, and paperwork</h3>
-            <p>Natural-language queries over inventory and movement data. Vision checks at
-               dock doors and pick stations. Label, manifest, and delivery-document extraction
-               on a box that lives in the building. Shift-handover summaries a supervisor can
-               actually read.</p>
-          </article>
-          <article class="research-card">
-            <header><span class="research-kicker">ENERGY &amp; HEAVY ASSETS</span></header>
-            <h3>Ask the historian a question</h3>
-            <p>Conversational access to asset hierarchies and telemetry summaries — the
-               digital-twin front end without the platform tax. Anomaly explanation and
-               work-order drafting for rotating equipment, utilities, and fleets, on-premises.</p>
-          </article>
-          <article class="research-card">
-            <header><span class="research-kicker">DEFENSE &amp; PUBLIC SECTOR</span></header>
-            <h3>Air-gapped by design</h3>
-            <p>Document intelligence and assistant workloads on fully disconnected networks.
-               Local weights, signed artifacts, verifiable lineage, and no telemetry — the
-               deployment model is the security model. Suitable for regulated and classified
-               environments where cloud inference is not an option.</p>
-          </article>
-        </div>
-        <div class="research-caution">
-          <b>Patterns, not case studies.</b> RogerAI Labs does not name customers it does not
-          have, and keeps advisory models out of real-time control loops — closed-loop control
-          stays with deterministic systems. When a deployment produces publishable evidence,
-          it will appear in the notebook with numbers.
-        </div>
-      </div>
-    </section>
-
-    <section class="section research-tone" id="services">
-      <div class="wrap research-split">
-        <div>
-          <span class="sectionno">§6 / SERVICES</span>
-          <h2>The lab takes engagements.</h2>
-          <p>Consulting is how the research pays its power bill — and how the patterns above
-             meet real constraints. Small, self-contained, one problem at a time.</p>
+          <span class="sectionno">§2 / PROOF</span>
+          <h2>Claims follow measurements.</h2>
+          <p>Compact pages do not mean hidden evidence.</p>
         </div>
         <div class="research-prose">
-          <p><b>Model optimization engineering.</b> Quantization, pruning, and runtime fit for
-             your hardware — with measured quality deltas and error bars, never a lucky draw.</p>
-          <p><b>Edge deployment.</b> From a GPU workstation on the OT network to ARM boards and
-             microcontroller endpoints: sizing, runtimes, and honest device envelopes.</p>
-          <p><b>Benchmarking and model selection.</b> Same-harness comparisons across candidate
-             models on your workload, with raw results you keep.</p>
-          <p><b>Industrial pilots.</b> A scoped on-premises problem — inspection, triage,
-             document intelligence — delivered against the evaluation contract in §9.</p>
-          <p>Using RogerAI models never requires buying services, and services never require
-             the broker. Write to <a href="mailto:labs@rogerai.fm">labs@rogerai.fm</a>.</p>
+          <p><b>Reproducible.</b> Published measurements name the hardware, artifact,
+             runtime, settings, and raw results.</p>
+          <p><b>Honest lineage.</b> We distinguish training from adaptation, optimization,
+             and verification. Upstream work keeps its original name and license.</p>
+          <p><b>Durable.</b> Negative results remain available. Qualifying artifacts use
+             standard formats and runtimes.</p>
+          <p><b>Local first.</b> You may download and run qualifying artifacts locally.
+             Publishing through the RogerAI network is optional.</p>
         </div>
       </div>
     </section>
@@ -303,77 +156,46 @@
     <section class="section" id="developers">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">§7 / DEVELOPERS</span>
-          <h2>Standard formats, standard runtimes.</h2>
-          <p>No proprietary runtime and no SDK moat: RogerAI artifacts ship in open formats and
-             run on the tools you already use.</p>
+          <span class="sectionno">§3 / DEVELOPERS</span>
+          <h2>From artifact to local endpoint.</h2>
+          <p>Released model cards will carry exact commands. The flow stays the same across
+             the family.</p>
         </div>
-        <div class="research-grid">
-          <article class="research-card">
-            <header><span class="research-kicker">RUN IT</span></header>
-            <h3>GGUF on llama.cpp</h3>
-            <p>Research builds publish as GGUF and serve with stock or lightly patched
-               llama.cpp; every card names the exact runtime, format, quantization, and
-               context it was measured with. Conversion and runtime patches are developed in
-               the open and offered upstream.</p>
-            <dl><div><dt>Weights</dt><dd><a href="https://huggingface.co/rogerai-fyi">huggingface.co/rogerai-fyi</a></dd></div><div><dt>Source</dt><dd><a href="https://github.com/rogerai-fyi">github.com/rogerai-fyi</a></dd></div></dl>
+        <div class="developer-steps">
+          <article class="developer-step">
+            <span class="developer-step__no">01</span>
+            <h3>Download</h3>
+            <p>Pull a released artifact and its model card from Hugging Face.</p>
+            <code>huggingface-cli download rogerai-fyi/&lt;model&gt;</code>
           </article>
-          <article class="research-card">
-            <header><span class="research-kicker">CHECK IT</span></header>
-            <h3>Reproduce the numbers</h3>
-            <p>Published results carry the serve command, settings, harness, and raw outputs.
-               If you cannot reproduce a number on the named hardware, that is a bug in the
-               release — report it and it gets fixed or retracted.</p>
+          <article class="developer-step">
+            <span class="developer-step__no">02</span>
+            <h3>Run locally</h3>
+            <p>Serve GGUF with llama.cpp as an OpenAI-compatible endpoint.</p>
+            <code>llama-server -m model.gguf --port 8080</code>
           </article>
-          <article class="research-card">
-            <header><span class="research-kicker">SHARE IT</span></header>
-            <h3>Put it on air — if you want</h3>
-            <p>Anything you run locally can optionally join the RogerAI network for discovery,
-               routing, payments, failover, and signed receipts. Local use never requires it.</p>
-            <dl><div><dt>Live stations</dt><dd><a href="/models.html">/models.html</a></dd></div></dl>
+          <article class="developer-step">
+            <span class="developer-step__no">03</span>
+            <h3>Reproduce</h3>
+            <p>Match the artifact version, hardware, runtime, and settings from the
+               published evaluation record.</p>
+            <code>git clone https://github.com/rogerai-fyi/roger</code>
           </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section research-tone" id="open">
-      <div class="wrap research-split">
-        <div>
-          <span class="sectionno">§8 / OPEN · REPRODUCIBLE</span>
-          <h2>Freedom needs receipts.</h2>
-          <p>Users may download and run qualifying open models locally. Publishing to RogerAI is optional.</p>
-        </div>
-        <div class="research-prose">
-          <p><b>Open weights</b> means weights are available under their stated terms. Open Source AI requires the published RogerAI reproducibility checklist: weights, source, recipe, provenance, evaluations, and limitations.</p>
-          <p>PolyForm broker: source-available, not an open-source component. Its value is discovery, routing, payments, failover, and signed receipts—not a license restriction forcing remote inference through RogerAI.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" id="evidence">
-      <div class="wrap research-split">
-        <div>
-          <span class="sectionno">§9 / EVALUATION CONTRACT</span>
-          <h2>Same harness or no victory claim.</h2>
-          <p>RogerAI measurements remain distinct from upstream vendor measurements.</p>
-        </div>
-        <div class="evidence-plate">
-          <p>Every published number identifies the artifact version, evaluation harness, hardware, settings, and raw results. Superiority claims require the same harness and controls.</p>
-          <p><b>Negative and superseded results remain discoverable.</b> Failed hypotheses keep their reason and evidence even when an artifact becomes deprecated.</p>
-          <a href="/broadcasts.html">Read the public notebook →</a>
         </div>
       </div>
     </section>
 
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">§10 / THE LAB</span>
-        <h2>Built by computer scientists and systems engineers.</h2>
-        <p>RogerAI brings computer-science and systems-engineering experience to model arithmetic, runtimes, compression, distributed inference, and reproducible evaluation. Named biographies will follow only after individual approval.</p>
+        <span class="sectionno">§4 / FOLLOW THE WORK</span>
+        <h2>Weights, source, and field notes.</h2>
+        <p>Release detail lives with the artifact. Engineering decisions and measurements
+           live in Open Air Waves.</p>
         <div class="research-actions">
-          <a class="research-button research-button--primary" href="https://github.com/rogerai-fyi/roger">Inspect the source</a>
-          <a class="research-button" href="/broadcasts.html">Follow the notebook</a>
-          <a class="research-button" href="/models.html">Tune to live stations</a>
+          <a class="research-button research-button--primary" href="https://huggingface.co/rogerai-fyi">Weights</a>
+          <a class="research-button" href="https://github.com/rogerai-fyi/roger">Source</a>
+          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
+          <a class="research-button" href="mailto:labs@rogerai.fm">Contact Labs</a>
         </div>
       </div>
     </section>
