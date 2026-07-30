@@ -22,7 +22,7 @@
 
   <!-- running head -->
   <text x="80" y="92" class="tag" font-size="26" letter-spacing="4" fill="#6b6a63">FIG. 1 - RADIO STATION</text>
-  <text x="1120" y="92" class="tag" font-size="26" letter-spacing="2" text-anchor="end" fill="#6b6a63">rogerai.fyi</text>
+  <text x="1120" y="92" class="tag" font-size="26" letter-spacing="2" text-anchor="end" fill="#6b6a63">rogerai.fm</text>
 
   <!-- the beacon eye  (( o ))  - the on-air pulse. VECTOR (not font text) so the red dot is
        dead-centered and the mark renders identically everywhere, no font dependency. Everything

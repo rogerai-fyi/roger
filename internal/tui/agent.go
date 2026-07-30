@@ -28,6 +28,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/rogerai-fyi/roger/internal/glyphs"
 	"github.com/rogerai-fyi/roger/internal/harness"
 )
@@ -68,12 +70,13 @@ type agentRuntime struct {
 	// longer?"). The completer stamps callStart/callSoft and parks an extend func here;
 	// the working line flips to a "past the cap · tab waits" prompt once now > callSoft,
 	// and tab pushes BOTH the soft mark and the underlying ExtendableTimeout deadline
-	// back by another PerCallCap. Left alone, the call auto-stops agentCapGrace after
+	// back by another configured callLimit. Left alone, the call auto-stops agentCapGrace after
 	// the soft mark, so an unattended session still reads as bounded. All four fields
 	// are written on the loop goroutine and read on the UI goroutine: callMu guards them.
 	callMu     sync.Mutex
-	callStart  time.Time // zero between model calls
-	callSoft   time.Time // when the past-cap prompt appears; +PerCallCap per tab
+	callLimit  time.Duration // zero = unlimited; positive = configured soft cap
+	callStart  time.Time     // zero between model calls
+	callSoft   time.Time     // when the configured-cap prompt appears; +callLimit per tab
 	callExtend func(time.Duration)
 	// perms is the tool-approval mode (agentPermMode) - written on the UI goroutine
 	// (/perms), read on the loop goroutine (the confirmer), hence atomic.
@@ -146,6 +149,22 @@ func permsHelp(p agentPermMode) string {
 // a present user a real window to grant more time.
 const agentCapGrace = 120 * time.Second
 
+// agentTimeoutFromEnv resolves the optional AGENT model-call timeout. Empty, zero,
+// off, none, and unlimited all mean no cap. The CLI seeds this from config; the env
+// remains a useful per-run override.
+func agentTimeoutFromEnv() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("ROGERAI_AGENT_TIMEOUT"))
+	switch strings.ToLower(raw) {
+	case "", "0", "off", "none", "unlimited":
+		return 0
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
 // callState reports the in-flight model call's cap state for the working line:
 // whether a call is live, seconds since it started, whether it is past the soft cap,
 // and how long until the auto-stop. Zero-value safe: between calls (or in tests with
@@ -161,7 +180,7 @@ func (rt *agentRuntime) callState() (inCall bool, callSec int, pastCap bool, sto
 	}
 	now := time.Now()
 	callSec = int(now.Sub(rt.callStart) / time.Second)
-	if now.After(rt.callSoft) {
+	if rt.callLimit > 0 && !rt.callSoft.IsZero() && now.After(rt.callSoft) {
 		pastCap = true
 		stopSec = int(rt.callSoft.Add(agentCapGrace).Sub(now) / time.Second)
 		if stopSec < 0 {
@@ -171,20 +190,20 @@ func (rt *agentRuntime) callState() (inCall bool, callSec int, pastCap bool, sto
 	return true, callSec, pastCap, stopSec
 }
 
-// grantMoreTime pushes the in-flight call's soft cap and hard deadline back by
-// PerCallCap. Reports whether there was a live past-cap call to extend.
-func (rt *agentRuntime) grantMoreTime() bool {
+// grantMoreTime pushes the in-flight call's soft cap and hard deadline back by the
+// configured call limit. It returns the actual extension, or zero when no grant applied.
+func (rt *agentRuntime) grantMoreTime() time.Duration {
 	if rt == nil {
-		return false
+		return 0
 	}
 	rt.callMu.Lock()
 	defer rt.callMu.Unlock()
-	if rt.callStart.IsZero() || rt.callExtend == nil || !time.Now().After(rt.callSoft) {
-		return false
+	if rt.callLimit <= 0 || rt.callStart.IsZero() || rt.callExtend == nil || !time.Now().After(rt.callSoft) {
+		return 0
 	}
-	rt.callSoft = rt.callSoft.Add(harness.PerCallCap)
-	rt.callExtend(harness.PerCallCap)
-	return true
+	rt.callSoft = rt.callSoft.Add(rt.callLimit)
+	rt.callExtend(rt.callLimit)
+	return rt.callLimit
 }
 
 // agentConfirm is one pending confirm for a side-effecting tool, surfaced as a y/N
@@ -298,6 +317,7 @@ func (m model) enterAgent() (tea.Model, tea.Cmd) {
 	m.mode = modeAgent
 	if m.agent == nil {
 		m.agent = m.newAgentRuntime()
+		m.agentMaxSteps = m.agent.loop.MaxSteps
 		if m.agent.model != "" {
 			m.agentLines = append(m.agentLines,
 				stDim.Render("· ")+stDim.Render("AGENT on air - running on ")+stKey.Render(m.agent.model)+stDim.Render(" · dj.md persona · session-only (no memory)"),
@@ -517,13 +537,23 @@ func (m model) newAgentRuntime() *agentRuntime {
 		// Carry the user's explicit out-price cap for the live model (0 -> the default
 		// consumer cap applies broker-side); the agent relay is bounded like `use`/chat.
 		maxOut := m.limits.resolve(rt.model).MaxOut
-		// The call cap is SOFT: PerCallCap raises the "tab waits" prompt, and unattended
-		// it auto-stops agentCapGrace later. Tab (grantMoreTime) pushes both back.
-		cctx, extend, done := harness.ExtendableTimeout(ctx, harness.PerCallCap+agentCapGrace)
+		// Calls are unlimited by default. A configured duration restores the soft-cap
+		// choice: tab extends it, esc stops it, and the grace window bounds unattended
+		// calls. Either way the parent context keeps esc cancellation immediate.
+		cctx := ctx
+		extend := func(time.Duration) {}
+		done := func() {}
+		if rt.callLimit > 0 {
+			cctx, extend, done = harness.ExtendableTimeout(ctx, rt.callLimit+agentCapGrace)
+		}
 		rt.callMu.Lock()
 		rt.callStart = time.Now()
-		rt.callSoft = rt.callStart.Add(harness.PerCallCap)
-		rt.callExtend = extend
+		rt.callSoft = time.Time{}
+		rt.callExtend = nil
+		if rt.callLimit > 0 {
+			rt.callSoft = rt.callStart.Add(rt.callLimit)
+			rt.callExtend = extend
+		}
 		rt.callMu.Unlock()
 		defer func() {
 			done()
@@ -531,7 +561,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 			rt.callStart, rt.callSoft, rt.callExtend = time.Time{}, time.Time{}, nil
 			rt.callMu.Unlock()
 		}()
-		return harness.BrokerCompleter(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn)(cctx, messages, tools)
+		return harness.BrokerCompleterWithTimeout(m.broker, m.user, rt.model, m.confidentialOnly, maxOut, costFn, 0)(cctx, messages, tools)
 	}
 	confirmer := func(tool string, args map[string]any) bool {
 		// Permission modes: a permissive session auto-approves here (the masthead
@@ -546,6 +576,7 @@ func (m model) newAgentRuntime() *agentRuntime {
 	}
 	persona := harness.LoadPersona(harness.PersonaPath())
 	rt.loop = harness.NewLoop(agentRoot(), persona, completer, confirmer)
+	rt.callLimit = agentTimeoutFromEnv()
 	// Startup default for the approval mode: ROGERAI_AGENT_PERMS=confirm|edits|all
 	// (unset/invalid = confirm). Session-only from there; /perms toggles live.
 	if mode, ok := parsePermMode(os.Getenv("ROGERAI_AGENT_PERMS")); ok {
@@ -660,7 +691,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if c := m.agentPendingConfirm; c != nil {
 		switch k.String() {
 		case "y", "Y":
-			m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
+			m.markAgentActivityApproved(c.tool)
 			m.agentPendingConfirm = nil
 			m.rcConfirmID = "" // BASE STATION: this confirm is resolved; a late remote answer is now stale
 			m.rcEmitConfirmDone(true, "local")
@@ -675,7 +706,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			next := (agentPermMode(m.agent.perms.Load()) + 1) % 3
 			m = m.applyPermMode(next)
 			if permAllows(next, c.tool) {
-				m.agentLines = append(m.agentLines, agentApprovedLine(c.tool))
+				m.markAgentActivityApproved(c.tool)
 				m.agentPendingConfirm = nil
 				m.rcConfirmID = ""
 				m.rcEmitConfirmDone(true, "local")
@@ -684,13 +715,22 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default: // n / N / esc / anything else - default DENY
-			m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+c.tool+" was not run"))
+			m.markAgentActivityDenied(c.tool)
 			m.agentPendingConfirm = nil
 			m.rcConfirmID = ""
 			m.rcEmitConfirmDone(false, "local")
 			c.resp <- false
 			return m, m.waitAgentEvent()
 		}
+	}
+	// Right Arrow accepts a grounded next-action hint only into an empty focused
+	// composer. It edits the draft but never sends; authored text retains normal
+	// textarea cursor movement.
+	if k.String() == "right" && m.agentIn.Focused() && m.agentIn.Value() == "" && m.agentNextHint != "" {
+		m.agentIn.SetValue(m.agentNextHint)
+		m.agentIn.CursorEnd()
+		m.agentNextHint = ""
+		return m, nil
 	}
 	// THE DESK has focus (the [0] landing with nothing tuned in, R3): arrows move the
 	// operator cursor, Enter on the DJ focuses the ask box, Enter on a guest opens the
@@ -831,6 +871,7 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.agentIn.Blur()
+		m.agentNextHint = ""
 		// Clear the DESK focus on the way out, so a re-entry never lands in a dual-focus
 		// state (the ask box focused AND the desk focused). enterAgent re-focuses the ask
 		// box and any fresh scan re-arms the desk from a known-clean base.
@@ -872,9 +913,13 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "up":
 		// The INPUT owns the keyboard here (transcript focus is intercepted above):
-		// arrows mean shell-style history again - the wheel scrolls as REAL mouse
-		// events now that capture is on, so the two no longer collide. With nothing
-		// to recall, fall through to a line of scroll.
+		// Inside a multiline/soft-wrapped draft arrows edit first; history owns Up only
+		// at the first visual line.
+		if textareaCanMoveUp(m.agentIn) {
+			var c tea.Cmd
+			m.agentIn, c = m.agentIn.Update(k)
+			return m, c
+		}
 		if !m.agentBusy {
 			if v, ok := m.agentHist.prev(m.agentIn.Value()); ok {
 				m.agentIn.SetValue(v)
@@ -885,6 +930,11 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.agentVP.ScrollUp(1)
 		return m, nil
 	case "down":
+		if textareaCanMoveDown(m.agentIn) {
+			var c tea.Cmd
+			m.agentIn, c = m.agentIn.Update(k)
+			return m, c
+		}
 		if !m.agentBusy {
 			if v, ok := m.agentHist.next(); ok {
 				m.agentIn.SetValue(v)
@@ -907,6 +957,14 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m = m.applyPermMode((agentPermMode(m.agent.perms.Load()) + 1) % 3)
 		return m, nil
+	case "ctrl+o":
+		m.mouseOff = !m.mouseOff
+		m.smartSel = smartSelState{}
+		m.status = mouseStatusLine(m.mouseOff)
+		if m.mouseOff {
+			return m, tea.DisableMouse
+		}
+		return m, tea.EnableMouseCellMotion
 	case "ctrl+n":
 		// Recall a NEWER sent prompt; past the newest it restores the stashed draft.
 		if !m.agentBusy {
@@ -918,12 +976,12 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "tab":
 		// PAST-CAP GRANT: while a model call has outlived the soft cap (the working
-		// line is showing "tab waits"), tab grants it another PerCallCap instead of
+		// line is showing "tab waits"), tab grants it another configured call limit instead of
 		// slash-completing. Only when the input is not a slash word, so completion
 		// keeps working even during a slow call.
 		if m.agentBusy && !strings.HasPrefix(strings.TrimSpace(m.agentIn.Value()), "/") {
-			if m.agent.grantMoreTime() {
-				capS := int(harness.PerCallCap / time.Second)
+			if extension := m.agent.grantMoreTime(); extension > 0 {
+				capS := int(extension / time.Second)
 				m.agentLines = append(m.agentLines, stDim.Render("· ")+stDim.Render(fmt.Sprintf("granted the call %ds more", capS)))
 				return m, nil
 			}
@@ -998,6 +1056,9 @@ func (m model) onAgentKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ask (the enter handler above parks it). Only the modal sub-states (picker / confirm,
 	// handled earlier) own the keys.
 	var c tea.Cmd
+	if len(k.Runes) > 0 || k.Type == tea.KeyBackspace || k.Type == tea.KeyDelete {
+		m.agentNextHint = ""
+	}
 	m.agentIn, c = m.agentIn.Update(k)
 	return m, c
 }
@@ -1028,6 +1089,8 @@ type queuedPrompt struct {
 // re-queue keeps q's origin, so a re-queued remote "/..." still never slash-dispatches.
 func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	p := q.text
+	m.agentHadToolResult = false
+	m.agentNextHint = ""
 	if m.agent != nil && m.agent.running.Load() {
 		m.agentQueued = append([]queuedPrompt{q}, m.agentQueued...) // jump the queue: it was next
 		m.agentLines = append(m.agentLines, stDim.Render("⏳ STANDBY · ")+stDim.Render(clipLine(p))+stDim.Render(" (previous turn still wrapping up)"))
@@ -1060,6 +1123,8 @@ func (m model) submitAgentPrompt(q queuedPrompt) (model, tea.Cmd) {
 	m.refreshAgentModel()
 	m.agentBusy = true
 	m.agentCanceling = false
+	m.agentStep = 0
+	m.agentMaxSteps = m.agent.loop.MaxSteps
 	m.agentTurnState = poseThinking // turn sent, no tokens yet
 	now := time.Now()
 	m.agentStart = now
@@ -1087,6 +1152,8 @@ func (m model) startParkedTurn(q queuedPrompt) (model, tea.Cmd) {
 	m.refreshAgentModel()
 	m.agentBusy = true
 	m.agentCanceling = false
+	m.agentStep = 0
+	m.agentMaxSteps = m.agent.loop.MaxSteps
 	m.agentTurnState = poseThinking
 	now := time.Now()
 	m.agentStart = now
@@ -1143,7 +1210,7 @@ func (m model) dequeueAgentPrompts() (model, tea.Cmd) {
 // TestAgentCommandRegistrySeam: every entry must dispatch, never "unknown:").
 // Sorted; slash-prefixed canonical names only - short aliases (/dj /y /rc /h) stay
 // typable but are not suggested.
-var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/operator", "/perms", "/persona", "/remote-control", "/webui"}
+var agentCommands = []string{"/clear", "/commands", "/copy", "/help", "/model", "/mouse", "/operator", "/perms", "/persona", "/remote-control", "/webui"}
 
 // agentSlashCandidates returns the agentCommands entries the input's command word
 // prefix-matches (case-insensitive, PREFIX-only), in registry (sorted) order - the
@@ -1207,7 +1274,7 @@ func instantAgentCommand(line string) bool {
 		return false
 	}
 	switch f[0] {
-	case "/perms", "/permissions", "/yolo", "/webui", "/console", "/web":
+	case "/perms", "/permissions", "/yolo", "/webui", "/console", "/web", "/mouse":
 		return true
 	}
 	return false
@@ -1261,6 +1328,8 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		m.agentTokensOut = 0
 		m.agentTPS = 0
 		m.agentQueued = nil // drop any parked prompts too - a fresh start means fresh
+		m.agentNextHint = ""
+		m.agentHadToolResult = false
 		// Also disarm any in-flight auto-tune and drop the prompts parked while no band was
 		// tuned. Without this a prompt parked before /clear fired as a phantom turn (its echo
 		// already wiped by the clear) when the auto-tune landed (audit finding, MAJOR).
@@ -1299,6 +1368,14 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 		// (founder respec 2026-07-14). Instant even mid-turn (instantAgentCommand).
 		note(m.openConsole())
 		return m, nil
+	case "mouse":
+		m.mouseOff = !m.mouseOff
+		m.smartSel = smartSelState{}
+		note(ansi.Strip(mouseStatusLine(m.mouseOff)))
+		if m.mouseOff {
+			return m, tea.DisableMouse
+		}
+		return m, tea.EnableMouseCellMotion
 	case "persona", "dj":
 		note("persona: " + harness.PersonaPath() + " (editable - keeps getting updated)")
 		head := strings.SplitN(harness.LoadPersona(harness.PersonaPath()), "\n", 2)
@@ -1341,7 +1418,7 @@ func (m model) runAgentCommand(line string) (tea.Model, tea.Cmd) {
 	case "help", "h", "commands":
 		// "commands" matches the CHANNEL view's alias (tui.go) so the autocomplete
 		// strip's /commands pick dispatches here instead of falling to unknown.
-		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /persona shows dj.md · esc exits")
+		note("/model switches model · /clear resets · /copy yanks the transcript (⌃y) · /mouse toggles wheel/select · /persona shows dj.md · esc exits")
 		note(agentToolsNote(m.agentTools()))
 		note("/remote-control puts this session on your BASE STATION (continue it from any logged-in surface)")
 		note("/operator hands the mic to a guest CLI at the desk (opencode · hermes · aider) on your open channel")
@@ -1454,6 +1531,9 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	// STILL-RECEIVING from STALLED (agentWorkingLine) - the founder's "be smarter about
 	// detecting working vs hung".
 	m.agentLastEvent = time.Now()
+	if e.MaxSteps > 0 {
+		m.agentStep, m.agentMaxSteps = e.Step, e.MaxSteps
+	}
 	// Drive the reactive corner Ping off the same event stream: interim/final prose is
 	// the answer coming over the wire (transmitting); a tool call is "working the dial";
 	// a tool result hands back to the model to reason on (thinking again).
@@ -1461,14 +1541,28 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	case harness.EventAssistant:
 		m.agentTurnState = poseStreaming
 		if t := strings.TrimSpace(e.Text); t != "" {
-			m.agentLines = append(m.agentLines, agentAnswerBlock(t)...)
+			m.agentLines = append(m.agentLines, agentAnswerMark+t)
 		}
 	case harness.EventToolCall:
 		m.agentTurnState = poseTool
 		m.agentLines = append(m.agentLines, agentToolCallLine(e.Tool, toolArgSummary(e.Tool, e.Args)))
+		m.agentActivityLine = len(m.agentLines) - 1
+		m.agentActivityTool = e.Tool
+		m.agentActivityTarget = toolArgSummary(e.Tool, e.Args)
+		m.agentActivityRunning = true
+		m.agentActivityApproved = false
 		m.noteAgentToolCall(fmt.Sprintf("call_%d", len(m.agentTurnCalls)+1), e.Tool, argsJSON(e.Args))
 	case harness.EventToolResult:
 		m.agentTurnState = poseThinking // result is back; the model reasons on it next
+		m.agentHadToolResult = true
+		switch {
+		case e.Denied || e.IsError:
+			m.agentNextHint = "retry the failed step or fix the error"
+		case e.Tool == "write_file":
+			m.agentNextHint = "run the tests or review the change"
+		default:
+			m.agentNextHint = "continue with the next step"
+		}
 		var mark, tail string
 		switch {
 		case e.Denied:
@@ -1478,7 +1572,20 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		default:
 			mark, tail = stLive.Render("  ✓ "), stDim.Render("ok"+resultHint(e.Result))
 		}
-		m.agentLines = append(m.agentLines, mark+stDim.Render(e.Tool+" · ")+tail)
+		card := mark + stDim.Render(e.Tool)
+		if m.agentActivityTarget != "" {
+			card += stDim.Render("   " + m.agentActivityTarget)
+		}
+		if m.agentActivityApproved && !e.Denied {
+			card += stDim.Render(" · approved")
+		}
+		card += stDim.Render(" · ") + tail
+		if m.agentActivityRunning && m.agentActivityLine >= 0 && m.agentActivityLine < len(m.agentLines) {
+			m.agentLines[m.agentActivityLine] = card
+		} else {
+			m.agentLines = append(m.agentLines, card)
+		}
+		m.agentActivityLine, m.agentActivityTool, m.agentActivityTarget, m.agentActivityRunning, m.agentActivityApproved = -1, "", "", false, false
 		m.noteAgentToolResult(harness.Event(e))
 		// Show the user the ACTUAL output, not just "ok · N bytes": a short preview of
 		// the result is the real UX gap behind a truncated answer (the user could never
@@ -1496,6 +1603,9 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 	case harness.EventFinal:
 		m.agentTurnState = poseStreaming
 		t := strings.TrimSpace(e.Text)
+		if strings.HasSuffix(t, "?") {
+			m.agentNextHint = "answer the agent's question"
+		}
 		switch {
 		case t == "" && e.Truncated:
 			// Honest, actionable: the completion budget ran out (usually eaten by a
@@ -1506,7 +1616,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 		case e.Thought:
 			m.agentLines = append(m.agentLines, agentThoughtBlock(t, e.Truncated)...)
 		default:
-			m.agentLines = append(m.agentLines, agentAnswerBlock(t)...)
+			m.agentLines = append(m.agentLines, agentAnswerMark+t)
 		}
 		// The completed turn joins the context ring, carrying the tool calls it made. An
 		// empty turn records nothing (recordAgentAnswer no-ops), but the pending calls are
@@ -1527,6 +1637,7 @@ func (m model) onAgentEvent(e agentEventMsg) (tea.Model, tea.Cmd) {
 			mdl = m.agent.model
 		}
 		m.agentTurnState = poseWaiting // the turn failed; the corner Ping stands back by
+		m.agentNextHint = "retry the turn or fix the error"
 		m.agentLines = append(m.agentLines, failureHint(e.Text, mdl, m.narrow())...)
 		// A turn that errors or is cancelled never reaches the answer that would consume
 		// its pending tool calls. Left behind, they would be recorded as work the NEXT
@@ -1772,7 +1883,11 @@ func (m model) agentView(w int) string {
 		// The windowshade folds the desk strip to a bare count (§3f) - "" with zero
 		// guests, so the zero-guest compact heading stays byte-identical.
 		head := "  " + stSelBar.Render("▌") + " " + stBrand.Render("AGENT") + stDim.Render(" · tools") + m.agentPermTag() +
-			stDim.Render(" ") + mdlCell + stDim.Render(" · ") + stEmber.Render(dollars(m.agentCost)) + m.deskCompactCount()
+			stDim.Render(" ") + mdlCell
+		if rail := m.agentSessionDeck(w); rail != "" {
+			head += stDim.Render(" · ") + rail
+		}
+		head += m.deskCompactCount()
 		b.WriteString(truncVisible(head, w) + "\n")
 	} else {
 		// The DIAL DECK (design overhaul §6): LOCK lamp · call sign · AGENT · S-meter ·
@@ -1790,12 +1905,19 @@ func (m model) agentView(w int) string {
 			o := m.connected
 			head += stDim.Render("   S ") + m.bandSMeter(m.frame, o.Signal, o.TPS, true, o.InFlight, 0, false)
 		}
-		// The meter bank (catalog #19): ↑in ↓out · $cost, falling back to bare cost.
-		bank := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost)
-		if bank == "" {
-			bank = "cost " + dollars(m.agentCost)
+		rail := m.agentSessionDeck(w)
+		if rail == "" {
+			// Untouched landing: no separator or alignment padding for absent data.
+		} else if w >= 110 {
+			gap := w - lipgloss.Width(head) - lipgloss.Width(rail) - 2
+			if gap > 0 {
+				head += strings.Repeat(" ", gap) + rail
+			} else {
+				head += stDim.Render("   ") + rail
+			}
+		} else {
+			head += stDim.Render("   ") + rail
 		}
-		head += stDim.Render("   ") + stDim.Render(bank)
 		b.WriteString(truncVisible(head, w) + "\n")
 		// The desk strip (§3a line 2): who is at the desk + how to hand off. "" with zero
 		// guests - the zero-guest screen is byte-identical (permanent regression).
@@ -1823,20 +1945,21 @@ func (m model) agentView(w int) string {
 	// budget); the persisted scroll position + auto-stick-to-bottom live in refreshScroll.
 	content := transcriptContent(m.displayAgentLines(), w)
 	m.agentVP.Width = w
-	budget := m.agentTranscriptRows(cornerRows)
+	promptRows := m.agentPromptRowCount(w)
+	budget := m.agentTranscriptRows(cornerRows, promptRows)
 	m.agentVP.Height = clampRows(lineRows(content), budget)
 	m.agentVP.SetContent(content)
-	// A visible seam between the scrollable transcript and the prompt: when the user
-	// has scrolled up, one reserved row shows how far they are and the way back down,
-	// so "can I scroll this?" is never a mystery (the opencode-style separation).
+	// A visible seam always separates transcript from interaction. When the user has
+	// scrolled up, the same reserved row becomes navigation/focus wayfinding.
 	scrolledUp := lineRows(content) > budget && !m.agentVP.AtBottom()
-	seam := scrolledUp || m.agentPaneFocus
-	if seam {
-		m.agentVP.Height--
-	}
+	seam := lineRows(content) > 0
+	desk := m.deskRosterBlock(w)
 	if m.agentVP.Height > 0 {
 		b.WriteString(m.agentVP.View() + "\n")
 	}
+	// Desk availability belongs to the transcript side of the seam. Keeping it
+	// above the separator leaves `── ask` immediately adjacent to the composer.
+	b.WriteString(desk)
 	if seam {
 		// The seam doubles as the FOCUS cue: lit + labeled while the transcript owns
 		// the keyboard, dim wayfinding while merely scrolled up.
@@ -1846,10 +1969,12 @@ func (m model) agentView(w int) string {
 			b.WriteString(truncVisible(stDim.Render("  ── ")+lampStyle(roleDial).Render("●")+stKey.Render(fmt.Sprintf(" transcript · %d%% · ↑↓ scroll · end live · tab/esc back ──", pct)), w) + "\n")
 		case m.agentPaneFocus:
 			b.WriteString(truncVisible(stDim.Render("  ── ")+lampStyle(roleDial).Render("●")+stKey.Render(" transcript · ↑↓ scroll · tab/esc back to ask ──"), w) + "\n")
-		default:
+		case scrolledUp:
 			pct := int(m.agentVP.ScrollPercent() * 100)
 			marker := fmt.Sprintf("  ── scrolled · %d%% · ↓ more below · end / pgdn for live · tab focuses ──", pct)
 			b.WriteString(truncVisible(stDim.Render(marker), w) + "\n")
+		default:
+			b.WriteString(truncVisible(stDim.Render("  ── ask ")+stDim.Render(strings.Repeat("─", max(0, w-9))), w) + "\n")
 		}
 	}
 	// The pre-launch plate (Phase 3): the ONE confirm between picking a guest and
@@ -1860,7 +1985,6 @@ func (m model) agentView(w int) string {
 	}
 	// THE DESK roster (Phase 3): the static landing preview of who can take the mic;
 	// deskRosterBlock returns "" off the landing state (and always with zero guests).
-	b.WriteString(m.deskRosterBlock(w))
 	// The /operator hand-the-mic picker (Guest Operators Phase 2): same modal shape as
 	// the /model picker directly below.
 	if m.operatorPicker {
@@ -1904,7 +2028,7 @@ func (m model) agentView(w int) string {
 		if m.narrow() {
 			prompt = "run it? "
 		}
-		b.WriteString("\n")
+		b.WriteString("\n" + truncVisible("  "+lampStyle(roleLive).Bold(true).Render("● APPROVAL REQUIRED")+stDim.Render(" · side effect"), w) + "\n")
 		if c.tool == "run_shell" {
 			// Show the FULL command, soft-wrapped across lines, so a long/obfuscated command
 			// is never approved blind on a single truncated line. The cmd is also NOT
@@ -1938,31 +2062,100 @@ func (m model) agentView(w int) string {
 	if strip := m.agentSlashStrip(); strip != "" {
 		b.WriteString("\n" + truncVisible("  "+strip, w)) // the prompt's \n ends this line
 	}
-	// The always-live prompt: `ask ›` + the input view (cursor + echoed text). Clipped
-	// to width so a long placeholder / echoed line never overflows.
-	b.WriteString("\n" + truncVisible("  "+bandUser("ask › ")+m.agentIn.View(), w) + "\n")
+	// The always-live prompt soft-wraps instead of horizontally scrolling pasted text
+	// out of sight. Continuations align under the value after `ask ›`.
+	b.WriteString("\n" + strings.Join(m.agentPromptLines(w), "\n") + "\n")
 	if !m.compact {
 		// The control-panel mode line, always on directly under the input: TOOLS: <mode>
 		// (never empty) + a STANDBY chip. The founder's original "did /perms toggle?" fix.
 		b.WriteString(m.agentModeLine(w) + "\n")
-		// Busy-aware help: while a turn streams, the one thing the user needs is how to
-		// STOP it (esc), so lead with that instead of the idle command list.
-		permTail := permsHelp(permConfirm)
-		if m.agent != nil {
-			permTail = permsHelp(agentPermMode(m.agent.perms.Load()))
-		}
-		help := "enter asks  ·  /model switches  ·  /operator hands the mic  ·  tab focuses the transcript  ·  ⌃y copy  ·  ⌃p perms  ·  esc exits AGENT  ·  /clear  ·  " + permTail
-		switch {
-		case m.agentBusy && m.narrow():
-			help = "type queues · esc cancels (2× force)"
-		case m.agentBusy:
-			help = "type + enter queues the next ask  ·  esc cancels (esc again force-stops)  ·  ⌃c quits"
-		case m.narrow():
-			help = "enter ask · /model · ⌃y copy · esc exit"
-		}
-		b.WriteString(truncVisible("  "+stDim.Render(help), w) + "\n")
 	}
 	return b.String()
+}
+
+// agentSessionDeck is the responsive, truthful usage rail. Wide terminals get
+// labeled instrument cells; medium/narrow layouts collapse those same real values.
+func (m model) agentSessionDeck(w int) string {
+	if !m.agentBusy && m.agentStep == 0 && m.agentTokensIn == 0 && m.agentTokensOut == 0 && m.agentCost == 0 {
+		return ""
+	}
+	step := "·"
+	if m.agentStep > 0 {
+		step = fmt.Sprintf("%d", m.agentStep)
+	}
+	maxSteps := m.agentMaxSteps
+	if maxSteps <= 0 && m.agent != nil && m.agent.loop != nil {
+		maxSteps = m.agent.loop.MaxSteps
+	}
+	if maxSteps <= 0 {
+		maxSteps = 8
+	}
+	steps := step + "/" + fmt.Sprintf("%d", maxSteps)
+	tokens := meterTotals(m.agentTokensIn, m.agentTokensOut, 0)
+	if tokens == "" {
+		tokens = "↑0 ↓0"
+	}
+	if w >= 110 {
+		return stDim.Render("SESSION ") + lampStyle(roleSignal).Render(tokens) +
+			stDim.Render("   STEPS ") + lampStyle(roleDial).Render(steps) +
+			stDim.Render("   SPENT ") + lampStyle(roleDialGlow).Render(dollars(m.agentCost))
+	}
+	if w >= 80 {
+		return lampStyle(roleSignal).Render(tokens) + stDim.Render(" · ") +
+			lampStyle(roleDial).Render(steps) + stDim.Render(" · ") +
+			lampStyle(roleDialGlow).Render(dollars(m.agentCost))
+	}
+	return lampStyle(roleDial).Render(steps) + stDim.Render(" · ") +
+		lampStyle(roleDialGlow).Render(dollars(m.agentCost))
+}
+
+// agentPromptPlaceholder stays familiar at rest and offers a natural continuation
+// after a tool-bearing turn. Confirmation has its own explicit modal instruction.
+func (m model) agentPromptPlaceholder() string {
+	if m.agentNextHint != "" {
+		return m.agentNextHint
+	}
+	if m.agentHadToolResult {
+		return "continue with the next step"
+	}
+	return "ask the agent to do something"
+}
+
+// agentPromptLines keeps Bubbles textinput for editing/history/paste handling, but
+// paints its complete value as a losslessly wrapped multi-row input zone.
+const (
+	agentPromptLead      = "  ▌ ask › "
+	agentPromptLeadWidth = 10
+	agentPromptMaxRows   = 6
+)
+
+// agentPromptRowCount returns the textarea's visible height. ansi.Wrap uses
+// terminal cell width (including CJK/emoji), preserves logical newlines, and
+// matches the viewport's hard-wrap behavior for long unbroken input.
+func (m model) agentPromptRowCount(w int) int {
+	contentWidth := max(1, w-agentPromptLeadWidth)
+	value := m.agentIn.Value()
+	if value == "" {
+		return 1
+	}
+	rows := 0
+	for _, logical := range strings.Split(value, "\n") {
+		wrapped := ansi.Wrap(logical, contentWidth, "")
+		rows += max(1, lineRows(wrapped))
+	}
+	return min(agentPromptMaxRows, max(1, rows))
+}
+
+// agentPromptLines delegates editing, bracketed paste, cell-aware soft wrapping,
+// scrolling, and cursor placement to Bubbles textarea. The model copy is sized
+// for this frame so View remains pure.
+func (m model) agentPromptLines(w int) []string {
+	placeholder := m.agentPromptPlaceholder()
+	if m.agentNextHint != "" && m.agentIn.Focused() && m.agentIn.Value() == "" {
+		placeholder += "   → accept"
+	}
+	view := renderComposer(m.agentIn, placeholder, agentPromptLead, agentPromptLeadWidth, w, m.agentPromptRowCount(w))
+	return tintComposerLines(strings.Split(view, "\n"), w)
 }
 
 // agentPermTag is the masthead's approval-mode chip: empty at the confirm default
@@ -2028,13 +2221,44 @@ func (m model) agentModeLine(w int) string {
 	return truncVisible(line, w)
 }
 
-// agentApprovedLine is the transcript echo when a side-effecting tool is approved at
-// the confirm gate: WILCO (radio "received + complying" - the approval AND that it's
-// running now), keeping the ✓ go-glint. One source for both approve paths (y and the
-// ctrl+p-escalate-to-auto-approve). Deny stays plain English (no proword for deny).
-func agentApprovedLine(tool string) string {
-	return "  " + stLive.Render("✓ ") + stDim.Render("WILCO · "+tool)
+func (m *model) markAgentActivityApproved(tool string) {
+	m.agentActivityApproved = true
+	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
+		m.agentLines = append(m.agentLines, "  "+lampStyle(roleDial).Render("◐")+stDim.Render(" ⚙ "+tool+" · approved · running"))
+		m.agentActivityLine = len(m.agentLines) - 1
+		m.agentActivityTool = tool
+		m.agentActivityRunning = true
+		return
+	}
+	target := m.agentActivityTarget
+	if tool == "" {
+		tool = m.agentActivityTool
+	}
+	line := "  " + lampStyle(roleDial).Render("◐") + stDim.Render(" ⚙ "+tool)
+	if target != "" {
+		line += stDim.Render("   " + target)
+	}
+	m.agentLines[m.agentActivityLine] = line + stDim.Render(" · approved · running")
 }
+
+func (m *model) markAgentActivityDenied(tool string) {
+	if !m.agentActivityRunning || m.agentActivityLine < 0 || m.agentActivityLine >= len(m.agentLines) {
+		m.agentLines = append(m.agentLines, "  "+stRed.Render("✕ ")+stEmber.Render("denied · "+tool+" was not run"))
+		return
+	}
+	if tool == "" {
+		tool = m.agentActivityTool
+	}
+	line := "  " + stRed.Render("✕ ") + stDim.Render(tool)
+	if m.agentActivityTarget != "" {
+		line += stDim.Render("   " + m.agentActivityTarget)
+	}
+	m.agentLines[m.agentActivityLine] = line + stEmber.Render(" · denied · not run")
+}
+
+// agentAnswerMark tags canonical assistant Markdown. It stays byte-for-byte intact
+// in agentLines for copy/remote fidelity and is styled only by displayAgentLines.
+const agentAnswerMark = "\x1d"
 
 // toolOutMark tags a tool-OUTPUT preview line in agentLines: kept in the buffer but shown
 // only when showToolOutput is on. A control char (record separator) that never appears in
@@ -2048,7 +2272,17 @@ const toolOutMark = "\x1e"
 func (m model) displayAgentLines() []string {
 	out := make([]string, 0, len(m.agentLines))
 	hinted := false
-	for _, ln := range m.agentLines {
+	for i, ln := range m.agentLines {
+		// The confirmation gate is the sole command surface while approval is
+		// pending. The same activity card returns in-place after the decision.
+		if m.agentPendingConfirm != nil && m.agentActivityRunning && i == m.agentActivityLine {
+			continue
+		}
+		if strings.HasPrefix(ln, agentAnswerMark) {
+			out = append(out, agentAnswerBlock(strings.TrimPrefix(ln, agentAnswerMark))...)
+			hinted = false
+			continue
+		}
 		if strings.HasPrefix(ln, toolOutMark) {
 			if m.showToolOutput {
 				out = append(out, ln[len(toolOutMark):])
@@ -2076,9 +2310,9 @@ func agentToolCallLine(tool, argSummary string) string {
 	}
 	s := gear + " " + tool
 	if argSummary != "" {
-		s += " " + argSummary
+		s += "   " + argSummary
 	}
-	return "  " + stDim.Render(s)
+	return "  " + lampStyle(roleDial).Render("◐") + stDim.Render(" "+s+" · running")
 }
 
 // agentAskLines echoes one sent ask. From the second ask on, a dim time-stamped rule
@@ -2099,14 +2333,68 @@ func (m model) agentAskLines(p string) []string {
 func agentAnswerBlock(t string) []string {
 	lines := strings.Split(t, "\n")
 	out := make([]string, 0, len(lines))
-	for i, l := range lines {
-		g := "▏ "
-		if i == 0 {
-			g = "◂ "
+	inCode := false
+	codeKind := ""
+	first := true
+	for i, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") {
+			if !inCode {
+				codeKind = strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(trimmed, "```")))
+				if codeKind == "" {
+					codeKind = inferredFenceKind(lines[i+1:])
+				}
+				out = append(out, stLive.Render("▏ ")+lampStyle(roleDial).Bold(true).Render(codeKind))
+			}
+			inCode = !inCode
+			continue
 		}
-		out = append(out, stLive.Render(g)+l)
+		g := "▏ "
+		if first {
+			g = "◂ "
+			first = false
+		}
+		gutter := stLive.Render(g)
+		if inCode {
+			switch {
+			case codeKind == "DIFF" && strings.HasPrefix(raw, "+"):
+				out = append(out, gutter+lampStyle(roleSignal).Render(raw))
+			case codeKind == "DIFF" && strings.HasPrefix(raw, "-"):
+				out = append(out, gutter+lampStyle(roleLive).Render(raw))
+			case codeKind == "DIFF" && strings.HasPrefix(raw, "@@"):
+				out = append(out, gutter+lampStyle(roleDial).Render(raw))
+			default:
+				out = append(out, gutter+stDim.Render(raw))
+			}
+			continue
+		}
+		clean := strings.ReplaceAll(raw, "**", "")
+		clean = strings.ReplaceAll(clean, "`", "")
+		switch {
+		case strings.HasPrefix(strings.TrimSpace(clean), "#"):
+			clean = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(clean), "#"))
+			out = append(out, gutter+stKey.Bold(true).Render(clean))
+		case strings.HasPrefix(strings.TrimSpace(clean), "- "):
+			clean = strings.TrimPrefix(strings.TrimSpace(clean), "- ")
+			out = append(out, gutter+lampStyle(roleDial).Render("• ")+clean)
+		default:
+			out = append(out, gutter+clean)
+		}
 	}
 	return out
+}
+
+func inferredFenceKind(lines []string) string {
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			break
+		}
+		if strings.HasPrefix(line, "diff --git ") || strings.HasPrefix(line, "@@ ") ||
+			strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "--- ") {
+			return "DIFF"
+		}
+	}
+	return "CODE"
 }
 
 // agentThoughtClip bounds a surfaced thought to its ENDING - the wrap-up is where a
@@ -2138,7 +2426,7 @@ func agentThoughtBlock(t string, truncated bool) []string {
 // the relay is non-streaming, so within one model call there are no intermediate events,
 // and a CPU-MoE reply legitimately "takes well over a minute" (see harness.brokerTimeout);
 // a run_shell tool is bounded at 60s. So only a silence well past those - genuinely
-// suspect, and still hard-capped at harness.PerCallCap - earns the warning + the esc out.
+// suspect, and still bounded by the configured call limit - earns the warning + the esc out.
 // (A tool actually running is exempted in agentWorkingLine: that silence is expected.)
 const agentStallSec = 120
 
@@ -2166,7 +2454,11 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	if !withBar {
 		spin = stPingEye.Render(beaconDot())
 	}
-	capSec := int(harness.PerCallCap / time.Second)
+	callLimit := time.Duration(0)
+	if m.agent != nil {
+		callLimit = m.agent.callLimit
+	}
+	capSec := int(callLimit / time.Second)
 	// status line: spinner + state, then a dim meta tail - elapsed within the per-call
 	// cap, and the honest running session telemetry once there is any: ↑in ↓out (the
 	// broker's BILLED token re-count) + cost (dust-safe via dollars()). The token half is
@@ -2176,7 +2468,11 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 		line := spin + stLive.Render("  "+s)
 		meta := ""
 		if elapsedSec >= 2 {
-			meta += fmt.Sprintf("  %ds (cap %ds)", elapsedSec, capSec)
+			if callLimit > 0 {
+				meta += fmt.Sprintf("  %ds · cap %ds", elapsedSec, capSec)
+			} else {
+				meta += fmt.Sprintf("  %ds · unlimited", elapsedSec)
+			}
 		}
 		if tot := meterTotals(m.agentTokensIn, m.agentTokensOut, m.agentCost); tot != "" {
 			meta += "  · " + tot
@@ -2191,7 +2487,7 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	}
 	// PAST THE CAP: the in-flight model call outlived the soft cap. Instead of the old
 	// hard kill, offer the choice (the founder's "ask the user if they want to continue
-	// to wait or skip"): tab grants another PerCallCap, esc stops, and left alone the
+	// to wait or skip"): tab grants another configured call limit, esc stops, and left alone the
 	// call auto-stops when the grace window runs out. The sweep is dropped: the ONLY
 	// honest signal here is the countdown.
 	if inCall, callSec, pastCap, stopSec := m.agent.callState(); inCall && pastCap {
@@ -2203,7 +2499,11 @@ func (m model) agentWorkingLine(elapsedSec, sinceLastSec int) string {
 	// and DROP the sweep (a moving bar must never imply liveness that isn't there). A tool
 	// running locally is exempt: its silence is expected + bounded, never a station stall.
 	if sinceLastSec >= agentStallSec && m.agentTurnState != poseTool {
-		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds - may be stuck · esc to cancel (cap %ds)", sinceLastSec, capSec))
+		bound := "unlimited"
+		if callLimit > 0 {
+			bound = fmt.Sprintf("cap %ds", capSec)
+		}
+		return spin + stEmber.Render(fmt.Sprintf("  no response for %ds - may be stuck · esc to cancel (%s)", sinceLastSec, bound))
 	}
 	// RECEIVING vs WORKING vs TOOL: prose arriving = the answer; a tool = local work;
 	// otherwise the model is thinking.

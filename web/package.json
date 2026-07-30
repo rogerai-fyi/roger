@@ -5,7 +5,7 @@
   "description": "RogerAI static site - build the dist tree from web/src",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/*.mjs"
+    "test": "node --test --test-concurrency=1 test/*.mjs"
   },
   "engines": {
     "node": ">=18"

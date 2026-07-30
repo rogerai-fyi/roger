@@ -728,7 +728,7 @@ func TestRunRemoteCommandOffPaths(t *testing.T) {
 	}
 
 	m.rcBridge = newFakeBridge() // already on the air
-	m.rcInfo = RemoteInfo{LinkURL: "https://rogerai.fyi/r.html#8FK3"}
+	m.rcInfo = RemoteInfo{LinkURL: "https://rogerai.fm/r.html#8FK3"}
 	nm, cmd := m.runRemoteCommand(false)
 	gm = asModel(nm)
 	if cmd != nil || !strings.Contains(stripANSI(gm.agentLines[len(gm.agentLines)-1]), "already on the air") {

@@ -69,33 +69,40 @@ Feature: THE DESK roster on the AGENT landing
 
   Scenario: The resident DJ row is first, with the red on-air mark
     Given detected guests "opencode"
+    And the detailed desk is focused
     Then the first roster row is the DJ row
     And the DJ row carries the red ◉ on-air mark
     And the DJ row reads "resident · dj.md persona · read/list auto, write/run confirm"
 
   Scenario: A detected guest row shows name, wire, and status
     Given detected guests "opencode"
+    And the detailed desk is focused
     Then the roster row for "opencode" shows wire "hands off"
     And the roster row for "opencode" shows status "guest · on PATH · patches into your open channel"
 
   Scenario: Guest rows follow registry order
     Given detected guests "aider" and "opencode"
+    And the detailed desk is focused
     Then the roster guest rows are "opencode", "aider" in that order
 
   Scenario: All three MVP guests detected — three guest rows, registry order
     Given detected guests "opencode", "hermes" and "aider"
+    And the detailed desk is focused
     Then the roster guest rows are "opencode", "hermes", "aider" in that order
 
   Scenario: A needs-setup guest row reads "needs a key first" with the /operator pointer
     Given a detected guest "claude" that requires setup
+    And the detailed desk is focused
     Then the roster row for "claude" shows status "needs a key first - /operator claude shows how"
 
   Scenario: An unverified guest row carries the version honesty tag
     Given a detected guest "opencode" with an unproven version "0.9.0"
+    And the detailed desk is focused
     Then the roster row for "opencode" notes the version is unproven
 
   Scenario: At most ONE not-installed suggestion row, at the bottom, while the desk is sparse
     Given detected guests "opencode"
+    And the detailed desk is focused
     And undetected registry guests "hermes" and "aider"
     Then the roster shows exactly one not-installed row
     And the not-installed row is the last roster row
@@ -103,6 +110,7 @@ Feature: THE DESK roster on the AGENT landing
 
   Scenario: A healthy desk advertises nothing (mirrors the picker rule)
     Given detected guests "opencode" and "aider"
+    And the detailed desk is focused
     Then the roster shows no not-installed row
 
   # ── static preview, not a widget ─────────────────────────────────────────────
@@ -112,14 +120,14 @@ Feature: THE DESK roster on the AGENT landing
     Then no roster row carries a carat
     And no roster row is rendered reverse-video
 
-  # Refinement 2 (amends §6 "static preview, no marquee"): the resident DJ's house plate
-  # (mono+red djBrandArt) anchors the roster even when the desk is NOT focused; the guest
-  # plates still render on focus/selection only (ONE HUE, ONE BEAT preserved).
-  Scenario: The static preview shows the resident DJ house plate (band tuned, desk not focused)
+  # Refinement 4: the tuned-band landing is a compact status panel. Full brand art and
+  # operator rows belong to the focused desk and /operator picker, not the ask surface.
+  Scenario: The static preview is compact when a band is tuned and the desk is not focused
     Given an AGENT session with a tuned band "qwen3-32b-fp8" and a live proxy holder
     And detected guests "opencode"
     Then the AGENT landing renders THE DESK roster
-    And the static preview shows the resident DJ house plate
+    And the static preview is at most two non-empty rows
+    And the static preview does not show the resident DJ house plate
 
   Scenario: Arrow keys at the prompt never move a roster cursor
     Given detected guests "opencode" and "aider"
@@ -182,11 +190,12 @@ Feature: THE DESK roster on the AGENT landing
 
   Scenario: NO_COLOR — the roster degrades to plain glyphs and stays legible
     Given detected guests "opencode"
+    And the detailed desk is focused
     And color is disabled
     Then the roster renders without ANSI color
     And the DJ row still carries the ◉ mark as a plain rune
 
-  # ── /operator discoverability: footer + in-body idle help ────────────────────
+  # ── /operator discoverability: one global footer, no duplicate body tutorial ──
   #
   # Refinement 3: /operator is advertised in the AGENT footer (dropping /persona to hold
   # the ~88-col width - /persona stays in /help + Tab-complete) and in the in-body idle
@@ -196,6 +205,6 @@ Feature: THE DESK roster on the AGENT landing
     Then the AGENT footer shows "/operator"
     And the AGENT footer does not show "/persona"
 
-  Scenario: The in-body idle help names /operator hands the mic next to /model switches
-    Then the in-body idle help shows "/model switches"
-    And the in-body idle help shows "/operator hands the mic"
+  Scenario: The single AGENT footer names /operator next to /model
+    Then the AGENT footer shows "/model"
+    And the AGENT footer shows "/operator"

@@ -235,6 +235,7 @@ func TestModerationGroqIgnoresReasoningChannel(t *testing.T) {
 //   - a code-LESS / bogus-code / rambling verdict is MALFORMED -> retried once, then PASS
 //     (the aider/ai-benchy false-positive fix). The stub repeats its verdict, so a malformed
 //     one is malformed on retry too and passes.
+//
 // A CSAM signal (S4/sexual/minors) is covered separately (TestModerationGroqCSAM*).
 func TestModerationGroqVerdictParsing(t *testing.T) {
 	cases := []struct {
@@ -247,31 +248,31 @@ func TestModerationGroqVerdictParsing(t *testing.T) {
 		{"safe: no violations", false},
 		{"safe\n", false},
 		{"Safe", false},
-		{"unsafe S1", true},       // block-net (violence)
-		{"unsafe S3", true},       // block-net (sex crimes)
-		{"unsafe S4", true},       // block-net (CSAM)
-		{"unsafe S5", true},       // block-net (WMD)
-		{"unsafe S6", true},       // block-net (self-harm)
-		{"unsafe\nS1,S3", true},   // next-line block-net codes still block
-		{"unsafe S1.", true},      // REGRESSION: punctuation-adjacent block-net code still blocks
-		{"unsafe S5)", true},      // REGRESSION: trailing paren must not evade the block-net
-		{"unsafe S1;S3", true},    // REGRESSION: semicolon-joined codes still block
-		{"unsafe S1|S2", true},    // REGRESSION: pipe-joined (S1 block-net wins)
-		{"unsafe\tS5", true},      // REGRESSION: tab-separated code still blocks
-		{"unsafe S1.S3", true},    // REGRESSION: period-joined codes still block
-		{"unsafe S5-S6", true},    // REGRESSION: hyphen-joined codes still block
-		{"unsafe S1+S3", true},    // REGRESSION: plus-joined (exotic) still blocks
+		{"unsafe S1", true},     // block-net (violence)
+		{"unsafe S3", true},     // block-net (sex crimes)
+		{"unsafe S4", true},     // block-net (CSAM)
+		{"unsafe S5", true},     // block-net (WMD)
+		{"unsafe S6", true},     // block-net (self-harm)
+		{"unsafe\nS1,S3", true}, // next-line block-net codes still block
+		{"unsafe S1.", true},    // REGRESSION: punctuation-adjacent block-net code still blocks
+		{"unsafe S5)", true},    // REGRESSION: trailing paren must not evade the block-net
+		{"unsafe S1;S3", true},  // REGRESSION: semicolon-joined codes still block
+		{"unsafe S1|S2", true},  // REGRESSION: pipe-joined (S1 block-net wins)
+		{"unsafe\tS5", true},    // REGRESSION: tab-separated code still blocks
+		{"unsafe S1.S3", true},  // REGRESSION: period-joined codes still block
+		{"unsafe S5-S6", true},  // REGRESSION: hyphen-joined codes still block
+		{"unsafe S1+S3", true},  // REGRESSION: plus-joined (exotic) still blocks
 		// FALSE-POSITIVE GUARD: a rambling verdict that merely echoes the literal code range
 		// "S1-S8" (as the policy/retry prompt name it) must NOT be shattered into S1..S8 and
 		// blocked - it has no valid single code, so it is malformed -> retry -> lean-pass.
 		{"The valid categories are S1-S8 but this content looks fine", false},
-		{"unsafe S1-S8", false}, // the whole-range token alone is not a violated-code list -> pass
-		{"unsafe S2", false},      // pass-log (hacking) -> allow
-		{"unsafe S7", false},      // pass-log (hate) -> allow
-		{"unsafe S8", false},      // pass-log (drugs) -> allow
-		{"unsafe", false},         // no valid code -> malformed -> retry -> PASS (was: block)
-		{"unsafe S9", false},      // bogus code, not S1-S8 -> malformed -> PASS
-		{"I cannot help", false},  // refusal, no code -> malformed -> PASS (was: block)
+		{"unsafe S1-S8", false},      // the whole-range token alone is not a violated-code list -> pass
+		{"unsafe S2", false},         // pass-log (hacking) -> allow
+		{"unsafe S7", false},         // pass-log (hate) -> allow
+		{"unsafe S8", false},         // pass-log (drugs) -> allow
+		{"unsafe", false},            // no valid code -> malformed -> retry -> PASS (was: block)
+		{"unsafe S9", false},         // bogus code, not S1-S8 -> malformed -> PASS
+		{"I cannot help", false},     // refusal, no code -> malformed -> PASS (was: block)
 		{"Here is a summary", false}, // rambling, no code -> malformed -> PASS
 	}
 	for _, c := range cases {
@@ -339,16 +340,16 @@ func TestModerationGroqCSAMInNoise(t *testing.T) {
 		"I think this could be S4 material, unsure",
 		"cannot comply but this is S4",
 		"unsafe sexual/minors",
-		"cannot comply but this is S4.",   // REGRESSION: trailing period must not evade the CSAM net
-		"unsafe (S4)",                     // REGRESSION: parenthesized code
-		"the content is sexual/minors.",   // REGRESSION: punctuated csam token
-		"unsafe S4/S5",                    // REGRESSION: slash-joined codes must not hide S4
-		"unsafe S1;S4",                    // REGRESSION: semicolon-joined codes must not hide S4
-		"unsafe S4\tand more",             // REGRESSION: tab-separated S4 must not be missed
-		"unsafe S4.S5",                    // REGRESSION: period-joined codes must not hide S4
-		"unsafe S1-S4",                    // REGRESSION: hyphen-joined codes must not hide S4
-		"unsafe S4+S5",                    // REGRESSION: plus-joined (exotic) must not hide S4
-		"unsafe S4&S6",                    // REGRESSION: ampersand-joined must not hide S4
+		"cannot comply but this is S4.", // REGRESSION: trailing period must not evade the CSAM net
+		"unsafe (S4)",                   // REGRESSION: parenthesized code
+		"the content is sexual/minors.", // REGRESSION: punctuated csam token
+		"unsafe S4/S5",                  // REGRESSION: slash-joined codes must not hide S4
+		"unsafe S1;S4",                  // REGRESSION: semicolon-joined codes must not hide S4
+		"unsafe S4\tand more",           // REGRESSION: tab-separated S4 must not be missed
+		"unsafe S4.S5",                  // REGRESSION: period-joined codes must not hide S4
+		"unsafe S1-S4",                  // REGRESSION: hyphen-joined codes must not hide S4
+		"unsafe S4+S5",                  // REGRESSION: plus-joined (exotic) must not hide S4
+		"unsafe S4&S6",                  // REGRESSION: ampersand-joined must not hide S4
 	} {
 		calls := 0
 		srv := groqVerdictServer(t, verdict, &calls)

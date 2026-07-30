@@ -44,7 +44,7 @@ func jsonErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": map[string]string{"message": msg}})
 }
 
-// cors lets the public website (rogerai.fyi) fetch read-only market data from a
+// cors lets the public website (rogerai.fm) fetch read-only market data from a
 // browser. Applied only to public GET endpoints (/discover, /market).
 func cors(w http.ResponseWriter) {
 	h := w.Header()

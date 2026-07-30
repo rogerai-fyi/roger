@@ -101,7 +101,7 @@ func TestWelcomeFirstBindWithEmail(t *testing.T) {
 	if !strings.Contains(html, "Mona Lisa") {
 		t.Errorf("welcome HTML not personalized by name: %q", firstN(html, 200))
 	}
-	if !strings.Contains(html, "rogerai.fyi/models.html") {
+	if !strings.Contains(html, "rogerai.fm/models.html") {
 		t.Errorf("welcome HTML missing the Browse-models CTA")
 	}
 

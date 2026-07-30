@@ -44,6 +44,8 @@ const CSS_BUNDLES = {
   "index.html":     [...CSS_MARKETING, "home.css"],
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
+  "research.html":  [...CSS_MARKETING, "research.css"],
+  "company.html":   [...CSS_MARKETING, "research.css"],
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template
@@ -172,7 +174,7 @@ function cacheBust(html) {
 }
 
 // ---- SEO: one canonical per page + a build-time sitemap ------------------------------------
-const ORIGIN = "https://rogerai.fyi";
+const ORIGIN = "https://rogerai.fm";
 const canonicalURL = (page) => (page === "index.html" ? `${ORIGIN}/` : `${ORIGIN}/${page}`);
 
 // A page is excluded from the sitemap iff its RENDERED HTML marks itself noindex. Deriving this

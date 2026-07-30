@@ -1,8 +1,8 @@
 # DigitalOcean App Platform spec for the RogerAI broker (documentation mirror).
 #
 # LIVE TRUTH: production is TWO separate DO apps, both in sfo, managed via doctl/UI:
-#   - app "rogerai"      (this file) - the broker, Dockerfile build, broker.rogerai.fyi
-#   - app "rogerai-web"  - static site (source_dir /web, npm build -> dist), rogerai.fyi + www
+#   - app "rogerai"      (this file) - the broker, Dockerfile build, broker.rogerai.fm
+#   - app "rogerai-web"  - static site (source_dir /web, npm build -> dist), rogerai.fm + www
 # This file mirrors the broker app so changes are reviewable; after editing, apply with:
 #   doctl apps spec get <app-id> > live.yaml   # merge, then:
 #   doctl apps update <app-id> --spec live.yaml
@@ -16,7 +16,7 @@ alerts:
 # databases: the attached managed Postgres (cluster/db/user names live in the LIVE spec
 # and the internal RUNBOOK only - not mirrored here; this public file is documentation).
 domains:
-  - domain: broker.rogerai.fyi
+  - domain: broker.rogerai.fm
     type: PRIMARY
 services:
   - name: rogerai
@@ -87,7 +87,7 @@ services:
       - key: GITHUB_OAUTH_CLIENT_SECRET
         scope: RUN_TIME
         type: SECRET
-      - key: GITHUB_OAUTH_REDIRECT # https://broker.rogerai.fyi/auth/github/callback
+      - key: GITHUB_OAUTH_REDIRECT # https://broker.rogerai.fm/auth/github/callback
         scope: RUN_TIME
       - key: APPLE_SERVICES_ID # fyi.rogerai.web
         scope: RUN_TIME
@@ -114,15 +114,15 @@ services:
       - key: RESEND_API_KEY
         scope: RUN_TIME
         type: SECRET
-      - key: RESEND_FROM # RogerAI <noreply@rogerai.fyi>
+      - key: RESEND_FROM # RogerAI <noreply@rogerai.fm>
         scope: RUN_TIME
-      - key: ROGERAI_LOGIN_URL # https://rogerai.fyi/login.html
+      - key: ROGERAI_LOGIN_URL # https://rogerai.fm/login.html
         scope: RUN_TIME
-      - key: ROGERAI_DASHBOARD_URL # https://rogerai.fyi/dashboard.html
+      - key: ROGERAI_DASHBOARD_URL # https://rogerai.fm/dashboard.html
         scope: RUN_TIME
-      - key: ROGERAI_CONSOLE_URL # https://rogerai.fyi/console.html
+      - key: ROGERAI_CONSOLE_URL # https://rogerai.fm/console.html
         scope: RUN_TIME
-      - key: STRIPE_SUCCESS_URL # https://rogerai.fyi/billing.html?topup=ok
+      - key: STRIPE_SUCCESS_URL # https://rogerai.fm/billing.html?topup=ok
         scope: RUN_TIME
-      - key: STRIPE_CANCEL_URL # https://rogerai.fyi/billing.html?topup=canceled
+      - key: STRIPE_CANCEL_URL # https://rogerai.fm/billing.html?topup=canceled
         scope: RUN_TIME

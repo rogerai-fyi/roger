@@ -28,8 +28,14 @@
            App Store launch page (the app shipped 2026-07-09). -->
       <div class="nav__sections">
         <a class="nav__link" href="/models.html">Models</a>
+        <a class="nav__link" href="/research.html" {{researchcurrent}}>Research</a>
         <a class="nav__link" href="/voices.html">Voices</a>
         <a class="nav__link" href="/app.html">App</a>
+        <!-- Company is LAST in the group (the usual place for the institutional
+             link) but it is in the BAR, not footer-only: a grant, enterprise, or
+             partnership reviewer looks for "is there a company here" in the top
+             nav and will not scroll a product landing page to find it. -->
+        <a class="nav__link" href="/company.html" {{companycurrent}}>Company</a>
       </div>
 
       <span class="nav__divider" aria-hidden="true"></span>

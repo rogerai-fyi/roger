@@ -16,6 +16,8 @@ package tui
 //   cDial     - fluorescent/CRT dial blue-white: focus / info / selection.
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
@@ -38,6 +40,11 @@ var (
 	// distinct from the assistant's bare-paper prose. A Background() only, gated by canTint
 	// (ANSI256+) and full palette; mono / dumb terminals drop it to the bare red ▌ bar.
 	cBand = lipgloss.AdaptiveColor{Light: "#F1EFE8", Dark: "#191712"}
+
+	// cLiveSurface is the solid but restrained red-wine plate behind a truthfully
+	// broker-acknowledged ON AIR provider panel. The text still says ON AIR; color
+	// improves hierarchy but never carries state alone.
+	cLiveSurface = lipgloss.AdaptiveColor{Light: "#F6E4E1", Dark: "#291412"}
 
 	// cTubeGlow is the FAINT tube-glow WASH behind the brand lockup while a session is
 	// live (catalog #10) - the dim end of cDialGlow, a Background() only. Full cDialGlow
@@ -112,6 +119,36 @@ func bandUser(text string) string {
 			lipgloss.NewStyle().Background(cBand).Render(text)
 	}
 	return stSelBar.Render("▌ ") + text
+}
+
+func tintComposerLines(lines []string, width int) []string {
+	if paletteMono || !canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		return lines
+	}
+	style := lipgloss.NewStyle().Background(cBand).Width(max(1, width))
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = style.Render(line)
+	}
+	return out
+}
+
+// solidBackground carries a background through nested lipgloss spans. Nested
+// foreground styles emit SGR resets, which otherwise punch holes in an outer
+// Background style and leave a visually mottled card.
+func solidBackground(block string, color lipgloss.TerminalColor) string {
+	probe := lipgloss.NewStyle().Background(color).Render("X")
+	i := strings.Index(probe, "X")
+	if i <= 0 {
+		return block
+	}
+	prefix := probe[:i]
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+prefix)
+		lines[i] = prefix + line + "\x1b[0m"
+	}
+	return strings.Join(lines, "\n")
 }
 
 // canTint reports whether a Background() tint band may be painted at this terminal

@@ -8,7 +8,7 @@
 // The broker holds the session (signed http-only cookie); these pages just ask it
 // over credentialed CORS. No tokens ever touch JS.
 (function () {
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   function get(path) {
     return fetch(BROKER + path, { credentials: "include" }).then(function (r) {

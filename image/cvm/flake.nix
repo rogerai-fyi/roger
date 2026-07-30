@@ -25,7 +25,7 @@
       # the measurement, which is the honest behavior).
       cmdline = "console=ttyS0 root=/dev/dm-0 ro "
         + "roothash=@VERITY_ROOTHASH@ "      # TODO: substituted from the dm-verity build
-        + "roger.broker=https://broker.rogerai.fyi "
+        + "roger.broker=https://broker.rogerai.fm "
         + "panic=-1";
 
       # OVMF firmware built for SEV-SNP. TODO: pin the exact AMDSEV/edk2 build + flags.

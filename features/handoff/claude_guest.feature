@@ -41,10 +41,6 @@ Feature: Claude Code takes the mic with your context, on its own account
       Then "opencode", "hermes" and "aider" keep their existing strategies
       # This adds a guest; it must not re-wire the three that work.
 
-    Scenario: codex stays excluded
-      Then no registry entry is named "codex"
-      # codex was excluded for the same wire reason AND has no context story yet.
-
   Rule: a context-only launch injects no RogerAI credentials at all
 
     Scenario: no session key reaches the guest

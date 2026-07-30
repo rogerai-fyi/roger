@@ -5,7 +5,7 @@
 Please report security issues **privately** - do not open a public issue or PR.
 
 - Preferred: GitHub **private vulnerability reporting** (this repo → *Security* → *Report a vulnerability*).
-- Or email **security@rogerai.fyi**.
+- Or email **security@rogerai.fm**.
 
 We aim to acknowledge within 72 hours. Include reproduction steps and impact; we'll
 coordinate a fix and a disclosure timeline with you.

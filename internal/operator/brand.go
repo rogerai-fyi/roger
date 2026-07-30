@@ -13,8 +13,8 @@ package operator
 // Provenance: every art block is re-derived byte-exact from the guest's own
 // shipped artifacts (opencode --help wordmark v1.17.x · hermes banner.py 0.16.x
 // incl. their gradient hexes · pyfiglet small `aider` + logo.svg green · the
-// Claude Code 2.1.202 mascot + binary hue · codex has no shipped art, so a
-// shape-only `>_` motif). The only non-shipped values are the two derived
+// Claude Code 2.1.202 mascot + binary hue · Codex's terminal-native `>_` coding
+// motif, given dimensional half-block planes). The only non-shipped values are the two derived
 // light-mode hexes #0E7A0E (aider) and #B85F41 (claude) - contrast-driven
 // darkenings of the canonical hue, flagged for founder taste (doc §8).
 //
@@ -76,11 +76,8 @@ var (
 	inkClayB = BrandInk{Dark: "#D97757", Light: "#B85F41", Bold: true} // claude wordmark
 )
 
-// BrandArts returns all five doc plates keyed by guest name. opencode, hermes, aider and
-// claude are wired into Registry(); codex alone remains the doc's shim-era DRAFT, kept
-// here as DORMANT data - the registry deliberately has no home for a guest it cannot
-// launch. Returned fresh per call (the Registry() idiom) so callers can never corrupt
-// the shared art.
+// BrandArts returns all five live desk plates keyed by guest name. Returned fresh per
+// call (the Registry() idiom) so callers can never corrupt the shared art.
 func BrandArts() map[string]*BrandArt {
 	return map[string]*BrandArt{
 		// §1 opencode - the exact wordmark `opencode --help` prints (v1.17.x),
@@ -166,9 +163,9 @@ func BrandArts() map[string]*BrandArt {
 			Width:  22,
 			Lockup: BrandRow{Text: "* Claude Code", Ink: inkClay}, // ✳ pre-folded to * (house asciiFold idiom)
 		},
-		// §5 codex - shim-era DRAFT (shape-only): no shipped terminal art exists and
-		// OpenAI's brand is hueless, so 100% mono + the red beat - their `>_` motif
-		// as a chunky half-block chevron, the ▄▄▄▄ underscore IS a cursor (stRed).
+		// §5 codex - a terminal-native dimensional `>_` coding motif. OpenAI's brand is
+		// hueless, so highlight/body/shadow depth stays on the house ink ramp and the
+		// ▄▄▄▄ underscore is the single Roger-red cursor beat.
 		"codex": {
 			Rows: []BrandRow{
 				{Text: "█▄", Spans: []BrandSpan{{From: 0, To: 2, Ink: BrandInk{Token: InkBrand}}}},

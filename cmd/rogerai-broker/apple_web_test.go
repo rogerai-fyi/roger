@@ -24,7 +24,7 @@ func TestAuthAppleWebLogin(t *testing.T) {
 	}
 
 	t.Setenv("APPLE_SERVICES_ID", "fyi.rogerai.web")
-	t.Setenv("APPLE_WEB_REDIRECT", "https://broker.rogerai.fyi/auth/apple/web/callback")
+	t.Setenv("APPLE_WEB_REDIRECT", "https://broker.rogerai.fm/auth/apple/web/callback")
 	w = httptest.NewRecorder()
 	b.authAppleWebLogin(w, httptest.NewRequest(http.MethodGet, "/auth/apple/web/login", nil))
 	if w.Code != http.StatusFound {
@@ -41,7 +41,7 @@ func TestAuthAppleWebLogin(t *testing.T) {
 	if q.Get("response_mode") != "form_post" {
 		t.Errorf("response_mode = %q, want form_post", q.Get("response_mode"))
 	}
-	if q.Get("redirect_uri") != "https://broker.rogerai.fyi/auth/apple/web/callback" {
+	if q.Get("redirect_uri") != "https://broker.rogerai.fm/auth/apple/web/callback" {
 		t.Errorf("redirect_uri = %q", q.Get("redirect_uri"))
 	}
 	// The raw nonce lives in a cookie; the authorize param is its SHA256 (anti-replay).

@@ -16,6 +16,7 @@ package tui
 
 import (
 	"bufio"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,6 +95,13 @@ func (h *inputHistory) load() {
 		line := sc.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
+		}
+		// Current files are JSON strings, one logical prompt per physical line, so
+		// embedded newlines round-trip without corrupting entry boundaries. Accept the
+		// legacy plain-line format for existing installations.
+		var decoded string
+		if strings.HasPrefix(line, `"`) && json.Unmarshal([]byte(line), &decoded) == nil {
+			line = decoded
 		}
 		if n := len(out); n > 0 && out[n-1] == line {
 			continue // collapse consecutive duplicates
@@ -180,7 +188,11 @@ func (h *inputHistory) persist() {
 	}
 	var b strings.Builder
 	for _, e := range h.entries {
-		b.WriteString(e)
+		encoded, err := json.Marshal(e)
+		if err != nil {
+			continue
+		}
+		b.Write(encoded)
 		b.WriteByte('\n')
 	}
 	_ = os.WriteFile(h.path, []byte(b.String()), 0o600)

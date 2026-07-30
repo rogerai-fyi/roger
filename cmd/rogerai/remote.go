@@ -48,9 +48,9 @@ func rcLinkURL(short string) string {
 	// r.html (not a bare /r): the site is a static host that serves exact paths only, so the
 	// .html is explicit. The code rides in the FRAGMENT (#) so it never reaches server logs.
 	if short == "" {
-		return "https://rogerai.fyi/r.html"
+		return "https://rogerai.fm/r.html"
 	}
-	return "https://rogerai.fyi/r.html#" + short
+	return "https://rogerai.fm/r.html#" + short
 }
 
 func cmdRemote(cfg config, args []string) error {
@@ -239,7 +239,7 @@ func remoteLinkCode(cfg config, sessionID string) error {
 
 func remoteLinkHelp() error {
 	fmt.Println("to put a session on the air, run /remote-control inside `roger` (the [0] AGENT).")
-	fmt.Println("it prints a one-time link code + a rogerai.fyi/r.html#<code> URL you can open on your phone.")
+	fmt.Println("it prints a one-time link code + a rogerai.fm/r.html#<code> URL you can open on your phone.")
 	fmt.Println("mint a fresh code for a session:  roger remote link <session-id>")
 	fmt.Println("continue a session from here:     roger remote attach <code>")
 	return nil

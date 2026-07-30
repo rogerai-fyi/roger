@@ -41,11 +41,11 @@ import (
 //
 // The default below is the fallback for a plain `go build`. Keep it in sync with
 // releases. Use semver, optionally with a prerelease suffix (e.g. 4.8.0-beta.1).
-var Version = "5.4.5"
+var Version = "5.4.6"
 
 // The production broker is the default - `rogerai` works out of the box, no config.
 // Override per-session with ROGER_BROKER=... or persist with `roger config set broker`.
-const defaultBroker = "https://broker.rogerai.fyi"
+const defaultBroker = "https://broker.rogerai.fm"
 
 // defaultGitHubClientID is the PUBLIC OAuth client id of the org-owned "RogerAI"
 // GitHub app (Device Flow enabled). Public by design; overridable for forks via
@@ -103,6 +103,9 @@ type config struct {
 	// ROGERAI_AGENT_PERMS from it (flag/env win per run), and the TUI masthead
 	// names any permissive mode so a saved bypass is never invisible.
 	AgentPerms string `json:"agent_perms,omitempty"`
+	// AgentTimeoutSeconds is the optional per-model-call AGENT timeout. Zero is the
+	// default and means unlimited; a positive value enables the soft cap + grace UI.
+	AgentTimeoutSeconds int `json:"agent_timeout_seconds,omitempty"`
 }
 
 // SharePrice is a per-model price + time-of-use schedule the in-TUI pricing editor
@@ -726,6 +729,7 @@ func run(argv []string, cfg config) error {
 		return err
 	}
 	applyPermsDefault(permsFlag, cfg.AgentPerms)
+	applyAgentTimeoutDefault(cfg.AgentTimeoutSeconds)
 	if len(rest) == 0 {
 		// Tube warm-up boot (design overhaul §5.6): the ROGER·AI set glows up ONCE per
 		// version - the first-ever run and after an upgrade, never an ordinary re-launch.
@@ -860,7 +864,7 @@ func dispatch(cfg config, args []string) error {
 // supportURL is the website (community + Discord link live in its footer). Per the
 // founder, `roger support` / the TUI's /support point here, not straight at Discord,
 // so the footer stays the single source of truth for the community link.
-const supportURL = "https://rogerai.fyi"
+const supportURL = "https://rogerai.fm"
 
 // cmdSupport opens the website where the community / Discord link lives. tui.OpenURL
 // self-gates on an interactive TTY (never auto-opens headless / piped), and we print
@@ -1367,7 +1371,7 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 	if override {
 		mode += " (broker override active)"
 	}
-	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fyi", model, station, mode)
+	return fmt.Sprintf("on air - %s · %s · %s · view at rogerai.fm", model, station, mode)
 }
 
 // earningsLine is the provider's money-OUT pointer printed right under the go-live
@@ -1375,14 +1379,14 @@ func onAirLine(model, station string, priceIn, priceOut float64, override bool) 
 // is on air with no idea where their money shows up. One tasteful line, mirroring the
 // single on-air line above.
 func earningsLine() string {
-	return "earnings: rogerai.fyi/dashboard.html  (or: roger payout status)"
+	return "earnings: rogerai.fm/dashboard.html  (or: roger payout status)"
 }
 
 // confidentialApplyURL is where an operator with qualifying data-center silicon applies to
 // the gated confidential ◆ tier. The tier is NOT self-serve (it needs hardware almost
 // nobody running a home GPU has - see confidentialIneligibleMsg), so the CLI points here
 // rather than implying anyone can flip it on.
-const confidentialApplyURL = "https://rogerai.fyi/confidential"
+const confidentialApplyURL = "https://rogerai.fm/confidential"
 
 // confidentialIneligibleMsg is the guidance printed when `roger share --confidential` runs
 // on a host with no SEV-SNP device. It is honest about WHY this is not consumer hardware
@@ -1934,7 +1938,8 @@ func cmdAccount(cfg config, args []string) error {
 func cmdConfig(args []string) error {
 	if len(args) == 0 {
 		c := loadConfig()
-		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\n", c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c))
+		fmt.Printf("broker = %s\nuser   = %s\nwebui-open = %v\npalette = %s\nagent-timeout = %s\n",
+			c.Broker, c.User, c.webuiOpenEnabled(), paletteFromConfig(c), formatAgentTimeout(c.AgentTimeoutSeconds))
 		printLimits(c)
 		fmt.Printf("(%s)\n", configPath())
 		return nil
@@ -1970,13 +1975,15 @@ func cmdConfig(args []string) error {
 				fmt.Println(c.webuiOpenEnabled())
 			case "palette":
 				fmt.Println(paletteFromConfig(c))
+			case "agent-timeout":
+				fmt.Println(formatAgentTimeout(c.AgentTimeoutSeconds))
 			}
 			return nil
 		}
 		fmt.Printf("broker = %s\nuser   = %s\n", c.Broker, c.User)
 	case "set":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette> <value>")
+			return fmt.Errorf("usage: roger config set <broker|user|webui-open|palette|agent-timeout> <value>")
 		}
 		c := loadConfig()
 		switch args[1] {
@@ -1999,6 +2006,12 @@ func cmdConfig(args []string) error {
 				return fmt.Errorf("usage: roger config set palette full|mono")
 			}
 			c.Palette = args[2]
+		case "agent-timeout":
+			seconds, err := parseAgentTimeout(args[2])
+			if err != nil {
+				return err
+			}
+			c.AgentTimeoutSeconds = seconds
 		default:
 			return fmt.Errorf("unknown key %q", args[1])
 		}

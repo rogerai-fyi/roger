@@ -406,3 +406,17 @@ func TestAgentMaxTokensMatchesSharedConst(t *testing.T) {
 		t.Errorf("agentMaxTokens=%d must equal client.MaxAnswerTokens=%d (single shared budget)", agentMaxTokens, client.MaxAnswerTokens)
 	}
 }
+
+func TestLoopEventsCarryRealStepProgress(t *testing.T) {
+	loop := NewLoop(t.TempDir(), "", func(context.Context, []Message, []map[string]any) (Message, error) {
+		return Message{Content: "done"}, nil
+	}, nil)
+	loop.MaxSteps = 8
+	var events []Event
+	if _, err := loop.Send(context.Background(), "go", func(e Event) { events = append(events, e) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Step != 1 || events[0].MaxSteps != 8 {
+		t.Fatalf("event progress = %+v, want step 1/8", events)
+	}
+}

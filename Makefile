@@ -88,7 +88,7 @@ check:
 smoke:
 	@scripts/smoke.sh
 
-# Same gate, plus live production checks (rogerai.fyi + broker.rogerai.fyi/health
+# Same gate, plus live production checks (rogerai.fm + broker.rogerai.fm/health
 # + a credentialed-CORS preflight assertion). Needs network.
 smoke-live:
 	@scripts/smoke.sh --live

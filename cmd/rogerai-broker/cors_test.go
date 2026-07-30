@@ -14,7 +14,7 @@ import (
 // the Fetch spec and would be a security regression). A non-matching origin gets NO
 // allow-origin header at all (it is not reflected).
 func TestCorsCredsEchoesWebOriginNeverWildcard(t *testing.T) {
-	const webOrigin = "https://app.rogerai.fyi"
+	const webOrigin = "https://app.rogerai.fm"
 	t.Setenv("ROGERAI_WEB_ORIGIN", webOrigin)
 
 	cases := []struct {
@@ -26,7 +26,7 @@ func TestCorsCredsEchoesWebOriginNeverWildcard(t *testing.T) {
 	}{
 		{"matching web origin", webOrigin, webOrigin, true, true},
 		{"foreign origin not reflected", "https://evil.example", "", false, false},
-		{"the public site origin (non-configured) not reflected", "https://rogerai.fyi", "", false, false},
+		{"the public site origin (non-configured) not reflected", "https://rogerai.fm", "", false, false},
 		{"empty origin", "", "", false, false},
 	}
 
@@ -95,7 +95,7 @@ func assertCredsHeaders(t *testing.T, w *httptest.ResponseRecorder, wantAllow st
 func TestCorsAllowsAttachHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodOptions, "/rc/rcs_x/stream", nil)
-	r.Header.Set("Origin", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi"))
+	r.Header.Set("Origin", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
 	if !corsCredsPreflight(w, r) {
 		t.Fatal("preflight must handle the OPTIONS")
 	}

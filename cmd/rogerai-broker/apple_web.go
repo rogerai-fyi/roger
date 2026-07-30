@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Web Sign in with Apple (the browser flow on rogerai.fyi), the SiwA analogue of the web
+// Web Sign in with Apple (the browser flow on rogerai.fm), the SiwA analogue of the web
 // GitHub OAuth in auth.go. Unlike the native bind (/auth/apple, which signs with the device
 // Ed25519 key), the browser has no signing key, so the login is a standard Apple authorize
 // redirect + form_post callback that verifies the returned identity token and sets the same
@@ -30,7 +30,7 @@ func appleServicesID() string { return os.Getenv("APPLE_SERVICES_ID") }
 // appleWebRedirectURI is the Services ID Return URL registered in the Apple portal. Apple
 // form_posts the result here; it must match the portal value exactly.
 func appleWebRedirectURI() string {
-	return envOr("APPLE_WEB_REDIRECT", "https://broker.rogerai.fyi/auth/apple/web/callback")
+	return envOr("APPLE_WEB_REDIRECT", "https://broker.rogerai.fm/auth/apple/web/callback")
 }
 
 // authAppleWebLogin handles GET /auth/apple/web/login: 302 to Apple's authorize with short-

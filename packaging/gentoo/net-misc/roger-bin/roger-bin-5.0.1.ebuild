@@ -7,7 +7,7 @@
 EAPI=8
 
 DESCRIPTION="RogerAI - a two-way radio for GPUs (prebuilt client binary)"
-HOMEPAGE="https://rogerai.fyi https://github.com/rogerai-fyi/roger"
+HOMEPAGE="https://rogerai.fm https://github.com/rogerai-fyi/roger"
 
 BASE="https://github.com/rogerai-fyi/roger/releases/download/v${PV}"
 # The release ships bare, statically-linked binaries (CGO_ENABLED=0), so one amd64 build

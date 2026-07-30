@@ -81,7 +81,7 @@ func TestSayMissingVoiceHint(t *testing.T) {
 	if err == nil {
 		t.Fatal("cmdSay with no --voice must error")
 	}
-	if !strings.Contains(err.Error(), "roger voices") || !strings.Contains(err.Error(), "rogerai.fyi/voices") {
+	if !strings.Contains(err.Error(), "roger voices") || !strings.Contains(err.Error(), "rogerai.fm/voices") {
 		t.Errorf("missing-voice error should name `roger voices` + the site, got %q", err)
 	}
 }

@@ -160,7 +160,7 @@ test("logged-in (roger_signed_in=1): credentialed /account probe, then nav swap 
   const { calls, utils, login } = await run({ cookie: "roger_signed_in=1", acct });
 
   assert.equal(calls.length, 1, "exactly one probe");
-  assert.equal(calls[0].url, "https://broker.rogerai.fyi/account", "probes the broker /account");
+  assert.equal(calls[0].url, "https://broker.rogerai.fm/account", "probes the broker /account");
   assert.deepEqual(calls[0].opts, { credentials: "include" }, "credentialed CORS (cookie carried)");
 
   // The static link is replaced in place by the account control.
@@ -206,7 +206,7 @@ test("Apple session with no email: @apple handle, github.com avatar by login sha
 test("window.ROGER_BROKER_CHECK forces the probe even with no hint cookie", async () => {
   const { calls } = await run({ cookie: "", brokerCheck: true, acct: { github_login: "dev" } });
   assert.equal(calls.length, 1, "probe forced for local-broker dev");
-  assert.equal(calls[0].url, "https://broker.rogerai.fyi/account");
+  assert.equal(calls[0].url, "https://broker.rogerai.fm/account");
 });
 
 // Adversarial: the hint is recognized ONLY as an exact roger_signed_in=1 cookie token,

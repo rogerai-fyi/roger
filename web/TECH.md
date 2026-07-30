@@ -95,4 +95,4 @@ Rules**, not as files the host reads. The exact rules + an apply script are in
 **[`EDGE.md`](EDGE.md)**.
 
 Because `install.sh` is copied to the output root, it is served at
-`https://rogerai.fyi/install.sh` - exactly what the hero `curl` pipes to.
+`https://rogerai.fm/install.sh` - exactly what the hero `curl` pipes to.

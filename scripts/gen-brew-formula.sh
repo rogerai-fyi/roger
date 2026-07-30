@@ -67,7 +67,7 @@ read -r -d '' FORMULA <<EOF || true
 # DO NOT EDIT — re-run the generator (or cut a new release) to update.
 class Roger < Formula
   desc "Two-way radio for GPUs: consume and share LLM/voice models over the broker"
-  homepage "https://rogerai.fyi"
+  homepage "https://rogerai.fm"
   version "${VERSION}"
   # PolyForm Perimeter 1.0.0 — source-available, not an SPDX id, so \`brew audit\` can't
   # match it; :cannot_represent is Homebrew's blessed value for exactly this case.

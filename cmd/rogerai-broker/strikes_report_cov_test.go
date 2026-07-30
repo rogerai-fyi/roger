@@ -126,7 +126,7 @@ func TestReportPreflightInvalidJSONTruncationAndStoreError(t *testing.T) {
 	t.Run("preflight", func(t *testing.T) {
 		b, _, _ := failBroker(t)
 		req := httptest.NewRequest(http.MethodOptions, "/report", nil)
-		req.Header.Set("Origin", "https://rogerai.fyi")
+		req.Header.Set("Origin", "https://rogerai.fm")
 		w := httptest.NewRecorder()
 		b.report(w, req)
 		if w.Code != http.StatusNoContent {

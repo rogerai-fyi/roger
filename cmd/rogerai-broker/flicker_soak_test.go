@@ -229,12 +229,12 @@ func onlineCount(b *broker) (online, total int) {
 
 // flickResult is the measured soak outcome.
 type flickResult struct {
-	reads        int
-	zeroReads    int // reads where online==0 while node(s) heartbeat-live
-	minOnline    int
-	transitions  int // online<->0 flips
-	sharedFails  int64
-	sharedOKs    int64
+	reads       int
+	zeroReads   int // reads where online==0 while node(s) heartbeat-live
+	minOnline   int
+	transitions int // online<->0 flips
+	sharedFails int64
+	sharedOKs   int64
 }
 
 func runFlickSoak(t *testing.T, redisURL string, cfg flickCfg) flickResult {

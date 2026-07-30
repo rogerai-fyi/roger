@@ -30,10 +30,10 @@ import (
 const tcNonce = "beadfeed"
 
 type tcState struct {
-	b     *broker
-	now   time.Time
-	node  string
-	model string
+	b      *broker
+	now    time.Time
+	node   string
+	model  string
 	model2 string
 
 	canon []string // result of the canonicalization step

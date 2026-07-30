@@ -181,6 +181,22 @@ func TestPlateClaudeCodexPlates(t *testing.T) {
 	}
 }
 
+func TestCodexContextOnlyAccountDisclosure(t *testing.T) {
+	var codex operator.Guest
+	for _, g := range operator.Registry() {
+		if g.Name == "codex" {
+			codex = g
+			break
+		}
+	}
+	if codex.Name == "" {
+		t.Fatal("Codex must be present at the operator desk")
+	}
+	if got := guestAccountName(codex); got != "OpenAI account" {
+		t.Fatalf("Codex account disclosure = %q, want OpenAI account", got)
+	}
+}
+
 // TestPlateNoColorPlain: the NO_COLOR column of §7's matrix - the same art,
 // uncolored, byte-exact. No substitute art, no dropped rows.
 func TestPlateNoColorPlain(t *testing.T) {

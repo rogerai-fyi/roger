@@ -19,7 +19,7 @@ import (
 
 const (
 	liveKey   = "sk-roger-live-session-key"
-	liveBase  = "https://broker.rogerai.fyi"
+	liveBase  = "https://broker.rogerai.fm"
 	liveModel = "gpt-oss-20b"
 )
 

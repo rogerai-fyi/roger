@@ -5,7 +5,7 @@
 # header, and the uniform 503 / anon-paid 403 / insufficient-funds 402 / broker-down errors.
 #
 # FOUNDER-APPROVED (2026-07-01), with these decisions baked in:
-#   - --voice is REQUIRED; omitting it errors with a hint at `roger voices` / rogerai.fyi/voices and
+#   - --voice is REQUIRED; omitting it errors with a hint at `roger voices` / rogerai.fm/voices and
 #     spends NOTHING (no broker call).
 #   - the LOCAL playback format is WAV (response_format:"wav") — universally + trivially playable, so
 #     no lame/ffmpeg is needed; the cross-platform player lives in the shared internal/audio package
@@ -45,7 +45,7 @@ Feature: roger say — synthesize a line through a shared voice and play it loca
     Scenario: Omitting --voice errors with a hint and spends nothing
       When the consumer runs say with args "hello there"
       Then the command fails with an error naming "roger voices"
-      And the error names "rogerai.fyi/voices"
+      And the error names "rogerai.fm/voices"
       And no speech POST is ever made to the broker
 
     Scenario: Giving --voice but no text is a usage error that spends nothing
