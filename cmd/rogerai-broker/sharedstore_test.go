@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // newTestValkey spins up an in-process miniredis (Redis-protocol) server and returns

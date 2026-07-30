@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 )
 
 // fakeBroker is a minimal broker that lets agent.Start succeed (register ok) and stay

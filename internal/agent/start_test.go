@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestStartServesAJobAndStops drives the full node serve loop: Start registers with a

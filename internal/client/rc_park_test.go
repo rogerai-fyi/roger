@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestBridgeParkStateMachine: Park engages, Unpark releases, both nil-safe (a revoke-all

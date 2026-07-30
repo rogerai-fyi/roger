@@ -31,7 +31,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/operator"
 )
 
 // freshDeskAgent enters [0] AGENT off a market of `offers`, logged in, with NOTHING tuned

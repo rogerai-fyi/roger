@@ -30,8 +30,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/rogerai-fyi/roger/internal/glyphs"
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // The AGENT runs on the TUNED-IN channel's model - never a stale config/default

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // createGrantViaSession POSTs a grant as the logged-in octocat/7 owner and returns its id.

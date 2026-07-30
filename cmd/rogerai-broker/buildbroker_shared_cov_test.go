@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestBuildBrokerMultiInstanceFlagWithoutBackend locks the fail-SAFE branch: with

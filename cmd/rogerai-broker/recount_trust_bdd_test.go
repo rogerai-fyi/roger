@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 type trState struct {

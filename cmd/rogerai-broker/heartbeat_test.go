@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // hbBroker wires a minimal broker with one registered node "n" whose BridgeToken is

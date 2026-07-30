@@ -9,7 +9,7 @@ package main
 import (
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 func TestShouldPersistShareUpstream(t *testing.T) {

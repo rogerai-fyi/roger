@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // This file adds the TIME-DIMENSION account feeds the redesigned web pages need:

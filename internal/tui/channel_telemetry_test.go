@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // TestSessionFooter pins the SHARED running-session footer used by BOTH the AGENT turn-final

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestMemStoreNoOps locks the single-instance memStore contract: every shared-state

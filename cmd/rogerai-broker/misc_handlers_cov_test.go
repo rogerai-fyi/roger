@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // setStripeBase points stripeAPIBase at a handler for the duration of the test.

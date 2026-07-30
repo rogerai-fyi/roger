@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // TestAccountManagementParity covers the owner/account surface on BOTH backends:

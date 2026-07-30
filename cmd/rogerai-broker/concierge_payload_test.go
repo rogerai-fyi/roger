@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // drainDogfoodJob pulls the enqueued relay Job off the node tunnel and decodes

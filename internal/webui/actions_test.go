@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/node"
+	"rogerai.fm/roger/internal/node"
 )
 
 // onairCtrl is a controller wired to a fake broker so a real session can start, with two

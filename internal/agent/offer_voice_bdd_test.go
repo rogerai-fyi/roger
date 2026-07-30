@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // bddErr is a tiny error type for readable godog assertion failures (the agent package's first

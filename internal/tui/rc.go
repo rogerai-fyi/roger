@@ -10,10 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/glyphs"
-	"github.com/rogerai-fyi/roger/internal/harness"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/harness"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // rc.go is the TUI half of BASE STATION / remote control (v5.0.0). Two roles:

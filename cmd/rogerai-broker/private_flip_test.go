@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // registerNodeAs registers nodeID with a fixed node key + owner key and the given Private

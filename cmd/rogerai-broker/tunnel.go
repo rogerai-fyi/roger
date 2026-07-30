@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // nodeTTL is how long after a node's last heartbeat/poll it is still considered

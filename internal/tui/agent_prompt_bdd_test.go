@@ -11,8 +11,8 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/harness"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/harness"
+	"rogerai.fm/roger/internal/operator"
 )
 
 type agentPromptBDD struct {

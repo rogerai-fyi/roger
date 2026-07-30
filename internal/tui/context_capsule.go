@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/rogerai-fyi/roger/internal/brief"
-	"github.com/rogerai-fyi/roger/internal/capsule"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/harness"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/brief"
+	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/harness"
+	"rogerai.fm/roger/internal/operator"
 )
 
 // context_capsule.go is the TUI side of roger.context.v1: a MINIMAL per-turn ring (ruling

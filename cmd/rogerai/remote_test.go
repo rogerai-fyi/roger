@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/tui"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/tui"
 )
 
 // TestConfirmGate: set arms the gate with an id; take consumes it exactly once; clear disarms.

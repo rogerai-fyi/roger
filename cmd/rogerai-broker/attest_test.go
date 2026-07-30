@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 
 	"github.com/google/go-sev-guest/abi"
 	spb "github.com/google/go-sev-guest/proto/sevsnp"

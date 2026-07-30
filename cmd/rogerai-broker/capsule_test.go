@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // capsuleBroker builds a broker with an initialized capsule store (buildBroker wires b.capsules).

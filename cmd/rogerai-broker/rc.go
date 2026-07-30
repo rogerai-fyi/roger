@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // rc.go is the /rc/* remote-control surface (BASE STATION, v5.0.0): a live embedded-agent

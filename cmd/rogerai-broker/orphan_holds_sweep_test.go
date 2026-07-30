@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // TestReleaseStaleHoldsSweepOnce covers the per-iteration backstop: a tracked hold older

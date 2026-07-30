@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/operator"
 )
 
 // --- detection env seam ----------------------------------------------------------------

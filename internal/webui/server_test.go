@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/node"
+	"rogerai.fm/roger/internal/node"
 )
 
 func testCtrl() *node.Controller {

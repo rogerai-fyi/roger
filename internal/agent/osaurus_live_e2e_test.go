@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/detect"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 const osaLiveBase = "http://127.0.0.1:1337/v1"

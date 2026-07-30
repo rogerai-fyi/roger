@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // OfferOverride is an owner-authored price + time-of-use schedule the OWNER set from

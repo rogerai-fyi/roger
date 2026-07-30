@@ -18,7 +18,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // binaryWAV is a tiny REAL RIFF/WAVE payload with non-JSON, non-UTF8 tail bytes — the exact shape

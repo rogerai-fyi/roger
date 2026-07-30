@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // twoNodeBroker builds a route-able broker with two same-model offers and the v2

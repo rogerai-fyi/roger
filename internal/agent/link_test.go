@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // swapHeartbeatInterval lowers the heartbeat cadence for a test and returns a restore

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // refund_csam_pg_test.go exercises the Postgres implementations of the launch-audit money

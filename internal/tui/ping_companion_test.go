@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // TestMascotRepertoire: the idle mascot plays a varied, deterministic repertoire -

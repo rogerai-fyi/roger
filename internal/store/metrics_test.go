@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // serveSeq makes every serveAt request id unique (production ids always are), so the

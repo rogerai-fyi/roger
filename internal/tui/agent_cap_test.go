@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // TestAgentWorkingLineCapPrompt covers the soft-cap choice (the founder's "ask the

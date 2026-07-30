@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/mattn/go-isatty"
-	"github.com/rogerai-fyi/roger/internal/session"
-	"github.com/rogerai-fyi/roger/internal/tui"
+	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/internal/tui"
 )
 
 var (

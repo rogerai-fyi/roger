@@ -16,10 +16,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/rogerai-fyi/roger/internal/agent"
-	"github.com/rogerai-fyi/roger/internal/detect"
-	"github.com/rogerai-fyi/roger/internal/onair"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/internal/detect"
+	"rogerai.fm/roger/internal/onair"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // DefaultMaxOnAir is the SOFT local on-air cap used when the host supplies none. A

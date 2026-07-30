@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/client"
+	"rogerai.fm/roger/internal/client"
 )
 
 // drphil.go is `roger drphil` (a.k.a. doctor/diagnose): an operator diagnostic that tells

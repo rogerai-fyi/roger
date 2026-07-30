@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/store"
 )
 
 // emailtemplates.go holds the on-brand transactional templates + the broker-level

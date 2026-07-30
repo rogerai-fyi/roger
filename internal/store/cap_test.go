@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // spendAt records a captured spend for `user` at unix time `ts` (via Settle, which

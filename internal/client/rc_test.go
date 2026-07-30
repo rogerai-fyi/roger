@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // rcSigned reports whether the request carries a VALID roger signature over exactly raw.

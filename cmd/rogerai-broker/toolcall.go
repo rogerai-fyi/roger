@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // toolcall.go is the TOOL-CALL CAPABILITY PROBE: the broker's own canary that turns the

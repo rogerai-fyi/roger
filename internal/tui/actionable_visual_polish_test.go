@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/harness"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/harness"
+	"rogerai.fm/roger/internal/operator"
 )
 
 func TestRightArrowAcceptsGroundedHintWithoutSending(t *testing.T) {

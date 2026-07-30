@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // registerFreeOwned posts a FREE (all-zero-price, public) node registration that

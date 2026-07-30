@@ -15,7 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"github.com/rogerai-fyi/roger/internal/operator"
+	"rogerai.fm/roger/internal/operator"
 )
 
 // colorOn forces a TrueColor profile + a chosen background so lipgloss emits SGR

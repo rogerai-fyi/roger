@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/node"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/node"
 )
 
 func TestBrowseReturnsOffers(t *testing.T) {

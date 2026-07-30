@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

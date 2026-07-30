@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
+	"rogerai.fm/roger/internal/capsule"
 )
 
 func ephemeralKey(t *testing.T) ed25519.PrivateKey {

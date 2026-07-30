@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // suState wraps the namespacing harness with the last-registered offer + station so the

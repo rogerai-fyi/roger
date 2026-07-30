@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // This file is the account-hub money views (ACCOUNT-PAYOUTS-DESIGN sections 2,4,5,7):

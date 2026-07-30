@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/tui"
+	"rogerai.fm/roger/internal/tui"
 )
 
 func TestShareVoicesConfigRoundTrip(t *testing.T) {

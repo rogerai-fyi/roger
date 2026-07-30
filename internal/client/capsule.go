@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
+	"rogerai.fm/roger/internal/capsule"
 )
 
 // ErrCapsuleGone is the receiver's view of a uniform 404 from /capsule/resolve: the code is

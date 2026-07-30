@@ -28,10 +28,10 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/audio"
-	"github.com/rogerai-fyi/roger/internal/client"
-	"github.com/rogerai-fyi/roger/internal/glyphs"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/audio"
+	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // sampleVoiceText is the fixed short line a tts preview synthesizes. Kept tiny (a handful of

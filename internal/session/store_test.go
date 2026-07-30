@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/capsule"
 	"github.com/stretchr/testify/require"
+	"rogerai.fm/roger/internal/capsule"
 )
 
 func snapshot(id, cwd, title string, created, updated time.Time) Snapshot {

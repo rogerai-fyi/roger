@@ -3,7 +3,7 @@ package webui
 import (
 	"net/http"
 
-	"github.com/rogerai-fyi/roger/internal/client"
+	"rogerai.fm/roger/internal/client"
 )
 
 // The account + browse surfaces reuse internal/client (the same broker calls the CLI/TUI

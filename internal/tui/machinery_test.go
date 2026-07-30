@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/harness"
+	"rogerai.fm/roger/internal/harness"
 )
 
 // agentWithToolOutput drives an AGENT to a state with one previewable tool result.

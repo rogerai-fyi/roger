@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/mattn/go-isatty"
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 )
 
 // The first-run onboarding wizard (charmbracelet/huh). It runs once, before the

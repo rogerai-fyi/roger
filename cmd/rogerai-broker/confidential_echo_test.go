@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // registerMaybeConfidential posts an owner-bound registration that optionally CLAIMS

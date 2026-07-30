@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // spend runs one Hold+Finalize through the Store interface so the lot is attributed to

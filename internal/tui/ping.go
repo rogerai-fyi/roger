@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rogerai-fyi/roger/internal/glyphs"
+	"rogerai.fm/roger/internal/glyphs"
 )
 
 // pingState selects which animation Ping plays.

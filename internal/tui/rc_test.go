@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rogerai-fyi/roger/internal/harness"
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/harness"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // fakeBridge is a test RemoteBridge: it records emitted frames and lets a test push inbound.

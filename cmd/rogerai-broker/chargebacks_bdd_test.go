@@ -31,8 +31,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"github.com/rogerai-fyi/roger/internal/protocol"
-	"github.com/rogerai-fyi/roger/internal/store"
+	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/internal/store"
 )
 
 // cbReq is one settled request staged for materialization.

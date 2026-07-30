@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/rogerai-fyi/roger/internal/protocol"
+	"rogerai.fm/roger/internal/protocol"
 )
 
 // voiceView is one entry in GET /voices — the shape the built iOS picker consumes (roger-ios

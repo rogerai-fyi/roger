@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/detect"
+	"rogerai.fm/roger/internal/detect"
 )
 
 // These tests make features/onboarding/onboarding.feature's two TTY-gated scenarios

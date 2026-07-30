@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/rogerai-fyi/roger/internal/tui"
+	"rogerai.fm/roger/internal/tui"
 )
 
 // fakeBrokerEmpty serves an empty offer set, so client.Use reports "no station on air"
