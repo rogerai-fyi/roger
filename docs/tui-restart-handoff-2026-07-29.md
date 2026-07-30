@@ -65,11 +65,11 @@ Luis rejected the later line-art experiment. The approved canonical form is
 the original pixel receiver:
 
 ```text
-     ▄██████▄
-((  █   •   █▓  ))
-    █  ROG  █▓
-     ▀█▄▄▄▄█▀▒
-      ▀    ▀
+   ▄██████▄
+(  █    • █▓  )
+   █  ROG █▓
+    ▀█▄▄█▀▒
+     ▀  ▀
 ```
 
 Important rendering lesson: the first implementation styled nearly every block
@@ -82,7 +82,7 @@ Current mascot forms:
 - Hero/title card: the exact five-row sprite above.
 - Ping World walker: a scene-sized derivative with alternating feet.
 - Header station bug: `▟•▙▓`.
-- AGENT corner: a stable three-row pixel Tube Ping family for waiting,
+- AGENT corner: the same stable five-row pixel Tube Ping family for waiting,
   thinking, streaming, and tool states.
 - Classic Ping: retained in Ping World and for narrow/ASCII compatibility.
 
@@ -418,7 +418,9 @@ coverage gate passes at 92.0% total and 91.6% for `internal/tui`.
 - Never reintroduce per-glyph ANSI styling for its block body.
 - Never remove classic Ping or its existing animation banks.
 - Never let the mascot take rows from an active transcript/composer.
-- Never enable mouse capture by default.
+- Smart select owns transcript drags by default so release can copy and report
+  the character count. `ctrl+o` or `/mouse` immediately restores native terminal
+  selection when the operator prefers terminal-owned selection.
 - Never report native terminal selection as copied by the app.
 - Never restore the 300-second agent timeout as the default.
 - Never fabricate operator capabilities: Codex remains context-only unless the
