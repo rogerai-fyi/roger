@@ -263,19 +263,19 @@ func TestWebLoginUnconfigured(t *testing.T) {
 // (explicit origin, not "*", with allow-credentials) and a preflight 204, and that
 // it reads the github-scoped wallet from a session cookie.
 func TestMeCredentialedCORS(t *testing.T) {
-	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
+	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fm")
 	_, priv, _ := ed25519.GenerateKey(nil)
 	b := &broker{priv: priv, db: store.NewMem(), pubOfUser: map[string]string{}, seedFunds: 100}
 
 	// Preflight: OPTIONS from the web origin → 204 with credentialed CORS headers.
 	pre := httptest.NewRequest(http.MethodOptions, "/me", nil)
-	pre.Header.Set("Origin", "https://rogerai.fyi")
+	pre.Header.Set("Origin", "https://rogerai.fm")
 	w := httptest.NewRecorder()
 	b.me(w, pre)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("preflight = %d, want 204", w.Code)
 	}
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fyi" {
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fm" {
 		t.Errorf("ACAO = %q, want the explicit web origin (never *)", got)
 	}
 	if got := w.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
@@ -284,14 +284,14 @@ func TestMeCredentialedCORS(t *testing.T) {
 
 	// GET with a session cookie → 200, github_login echoed, github-scoped wallet.
 	r := httptest.NewRequest(http.MethodGet, "/me", nil)
-	r.Header.Set("Origin", "https://rogerai.fyi")
+	r.Header.Set("Origin", "https://rogerai.fm")
 	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: b.signSession("octocat", 7, time.Now().Add(time.Hour).Unix())})
 	w = httptest.NewRecorder()
 	b.me(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("session /me = %d, want 200 (%s)", w.Code, w.Body.String())
 	}
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fyi" {
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://rogerai.fm" {
 		t.Errorf("GET ACAO = %q, want explicit web origin", got)
 	}
 	var out struct {

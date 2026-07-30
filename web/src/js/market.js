@@ -132,7 +132,7 @@
   var meterReplyEl = document.getElementById("meterReply");
 
   var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var MARKET = BROKER + "/market";
   var DISCOVER = BROKER + "/discover";
   var POLL_MS = 30000;             // re-tune the band every 30s
@@ -480,7 +480,7 @@
   function holdLastKnown() {
     var live = rendered.filter(function (c) { return c && c.live; }).length;
     setStatus("holding the last band read · re-tuning…", "live");
-    setFoot('holding the last read from <span class="ember">broker.rogerai.fyi</span> · ' +
+    setFoot('holding the last read from <span class="ember">broker.rogerai.fm</span> · ' +
       (live ? live + ' band' + (live === 1 ? '' : 's') + ' shown' : 'retrying') + ' · auto-refresh 30s');
     startShimmer();
   }
@@ -512,7 +512,7 @@
           paint(channels, true);
           paintMeter(meterReadout(channels));   // ALL on-air bands, not just the 6 painted rows
           setStatus(nOnline + " band" + (nOnline === 1 ? "" : "s") + " on air · live from /market", "live");
-          setFoot('live from <span class="ember">broker.rogerai.fyi/market</span> · signal 0-100 · prices in $ / 1M · auto-refresh 30s');
+          setFoot('live from <span class="ember">broker.rogerai.fm/market</span> · signal 0-100 · prices in $ / 1M · auto-refresh 30s');
           startShimmer();
           return;
         }
@@ -535,7 +535,7 @@
               paintMeter(meterReadout(ch));
               var nOn = ch.filter(function (c) { return c.live; }).length;
               setStatus(nOn + " band" + (nOn === 1 ? "" : "s") + " on air · from /discover", "live");
-              setFoot('live from <span class="ember">broker.rogerai.fyi/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
+              setFoot('live from <span class="ember">broker.rogerai.fm/discover</span> · prices in $ / 1M tokens · auto-refresh 30s');
               startShimmer();
             } else if (action === "hold") {
               // transient non-200 on BOTH reads, but we have a last-known market: KEEP it (bounded).
@@ -544,7 +544,7 @@
               // both reads failed and nothing to hold: honest "couldn't reach" state.
               paintQuiet();
               setStatus("couldn't reach the broker just now", "off");
-              setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
+              setFoot('couldn\'t reach <span class="ember">broker.rogerai.fm</span> · no live band to show');
             } else {
               // broker reachable but genuinely empty: honest quiet state, no fake rows
               paintQuiet();
@@ -564,7 +564,7 @@
         } else {
           paintQuiet();
           setStatus("couldn't reach the broker just now", "off");
-          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fyi</span> · no live band to show');
+          setFoot('couldn\'t reach <span class="ember">broker.rogerai.fm</span> · no live band to show');
         }
       })
       .then(function () { inflight = false; });

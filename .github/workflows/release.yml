@@ -127,7 +127,7 @@ jobs:
           cp roger.rb tap/Formula/roger.rb
           cd tap
           git config user.name  "rogerai-release-bot"
-          git config user.email "release-bot@rogerai.fyi"
+          git config user.email "release-bot@rogerai.fm"
           git add Formula/roger.rb
           if git diff --cached --quiet; then echo "formula unchanged; nothing to push"; exit 0; fi
           git commit -m "roger ${version}: update formula (automated)"

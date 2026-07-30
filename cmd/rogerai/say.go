@@ -41,14 +41,14 @@ func cmdSay(cfg config, args []string) error {
   --voice-speed <n>     playback speed (0.5-2.0; default: the voice's own)
 
 Voices are metered per character you speak, billed to your wallet (self/free is $0).
-Browse the roster with ` + "`roger voices`" + ` or at rogerai.fyi/voices.
+Browse the roster with ` + "`roger voices`" + ` or at rogerai.fm/voices.
 `)
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *voice == "" {
-		return fmt.Errorf("which voice? pass --voice <voice> - list the on-air roster with `roger voices` (or browse rogerai.fyi/voices)")
+		return fmt.Errorf("which voice? pass --voice <voice> - list the on-air roster with `roger voices` (or browse rogerai.fm/voices)")
 	}
 	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	if text == "" {
@@ -98,7 +98,7 @@ func cmdVoices(cfg config, _ []string) error {
 		return err
 	}
 	if len(voices) == 0 {
-		fmt.Println("no voices on air right now - run `roger share` on a box with a local voice server, or check rogerai.fyi/voices.")
+		fmt.Println("no voices on air right now - run `roger share` on a box with a local voice server, or check rogerai.fm/voices.")
 		return nil
 	}
 	fmt.Printf("%d voice(s) on air (cheapest first) - speak with `roger say --voice <voice> \"...\"`:\n\n", len(voices))

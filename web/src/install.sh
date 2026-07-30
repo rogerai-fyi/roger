@@ -1,7 +1,7 @@
 #!/bin/sh
 # =====================================================================
 # RogerAI installer - a two-way radio for GPUs.
-#   curl -fsSL https://rogerai.fyi/install.sh | sh
+#   curl -fsSL https://rogerai.fm/install.sh | sh
 #
 # Downloads the right `roger` binary for your OS/arch from GitHub
 # releases and drops it in ~/.local/bin (plus a `rogerai` alias symlink,

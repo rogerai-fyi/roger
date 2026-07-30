@@ -44,7 +44,7 @@ func TestStatusline(t *testing.T) {
 	statusline("ok", "fine")
 	statusline("warn", "careful")
 	statusline("fail", "broken")
-	if !validBrokerURL("https://broker.rogerai.fyi") || validBrokerURL("not-a-url") {
+	if !validBrokerURL("https://broker.rogerai.fm") || validBrokerURL("not-a-url") {
 		t.Error("validBrokerURL wrong")
 	}
 }

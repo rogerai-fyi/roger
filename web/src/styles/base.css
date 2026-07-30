@@ -406,7 +406,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .acctmenu__caret, .acctmenu__btn { transition: none; }
 }
-@media (max-width: 760px) {
+@media (max-width: 960px) {
   /* in the collapsed mobile panel the control fills the utility row */
   .nav__utils .acctmenu { flex: 1; }
   .nav__utils .acctmenu__btn { width: 100%; justify-content: center; }
@@ -432,7 +432,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .nav__burger-lines i { transition: none; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 960px) {
   .nav__burger { display: grid; }
   /* the menu drops as a clean hairlined panel below the bar */
   .nav__menu {

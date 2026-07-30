@@ -5,7 +5,7 @@
 // visitors are routed to /login. Honest-empty: every section shows a plain note when
 // the broker returns nothing rather than inventing numbers.
 (function () {
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
 
   function api(path, opts) {
     opts = opts || {};

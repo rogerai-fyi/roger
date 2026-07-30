@@ -41,7 +41,7 @@ func addSectionsBehindOurBack(t *testing.T) {
 	c := loadConfig()
 	c.Voices = map[string]ShareVoice{"voice": {
 		Name: "roger-operator", Language: "en-US",
-		SampleURL: "https://rogerai.fyi/assets/voice-samples/roger-operator-1950s.mp3"}}
+		SampleURL: "https://rogerai.fm/assets/voice-samples/roger-operator-1950s.mp3"}}
 	c.Prices = map[string]SharePrice{"voice": {PriceOut: 0.30}}
 	c.Station = "eager-puma-54"
 	if err := saveConfig(c); err != nil {
@@ -55,7 +55,7 @@ func assertSectionsSurvived(t *testing.T, when string) {
 	t.Helper()
 	c := loadConfig()
 	wantVoice := ShareVoice{Name: "roger-operator", Language: "en-US",
-		SampleURL: "https://rogerai.fyi/assets/voice-samples/roger-operator-1950s.mp3"}
+		SampleURL: "https://rogerai.fm/assets/voice-samples/roger-operator-1950s.mp3"}
 	if got := c.Voices["voice"]; got != wantVoice {
 		t.Errorf("%s: share_voices[voice] = %+v, want %+v (the save clobbered a section it does not own)", when, got, wantVoice)
 	}

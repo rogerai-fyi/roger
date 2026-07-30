@@ -153,13 +153,13 @@ const sessionCookie = "roger_session"
 // session. Safe to be readable: it grants nothing; spends still require an Ed25519 signature.
 const signedInHint = "roger_signed_in"
 
-// webOriginHost is the host of ROGERAI_WEB_ORIGIN (e.g. "rogerai.fyi"), used as the Domain
+// webOriginHost is the host of ROGERAI_WEB_ORIGIN (e.g. "rogerai.fm"), used as the Domain
 // of the signed-in hint cookie so the web page's JS can read it (the broker, on a subdomain
-// like broker.rogerai.fyi, may set a cookie for its parent domain). "" when it can't be
+// like broker.rogerai.fm, may set a cookie for its parent domain). "" when it can't be
 // parsed - the hint is then host-only on the broker (still set, just not cross-subdomain
 // readable), and the front-end falls back to probing.
 func webOriginHost() string {
-	u, err := url.Parse(envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi"))
+	u, err := url.Parse(envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
 	if err != nil {
 		return ""
 	}
@@ -198,10 +198,10 @@ func clearWebSessionCookies(w http.ResponseWriter) {
 func githubClientID() string { return os.Getenv("GITHUB_OAUTH_CLIENT_ID") }
 func githubSecret() string   { return os.Getenv("GITHUB_OAUTH_CLIENT_SECRET") }
 func webRedirectURI() string {
-	return envOr("GITHUB_OAUTH_REDIRECT", "https://rogerai.fyi/auth/github/callback")
+	return envOr("GITHUB_OAUTH_REDIRECT", "https://rogerai.fm/auth/github/callback")
 }
-func dashboardURL() string { return envOr("ROGERAI_DASHBOARD_URL", "https://rogerai.fyi/dashboard") }
-func loginURL() string     { return envOr("ROGERAI_LOGIN_URL", "https://rogerai.fyi/login") }
+func dashboardURL() string { return envOr("ROGERAI_DASHBOARD_URL", "https://rogerai.fm/dashboard") }
+func loginURL() string     { return envOr("ROGERAI_LOGIN_URL", "https://rogerai.fm/login") }
 
 // sessionKey is the HMAC key for signing session cookies. Reuse the broker's
 // Ed25519 seed so it is stable across restarts when BROKER_PRIVATE_KEY is set.
@@ -315,7 +315,7 @@ func (b *broker) authGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	exp := time.Now().Add(24 * time.Hour).Unix()
 	// SameSite=None so the browser sends this cookie on the dashboard's cross-ORIGIN
-	// XHR to the broker. For the default deploy (rogerai.fyi <-> broker.rogerai.fyi,
+	// XHR to the broker. For the default deploy (rogerai.fm <-> broker.rogerai.fm,
 	// same registrable domain) Lax would already suffice; None is what makes a
 	// CROSS-SITE ROGERAI_WEB_ORIGIN (a different registrable domain) work too. None
 	// REQUIRES Secure. Low risk: the cookie is HttpOnly, spends still require an
@@ -491,22 +491,32 @@ func (b *broker) authLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// corsCreds allows the web origin to send the session cookie (credentialed CORS:
-// an explicit origin, never "*"). Only the configured web origin is allowed. The
+// corsCreds allows configured web origins to send the session cookie (credentialed
+// CORS: an explicit origin, never "*"). ROGERAI_WEB_ORIGINS is a comma-separated
+// migration/alias list; the singular ROGERAI_WEB_ORIGIN remains the primary and
+// backward-compatible default. The
 // allowed request headers include X-Roger-* so a signed XHR (a logged-in browser
 // that ALSO carries the signing headers) preflights cleanly.
 func corsCreds(w http.ResponseWriter, r *http.Request) {
-	origin := envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
 	// Always vary on Origin: the response differs per origin even when we don't
 	// emit the allow header (so a shared cache never serves the wrong one).
 	w.Header().Add("Vary", "Origin")
-	if o := r.Header.Get("Origin"); o == origin {
+	requestOrigin := r.Header.Get("Origin")
+	if requestOrigin == "" {
+		return
+	}
+	allowed := envOr("ROGERAI_WEB_ORIGINS", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
+	for _, candidate := range strings.Split(allowed, ",") {
+		if strings.TrimSpace(candidate) != requestOrigin {
+			continue
+		}
 		h := w.Header()
-		h.Set("Access-Control-Allow-Origin", origin)
+		h.Set("Access-Control-Allow-Origin", requestOrigin)
 		h.Set("Access-Control-Allow-Credentials", "true")
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Roger-Pubkey, X-Roger-TS, X-Roger-Sig, X-Roger-User, X-Roger-Admin, X-Roger-Attach")
 		h.Set("Access-Control-Max-Age", "600")
+		return
 	}
 }
 

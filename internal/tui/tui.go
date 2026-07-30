@@ -178,7 +178,7 @@ type RemoteInfo struct {
 	Name      string
 	Code      string // the full one-time link code (shown once)
 	CodeShort string // the typeable / deep-link tail ("8FK3-9MQ2")
-	LinkURL   string // rogerai.fyi/r/<short>
+	LinkURL   string // rogerai.fm/r/<short>
 }
 
 // RemoteSessionRow is one BASE STATION roster row (metadata only).
@@ -697,6 +697,9 @@ type model struct {
 	// founder's "up should show history, the wheel should scroll"). ctrl+o / /mouse
 	// toggles OFF for native drag-select + copy (shift+drag also selects while on).
 	mouseOff bool
+	// smartSel: the application-owned drag selection while mouse capture is ON
+	// (smart mouse mode) - anchor/head cells, drag/held state (smartselect.go).
+	smartSel smartSelState
 	// chatVP is the INDEPENDENT scroll region for the CHANNEL transcript: the
 	// response area scrolls (PgUp/PgDn, Ctrl+U/D, mouse wheel, and the arrow keys
 	// once command history is exhausted) on its own while the `you ›` input keeps
@@ -853,27 +856,29 @@ type model struct {
 	// agentHist is the [0] AGENT prompt's shell-style recall buffer, separate from the
 	// chat's (Up = older sent prompt, Down = newer; Down past the newest restores the
 	// draft). It persists to <config>/rogerai/history-agent. See history.go.
-	agentHist            *inputHistory
-	agentLines           []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
-	agentVP              viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
-	agentBusy            bool           // a turn is in flight (drives the working line)
-	agentCanceling       bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
-	agentQueued          []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
-	agentLastEvent       time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
-	agentTurnState       agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
-	agentHadToolResult   bool           // the current/previous turn produced a result; drives the next-step prompt hint
-	agentNextHint        string         // outcome-derived next action shown by the idle composer
-	agentStart           time.Time      // when the in-flight turn began (elapsed readout)
-	agentPendingConfirm  *agentConfirm  // non-nil while a mutating tool awaits y/N
-	agentCost            float64        // running AGENT session cost in dollars
-	agentTokensIn        int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
-	agentTokensOut       int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
-	agentTPS             float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
-	agentActivityLine    int            // agentLines index of the currently-running compact tool card; -1 when none
-	agentActivityTarget  string         // target summary carried from call into its result card
-	agentActivityRunning bool           // distinguishes a real index 0 card from no active tool
-	agentStep            int            // current model/tool-loop iteration (1-based; 0 between untouched turns)
-	agentMaxSteps        int            // harness safety ceiling shown in the truthful session rail
+	agentHist             *inputHistory
+	agentLines            []string       // the rendered AGENT transcript (you ▸ / tool ◉ / answer ◂)
+	agentVP               viewport.Model // the AGENT transcript's independent scroll region (mirror of chatVP)
+	agentBusy             bool           // a turn is in flight (drives the working line)
+	agentCanceling        bool           // esc-cancel requested for the in-flight turn; a 2nd esc force-stops
+	agentQueued           []queuedPrompt // prompts parked mid-turn, auto-sent FIFO when the turn finishes (Claude-style queue); each entry carries its origin - a remote entry never slash-dispatches at drain
+	agentLastEvent        time.Time      // last streamed event time; powers the receiving-vs-stalled working line (hung detection)
+	agentTurnState        agentPose      // the reactive corner-Ping pose (waiting/thinking/streaming/tool), derived from the harness event stream
+	agentHadToolResult    bool           // the current/previous turn produced a result; drives the next-step prompt hint
+	agentNextHint         string         // outcome-derived next action shown by the idle composer
+	agentStart            time.Time      // when the in-flight turn began (elapsed readout)
+	agentPendingConfirm   *agentConfirm  // non-nil while a mutating tool awaits y/N
+	agentCost             float64        // running AGENT session cost in dollars
+	agentTokensIn         int            // running AGENT session BILLED prompt (↑) tokens — the broker re-count, for display
+	agentTokensOut        int            // running AGENT session BILLED completion (↓) tokens — the broker re-count, for display
+	agentTPS              float64        // LATEST relay call's throughput (tokens/sec) for the live meter; not summed
+	agentActivityLine     int            // agentLines index of the currently-running compact tool card; -1 when none
+	agentActivityTool     string         // tool name carried through approval/result transitions
+	agentActivityTarget   string         // target summary carried from call into its result card
+	agentActivityRunning  bool           // distinguishes a real index 0 card from no active tool
+	agentActivityApproved bool           // approval updates the active card instead of appending narration
+	agentStep             int            // current model/tool-loop iteration (1-based; 0 between untouched turns)
+	agentMaxSteps         int            // harness safety ceiling shown in the truthful session rail
 	// /model selection state. agentPicked marks that the user chose the model
 	// explicitly (so auto-resolution does not snap it back). agentPicker is the modal
 	// list (open with 2+ candidates); agentPickerRows is the candidate models and
@@ -1372,7 +1377,18 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.world.w, m.world.h = msg.Width, msg.Height // keep the screensaver fullscreen on resize
+		// A resize reflows the rows a drag was anchored to - cancel, never copy a
+		// partial selection (the smart-mode cancellation contract).
+		m.smartSel = smartSelState{}
 	case tea.MouseMsg:
+		// Smart mouse mode first: while capture is on, a left-drag over the
+		// transcript is an application-owned selection (smartselect.go). Unhandled
+		// events (the wheel) fall through to the viewport scroll below.
+		var handled bool
+		var cmd tea.Cmd
+		if m, cmd, handled = m.onSmartMouse(msg); handled {
+			return m, cmd
+		}
 		// Route the mouse wheel to the active transcript viewport so scrolling the
 		// response area works (the viewport ignores everything but wheel events). Mouse
 		// reporting is enabled via tea.WithMouseCellMotion in RunWithController.
@@ -1383,6 +1399,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.agentVP, _ = m.agentVP.Update(msg)
 		}
 		return m, nil
+	case smartCopyResultMsg:
+		return m.onSmartCopyResult(msg), nil
 	case tickMsg:
 		// A stale tick chain (a kick bumped m.tickGen since this one was scheduled): let it die
 		// silently - do NOT advance the frame or reschedule, so only the newest chain survives.
@@ -1601,7 +1619,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			reply = stDim.Render("(the station replied with no text)")
 		} else {
 			m.lastReply = msg.reply // raw text, for ctrl+y / /copy
-			reply = stLive.Render("◂ ") + reply
 			// Record the assistant turn into the per-turn context ring (Q4). The tuned
 			// band's model is public; the provider (if the broker reported one) rides the
 			// x_roger provenance. Only real content is recorded (a no-text turn is skipped).
@@ -1609,7 +1626,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recordTurn("assistant", msg.reply, m.channelAgent(), mdl, prov)
 		}
 		m.msgInFrom, m.msgInFrame = len(m.transcript), m.frame // mark this block for the settle-in
-		m.transcript = append(m.transcript, reply)
+		modelName := ""
+		if m.connected != nil {
+			modelName = m.connected.Model
+		}
+		m.transcript = append(m.transcript, chatAnswerBlock(modelName, reply)...)
 		m.transcript = append(m.transcript, replyFooter(msg, m.showStats)...)
 		// Per-turn session footer: the honest running ↑in ↓out (broker billed re-count) + cost,
 		// via the SHARED sessionFooter so the CHANNEL + AGENT money surfaces never drift.
@@ -1823,6 +1844,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = stDim.Render("AGENT ready - ask it to do something")
 		return m, fetchBalance(m.broker, m.user)
 	case tea.KeyMsg:
+		// Escape during (or after) a smart-mode drag clears the transient
+		// highlight and copies nothing - it cancels the selection, not the view.
+		if msg.Type == tea.KeyEsc && (m.smartSel.active || m.smartSel.held) {
+			m.smartSel = smartSelState{}
+			return m, nil
+		}
 		return m.onKey(msg)
 	}
 	// route to the active text input
@@ -1856,7 +1883,7 @@ func (m model) enterPingWorld() (tea.Model, tea.Cmd) {
 	m.chatIn.Blur()
 	m.cmd.Blur()
 	m.world = pingWorldModel{w: m.width, h: m.height, seed: int(time.Now().UnixNano() & 0x7fffffff),
-		data: buildWorldData(m.bands)} // seed the LIVE signal towers from the current on-air bands
+		debut: true, data: buildWorldData(m.bands)} // seed the LIVE signal towers from the current on-air bands
 	return m, m.kickTick() // one fresh chain; the tickMsg handler switches it to pingWorldTick
 }
 
@@ -2016,15 +2043,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = copiedToast("the last reply") + stDim.Render("  ·  /copy all for the whole session")
 			return m, clipboardWrite(m.lastReply)
 		case "ctrl+o":
-			// Toggle mouse reporting: OFF lets the terminal do native click-drag select+copy
+			// Toggle mouse ownership: OFF lets the terminal do native click-drag select+copy
 			// (mouse capture and native selection are mutually exclusive); ON restores wheel
-			// + PgUp/PgDn scrollback.
+			// scrolling + smart drag-copy. Either direction drops any live selection.
 			m.mouseOff = !m.mouseOff
+			m.smartSel = smartSelState{}
+			m.status = mouseStatusLine(m.mouseOff)
 			if m.mouseOff {
-				m.status = stLive.Render("native select ON · drag to copy · ctrl+o restores scroll")
 				return m, tea.DisableMouse
 			}
-			m.status = stDim.Render("scroll ON · ctrl+o for native select/copy")
 			return m, tea.EnableMouseCellMotion
 		case "enter":
 			p := strings.TrimSpace(m.chatIn.Value())
@@ -2044,7 +2071,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.sysPrompt != "" {
 				turn = m.sysPrompt + "\n\n" + p
 			}
-			m.transcript = append(m.transcript, bandUser(p))
+			m.transcript = append(m.transcript, chatUserBlock(p))
 			// Pre-flight: if no station for this band is on air right now, say so in the
 			// transcript immediately instead of firing a request the broker will bounce
 			// with a 503 the user might never see. (Best-effort: a stale scan still falls
@@ -2507,11 +2534,11 @@ func (m model) runSession(line string) (tea.Model, tea.Cmd) {
 		return m, clipboardWrite(target)
 	case "mouse":
 		m.mouseOff = !m.mouseOff
+		m.smartSel = smartSelState{}
+		sysLine(ansi.Strip(mouseStatusLine(m.mouseOff)))
 		if m.mouseOff {
-			sysLine("native select ON · drag to copy · /mouse restores scroll")
 			return m, tea.DisableMouse
 		}
-		sysLine("scroll ON · /mouse for native select")
 		return m, tea.EnableMouseCellMotion
 	case "agent":
 		// /agent: jump straight to the AGENT on THIS channel's model (a shortcut - enterAgent
@@ -4697,7 +4724,9 @@ func (m model) View() string {
 			out += strings.Repeat("\n", m.height-n)
 		}
 	}
-	return out
+	// A live smart-mode selection paints reverse-video over its cells (restyle
+	// only - the frame's text is untouched).
+	return m.overlaySelection(out)
 }
 
 // paletteCmd is one entry in the `/` command palette (A.5 progressive disclosure): a runnable
@@ -4720,7 +4749,7 @@ var paletteCmds = []paletteCmd{
 	{"/compact", "minimize to the dense windowshade", "m · alt+m"},
 	{"/ping", "the Ping World screensaver", "z"},
 	{"/webui", "open the browser node console", "w"},
-	{"/support", "rogerai.fyi - community + Discord", ""},
+	{"/support", "rogerai.fm - community + Discord", ""},
 	{"/help", "the full operating manual", "?"},
 	{"/log", "node + broker messages", ""},
 	{"/quit", "quit RogerAI", "q"},
@@ -5532,9 +5561,9 @@ func (m model) header(w int) string {
 		brandSt = brandSt.Background(cTubeGlow)
 		tagSt = tagSt.Background(cTubeGlow)
 	}
-	// ▟▄▙ - the radio: a low box body (▄) with two antenna nubs (▟'s + ▙'s top
-	// quadrants), replacing the ambiguous ▟█▙ "tower" that read as no particular thing.
-	tower := brandSt.Render("▟▄▙")
+	// Tube Ping's compact station bug is the persistent house mark. It is one row,
+	// cell-stable, and keeps the same header budget as the former radio tower.
+	tower := compactTubePingMark()
 	name := brandSt.Render(" R O G E R") + tagSt.Render(" · A I")
 	eye := onAirPulse(m.frame)
 	rule := stHeadRule.Render(strings.Repeat("─", w))
@@ -7530,11 +7559,93 @@ func (m model) chatPromptRowCount(w int) int {
 }
 
 func (m model) chatPromptLines(w int) []string {
-	input := m.chatIn
-	input.SetWidth(max(chatPromptLeadWidth+1, w))
-	input.SetHeight(m.chatPromptRowCount(w))
-	view := strings.TrimSuffix(input.View(), "\n")
-	return strings.Split(view, "\n")
+	view := renderComposer(m.chatIn, m.chatIn.Placeholder, chatPromptLead, chatPromptLeadWidth, w, m.chatPromptRowCount(w))
+	return tintComposerLines(strings.Split(view, "\n"), w)
+}
+
+func chatUserBlock(text string) string {
+	return bandUser(stKey.Render("YOU › ") + text)
+}
+
+func chatAnswerBlock(modelName, text string) []string {
+	head := stLive.Render("◂ ") + lampStyle(roleDial).Bold(true).Render("ROGER ›")
+	if modelName != "" {
+		head += stDim.Render(" " + modelName)
+	}
+	out := []string{"", head}
+	for _, line := range strings.Split(text, "\n") {
+		out = append(out, stLive.Render("▏ ")+line)
+	}
+	return out
+}
+
+// renderComposer builds an isolated render model because bubbles/textarea copies
+// share a private viewport pointer. Calling geometry methods on a View-time copy
+// therefore mutates the live editor; using the live viewport directly can also
+// retain a stale scroll offset after wrapping. This fresh model is observational.
+func renderComposer(input textarea.Model, placeholder, lead string, leadWidth, width, height int) string {
+	render := textarea.New()
+	render.Prompt = ""
+	render.Placeholder = placeholder
+	render.ShowLineNumbers = false
+	render.SetPromptFunc(leadWidth, func(line int) string {
+		if line == 0 {
+			return lead
+		}
+		return strings.Repeat(" ", leadWidth)
+	})
+	render.FocusedStyle = input.FocusedStyle
+	render.BlurredStyle = input.BlurredStyle
+	// The isolated model renders the full logical draft; Roger slices the
+	// cap-sized cursor window below. Leaving MaxHeight at six would make
+	// Bubbles hide the tail before we can select the correct window.
+	render.MaxHeight = 0
+	render.CharLimit = input.CharLimit
+	render.SetWidth(max(leadWidth+1, width))
+	contentWidth := max(1, width-leadWidth)
+	render.SetHeight(max(1, composerVisualRows(input.Value(), contentWidth)))
+	render.SetValue(input.Value())
+
+	line := input.Line()
+	col := input.LineInfo().StartColumn + input.LineInfo().ColumnOffset
+	for render.Line() > line {
+		render.CursorUp()
+	}
+	render.SetCursor(col)
+	render.Cursor.SetMode(cursor.CursorStatic)
+	if input.Focused() {
+		render.Focus()
+	} else {
+		render.Blur()
+	}
+	lines := strings.Split(strings.TrimSuffix(render.View(), "\n"), "\n")
+	cursorRow := composerCursorVisualRow(input, contentWidth)
+	start := max(0, cursorRow-height+1)
+	if start+height > len(lines) {
+		start = max(0, len(lines)-height)
+	}
+	end := min(len(lines), start+max(1, height))
+	return strings.Join(lines[start:end], "\n")
+}
+
+func composerVisualRows(value string, contentWidth int) int {
+	if value == "" {
+		return 1
+	}
+	rows := 0
+	for _, logical := range strings.Split(value, "\n") {
+		rows += max(1, lineRows(ansi.Wrap(logical, contentWidth, "")))
+	}
+	return rows
+}
+
+func composerCursorVisualRow(input textarea.Model, contentWidth int) int {
+	logical := strings.Split(input.Value(), "\n")
+	row := 0
+	for i := 0; i < input.Line() && i < len(logical); i++ {
+		row += max(1, lineRows(ansi.Wrap(logical[i], contentWidth, "")))
+	}
+	return row + input.LineInfo().RowOffset
 }
 
 // emptyBandCTA is the single static actionable line for the quiet empty band (audit
@@ -7815,7 +7926,7 @@ func (m model) onAirPanel(w int) string {
 	if hint := m.payoutHint(); hint != "" {
 		lines = append(lines, "  "+hint)
 	} else {
-		lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fyi/dashboard.html")+stDim.Render("  (or: roger payout status)"))
+		lines = append(lines, stDim.Render("  earnings: ")+stKey.Render("rogerai.fm/dashboard.html")+stDim.Render("  (or: roger payout status)"))
 	}
 	lines = append(lines, stDim.Render("  ")+stKey.Render("/share off")+stDim.Render(" to go off air (stops all)"))
 	// Every line is truncated to the inner content width so the bordered plate never
@@ -7823,7 +7934,11 @@ func (m model) onAirPanel(w int) string {
 	for i, ln := range lines {
 		lines[i] = truncVisible(ln, inner)
 	}
-	return stPanel.Render(strings.Join(lines, "\n"))
+	rendered := stPanel.Render(strings.Join(lines, "\n"))
+	if anyOnAir && !paletteMono && canTint(lipgloss.DefaultRenderer().ColorProfile()) {
+		return solidBackground(rendered, cLiveSurface)
+	}
+	return rendered
 }
 
 // compactOnAirLine is the windowshade (compact mode) one-line ON AIR summary: the
@@ -8883,7 +8998,7 @@ func (m model) helpView() string {
 		{"/grant [create <name>]", "private free keys for your bots/family"},
 		{"/confidential", "toggle: route only to TEE-attested nodes"},
 		{"/endpoint · /config", "endpoint + key · broker/identity"},
-		{"/support", "open rogerai.fyi - community + Discord (CLI: roger support)"},
+		{"/support", "open rogerai.fm - community + Discord (CLI: roger support)"},
 		{"/ping (/zen · z)", "SCREENSAVER: Ping's world fullscreen (CLI: roger --ping) - any key wakes"},
 		{"/help · /quit", "this · quit RogerAI"},
 	}
@@ -8955,7 +9070,7 @@ func (m model) helpView() string {
 // which hosts the community / Discord link in its footer. Per the founder, /support
 // points at the site (not straight at Discord) so the single source of truth for
 // the community link stays the footer.
-const supportURL = "https://rogerai.fyi"
+const supportURL = "https://rogerai.fm"
 
 // helpVersion is the client version shown in help; set by the host via SetVersion (always, in
 // the real CLI). Empty default so a missed SetVersion shows no version rather than a STALE one

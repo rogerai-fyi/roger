@@ -197,12 +197,12 @@ func TestAdminAlertFiresOnceDedupsAndRefires(t *testing.T) {
 		t.Errorf("subject = %q, want the condition tail", subj)
 	}
 	htmlBody, _ := got["html"].(string)
-	if !strings.Contains(htmlBody, "control.rogerai.fyi") {
-		t.Errorf("alert HTML missing the control.rogerai.fyi link")
+	if !strings.Contains(htmlBody, "control.rogerai.fm") {
+		t.Errorf("alert HTML missing the control.rogerai.fm link")
 	}
 	textBody, _ := got["text"].(string)
-	if !strings.Contains(textBody, "control.rogerai.fyi") {
-		t.Errorf("alert text missing the control.rogerai.fyi link")
+	if !strings.Contains(textBody, "control.rogerai.fm") {
+		t.Errorf("alert text missing the control.rogerai.fm link")
 	}
 
 	// Repeat while still firing: NO refire (dedup).

@@ -45,9 +45,9 @@ for arg in "$@"; do
 done
 
 # Production targets for --live.
-SITE_BASE=${ROGERAI_SITE_BASE:-https://rogerai.fyi}
-BROKER_BASE=${ROGERAI_BROKER_BASE:-https://broker.rogerai.fyi}
-WEB_ORIGIN=${ROGERAI_WEB_ORIGIN:-https://rogerai.fyi}
+SITE_BASE=${ROGERAI_SITE_BASE:-https://rogerai.fm}
+BROKER_BASE=${ROGERAI_BROKER_BASE:-https://broker.rogerai.fm}
+WEB_ORIGIN=${ROGERAI_WEB_ORIGIN:-https://rogerai.fm}
 
 # --- pass/fail bookkeeping ---------------------------------------------------
 FAILS=0

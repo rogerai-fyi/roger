@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var SVGNS = "http://www.w3.org/2000/svg";
 
   // ---- tiny DOM helpers (mirrors account.js) ----

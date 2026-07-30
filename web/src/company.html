@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- include: head.html title="Company - RogerAI" desc="RogerAI is an American AI research and infrastructure company in Orange County, California. We build local-first inference infrastructure and open edge models for industrial and embedded deployment." theme=external og=post ogtype=website ogtitle="RogerAI - an American AI research and infrastructure company" ogdesc="Local-first inference infrastructure and open edge models for oil and gas, power generation, manufacturing, and aerospace." ogurl="https://rogerai.fm/company.html" ogimage="https://rogerai.fm/og.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI · Company</span>
+    <span class="rail__rev">Rev. 2026.07 · ORANGE COUNTY, CA</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 companycurrent='aria-current="page"' -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
+          <span class="hero__callsign">ROGERAI</span>
+          <span class="hero__sep" aria-hidden="true">·</span>
+          company
+        </span>
+        <h1>An American AI research and infrastructure company.</h1>
+        <p class="research-hero__lead">
+          RogerAI builds local-first inference infrastructure and open models for the
+          hardware people and plants already own. We are based in Orange County,
+          California, independently owned, and not venture funded — which is why our
+          roadmap answers to the machines it runs on rather than to a growth curve.
+        </p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="#work">What we build</a>
+          <a class="research-button" href="/research.html">RogerAI Labs</a>
+          <a class="research-button" href="#contact">Contact</a>
+        </div>
+      </div>
+    </section>
+
+    <aside class="research-distinction">
+      <div class="wrap research-distinction__grid">
+        <div><span class="research-kicker">THE PRODUCT</span><b><a href="/models.html">The RogerAI network</a></b> routes work to models running on real hardware.</div>
+        <div><span class="research-kicker">THE LAB</span><b><a href="/research.html">RogerAI Labs</a></b> builds the open edge models and publishes the evidence.</div>
+        <p>The two share engineering and nothing else. Running a RogerAI model locally never requires the network, and the network is not restricted to RogerAI models.</p>
+      </div>
+    </aside>
+
+    <section class="section" id="work">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">§1 / WHAT WE BUILD</span>
+          <h2>Two lines of work, one engineering discipline.</h2>
+          <p>Inference infrastructure that treats someone else's machine as a first-class
+             citizen, and the small models meant to run on it.</p>
+        </div>
+        <div class="research-grid">
+          <article class="research-card">
+            <header><span class="research-kicker">PRODUCT</span><span class="status">SHIPPING</span></header>
+            <h3>The RogerAI network</h3>
+            <p>An OpenAI-compatible endpoint over models running across community and
+               private hardware. It handles discovery, capacity-aware routing, failover,
+               metering, and signed receipts, while the operator keeps physical control of
+               the machine and opens no inbound ports.</p>
+            <p>Available as a CLI, an OpenAI-compatible API, and an iOS app.</p>
+            <dl>
+              <div><dt>Evaluate</dt><dd><a href="/models.html">Live models</a> · <a href="/manual.html">Manual</a></dd></div>
+              <div><dt>Source</dt><dd><a href="https://github.com/rogerai-fyi/roger">github.com/rogerai-fyi/roger</a></dd></div>
+            </dl>
+          </article>
+          <article class="research-card">
+            <header><span class="research-kicker">RESEARCH</span><span class="status">ACTIVE</span></header>
+            <h3>RogerAI Labs</h3>
+            <p>Open model and inference research for edge, embedded, and industrial use:
+               quantization, pruning, runtime work, and the <b>Wave</b> family of
+               device-first small models. Every result publishes its hardware, harness, and
+               raw outputs. No Wave checkpoint has been released yet, and the page says so.</p>
+            <dl>
+              <div><dt>Programs</dt><dd><a href="/research.html">Research notebook</a></dd></div>
+              <div><dt>Evidence</dt><dd><a href="/broadcasts.html">Open Air Waves</a></dd></div>
+              <div><dt>Weights</dt><dd><a href="https://huggingface.co/rogerai-fyi">huggingface.co/rogerai-fyi</a></dd></div>
+            </dl>
+          </article>
+          <article class="research-card">
+            <header><span class="research-kicker">POSITION</span></header>
+            <h3>Frontier capability, local footprint</h3>
+            <p>Two directions, one goal: make frontier-capability models reachable on
+               hardware you control, and make small models good enough that the frontier is
+               not always the answer. Optimization work brings large open models down to
+               workstation class; the Wave program builds up from the microcontroller.</p>
+            <p>Artifacts ship in open formats on standard runtimes, so nothing we publish
+               depends on RogerAI continuing to exist.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-tone" id="focus">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">§2 / FOCUS</span>
+          <h2>The smallest model that can do the job.</h2>
+          <p>We build for embedded and edge systems where operational-technology networks
+             are segmented or air-gapped and data cannot leave.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>A right-sized ladder.</b> Roger Edge handles fixed signals and commands;
+             Wave Micro targets sub-100M specialist work; Wave Nano targets 350M-class text
+             and tools; frontier-scale optimization brings upstream models with
+             tens or hundreds of billions of parameters toward local hardware.
+             There is no released Wave checkpoint.</p>
+          <p><b>Industrial deployment.</b> Our focus spans oil and gas, power generation,
+             manufacturing, and aerospace: advisory workloads beside existing control
+             systems, never replacing deterministic protection or safety paths.</p>
+          <p><b>Evidence before claims.</b> Measurements name the hardware, evaluation
+             harness, settings, and raw results. Artifacts use open formats and standard
+             runtimes; local inference sends no telemetry; negative results remain visible.</p>
+          <p>See the <a href="/research.html#industry">research notebook</a> for programs,
+             industry use cases, constraints, and device evidence.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section band" id="origin">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">§3 / ORIGIN &amp; OPENNESS</span>
+          <h2>Built here. Useful anywhere.</h2>
+          <p>RogerAI is built in Orange County, California. “American-made” describes the
+             company, product engineering, and RogerAI-authored research; it does not erase
+             the upstream models and global research community this work depends on.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>Open where the component is open.</b> Our open-source model and runtime work,
+             recipes, converters, evaluations, and qualifying weights are published with
+             their actual licenses and lineage.</p>
+          <p><b>Source-visible is not the same claim.</b> The RogerAI network and broker are
+             licensed under PolyForm Perimeter 1.0.0. We publish the source, but do not call
+             that component open source. Each artifact carries its own license rather than
+             borrowing a broader marketing label.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-tone" id="contact">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">§4 / CONTACT</span>
+          <h2>Talk to the people building it.</h2>
+          <p>RogerAI is operated from Orange County, California. The governing legal entity
+             is named in the <a href="/tos.html">Terms</a>.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>Pilots, engagements, and press.</b> Model optimization, edge deployment,
+             benchmarking and model selection, and scoped on-premises pilots — plus press
+             and partnership enquiries. <a href="mailto:labs@rogerai.fm">labs@rogerai.fm</a></p>
+          <p><b>Security disclosure.</b> Report privately; please do not open a public issue.
+             <a href="mailto:security@rogerai.fm">security@rogerai.fm</a> · <a href="/security.html">Policy</a></p>
+          <p><b>Billing and accounts.</b> <a href="mailto:billing@rogerai.fm">billing@rogerai.fm</a> ·
+             <b>Privacy.</b> <a href="mailto:privacy@rogerai.fm">privacy@rogerai.fm</a> ·
+             <b>Legal.</b> <a href="mailto:legal@rogerai.fm">legal@rogerai.fm</a></p>
+          <p><b>The work itself.</b> The source is public and the notebook is open — reading
+             either tells you more than a sales call would.
+             <a href="https://github.com/rogerai-fyi/roger">Source</a> ·
+             <a href="/broadcasts.html">Open Air Waves</a></p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+  <script src="js/promo.js" defer></script>
+</body>
+</html>

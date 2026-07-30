@@ -38,7 +38,7 @@ import (
 )
 
 const (
-	stalenessSample  = "https://rogerai.fyi/samples/roger-operator.mp3"
+	stalenessSample  = "https://rogerai.fm/samples/roger-operator.mp3"
 	stalenessVoiceID = "roger-operator-voice"
 )
 

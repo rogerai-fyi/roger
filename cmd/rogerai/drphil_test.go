@@ -42,7 +42,7 @@ func TestValidBrokerURL(t *testing.T) {
 		in   string
 		want bool
 	}{
-		{"https://broker.rogerai.fyi", true},
+		{"https://broker.rogerai.fm", true},
 		{"http://127.0.0.1:7070", true},
 		{"", false},
 		{"not-a-url", false},

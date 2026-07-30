@@ -22,7 +22,7 @@ func cookieByName(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 // host - so the front-end can skip the logged-out /account probe. (features/security/
 // web_session_hint.feature.)
 func TestSetWebSessionCookies(t *testing.T) {
-	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fyi")
+	t.Setenv("ROGERAI_WEB_ORIGIN", "https://rogerai.fm")
 	_, priv, _ := ed25519.GenerateKey(nil)
 	b := &broker{priv: priv}
 	rec := httptest.NewRecorder()
@@ -44,8 +44,8 @@ func TestSetWebSessionCookies(t *testing.T) {
 	if hint.HttpOnly {
 		t.Error("hint cookie must NOT be HttpOnly (the web JS reads it)")
 	}
-	if hint.Domain != "rogerai.fyi" {
-		t.Errorf("hint Domain = %q, want the web origin host rogerai.fyi", hint.Domain)
+	if hint.Domain != "rogerai.fm" {
+		t.Errorf("hint Domain = %q, want the web origin host rogerai.fm", hint.Domain)
 	}
 	if !hint.Secure {
 		t.Error("hint cookie should be Secure")
@@ -78,8 +78,8 @@ func TestClearWebSessionCookies(t *testing.T) {
 // safe empty fallback when unset/garbage (host-only hint, front-end falls back to probing).
 func TestWebOriginHost(t *testing.T) {
 	cases := []struct{ env, want string }{
-		{"", "rogerai.fyi"},                                 // default
-		{"https://rogerai.fyi", "rogerai.fyi"},              // explicit prod
+		{"", "rogerai.fm"},                                  // default
+		{"https://rogerai.fm", "rogerai.fm"},                // explicit prod
 		{"https://app.example.com:8443", "app.example.com"}, // custom host (port stripped)
 		{"::::not a url", ""},                               // unparseable -> empty (host-only fallback)
 	}

@@ -22,7 +22,7 @@ cask "roger" do
       verified: "github.com/rogerai-fyi/roger/"
   name "RogerAI"
   desc "Two-way radio for GPUs: consume and share LLM/voice models over the broker"
-  homepage "https://rogerai.fyi/"
+  homepage "https://rogerai.fm/"
 
   livecheck do
     url :url

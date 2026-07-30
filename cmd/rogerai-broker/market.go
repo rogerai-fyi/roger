@@ -221,7 +221,7 @@ func (b *broker) discover(w http.ResponseWriter, r *http.Request) {
 	// every extra same-IP read is just a cheap cache GET + memcpy and needs no throttle. The
 	// anon limiter still guards the real cost/abuse surfaces (relay/audio/tunnel), just not this
 	// read. Regression: discover_ratelimit_test.go + features/discovery/market.feature.
-	cors(w) // public market data - let the website (rogerai.fyi) fetch it
+	cors(w) // public market data - let the website (rogerai.fm) fetch it
 
 	// Hot-path cache (flag-gated, behind ROGERAI_REDIS_URL). /discover recomputes every
 	// offer + its multi-factor signal per request; this collapses repeated full-market
@@ -306,7 +306,7 @@ func (b *broker) market(w http.ResponseWriter, r *http.Request) {
 	if !allow(w, r, http.MethodGet) {
 		return
 	}
-	cors(w) // public market data - let the website (rogerai.fyi) fetch it
+	cors(w) // public market data - let the website (rogerai.fm) fetch it
 
 	// Hot-path cache (flag-gated). /market aggregates per-model signal across every live
 	// node per request; the cache collapses repeated aggregations into one within a tiny

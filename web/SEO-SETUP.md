@@ -9,26 +9,26 @@ the CLI. Do them in this order; the first two are the high-leverage ones.
 ## 0. Merge PR #18 (deploys everything)
 <https://github.com/rogerai-fyi/roger/pull/18> - merging it deploys the SEO baseline + the first
 article. The web app rebuilds `node build.mjs` on deploy. After it's live, confirm:
-`https://rogerai.fyi/sitemap.xml` returns XML (not a 404) and
-`https://rogerai.fyi/broadcasts-run-local-llm.html` loads.
+`https://rogerai.fm/sitemap.xml` returns XML (not a 404) and
+`https://rogerai.fm/broadcasts-run-local-llm.html` loads.
 
 ---
 
 ## 1. Google Search Console  (the single most important step - free, no code)
 This is what powers the weekly gap-analysis loop. Without it you're flying blind.
 
-1. Go to <https://search.google.com/search-console> and add a **Domain** property: `rogerai.fyi`.
+1. Go to <https://search.google.com/search-console> and add a **Domain** property: `rogerai.fm`.
 2. It gives you a **TXT record**. Add it in **Cloudflare -> DNS**: Type `TXT`, Name `@`, Content =
    the `google-site-verification=...` string Google shows. Save, then click **Verify** in GSC.
-3. In GSC left nav -> **Sitemaps** -> submit `https://rogerai.fyi/sitemap.xml`.
+3. In GSC left nav -> **Sitemaps** -> submit `https://rogerai.fm/sitemap.xml`.
 4. Wait a few days for data to appear (Performance report). Then run the weekly loop (see bottom).
 
 ## 2. Bing Webmaster Tools  (do NOT skip - free)
 A real case study lost ~90% of Bing traffic for weeks by ignoring this.
-1. <https://www.bing.com/webmasters> -> add site `https://rogerai.fyi`.
+1. <https://www.bing.com/webmasters> -> add site `https://rogerai.fm`.
 2. Easiest: **Import from Google Search Console** (one click once #1 is done). Otherwise verify via
    the same DNS-TXT method.
-3. Submit the sitemap: `https://rogerai.fyi/sitemap.xml`.
+3. Submit the sitemap: `https://rogerai.fm/sitemap.xml`.
 
 ---
 
@@ -36,7 +36,7 @@ A real case study lost ~90% of Bing traffic for weeks by ignoring this.
 This needs a CSP change AND an edge apply - and they must go together (the `edge-drift` CI check
 fails if `_headers` and the live edge disagree). That's why the CSP is NOT pre-baked into the PR.
 When you're ready:
-1. **Cloudflare dashboard -> Analytics & Logs -> Web Analytics -> Add a site** -> `rogerai.fyi`.
+1. **Cloudflare dashboard -> Analytics & Logs -> Web Analytics -> Add a site** -> `rogerai.fm`.
    Choose the **Automatic setup** (it injects the beacon at the edge - no code needed).
 2. **Allow the beacon in the CSP.** In `web/src/_headers`, add `https://static.cloudflareinsights.com`
    to `script-src` and `https://cloudflareinsights.com` to `connect-src`. Then apply it to the edge:
@@ -59,7 +59,7 @@ When you're ready:
 Your robots.txt is served/managed by **Cloudflare** (the AI content-signals policy), not the repo,
 so it has no `Sitemap:` line. Add one so crawlers auto-discover the sitemap:
 - Cloudflare dashboard -> the setting that manages robots.txt (AI Audit / robots.txt) -> add:
-  `Sitemap: https://rogerai.fyi/sitemap.xml`
+  `Sitemap: https://rogerai.fm/sitemap.xml`
 - This is optional: submitting the sitemap directly in GSC + Bing (steps 1-2) already covers it.
 
 ---

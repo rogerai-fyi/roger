@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fyi/install.sh | sh" theme=inline css=site og=1 -->
+  <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fm/install.sh | sh" theme=inline css=site og=1 -->
 </head>
 <body data-onair="idle">
 
@@ -137,7 +137,7 @@
         <button class="install__box" id="installCmd" type="button"
                 aria-label="Copy install command to clipboard">
           <span class="install__prompt" aria-hidden="true">$</span>
-          <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+          <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
           <span class="install__copy" id="installCopy" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="9" width="11" height="11" rx="2"></rect>
@@ -150,7 +150,7 @@
           <a class="install__alt" href="https://github.com/rogerai-fyi/roger/releases">or download a binary →</a>
         </div>
         <div class="install__meta">
-          <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+          <span id="installNoteWin">On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
         </div>
       </div>
 
@@ -340,7 +340,7 @@
         </ul>
 
         <p class="market__foot mono" id="marketFoot">
-          reading <span class="ember">broker.rogerai.fyi/market</span> · prices in $ / 1M tokens
+          reading <span class="ember">broker.rogerai.fm/market</span> · prices in $ / 1M tokens
         </p>
         <p class="market__tune mono">
           <a href="/models.html">tune the dial - browse every model &amp; station &rarr;</a>
@@ -513,16 +513,58 @@
     </div>
   </section>
 
+  <!-- ===================== COMPANY ===================== -->
+  <section class="section company" id="company">
+    <div class="wrap">
+      <div class="section__head section__head--left" data-reveal>
+        <span class="sectionno">§7 / COMPANY</span>
+        <h2>Infrastructure and models for practical local AI.</h2>
+        <p>RogerAI is an AI company building a simpler way to run, share, and use
+          models on real hardware.</p>
+      </div>
+
+      <div class="company__grid" data-reveal data-reveal-delay="60">
+        <article class="company__card">
+          <span class="company__label">PRODUCT</span>
+          <h3>The radio for GPUs</h3>
+          <p>RogerAI gives developers and teams an OpenAI-compatible endpoint for
+            models running across community and private hardware. It handles
+            discovery, routing, failover, metering, and signed receipts while
+            operators keep control of their machines.</p>
+          <p class="company__links">
+            <a href="/company.html">About the company</a>
+            <a href="/models.html">Browse models</a>
+            <a href="/manual.html">Read the manual</a>
+            <a href="#top">Install and evaluate</a>
+          </p>
+        </article>
+
+        <article class="company__card company__card--labs">
+          <span class="company__label">ROGERAI LABS</span>
+          <h3>Open research that reaches the edge</h3>
+          <p>RogerAI Labs makes frontier-model optimization more accessible and
+            develops open model and inference work for edge, manufacturing,
+            industrial, and personal use. Open Air Waves publishes the evidence;
+            Wave models are the measured, device-first research program.</p>
+          <p class="company__links">
+            <a href="/research.html">Explore Research</a>
+            <a href="/broadcasts.html">Open Air Waves</a>
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
-      <span class="sectionno">§7 / GO</span>
+      <span class="sectionno">§8 / GO</span>
       <h2>Pick up the mic.</h2>
       <p>Install the CLI. One command to go on air, or to tune in.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"
               aria-label="Copy install command to clipboard">
         <span class="install__prompt" aria-hidden="true">$</span>
-        <code class="install__code">curl -fsSL https://rogerai.fyi/install.sh | sh</code>
+        <code class="install__code">curl -fsSL https://rogerai.fm/install.sh | sh</code>
         <span class="install__copy" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="11" height="11" rx="2"></rect>
@@ -531,7 +573,7 @@
         </span>
       </button>
       <div class="install__meta">
-        <span id="installNoteWin2">On Windows (PowerShell): <code class="inline">irm https://rogerai.fyi/install.ps1 | iex</code></span>
+        <span id="installNoteWin2">On Windows (PowerShell): <code class="inline">irm https://rogerai.fm/install.ps1 | iex</code></span>
       </div>
     </div>
   </section>

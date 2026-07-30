@@ -18,7 +18,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var DAYS = 30;
 
   // ---- tiny DOM helpers (mirror metrics.js / account.js) ----

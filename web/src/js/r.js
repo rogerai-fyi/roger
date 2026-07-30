@@ -6,7 +6,7 @@
 (function () {
   "use strict";
 
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   function api(path, opts) { opts = opts || {}; opts.credentials = "include"; return fetch(BROKER + path, opts); }
   function msg(t) { var el = document.getElementById("msg"); if (el) el.textContent = t; }
 

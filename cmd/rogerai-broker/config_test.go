@@ -15,7 +15,7 @@ func TestEnvConfigGetters(t *testing.T) {
 	}
 
 	t.Setenv("GITHUB_OAUTH_REDIRECT", "")
-	if got := webRedirectURI(); got != "https://rogerai.fyi/auth/github/callback" {
+	if got := webRedirectURI(); got != "https://rogerai.fm/auth/github/callback" {
 		t.Errorf("webRedirectURI default = %q", got)
 	}
 	t.Setenv("GITHUB_OAUTH_REDIRECT", "https://x/cb")
@@ -24,7 +24,7 @@ func TestEnvConfigGetters(t *testing.T) {
 	}
 
 	t.Setenv("ROGERAI_DASHBOARD_URL", "")
-	if got := dashboardURL(); got != "https://rogerai.fyi/dashboard" {
+	if got := dashboardURL(); got != "https://rogerai.fm/dashboard" {
 		t.Errorf("dashboardURL default = %q", got)
 	}
 	t.Setenv("ROGERAI_LOGIN_URL", "https://login")

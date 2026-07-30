@@ -1,10 +1,9 @@
 # GUEST OPERATORS — Phase 2: agent-CLI detection (THE DESK roster source).
 #
 # A static REGISTRY of guest operators (design doc §4 empirical table) is the ONE source of
-# who can ever appear at the desk: opencode, hermes, aider (wired to the band) and claude
-# (CONTEXT-ONLY - see features/handoff/claude_guest.feature). codex stays EXCLUDED
-# (Responses-API wire; a naive launch silently falls back to the user's own account — the
-# exact failure §4 measured). Detection is a
+# who can ever appear at the desk: opencode, hermes, aider (wired to the band), plus
+# claude and codex (CONTEXT-ONLY). The context-only guests deliberately use their
+# existing vendor accounts; RogerAI injects no credentials, endpoint, or model. Detection is a
 # pure function over an injectable Env seam (the internal/audio/audio.go:35 Env pattern:
 # LookPath + a bounded version Probe), so every PATH/version permutation is table-testable
 # with no real binary and the TUI can deliver results async like onSharesDetected
@@ -14,6 +13,7 @@
 #   - `opencode --version`  -> "1.17.11"                                  (bare semver)
 #   - `hermes --version`    -> "Hermes Agent v0.16.0 (2026.6.5) · upstream 9688c1a9"
 #   - `aider --version`     -> "aider X.Y.Z" (not installed on the dev box; format per docs)
+#   - `codex --version`     -> "codex-cli 0.146.0" from ~/.npm-global/bin/codex
 #   - exec.LookPath already rejects a file on PATH without the execute bit (ErrNotFound),
 #     so "exists but not executable" is NOT detected — pinned here as a permanent scenario.
 #
@@ -33,26 +33,31 @@ Feature: Guest operator detection registry
   Background:
     Given the guest operator registry
 
-  Scenario: The registry is opencode, hermes, aider, claude — codex excluded
-    Then the registry lists exactly "opencode", "hermes", "aider", "claude" in that order
-    And no registry entry is named "codex"
-    # claude joined as a CONTEXT-ONLY guest: it reroutes no model, so the silent-billing
-    # failure that excluded it cannot happen (features/handoff/claude_guest.feature).
-    # codex stays out - same wire problem, and no context story yet.
+  Scenario: The registry includes both context-only coding guests
+    Then the registry lists exactly "opencode", "hermes", "aider", "claude", "codex" in that order
     And every entry carries a name, a PATH binary, a provider tag, an install hint, and a known-good version
 
   Scenario: Registry entries carry the empirically-proven wiring strategy
     Then the "opencode" entry uses the scratch-config strategy with known-good version "1.17.11"
     And the "hermes" entry uses the scratch-home strategy with known-good version "0.16.0"
     And the "aider" entry uses the env-and-flags strategy with no config file at all
+    And the "codex" entry uses the context-only strategy with known-good version "0.1.0"
 
-  Scenario: All three guests on PATH are detected in registry order
+  Scenario: The three band-wired guests on PATH are detected in registry order
     Given LookPath resolves "opencode" to "/home/u/.opencode/bin/opencode"
     And LookPath resolves "hermes" to "/home/u/.local/bin/hermes"
     And LookPath resolves "aider" to "/home/u/.local/bin/aider"
     When the desk is scanned
     Then the detections are "opencode", "hermes", "aider" in that order
     And each detection records the resolved path
+
+  Scenario: Codex is detected from the user's common npm-global install
+    Given "codex" is executable at "/home/u/.npm-global/bin/codex"
+    And the inherited GUI PATH does not include "/home/u/.npm-global/bin"
+    When the default desk environment resolves "codex"
+    Then it returns "/home/u/.npm-global/bin/codex"
+    # A GUI-launched Roger process can inherit a smaller PATH than an interactive login
+    # shell. This is the founder's real install and must not make Codex silently disappear.
 
   Scenario: A guest missing from PATH is simply absent — never an error
     Given LookPath resolves "opencode" to "/home/u/.opencode/bin/opencode"
@@ -91,6 +96,7 @@ Feature: Guest operator detection registry
       | opencode | 1.17.11\n                                              | 1.17.11 |
       | hermes   | Hermes Agent v0.16.0 (2026.6.5) · upstream 9688c1a9    | 0.16.0  |
       | aider    | aider 0.86.1                                           | 0.86.1  |
+      | codex    | codex-cli 0.146.0                                      | 0.146.0 |
 
   Scenario: A failed version probe degrades to UNVERIFIED, never to hidden
     Given LookPath resolves "opencode" to "/home/u/.opencode/bin/opencode"

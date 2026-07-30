@@ -27,39 +27,39 @@ Feature: A tts offer's sample_url survives the register -> /voices trip verbatim
   Rule: sample_url registered through the REAL register path is served exactly
 
     Scenario: A fresh register carrying name, language, and sample_url lists all three
-      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the registration succeeded
       And an anonymous GET /voices arrives
       Then a voice with raw id "roger-operator-voice" is listed
-      And the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      And the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the voice with raw id "roger-operator-voice" carries name "Roger Operator" and language "en-US"
 
     Scenario: Two voices each keep their OWN sample_url (no cross-voice bleed)
-      When "bownux" registers an on-air tts offer with model "voice-a" named "Voice A", language "en-US", sample_url "https://rogerai.fyi/samples/a.mp3"
-      And "bownux" registers an on-air tts offer with model "voice-b" named "Voice B", language "en-GB", sample_url "https://rogerai.fyi/samples/b.mp3"
+      When "bownux" registers an on-air tts offer with model "voice-a" named "Voice A", language "en-US", sample_url "https://rogerai.fm/samples/a.mp3"
+      And "bownux" registers an on-air tts offer with model "voice-b" named "Voice B", language "en-GB", sample_url "https://rogerai.fm/samples/b.mp3"
       And an anonymous GET /voices arrives
-      Then the voice with raw id "voice-a" carries sample_url "https://rogerai.fyi/samples/a.mp3"
-      And the voice with raw id "voice-b" carries sample_url "https://rogerai.fyi/samples/b.mp3"
+      Then the voice with raw id "voice-a" carries sample_url "https://rogerai.fm/samples/a.mp3"
+      And the voice with raw id "voice-b" carries sample_url "https://rogerai.fm/samples/b.mp3"
 
   Rule: a re-registration REPLACES the offer - no stale persisted field survives it
 
     Scenario: A re-register that ADDS sample_url shows the new value (stale-merge catcher)
       When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US" and no sample_url
       And the registration succeeded
-      And the same node re-registers with sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      And the same node re-registers with sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the registration succeeded
       And an anonymous GET /voices arrives
-      Then the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      Then the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fm/samples/roger-operator.mp3"
 
     Scenario: A re-register that CHANGES sample_url shows the newest value
-      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fyi/samples/old.mp3"
-      And the same node re-registers with sample_url "https://rogerai.fyi/samples/new.mp3"
+      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fm/samples/old.mp3"
+      And the same node re-registers with sample_url "https://rogerai.fm/samples/new.mp3"
       And the registration succeeded
       And an anonymous GET /voices arrives
-      Then the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fyi/samples/new.mp3"
+      Then the voice with raw id "roger-operator-voice" carries sample_url "https://rogerai.fm/samples/new.mp3"
 
     Scenario: A re-register that REMOVES sample_url clears it (the fresh registration is authoritative)
-      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      When "bownux" registers an on-air tts offer with model "roger-operator-voice" named "Roger Operator", language "en-US", sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the same node re-registers with no sample_url
       And the registration succeeded
       And an anonymous GET /voices arrives
@@ -72,18 +72,18 @@ Feature: A tts offer's sample_url survives the register -> /voices trip verbatim
     # scenario, keeping the /voices row they assert on unambiguous among re-hydrated rows.
 
     Scenario: A broker restart re-hydrates the voice with its sample_url
-      When "bownux" registers an on-air tts offer with model "rehydrate-voice-a" named "Rehydrate Voice A", language "en-US", sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      When "bownux" registers an on-air tts offer with model "rehydrate-voice-a" named "Rehydrate Voice A", language "en-US", sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the registration succeeded
       And the broker restarts and re-hydrates from the store
       And an anonymous GET /voices arrives
       Then a voice with raw id "rehydrate-voice-a" is listed
-      And the voice with raw id "rehydrate-voice-a" carries sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      And the voice with raw id "rehydrate-voice-a" carries sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the voice with raw id "rehydrate-voice-a" carries name "Rehydrate Voice A" and language "en-US"
 
     Scenario: A restart after a sample_url-adding re-register re-hydrates the NEW value
       When "bownux" registers an on-air tts offer with model "rehydrate-voice-b" named "Rehydrate Voice B", language "en-US" and no sample_url
-      And the same node re-registers with sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      And the same node re-registers with sample_url "https://rogerai.fm/samples/roger-operator.mp3"
       And the registration succeeded
       And the broker restarts and re-hydrates from the store
       And an anonymous GET /voices arrives
-      Then the voice with raw id "rehydrate-voice-b" carries sample_url "https://rogerai.fyi/samples/roger-operator.mp3"
+      Then the voice with raw id "rehydrate-voice-b" carries sample_url "https://rogerai.fm/samples/roger-operator.mp3"

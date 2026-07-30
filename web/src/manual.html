@@ -36,7 +36,7 @@
         <div class="man-cover__meta">
           <span>Set: <b>rogerai</b></span>
           <span>Version: <b data-cli-version>v5.4.6</b></span>
-          <span>Broker: <b>broker.rogerai.fyi</b></span>
+          <span>Broker: <b>broker.rogerai.fm</b></span>
           <span>Protocol: <b>OpenAI-compatible</b></span>
         </div>
       </div>
@@ -59,7 +59,7 @@
         <div class="man-quick__card">
           <span class="man-quick__step">1 · Install</span>
           <p>macOS or Linux, one line (Windows: <code>install.ps1</code> in PowerShell).</p>
-          <pre><span class="p">$</span> curl -fsSL https://rogerai.fyi/install.sh | sh</pre>
+          <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre>
         </div>
 
         <div class="man-quick__card">
@@ -161,10 +161,10 @@
             <p>One command on macOS or Linux. It downloads the right binary for your
               OS/arch from GitHub Releases, verifies its SHA256 against the published
               checksums, and installs it to <code>~/.local/bin</code>.</p>
-            <pre><span class="p">$</span> curl -fsSL https://rogerai.fyi/install.sh | sh</pre>
+            <pre><span class="p">$</span> curl -fsSL https://rogerai.fm/install.sh | sh</pre>
 
             <p>On Windows, in PowerShell:</p>
-            <pre><span class="p">PS&gt;</span> irm https://rogerai.fyi/install.ps1 | iex</pre>
+            <pre><span class="p">PS&gt;</span> irm https://rogerai.fm/install.ps1 | iex</pre>
 
             <span class="man-fig">FIG. 1 - PLATFORMS</span>
             <div class="man-plate">
@@ -444,14 +444,14 @@
               models by setting the <code>model</code> field per request. No local proxy, no
               per-model process, no ports to juggle - the broker routes each request to a
               station for whatever model you named.</p>
-            <pre><span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+            <pre><span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
 <span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b   <span class="c"># a grant key - see §5</span>
 
 <span class="c"># same endpoint, same key, different model per call - all at once</span>
-<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'
-<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -d '{"model":"gpt-oss-120b","messages":[{"role":"user","content":"hi"}]}'</pre>
             <div class="man-plate">
@@ -580,7 +580,7 @@
               <div class="man-plate__row"><span class="man-plate__k"><kbd>Enter</kbd> · cue</span><span class="man-plate__v">point your app/CLI at that DJ's voice endpoint (you cue a voice, you don't chat it)</span></div>
               <div class="man-plate__row"><span class="man-plate__k"><kbd>&#9654;</kbd> · spin</span><span class="man-plate__v">play a sample; FREE plays now, a priced voice confirms first (never auto-spends)</span></div>
               <div class="man-plate__row"><span class="man-plate__k"><kbd>t</kbd></span><span class="man-plate__v">drop one step further to THE LISTENING POST - the stt transcribers (info)</span></div>
-              <div class="man-plate__row"><span class="man-plate__k">roster</span><span class="man-plate__v">the public voice directory is at <a href="/voices.html">rogerai.fyi/voices</a> (cheapest first, live)</span></div>
+              <div class="man-plate__row"><span class="man-plate__k">roster</span><span class="man-plate__v">the public voice directory is at <a href="/voices.html">rogerai.fm/voices</a> (cheapest first, live)</span></div>
             </div>
 
             <h3>Share a voice (open the VOICE BOOTH)</h3>
@@ -647,7 +647,7 @@
               (free, $0 self, or your sponsored price). The two lines printed at create are
               all a bot needs:</p>
             <pre><span class="c"># printed once by `grant create` (and on the web keys page)</span>
-OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+OPENAI_API_BASE=https://broker.rogerai.fm/v1
 OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
             <p>That is the whole mechanism: set those two env vars (or the equivalent
               <code>base_url</code> + <code>api_key</code> in your SDK) and every
@@ -662,11 +662,11 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
   save it now - it is shown only once.
 
 <span class="c"># 2) on the bot box (anywhere): set the two lines and run your bot</span>
-<span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fyi/v1
+<span class="p">$</span> export OPENAI_API_BASE=https://broker.rogerai.fm/v1
 <span class="p">$</span> export OPENAI_API_KEY=rog-grant_3f9a...c10b
 <span class="p">$</span> python petlings_bot.py        <span class="c"># any OpenAI client - openai-python, curl, llama-index...</span></pre>
             <pre><span class="c"># the raw call your bot makes - just a bearer token</span>
-<span class="p">$</span> curl https://broker.rogerai.fyi/v1/chat/completions \
+<span class="p">$</span> curl https://broker.rogerai.fm/v1/chat/completions \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"model":"qwen3-coder-30b","messages":[{"role":"user","content":"hi"}]}'</pre>
@@ -907,7 +907,7 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               limits, the onboarding state, and the saved share config. Inspect and set it
               with <code>roger config</code>.</p>
             <pre><span class="p">$</span> roger config                       <span class="c"># print broker, user, webui-open, palette, limits, path</span>
-<span class="p">$</span> roger config set broker https://broker.rogerai.fyi
+<span class="p">$</span> roger config set broker https://broker.rogerai.fm
 <span class="p">$</span> roger config set palette mono      <span class="c"># mono+red escape hatch (full = the lamp board, default)</span>
 <span class="p">$</span> roger config get broker</pre>
 
@@ -1075,8 +1075,8 @@ OPENAI_API_KEY=rog-grant_3f9a...c10b</pre>
               an optional request id and free-text detail); a report can be filed
               anonymously and POSTs to the broker. Enough independent reports auto-eject a
               node from routing, and a station's record follows it. You can also email
-              <a href="mailto:abuse@rogerai.fyi">abuse@rogerai.fyi</a> directly. Security
-              issues go to <a href="mailto:security@rogerai.fyi">security@rogerai.fyi</a>
+              <a href="mailto:abuse@rogerai.fm">abuse@rogerai.fm</a> directly. Security
+              issues go to <a href="mailto:security@rogerai.fm">security@rogerai.fm</a>
               (see the <a href="security.html">security page</a> and
               <code>/.well-known/security.txt</code>).</p>
           </section>

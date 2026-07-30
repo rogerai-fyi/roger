@@ -2,7 +2,10 @@ package operator
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +28,11 @@ type Env struct {
 
 // DefaultEnv wires the real OS seams: exec.LookPath + a ProbeTimeout-bounded `--version`.
 func DefaultEnv() Env {
+	home, _ := os.UserHomeDir()
 	return Env{
-		LookPath: exec.LookPath,
+		LookPath: func(bin string) (string, error) {
+			return ResolveGuestBinary(bin, home, exec.LookPath)
+		},
 		Probe: func(bin string) (string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
 			defer cancel()
@@ -39,6 +45,27 @@ func DefaultEnv() Env {
 			return string(out), err
 		},
 	}
+}
+
+// ResolveGuestBinary preserves PATH as the first source of truth, then checks
+// Codex's common per-user npm install prefixes for GUI-launched processes whose
+// inherited PATH is narrower than the interactive shell.
+func ResolveGuestBinary(bin, home string, lookPath func(string) (string, error)) (string, error) {
+	if p, err := lookPath(bin); err == nil && p != "" {
+		return p, nil
+	}
+	if bin != "codex" || home == "" {
+		return "", os.ErrNotExist
+	}
+	for _, candidate := range []string{
+		filepath.Join(home, ".npm-global", "bin", "codex"),
+		filepath.Join(home, ".local", "bin", "codex"),
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("executable file not found in PATH or common npm user prefixes")
 }
 
 // Detection is one guest found at the desk: the registry entry, the resolved PATH binary,

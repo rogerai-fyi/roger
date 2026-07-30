@@ -513,6 +513,64 @@
 .monetize__copy h2 { font-size: var(--t-h2); letter-spacing: var(--tracking-h2); color: var(--ink-900);
   font-weight: var(--weight-bold); line-height: var(--lh-snug); }
 .monetize__copy > p { margin-top: var(--s-4); color: var(--ink-500); font-size: var(--t-lead); }
+
+/* ---------- company -------------------------------------------- */
+.company {
+  border-top: 1px solid var(--hairline);
+  background: var(--paper);
+}
+.company__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--ink-900);
+}
+.company__card {
+  min-width: 0;
+  padding: var(--s-8);
+}
+.company__card + .company__card { border-left: 1px solid var(--hairline); }
+.company__card--labs { background: var(--paper-2); }
+.company__label {
+  display: block;
+  margin-bottom: var(--s-3);
+  color: var(--live);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--tracking-label);
+}
+.company__card h3 {
+  margin: 0 0 var(--s-3);
+  color: var(--ink-900);
+  font-size: 1.35rem;
+  letter-spacing: -.02em;
+}
+.company__card > p {
+  color: var(--ink-500);
+  line-height: 1.65;
+}
+.company__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-5);
+  margin-top: var(--s-5);
+}
+.company__links a {
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  border-bottom: 1px solid var(--hairline-2);
+}
+.company__links a:hover { color: var(--live); border-bottom-color: var(--live); }
+@media (max-width: 720px) {
+  .company__grid { grid-template-columns: 1fr; }
+  .company__card { padding: var(--s-6); }
+  .company__card + .company__card {
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+  }
+}
 .checks { list-style: none; margin: var(--s-6) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
 .checks li { display: flex; gap: 10px; align-items: flex-start; font-size: var(--t-sm); color: var(--ink-700); }
 .tick { color: var(--live); flex-shrink: 0; font-weight: var(--weight-bold); }

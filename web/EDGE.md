@@ -5,7 +5,7 @@ CDN/DNS proxy. It is **not** Cloudflare Pages. You can confirm the shape from th
 response headers:
 
 ```sh
-curl -sSI https://rogerai.fyi/ | grep -iE 'server|x-do-app-origin|cf-ray'
+curl -sSI https://rogerai.fm/ | grep -iE 'server|x-do-app-origin|cf-ray'
 # server: cloudflare         <- Cloudflare proxy in front
 # x-do-app-origin: <uuid>    <- DigitalOcean App Platform origin
 # cf-ray: ...
@@ -18,7 +18,7 @@ Cloudflare-Pages-style files in the repo are **not honored by the host**:
 - [`src/_redirects`](src/_redirects) - the `www -> apex` 301
 
 As of this writing **none** of those security headers are on the live response, and
-`https://www.rogerai.fyi/` returns `200` instead of a `301`. The fix is to mirror both to
+`https://www.rogerai.fm/` returns `200` instead of a `301`. The fix is to mirror both to
 the Cloudflare edge. The repo files stay the **source of truth**; the script below reads them
 so the edge never drifts.
 
@@ -33,7 +33,7 @@ already have in those phases, replacing only the two it owns by `description`).
 
 1. **Make a token.** Cloudflare dashboard -> My Profile -> API Tokens -> Create Token ->
    *Custom token* with permissions **Zone -> Zone -> Read** and **Zone -> Zone Rulesets ->
-   Edit**, scoped to the `rogerai.fyi` zone.
+   Edit**, scoped to the `rogerai.fm` zone.
 
 2. **Dry-run** (no token needed to preview the payloads):
    ```sh
@@ -53,8 +53,8 @@ already have in those phases, replacing only the two it owns by `description`).
 
 4. **Verify:**
    ```sh
-   curl -sSI https://rogerai.fyi/        | grep -iE 'content-security|strict-transport|x-frame|x-content-type|referrer|permissions'
-   curl -sSI https://www.rogerai.fyi/    | grep -i location     # -> https://rogerai.fyi/
+   curl -sSI https://rogerai.fm/        | grep -iE 'content-security|strict-transport|x-frame|x-content-type|referrer|permissions'
+   curl -sSI https://www.rogerai.fm/    | grep -i location     # -> https://rogerai.fm/
    ```
 
 ---
@@ -62,7 +62,7 @@ already have in those phases, replacing only the two it owns by `description`).
 ## Manual path: paste these into the dashboard
 
 If you'd rather click than run the script, both rules live under **Rules -> ...** on the
-`rogerai.fyi` zone. Header values must match [`src/_headers`](src/_headers) exactly.
+`rogerai.fm` zone. Header values must match [`src/_headers`](src/_headers) exactly.
 
 ### 1) Security headers - Transform Rule (Modify Response Header)
 
@@ -71,7 +71,7 @@ If you'd rather click than run the script, both rules live under **Rules -> ...*
 - **Name:** `rogerai:security-headers`
 - **When incoming requests match** (Edit expression):
   ```
-  (http.host in {"rogerai.fyi" "www.rogerai.fyi"})
+  (http.host in {"rogerai.fm" "www.rogerai.fm"})
   ```
 - **Then... Set static** - one entry per header (copy the values from `src/_headers`):
 
@@ -101,10 +101,10 @@ If you'd rather click than run the script, both rules live under **Rules -> ...*
 - **Name:** `rogerai:www-to-apex`
 - **When incoming requests match:**
   ```
-  (http.host eq "www.rogerai.fyi")
+  (http.host eq "www.rogerai.fm")
   ```
 - **Then... URL redirect**, type **Dynamic**:
-  - **Expression:** `concat("https://rogerai.fyi", http.request.uri.path)`
+  - **Expression:** `concat("https://rogerai.fm", http.request.uri.path)`
   - **Status:** `301`
   - **Preserve query string:** on
 
@@ -112,8 +112,8 @@ If you'd rather click than run the script, both rules live under **Rules -> ...*
 
 ## Scope notes
 
-- The header rule is scoped to the site hosts (`rogerai.fyi`, `www.rogerai.fyi`), **not** the
-  `broker.rogerai.fyi` API, so the HTML-oriented CSP never lands on JSON API responses. If you
+- The header rule is scoped to the site hosts (`rogerai.fm`, `www.rogerai.fm`), **not** the
+  `broker.rogerai.fm` API, so the HTML-oriented CSP never lands on JSON API responses. If you
   later want the basic hardening headers (HSTS, `nosniff`, `X-Frame-Options`) on the broker
   too, either widen the expression or set them in the broker's Go handlers (spec-first, per
   `CLAUDE.md`).

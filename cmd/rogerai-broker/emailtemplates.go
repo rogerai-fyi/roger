@@ -123,7 +123,7 @@ func renderHTML(d emailDoc) string {
 	b.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:1px solid ` + colHairline + `;padding-top:18px;">`)
 	b.WriteString(`<div style="font-family:` + fontSans + `;font-size:13px;color:` + colInk500 + `;margin:0 0 6px;">Over and out, the RogerAI desk.</div>`)
 	b.WriteString(`<div style="font-family:` + fontMono + `;font-size:11px;letter-spacing:0.04em;color:` + colInk400 + `;">`)
-	b.WriteString(`<a href="https://rogerai.fyi" target="_blank" style="color:` + colInk500 + `;text-decoration:none;">rogerai.fyi</a>&nbsp;&middot;&nbsp;a two-way radio for GPUs</div>`)
+	b.WriteString(`<a href="https://rogerai.fm" target="_blank" style="color:` + colInk500 + `;text-decoration:none;">rogerai.fm</a>&nbsp;&middot;&nbsp;a two-way radio for GPUs</div>`)
 	b.WriteString(`<div style="font-family:` + fontSans + `;font-size:11px;line-height:1.5;color:` + colInk400 + `;margin:12px 0 0;">You are receiving this because you have a RogerAI account on file. Replies reach the RogerAI desk.</div>`)
 	b.WriteString(`</td></tr></table></td></tr>`)
 
@@ -148,7 +148,7 @@ func renderText(d emailDoc) string {
 	}
 	b.WriteString("\n" + strings.Repeat("-", 52) + "\n")
 	b.WriteString("Over and out, the RogerAI desk\n")
-	b.WriteString("rogerai.fyi  -  a two-way radio for GPUs\n")
+	b.WriteString("rogerai.fm  -  a two-way radio for GPUs\n")
 	b.WriteString("You are receiving this because you have a RogerAI account on file.\n")
 	return b.String()
 }
@@ -276,11 +276,11 @@ func (b *broker) emailWelcome(email, displayName string) {
 		{"Top up", "add credits to send your own requests"},
 	})
 	// A second bulletproof CTA in the body (the primary one is the shell button below).
-	secondary := `<div style="margin:14px 0 2px;">` + button("Your account", "https://rogerai.fyi/account.html") + `</div>`
+	secondary := `<div style="margin:14px 0 2px;">` + button("Your account", "https://rogerai.fm/account.html") + `</div>`
 	bodyHTML := p(`Welcome aboard, `+esc(name)+`.`) + intro + doNow +
 		p(`<span style="color:`+colInk500+`;">Ready to earn? On a machine running a local model, run <span style="font-family:`+fontMono+`;">roger share</span> to go on air. Free sharing needs no login; set a price to earn.</span>`) +
 		secondary
-	bodyText := fmt.Sprintf("Welcome aboard, %s.\n\nRogerAI is a two-way radio for GPUs - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.\n\nWhat you can do now:\n  - Earn: share a model to put your GPU on air (`roger share`)\n  - Browse: see who is broadcasting at rogerai.fyi/models.html\n  - Top up: add credits to send your own requests\n\nYour account: https://rogerai.fyi/account.html", name)
+	bodyText := fmt.Sprintf("Welcome aboard, %s.\n\nRogerAI is a two-way radio for GPUs - a marketplace where home GPUs go on air to serve LLM requests, and anyone can tune in.\n\nWhat you can do now:\n  - Earn: share a model to put your GPU on air (`roger share`)\n  - Browse: see who is broadcasting at rogerai.fm/models.html\n  - Top up: add credits to send your own requests\n\nYour account: https://rogerai.fm/account.html", name)
 	d := emailDoc{
 		kicker:    "Welcome",
 		heading:   "Welcome to RogerAI, " + name,
@@ -288,7 +288,7 @@ func (b *broker) emailWelcome(email, displayName string) {
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "Browse models",
-		ctaHref:   "https://rogerai.fyi/models.html",
+		ctaHref:   "https://rogerai.fm/models.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -314,7 +314,7 @@ func (b *broker) emailPayoutSent(email string, amountCredits float64, transferID
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "View payouts",
-		ctaHref:   "https://rogerai.fyi/payouts.html",
+		ctaHref:   "https://rogerai.fm/payouts.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -341,7 +341,7 @@ func (b *broker) emailPayoutReversed(email string, amountCredits float64, disput
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "View payouts",
-		ctaHref:   "https://rogerai.fyi/payouts.html",
+		ctaHref:   "https://rogerai.fm/payouts.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -368,7 +368,7 @@ func (b *broker) emailDisputeOpened(email string, amountCredits float64, dispute
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "View account",
-		ctaHref:   "https://rogerai.fyi/account.html",
+		ctaHref:   "https://rogerai.fm/account.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -396,7 +396,7 @@ func (b *broker) emailAccountWarning(email, kind, evidence string, count, banAt 
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "View account",
-		ctaHref:   "https://rogerai.fyi/account.html",
+		ctaHref:   "https://rogerai.fm/account.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -420,7 +420,7 @@ func (b *broker) emailAccountBanned(email, reason, evidence string) {
 		bodyHTML:  bodyHTML,
 		bodyText:  bodyText,
 		ctaLabel:  "View account",
-		ctaHref:   "https://rogerai.fyi/account.html",
+		ctaHref:   "https://rogerai.fm/account.html",
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))
 }
@@ -484,7 +484,7 @@ func (b *broker) emailCapNotice(holder string, threshold string, spend, cap floa
 			bodyHTML:  bodyHTML,
 			bodyText:  bodyText,
 			ctaLabel:  "Top up",
-			ctaHref:   "https://rogerai.fyi/billing.html",
+			ctaHref:   "https://rogerai.fm/billing.html",
 		}
 	} else {
 		subj = "Monthly spend at 80%"
@@ -498,7 +498,7 @@ func (b *broker) emailCapNotice(holder string, threshold string, spend, cap floa
 			bodyHTML:  bodyHTML,
 			bodyText:  bodyText,
 			ctaLabel:  "Top up",
-			ctaHref:   "https://rogerai.fyi/billing.html",
+			ctaHref:   "https://rogerai.fm/billing.html",
 		}
 	}
 	b.mail.sendEmail(email, subj, renderHTML(d), renderText(d))

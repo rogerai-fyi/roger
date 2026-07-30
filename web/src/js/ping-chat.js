@@ -32,7 +32,7 @@
   "use strict";
 
   var REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var BROKER = "https://broker.rogerai.fyi";
+  var BROKER = "https://broker.rogerai.fm";
   var POS_KEY = "rogerai.ping.pos";
 
   var dock = document.getElementById("pingDock");
@@ -362,7 +362,7 @@
       })
       .catch(function () {
         // Never a broken state: Ping is off air, point to the CLI.
-        thinking.textContent = "I'm off air right now - tune in straight from your terminal: curl -fsSL https://rogerai.fyi/install.sh | sh";
+        thinking.textContent = "I'm off air right now - tune in straight from your terminal: curl -fsSL https://rogerai.fm/install.sh | sh";
         setBanner("off air - tune in via the CLI", true);
         setState("offair");
         log.scrollTop = log.scrollHeight;
