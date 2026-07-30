@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI - a two-way radio for GPUs" desc="RogerAI is a two-way radio for GPUs. Local-AI enthusiasts put their self-hosted models on air; you tune in and pay per token on the CLI. curl -fsSL https://rogerai.fm/install.sh | sh" theme=inline css=site og=1 -->
+  <!-- include: head.html title="RogerAI - run models across local GPUs" desc="One OpenAI-compatible local endpoint for models running across community and private hardware, with routing, failover, metering, and signed receipts." theme=inline css=site og=1 -->
 </head>
 <body data-onair="idle">
 
@@ -25,19 +25,19 @@
 
       <span class="hero__eyebrow" data-reveal>
         <span class="onair" aria-hidden="true">((<span class="onair__dot">•</span>))</span>
-        <span class="hero__callsign">ON AIR</span>
+        <span class="hero__callsign">ROGERAI</span>
         <span class="hero__sep" aria-hidden="true">·</span>
-        a two-way radio for GPUs
+        local inference infrastructure
       </span>
 
       <h1 class="hero__title" data-reveal data-reveal-delay="60">
-        Tune in to the world's<br /><span class="hero__op">home GPUs</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
+        Run models through<br /><span class="hero__op">one local endpoint</span>.<br /><span class="hero__fast">On hardware you choose.</span>
       </h1>
 
       <p class="hero__sub" data-reveal data-reveal-delay="120">
-        Operators put their self-hosted models <b>on air</b> - ham radio,
-        for LLMs. You <b>tune in</b> and pay per token on the CLI. No inbound
-        ports, no account to browse.
+        RogerAI connects OpenAI-compatible models across community and private
+        hardware. It handles discovery, routing, failover, metering, and signed
+        receipts. Operators keep control of their machines and open no inbound ports.
       </p>
 
       <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
@@ -212,13 +212,12 @@
     <div class="wrap">
       <div class="demo__head" data-reveal>
         <span class="sectionno">§1 / OPERATING PROCEDURE</span>
-        <h2>Tune in. Use it. Go on air.</h2>
-        <p>One CLI does both sides of the radio: <b>borrow</b> a model from someone's
-          home GPU, or <b>lend</b> your own and get paid per token. Pick a tape below
-          and watch it run.</p>
-        <p class="demo__fine">Under the hood, tuning in hands your bots a local
-          <b>OpenAI-compatible endpoint + key</b> on <code class="inline">127.0.0.1</code> -
-          a drop-in for any tool that already speaks OpenAI.</p>
+        <h2>Use capacity. Provide capacity.</h2>
+        <p>One CLI lets you use a model on another machine or make your own
+          OpenAI-compatible model available at a rate you control.</p>
+        <p class="demo__fine">Your applications receive a local endpoint and scoped key at
+          <code class="inline">127.0.0.1</code>, compatible with tools that already use
+          the OpenAI API format.</p>
       </div>
 
       <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
@@ -302,11 +301,9 @@
     <div class="wrap">
       <div class="market__head" data-reveal>
         <span class="sectionno">§2 / THE BAND</span>
-        <h2>Read the band.</h2>
-        <p>Every model is a band; every station is a home GPU serving it.
-          <b>More stations&nbsp;=&nbsp;stronger signal</b>, faster tokens, more choice.
-          Operators set their own rates. As a band fills or empties, prices
-          drift. An open market - real data only, no station no signal.</p>
+        <h2>Live capacity, price, and performance.</h2>
+        <p>Compare available models by station count, throughput, quality, and price.
+          Operators set their own rates, and the directory reports live data only.</p>
       </div>
 
       <div class="market__panel" data-reveal data-reveal-delay="80">
@@ -365,10 +362,9 @@
     <div class="wrap">
       <div class="section__head" data-reveal>
         <span class="sectionno">§3 / THE TUNE</span>
-        <h2>Home GPUs, on the air.</h2>
-        <p>An operator puts a model on the air at a price they set; you tune in and
-          pay per token; every token is lineage-tracked. Fair, private, and
-          dead-simple from either side.</p>
+        <h2>Two sides of the same network.</h2>
+        <p>Use remote model capacity through a local endpoint, or make an
+          OpenAI-compatible model available at a price and schedule you control.</p>
       </div>
 
       <div class="twoway" data-reveal data-reveal-delay="80">
@@ -483,7 +479,7 @@
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
         <span class="sectionno">§6 / MONETIZE</span>
-        <h2>Your GPU pays rent while you sleep.</h2>
+        <h2>Put idle GPU capacity to work.</h2>
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
           stations broadcast for the love of the band.</p>
         <ul class="checks">
@@ -541,11 +537,11 @@
 
         <article class="company__card company__card--labs">
           <span class="company__label">ROGERAI LABS</span>
-          <h3>Open research that reaches the edge</h3>
-          <p>RogerAI Labs makes frontier-model optimization more accessible and
-            develops open model and inference work for edge, manufacturing,
-            industrial, and personal use. Open Air Waves publishes the evidence;
-            Wave models are the measured, device-first research program.</p>
+          <h3>Models for local constraints</h3>
+          <p>RogerAI Labs works across a clear size ladder: frontier-scale
+            optimization for workstations, Wave Nano for local text and tools,
+            Wave Micro for routing and extraction, and Roger Edge for sensing
+            and fixed commands. Each program exists for a specific hardware envelope.</p>
           <p class="company__links">
             <a href="/research.html">Explore Research</a>
             <a href="/broadcasts.html">Open Air Waves</a>
@@ -559,8 +555,8 @@
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
       <span class="sectionno">§8 / GO</span>
-      <h2>Pick up the mic.</h2>
-      <p>Install the CLI. One command to go on air, or to tune in.</p>
+      <h2>Start with the CLI.</h2>
+      <p>Install RogerAI to browse models, use capacity, or share your own.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"
               aria-label="Copy install command to clipboard">
         <span class="install__prompt" aria-hidden="true">$</span>
