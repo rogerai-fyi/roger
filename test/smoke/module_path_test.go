@@ -28,8 +28,8 @@ import (
 // The /v5 suffix is not decoration. Go only considers tags whose major version matches the
 // module path's suffix, so while this said "rogerai.fm/roger" the toolchain ignored every
 // v2+ tag and resolved @latest to v0.3.3 - a five-major-version-old build - for anyone
-// running `go install` or importing the Apache-2.0 protocol carve-out. Silent, and wrong in
-// the most expensive direction: it hands people ancient code that still compiles.
+// running `go install`. Silent, and wrong in the most expensive direction: it hands people
+// ancient code that still compiles.
 const vanityModulePath = "rogerai.fm/roger/v5"
 
 // vanityPage is the ROOT document. It declares the repo-root prefix WITHOUT the major
