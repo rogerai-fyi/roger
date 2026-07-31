@@ -40,3 +40,105 @@
   padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hairline);
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
+
+/* ---------- §6 Wave Infinite ------------------------------------------------
+   Different in KIND from the size classes above it, so it is drawn differently:
+   a claim slab, a four-step loop, and a proven/not-proven ledger given equal
+   weight. The distinction must read as "another sort of thing", never as
+   "further along" - nothing here may imply availability. */
+.wf-inf__title .wf-inf__shimmer {
+  /* The one flourish on the page: a carrier sweeping across the word, which is the
+     right metaphor for a station and for a runtime that watches itself. It rides the
+     SAME ink-to-live gradient the rest of the site already spends - a second palette
+     would make this section look like a different product. Purely decorative: the word
+     reads normally with the animation off, and nothing is encoded in it. */
+  background: linear-gradient(100deg,
+    var(--ink-900) 0%, var(--ink-900) 34%,
+    var(--live) 47%, var(--live) 53%,
+    var(--ink-900) 66%, var(--ink-900) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+  animation: wf-inf-sweep 3.2s linear infinite;
+}
+/* One direction, continuously: a sweep that ping-pongs reads as a glitch, not a carrier. */
+@keyframes wf-inf-sweep { from { background-position: 125% 0; } to { background-position: -125% 0; } }
+
+.wf-inf { margin: 0 0 var(--s-7); border-block: 2px solid var(--ink-900); background: var(--paper); }
+.wf-inf__claim {
+  margin: 0; padding: var(--s-6);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-900); font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.wf-inf__claim b { color: var(--live); font-family: var(--font-mono); }
+.wf-inf__claim small {
+  display: block; margin-top: var(--s-3);
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .05em; text-transform: uppercase;
+}
+
+.wf-inf__loop {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.wf-inf__loop li {
+  min-width: 0; padding: var(--s-5);
+  border-right: 1px solid var(--hairline);
+}
+.wf-inf__loop li:last-child { border-right: 0; }
+.wf-inf__step {
+  display: block; color: var(--ink-300);
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .1em;
+}
+.wf-inf__loop b { display: block; margin-top: var(--s-2); color: var(--ink-900); font-size: var(--t-h3); }
+.wf-inf__state {
+  display: inline-flex; margin: var(--s-3) 0; padding: 2px 8px;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs);
+  color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+/* Built is marked by the word AND the outline, never by colour alone. */
+.wf-inf__loop li[data-state="built"] .wf-inf__state { border-color: var(--ink-900); color: var(--ink-900); }
+.wf-inf__loop li[data-state="unbuilt"] b { color: var(--ink-500); }
+/* The guard is the way OUT of the loop, so it is the one step drawn in red. */
+.wf-inf__guard { border-left: 2px solid var(--live); }
+.wf-inf__guard b { color: var(--live) !important; }
+.wf-inf__loop small { display: block; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wf-inf figcaption {
+  padding: var(--s-5) var(--s-6); border-top: 1px solid var(--hairline);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+
+/* Proven and not-proven get the same width on purpose: the ceiling is not a footnote. */
+.wf-inf__ledger {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6);
+  padding-top: var(--s-6);
+}
+.wf-inf__ledger p { margin: var(--s-3) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wf-inf__ledger b { color: var(--ink-900); }
+.wf-inf__name {
+  margin: var(--s-7) 0 0; padding: var(--s-4) var(--s-5);
+  border-left: 2px solid var(--live); background: var(--paper-2);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wf-inf__name b { color: var(--ink-900); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The shimmer carries no information, so stopping it loses nothing. Reset the clip
+     so the word does not sit frozen mid-gradient. */
+  .wf-inf__title .wf-inf__shimmer {
+    animation: none; background: none; -webkit-background-clip: border-box;
+    background-clip: border-box; color: var(--live);
+  }
+}
+@media (max-width: 860px) {
+  .wf-inf__loop { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wf-inf__loop li:nth-child(2) { border-right: 0; }
+  .wf-inf__loop li:nth-child(-n+2) { border-bottom: 1px solid var(--hairline); }
+  .wf-inf__ledger { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .wf-inf__loop { grid-template-columns: 1fr; }
+  .wf-inf__loop li { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .wf-inf__loop li:last-child { border-bottom: 0; }
+}
