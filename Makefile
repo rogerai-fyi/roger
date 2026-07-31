@@ -70,6 +70,31 @@ cover-gate-fast:
 		if [ "$$count" -eq 2 ] && [ "$$newest" = "man-plate__k\">v$$ver<" ]; then echo "[cover-gate-fast] OK - manual release metadata matches v$$ver"; \
 		else echo "[cover-gate-fast] FAIL - sync manual cover, reference, and newest changelog to v$$ver"; exit 1; fi
 
+# hooks: install the repo-local pre-push gate from its tracked source.
+# .git/hooks is not version controlled, so without this the gate exists on whichever
+# machine happened to create it and nowhere else. Idempotent; run it after cloning.
+.PHONY: hooks
+hooks:
+	@install -m 0755 scripts/hooks/pre-push .git/hooks/pre-push
+	@echo "[hooks] installed .git/hooks/pre-push from scripts/hooks/pre-push"
+
+# web-gate: what a push that touches web/ must clear.
+#
+# cover-gate-fast checks that Go still builds and the manual version is in sync, but
+# it never ran the web suite and never crawled the built links. So the pushes MOST
+# likely to break the website - the web-only ones - were getting the LEAST
+# verification, while npm test and the link crawl only ran when some unrelated .go
+# file happened to change. This is that missing half, and the pre-push hook runs it
+# whenever web/ is in the range.
+#
+# No Postgres, no coverage profile: npm test builds dist and asserts over it, then the
+# smoke package crawls that same dist for dead internal links and version drift.
+.PHONY: web-gate
+web-gate:
+	@cd web && npm test
+	@go test ./test/smoke/
+	@echo "[web-gate] OK - web suite + built-link crawl"
+
 # tdd: red-green watch loop for one package - make tdd PKG=./internal/store
 tdd:
 	@command -v gotestsum >/dev/null 2>&1 || go install gotest.tools/gotestsum@latest
