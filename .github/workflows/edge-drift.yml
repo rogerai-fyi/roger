@@ -7,14 +7,14 @@ on:
   push:
     branches: [main]
     paths:
-      - web/src/_headers
-      - web/src/_redirects
+      - web/src/**
       - web/scripts/cf-edge.mjs
+      - web/scripts/verify-artifacts.mjs
   pull_request:
     paths:
-      - web/src/_headers
-      - web/src/_redirects
+      - web/src/**
       - web/scripts/cf-edge.mjs
+      - web/scripts/verify-artifacts.mjs
   schedule:
     - cron: '17 9 * * 1' # weekly Monday sweep - catches edits made directly in Cloudflare
   workflow_dispatch:
@@ -32,3 +32,19 @@ jobs:
           node-version: '22'
       - name: live edge vs repo _headers/_redirects
         run: node web/scripts/cf-edge.mjs --check
+
+  # Every artifact the built site ADVERTISES must be fetchable by a stranger.
+  # v5.4.8 shipped a "WAVE MICRO v1.0 - AVAILABLE" headline, a download control and
+  # schema.org metadata all pointing at a 401, with the whole web suite green -
+  # a release claim is a NETWORK fact about a third-party host, and no offline test
+  # can see it. Runs on any change to the pages that carry release claims, and
+  # weekly, so an artifact going private later is caught too.
+  artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: advertised artifacts are publicly reachable
+        run: node web/scripts/verify-artifacts.mjs
