@@ -255,7 +255,7 @@
 }
 
 /* Pointer from the size spectrum to the full family field guide. Sits directly
-   under the ladder because that is where a reader asks "what is each rung for". */
+   under the family because that is where a reader asks "what is each slot for". */
 .spectrum-more { display: grid; gap: var(--s-1); margin: calc(var(--s-4) * -1) 0 var(--s-10); }
 .spectrum-more a {
   color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
@@ -266,7 +266,7 @@
 .spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live); border-bottom-color: var(--live); }
 .spectrum-more span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); max-width: 62ch; }
 
-/* Onward cards: the hub's three destinations, sitting under the ladder. Each
+/* Onward cards: the hub's three destinations, sitting under the family. Each
    states what the reader gets, so the choice is made before the click. */
 .research-onward { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 2px solid var(--ink-900); }
 .research-onward a { display: grid; gap: var(--s-2); align-content: start; padding: var(--s-5); border-right: 1px solid var(--hairline); }
@@ -285,7 +285,7 @@
    A PPI radar plot. RADIUS is the only channel carrying data: inner and outer
    radii are (log10(params) - 4) / 5.5 * 170, so the range rings are decade ticks.
    Bearing is decoration and the caption says so. Colour stays rationed - the only
-   saturated band is the rung actually in progress. */
+   saturated band is the slot actually in progress. */
 .scope { margin: 0 0 var(--s-6); }
 .scope__head {
   display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);

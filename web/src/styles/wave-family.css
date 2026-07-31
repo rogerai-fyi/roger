@@ -1,4 +1,4 @@
-/* Wave family field guide. Only the ladder rail is page-specific; the
+/* Wave family field guide. Only the family rail is page-specific; the
    capability figure and the matrix tables come from research.css so the two
    pages cannot drift apart. */
 .wf-back { display: inline-block; margin-bottom: var(--s-5); color: var(--ink-500); font-size: var(--t-xs); letter-spacing: .06em; text-transform: uppercase; }
@@ -33,7 +33,7 @@
   display: block; color: var(--ink-900); font-family: var(--font-mono);
   font-size: var(--t-micro); font-weight: 500; letter-spacing: .06em; text-transform: uppercase;
 }
-/* The one red beacon: spent on the single rung that actually exists. */
+/* The one red beacon: spent on the single slot that actually exists. */
 .wf-node.is-live i { border-color: var(--live); background: var(--live); }
 .wf-node.is-live b { color: var(--live); }
 .wf-rail figcaption {

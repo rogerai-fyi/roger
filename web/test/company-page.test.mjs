@@ -114,19 +114,19 @@ test("the company page makes no unearned model claims", () => {
   assert.doesNotMatch(page, /we (pre)?trained (DeepSeek|Kimi)/i);
 });
 
-test("the company page presents an honest model-size ladder", () => {
+test("the company page presents an honest model-size family", () => {
   const page = visible(readDist("company.html"));
-  for (const rung of [
+  for (const slot of [
     /Roger Edge/i,
     /Wave Nano/i,
     /Wave Micro/i,
     /frontier-scale optimization/i,
-  ]) assert.match(page, rung);
+  ]) assert.match(page, slot);
   assert.match(page, /sub-100M/i);
   assert.match(page, /350M-class/i);
   assert.match(page, /tens or hundreds of billions/i);
   assert.match(page, /right-sized|smallest model/i);
-  // The ladder describes PROGRAMS; none of its rungs may advertise an artifact id.
+  // The family describes PROGRAMS; none of its slots may advertise an artifact id.
   assert.match(page, /bake-off|not yet approved|release gate/i, "Wave Micro's real status is stated");
 });
 

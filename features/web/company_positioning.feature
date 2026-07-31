@@ -40,14 +40,14 @@ Feature: RogerAI presents a clear company, product, and research story
     And each market is grounded in edge, embedded, operational-technology, or air-gapped constraints
     And the patterns are not represented as customer case studies
 
-  Scenario: The model ladder presents the shipping Wave line honestly
+  Scenario: The model family presents the shipping Wave line honestly
     Given a Wave checkpoint has passed release gates
     Then Roger Edge is described as task-specific microcontroller work
     And Wave Nano is described as sub-100M specialist research
     And Wave Micro is described as a 350M-class released model
     And frontier-scale optimization covers upstream models with tens or hundreds of billions of parameters
     And the released checkpoint links its weights, model card, license, source, evaluations, and limitations
-    And no unreleased rung borrows the released checkpoint's availability or performance
+    And no unreleased slot borrows the released checkpoint's availability or performance
 
   Scenario: Origin and openness claims are component-specific
     Given a visitor reads the Company page

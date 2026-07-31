@@ -33,10 +33,10 @@ function walk(dir, ext, prefix = "") {
   return out;
 }
 
-// The rungs of the Wave ladder. None has a public checkpoint.
-const RUNGS = /Wave\s+(?:Micro|Nano|Core)/gi;
+// The slots of the Wave family. None has a public checkpoint.
+const SLOTS = /Wave\s+(?:Micro|Nano|Core)/gi;
 // Claims that would assert one exists. Deliberately CASE-SENSITIVE and matched only
-// NEAR a rung. Lowercase prose is how the truth is written - "no checkpoint released",
+// NEAR a slot. Lowercase prose is how the truth is written - "no checkpoint released",
 // "Live data loads when JavaScript is available" - while an actual claim is a status
 // badge (AVAILABLE), a status cell (Released) or a version (v1.0). A case-insensitive
 // match flagged this release's own changelog entry for saying the honest thing.
@@ -47,7 +47,7 @@ const WINDOW = 160;
 
 function offendingContext(body) {
   const hits = [];
-  for (const m of body.matchAll(RUNGS)) {
+  for (const m of body.matchAll(SLOTS)) {
     const around = body.slice(Math.max(0, m.index - WINDOW), m.index + WINDOW);
     // EVERY claim in the window, judged individually: a negated one nearby is not a
     // licence for the next one. Skipping the window on the first negation is how a real

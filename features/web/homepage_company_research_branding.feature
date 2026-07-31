@@ -82,19 +82,19 @@ Feature: The homepage presents RogerAI as a research and infrastructure company
       Given the page cannot provide the inputs behind an earnings estimate
       Then it shows the operator controls and revenue-share rule without a dollar forecast
 
-  Rule: The homepage previews the RogerAI model ladder
+  Rule: The homepage previews the RogerAI model family
 
     Scenario: A compact spectrum presents the right-sized model strategy
       Then the spectrum orders Roger Edge, Wave Nano, Wave Micro, and Wave Core
-      And each rung has a concise task and hardware envelope
+      And each slot has a concise task and hardware envelope
       And Roger Edge remains below the Wave family as task-specific microcontroller work
       And the spectrum links to Research for full program status
 
     Scenario: Wave is presented as a shipping model line
       Given at least one Wave checkpoint has passed its release gates
       Then the homepage identifies Wave as available from RogerAI Labs
-      And the released rung links to its downloadable artifact and model card
-      And unreleased rungs carry their actual research, release-candidate, or planned status
+      And the released slot links to its downloadable artifact and model card
+      And unreleased slots carry their actual research, release-candidate, or planned status
       And the homepage never applies one checkpoint's availability to the entire family
 
     Scenario: A released Wave checkpoint carries a real release contract
