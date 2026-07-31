@@ -76,7 +76,10 @@ test("every application address is a mailbox that exists", () => {
   const page = read("careers.html");
   const boxes = [...page.matchAll(/mailto:([a-z]+)@rogerai\.fm/g)].map((m) => m[1]);
   assert.ok(boxes.length > 0, "there is a way to apply");
-  const ROUTES = ["abuse", "billing", "confidential", "labs", "legal", "privacy", "security"];
+  // ROUTES mirrors REAL mail routing. It is not a formatting whitelist: adding a name here
+  // without provisioning the alias makes this guard certify its own assumption, and the
+  // page ships a dead CTA that looks tested. Widening it is a deliberate ops step.
+  const ROUTES = ["abuse", "billing", "careers", "confidential", "labs", "legal", "privacy", "security"];
   for (const b of boxes) assert.ok(ROUTES.includes(b), `mailto:${b}@ is a mailbox that exists`);
 });
 
@@ -97,4 +100,16 @@ test("rolling roles say so, and the page is static", () => {
 test("careers is indexable and in the sitemap", () => {
   assert.doesNotMatch(read("careers.html"), /<meta[^>]+name=["']robots["'][^>]*noindex/i);
   assert.match(read("sitemap.xml"), /careers\.html/);
+});
+
+// A reader who copies the address off the page and a reader who clicks it must reach the
+// same mailbox. They did not: the open-application link read labs@ while pointing at careers@.
+test("every visible address matches the mailbox it links to", () => {
+  const page = read("careers.html");
+  const links = [...page.matchAll(/<a href="mailto:([^"?]+)[^"]*">([^<]+)<\/a>/g)];
+  assert.ok(links.length > 0, "the page links at least one mailbox");
+  for (const [, href, text] of links) {
+    if (!text.includes("@")) continue; // "Apply by email" style labels carry no address
+    assert.equal(text.trim(), href, "the visible address must be the one the link opens");
+  }
 });
