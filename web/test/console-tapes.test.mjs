@@ -1,4 +1,4 @@
-// Regression locks for the FIG.3 console (the "demo replay" tape deck) and its MEDIA
+// Regression locks for the FIG.4 console (the "demo replay" tape deck) and its MEDIA
 // tapes at the end of the preset bank:
 //   - "using":   the animated story cartoon (assets/using-demo.{mp4,gif})
 //   - "hosting": the animated "host your own model on RogerAI" story (assets/hosting-demo.{mp4,gif})

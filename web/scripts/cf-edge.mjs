@@ -152,8 +152,7 @@ export function legacyRedirectRule(opts = {}) {
 //     https://rogerai.fm/manual       404
 //     https://rogerai.fm/manual.html  200
 // so /roger 404s while /roger/ serves the go-import page. Without this hop the module
-// is go-gettable by no path at all, including for third parties importing the
-// Apache-2.0 protocol carve-out. preserve_query_string is load-bearing: Go appends
+// is go-gettable by no path at all. preserve_query_string is load-bearing: Go appends
 // ?go-get=1 and drops the request if the redirect eats it.
 export function vanityImportRule(opts = {}) {
   const zone = opts.zone || ZONE;
@@ -311,11 +310,16 @@ if (check) {
     }
     const loc = vanity.res.headers.get("location") || "";
     const want = `https://${APEX}${path}/`;
-    // Exact pathname, not startsWith: for /roger a prefix test also accepts /roger/v5/,
-    // which is the very collapse this loop exists to rule out.
-    let landed = "";
-    try { landed = new URL(loc).pathname; } catch { landed = ""; }
-    if (vanity.res.status !== 301 || landed !== `${path}/`) {
+    // Assert BOTH origin and exact pathname. startsWith alone was one-sided (probing
+    // /roger accepted /roger/v5/, the collapse this loop rules out); pathname alone drops
+    // the host, so a 301 to the legacy apex or to www would read as "in sync".
+    let landed = null;
+    try { landed = new URL(loc); } catch { landed = null; }
+    if (
+      vanity.res.status !== 301 ||
+      landed?.origin !== `https://${APEX}` ||
+      landed.pathname !== `${path}/`
+    ) {
       drift.push(
         `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
           `got ${vanity.res.status} -> ${loc || "(none)"}; ` +

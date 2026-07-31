@@ -1,5 +1,5 @@
 /* =====================================================================
-   RogerAI - homepage band TEASER (FIG.1). A COMPACT fake-dial tuner: a short
+   RogerAI - homepage band TEASER (FIG.2). A COMPACT fake-dial tuner: a short
    frequency strip with band notches + labels under a fixed center needle. It
    AUTO-sweeps (no mouse) - drifting the strip and re-locking onto the next
    band on a slow loop, updating the LOCKED/SIGNAL readout + the RATE/SPEED/STN
