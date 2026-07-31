@@ -36,8 +36,7 @@ brew trust rogerai-fyi/homebrew-tap && brew install rogerai-fyi/homebrew-tap/rog
 ```
 
 Then just run `roger` for the interactive radio (browse stations, tune in, test, copy the
-endpoint; `rogerai` is the legacy alias). Already have Go?
-`go install rogerai.fm/roger/cmd/rogerai@latest`.
+endpoint; `rogerai` is the legacy alias).
 
 ## Use it
 
