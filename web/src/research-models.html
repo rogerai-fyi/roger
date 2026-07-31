@@ -134,8 +134,10 @@
              not a model, and listing it beside the size classes would tell a reader it
              is a bigger one. A pointer keeps it findable without misfiling it. -->
         <p class="model-roadmap"><b>Not in this list: Wave Infinite.</b> It is a runtime
-          rather than a model - the layer any of these could run under - so it has no
-          parameter class and no checkpoint of its own.
+          rather than a model - the layer a model runs under - so it has no parameter
+          class and no checkpoint of its own. It is also not a layer every entry here
+          could use: it certifies mixture-of-experts routing, which is a base-model
+          property, not a family-wide one.
           <a href="/research-wave-family.html#infinite">Read what it is, and what it is
           not yet &rarr;</a></p>
 

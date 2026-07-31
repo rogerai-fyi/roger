@@ -296,13 +296,12 @@
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;6 / WAVE INFINITE</span>
           <h2 class="wf-inf__title">A <span class="wf-inf__shimmer">runtime</span>, not a size.</h2>
-          <p>Everything above is a model. <b>Wave Infinite</b> is the layer any of them
-             could run under - a runtime that applies across the family rather than
-             sitting at a point in it. It watches its own execution, proves which parts of
-             the model your workload can never reach, and skips those parts. Every
-             modification carries a machine-checkable certificate that behaviour is
-             unchanged on the region observed, and any input leaving that region falls
-             back to the unmodified path.</p>
+          <p>Everything above is a model. <b>Wave Infinite</b> is a runtime - the layer a
+             model runs under, not another point on the size axis. It watches its own
+             execution, proves which parts of the model your workload can never reach, and
+             skips those parts. Every modification carries a machine-checkable certificate
+             that behaviour is unchanged on the region observed, and any input leaving that
+             region falls back to the unmodified path.</p>
         </div>
 
         <figure class="wf-inf">
@@ -370,6 +369,16 @@
                weights on disk after a year are the ones you installed.</p>
           </div>
         </div>
+
+        <p class="wf-inf__requires"><b>What it requires.</b> The certificate is
+          reachability certification of <b>mixture-of-experts</b> routing, so it applies
+          to a model that has experts and a per-expert selection bias to read. That is a
+          base-model choice rather than something the family has today, and it does not
+          reach <b>Roger Edge</b> at all - that is a classifier of a few hundred
+          kilobytes, not a language model. The same certify, specialise and guard shape
+          is being explored at the device-fleet boundary instead, where escalating what a
+          tiny model cannot classify plays the part the guard plays here. That is an
+          analogy, not this runtime.</p>
 
         <p class="wf-inf__name"><b>About the name.</b> The reflective-tower literature
           proved a notionally infinite tower of self-observation has a finite

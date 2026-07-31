@@ -12,9 +12,12 @@
 #   sizes. Wave Infinite is a RUNTIME - "a self-modifying model runtime in which
 #   every modification carries a machine-checkable certificate that it is
 #   behaviour-preserving on the observed operating region, and any input leaving
-#   that region deoptimizes to the unmodified path." It applies ACROSS the family
-#   rather than sitting at a point in it. That is precisely what makes it "special
-#   but part of the family", and it is also why it cannot be a blip on a size axis.
+#   that region deoptimizes to the unmodified path." It runs UNDER a model rather
+#   than sitting at a point on the size axis, which is why it cannot be a blip on
+#   that axis - but "part of the family" must not slide into "works with all of it".
+#   The certificate is reachability certification of MoE EXPERTS and needs a
+#   per-expert selection-bias tensor, so it is a base-model property. It does not
+#   reach Roger Edge, which is a classifier rather than a language model.
 #
 # THE CLAIM CEILING. The brief sets this itself and this spec enforces it verbatim:
 #
@@ -54,7 +57,9 @@ Feature: Wave Infinite is presented as the research architecture it is
     Then Wave Infinite is not given a parameter class
     And it is not placed on the size axis of the scope
     And the page states that it is a runtime rather than a model size
-    And the page states that it would apply across the family
+    And the page states that it runs under a model rather than beside one
+    And the page names what a base model must provide for the certificate to apply
+    And it does not imply that every slot in the family could use it
 
   Scenario: The one-sentence definition is the brief's own
     Then the page states that every modification carries a machine-checkable certificate
