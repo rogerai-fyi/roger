@@ -970,7 +970,7 @@
 .market__tune a:hover { color: var(--live); border-bottom-color: var(--live); }
 
 /* =====================================================================
-   FIG.1 (homepage) - the BAND TEASER. A COMPACT fake-dial tuner: a short
+   FIG.2 (homepage) - the BAND TEASER. A COMPACT fake-dial tuner: a short
    frequency strip (notches + labels) under a fixed center needle, that
    AUTO-sweeps + re-locks band to band (teaser.js, shared rAF on --carrier).
    It links into /models.html (where the full INTERACTIVE dial lives, real
