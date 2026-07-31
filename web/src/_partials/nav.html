@@ -33,7 +33,18 @@
            that site navigation should not claim a role whose keyboard contract (arrow
            keys, typeahead) it does not implement. -->
       <div class="nav__sections">
-        <a class="nav__link" href="/models.html" {{modelscurrent}}>Models</a>
+        <span class="nav__group">
+          <a class="nav__link" href="/models.html" {{modelscurrent}}>Models</a>
+          <button class="nav__more" type="button" id="navModelsBtn"
+                  aria-expanded="false" aria-controls="navModelsPanel"
+                  aria-label="More under Models">
+            <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true" focusable="false"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <div class="nav__panel" id="navModelsPanel" hidden>
+            <a href="/models.html"><b>Models on air</b><span>The live directory: every model the network is carrying, and the stations carrying it.</span></a>
+            <a href="/voices.html" {{voicescurrent}}><b>Voices</b><span>On-air text-to-speech voices, each one an operator&rsquo;s station.</span></a>
+          </div>
+        </span>
 
         <span class="nav__group">
           <a class="nav__link" href="/research.html" {{researchcurrent}}>Research</a>
@@ -45,14 +56,11 @@
           <div class="nav__panel" id="navResearchPanel" hidden>
             <a href="/research.html"><b>Labs</b><span>Programs, proof, and how the work gets published.</span></a>
             <a href="/research-models.html"><b>Models and status</b><span>Every model, its program status, lineage and evidence.</span></a>
-            <a href="/research-wave-family.html"><b>The Wave family</b><span>One ladder, from microcontroller to workstation.</span></a>
+            <a href="/research-wave-family.html"><b>The Wave family</b><span>Every slot, from microcontroller to workstation.</span></a>
             <a href="/research-industry.html"><b>Industrial deployment</b><span>Where the box sits in a plant network, and what it never touches.</span></a>
             <a href="/broadcasts.html"><b>Open Air Waves</b><span>Build stories and measurements, negative results included.</span></a>
           </div>
         </span>
-
-        <a class="nav__link" href="/voices.html" {{voicescurrent}}>Voices</a>
-        <a class="nav__link" href="/app.html" {{appcurrent}}>App</a>
 
         <span class="nav__group">
           <a class="nav__link" href="/company.html" {{companycurrent}}>Company</a>
@@ -68,6 +76,14 @@
         </span>
       </div>
 
+      <span class="nav__divider" aria-hidden="true"></span>
+      <!-- App is a destination of a different KIND - a store listing, not a section of
+           this site - so it gets its own band between two dividers rather than sitting
+           in the sections group. It reuses .nav__sections so the burger drawer styles it
+           as a full-width row like every other link (the dividers are hidden there). -->
+      <div class="nav__sections nav__sections--app">
+        <a class="nav__link" href="/app.html" {{appcurrent}}>App</a>
+      </div>
       <span class="nav__divider" aria-hidden="true"></span>
 {{/if}}
       <!-- utility cluster: manual, source, account, theme - on EVERY page.
