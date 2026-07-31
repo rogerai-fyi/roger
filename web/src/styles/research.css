@@ -144,9 +144,16 @@
 .research-closing p { max-width: 700px; margin-inline: auto; }
 .research-closing .research-actions { justify-content: center; }
 
-.deployment-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 2px solid var(--ink-900); }
-.deployment-grid article { padding: var(--s-5); border-right: 1px solid var(--hairline); }
-.deployment-grid article:last-child { border-right: 0; }
+/* Six markets, three across. The dividers are the grid GAP showing through, not borders
+   on the cells: nth-child arithmetic has to be re-derived at every breakpoint and gets it
+   wrong the moment the column count or the market count changes - which it just did, and
+   the single-column layout silently lost three dividers. This is correct at any count. */
+.deployment-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px; background: var(--hairline);
+  border-block: 2px solid var(--ink-900);
+}
+.deployment-grid article { padding: var(--s-5); background: var(--paper); }
 .deployment-grid b { color: var(--ink-900); }
 .deployment-grid p { margin-bottom: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
@@ -159,8 +166,6 @@
   .research-grid { grid-template-columns: 1fr; }
   .model-row { grid-template-columns: 1fr; gap: var(--s-4); }
   .deployment-grid, .device-contract { grid-template-columns: 1fr 1fr; }
-  .deployment-grid article:nth-child(2) { border-right: 0; }
-  .deployment-grid article:nth-child(-n+2) { border-bottom: 1px solid var(--hairline); }
   .device-contract p:nth-child(2) { border-right: 0; }
   .device-contract p:last-child { grid-column: 1 / -1; border-top: 1px solid var(--hairline); }
   .developer-steps { grid-template-columns: 1fr; }
@@ -174,7 +179,7 @@
   .research-hero__lead { margin-top: var(--s-4); }
   .research-hero__mascot .tube-ping { margin-bottom: var(--s-3); }
   .deployment-grid, .device-contract { grid-template-columns: 1fr; }
-  .deployment-grid article, .deployment-grid article:nth-child(2), .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
+  .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
     grid-column: auto;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
