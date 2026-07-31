@@ -282,10 +282,14 @@
 }
 
 /* ---------- the Wave scope --------------------------------------------------
-   A PPI radar plot. RADIUS is the only channel carrying data: inner and outer
-   radii are (log10(params) - 4) / 5.5 * 170, so the range rings are decade ticks.
-   Bearing is decoration and the caption says so. Colour stays rationed - the only
-   saturated band is the slot actually in progress. */
+   A PPI radar where BOTH channels carry data. RADIUS is the parameter class:
+   (log10(params) - 4) / 5.5 * 170, so every ring is one decade. BEARING is the
+   capability variation, and a slot's arc spans exactly the variations the family
+   page says it hosts - so the plot and that table cannot drift apart.
+
+   The scope and the legend are one object: hovering, focusing or selecting either
+   side raises the same slot on both. Colour stays rationed - the only saturated
+   arc is the slot actually in progress. */
 .scope { margin: 0 0 var(--s-6); }
 .scope__head {
   display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
@@ -294,65 +298,91 @@
   letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
 }
 .scope__body {
-  display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
   gap: var(--s-8); align-items: center; padding-top: var(--s-6);
 }
-.scope__ppi { width: 100%; height: auto; }
+.scope__ppi { width: 100%; height: auto; overflow: visible; }
 
 .scope__grid circle, .scope__grid line {
   fill: none; stroke: var(--hairline-2); stroke-width: 1;
 }
+/* The decade labels are how the radius axis is read, so they are painted LAST, over
+   the arcs, with a paper halo (paint-order puts the stroke behind the fill). Under the
+   filled cells they were illegible. */
 .scope__ticks text {
-  fill: var(--ink-400); font-family: var(--font-mono); font-size: 11px;
-  dominant-baseline: middle; text-anchor: end;
+  fill: var(--ink-500); font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: .06em; font-weight: var(--weight-semi);
+  stroke: var(--paper); stroke-width: 3px; paint-order: stroke fill;
+}
+/* The bearing axis has to be readable ON the instrument - that is what replaced the
+   sentence explaining that bearing meant nothing. */
+.scope__bearings text {
+  fill: var(--ink-500); font-family: var(--font-mono); font-size: 10px;
+  font-weight: var(--weight-semi); letter-spacing: .12em; text-anchor: middle;
 }
 .scope__origin { fill: var(--ink-400); }
 
-/* Contacts, not bands. A first pass drew each class as a ring whose stroke-width was
-   its decade span - which made the SMALLEST model the fattest ring, swallowing the
-   scope and hiding the range rings underneath. Each class is now a range gate along
-   its own bearing: a line from its inner to its outer radius with a blip at the outer
-   edge. Radius still carries all the information; bearing only separates the contacts
-   so their labels do not collide, which the caption states. */
-.scope__gate { stroke: var(--ink-700); stroke-width: 3.5; stroke-linecap: round; }
-.scope__blip { fill: var(--ink-900); }
-.scope__contact--live .scope__gate { stroke: var(--live); }
-.scope__contact--live .scope__blip { fill: var(--live); }
-.scope__gate--live .scope__gate { stroke: var(--live); }
-.scope__gate--live .scope__blip { fill: var(--live); }
+/* One cell per (slot x variation). Filled, not stroked, so the arc reads as an area
+   of capability rather than a line. */
+.scope__cell {
+  fill: var(--ink-700); fill-opacity: .16;
+  stroke: var(--ink-700); stroke-width: 1;
+  transition: fill-opacity var(--d-2, .18s) ease, stroke-width var(--d-2, .18s) ease;
+}
+.scope__contact[data-slot="wave-micro"] .scope__cell {
+  fill: var(--live); fill-opacity: .18; stroke: var(--live);
+}
+
+/* --- the two-way link. One class on the figure, driven from either side. --- */
+.scope.is-linked .scope__cell { fill-opacity: .05; stroke-opacity: .25; }
+.scope.is-linked .scope__contact.is-on .scope__cell {
+  fill-opacity: .34; stroke-opacity: 1; stroke-width: 1.6;
+}
+.scope.is-linked .scope__row { opacity: .42; }
+.scope.is-linked .scope__row.is-on { opacity: 1; }
 
 .scope__sweep line { stroke: var(--live); stroke-width: 1; opacity: .45; }
-.scope__sweep { transform-origin: 200px 200px; animation: scope-sweep 6s linear infinite; }
-@keyframes scope-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.scope__sweep { transform-origin: 220px 220px; animation: scope-sweep 6s linear infinite; }
+@keyframes scope-sweep { to { transform: rotate(360deg); } }
+/* The sweep is decoration over data, so it gets out of the way while a slot is read. */
+.scope.is-linked .scope__sweep { opacity: 0; }
 
 .scope__legend { list-style: none; margin: 0; padding: 0; }
-.scope__legend li {
-  display: grid; grid-template-columns: 10px minmax(0, 1fr) max-content;
-  grid-template-areas: "key name status" ". range status" ". note note";
-  gap: 2px var(--s-3); padding: var(--s-4) 0; border-bottom: 1px solid var(--hairline);
+.scope__row { transition: opacity var(--d-2, .18s) ease; }
+.scope__row + .scope__row { border-top: 1px solid var(--hairline); }
+/* The row IS the control, so the whole row is the hit target and the focus ring. */
+.scope__pick {
+  display: grid; width: 100%; text-align: left; padding: var(--s-4) var(--s-3);
+  grid-template-areas: "name status" "range status" "note note" "carries carries";
+  grid-template-columns: 1fr max-content; gap: 2px var(--s-4); align-items: baseline;
+  border-radius: var(--r-xs);
 }
-.scope__key {
-  grid-area: key; align-self: center; width: 10px; height: 10px;
-  background: color-mix(in srgb, var(--ink-500) 34%, transparent);
-}
-.scope__key--live { background: color-mix(in srgb, var(--live) 46%, transparent); }
+.scope__pick:hover { background: var(--hover-bg); }
+.scope__pick:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
 .scope__legend b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
 .scope__legend code { grid-area: range; color: var(--ink-700); font-size: var(--t-sm); }
 .scope__legend small { grid-area: note; color: var(--ink-500); font-size: var(--t-sm); }
-.scope__status {
-  grid-area: status; align-self: center;
-  border: 1px solid var(--hairline-2); padding: 3px 7px;
-  font-family: var(--font-mono); font-size: var(--t-micro);
-  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-500);
+.scope__carries {
+  grid-area: carries; margin-top: 2px;
+  font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .06em;
+  color: var(--ink-400); text-transform: uppercase;
 }
-.scope__status--live { border-color: var(--live); color: var(--live); }
+.scope__status {
+  grid-area: status; justify-self: end;
+  border: 1px solid var(--hairline-2); border-radius: var(--r-xs); padding: 2px 8px;
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .08em; text-transform: uppercase; color: var(--ink-500);
+}
+/* In progress is marked by the outline AND the word, never by colour alone. */
+.scope__row--live .scope__status { border-color: var(--live); color: var(--live); }
+.scope__row--live .scope__carries { color: var(--live); }
 
 .scope figcaption {
   margin-top: var(--s-5); color: var(--ink-500);
   font-size: var(--t-sm); line-height: var(--lh-body);
 }
 
-/* Bands settle outward as the scope paints. One-shot, and the DRAWN state is the
+/* Arcs settle outward as the scope paints. One-shot, and the DRAWN state is the
    default - is-pending is added by script, so JS-off gets a complete plot. */
 .scope.is-pending .scope__contact { opacity: 0; }
 .scope.is-revealed .scope__contact {
@@ -363,12 +393,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .scope__sweep { animation: none; opacity: .35; }
+  .scope__cell, .scope__row { transition: none; }
   .scope.is-pending .scope__contact,
   .scope.is-revealed .scope__contact { animation: none; opacity: 1; }
 }
 @media (max-width: 720px) {
   .scope__body { grid-template-columns: 1fr; gap: var(--s-6); }
-  .scope__ppi { max-width: 300px; margin-inline: auto; }
+  .scope__bearings text { font-size: 12px; }
+}
 }
 
 /* ---------- where the box sits ----------------------------------------------
