@@ -489,7 +489,9 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     flex-direction: column; align-items: stretch; gap: 0;
     background: var(--paper); border-bottom: 1px solid var(--hairline);
     box-shadow: var(--e-3);
-    padding: var(--s-3) 0 var(--s-5);
+    /* left/right:0 resolves against .nav__inner's PADDING box, which cancels the page
+       gutter - so the drawer has to re-apply it or every link sits on the screen edge. */
+    padding: var(--s-3) var(--gutter) var(--s-5);
     transform: translateY(-8px); opacity: 0; pointer-events: none; visibility: hidden;
     transition: opacity var(--d-3) var(--ease-out-quint),
                 transform var(--d-3) var(--ease-out-quint),
@@ -507,6 +509,17 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     min-height: 48px; font-size: var(--t-body); color: var(--ink-900);
     border-bottom: 1px solid var(--hairline);
   }
+  /* A disclosure row is the group, not the link: .nav__link is inline-flex, so its own
+     border-bottom stopped at the end of the label. Give the row to the group (which puts
+     the rule below an expanded panel, where the nesting reads right) and lay the label
+     and its chevron out edge to edge so the whole row is the tap target. */
+  .nav__sections .nav__group {
+    display: flex; flex-wrap: wrap; align-items: center;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .nav__group .nav__link { flex: 1; border-bottom: 0; }
+  .nav__group .nav__more { width: 44px; height: 44px; }
+  .nav__group .nav__panel { flex-basis: 100%; }
   .nav__divider { display: none; }
   /* utilities sit in a row at the foot of the panel */
   .nav__utils { gap: var(--s-4); padding-top: var(--s-4); }
@@ -818,9 +831,11 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .nav__more svg { transition: none; } }
 
 /* Inside the mobile burger the bar is a column, so a floating panel would sit over
-   the links beneath it. Let it flow inline instead and indent to show the nesting. */
-@media (max-width: 760px) {
-  .nav__group { display: block; }
+   the links beneath it. Let it flow inline instead and indent to show the nesting.
+   This breakpoint MUST track the one that shows .nav__burger (960px): when it was
+   760px, everything in between drew a detached floating panel over the hero. */
+@media (max-width: 960px) {
+  /* the row itself (flex, chevron right, divider) is laid out with the drawer, above */
   .nav__panel {
     position: static; transform: none; width: auto; max-width: none;
     margin: var(--s-2) 0 var(--s-3) var(--s-4); box-shadow: none;

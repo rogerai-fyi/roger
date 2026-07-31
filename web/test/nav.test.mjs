@@ -249,3 +249,63 @@ test("current navigation uses a stable red underline with reduced-motion safety"
     /\.nav__link:not\(\.nav__link--ghost\)::after\s*\{\s*transition:\s*none;\s*\}/.test(block)
   ), "reduced motion disables the nav underline transition");
 });
+
+// ---- the disclosure panels inside the burger drawer -------------------------
+//
+// Two bugs the rendered page found that the markup tests could not.
+//
+// 1. The panel un-floats at 760px but the burger appears at 960px, so between them
+//    the drawer is a column while its panel is still position:absolute - it detached
+//    from "Research" and covered the Source button and the hero.
+// 2. The drawer is position:absolute inside .wrap.nav__inner, and absolute offsets
+//    resolve against the PADDING box, so left:0/right:0 cancels the page gutter: every
+//    link and both utility buttons sat flush against the viewport edge.
+//
+// Both are breakpoint/box arithmetic, so they are asserted against the CSS source.
+const baseCss = () => readFileSync(path.join(SRC, "styles", "base.css"), "utf8");
+
+// The max-width breakpoint of the innermost media query a declaration sits in.
+const breakpointOf = (css, needle) => {
+  const i = css.search(needle);
+  assert.ok(i > -1, `CSS contains ${needle}`);
+  const opened = [...css.slice(0, i).matchAll(/@media\s*\(max-width:\s*(\d+)px\)/g)];
+  assert.ok(opened.length, `${needle} sits inside a max-width media query`);
+  return Number(opened[opened.length - 1][1]);
+};
+
+test("the nav panels stop floating at the SAME width the burger takes over", () => {
+  const css = baseCss();
+  const burger = breakpointOf(css, /\.nav__burger\s*\{\s*display:\s*grid/);
+  const panel = breakpointOf(css, /\.nav__panel\s*\{[^}]*position:\s*static/);
+  assert.equal(panel, burger,
+    `panel un-floats at ${panel}px but the drawer starts at ${burger}px - in between, ` +
+    "an absolutely positioned panel covers the page instead of nesting under its link");
+});
+
+test("the burger drawer keeps the page gutter", () => {
+  const css = baseCss();
+  const bp = breakpointOf(css, /\.nav__burger\s*\{\s*display:\s*grid/);
+  const drawer = css.match(
+    new RegExp(`@media\\s*\\(max-width:\\s*${bp}px\\)[\\s\\S]*?\\.nav__menu\\s*\\{([^}]*)\\}`)
+  )?.[1];
+  assert.ok(drawer, `the ${bp}px block restyles .nav__menu`);
+  const parts = (drawer.match(/padding:\s*([^;]+);/)?.[1] || "").trim().split(/\s+/);
+  assert.ok(parts.length >= 2, `.nav__menu sets a padding shorthand, got "${parts.join(" ")}"`);
+  assert.match(parts[1], /--gutter/,
+    "the drawer is absolutely positioned against .nav__inner's PADDING box, so it must " +
+    "re-apply the gutter itself or the links sit flush against the viewport edge");
+});
+
+test("every drawer row draws one full-width divider, group or not", () => {
+  // .nav__link is inline-flex, so on a row that carries a disclosure the border-bottom
+  // spanned only the label and stopped - "Research" and "Company" got a stub rule while
+  // Models/Voices/App got a full-width one. The divider belongs to the ROW (the group),
+  // which also puts it below the expanded panel, where the nesting reads correctly.
+  const css = baseCss();
+  const bp = breakpointOf(css, /\.nav__burger\s*\{\s*display:\s*grid/);
+  const block = css.slice(css.indexOf(`@media (max-width: ${bp}px)`));
+  assert.match(block, /\.nav__sections\s+\.nav__group\s*\{[^}]*border-bottom:\s*1px solid var\(--hairline\)/,
+    "the group carries the row divider");
+  assert.match(block, /\.nav__group\s+\.nav__link\s*\{[^}]*border-bottom:\s*(?:0|none)/,
+    "the link inside a group does not also draw a stub");
+});
