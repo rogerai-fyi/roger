@@ -11,7 +11,11 @@
 // the merge that presents offerable and detected models as one list. It performs
 // NO I/O - no fetching, no downloading, no process launching - so the rules stay
 // cheap to test and impossible to get wrong by accident. Acquisition and serving
-// belong to internal/provision and internal/runtime.
+// belong to later slices, in packages that do not exist yet.
+//
+// Slice 1 of an approved multi-slice spec, so it has no importer yet: the SHARE-list
+// consumer lands with the slice that can actually acquire a model. Read as intentional
+// rather than orphaned, and delete it if that consumer never arrives.
 //
 // Contract: features/share/model_catalog.feature.
 package catalog
