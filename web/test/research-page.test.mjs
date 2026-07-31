@@ -573,3 +573,32 @@ test("the axis toggle is hidden when it would not work", () => {
   // And the axis the no-script reader gets must be the one the markup declares.
   assert.match(scopeFig(), /data-mode="variations"/);
 });
+
+test("the axis buttons name the two modes a reader is choosing between", () => {
+  const fig = scopeFig();
+  const labels = [...fig.matchAll(/<button[^>]*class="scope__mode"[^>]*>([^<]+)<\/button>/g)]
+    .map((m) => m[1].trim());
+  assert.deepEqual(labels, ["Capability", "Industrial"],
+    "the pair reads as two kinds of axis, not one axis and one unit");
+});
+
+// Every onward row is a three-across grid. The deployment row shipped with one card in
+// it, which reads as a broken grid rather than a deliberate single destination - and it
+// under-sold a section that now has three real places to go.
+test("each onward row offers a full set of destinations that resolve", () => {
+  const page = read("research.html");
+  const rows = [...page.matchAll(/<div class="research-onward">([\s\S]*?)<\/div>\s*<\/div>/g)];
+  assert.ok(rows.length >= 2, `the hub has more than one onward row, found ${rows.length}`);
+  for (const [, row] of rows) {
+    const cards = [...row.matchAll(/<a href="([^"]+)">\s*<b>([^<]+)<\/b>\s*<span>([\s\S]*?)<\/span>/g)];
+    assert.equal(cards.length, 3, `each row fills the grid, found ${cards.length}`);
+    for (const [, href, title, blurb] of cards) {
+      assert.ok(title.trim().length > 0, "the card is named");
+      assert.ok(visibleText(blurb).length > 40, `${title} says what is there, not just where`);
+      // Deep links have to land on a section that exists, or the card is a dead end.
+      const [file, anchor] = href.replace(/^\//, "").split("#");
+      const target = read(file);
+      if (anchor) assert.match(target, new RegExp(`id="${anchor}"`), `${href} resolves to a real section`);
+    }
+  }
+});
