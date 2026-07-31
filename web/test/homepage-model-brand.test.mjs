@@ -71,9 +71,10 @@ test("the website renders the HIGH-FIDELITY vector mascot, never the terminal ar
   // site, which is what made the browser render block glyphs; guard the boundary
   // rather than the glyphs, so fixing the TUI art can never leak here again.
   const plain = home.replace(/<[^>]+>/g, "");
-  for (const glyph of ["▄███████▄", "█  ROG  █", "▀█▄▄▄█▀"]) {
-    assert.ok(!plain.includes(glyph), `terminal glyph stays out of the web page: ${glyph}`);
-  }
+  // A glyph CLASS, not literal runs: the ASCII art has already changed width once,
+  // and literals would silently start asserting the absence of strings that exist
+  // nowhere. Any run of terminal block glyphs on a web page is the bug.
+  assert.doesNotMatch(plain, /[\u2580-\u259F]{3,}/, "no terminal block-glyph run reaches the web page");
 });
 
 test("the Labs card keeps its model ID inside narrow layouts", () => {
