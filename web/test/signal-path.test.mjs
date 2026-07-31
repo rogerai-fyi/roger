@@ -1,4 +1,4 @@
-// FIG.2, the signal path on the homepage.
+// FIG.3, the signal path on the homepage.
 //
 // The figure makes three factual claims about how RogerAI works - the endpoint is
 // local, the broker meters and signs, and the station dials out rather than opening
@@ -22,7 +22,7 @@ const figure = () => read("index.html").match(/<figure class="signal"[\s\S]*?<\/
 
 test("the signal path shows the three hops a request actually takes", () => {
   const fig = figure();
-  assert.ok(fig, "FIG.2 exists on the homepage");
+  assert.ok(fig, "FIG.3 exists on the homepage");
   const copy = visible(fig);
   for (const node of [/YOUR APP/, /BROKER/, /STATION/]) assert.match(copy, node);
   // Word-boundary: "signal__nodes" is the container, not a hop.

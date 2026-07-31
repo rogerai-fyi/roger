@@ -311,7 +311,11 @@ if (check) {
     }
     const loc = vanity.res.headers.get("location") || "";
     const want = `https://${APEX}${path}/`;
-    if (vanity.res.status !== 301 || !loc.startsWith(want)) {
+    // Exact pathname, not startsWith: for /roger a prefix test also accepts /roger/v5/,
+    // which is the very collapse this loop exists to rule out.
+    let landed = "";
+    try { landed = new URL(loc).pathname; } catch { landed = ""; }
+    if (vanity.res.status !== 301 || landed !== `${path}/`) {
       drift.push(
         `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
           `got ${vanity.res.status} -> ${loc || "(none)"}; ` +
