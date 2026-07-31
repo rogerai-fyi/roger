@@ -22,30 +22,42 @@ const (
 	tubePingBlink
 )
 
+// The body interior is SEVEN cells wide, and that is load-bearing rather than
+// arbitrary. ROG is three cells; an odd interior is the only way it pads evenly
+// (2/2) and the only way the eye can share a column with the O beneath it. The
+// v5.4.8 compaction cut the interior to six, which forced the wordmark to 2/1 and
+// shoved it against the right wall - the walk sprite below kept seven and stayed
+// balanced, which is why the two forms stopped agreeing. Everything here centres
+// on column 7: cap, eye, wordmark, base, and feet.
 var tubePingRows = []string{
-	"   ▄██████▄",
-	"(  █    • █▓  )",
-	"   █  ROG █▓",
-	"    ▀█▄▄█▀▒",
-	"     ▀  ▀",
+	"   ▄███████▄",
+	"(  █   •   █▓  )",
+	"   █  ROG  █▓",
+	"    ▀█▄▄▄█▀▒",
+	"     ▀   ▀",
 }
 
 // tubePingWalkFrames are the scene-sized form of the founder-approved pixel receiver.
 // The feet alternate without changing the body or its occupied bounding box.
+// Same seven-cell interior and same single axis (column 5 here) as the canonical
+// rows above, so the walker and the splash are one mascot rather than two that
+// merely resemble each other. Previously the cap was a cell narrower than the body
+// on the left, leaving the left wall uncapped, and the eye sat a cell right of the
+// wordmark. Only the feet differ between frames; the body box never moves.
 var tubePingWalkFrames = [][]string{
 	{
-		"  ▄██████▄",
-		" █    •  █▓",
+		" ▄███████▄",
+		" █   •   █▓",
 		" █  ROG  █▓",
-		"  ▀█▄▄▄▄█▀▒",
-		"   ▀    ▀",
+		"  ▀█▄▄▄█▀▒",
+		"   ▀   ▀",
 	},
 	{
-		"  ▄██████▄",
-		" █    •  █▓",
+		" ▄███████▄",
+		" █   •   █▓",
 		" █  ROG  █▓",
-		"  ▀█▄▄▄▄█▀▒",
-		"  ▀      ▀",
+		"  ▀█▄▄▄█▀▒",
+		"  ▀     ▀",
 	},
 }
 
@@ -168,6 +180,31 @@ func tubePingWorldSprite(frame int) []string {
 	return tubePingWalkFrames[(frame/4)%len(tubePingWalkFrames)]
 }
 
+// padBlock right-pads every line of a multi-line block to the widest one.
+//
+// lipgloss.JoinVertical(lipgloss.Center, …) centres each line INDEPENDENTLY. The
+// mascot's rows are deliberately different widths - the eye row carries the carrier
+// waves - and they share one axis only through their built-in leading spaces. Centring
+// them line by line pads the narrow rows more than the wide ones and shears the body
+// apart: cap in one column, eye row in another, wordmark in a third. Equalising the
+// widths first makes the centring shift every row by the same amount, so the block
+// moves as one object.
+func padBlock(block string) string {
+	lines := strings.Split(block, "\n")
+	width := 0
+	for _, l := range lines {
+		if n := lipgloss.Width(l); n > width {
+			width = n
+		}
+	}
+	for i, l := range lines {
+		if pad := width - lipgloss.Width(l); pad > 0 {
+			lines[i] = l + strings.Repeat(" ", pad)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // tubePingTitle is the short, fullscreen z-debut. Place handles both horizontal
 // and vertical centering; tiny screens inherit classic Ping rather than clipping.
 func tubePingTitle(w, h, frame int) string {
@@ -183,7 +220,7 @@ func tubePingTitle(w, h, frame int) string {
 			pose = tubePingTransmit
 		}
 	}
-	art := renderTubePingPose(w, frame, pose)
+	art := padBlock(renderTubePingPose(w, frame, pose))
 	lockup := stKey.Bold(true).Render("ROGER·AI") + stDim.Render(" · ") + stKey.Render("ON AIR")
 	if w >= 36 {
 		lockup = stKey.Bold(true).Render("ROGER·AI") +
