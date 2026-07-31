@@ -31,34 +31,6 @@
 .research-distinction__grid p { margin: 0; padding-left: var(--s-6); border-left: 1px solid var(--hairline-2); }
 .research-kicker { color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: var(--tracking-label); }
 
-.size-spectrum {
-  margin: 0 0 var(--s-10);
-  border-block: 2px solid var(--ink-900);
-  background: var(--paper);
-}
-.size-spectrum__head {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--s-4);
-  padding: var(--s-4) 0;
-  border-bottom: 1px solid var(--hairline);
-  color: var(--ink-400);
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label);
-}
-.size-spectrum ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); margin: 0; padding: var(--s-6) 0; list-style: none; }
-.size-spectrum li { display: grid; align-content: end; min-width: 0; gap: var(--s-2); }
-.size-spectrum__bar {
-  display: block;
-  width: var(--reach);
-  min-width: 8px;
-  height: 5px;
-  background: var(--live);
-}
-.size-spectrum b { color: var(--ink-900); }
-.size-spectrum small { color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro); }
-.size-spectrum figcaption { padding: var(--s-4) 0; border-top: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); }
 
 .model-group-head {
   display: flex;
@@ -201,10 +173,6 @@
   .research-hero { padding-block: 46px 54px; }
   .research-hero__lead { margin-top: var(--s-4); }
   .research-hero__mascot .tube-ping { margin-bottom: var(--s-3); }
-  .size-spectrum__head, .model-group-head { align-items: flex-start; flex-direction: column; }
-  .size-spectrum ol { grid-template-columns: 1fr; }
-  .size-spectrum li { grid-template-columns: 80px minmax(0, .7fr) 1fr; align-items: center; }
-  .size-spectrum__bar { width: var(--reach); }
   .deployment-grid, .device-contract { grid-template-columns: 1fr; }
   .deployment-grid article, .deployment-grid article:nth-child(2), .device-contract p, .device-contract p:nth-child(2), .device-contract p:last-child {
     grid-column: auto;
@@ -311,4 +279,81 @@
   .research-onward { grid-template-columns: 1fr; }
   .research-onward a { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .research-onward a:last-child { border-bottom: 0; }
+}
+
+/* ---------- the Wave ladder -------------------------------------------------
+   A TRUE logarithmic axis. Each rung's --from/--to are (log10(params)-4)/5.5, so
+   width and position carry meaning; the previous bars used decorative percentages.
+   Colour is rationed to data: the only saturated element is the rung that is
+   actually in progress. */
+.ladder { margin: 0 0 var(--s-6); }
+.ladder__head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
+  padding-bottom: var(--s-3); border-bottom: 2px solid var(--ink-900);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+}
+.ladder__rungs { list-style: none; margin: 0; padding: 0; }
+.ladder__rungs li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-areas: "track track" "name status" "note note";
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+/* the track is the axis; the bar sits on it at its real coordinates */
+.ladder__bar {
+  grid-area: track;
+  position: relative;
+  display: block; height: 10px;
+  background: linear-gradient(to right, transparent 0 var(--from),
+              var(--ink-400) var(--from) var(--to), transparent var(--to) 100%);
+}
+.ladder__rungs li:has(.ladder__status--live) .ladder__bar {
+  background: linear-gradient(to right, transparent 0 var(--from),
+              var(--live) var(--from) var(--to), transparent var(--to) 100%);
+}
+.ladder__rungs b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
+.ladder__rungs small { grid-area: note; color: var(--ink-500); font-size: var(--t-sm); }
+.ladder__status {
+  grid-area: status; align-self: center;
+  border: 1px solid var(--hairline-2); padding: 3px 7px;
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-500);
+}
+.ladder__status--live { border-color: var(--live); color: var(--live); }
+
+.ladder__axis {
+  position: relative; height: 1.4em; margin-top: var(--s-2);
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+}
+.ladder__axis span {
+  position: absolute; left: var(--at); transform: translateX(-50%);
+  padding-top: var(--s-2); border-left: 1px solid var(--hairline-2);
+  padding-left: 4px;
+}
+.ladder__axis span:first-child { transform: none; }
+
+.ladder figcaption {
+  margin-top: var(--s-4); color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body);
+}
+
+/* Reveal: each bar wipes out from its own left edge, staggered down the ladder.
+   One-shot, and skipped entirely under reduced motion - the final state is the
+   default, so nothing depends on the animation running. */
+.ladder.is-pending .ladder__bar { transform: scaleX(0); transform-origin: left center; }
+.ladder.is-revealed .ladder__bar {
+  animation: ladder-wipe 460ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--i) * 90ms);
+}
+@keyframes ladder-wipe { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .ladder.is-pending .ladder__bar,
+  .ladder.is-revealed .ladder__bar { animation: none; transform: none; }
+}
+
+@media (max-width: 560px) {
+  .ladder__axis span:nth-child(even) { display: none; }
 }
