@@ -3,7 +3,7 @@
    Hero + the Ping concierge deck, the terminal demo, the two-way
    share/tune plates, the spec sheet, operating notes, the money meter,
    monetize, the CTA strip, the live signal tower / market, the money row,
-   the homepage hero-foundation overrides, the band teaser (FIG.1) and the
+   the homepage hero-foundation overrides, the band teaser (FIG.2) and the
    small /models entry link. The shared eyebrow line, the .ping mascot
    shape + animations, the install command box, .market__refresh, the
    ((.)) beacon and .hero__dot live in base.css. Consumes tokens.css +
@@ -1100,7 +1100,7 @@
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--deal { color: var(--live); border-color: var(--live); }
 
-/* ---------- FIG.2 the signal path -------------------------------------------
+/* ---------- FIG.3 the signal path -------------------------------------------
    Packets ride CSS offset-path, not SMIL: there is no animation timeline to pause,
    and prefers-reduced-motion is one media query instead of a script that has to
    remember to check it. The diagram is fully legible frozen, which is the test -

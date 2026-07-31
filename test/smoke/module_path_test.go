@@ -5,10 +5,10 @@ package smoke
 //
 // Why this is a guard and not a comment: the module path is baked into every import line in
 // the repo (hundreds of them). While it names a code host, renaming the GitHub organisation
-// is a breaking change for everyone who imports the module - including third parties building
-// against the Apache-2.0 node-agent protocol carve-out (see internal/protocol/LICENSING). With
-// a vanity path, the host is declared in ONE place (the go-import meta tag on the site) and a
-// future org rename touches no Go source at all.
+// is a breaking change for everyone who imports the module. With a vanity path, the host is
+// declared in ONE place (the go-import meta tag on the site) and a future org rename touches
+// no Go source at all. (The Apache-2.0 carve-out in /LICENSING.md is unaffected either way:
+// those files live under internal/, which no external module may import at any path.)
 //
 // The tag on the site and the module path here must agree, or `go get` breaks in a way no
 // compile error catches, so this test checks them together.
