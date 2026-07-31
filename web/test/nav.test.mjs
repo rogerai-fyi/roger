@@ -67,12 +67,28 @@ const sectionsBlock = (bar) => {
   return bar.slice(start, bar.indexOf(">", i) + 1);
 };
 
-test("marketing top bar: Models · Research · Voices · App · Company and NOTHING else in the sections group", () => {
+test("marketing top bar: Models · Research · Company and NOTHING else in the sections group", () => {
   const bar = topbar(readDist("index.html"));
   const sections = sectionsBlock(bar);
   const hrefs = barHrefs(sections);
-  assert.deepEqual(hrefs, ["/models.html", "/research.html", "/voices.html", "/app.html", "/company.html"],
-    "sections are exactly Models, Research, Voices, App, Company - the #spec/#how/#monetize anchors are gone");
+  // Voices moved INTO the Models panel: it is a directory of the same live network, so
+  // it belongs under Models rather than competing with it for a top-level slot. App left
+  // the sections group for its own divider-flanked section beside Manual.
+  assert.deepEqual(hrefs, ["/models.html", "/research.html", "/company.html"],
+    "sections are exactly Models, Research, Company - each one a disclosure group");
+});
+
+// App is a destination of a different kind - a store listing, not a section of the site -
+// so it sits in its own band between two dividers, left of the Manual utility cluster.
+test("App stands alone between two dividers, left of Manual", () => {
+  const bar = withoutPanels(topbar(readDist("index.html")));
+  const order = [...bar.matchAll(/<span class="nav__divider"|<a[^>]*href="(\/app\.html|\/manual\.html)"/g)]
+    .map((m) => m[1] || "divider");
+  assert.deepEqual(order, ["divider", "/app.html", "divider", "/manual.html"],
+    "the bar reads: sections | App | Manual...");
+  // In the burger drawer the dividers are display:none, so App must still be a real row.
+  const appLink = bar.match(/<a class="nav__link"[^>]*href="\/app\.html"[^>]*>/)?.[0];
+  assert.ok(appLink, "App is a plain nav__link, so it inherits the drawer row styling");
 });
 
 test("marketing top bar: the removed items are NOT live links anywhere in the bar", () => {
@@ -82,11 +98,12 @@ test("marketing top bar: the removed items are NOT live links anywhere in the ba
   }
 });
 
-test("marketing top bar: order is Models·Research·Voices·App·Company | Manual·Source·Log in (then the reserved slot + toggle)", () => {
+test("marketing top bar: order is Models·Research·Company | App | Manual·Source·Log in (then the reserved slot + toggle)", () => {
   const links = liveHrefs(withoutPanels(topbar(readDist("index.html"))));
   assert.deepEqual(links, [
     "#top",                                   // brand
-    "/models.html", "/research.html", "/voices.html", "/app.html", "/company.html",
+    "/models.html", "/research.html", "/company.html",
+    "/app.html",
     "/manual.html",
     "https://github.com/rogerai-fyi/roger",   // Source (ghost)
     "/login.html",
@@ -107,6 +124,7 @@ test("the nav panels reveal every page that is otherwise hub-only", () => {
     "/research-industry.html",
     "/broadcasts.html",
     "/careers.html",
+    "/voices.html",
   ]) {
     assert.ok(panelHrefs.includes(must), `${must} is reachable from the nav, not just from a hub`);
   }
@@ -308,4 +326,21 @@ test("every drawer row draws one full-width divider, group or not", () => {
     "the group carries the row divider");
   assert.match(block, /\.nav__group\s+\.nav__link\s*\{[^}]*border-bottom:\s*(?:0|none)/,
     "the link inside a group does not also draw a stub");
+});
+
+// Voices left the bar for the Models panel. Two things must survive that move: the page
+// still marks exactly one current link (the existing destinations test covers that), and
+// the collapsed parent still SHOWS it is the active area - otherwise a visitor on
+// /voices.html sees no highlight anywhere in the bar. The parent cannot claim
+// aria-current="page" (it is not the page you are on), so the cue is presentational.
+test("a group whose panel holds the current page shows as active in the bar", () => {
+  const voices = readDist("voices.html");
+  const panelLink = voices.match(/<a href="\/voices\.html"[^>]*aria-current="page"[^>]*>/);
+  assert.ok(panelLink, "the panel entry carries the current marker, not the parent link");
+  const models = voices.match(/<a class="nav__link" href="\/models\.html"[^>]*>/)[0];
+  assert.doesNotMatch(models, /aria-current/,
+    "the parent must not claim to be the page you are on");
+  const css = readFileSync(path.join(SRC, "styles", "base.css"), "utf8");
+  assert.match(css, /\.nav__group:has\([^)]*aria-current="page"[^)]*\)/,
+    "the active cue for a group with a current child is carried in CSS, not the a11y tree");
 });
