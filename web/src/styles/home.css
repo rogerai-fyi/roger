@@ -1099,3 +1099,68 @@
 .band-tag { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em;
   padding: 1px 4px; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); color: var(--ink-500); }
 .band-tag--deal { color: var(--live); border-color: var(--live); }
+
+/* ---------- FIG.2 the signal path -------------------------------------------
+   Packets ride CSS offset-path, not SMIL: there is no animation timeline to pause,
+   and prefers-reduced-motion is one media query instead of a script that has to
+   remember to check it. The diagram is fully legible frozen, which is the test -
+   if it only reads while animating, the animation is carrying meaning it should not. */
+.signal { margin: 0 0 var(--s-8); }
+.signal__svg { display: block; width: 100%; height: auto; }
+
+.signal__wire path { fill: none; stroke: var(--hairline-2); stroke-width: 1.5; }
+
+.signal__node rect { fill: var(--paper); stroke: var(--ink-900); stroke-width: 1.5; }
+.signal__node--mid rect { stroke: var(--live); }
+.signal__name {
+  fill: var(--ink-900); font-family: var(--font-mono); font-size: 13px;
+  font-weight: var(--weight-semi); letter-spacing: .1em; text-anchor: middle;
+}
+.signal__sub {
+  fill: var(--ink-500); font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .04em; text-anchor: middle;
+}
+.signal__labels text {
+  fill: var(--ink-400); font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .08em; text-transform: uppercase; text-anchor: middle;
+}
+.signal__labels .signal__note { fill: var(--ink-300); font-size: 9px; }
+
+/* The two directions are told apart by SHAPE of travel and position, not colour
+   alone: the ask runs left-to-right along the top, the return runs right-to-left
+   underneath. Colour is a second, redundant channel. */
+.signal__pkt { fill: var(--ink-900); }
+.signal__pkt--tok { fill: var(--live); }
+
+/* One packet per LEG, each with a single-subpath offset-path. A first pass gave the
+   outbound packet a two-subpath path ("…H280 M440…"); offset-path is undefined across
+   subpaths and the packet surfaced in the wrong place entirely. The staggered delays
+   make the three legs read as one request hopping the chain. */
+.signal__pkt--leg1 {
+  offset-path: path("M175 118 H285");
+  animation: signal-run 4.2s cubic-bezier(.45, 0, .55, 1) infinite;
+}
+.signal__pkt--leg2 {
+  offset-path: path("M440 118 H545");
+  animation: signal-run 4.2s cubic-bezier(.45, 0, .55, 1) infinite .55s;
+}
+.signal__pkt--tok {
+  offset-path: path("M620 148 V196 H100 V148");
+  animation: signal-run 4.2s cubic-bezier(.35, 0, .65, 1) infinite 1.35s;
+}
+@keyframes signal-run {
+  0% { offset-distance: 0%; opacity: 0; }
+  6% { opacity: 1; }
+  26% { offset-distance: 100%; opacity: 1; }
+  32%, 100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Frozen is a first-class state, not a fallback: the packets park on the wire so
+   the path still reads as a path. */
+@media (prefers-reduced-motion: reduce) {
+  .signal__pkt { animation: none !important; opacity: 1; offset-distance: 55%; }
+}
+@media (max-width: 640px) {
+  .signal__sub { font-size: 9px; }
+  .signal__labels text { font-size: 9px; }
+}
