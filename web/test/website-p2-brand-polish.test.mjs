@@ -122,7 +122,13 @@ test("the on-air beacon is centred between the brackets in every brand mark", ()
 test("the beacon animations pivot on the beacon, not a stale coordinate", () => {
   const cy = Number(source("_partials/tube-ping.html").match(/class="ping-mark__eye"[^>]*\bcy="([\d.]+)"/)[1]);
   const css = source("styles/base.css");
-  for (const part of ["ping-mark__glow", "ping-mark__eye"]) {
+  // The signal arcs radiate FROM the beacon, so they move with it. They were left behind
+  // when the eye came up, and the waves visibly launched from below the dot.
+  const svg = source("_partials/tube-ping.html");
+  const arcs = [...svg.matchAll(/class="ping-mark__wave[^"]*"\s+d="M[\d.]+ ([\d.]+)/g)].map((m) => Number(m[1]));
+  assert.ok(arcs.length >= 2, "the mascot draws its signal arcs");
+  assert.equal(Math.min(...arcs), cy, "the innermost arc springs from the beacon centre");
+  for (const part of ["ping-mark__glow", "ping-mark__eye", "ping-mark__wave"]) {
     const rule = css.match(new RegExp(`\\.${part}\\s*\\{([^}]*)\\}`))?.[1] || "";
     const origin = rule.match(/transform-origin:\s*[\d.]+px\s+([\d.]+)px/)?.[1];
     assert.ok(origin, `.${part} declares a transform-origin`);
