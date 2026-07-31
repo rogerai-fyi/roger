@@ -79,81 +79,127 @@
              source before weights, code, license, and reproducibility record are released.</p>
         </div>
 
-        <!-- A PPI radar scope, because radius already means RANGE and our axis is a
-             range. Each slot is a ring band whose inner and outer radii are
-             (log10(params) - 4) / 5.5 * 150, so the range rings ARE the decade ticks.
-             Bearing carries no data and the caption says so - only the radius is
-             information. Ranges are declared design targets, not measurements; no slot
-             has a released checkpoint, so no footprint or speed appears here. -->
-        <figure class="scope" aria-labelledby="scope-title scope-caption">
+        <!-- The scope. RADIUS is the parameter class on a log scale (one ring per decade);
+             BEARING is the capability variation, and each slot's arc spans exactly the
+             variations the family page's variation table says it hosts. The bearing order
+             is the one that makes every slot a single unbroken arc, with Guard at north
+             because it is the variation every slot carries. Nothing here is a measurement:
+             both axes are declared design intent, which the caption states in two lines
+             rather than the five it used to take.
+             Contract: features/web/wave_scope.feature -->
+        <figure class="scope" aria-labelledby="scope-title" aria-describedby="scope-caption">
           <div class="scope__head">
             <span id="scope-title">WAVE SIZE SPECTRUM</span>
-            <span>parameter class as radar range <span aria-hidden="true">&rarr;</span></span>
+            <span>range = parameters &middot; bearing = variation</span>
           </div>
           <div class="scope__body">
-        <svg class="scope__ppi" viewBox="0 0 400 400" role="img" aria-labelledby="scope-title scope-caption">
+        <svg class="scope__ppi" viewBox="0 0 440 440" role="img" aria-labelledby="scope-title" aria-describedby="scope-caption">
           <g class="scope__grid" aria-hidden="true">
-            <circle cx="200" cy="200" r="27"/>
-            <circle cx="200" cy="200" r="55"/>
-            <circle cx="200" cy="200" r="82"/>
-            <circle cx="200" cy="200" r="109"/>
-            <circle cx="200" cy="200" r="136"/>
-            <line x1="200" y1="200" x2="200" y2="50"/>
-            <line x1="200" y1="200" x2="306" y2="94"/>
-            <line x1="200" y1="200" x2="350" y2="200"/>
-            <line x1="200" y1="200" x2="306" y2="306"/>
-            <line x1="200" y1="200" x2="200" y2="350"/>
-            <line x1="200" y1="200" x2="94" y2="306"/>
-            <line x1="200" y1="200" x2="50" y2="200"/>
-            <line x1="200" y1="200" x2="94" y2="94"/>
+            <circle cx="220" cy="220" r="30.9"/>
+            <circle cx="220" cy="220" r="61.8"/>
+            <circle cx="220" cy="220" r="92.7"/>
+            <circle cx="220" cy="220" r="123.6"/>
+            <circle cx="220" cy="220" r="154.5"/>
+            <line x1="220" y1="220" x2="305.0" y2="72.8"/>
+            <line x1="220" y1="220" x2="390.0" y2="220.0"/>
+            <line x1="220" y1="220" x2="305.0" y2="367.2"/>
+            <line x1="220" y1="220" x2="135.0" y2="367.2"/>
+            <line x1="220" y1="220" x2="50.0" y2="220.0"/>
+            <line x1="220" y1="220" x2="135.0" y2="72.8"/>
           </g>
-          <g class="scope__ticks" aria-hidden="true">
-            <text x="195" y="173">100K</text>
-            <text x="195" y="145">1M</text>
-            <text x="195" y="118">10M</text>
-            <text x="195" y="91">100M</text>
-            <text x="195" y="64">1B</text>
+          <g class="scope__bearings" aria-hidden="true">
+            <text x="220.0" y="36.0">GUARD</text>
+            <text x="381.9" y="129.5">AUDIO</text>
+            <text x="381.9" y="316.5">VISION</text>
+            <text x="220.0" y="410.0">TEXT</text>
+            <text x="58.1" y="316.5">EMBED</text>
+            <text x="58.1" y="129.5">TOOL</text>
           </g>
           <g class="scope__sweep" aria-hidden="true">
             <defs><linearGradient id="sweepFade" x1="0" y1="1" x2="1" y2="1">
-              <stop offset="0" stop-color="var(--live)" stop-opacity=".38"/>
+              <stop offset="0" stop-color="var(--live)" stop-opacity=".30"/>
               <stop offset="1" stop-color="var(--live)" stop-opacity="0"/>
             </linearGradient></defs>
-            <path d="M200 200 L200 50 A150 150 0 0 0 99.6 88.5 Z" fill="url(#sweepFade)"/>
-            <line x1="200" y1="200" x2="200" y2="50"/>
+            <path d="M220 220 L220 50 A170 170 0 0 0 106.2 93.6 Z" fill="url(#sweepFade)"/>
+            <line x1="220" y1="220" x2="220" y2="50"/>
           </g>
-          <g class="scope__contacts" aria-hidden="true">
-            <g class="scope__contact" style="--i:0">
-              <line class="scope__gate" x1="200.0" y1="200.0" x2="127.8" y2="161.6"/>
-              <circle class="scope__blip" cx="127.8" cy="161.6" r="4.5"/>
+          <g class="scope__contacts">
+            <g class="scope__contact" data-slot="roger-edge">
+              <path class="scope__cell" d="M177.0 137.8 A92.7 92.7 0 0 1 263.0 137.8 L226.0 208.5 A13.0 13.0 0 0 0 214.0 208.5 Z"/>
+              <path class="scope__cell" d="M269.7 141.7 A92.7 92.7 0 0 1 312.6 216.1 L233.0 219.5 A13.0 13.0 0 0 0 227.0 209.0 Z"/>
             </g>
-            <g class="scope__contact" style="--i:1">
-              <line class="scope__gate" x1="170.7" y1="123.6" x2="160.9" y2="98.2"/>
-              <circle class="scope__blip" cx="160.9" cy="98.2" r="4.5"/>
+            <g class="scope__contact" data-slot="wave-nano">
+              <path class="scope__cell" d="M162.7 110.4 A123.6 123.6 0 0 1 277.3 110.4 L263.0 137.8 A92.7 92.7 0 0 0 177.0 137.8 Z"/>
+              <path class="scope__cell" d="M286.2 115.6 A123.6 123.6 0 0 1 343.5 214.8 L312.6 216.1 A92.7 92.7 0 0 0 269.7 141.7 Z"/>
+              <path class="scope__cell" d="M153.8 324.4 A123.6 123.6 0 0 1 96.5 225.2 L127.4 223.9 A92.7 92.7 0 0 0 170.3 298.3 Z"/>
+              <path class="scope__cell" d="M96.5 214.8 A123.6 123.6 0 0 1 153.8 115.6 L170.3 141.7 A92.7 92.7 0 0 0 127.4 216.1 Z"/>
             </g>
-            <g class="scope__contact scope__gate--live" style="--i:2">
-              <line class="scope__gate" x1="242.0" y1="90.5" x2="245.9" y2="80.4"/>
-              <circle class="scope__blip" cx="245.9" cy="80.4" r="4.5"/>
+            <g class="scope__contact" data-slot="wave-micro">
+              <path class="scope__cell" d="M151.7 89.3 A147.5 147.5 0 0 1 288.3 89.3 L281.8 101.7 A133.5 133.5 0 0 0 158.2 101.7 Z"/>
+              <path class="scope__cell" d="M299.0 95.5 A147.5 147.5 0 0 1 367.3 213.8 L353.3 214.4 A133.5 133.5 0 0 0 291.5 107.3 Z"/>
+              <path class="scope__cell" d="M367.3 226.2 A147.5 147.5 0 0 1 299.0 344.5 L291.5 332.7 A133.5 133.5 0 0 0 353.3 225.6 Z"/>
+              <path class="scope__cell" d="M288.3 350.7 A147.5 147.5 0 0 1 151.7 350.7 L158.2 338.3 A133.5 133.5 0 0 0 281.8 338.3 Z"/>
+              <path class="scope__cell" d="M141.0 344.5 A147.5 147.5 0 0 1 72.7 226.2 L86.7 225.6 A133.5 133.5 0 0 0 148.5 332.7 Z"/>
+              <path class="scope__cell" d="M72.7 213.8 A147.5 147.5 0 0 1 141.0 95.5 L148.5 107.3 A133.5 133.5 0 0 0 86.7 214.4 Z"/>
             </g>
-            <g class="scope__contact" style="--i:3">
-              <line class="scope__gate" x1="316.7" y1="138.0" x2="327.7" y2="132.1"/>
-              <circle class="scope__blip" cx="327.7" cy="132.1" r="4.5"/>
+            <g class="scope__contact" data-slot="wave-core">
+              <path class="scope__cell" d="M145.2 76.8 A161.5 161.5 0 0 1 294.8 76.8 L288.4 89.2 A147.5 147.5 0 0 0 151.6 89.2 Z"/>
+              <path class="scope__cell" d="M306.6 83.6 A161.5 161.5 0 0 1 381.4 213.2 L367.4 213.8 A147.5 147.5 0 0 0 299.1 95.4 Z"/>
+              <path class="scope__cell" d="M381.4 226.8 A161.5 161.5 0 0 1 306.6 356.4 L299.1 344.6 A147.5 147.5 0 0 0 367.4 226.2 Z"/>
+              <path class="scope__cell" d="M294.8 363.2 A161.5 161.5 0 0 1 145.2 363.2 L151.6 350.8 A147.5 147.5 0 0 0 288.4 350.8 Z"/>
+              <path class="scope__cell" d="M58.6 213.2 A161.5 161.5 0 0 1 133.4 83.6 L140.9 95.4 A147.5 147.5 0 0 0 72.6 213.8 Z"/>
             </g>
           </g>
-          <circle class="scope__origin" cx="200" cy="200" r="2.5" aria-hidden="true"/>
+          <g class="scope__ticks" aria-hidden="true">
+            <text x="224" y="192.6">100K</text>
+            <text x="224" y="161.7">1M</text>
+            <text x="224" y="130.8">10M</text>
+            <text x="224" y="99.9">100M</text>
+            <text x="224" y="69.0">1B</text>
+          </g>
+          <circle class="scope__origin" cx="220" cy="220" r="2.5" aria-hidden="true"/>
         </svg>
         <ol class="scope__legend">
-          <li><span class="scope__key" aria-hidden="true"></span><b>Roger Edge</b><code>10K&ndash;10M</code><small>microcontrollers &middot; fixed tasks</small><span class="scope__status">In design</span></li>
-          <li><span class="scope__key" aria-hidden="true"></span><b>Wave Nano</b><code>10M&ndash;100M</code><small>ARM and NPU &middot; specialists</small><span class="scope__status">In design</span></li>
-          <li><span class="scope__key scope__key--live" aria-hidden="true"></span><b>Wave Micro</b><code>~350M</code><small>Pi, phone, edge &middot; text + tools</small><span class="scope__status scope__status--live">In progress</span></li>
-          <li><span class="scope__key" aria-hidden="true"></span><b>Wave Core</b><code>1B-class</code><small>laptop and workstation &middot; local reasoning</small><span class="scope__status">In design</span></li>
+            <li class="scope__row" data-slot="roger-edge">
+              <button type="button" class="scope__pick" aria-pressed="false">
+                <b>Roger Edge</b>
+                <code>10K&ndash;10M</code>
+                <small>microcontrollers &middot; fixed tasks</small>
+                <span class="scope__carries">carries Guard, Audio</span>
+                <span class="scope__status">In design</span>
+              </button>
+            </li>
+            <li class="scope__row" data-slot="wave-nano">
+              <button type="button" class="scope__pick" aria-pressed="false">
+                <b>Wave Nano</b>
+                <code>10M&ndash;100M</code>
+                <small>ARM and NPU &middot; specialists</small>
+                <span class="scope__carries">carries Tool, Embed, Guard, Audio</span>
+                <span class="scope__status">In design</span>
+              </button>
+            </li>
+            <li class="scope__row scope__row--live" data-slot="wave-micro">
+              <button type="button" class="scope__pick" aria-pressed="false">
+                <b>Wave Micro</b>
+                <code>~350M</code>
+                <small>Pi, phone, edge &middot; text + tools</small>
+                <span class="scope__carries">carries all six</span>
+                <span class="scope__status">In progress</span>
+              </button>
+            </li>
+            <li class="scope__row" data-slot="wave-core">
+              <button type="button" class="scope__pick" aria-pressed="false">
+                <b>Wave Core</b>
+                <code>1B-class</code>
+                <small>laptop and workstation &middot; local reasoning</small>
+                <span class="scope__carries">carries Tool, Text, Guard, Vision, Audio</span>
+                <span class="scope__status">In design</span>
+              </button>
+            </li>
         </ol>
           </div>
-          <figcaption id="scope-caption">Parameter class plotted as radar range on a
-            logarithmic scale: each ring is a decade, and each contact is a range gate
-            spanning one model class. Bearing carries no meaning. Ranges are declared design targets, not
-            measurements. Every RogerAI-designed class remains a research or design
-            program until its own release gate passes. None has released a checkpoint.</figcaption>
+          <figcaption id="scope-caption">Every band is a declared design target, not a
+            measurement. No slot has released a checkpoint.</figcaption>
         </figure>
 
 

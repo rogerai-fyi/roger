@@ -109,39 +109,55 @@ test("the model scope plots parameter class as radar range on a true log axis", 
   // The proof that the axis is really logarithmic: consecutive DECADE rings must be
   // equally spaced in radius. On a linear axis they would not be, and the plot would
   // be implying a proportion the five-order-of-magnitude family does not have.
-  const rings = [...scope.matchAll(/<circle cx="200" cy="200" r="(\d+)"\/>/g)].map((m) => +m[1]);
+  // Centre is read from the grid rather than hardcoded, so re-scaling the viewBox does
+  // not silently disable this check the way a literal cx="200" did.
+  const rings = [...scope.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)"\/>/g)];
   assert.ok(rings.length >= 5, `expected decade rings, found ${rings.length}`);
-  const gaps = rings.slice(1).map((r, i) => r - rings[i]);
+  const [cx, cy] = [Number(rings[0][1]), Number(rings[0][2])];
+  const radii = rings.map((m) => Number(m[3]));
+  const gaps = radii.slice(1).map((r, i) => r - radii[i]);
   const spread = Math.max(...gaps) - Math.min(...gaps);
-  assert.ok(spread <= 1, `decade rings are evenly spaced (gaps ${gaps.join(",")})`);
+  assert.ok(spread <= 1, `decade rings are evenly spaced (gaps ${gaps.map((g) => g.toFixed(1))})`);
+  // The rim is where the spokes end, not the outermost decade ring: a 1B-class band is
+  // centred ON the 1B ring, so half of it legitimately sits outside that ring.
+  const spokes = [...scope.matchAll(/<line x1="[\d.]+" y1="[\d.]+" x2="([\d.]+)" y2="([\d.]+)"\/>/g)];
+  assert.ok(spokes.length >= 6, "the bearing spokes are drawn");
+  const rim = Math.max(...spokes.map((m) => Math.hypot(Number(m[1]) - cx, Number(m[2]) - cy)));
+  assert.ok(rim > Math.max(...radii), "the plot extends past its outermost decade ring");
 
-  // Every class is a range gate: a line from its inner to its outer radius. Both
-  // endpoints must sit inside the scope, and the gate must span outward.
-  const gates = [...scope.matchAll(/<line class="scope__gate" x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)];
-  assert.equal(gates.length, order.length, "every class has a range gate");
-  const radius = (x, y) => Math.hypot(x - 200, y - 200);
-  for (const g of gates) {
-    const inner = radius(+g[1], +g[2]);
-    const outer = radius(+g[3], +g[4]);
-    assert.ok(outer > inner, `gate spans outward (${inner.toFixed(1)} -> ${outer.toFixed(1)})`);
-    assert.ok(outer <= 200, "the gate stays inside the scope");
+  // Every slot is an annular arc: one cell per variation it hosts, at its range band.
+  // Each cell must stay inside the rim, and each slot must draw at least one.
+  const contacts = [...scope.matchAll(/<g class="scope__contact" data-slot="([^"]+)">([\s\S]*?)<\/g>/g)];
+  assert.equal(contacts.length, order.length, "every slot draws a contact");
+  for (const [, slot, body] of contacts) {
+    const cells = [...body.matchAll(/<path class="scope__cell" d="M([\d.]+) ([\d.]+)/g)];
+    assert.ok(cells.length >= 1, `${slot} draws at least one variation cell`);
+    for (const c of cells) {
+      const r = Math.hypot(Number(c[1]) - cx, Number(c[2]) - cy);
+      assert.ok(r <= rim + 1, `${slot} stays inside the scope rim (${r.toFixed(1)} > ${rim})`);
+    }
   }
 
   for (const tick of ["100K", "1M", "10M", "100M", "1B"]) {
     assert.ok(scope.includes(`>${tick}<`), `range ring is labelled at ${tick}`);
   }
+  // Bearing MEANS something now, so the axis must be named on the instrument - that is
+  // what let the caption drop from five sentences to two.
+  for (const bearing of ["GUARD", "AUDIO", "VISION", "TEXT", "EMBED", "TOOL"]) {
+    assert.ok(scope.includes(`>${bearing}<`), `the ${bearing} bearing is labelled`);
+  }
 
-  // Bearing is decoration; saying so is the difference between a plot and a lie.
-  // Normalise whitespace first - the caption wraps across source lines.
   const prose = scope.replace(/\s+/g, " ");
-  assert.match(prose, /[Bb]earing carries no meaning/);
-  assert.match(prose, /declared design targets, not measurements/i);
+  assert.doesNotMatch(prose, /[Bb]earing carries no meaning/,
+    "bearing carries data now, so the old disclaimer would be false");
+  assert.match(prose, /declared design target/i);
+  assert.match(prose, /no slot has released a checkpoint/i);
   assert.doesNotMatch(scope, /\b\d+(\.\d+)?\s?(GB|MB|tok\/s|ms)\b/, "no invented footprint or speed");
 
   assert.match(page, /RogerAI-designed open model program/i);
   assert.match(page, /release gate|no checkpoint/i, "the scope states program status, not availability");
   assert.doesNotMatch(page, /Wave Edge/i);
-  for (const selector of [".scope", ".scope__gate", ".model-group-head"]) {
+  for (const selector of [".scope", ".scope__cell", ".model-group-head"]) {
     assert.match(css, new RegExp(selector.replace(".", "\\.")), `${selector} is styled`);
   }
   // Drawn is the DEFAULT state; the sweep and reveal are both reduced-motion safe.
@@ -388,4 +404,84 @@ test("the radar sweep is painted before the contacts it must not cover", () => {
   const contacts = page.indexOf("scope__contacts");
   assert.ok(sweep >= 0 && contacts >= 0, "both layers are present");
   assert.ok(sweep < contacts, "the sweep must come first in source, or it paints over the blips");
+});
+
+// ---- the scope is one object: plot + legend, linked both ways ----------------
+// Rendered verification found these working in Chromium; these assertions keep them
+// from silently regressing, since the offline suite cannot drive a pointer.
+test("every legend row is a real control, so the link is not pointer-only", () => {
+  const scope = surface().match(/<figure class="scope"[\s\S]*?<\/figure>/)[0];
+  const rows = [...scope.matchAll(/<li class="scope__row[^"]*" data-slot="([^"]+)">([\s\S]*?)<\/li>/g)];
+  assert.equal(rows.length, 4, "one row per slot");
+  const contacts = [...scope.matchAll(/<g class="scope__contact" data-slot="([^"]+)">/g)].map((m) => m[1]);
+  for (const [, slot, body] of rows) {
+    assert.ok(contacts.includes(slot), `${slot} row pairs with a contact of the same slot`);
+    const btn = body.match(/<button[^>]*class="scope__pick"[^>]*>/)?.[0];
+    assert.ok(btn, `${slot} row is a button, so it is focusable and clickable`);
+    assert.match(btn, /type="button"/, "never submits");
+    assert.match(btn, /aria-pressed="false"/, "selection state starts off and is exposed");
+  }
+});
+
+test("the link is driven from focus as well as hover, and can be released", () => {
+  const js = read("js/scope.js");
+  for (const evt of ["mouseenter", "mouseleave", "focus", "blur", "click"]) {
+    assert.match(js, new RegExp(`addEventListener\\("${evt}"`), `the scope handles ${evt}`);
+  }
+  assert.match(js, /aria-pressed/, "selection is announced, not just painted");
+  assert.match(js, /Escape/, "a pinned slot can be released from the keyboard");
+});
+
+test("the scope stays readable with no script and with motion off", () => {
+  const js = read("js/scope.js");
+  const css = read("styles/research.css");
+  // The drawn state is the DEFAULT: only the script hides anything, so JS-off is complete.
+  assert.match(js, /classList\.add\("is-pending"\)/, "pending is added by script, never authored");
+  assert.match(css, /\.scope\.is-pending .scope__contact \{ opacity: 0; \}/);
+  // Reduced motion must stop the sweep AND leave every arc at full opacity.
+  const reduced = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g)
+    ?.find((b) => b.includes(".scope__sweep"));
+  assert.ok(reduced, "the scope has a reduced-motion block");
+  assert.match(reduced, /\.scope__sweep \{ animation: none/);
+  assert.match(reduced, /animation: none; opacity: 1/, "arcs stay drawn when motion is off");
+});
+
+// The plot draws exactly what the family page's variation table says, so the two cannot
+// drift. This is the assertion that makes bearing trustworthy rather than decorative.
+test("each slot's arc spans exactly the variations the family page gives it", () => {
+  const scope = surface().match(/<figure class="scope"[\s\S]*?<\/figure>/)[0];
+  const family = read("research-wave-family.html");
+  const variations = family.match(/<section[^>]*id="variations"[\s\S]*?<\/section>/)[0];
+
+  // "Lives at" column -> which slots host each variation.
+  const livesAt = {};
+  for (const row of variations.matchAll(/<tr><th scope="row">([^<]+)<\/th>[\s\S]*?<td class="tier-cell">([^<]+)<\/td>/g)) {
+    livesAt[row[1].trim()] = row[2].trim();
+  }
+  assert.ok(Object.keys(livesAt).length >= 6, "the variation table was found");
+
+  const ORDER = ["Guard", "Audio", "Vision", "Text", "Embed", "Tool"]; // bearing order, north-clockwise
+  const SLOTS = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
+  const expands = (livesAtText) => {
+    if (/every slot/i.test(livesAtText)) return new Set(SLOTS);
+    const short = (s) => SLOTS.find((n) => n.endsWith(s) || n === s);
+    if (/and up/i.test(livesAtText)) {
+      const from = SLOTS.indexOf(short(livesAtText.replace(/\s*and up/i, "").trim()));
+      return new Set(SLOTS.slice(from));
+    }
+    if (/\bto\b/i.test(livesAtText)) {
+      const [a, z] = livesAtText.split(/\s+to\s+/i).map((s) => SLOTS.indexOf(short(s.trim())));
+      return new Set(SLOTS.slice(a, z + 1));
+    }
+    return new Set(livesAtText.split(/\s*,\s*/).map((s) => short(s.trim())).filter(Boolean));
+  };
+
+  for (const slot of SLOTS) {
+    const expected = ORDER.filter((v) => expands(livesAt[v]).has(slot));
+    const slug = slot.toLowerCase().replace(/\s+/g, "-");
+    const g = scope.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
+    const drawn = (g.match(/<path class="scope__cell"/g) || []).length;
+    assert.equal(drawn, expected.length,
+      `${slot} draws ${drawn} cells but the variation table gives it ${expected.length} (${expected.join(", ")})`);
+  }
 });
