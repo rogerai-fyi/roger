@@ -340,6 +340,35 @@
 }
 .scope__ppi { width: 100%; height: auto; overflow: visible; }
 
+/* --- the two axes -----------------------------------------------------------
+   Both axes are rendered into the same SVG and the figure's data-mode decides
+   which is shown. No JS re-render, so switching cannot desync the labels from
+   the arcs, and with scripting off the default axis is simply the one served. */
+.scope[data-mode="variations"] [data-axis="jobs"],
+.scope[data-mode="jobs"] [data-axis="variations"] { display: none; }
+
+/* The toggle is an enhancement: without script it would be two dead buttons, so it is
+   only shown once html.js is set. The served default axis is the capability one, and the
+   jobs data lives in the field guide's table either way. */
+.scope__modes { display: none; }
+html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2); border-radius: var(--r-xs); }
+.scope__mode {
+  padding: 5px 12px; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+.scope__mode + .scope__mode { border-left: 1px solid var(--hairline-2); }
+.scope__mode:hover { color: var(--ink-900); }
+.scope__mode:focus-visible { outline: 2px solid var(--live); outline-offset: -2px; }
+.scope__mode[aria-pressed="true"] { background: var(--ink-900); color: var(--paper); }
+/* The axis legend is prose, not a control: it says what the picture means right now. */
+.scope__axis {
+  margin: var(--s-3) 0 0; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body);
+}
+/* 18 plant jobs need radial labels; six variations do not. */
+.scope__bearings--job text { font-size: 8.5px; letter-spacing: .04em; font-weight: var(--weight-medium); }
+
 .scope__grid circle, .scope__grid line {
   fill: none; stroke: var(--hairline-2); stroke-width: 1;
 }

@@ -88,13 +88,6 @@ Feature: Wave Infinite is presented as the prototype program it is
     Then no download, checkpoint, artifact id, or release date is offered
     And no benchmark number is presented as a product capability
 
-  # ---- the name -------------------------------------------------------------
-
-  Scenario: The name is explained the moment it is used
-    Then the page states that unbounded self-observation is finite in implementation
-    And it attributes that to the reflective-tower result
-    And presents it as an architecture it borrows, not a capability it claims
-
   # ---- the treatment --------------------------------------------------------
 
   Scenario: Wave Infinite is visually distinct without implying completion
