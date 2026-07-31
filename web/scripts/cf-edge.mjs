@@ -142,6 +142,9 @@ export function legacyRedirectRule(opts = {}) {
   };
 }
 
+// APPLIED to the rogerai.fm zone 2026-07-30; verified that /roger 301s to /roger/
+// with ?go-get=1 intact.
+//
 // `go get rogerai.fm/roger` fetches the module path with NO trailing slash, and this
 // host does no extensionless resolution - measured, not assumed:
 //     https://rogerai.fm/manual       404
