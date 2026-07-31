@@ -43,7 +43,7 @@ test("the model catalogue points at it without misfiling it as a model", () => {
 test("it is a runtime, not a fifth size class", () => {
   const copy = visible(section());
   assert.match(copy, /runtime/i, "named as a runtime");
-  assert.match(copy, /across the family|any slot|every slot/i, "it applies across the family");
+  assert.match(copy, /runs under|layer a model|under a model/i, "it sits under a model, not beside one");
   // It must never be given a parameter class, which would file it as a size.
   assert.doesNotMatch(copy, /Wave Infinite[^.]{0,80}\b\d+\s?(B|M)-class\b/i, "no parameter class");
   // And it must not appear as a row in the size or jobs tables.
@@ -136,4 +136,22 @@ test("it survives with no JavaScript", () => {
   // Nothing in the section may be injected or revealed by script.
   assert.doesNotMatch(sec, /<script/i, "no inline script");
   assert.match(visible(sec), /Wave Infinite/, "the copy is in the served markup");
+});
+
+// The overclaim this page shipped with, and the reason it is easy to make: "part of the
+// family" slides into "works with all of it". The certificate is reachability
+// certification of MoE EXPERTS - the technical phrasing in the explainer says so - and
+// the base model needs a per-expert selection-bias tensor. A dense model has no experts
+// to certify, and Roger Edge is not a language model at all.
+test("the page states the constraint instead of implying it works with everything", () => {
+  const copy = visible(section());
+  assert.match(copy, /mixture-of-experts|MoE/i, "the mechanism's precondition is named");
+  assert.match(copy, /selection bias|per-expert|experts to certify|has experts/i,
+    "and what the base model has to provide");
+  assert.match(copy, /Roger Edge/, "the slot it explicitly does not cover is named");
+  // The claim that started this: nothing may say it runs under any or every slot.
+  for (const overclaim of [/any of (them|these) could run under/i, /across the family/i,
+                           /every slot could/i, /works with (all|any)/i]) {
+    assert.doesNotMatch(copy, overclaim, `must not claim ${overclaim}`);
+  }
 });

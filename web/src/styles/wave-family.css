@@ -142,3 +142,11 @@
   .wf-inf__loop li { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .wf-inf__loop li:last-child { border-bottom: 0; }
 }
+/* Same plate as the naming note: the constraint is not a caveat in small print, it is
+   part of what the thing IS. */
+.wf-inf__requires {
+  margin: var(--s-7) 0 0; padding: var(--s-4) var(--s-5);
+  border-left: 2px solid var(--ink-900); background: var(--paper-2);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wf-inf__requires b { color: var(--ink-900); }
