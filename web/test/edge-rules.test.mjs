@@ -14,18 +14,38 @@ import {
   headerRule,
   redirectRule,
   legacyRedirectRule,
+  vanityImportRule,
   canonicalSiteReady,
   parseHeaders,
 } from "../scripts/cf-edge.mjs";
+import * as edge from "../scripts/cf-edge.mjs";
 
 const CANON = "rogerai.fm";
 const LEGACY = "rogerai.fyi";
 
-// A Cloudflare expression of the exact form `(http.host in {"a" "b"})` matches those hosts
+// A redirect must never swallow the ACME HTTP-01 challenge path. This is not hypothetical:
+// the www->apex rule 301'd /.well-known/acme-challenge/... on www.rogerai.fm, so the
+// certificate authority could never read the token there and www sat unissued (DigitalOcean
+// reported DomainCertPendingValidation for hours) while the apex, which has no redirect,
+// validated first try. Any redirect we own has the same failure mode at every renewal.
+const ACME_EXCLUSION =
+  'not starts_with(http.request.uri.path, "/.well-known/acme-challenge/")';
+
+// Split `(<host test> and <acme guard>)` into its parts so the host assertions below stay as
+// strict as they were before the guard existed.
+function parts(expression) {
+  const m = /^\((.*)\)$/.exec(expression.trim());
+  assert.ok(m, `expression must be parenthesised, got: ${expression}`);
+  const inner = m[1];
+  const i = inner.indexOf(" and " + ACME_EXCLUSION);
+  return { host: i === -1 ? inner : inner.slice(0, i), guarded: i !== -1 };
+}
+
+// A Cloudflare expression of the exact form `http.host in {"a" "b"}` matches those hosts
 // and nothing else - no subdomains, no suffix matching. Asserting on that shape (rather than
 // on a substring) is what lets us prove broker/control are excluded.
 function hostSet(expression) {
-  const m = /^\(http\.host in \{((?:\s*"[^"]+")+)\s*\}\)$/.exec(expression.trim());
+  const m = /^http\.host in \{((?:\s*"[^"]+")+)\s*\}$/.exec(parts(expression).host.trim());
   assert.ok(
     m,
     `expression must be an exact host-set membership test so non-listed hosts (broker, control) ` +
@@ -36,7 +56,7 @@ function hostSet(expression) {
 
 // A single-host equality expression is likewise exact.
 function singleHost(expression) {
-  const m = /^\(http\.host eq "([^"]+)"\)$/.exec(expression.trim());
+  const m = /^http\.host eq "([^"]+)"$/.exec(parts(expression).host.trim());
   assert.ok(m, `expression must be an exact single-host test, got: ${expression}`);
   return m[1];
 }
@@ -126,4 +146,78 @@ test("the legacy redirect waits for the canonical site to answer with a valid ce
 
   const live = await canonicalSiteReady(CANON, async () => ({ status: 200, headers: new Map() }));
   assert.equal(live.ready, true, "a healthy canonical site unblocks the legacy redirect");
+});
+
+// Build every redirect rule the module exports, by SWEEP rather than by list. A hardcoded
+// list is how the vanity-import rule reached the live zone with no ACME guard and no test:
+// the check kept passing because it never knew the new rule existed. A rule now inherits the
+// guarantees below simply by being exported.
+function allRedirectRules() {
+  const opts = { zone: CANON, legacyZone: LEGACY, canonicalZone: CANON };
+  const out = {};
+  for (const [name, fn] of Object.entries(edge)) {
+    if (typeof fn !== "function" || !name.endsWith("Rule")) continue;
+    const rule = name === "headerRule" ? fn(parseHeaders(), opts) : fn(opts);
+    if (rule && rule.action === "redirect") out[name] = rule;
+  }
+  return out;
+}
+
+test("every exported redirect rule is swept, not enumerated", () => {
+  const names = Object.keys(allRedirectRules());
+  // If a redirect builder is added, it must appear here automatically.
+  for (const required of ["redirectRule", "legacyRedirectRule", "vanityImportRule"]) {
+    assert.ok(names.includes(required), `${required} must be swept as a redirect rule`);
+  }
+});
+
+test("no redirect we own may swallow the ACME challenge path", () => {
+  // Certificate issuance and renewal fetch http://<host>/.well-known/acme-challenge/<token>.
+  // A redirect that matches it sends the CA to the wrong host and validation never completes.
+  const redirects = allRedirectRules();
+  assert.ok(Object.keys(redirects).length >= 3, "the sweep found no redirects to guard");
+
+  for (const [name, rule] of Object.entries(redirects)) {
+    assert.equal(
+      parts(rule.expression).guarded,
+      true,
+      `the ${name} redirect must exclude /.well-known/acme-challenge/, or the certificate ` +
+        `authority gets a 301 instead of the token and the hostname never gets a certificate`,
+    );
+  }
+});
+
+// `go get rogerai.fm/roger` fetches the module path with NO trailing slash, and this host
+// does no extensionless resolution, so /roger 404s while /roger/ serves the go-import page.
+// This rule is the only thing that makes the module go-gettable at all - and it is PUT to
+// the live zone, so its shape is production behavior, not configuration.
+test("the vanity-import redirect is scoped to the apex and preserves the go-get query", () => {
+  const rule = vanityImportRule({ zone: CANON });
+  const { host } = parts(rule.expression);
+
+  assert.match(host, new RegExp(`http\\.host eq "${CANON}"`), "must be scoped to the apex host");
+  assert.doesNotMatch(host, /broker|control/, "must never match the API hosts");
+
+  // Exact path equality, not a prefix: `starts_with(..., "/roger")` would also swallow
+  // /roger-ios, /rogerai, and every future page whose name begins with "roger".
+  assert.match(
+    host,
+    /http\.request\.uri\.path eq "\/roger"/,
+    'the path test must be exact equality on "/roger", never a prefix match',
+  );
+  assert.doesNotMatch(host, /starts_with\(http\.request\.uri\.path, "\/roger"\)/);
+
+  const from = rule.action_parameters.from_value;
+  assert.equal(from.status_code, 301, "a permanent move, so the module path is cacheable");
+  // Go appends ?go-get=1 and drops the response if the redirect eats it, so this flag is
+  // the difference between a working `go install` and a module nobody can fetch.
+  assert.equal(from.preserve_query_string, true, "?go-get=1 must survive the hop");
+  assert.match(from.target_url.expression, /"\/roger\/"/, "must land on the trailing-slash page");
+});
+
+test("the header rule still applies to the ACME path", () => {
+  // Only redirects are dangerous here. Setting response headers on the challenge response is
+  // harmless, so the header rule must NOT carry the exclusion - narrowing it would silently
+  // drop the security headers on a real path.
+  assert.equal(parts(headerRule(parseHeaders(), { zone: CANON }).expression).guarded, false);
 });
