@@ -96,7 +96,9 @@ async function check(url) {
 // the module path as a URL with NO trailing slash, so it depends on the host
 // resolving /roger to /roger/index.html. Nothing offline can prove that, and if it
 // is wrong `go install rogerai.fm/roger/...` fails for every user while the whole
-// site looks fine. README advertises that command, so we check it the way Go does.
+// site looks fine. Nothing advertises that command today (the README claim came down with
+// this check), but the tag is still checked so the route can be proven before the
+// claim is restored.
 const GO_GET_URL = "https://rogerai.fm/roger?go-get=1";
 
 async function checkGoImport() {

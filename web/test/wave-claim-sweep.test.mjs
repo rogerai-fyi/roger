@@ -12,7 +12,8 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -88,23 +89,31 @@ test("the fabricated artifact id appears nowhere", () => {
   assert.deepEqual(failures, [], `the unpublished artifact id survives in:\n${failures.join("\n")}`);
 });
 
-// The rasterized card is what crawlers cache, and it cannot be grepped. Pin its bytes
-// to the corrected source so an SVG edit without a regenerate is caught: a PNG older
-// than its SVG is exactly how the stale "AVAILABLE" card survived the first pass.
-test("every social card PNG is newer than the SVG it is rendered from", () => {
-  for (const card of walk(SRC, ".svg").filter((f) => path.basename(f).startsWith("og-"))) {
-    const png = path.join(SRC, card.replace(/\.svg$/, ".png"));
-    let pngStat;
+// The rasterized card is what crawlers cache, and it cannot be grepped. A first
+// draft compared mtimes - but git does not preserve them, and on a fresh checkout
+// the PNG is often written first, so that check was both flaky and meaningless in
+// CI. Instead each PNG carries the sha256 of the SVG it was rendered from: edit the
+// source without re-rendering and the recorded hash no longer matches, which is
+// exactly how the stale "AVAILABLE" card survived the first retraction pass.
+test("every social card PNG was rendered from the current SVG", () => {
+  const cards = walk(SRC, ".svg").filter((f) => path.basename(f).startsWith("og-"));
+  assert.ok(cards.length >= 2, `sweep found ${cards.length} og cards - it has gone blind`);
+  for (const card of cards) {
+    const png = card.replace(/\.svg$/, ".png");
+    let recorded;
     try {
-      pngStat = statSync(png);
+      recorded = readFileSync(path.join(SRC, `${png}.source-sha256`), "utf8").trim().split(/\s+/)[0];
     } catch {
       continue; // not every card is rasterized
     }
-    const svgStat = statSync(path.join(SRC, card));
-    assert.ok(
-      pngStat.mtimeMs >= svgStat.mtimeMs,
-      `${path.basename(png)} is older than ${path.basename(card)} - regenerate it ` +
-        `(rsvg-convert -w 1200 -h 630 src/${card} -o src/${card.replace(/\.svg$/, ".png")})`
+    const actual = createHash("sha256").update(readFileSync(path.join(SRC, card))).digest("hex");
+    assert.equal(
+      actual,
+      recorded,
+      `${path.basename(png)} is stale: ${path.basename(card)} changed since it was rendered. ` +
+        `Re-render and re-pin:\n` +
+        `  rsvg-convert -w 1200 -h 630 web/src/${card} -o web/src/${png}\n` +
+        `  sha256sum web/src/${card} | cut -d" " -f1 > web/src/${png}.source-sha256`
     );
   }
 });

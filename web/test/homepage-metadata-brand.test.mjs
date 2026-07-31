@@ -84,7 +84,10 @@ test("homepage structured data connects RogerAI, Labs, pages, and the released a
   // cached and indexed long after a page is corrected. Until a stranger can download
   // a Wave checkpoint, no SoftwareSourceCode block may name one.
   assert.doesNotMatch(serialized, /SoftwareSourceCode/);
+  // Both the artifact-id form and the spaced product name - the first draft only
+  // matched the hyphenated id, so "Wave Micro" itself would have passed.
   assert.doesNotMatch(serialized, /wave-(?:micro|nano|core)-\d+/i);
+  assert.doesNotMatch(serialized, /Wave\s+(?:Micro|Nano|Core)/i);
   assert.doesNotMatch(serialized, /Wave Nano|Wave Core|Roger Edge/);
   assert.doesNotMatch(serialized, /employee|customer|funding|award/i);
 });
