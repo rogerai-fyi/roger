@@ -100,7 +100,7 @@ Feature: RogerAI Research presents real model science without confusing it with 
     And the page reports cold load, peak memory, prompt speed, and decode speed
     And the page does not generalize one Pi result to every ARM device
 
-  Scenario: ESP32 is not represented as running Wave Nano
+  Scenario: ESP32 is not represented as running Wave Micro
     Given the visitor reads the embedded device support
     Then the page does not say an ESP32 runs a 350M Roger Wave model
     And ESP32 artifacts are labeled task-specific Roger Edge models

@@ -85,7 +85,7 @@ Feature: The homepage presents RogerAI as a research and infrastructure company
   Rule: The homepage previews the RogerAI model ladder
 
     Scenario: A compact spectrum presents the right-sized model strategy
-      Then the spectrum orders Roger Edge, Wave Micro, Wave Nano, and Wave Core
+      Then the spectrum orders Roger Edge, Wave Nano, Wave Micro, and Wave Core
       And each rung has a concise task and hardware envelope
       And Roger Edge remains below the Wave family as task-specific microcontroller work
       And the spectrum links to Research for full program status

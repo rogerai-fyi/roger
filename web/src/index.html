@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- include: head.html title="RogerAI - local AI models and inference infrastructure" desc="RogerAI is an American AI research and infrastructure company building Wave Nano and models for constrained hardware alongside an OpenAI-compatible network." theme=inline css=site og=1 -->
+  <!-- include: head.html title="RogerAI - local AI models and inference infrastructure" desc="RogerAI is an American AI research and infrastructure company building open models for constrained hardware alongside an OpenAI-compatible network." theme=inline css=site og=1 -->
 </head>
 <body data-onair="idle">
 
@@ -31,7 +31,7 @@
       </span>
 
       <h1 class="hero__title">
-        Run models through<br /><span class="hero__op">one local endpoint</span>.<br /><span class="hero__fast">On hardware you choose.</span>
+        Tune in to the world's<br /><span class="hero__op">spare GPUs</span>.<br /><span class="hero__fast">In under 30 seconds.</span>
       </h1>
 
       <p class="hero__sub">
@@ -52,11 +52,15 @@
            now-playing display). Clicking the mascot OR the banner opens a small
            record-player chat (Ping concierge) for typing. Sits right after the
            subhead, before the command. teaser.js drives #pingTag / [data-onair]. -->
-      <a class="hero__proof" href="/research.html#wave-nano-350m-instruct"
-         aria-label="Wave Nano v1.0 release from RogerAI Labs">
+      <!-- Wave Micro is a PROGRAM, not a download. The proof plate states where the
+           work actually stands - a completed architecture bake-off - because that is
+           real and checkable. It goes back to a release plate when a stranger can
+           download the checkpoint. -->
+      <a class="hero__proof" href="/research.html"
+         aria-label="Wave Micro model program at RogerAI Labs">
         <span>ROGERAI LABS</span>
-        <b>WAVE NANO v1.0</b>
-        <span>AVAILABLE · 350M · APACHE-2.0</span>
+        <b>WAVE MICRO</b>
+        <span>350M CLASS · IN PROGRESS</span>
       </a>
 
       <span class="hero__ping" id="pingDock">
@@ -403,17 +407,19 @@
 
         <article class="company__card company__card--labs">
           <!-- include: tube-ping.html -->
-          <span class="company__label">ROGERAI LABS · WAVE NANO v1.0</span>
-          <h3>One released checkpoint, one exact contract.</h3>
-          <p><span class="status status--available">AVAILABLE</span>
-            <code>wave-nano-350m-instruct</code> · 350M · instruct · GGUF · Q4_K_M.</p>
-          <p><b>Artifact license: Apache-2.0.</b> Local use does not require RogerAI
-            or its broker. Optional network services, including publication, routing,
-            payments, failover, and signed receipts, use separate network terms and do
-            not modify the artifact license.</p>
+          <span class="company__label">ROGERAI LABS · WAVE MICRO</span>
+          <h3>A model program with its gates in the open.</h3>
+          <p><span class="status">IN PROGRESS</span>
+            A 350M-class text and tool model for Raspberry Pi, phones, and ARM boards.
+            The architecture bake-off is complete and has selected its candidate
+            parents; no checkpoint has been released, and none ships until it passes
+            the release contract on real devices.</p>
+          <p>When it does release, the artifact licence is intended to be permissive
+            and local use will not require RogerAI or its broker. Optional network
+            services, including publication, routing, payments, failover, and signed
+            receipts, use separate network terms.</p>
           <p class="company__links">
-            <a class="company__primary" href="https://huggingface.co/rogerai-fyi/wave-nano-350m-instruct">Download or Run Wave</a>
-            <a href="/research.html">Full Research record</a>
+            <a class="company__primary" href="/research.html">Follow the program</a>
             <a href="/broadcasts.html">Open Air Waves</a>
           </p>
         </article>
@@ -421,8 +427,8 @@
 
       <ol class="home-spectrum" aria-label="RogerAI model size spectrum">
         <li><span>KB–10M</span><b>Roger Edge</b><small>fixed sensing · microcontrollers</small></li>
-        <li><span>&lt;100M</span><b>Wave Micro</b><small>routing + extraction · ARM/NPU</small></li>
-        <li class="is-available"><span>350M · AVAILABLE</span><b>Wave Nano</b><small>local text + tools · Pi/phone/edge</small></li>
+        <li><span>&lt;100M</span><b>Wave Nano</b><small>routing + extraction · ARM/NPU</small></li>
+        <li><span>350M · in progress</span><b>Wave Micro</b><small>local text + tools · Pi/phone/edge</small></li>
         <li><span>1B-class</span><b>Wave Core</b><small>local reasoning · laptop/workstation</small></li>
         <li class="home-spectrum__more"><a href="/research.html">Full program status &rarr;</a></li>
       </ol>
@@ -513,44 +519,11 @@
     </div>
   </section>
 
-  <!-- ===================== OPERATING NOTES ===================== -->
-  <section class="section" id="how">
-    <div class="wrap">
-      <div class="section__head section__head--left" data-reveal>
-        <span class="sectionno">§6 / OPERATING NOTES</span>
-        <h2>Four notes before you transmit.</h2>
-      </div>
-
-      <div class="opnotes" data-reveal data-reveal-delay="60">
-        <article class="opnote">
-          <span class="opnote__no" aria-hidden="true">01</span>
-          <div><h3>Lock and hold</h3>
-          <p>Tune with margins. The radio locks the strongest station and re-tunes when one fades.</p></div>
-        </article>
-        <article class="opnote">
-          <span class="opnote__no" aria-hidden="true">02</span>
-          <div><h3>Sign every token <span class="cs">&#9670;</span></h3>
-          <p>A call-sign co-signs each token's lineage. ed25519, verifiable.</p></div>
-        </article>
-        <article class="opnote">
-          <span class="opnote__no" aria-hidden="true">03</span>
-          <div><h3>Set your own rate</h3>
-          <p>Per-token rates per model, free hours, time-of-use, usage caps. You decide.</p></div>
-        </article>
-        <article class="opnote">
-          <span class="opnote__no" aria-hidden="true">04</span>
-          <div><h3>Only the model</h3>
-          <p>RogerAI bridges the LLM endpoint, nothing else. No shell, files, or context. On the confidential <span class="cs">&#9670;</span> tier, traffic routes only to nodes that pass real TEE hardware attestation (AMD SEV-SNP), so the operator cannot read the payload in memory.</p></div>
-        </article>
-      </div>
-    </div>
-  </section>
-
   <!-- ===================== MONETIZE ===================== -->
   <section class="section band" id="monetize">
     <div class="wrap monetize">
       <div class="monetize__copy" data-reveal>
-        <span class="sectionno">§7 / MONETIZE</span>
+        <span class="sectionno">§6 / MONETIZE</span>
         <h2>Put idle GPU capacity to work.</h2>
         <p>Set a rate. Keep 70% of every token you serve. Or run open for free, plenty of
           stations broadcast for the love of the band.</p>
@@ -590,7 +563,7 @@
   <!-- ===================== CTA STRIP ===================== -->
   <section class="cta">
     <div class="wrap cta__inner" data-reveal>
-      <span class="sectionno">§8 / GO</span>
+      <span class="sectionno">§7 / GO</span>
       <h2>Start with the CLI.</h2>
       <p>Install RogerAI to browse models, use capacity, or share your own.</p>
       <button class="install__box install__box--lg" id="installCmd2" type="button"

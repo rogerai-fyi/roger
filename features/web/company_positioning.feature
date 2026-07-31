@@ -43,8 +43,8 @@ Feature: RogerAI presents a clear company, product, and research story
   Scenario: The model ladder presents the shipping Wave line honestly
     Given a Wave checkpoint has passed release gates
     Then Roger Edge is described as task-specific microcontroller work
-    And Wave Micro is described as sub-100M specialist research
-    And Wave Nano is described as a 350M-class released model
+    And Wave Nano is described as sub-100M specialist research
+    And Wave Micro is described as a 350M-class released model
     And frontier-scale optimization covers upstream models with tens or hundreds of billions of parameters
     And the released checkpoint links its weights, model card, license, source, evaluations, and limitations
     And no unreleased rung borrows the released checkpoint's availability or performance
