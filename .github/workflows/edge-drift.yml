@@ -40,6 +40,11 @@ jobs:
   # can see it. Runs on any change to the pages that carry release claims, and
   # weekly, so an artifact going private later is caught too.
   artifacts:
+    # push/schedule ONLY. This checks the LIVE site, so on a pull_request it would
+    # assert against production as it exists BEFORE the change merges - a page that
+    # first ships in the PR is guaranteed 404, and the gate would block the very
+    # change that satisfies it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

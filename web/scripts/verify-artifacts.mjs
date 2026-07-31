@@ -140,7 +140,11 @@ async function main() {
     if (!goImport.ok) {
       console.error(`\nverify-artifacts: ${GO_GET_URL} is not serving the go-import tag (${goImport.why}).\n`);
     }
-    return goImport.ok ? 0 : 1;
+    // Always fail. A healthy go-import tag does not redeem a run that inspected no
+    // artifacts: the site is known to advertise several, so collecting zero means
+    // this check has gone blind, and a blind check reporting success is the failure
+    // mode being guarded against.
+    return 1;
   }
 
   const urls = [...advertised.keys()].sort();
