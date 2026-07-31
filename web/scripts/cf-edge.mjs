@@ -253,24 +253,70 @@ if (check) {
   // if someone edits _headers without re-running --apply, this is what catches it (CI
   // runs it on _headers/_redirects changes + a weekly cron).
   const drift = [];
-  const live = await fetch(`https://${APEX}/`, { method: "HEAD", redirect: "manual" });
-  for (const h of headers) {
-    const got = live.headers.get(h.name);
-    if (got === null) drift.push(`missing on the live edge: ${h.name}`);
-    else if (got.trim() !== h.value) drift.push(`value drift: ${h.name}\n  repo: ${h.value}\n  live: ${got.trim()}`);
+  // Both probes are wrapped: a host that is unreachable or has no valid certificate is
+  // a REPORTABLE edge condition, not a reason to die with a stack trace. www currently
+  // has no certificate covering it, so an unguarded fetch here aborts the whole check
+  // with "TypeError: fetch failed" and tells the reader nothing about what is wrong.
+  const probe = async (url) => {
+    try {
+      return { res: await fetch(url, { method: "HEAD", redirect: "manual" }) };
+    } catch (err) {
+      const cause = err?.cause?.message || err?.message || String(err);
+      return { err: `${url} is unreachable or has no valid certificate: ${cause}` };
+    }
+  };
+
+  const apex = await probe(`https://${APEX}/`);
+  if (apex.err) {
+    drift.push(apex.err);
+  } else {
+    for (const h of headers) {
+      const got = apex.res.headers.get(h.name);
+      if (got === null) drift.push(`missing on the live edge: ${h.name}`);
+      else if (got.trim() !== h.value) drift.push(`value drift: ${h.name}\n  repo: ${h.value}\n  live: ${got.trim()}`);
+    }
   }
-  const www = await fetch(`https://${WWW}/`, { method: "HEAD", redirect: "manual" });
-  const loc = www.headers.get("location") || "";
-  if (www.status !== 301 || !loc.startsWith(`https://${APEX}`)) {
-    drift.push(`www redirect drift: expected 301 -> https://${APEX}/..., got ${www.status} -> ${loc || "(none)"}`);
+
+  const www = await probe(`https://${WWW}/`);
+  if (www.err) {
+    drift.push(www.err);
+  } else {
+    const loc = www.res.headers.get("location") || "";
+    if (www.res.status !== 301 || !loc.startsWith(`https://${APEX}`)) {
+      drift.push(`www redirect drift: expected 301 -> https://${APEX}/..., got ${www.res.status} -> ${loc || "(none)"}`);
+    }
   }
+  // The vanity-import hop is the ONLY thing that makes `go get rogerai.fm/roger` resolve,
+  // and nothing else fails loudly if it disappears: verify-artifacts treats its go-import
+  // result as advisory, and a rule deleted in the Cloudflare dashboard leaves no trace in
+  // the repo. Check it here, where drift is the whole point of the job.
+  const vanity = await probe(`https://${APEX}/roger?go-get=1`);
+  if (vanity.err) {
+    drift.push(vanity.err);
+  } else {
+    const loc = vanity.res.headers.get("location") || "";
+    if (vanity.res.status !== 301 || !loc.includes("/roger/")) {
+      drift.push(
+        `vanity-import redirect drift: expected 301 -> https://${APEX}/roger/, ` +
+          `got ${vanity.res.status} -> ${loc || "(none)"}; ` +
+          "`go install rogerai.fm/roger/cmd/rogerai@latest` is broken while this is wrong",
+      );
+    } else if (!loc.includes("go-get=1")) {
+      // Go drops the response when the redirect eats its query, so a 301 to the right
+      // path is still a broken module fetch without this.
+      drift.push(`vanity-import redirect drops ?go-get=1: ${loc}`);
+    }
+  }
+
   if (drift.length) {
     console.error(`EDGE DRIFT (${drift.length}): the live Cloudflare edge does not match web/src/_headers|_redirects.\n`);
     for (const d of drift) console.error("  - " + d);
     console.error("\nFix: CF_API_TOKEN=... node web/scripts/cf-edge.mjs --apply");
     process.exit(1);
   }
-  console.log(`edge in sync: ${headers.length} header(s) + www->apex 301 all match the repo.`);
+  console.log(
+    `edge in sync: ${headers.length} header(s) + www->apex 301 + the /roger vanity hop all match the repo.`,
+  );
   process.exit(0);
 }
 
