@@ -41,10 +41,36 @@ const topbar = (html) => {
 const liveHrefs = (block) =>
   [...block.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<a\b[^>]*href="([^"]*)"/g)].map((m) => m[1]);
 
+// The BAR items only - links inside a disclosure panel carry no .nav__link class.
+// Asserting over every anchor would conflate "what the bar shows" with "what the
+// panels reveal", which are different questions with different right answers.
+// Drop disclosure panels before asking "what does the BAR link to, in order".
+const withoutPanels = (block) => block.replace(/<div class="nav__panel"[\s\S]*?<\/div>/g, "");
+
+const barHrefs = (block) =>
+  [...block.replace(/<!--[\s\S]*?-->/g, "").matchAll(/<a\b[^>]*class="nav__link[^"]*"[^>]*href="([^"]*)"/g)]
+    .map((m) => m[1]);
+
+// A balanced slice. The sections container now nests a <div class="nav__panel">, so a
+// non-greedy match to the first </div> stops inside the panel and silently under-reads
+// the very thing being asserted.
+const sectionsBlock = (bar) => {
+  const start = bar.indexOf('<div class="nav__sections">');
+  assert.ok(start >= 0, "nav has a sections group");
+  let depth = 0, i = start;
+  const tag = /<(\/?)div\b/g;
+  tag.lastIndex = start;
+  for (let m; (m = tag.exec(bar)); ) {
+    depth += m[1] ? -1 : 1;
+    if (depth === 0) { i = m.index + m[0].length; break; }
+  }
+  return bar.slice(start, bar.indexOf(">", i) + 1);
+};
+
 test("marketing top bar: Models · Research · Voices · App · Company and NOTHING else in the sections group", () => {
   const bar = topbar(readDist("index.html"));
-  const sections = bar.match(/<div class="nav__sections">[\s\S]*?<\/div>/)[0];
-  const hrefs = liveHrefs(sections);
+  const sections = sectionsBlock(bar);
+  const hrefs = barHrefs(sections);
   assert.deepEqual(hrefs, ["/models.html", "/research.html", "/voices.html", "/app.html", "/company.html"],
     "sections are exactly Models, Research, Voices, App, Company - the #spec/#how/#monetize anchors are gone");
 });
@@ -57,7 +83,7 @@ test("marketing top bar: the removed items are NOT live links anywhere in the ba
 });
 
 test("marketing top bar: order is Models·Research·Voices·App·Company | Manual·Source·Log in (then the reserved slot + toggle)", () => {
-  const links = liveHrefs(topbar(readDist("index.html")));
+  const links = liveHrefs(withoutPanels(topbar(readDist("index.html"))));
   assert.deepEqual(links, [
     "#top",                                   // brand
     "/models.html", "/research.html", "/voices.html", "/app.html", "/company.html",
@@ -65,6 +91,58 @@ test("marketing top bar: order is Models·Research·Voices·App·Company | Manua
     "https://github.com/rogerai-fyi/roger",   // Source (ghost)
     "/login.html",
   ], "the decluttered marketing bar renders the exact target link set, in order");
+});
+
+// The disclosure panels exist so the sub-pages are not discoverable only by landing
+// on a hub and scrolling. Pin what they reveal, and pin the accessibility contract:
+// the APG is explicit that site navigation must NOT claim role="menu", because that
+// role promises arrow-key and typeahead behaviour this does not implement.
+test("the nav panels reveal every page that is otherwise hub-only", () => {
+  const bar = topbar(readDist("index.html"));
+  const panelHrefs = [...bar.matchAll(/<div class="nav__panel"[\s\S]*?<\/div>/g)]
+    .flatMap((m) => liveHrefs(m[0]));
+  for (const must of [
+    "/research-models.html",
+    "/research-wave-family.html",
+    "/research-industry.html",
+    "/broadcasts.html",
+    "/careers.html",
+  ]) {
+    assert.ok(panelHrefs.includes(must), `${must} is reachable from the nav, not just from a hub`);
+  }
+});
+
+test("the nav disclosure follows the APG contract, not the menu role", () => {
+  const bar = topbar(readDist("index.html"));
+  const buttons = [...bar.matchAll(/<button class="nav__more"[^>]*>/g)].map((m) => m[0]);
+  assert.ok(buttons.length >= 2, `expected a disclosure per group, found ${buttons.length}`);
+  for (const b of buttons) {
+    assert.match(b, /aria-expanded="false"/, "starts collapsed");
+    assert.match(b, /aria-controls="[^"]+"/, "names the panel it controls");
+    assert.match(b, /aria-label="[^"]+"/, "a caret glyph needs an accessible name");
+    assert.match(b, /type="button"/, "never submits");
+  }
+  // Every aria-controls must resolve to a real id on this page.
+  for (const b of buttons) {
+    const id = b.match(/aria-controls="([^"]+)"/)[1];
+    assert.ok(bar.includes(`id="${id}"`), `aria-controls="${id}" points at a real element`);
+  }
+  // Strip comments: the note explaining why we avoid role="menu" is not a role.
+  assert.doesNotMatch(bar.replace(/<!--[\s\S]*?-->/g, ""), /role="menu(item)?"/,
+    "site navigation does not claim the menu role");
+  // Panels start hidden, so nothing depends on CSS to conceal them.
+  assert.equal((bar.match(/<div class="nav__panel"[^>]*hidden/g) || []).length, buttons.length);
+});
+
+// With JavaScript off the panels never open, so each top-level item must still be a
+// real link to a hub that lists the same destinations. The panel is an accelerator.
+test("every disclosure group keeps a working link beside its caret", () => {
+  const bar = topbar(readDist("index.html"));
+  const groups = [...bar.matchAll(/<span class="nav__group">[\s\S]*?<\/span>/g)].map((m) => m[0]);
+  assert.ok(groups.length >= 2, `expected disclosure groups, found ${groups.length}`);
+  for (const g of groups) {
+    assert.match(g, /<a class="nav__link"[^>]*href="\/[a-z-]+\.html"/, "the group heading is a real link");
+  }
 });
 
 test("App Store CTA slot is RESERVED (a comment), not a fabricated live link/badge", () => {
@@ -95,6 +173,19 @@ test("footer keeps the FULL map: everything pulled from the bar is still reachab
     "/keys.html",       // API keys, removed from the bar -> Account group
   ]) {
     assert.ok(links.includes(must), `footer carries ${must} so the decluttered bar loses nothing`);
+  }
+});
+
+// The panels need JavaScript. The footer does not, and neither does a crawler, so
+// every destination a panel reveals must also be in the footer map.
+test("the footer carries every destination the nav panels reveal", () => {
+  const home = readDist("index.html");
+  const bar = topbar(home);
+  const panelHrefs = [...bar.matchAll(/<div class="nav__panel"[\s\S]*?<\/div>/g)]
+    .flatMap((m) => liveHrefs(m[0]));
+  const footer = liveHrefs(home.match(/<footer[\s\S]*?<\/nav>/)[0]);
+  for (const h of new Set(panelHrefs)) {
+    assert.ok(footer.includes(h), `${h} is in the footer too, so it survives with JS off`);
   }
 });
 
