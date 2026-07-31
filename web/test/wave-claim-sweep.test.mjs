@@ -49,12 +49,32 @@ function offendingContext(body) {
   const hits = [];
   for (const m of body.matchAll(RUNGS)) {
     const around = body.slice(Math.max(0, m.index - WINDOW), m.index + WINDOW);
-    const claim = around.match(CLAIM);
-    if (claim && NEGATED.test(around.slice(0, claim.index))) continue;
-    if (claim) hits.push(`"${m[0]}" near "${claim[0]}": …${around.replace(/\s+/g, " ").trim()}…`);
+    // EVERY claim in the window, judged individually: a negated one nearby is not a
+    // licence for the next one. Skipping the window on the first negation is how a real
+    // claim hides behind an honest sentence.
+    for (const claim of around.matchAll(new RegExp(CLAIM, "g"))) {
+      if (NEGATED.test(around.slice(0, claim.index))) continue;
+      hits.push(`"${m[0]}" near "${claim[0]}": …${around.replace(/\s+/g, " ").trim()}…`);
+      break;
+    }
   }
   return hits;
 }
+
+// The sweep's own blind spot: a window may hold TWO claims. Taking only the first and
+// skipping the whole window when it is negated lets a real claim ride along behind an
+// honest sentence - which is precisely the failure mode this whole file exists to catch.
+test("a negated claim does not mask a real one in the same window", () => {
+  const honestOnly = "Wave Micro is not Released yet, so nothing ships today.";
+  assert.deepEqual(offendingContext(honestOnly), [], "an honest denial must stay clean");
+
+  const masked = "Wave Micro is not Released yet. Download Wave Micro v1.0 AVAILABLE now.";
+  assert.notDeepEqual(
+    offendingContext(masked),
+    [],
+    "a real claim following a negated one must still be caught",
+  );
+});
 
 test("no built page claims a released Wave checkpoint", () => {
   const pages = walk(DIST, ".html");
