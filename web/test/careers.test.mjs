@@ -7,7 +7,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -112,4 +112,27 @@ test("every visible address matches the mailbox it links to", () => {
     if (!text.includes("@")) continue; // "Apply by email" style labels carry no address
     assert.equal(text.trim(), href, "the visible address must be the one the link opens");
   }
+});
+
+// The distinction strip lays its <b> out as a block, so whatever follows starts a new
+// line. On careers that line began with a comma - "Orange County, California" and then
+// ", with remote considered for the right person." on its own line. The lead-in has to be
+// a complete phrase and the continuation a complete sentence. Swept across every page
+// that uses the strip, because the trap is in the layout, not in one page's copy.
+test("no distinction strip continues a sentence onto its own line", () => {
+  
+  const pages = readdirSync(DIST).filter((f) => f.endsWith(".html"));
+  let checked = 0;
+  for (const page of pages) {
+    const html = read(page);
+    const strip = html.match(/<aside class="research-distinction"[\s\S]*?<\/aside>/)?.[0];
+    if (!strip) continue;
+    checked++;
+    for (const [, after] of strip.matchAll(/<\/b>([^<]*)/g)) {
+      assert.doesNotMatch(after, /^\s*[,;:]/,
+        `${page}: text after a <b> lead-in starts with punctuation, so the strip renders ` +
+        `a line beginning "${after.trim().slice(0, 48)}"`);
+    }
+  }
+  assert.ok(checked >= 2, `the strip is on more than one page, swept ${checked}`);
 });
