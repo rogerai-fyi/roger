@@ -93,13 +93,15 @@ async function check(url) {
 }
 
 // The go-import tag is an artifact too, and the most brittle one: `go get` fetches
-// the module path as a URL with NO trailing slash, so it depends on the host
-// resolving /roger to /roger/index.html. Nothing offline can prove that, and if it
-// is wrong `go install rogerai.fm/roger/...` fails for every user while the whole
-// site looks fine. Nothing advertises that command today (the README claim came down with
-// this check), but the tag is still checked so the route can be proven before the
-// claim is restored.
-const GO_GET_URL = "https://rogerai.fm/roger?go-get=1";
+// the module path as a URL with NO trailing slash, so it depends on the edge resolving
+// /roger/v5 to /roger/v5/index.html. Nothing offline can prove that, and if it is wrong
+// `go install rogerai.fm/roger/v5/...` fails for every user while the whole site looks fine.
+//
+// The VERSIONED path is what must be probed. Go filters candidate tags by the module
+// path's major suffix, so the module is `rogerai.fm/roger/v5` and that - not the bare
+// /roger page - is the URL the toolchain actually fetches.
+const GO_GET_URL = "https://rogerai.fm/roger/v5?go-get=1";
+const GO_IMPORT_PREFIX = "rogerai.fm/roger/v5 ";
 
 async function checkGoImport() {
   const ctrl = new AbortController();
@@ -110,7 +112,7 @@ async function checkGoImport() {
     const body = await res.text();
     const m = body.match(/<meta\s+name="go-import"\s+content="([^"]+)"/);
     if (!m) return { ok: false, why: "200, but no go-import meta tag in the response" };
-    if (!m[1].startsWith("rogerai.fm/roger ")) {
+    if (!m[1].startsWith(GO_IMPORT_PREFIX)) {
       return { ok: false, why: `go-import declares ${JSON.stringify(m[1])}` };
     }
     return { ok: true };
@@ -157,7 +159,7 @@ async function main() {
   if (!goImport.ok) {
     console.error(
       `\nverify-artifacts: ${GO_GET_URL} is not serving the go-import tag (${goImport.why}).\n` +
-        "`go install rogerai.fm/roger/cmd/rogerai@latest` cannot work until it does.\n"
+        "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` cannot work until it does.\n"
     );
   }
   for (const r of results.sort((a, b) => a.url.localeCompare(b.url))) {

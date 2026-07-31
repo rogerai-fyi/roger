@@ -5,12 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rogerai.fm/roger/v5 - Go module</title>
 
-<!-- The go-import tag is what makes `go get rogerai.fm/roger/v5` work. It is the ONE place the
+<!-- This ROOT page declares the repo-root prefix `rogerai.fm/roger`, deliberately WITHOUT
+     the major-version suffix. A go-import prefix must be a prefix of the URL Go requested,
+     so declaring `.../v5` here would make Go reject this page outright at /roger. Keeping
+     the bare prefix means `go get rogerai.fm/roger` fails with the useful "module declares
+     its path as rogerai.fm/roger/v5" instead of an opaque meta-tag mismatch. The module
+     Go actually fetches is served by /roger/v5/ - see that page.
+     The go-import tag is what makes `go get` work. It is the ONE place the
      code host is named: the import path belongs to this domain, so moving or renaming the
      repository is a one-line change here rather than an edit to every import in the tree.
      Pinned by test/smoke/module_path_test.go, which fails if this drifts from go.mod. -->
-<meta name="go-import" content="rogerai.fm/roger/v5 git https://github.com/rogerai-fyi/roger">
-<meta name="go-source" content="rogerai.fm/roger/v5 https://github.com/rogerai-fyi/roger https://github.com/rogerai-fyi/roger/tree/main{/dir} https://github.com/rogerai-fyi/roger/blob/main{/dir}/{file}#L{line}">
+<meta name="go-import" content="rogerai.fm/roger git https://github.com/rogerai-fyi/roger">
+<meta name="go-source" content="rogerai.fm/roger https://github.com/rogerai-fyi/roger https://github.com/rogerai-fyi/roger/tree/main{/dir} https://github.com/rogerai-fyi/roger/blob/main{/dir}/{file}#L{line}">
 
 <meta name="robots" content="noindex">
 <link rel="canonical" href="https://rogerai.fm/roger/">

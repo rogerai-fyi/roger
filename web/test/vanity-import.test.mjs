@@ -13,6 +13,7 @@ import path from "node:path";
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const MODULE_PATH = "rogerai.fm/roger/v5";
 const PAGE = path.join(DIST, "roger", "index.html");
+const ROOT_PREFIX = "rogerai.fm/roger";
 
 test("the built site ships the go-import document at the module path", () => {
   assert.ok(
@@ -28,7 +29,10 @@ test("the go-import tag maps the vanity module path to a real git repository", (
   assert.ok(m, "no go-import meta tag");
 
   const [module, vcs, repo] = m[1].trim().split(/\s+/);
-  assert.equal(module, MODULE_PATH, "the declared module must equal the go.mod module path");
+  // The ROOT page declares the suffix-less prefix on purpose: a go-import prefix must be a
+  // prefix of the URL Go requested, so ".../v5" here would make Go reject /roger outright.
+  assert.equal(module, ROOT_PREFIX, "the root page declares the repo-root prefix");
+  assert.ok(MODULE_PATH.startsWith(ROOT_PREFIX), "the module path must extend the root prefix");
   assert.equal(vcs, "git");
   assert.match(repo, /^https:\/\/\S+$/, "the repo must be an https clone URL");
 });
