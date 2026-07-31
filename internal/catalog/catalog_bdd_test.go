@@ -173,9 +173,14 @@ func (s *catState) entryMarked(verdict string) error {
 
 func TestModelCatalogueDataScenarios(t *testing.T) {
 	st := &catState{}
+	// Tag filters fail OPEN: rename or drop @data in the feature and godog runs zero
+	// scenarios, returns 0, and this test passes having verified nothing - the same
+	// blind-gate failure this release exists to remove. Count what actually ran.
+	ran := 0
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+				ran++
 				st.reset()
 				return ctx, nil
 			})
@@ -203,5 +208,8 @@ func TestModelCatalogueDataScenarios(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("model catalogue @data scenarios failed (see godog output above)")
+	}
+	if want := 3; ran < want {
+		t.Fatalf("only %d @data scenario(s) ran, want at least %d - the tag filter has gone blind", ran, want)
 	}
 }
