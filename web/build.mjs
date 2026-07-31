@@ -45,6 +45,7 @@ const CSS_BUNDLES = {
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
   "research.html":  [...CSS_MARKETING, "research.css"],
+  "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell
   "company.html":   [...CSS_MARKETING, "research.css"],
   "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
   "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget

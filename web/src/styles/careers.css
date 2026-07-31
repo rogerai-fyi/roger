@@ -1,0 +1,69 @@
+/* Careers: role cards on the shared notebook shell (research.css). Only the role
+   list needs its own rules - everything else reuses the existing plates so the
+   hiring page reads as the same document as Research and Company. */
+
+.role-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-5);
+  margin-bottom: var(--s-8);
+}
+
+.role {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-6);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--ink-900);
+}
+.role h3 {
+  margin: 0;
+  color: var(--ink-900);
+  font-size: var(--t-h3);
+}
+.role p { margin: 0; color: var(--ink-500); line-height: var(--lh-body); }
+
+/* Location / shape / cadence, as separated mono chips rather than a sentence -
+   an applicant scans these before reading a word of the description. */
+.role__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-400);
+}
+.role__meta span + span { padding-left: var(--s-3); border-left: 1px solid var(--hairline-2); }
+
+.role__stack {
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--t-sm);
+}
+.role__stack b { color: var(--ink-700); }
+
+/* Push the apply link to the card floor so a short and a long role still line up. */
+.role__apply { margin-top: auto; padding-top: var(--s-4); }
+.role__apply a {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-900);
+  border-bottom: 1px solid var(--live);
+}
+.role__apply a:hover, .role__apply a:focus-visible { color: var(--live); }
+
+/* Group heads after the first need air above them; the first inherits section padding. */
+.role-group-head { margin-top: var(--s-10); }
+
+@media (max-width: 820px) {
+  .role-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .role__meta span + span { padding-left: 0; border-left: 0; }
+}

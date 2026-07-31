@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<!-- The hiring surface. Roles are grouped by the WORK, and every one names the
+     concrete problem it owns and the stack it touches - a title alone tells an
+     engineer nothing about whether they want it.
+     Application is by email on purpose: there is no ATS, and a form posting to an
+     endpoint that does not exist would be another dead artifact.
+     Registered in build.mjs CSS_BUNDLES. Contract: features/web/careers.feature. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Careers - RogerAI" desc="RogerAI Labs is hiring for edge model research, inference engineering, and industrial deployment. Small team, work published in the open, Orange County, California." theme=external og=post ogtype=website ogtitle="Careers at RogerAI" ogdesc="Edge model research, inference engineering, and industrial deployment. Small team, published in the open." ogurl="https://rogerai.fm/careers.html" ogimage="https://rogerai.fm/og-company.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Careers</span>
+    <span class="rail__rev">Rev. 2026.07 &middot; ON AIR</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">JOIN US</span>
+        </span>
+        <h1>Engineers for engineers. Operators for operators.</h1>
+        <p class="research-hero__lead">
+          RogerAI is an American AI research company in Orange County, California,
+          building open models for hardware people actually own and the inference
+          network that carries them. We are small and early, the work is published in
+          the open as it happens, and the person who builds a thing here is the person
+          who explains it.
+        </p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="#roles">See open roles</a>
+          <a class="research-button" href="/research.html">Read the research</a>
+          <a class="research-button" href="https://github.com/rogerai-fyi/roger">Read the source</a>
+        </div>
+      </div>
+    </section>
+
+    <aside class="research-distinction">
+      <div class="wrap research-distinction__grid">
+        <div><span class="research-kicker">WHERE</span><b>Orange County, California</b>, with remote considered for the right person.</div>
+        <div><span class="research-kicker">STAGE</span><b>Early and small.</b> You will own a surface, not a ticket queue.</div>
+        <p>Every role below is one we would interview for today. Roles marked
+           <b>rolling</b> stay open on an ongoing basis because the work is continuous,
+           not because the posting is stale.</p>
+      </div>
+    </aside>
+
+    <section class="section" id="roles">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / RESEARCH</span>
+          <h2>Make the model small enough to matter.</h2>
+          <p>The Wave program builds models sized to the machine they live on, from
+             microcontroller task models up to workstation-class reasoning. Nothing
+             ships until it passes its release gate on real devices.</p>
+        </div>
+
+        <div class="role-list">
+          <article class="role">
+            <h3>Edge model research</h3>
+            <p class="role__meta"><span>Orange County or remote</span><span>Full-time</span><span>Rolling</span></p>
+            <p>Own a rung of the Wave ladder end to end: architecture and tokenizer
+               bake-offs against a fixed token budget, supervised fine-tuning, and the
+               measurement that decides whether it ships at all. You will write the
+               field note when the answer is no.</p>
+            <p class="role__stack"><b>Touches</b> PyTorch, LoRA/full SFT, tokenizer design,
+               eval harness construction, Hugging Face.</p>
+            <p class="role__apply"><a href="mailto:labs@rogerai.fm?subject=Edge%20model%20research">Apply by email</a></p>
+          </article>
+
+          <article class="role">
+            <h3>Quantization and compression</h3>
+            <p class="role__meta"><span>Orange County or remote</span><span>Full-time</span><span>Rolling</span></p>
+            <p>Take frontier-scale open models down to hardware people own without
+               pretending the quality delta is zero. Pruning, low-precision execution,
+               GGUF conversion, and the honest error bars that go with each.</p>
+            <p class="role__stack"><b>Touches</b> llama.cpp, GGUF, MXFP4/Q4_K_M, expert
+               pruning, CUDA and ROCm, perplexity and task-level evaluation.</p>
+            <p class="role__apply"><a href="mailto:labs@rogerai.fm?subject=Quantization%20and%20compression">Apply by email</a></p>
+          </article>
+        </div>
+
+        <div class="section__head section__head--left role-group-head">
+          <span class="sectionno">&sect;2 / ENGINEERING</span>
+          <h2>The radio, the desk, and everything under them.</h2>
+          <p>An OpenAI-compatible endpoint over machines we do not control, with
+             capacity-aware routing, failover, metering and signed receipts - and a
+             terminal client people actually enjoy using.</p>
+        </div>
+
+        <div class="role-list">
+          <article class="role">
+            <h3>Inference and runtime engineering</h3>
+            <p class="role__meta"><span>Orange County or remote</span><span>Full-time</span><span>Rolling</span></p>
+            <p>Serving throughput and context economics on real GPUs: batching,
+               KV-cache behaviour, speculative decoding, and the difference between a
+               benchmark number and what a station sustains for an hour.</p>
+            <p class="role__stack"><b>Touches</b> llama.cpp and vLLM internals, C++/CUDA,
+               Go, OpenAI-compatible protocol surfaces.</p>
+            <p class="role__apply"><a href="mailto:labs@rogerai.fm?subject=Inference%20and%20runtime%20engineering">Apply by email</a></p>
+          </article>
+
+          <article class="role">
+            <h3>Distributed systems engineering</h3>
+            <p class="role__meta"><span>Orange County or remote</span><span>Full-time</span><span>Rolling</span></p>
+            <p>The broker: discovery, routing, failover, metering and the signed receipt
+               trail that makes payouts auditable. Multi-instance state that stays
+               correct when a station drops mid-stream.</p>
+            <p class="role__stack"><b>Touches</b> Go, Postgres, Valkey, Ed25519 receipts,
+               Stripe Connect, testcontainers, exhaustive spec-first testing.</p>
+            <p class="role__apply"><a href="mailto:labs@rogerai.fm?subject=Distributed%20systems%20engineering">Apply by email</a></p>
+          </article>
+        </div>
+
+        <div class="section__head section__head--left role-group-head">
+          <span class="sectionno">&sect;3 / INDUSTRIAL DEPLOYMENT</span>
+          <h2>Where the data cannot leave the building.</h2>
+          <p>Plants, field sites and vehicles run segmented or air-gapped networks. That
+             constraint is the whole opportunity, and it is not learned from a laptop.</p>
+        </div>
+
+        <div class="role-list">
+          <article class="role">
+            <h3>Industrial deployment engineering</h3>
+            <p class="role__meta"><span>Orange County, with site travel</span><span>Full-time</span><span>Rolling</span></p>
+            <p>Put local models to work beside existing control systems in oil and gas,
+               power generation, manufacturing and aerospace - advisory only, never in a
+               protection or safety path. Scope a pilot, measure it, and publish what it
+               actually did.</p>
+            <p class="role__stack"><b>Touches</b> OPC UA, Modbus, MQTT Sparkplug B and a
+               unified namespace, ISA-95, NAMUR NE 107, IEC 62443 zoning, historians.</p>
+            <p class="role__apply"><a href="mailto:labs@rogerai.fm?subject=Industrial%20deployment%20engineering">Apply by email</a></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-tone" id="apply">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">&sect;4 / HOW TO APPLY</span>
+          <h2>Send work, not a cover letter.</h2>
+          <p>There is no applicant tracking system and no form. A person reads every
+             message.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>What to include.</b> Anything that shows how you think: a repository, a
+             paper, a build log, a bug you chased to the bottom. One paragraph on what
+             you would want to own here is worth more than a page of history.</p>
+          <p><b>None of these fit?</b> Send an open application anyway. Tell us what you
+             are good at and what you would build, and if it is close to where we are
+             going we will find the shape.
+             <a href="mailto:labs@rogerai.fm?subject=Open%20application">labs@rogerai.fm</a></p>
+          <p><b>What we will tell you.</b> Whether it is a fit, and why not if it is not.
+             We are too small to leave people waiting, and being ignored by a company
+             that publishes its failures would be an odd start.</p>
+          <p><b>What we cannot offer yet.</b> We are early. Compensation is discussed
+             honestly and individually rather than advertised as a band we have not set,
+             and we will tell you plainly what the company is and is not before you
+             decide anything.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-closing">
+      <div class="wrap">
+        <span class="sectionno">&sect;5 / WHY HERE</span>
+        <h2>Built in America. Open to everyone.</h2>
+        <p>The models, the runtimes and the evidence are published as they are made,
+           because a lab that only shows its wins is not doing science. If you want your
+           work read, argued with, and run on somebody's Raspberry Pi in a plant in
+           Ohio, that is the job.</p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="#roles">See open roles</a>
+          <a class="research-button" href="/company.html">About RogerAI</a>
+          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+</body>
+</html>
