@@ -142,8 +142,10 @@ export function legacyRedirectRule(opts = {}) {
   };
 }
 
-// APPLIED to the rogerai.fm zone 2026-07-30; verified that /roger 301s to /roger/
-// with ?go-get=1 intact.
+// The live zone still carries the single-path 2026-07-30 rule (/roger only). The two-path,
+// request-derived rule below has NOT been applied yet, so `--check` reports drift for
+// /roger/v5 until someone re-runs `--apply` against the zone. That is the intended order:
+// the site must ship /roger/v5/ first, or the redirect would point at a 404.
 //
 // `go get rogerai.fm/roger/v5` fetches the module path with NO trailing slash, and this
 // host does no extensionless resolution - measured, not assumed:

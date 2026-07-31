@@ -316,3 +316,14 @@ test("new institutional pages contain no em dash character", () => {
     assert.doesNotMatch(read(name), /—/, `${name} contains an em dash`);
   }
 });
+
+// SVG has no z-index: source order IS paint order. The sweep was drawn after the contacts
+// and painted over them, so the blips the figure exists to show were invisible under it.
+// Geometry assertions cannot see this, which is how it shipped.
+test("the radar sweep is painted before the contacts it must not cover", () => {
+  const page = read("research.html");
+  const sweep = page.indexOf("scope__sweep");
+  const contacts = page.indexOf("scope__contacts");
+  assert.ok(sweep >= 0 && contacts >= 0, "both layers are present");
+  assert.ok(sweep < contacts, "the sweep must come first in source, or it paints over the blips");
+});
