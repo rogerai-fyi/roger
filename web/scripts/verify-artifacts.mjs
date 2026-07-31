@@ -3,7 +3,7 @@
 // public.
 //
 // Why this exists: v5.4.8 shipped a homepage headline reading
-// "WAVE NANO v1.0 - AVAILABLE - 350M - APACHE-2.0", a "Download or Run Wave"
+// "WAVE MICRO v1.0 - AVAILABLE - 350M - APACHE-2.0", a "Download or Run Wave"
 // button, and schema.org SoftwareSourceCode structured data, all pointing at a
 // HuggingFace repo that answered 401, plus two GitHub "source + recipe" and
 // "evaluations" links that answered 404. The unit suite was 155/155 green

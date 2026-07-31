@@ -46,6 +46,8 @@ const CSS_BUNDLES = {
   "models.html":    [...CSS_MARKETING, "models.css"],
   "research.html":  [...CSS_MARKETING, "research.css"],
   "company.html":   [...CSS_MARKETING, "research.css"],
+  "research-models.html": [...CSS_MARKETING, "research.css"], // the model catalogue, split out of the hub
+  "research-wave-family.html": [...CSS_MARKETING, "research.css", "wave-family.css"], // the Wave ladder field guide, split out so research.html keeps its byte budget
   "voices.html":    [...CSS_MARKETING, "voices.css"],
   "broadcasts.html":                 [...CSS_MARKETING, "broadcasts.css"], // the transmission-log blog index
   "broadcasts-independence-v5.html": [...CSS_MARKETING, "broadcasts.css"], // broadcast 001 + the reusable post template

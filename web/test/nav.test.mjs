@@ -91,7 +91,7 @@ test("footer keeps the FULL map: everything pulled from the bar is still reachab
   const links = liveHrefs(readDist("index.html").match(/<footer[\s\S]*?<\/nav>/)[0]);
   for (const must of [
     "/app.html",        // the new destination
-    "#spec", "#how", "#monetize",  // the anchors removed from the bar (same-page on the homepage)
+    "#spec", "#monetize",  // the anchors removed from the bar (same-page on the homepage)
     "/keys.html",       // API keys, removed from the bar -> Account group
   ]) {
     assert.ok(links.includes(must), `footer carries ${must} so the decluttered bar loses nothing`);
@@ -112,9 +112,12 @@ test("the App link resolves: /app.html is the live App Store launch page", () =>
 
 test("homepage anchors survive: the sections the bar used to jump to still exist", () => {
   const home = readDist("index.html");
-  for (const id of ["spec", "how", "monetize"]) {
+  // "how" (§6 Operating Notes) was retired on founder direction; its footer link
+  // went with it, so there is no dangling anchor left to keep alive.
+  for (const id of ["spec", "monetize"]) {
     assert.match(home, new RegExp(`id="${id}"`), `#${id} section still on the homepage (reachable by footer/scroll)`);
   }
+  assert.doesNotMatch(home, /href="[^"]*#how"/, "no footer link survives the retired section");
 });
 
 test("source partial: no stray {{APP_STORE_URL}} marker (would ship literally)", () => {

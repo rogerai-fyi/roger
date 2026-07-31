@@ -214,3 +214,102 @@
   }
   .research-button { width: 100%; justify-content: center; }
 }
+
+/* =====================================================================
+   §2b CAPABILITY - the measured split between what survives compression
+   and what does not, plus the tier-to-job matrix it implies.
+   Uses only tokens: warm monochrome ground, the one red beacon as a
+   signal on the failing measurement and nowhere else.
+   ===================================================================== */
+.capability-law { margin: 0 0 var(--s-8); border-block: 2px solid var(--ink-900); background: var(--paper); }
+.capability-law__quote {
+  margin: 0;
+  padding: var(--s-6) var(--s-5);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-900);
+  font-size: var(--t-h2);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-display);
+  text-wrap: balance;
+}
+.capability-law__quote small {
+  display: block;
+  margin-top: var(--s-4);
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.capability-split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.capability-split div { padding: var(--s-5); border-right: 1px solid var(--hairline); }
+.capability-split div:last-child { border-right: 0; }
+.capability-split dt {
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.capability-split dd {
+  margin: var(--s-2) 0 0;
+  color: var(--ink-900);
+  font-family: var(--font-mono);
+  font-size: var(--t-h2);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.capability-split dd small { display: block; margin-top: var(--s-2); color: var(--ink-500); font-family: var(--font-ui); font-size: var(--t-sm); line-height: var(--lh-body); }
+.capability-split div[data-outcome="lost"] dd { color: var(--live); }
+
+.tier-matrix { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.tier-matrix caption { color: var(--ink-500); font-size: var(--t-sm); text-align: left; padding-bottom: var(--s-4); }
+.tier-matrix th, .tier-matrix td { padding: var(--s-3) var(--s-4); text-align: left; vertical-align: top; border-bottom: 1px solid var(--hairline); }
+.tier-matrix thead th {
+  border-bottom: 2px solid var(--ink-900);
+  color: var(--ink-400);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  font-weight: 400;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.tier-matrix tbody tr:last-child th, .tier-matrix tbody tr:last-child td { border-bottom: 0; }
+.tier-matrix tbody th { color: var(--ink-900); font-weight: 500; }
+.tier-matrix td { color: var(--ink-500); }
+.tier-matrix .tier-cell { color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .04em; white-space: nowrap; }
+.tier-scroll { overflow-x: auto; border-block: 2px solid var(--ink-900); background: var(--paper); }
+.tier-scroll table { min-width: 640px; }
+
+@media (max-width: 820px) {
+  .capability-split { grid-template-columns: 1fr; }
+  .capability-split div { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .capability-split div:last-child { border-bottom: 0; }
+}
+
+/* Pointer from the size spectrum to the full family field guide. Sits directly
+   under the ladder because that is where a reader asks "what is each rung for". */
+.spectrum-more { display: grid; gap: var(--s-1); margin: calc(var(--s-4) * -1) 0 var(--s-10); }
+.spectrum-more a {
+  color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs);
+  letter-spacing: .06em; text-transform: uppercase;
+  border-bottom: 1px solid var(--hairline-2); padding-bottom: var(--s-2); width: fit-content;
+}
+.spectrum-more a::after { content: " \2192"; color: var(--live); }
+.spectrum-more a:hover, .spectrum-more a:focus-visible { color: var(--live); border-bottom-color: var(--live); }
+.spectrum-more span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); max-width: 62ch; }
+
+/* Onward cards: the hub's three destinations, sitting under the ladder. Each
+   states what the reader gets, so the choice is made before the click. */
+.research-onward { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 2px solid var(--ink-900); }
+.research-onward a { display: grid; gap: var(--s-2); align-content: start; padding: var(--s-5); border-right: 1px solid var(--hairline); }
+.research-onward a:last-child { border-right: 0; }
+.research-onward a:hover, .research-onward a:focus-visible { background: var(--paper-2); }
+.research-onward b { color: var(--ink-900); font-family: var(--font-mono); font-size: var(--t-xs); letter-spacing: .07em; text-transform: uppercase; }
+.research-onward b::after { content: " \2192"; color: var(--live); }
+.research-onward span { color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+@media (max-width: 820px) {
+  .research-onward { grid-template-columns: 1fr; }
+  .research-onward a { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .research-onward a:last-child { border-bottom: 0; }
+}

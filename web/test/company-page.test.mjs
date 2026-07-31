@@ -100,11 +100,14 @@ test("the company page routes real enquiries and names the legal entity source",
 
 test("the company page makes no unearned model claims", () => {
   const page = visible(readDist("company.html"));
-  assert.match(page, /wave-nano-350m-instruct/i);
-  assert.match(page, /350M-class released model/i);
-  assert.match(page, /href="https:\/\/huggingface\.co\/rogerai-fyi\/wave-nano-350m-instruct"/);
-  assert.doesNotMatch(page, /Wave (?:Micro|Core).{0,30}available/i);
-  assert.doesNotMatch(page, /No Wave checkpoint has been released/i);
+  // No Wave checkpoint is public, so the page must not imply one. The previous
+  // version of this test asserted the OPPOSITE - it required the release copy and
+  // forbade the sentence "No Wave checkpoint has been released" - which is how a
+  // fabricated release survived a green suite.
+  assert.doesNotMatch(page, /wave-micro-350m-instruct/i, "no artifact id for an unpublished model");
+  assert.doesNotMatch(page, /released (?:model|checkpoint)/i);
+  assert.doesNotMatch(page, /Wave (?:Micro|Nano|Core).{0,30}available/i);
+  assert.match(page, /No Wave checkpoint has been released/i, "the page states the truth plainly");
   // optimization of an upstream is never described as RogerAI pretraining
   assert.doesNotMatch(page, /we (pre)?trained (DeepSeek|Kimi)/i);
 });
@@ -113,15 +116,16 @@ test("the company page presents an honest model-size ladder", () => {
   const page = visible(readDist("company.html"));
   for (const rung of [
     /Roger Edge/i,
-    /Wave Micro/i,
     /Wave Nano/i,
+    /Wave Micro/i,
     /frontier-scale optimization/i,
   ]) assert.match(page, rung);
   assert.match(page, /sub-100M/i);
   assert.match(page, /350M-class/i);
   assert.match(page, /tens or hundreds of billions/i);
   assert.match(page, /right-sized|smallest model/i);
-  assert.match(page, /wave-nano-350m-instruct/i);
+  // The ladder describes PROGRAMS; none of its rungs may advertise an artifact id.
+  assert.match(page, /bake-off|not yet approved|release gate/i, "Wave Micro's real status is stated");
 });
 
 test("American-made and openness claims are component-specific", () => {
@@ -131,8 +135,9 @@ test("American-made and openness claims are component-specific", () => {
   assert.match(page, /upstream models? (?:and|,).*global|global research community/i);
   assert.match(page, /open-source model and runtime work/i);
   assert.match(page, /PolyForm Perimeter/i);
-  assert.match(page, /Artifact license: Apache-2\.0/i);
-  assert.doesNotMatch(page, /Apache-2\.0 intended|pending final legal confirmation/i);
+  // Licence is described as forward-looking until an artifact exists to carry one.
+  assert.match(page, /Artifact licence/i);
+  assert.doesNotMatch(page, /Artifact license: Apache-2\.0/i, "no definite licence for an unreleased artifact");
   assert.match(page, /network services/i);
   assert.match(page, /separate network terms/i);
   assert.doesNotMatch(page, /open-source (?:network|broker)/i);

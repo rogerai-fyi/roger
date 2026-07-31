@@ -99,7 +99,7 @@ smoke-live:
 # Assert every RogerAI-OWNED artifact the site ADVERTISES - HuggingFace weights,
 # GitHub recipe/eval trees - is reachable by a stranger with no credentials.
 #
-# v5.4.8 shipped a homepage headline reading "WAVE NANO v1.0 - AVAILABLE", a
+# v5.4.8 shipped a homepage headline reading "WAVE MICRO v1.0 - AVAILABLE", a
 # "Download or Run Wave" button, and schema.org SoftwareSourceCode metadata, all
 # pointing at a HuggingFace repo that answered 401 and two GitHub trees that
 # answered 404 - with the 155-test web suite green the entire time. A release

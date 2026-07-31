@@ -65,12 +65,11 @@ test("Company and Labs appear before technical detail and monetization", () => {
     "§3 / COMPANY",
     "§4 / THE TUNE",
     "§5 / SPECIFICATIONS",
-    "§6 / OPERATING NOTES",
-    "§7 / MONETIZE",
-    "§8 / GO",
+    "§6 / MONETIZE",
+    "§7 / GO",
   ]) assert.match(home, new RegExp(marker.replace("/", "\\/")));
   const main = home.match(/<main\b[\s\S]*?<\/main>/)?.[0] || "";
-  for (const id of ["demo", "market", "company", "what", "spec", "how", "monetize"]) {
+  for (const id of ["demo", "market", "company", "what", "spec", "monetize"]) {
     assert.match(main, new RegExp(`id="${id}"`), `${id} remains in the main landmark`);
   }
   assert.match(main, /class="cta"/, "the closing CTA remains in the main landmark");
@@ -92,7 +91,7 @@ test("homepage connects company, product, audience, evaluation, and research", (
   assert.match(section, /href="\/company\.html"/);
   assert.match(section, /RogerAI Labs/);
   assert.match(section, /Open Air Waves/);
-  assert.match(section, /Wave Nano/i);
+  assert.match(section, /Wave Micro/i);
   assert.match(section, /edge|manufacturing|industrial|personal/i);
 });
 

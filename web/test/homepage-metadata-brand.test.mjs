@@ -26,7 +26,8 @@ test("homepage search metadata names the company, models, and infrastructure", (
   assert.match(desc, /American AI research and infrastructure company/i);
   assert.match(desc, /models for constrained hardware/i);
   assert.match(desc, /OpenAI-compatible network/i);
-  assert.match(desc, /Wave Nano/i);
+  // The description must not name an unreleased model as if it were a product.
+  assert.doesNotMatch(desc, /Wave (?:Micro|Nano|Core)/i);
 });
 
 test("homepage, Company, and Research use distinct intentional raster social cards", () => {
@@ -69,9 +70,11 @@ test("homepage structured data connects RogerAI, Labs, pages, and the released a
   assert.match(serialized, /https:\/\/rogerai\.fm\/research\.html/);
   assert.match(serialized, /ResearchOrganization/);
   assert.match(serialized, /RogerAI Labs/);
-  assert.match(serialized, /wave-nano-350m-instruct/);
-  assert.match(serialized, /https:\/\/huggingface\.co\/rogerai-fyi\/wave-nano-350m-instruct/);
-  assert.match(serialized, /v1\.0/);
-  assert.doesNotMatch(serialized, /Wave Micro|Wave Core|Roger Edge/);
+  // Structured data is a MACHINE claim that an artifact exists at a URL, and it is
+  // cached and indexed long after a page is corrected. Until a stranger can download
+  // a Wave checkpoint, no SoftwareSourceCode block may name one.
+  assert.doesNotMatch(serialized, /SoftwareSourceCode/);
+  assert.doesNotMatch(serialized, /wave-(?:micro|nano|core)-\d+/i);
+  assert.doesNotMatch(serialized, /Wave Nano|Wave Core|Roger Edge/);
   assert.doesNotMatch(serialized, /employee|customer|funding|award/i);
 });

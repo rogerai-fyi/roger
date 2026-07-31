@@ -15,11 +15,14 @@ const visible = (s) => s.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " "
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
 test("released Wave copy names Apache-2.0 decisively and separates network services", () => {
-  for (const page of ["index.html", "company.html", "research.html"]) {
+  // The release copy moved from the research hub to the catalogue page when
+  // research.html was split; assert it where it now lives.
+  for (const page of ["index.html", "company.html", "research-models.html"]) {
     const text = visible(read(page));
-    assert.match(text, /Wave Nano v1\.0/i, `${page} names the release`);
-    assert.match(text, /Artifact license: Apache-2\.0/i, `${page} names the artifact license`);
-    assert.doesNotMatch(text, /Apache-2\.0 intended|pending final legal confirmation/i);
+    // No page may name a release that does not exist; every page must still keep
+    // the network/artifact separation clear for when one does.
+    assert.doesNotMatch(text, /Wave Micro v1\.0/i, `${page} does not name an unshipped release`);
+    assert.doesNotMatch(text, /Artifact license: Apache-2\.0/i, `${page} claims no definite licence yet`);
     assert.match(text, /network services|network terms/i, `${page} separates optional services`);
   }
 });
@@ -27,10 +30,12 @@ test("released Wave copy names Apache-2.0 decisively and separates network servi
 test("homepage puts Wave Labs proof before the install action without adding a hidden reveal", () => {
   const home = read("index.html");
   const hero = home.match(/<section class="hero">[\s\S]*?<\/section>/)?.[0] || "";
-  const proof = hero.indexOf("WAVE NANO v1.0");
+  const proof = hero.indexOf("WAVE MICRO");
   const install = hero.indexOf('class="install"');
-  assert.ok(proof > 0 && proof < install, "shipping proof precedes install in the first hero flow");
-  assert.match(hero, /APACHE-2\.0/);
+  assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
+  // The plate states program status, not a licence or a version it cannot back.
+  assert.match(hero, /IN PROGRESS/);
+  assert.doesNotMatch(hero, /APACHE-2\.0|v1\.0|AVAILABLE/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'class="install"']) {
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";
     assert.doesNotMatch(tag, /\bdata-reveal\b/, `${marker} is not opacity-hidden before JS`);
@@ -58,11 +63,14 @@ test("homepage, company preview, and research hero share the one vector mascot p
   }
 });
 
-test("mobile research exposes a compact released-model evidence ticker", () => {
+test("mobile research exposes a compact program-status ticker", () => {
   const page = read("research.html");
   assert.match(page, /class="release-ticker"/);
   const ticker = visible(page.match(/<p class="release-ticker"[\s\S]*?<\/p>/)?.[0] || "");
-  for (const fact of ["AVAILABLE", "Wave Nano v1.0", "350M", "Apache-2.0"]) assert.match(ticker, new RegExp(fact, "i"));
+  for (const fact of ["IN PROGRESS", "Wave Micro", "350M class", "no checkpoint yet"]) {
+    assert.match(ticker, new RegExp(fact, "i"));
+  }
+  assert.doesNotMatch(ticker, /AVAILABLE|v1\.0|Apache-2\.0/i);
   const css = read("styles/research.css");
   assert.match(css, /@media\s*\(max-width:\s*560px\)[\s\S]*\.research-hero\s*\{[^}]*padding/i);
 });

@@ -18,7 +18,7 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 test("the homepage orders the compact right-sized model spectrum", () => {
   const home = read("index.html");
   const spectrum = home.match(/<ol class="home-spectrum"[\s\S]*?<\/ol>/)?.[0] || "";
-  const order = ["Roger Edge", "Wave Micro", "Wave Nano", "Wave Core"];
+  const order = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
   let cursor = -1;
   for (const name of order) {
     const next = spectrum.indexOf(name);
@@ -31,26 +31,22 @@ test("the homepage orders the compact right-sized model spectrum", () => {
   assert.match(spectrum, /href="\/research\.html"/);
 });
 
-test("Wave Nano has a direct shipping checkpoint contract", () => {
+test("the homepage Labs card presents Wave Micro as a program, not a download", () => {
   const section = read("index.html").match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)?.[0] || "";
   const sectionText = visible(section);
-  for (const fact of [
-    /AVAILABLE/,
-    /wave-nano-350m-instruct/,
-    /v1\.0/,
-    /350M/,
-    /instruct/,
-    /GGUF/,
-    /Q4_K_M/,
-    /Artifact license: Apache-2\.0/i,
-  ]) assert.match(sectionText, fact);
-  assert.match(section, /href="https:\/\/huggingface\.co\/rogerai-fyi\/wave-nano-350m-instruct"/);
-  assert.match(section, />Download or Run Wave</);
+  // Nothing here may read as a shipping artifact while the checkpoint is unpublished.
+  for (const claim of [/AVAILABLE/, /wave-micro-350m-instruct/, /v1\.0/, /GGUF/, /Q4_K_M/]) {
+    assert.doesNotMatch(sectionText, claim, `unreleased model must not advertise ${claim}`);
+  }
+  assert.doesNotMatch(section, /Download or Run Wave/, "no download CTA without a download");
+  assert.doesNotMatch(section, /huggingface\.co\/rogerai-fyi\/wave-/, "no artifact link");
+  // What it MUST say instead: the honest status, and the independence promise.
+  assert.match(sectionText, /IN PROGRESS/i);
+  assert.match(sectionText, /bake-off/i);
+  assert.match(sectionText, /no checkpoint has been released/i);
   assert.match(section, /href="\/research\.html"/);
-  assert.match(sectionText, /local use does not require RogerAI or its broker/i);
+  assert.match(sectionText, /local use will not require RogerAI or its broker/i);
   assert.match(sectionText, /separate network terms/i);
-  assert.doesNotMatch(sectionText, /intended|pending final legal confirmation/i);
-  assert.match(sectionText, /network services/i);
 });
 
 test("the Company preview carries factual origin and component-specific openness", () => {
