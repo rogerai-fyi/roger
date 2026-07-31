@@ -75,8 +75,10 @@ cover-gate-fast:
 # machine happened to create it and nowhere else. Idempotent; run it after cloning.
 .PHONY: hooks
 hooks:
-	@install -m 0755 scripts/hooks/pre-push .git/hooks/pre-push
-	@echo "[hooks] installed .git/hooks/pre-push from scripts/hooks/pre-push"
+	@HOOKS="$$(git rev-parse --git-common-dir)/hooks"; \
+	mkdir -p "$$HOOKS"; \
+	install -m 0755 scripts/hooks/pre-push "$$HOOKS/pre-push"; \
+	echo "[hooks] installed $$HOOKS/pre-push from scripts/hooks/pre-push"
 
 # web-gate: what a push that touches web/ must clear.
 #
