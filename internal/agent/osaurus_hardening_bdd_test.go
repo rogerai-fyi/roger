@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 type osaHardState struct {

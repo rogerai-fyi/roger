@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/v5/internal/agent"
 )
 
 // TestConfidentialFeedback: the go-live confidential line has exactly three outcomes -

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/v5/internal/client"
 )
 
 // TestBrokerCompleterConfidentialHeader: a confidential agent turn sets the

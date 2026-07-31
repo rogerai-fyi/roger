@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/internal/update"
+	"rogerai.fm/roger/v5/internal/update"
 )
 
 // upgState is the banner's lifecycle: an offer, a running install, a restart offer,

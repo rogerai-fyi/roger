@@ -18,8 +18,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/internal/harness"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // bsSeed builds a logged-in browse model for BASE STATION tests.

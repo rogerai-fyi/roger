@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 func TestServeRoutesByJobPath(t *testing.T) {

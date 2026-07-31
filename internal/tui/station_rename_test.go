@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/v5/internal/agent"
 )
 
 // keyRunes builds a printable-rune key message (what typing a callsign produces).

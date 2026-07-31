@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // grantPrefix is the visible marker of a grant bearer token. The broker detects

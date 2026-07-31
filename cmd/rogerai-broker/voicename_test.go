@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/agent"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 func TestSlugVoiceName(t *testing.T) {

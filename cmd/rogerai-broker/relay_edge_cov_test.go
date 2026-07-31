@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // nonFlusherWriter is an http.ResponseWriter that does NOT implement http.Flusher, so the

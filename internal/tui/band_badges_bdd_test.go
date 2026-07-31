@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/v5/internal/glyphs"
 )
 
 type badgeBDD struct {

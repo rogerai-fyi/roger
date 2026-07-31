@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // registerWith drives the full /nodes/register HTTP path with one offer, signing the

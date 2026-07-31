@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // recourse.go is the OPERATOR-RECOURSE + admin-review surface. The verify/recount/strike

@@ -3,7 +3,7 @@ package node
 import (
 	"testing"
 
-	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/v5/internal/agent"
 )
 
 // TestLoginStateTransitions covers SetLoggedIn (raise-only), Logout, and LoggedIn.

@@ -11,7 +11,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // testCode mints a plausible reused RC/band code (40-bit Crockford tail); the transport

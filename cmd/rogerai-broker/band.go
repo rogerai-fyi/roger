@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // Private bands ("frequency codes"): an owner hides a node from the public market

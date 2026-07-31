@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // enforce_test.go covers the billing-enforcement + owner-keyed anti-abuse store

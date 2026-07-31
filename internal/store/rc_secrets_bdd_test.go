@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // rc_secrets_bdd_test.go makes features/remote/rc_secrets.feature EXECUTABLE at the STORE

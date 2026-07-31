@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // wavClip is a minimal RIFF/WAVE header + a little payload (what Kokoro's wav

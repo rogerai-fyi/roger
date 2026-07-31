@@ -1,6 +1,6 @@
 // vanity-import.test.mjs asserts the built site can actually resolve the Go module path.
 //
-// `go get rogerai.fm/roger` fetches https://rogerai.fm/roger?go-get=1 and reads a go-import
+// `go get rogerai.fm/roger/v5` fetches https://rogerai.fm/roger/v5?go-get=1 and reads a go-import
 // meta tag out of the response. If that document is missing from dist/, the module is
 // unbuildable for everyone outside this checkout, and nothing else in the suite would notice.
 
@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
-const MODULE_PATH = "rogerai.fm/roger";
+const MODULE_PATH = "rogerai.fm/roger/v5";
 const PAGE = path.join(DIST, "roger", "index.html");
 
 test("the built site ships the go-import document at the module path", () => {
@@ -44,4 +44,22 @@ test("the import path does not depend on the code host", () => {
   );
   // The host may appear only as the repo location, which is the point of the indirection.
   assert.match(html, /github\.com/, "the tag still has to say where the source actually lives");
+});
+
+test("the major-version path serves the tag too", () => {
+  // Go fetches the FULL module path, so https://rogerai.fm/roger/v5?go-get=1 must answer.
+  // Serving only /roger would resolve nothing for `go install rogerai.fm/roger/v5/...`.
+  const versioned = path.join(DIST, "roger", "v5", "index.html");
+  assert.ok(existsSync(versioned), "dist/roger/v5/index.html is missing");
+
+  const html = readFileSync(versioned, "utf8");
+  const m = /<meta\s+name="go-import"\s+content="([^"]+)"/.exec(html);
+  assert.ok(m, "no go-import meta tag on the versioned page");
+  assert.equal(m[1].trim().split(/\s+/)[0], MODULE_PATH);
+});
+
+test("the module path carries the major-version suffix", () => {
+  // Without it Go only considers v0/v1 tags and `@latest` silently resolves to an ancient
+  // release - the exact bug that had `go install` handing out v0.3.3 from a v5 repo.
+  assert.match(MODULE_PATH, /\/v[2-9]\d*$/);
 });

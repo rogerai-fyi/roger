@@ -35,8 +35,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // version is the broker's reported version (also in ServiceInfo + logs).

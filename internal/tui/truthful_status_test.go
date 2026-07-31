@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/v5/internal/agent"
 )
 
 // waitBadge polls the on-air panel render until it contains want (the link state is

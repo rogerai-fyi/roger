@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // newAdminBroker wires a broker with BOTH admin credentials configured: the broker key

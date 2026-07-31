@@ -1,6 +1,6 @@
 package node
 
-import "rogerai.fm/roger/internal/agent"
+import "rogerai.fm/roger/v5/internal/agent"
 
 // Snapshot is a consistent, JSON-able read of the node's live state, taken under the
 // lock. The web console renders it (GET /api/state + the SSE stream) and the TUI uses

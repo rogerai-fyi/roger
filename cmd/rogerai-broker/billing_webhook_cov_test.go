@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestWebhookMethodAndConfigGuards locks the webhook's two front-door guards: a non-POST

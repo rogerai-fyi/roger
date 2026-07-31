@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // strikes.go is the OWNER-KEYED anti-abuse layer. The verify/void/recount stack flags

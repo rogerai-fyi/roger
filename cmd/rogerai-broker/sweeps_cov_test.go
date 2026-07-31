@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestSweepInterval covers the cadence clamp: ~1/24 of the window, floored at 1h and

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/internal/node"
-	"rogerai.fm/roger/internal/session"
-	"rogerai.fm/roger/internal/tui"
+	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v5/internal/session"
+	"rogerai.fm/roger/v5/internal/tui"
 )
 
 func TestCmdResumeHelpDoesNotTouchSessionStore(t *testing.T) {

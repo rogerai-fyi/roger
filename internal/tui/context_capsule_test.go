@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/internal/capsule"
-	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/v5/internal/capsule"
+	"rogerai.fm/roger/v5/internal/client"
 )
 
 // capsuleForkFixture is a signed return capsule that rewrites turn 0 with different content

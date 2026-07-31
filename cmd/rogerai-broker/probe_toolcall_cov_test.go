@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // answerToolProbeEcho replies to the live tool-call canary by ECHOING the fresh per-probe nonce

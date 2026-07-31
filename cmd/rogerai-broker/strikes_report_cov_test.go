@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // failBroker wires a testBrokerWithDB whose db is a toggleable failStore over a real Mem,

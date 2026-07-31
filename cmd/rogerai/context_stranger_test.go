@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/v5/internal/capsule"
 )
 
 func rendezvousServer(t *testing.T) *httptest.Server {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestBandStoreCRUD covers the band store on BOTH backends: create, the three

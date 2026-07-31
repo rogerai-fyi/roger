@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/v5/internal/client"
 )
 
 // fakeBroker answers every signed broker call the CLI makes with one permissive JSON

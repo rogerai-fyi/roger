@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestOperatorStatusLine pins the exact piecewise-degrade copy for every permutation:

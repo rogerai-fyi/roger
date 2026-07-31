@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // grantRelayNode wires one serving node bound to `owner` into b (registration + live

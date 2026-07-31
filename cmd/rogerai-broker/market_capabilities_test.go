@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // marketCapsFor registers one offer per provider then reads the /market capabilities. Each offer

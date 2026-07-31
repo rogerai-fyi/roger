@@ -19,8 +19,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // tcNonce is the fixed nonce the BDD steps weave into their canned canary responses, standing in

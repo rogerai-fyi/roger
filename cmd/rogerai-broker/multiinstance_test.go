@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // PRE-SCALE Stage 2 tests: the cross-instance job/result/stream RENDEZVOUS bus.

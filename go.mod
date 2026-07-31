@@ -1,4 +1,4 @@
-module rogerai.fm/roger
+module rogerai.fm/roger/v5
 
 go 1.25.0
 

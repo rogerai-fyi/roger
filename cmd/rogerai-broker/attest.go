@@ -39,7 +39,7 @@ import (
 	"sync"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 
 	"github.com/google/go-sev-guest/abi"
 	"github.com/google/go-sev-guest/kds"

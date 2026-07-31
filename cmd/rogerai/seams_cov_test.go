@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/detect"
-	"rogerai.fm/roger/internal/node"
-	"rogerai.fm/roger/internal/tui"
-	"rogerai.fm/roger/internal/webui"
+	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v5/internal/tui"
+	"rogerai.fm/roger/v5/internal/webui"
 )
 
 // stubDetectFull points the detectFull seam at a fake local-LLM detector so the

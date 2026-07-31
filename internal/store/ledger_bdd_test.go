@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // freshLedgerPG opens the real Postgres store and TRUNCATEs every data table (same reset the

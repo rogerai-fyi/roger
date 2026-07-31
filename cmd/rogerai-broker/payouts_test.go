@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // rec is a tiny receipt helper for the payout/account broker tests.

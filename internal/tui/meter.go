@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/internal/glyphs"
+	"rogerai.fm/roger/v5/internal/glyphs"
 )
 
 // ── live telemetry meter ──────────────────────────────────────────────────────

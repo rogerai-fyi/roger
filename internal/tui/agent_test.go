@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"rogerai.fm/roger/internal/harness"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestZeroEntersAgentMode: pressing 0 in BROWSE jumps to the [0] AGENT mode, and the

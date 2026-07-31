@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // routeBroker builds a broker with ALL the per-node metric maps initialised so the

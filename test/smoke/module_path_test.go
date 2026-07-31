@@ -15,6 +15,7 @@ package smoke
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,7 +24,13 @@ import (
 
 // vanityModulePath is the import path users type. It is a domain we control, so it survives
 // any change of code host or organisation name.
-const vanityModulePath = "rogerai.fm/roger"
+//
+// The /v5 suffix is not decoration. Go only considers tags whose major version matches the
+// module path's suffix, so while this said "rogerai.fm/roger" the toolchain ignored every
+// v2+ tag and resolved @latest to v0.3.3 - a five-major-version-old build - for anyone
+// running `go install` or importing the Apache-2.0 protocol carve-out. Silent, and wrong in
+// the most expensive direction: it hands people ancient code that still compiles.
+const vanityModulePath = "rogerai.fm/roger/v5"
 
 // vanityPage is the document that must serve the go-import meta tag, at the URL that
 // corresponds to the module path.
@@ -206,5 +213,46 @@ func TestNoBuildScriptPinsTheLegacyModulePath(t *testing.T) {
 		t.Errorf("%d build/CI file(s) still pin the legacy module path %q as an import path. "+
 			"These do not fail to compile - they fail SILENTLY:\n  %s",
 			len(offenders), legacyModulePath, strings.Join(offenders, "\n  "))
+	}
+}
+
+// TestModulePathMajorMatchesLatestReleaseTag is the guard that would have caught the v0.3.3
+// regression. Go resolves @latest only among tags whose major version matches the module
+// path's suffix: with no suffix it considers v0/v1 only, so a repo tagged v5 silently serves
+// its last v0 tag forever. Nothing errors, nothing fails to compile - users just get old code.
+//
+// Skips when tags are unavailable (a shallow CI checkout without fetch-tags) rather than
+// failing, because absence of tags is not evidence of a wrong module path.
+func TestModulePathMajorMatchesLatestReleaseTag(t *testing.T) {
+	root := repoRoot(t)
+
+	out, err := exec.Command("git", "-C", root, "tag", "--sort=-v:refname").Output()
+	if err != nil {
+		t.Skipf("git tags unavailable: %v", err)
+	}
+	var latest string
+	for _, line := range strings.Split(string(out), "\n") {
+		tag := strings.TrimSpace(line)
+		if regexp.MustCompile(`^v\d+\.\d+\.\d+$`).MatchString(tag) {
+			latest = tag
+			break
+		}
+	}
+	if latest == "" {
+		t.Skip("no release tags in this checkout")
+	}
+
+	major := strings.SplitN(strings.TrimPrefix(latest, "v"), ".", 2)[0]
+
+	// v0 and v1 take no suffix; v2+ must carry /vN.
+	want := ""
+	if major != "0" && major != "1" {
+		want = "/v" + major
+	}
+	if got := vanityModulePath; !strings.HasSuffix(got, want) || (want == "" && regexp.
+		MustCompile(`/v\d+$`).MatchString(got)) {
+		t.Errorf("latest release tag is %s, so the module path must end in %q, but it is %q. "+
+			"Without the matching suffix `go install %s@latest` resolves to the newest v0/v1 "+
+			"tag instead of the current release.", latest, want, got, got)
 	}
 }
