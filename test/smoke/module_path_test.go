@@ -32,9 +32,17 @@ import (
 // the most expensive direction: it hands people ancient code that still compiles.
 const vanityModulePath = "rogerai.fm/roger/v5"
 
-// vanityPage is the document that must serve the go-import meta tag, at the URL that
-// corresponds to the module path.
+// vanityPage is the ROOT document. It declares the repo-root prefix WITHOUT the major
+// suffix, because a go-import prefix must be a prefix of the URL Go requested: declaring
+// ".../v5" at /roger would make Go reject the page outright rather than report the real
+// problem. Keeping the bare prefix turns `go get rogerai.fm/roger` into the useful "module
+// declares its path as rogerai.fm/roger/v5".
 const vanityPage = "web/src/roger/index.html"
+const vanityRootPrefix = "rogerai.fm/roger"
+
+// vanityPageVersioned is the document Go actually fetches, at the URL that corresponds to
+// the full module path including its major-version suffix.
+const vanityPageVersioned = "web/src/roger/v5/index.html"
 
 // legacyModulePath is the host-coupled path we migrated away from. No source file may import
 // it: a half-migrated tree still compiles locally while being unbuildable for anyone else.
@@ -137,9 +145,9 @@ func TestVanityPageDeclaresTheModuleAndItsRealHost(t *testing.T) {
 	if len(fields) != 3 {
 		t.Fatalf("go-import content = %q, want exactly 3 fields (module vcs repo-url)", m[1])
 	}
-	if fields[0] != vanityModulePath {
-		t.Errorf("go-import declares module %q, but go.mod uses %q; go get would reject the mismatch",
-			fields[0], vanityModulePath)
+	if fields[0] != vanityRootPrefix {
+		t.Errorf("the root page declares %q, want the repo-root prefix %q; a go-import prefix "+
+			"must be a prefix of the requested URL or Go rejects the page", fields[0], vanityRootPrefix)
 	}
 	if fields[1] != "git" {
 		t.Errorf("go-import vcs = %q, want %q", fields[1], "git")
@@ -254,5 +262,39 @@ func TestModulePathMajorMatchesLatestReleaseTag(t *testing.T) {
 		t.Errorf("latest release tag is %s, so the module path must end in %q, but it is %q. "+
 			"Without the matching suffix `go install %s@latest` resolves to the newest v0/v1 "+
 			"tag instead of the current release.", latest, want, got, got)
+	}
+}
+
+// TestVersionedVanityPageDeclaresTheModulePath covers the page Go actually fetches.
+//
+// The root page deliberately declares the suffix-less prefix, so on its own it proves
+// nothing about the module being resolvable. This is the assertion that does: the /v5
+// document must declare exactly what go.mod declares, or `go get` rejects the mismatch.
+func TestVersionedVanityPageDeclaresTheModulePath(t *testing.T) {
+	root := repoRoot(t)
+
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(vanityPageVersioned)))
+	if err != nil {
+		t.Fatalf("read %s: %v (go get %s cannot resolve without it)",
+			vanityPageVersioned, err, vanityModulePath)
+	}
+
+	m := regexp.MustCompile(`<meta\s+name="go-import"\s+content="([^"]+)"`).FindStringSubmatch(string(b))
+	if m == nil {
+		t.Fatalf("%s has no go-import meta tag", vanityPageVersioned)
+	}
+	fields := strings.Fields(m[1])
+	if len(fields) != 3 {
+		t.Fatalf("go-import content = %q, want 3 fields (module vcs repo-url)", m[1])
+	}
+	if fields[0] != vanityModulePath {
+		t.Errorf("versioned page declares %q, but go.mod uses %q; go get rejects the mismatch",
+			fields[0], vanityModulePath)
+	}
+	// The root prefix must remain a prefix of the module path, or the two pages describe
+	// unrelated modules and the fallback resolution path is gone.
+	if !strings.HasPrefix(vanityModulePath, vanityRootPrefix) {
+		t.Errorf("module path %q does not start with the root prefix %q",
+			vanityModulePath, vanityRootPrefix)
 	}
 }

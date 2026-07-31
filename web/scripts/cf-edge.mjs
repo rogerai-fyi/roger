@@ -145,7 +145,7 @@ export function legacyRedirectRule(opts = {}) {
 // APPLIED to the rogerai.fm zone 2026-07-30; verified that /roger 301s to /roger/
 // with ?go-get=1 intact.
 //
-// `go get rogerai.fm/roger` fetches the module path with NO trailing slash, and this
+// `go get rogerai.fm/roger/v5` fetches the module path with NO trailing slash, and this
 // host does no extensionless resolution - measured, not assumed:
 //     https://rogerai.fm/manual       404
 //     https://rogerai.fm/manual.html  200
@@ -291,7 +291,7 @@ if (check) {
       drift.push(`www redirect drift: expected 301 -> https://${APEX}/..., got ${www.res.status} -> ${loc || "(none)"}`);
     }
   }
-  // The vanity-import hop is the ONLY thing that makes `go get rogerai.fm/roger` resolve,
+  // The vanity-import hop is the ONLY thing that makes `go get rogerai.fm/roger/v5` resolve,
   // and nothing else fails loudly if it disappears: verify-artifacts treats its go-import
   // result as advisory, and a rule deleted in the Cloudflare dashboard leaves no trace in
   // the repo. Check it here, where drift is the whole point of the job.
@@ -304,7 +304,7 @@ if (check) {
       drift.push(
         `vanity-import redirect drift: expected 301 -> https://${APEX}/roger/, ` +
           `got ${vanity.res.status} -> ${loc || "(none)"}; ` +
-          "`go install rogerai.fm/roger/cmd/rogerai@latest` is broken while this is wrong",
+          "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` is broken while this is wrong",
       );
     } else if (!loc.includes("go-get=1")) {
       // Go drops the response when the redirect eats its query, so a 301 to the right
