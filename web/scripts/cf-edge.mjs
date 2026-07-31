@@ -45,6 +45,7 @@ const legacyRedirect = process.argv.includes("--legacy-redirect");
 const DESC_HEADERS = "rogerai:security-headers";
 const DESC_REDIRECT = "rogerai:www-to-apex";
 const DESC_LEGACY = "rogerai:legacy-to-canonical";
+const DESC_VANITY = "rogerai:go-vanity-import";
 
 // ---- parse the `/*` block of web/src/_headers into an ordered {name,value} list ----------
 export function parseHeaders() {
@@ -128,6 +129,31 @@ export function legacyRedirectRule(opts = {}) {
     },
     expression: `(http.host in {"${legacy}" "www.${legacy}"})`,
     description: DESC_LEGACY,
+    enabled: true,
+  };
+}
+
+// `go get rogerai.fm/roger` fetches the module path with NO trailing slash, and this
+// host does no extensionless resolution - measured, not assumed:
+//     https://rogerai.fm/manual       404
+//     https://rogerai.fm/manual.html  200
+// so /roger 404s while /roger/ serves the go-import page. Without this hop the module
+// is go-gettable by no path at all, including for third parties importing the
+// Apache-2.0 protocol carve-out. preserve_query_string is load-bearing: Go appends
+// ?go-get=1 and drops the request if the redirect eats it.
+export function vanityImportRule(opts = {}) {
+  const zone = opts.zone || ZONE;
+  return {
+    action: "redirect",
+    action_parameters: {
+      from_value: {
+        status_code: 301,
+        target_url: { expression: `concat("https://${zone}", "/roger/")` },
+        preserve_query_string: true,
+      },
+    },
+    expression: `(http.host eq "${zone}" and http.request.uri.path eq "/roger")`,
+    description: DESC_VANITY,
     enabled: true,
   };
 }
@@ -264,7 +290,7 @@ if (!apply) {
   console.log("# http_response_headers_transform / entrypoint  (appended to your existing rules)");
   console.log(JSON.stringify({ rules: [hRule] }, null, 2));
   console.log("\n# http_request_dynamic_redirect / entrypoint  (appended to your existing rules)");
-  console.log(JSON.stringify({ rules: [rRule] }, null, 2));
+  console.log(JSON.stringify({ rules: [rRule, vanityImportRule()] }, null, 2));
   console.log("\nRe-run with --apply (and CF_API_TOKEN set) to write them.");
   process.exit(0);
 }
@@ -275,6 +301,8 @@ const a = await upsert(zid, "http_response_headers_transform", hRule);
 console.log(`headers rule: applied (${a.kept} other rule(s) preserved, ${a.total} total)`);
 const b = await upsert(zid, "http_request_dynamic_redirect", rRule);
 console.log(`redirect rule: applied (${b.kept} other rule(s) preserved, ${b.total} total)`);
+const v = await upsert(zid, "http_request_dynamic_redirect", vanityImportRule());
+console.log(`vanity rule:  applied (${v.kept} other rule(s) preserved, ${v.total} total)`);
 console.log("\nDone. Verify:  curl -sSI https://rogerai.fm/ | grep -iE 'content-security|strict-transport|x-frame'");
 console.log("              curl -sSI https://www.rogerai.fm/ | grep -i location");
 }
