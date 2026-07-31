@@ -178,12 +178,13 @@ async function main() {
         "model is available until a stranger can download it.\n"
     );
   }
-  // The go-import tag is ADVISORY, not blocking. The vanity route needs a Cloudflare
-  // edge rule that does not exist yet (this host does no extensionless resolution:
-  // /manual 404s while /manual.html 200s), so a blocking check would be red on every
-  // run until that lands - and a gate that is always red is a gate everyone learns to
-  // ignore. Nothing advertises `go install` today, so a missing tag breaks no promise.
-  // Restore this to blocking in the same change that restores the README claim.
+  // The go-import tag is ADVISORY, not blocking. The Cloudflare hop now exists and is
+  // applied (/roger 301s to /roger/ with ?go-get=1 intact), but /roger/ itself only
+  // answers once this site is deployed, so a blocking check would still be red on every
+  // run made before a deploy - and a gate that is always red is a gate everyone learns
+  // to ignore. Nothing advertises `go install` today, so a missing tag breaks no promise.
+  // Restore this to blocking in the same change that restores the README claim, once
+  // https://rogerai.fm/roger/ answers 200. cf-edge.mjs --check guards the hop meanwhile.
   if (failed.length) return 1;
 
   console.log(`\nverify-artifacts: all ${results.length} advertised artifacts are public.`);

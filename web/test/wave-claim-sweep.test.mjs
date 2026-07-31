@@ -88,7 +88,7 @@ test("no built page claims a released Wave checkpoint", () => {
 });
 
 test("no social card source claims a released Wave checkpoint", () => {
-  const cards = walk(SRC, ".svg").filter((f) => path.basename(f).startsWith("og-"));
+  const cards = walk(SRC, ".svg").filter((f) => /^og[-.]/.test(path.basename(f)));
   assert.ok(cards.length >= 2, `sweep found ${cards.length} og cards - it has gone blind`);
   const failures = [];
   for (const card of cards) {
@@ -116,7 +116,7 @@ test("the fabricated artifact id appears nowhere", () => {
 // source without re-rendering and the recorded hash no longer matches, which is
 // exactly how the stale "AVAILABLE" card survived the first retraction pass.
 test("every social card PNG was rendered from the current SVG", () => {
-  const cards = walk(SRC, ".svg").filter((f) => path.basename(f).startsWith("og-"));
+  const cards = walk(SRC, ".svg").filter((f) => /^og[-.]/.test(path.basename(f)));
   assert.ok(cards.length >= 2, `sweep found ${cards.length} og cards - it has gone blind`);
   for (const card of cards) {
     const png = card.replace(/\.svg$/, ".png");
