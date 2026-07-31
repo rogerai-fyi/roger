@@ -1,4 +1,4 @@
-// Reveal the Wave ladder when it is actually looked at.
+// Reveal the Wave scope when it is actually looked at.
 //
 // The contract, deliberately the same one every animated figure on this site should
 // use: observe -> flip a class -> let CSS do the animation with a per-item delay ->
@@ -6,12 +6,12 @@
 // stylesheet and there is no rAF loop to leak.
 //
 // The final state is the DEFAULT. `is-pending` is added by this script, which means a
-// reader with JavaScript disabled, or a script error, gets a fully drawn ladder rather
-// than four invisible bars. That is the opposite of the usual reveal pattern and it is
+// reader with JavaScript disabled, or a script error, gets a fully drawn scope rather
+// than four invisible bands. That is the opposite of the usual reveal pattern and it is
 // on purpose: the figure carries information, so it must never be hidden by decoration.
 (function () {
-  var ladders = document.querySelectorAll(".ladder");
-  if (!ladders.length) return;
+  var scopes = document.querySelectorAll(".scope");
+  if (!scopes.length) return;
 
   // Reduced motion: leave the ladder drawn and never touch it again.
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -33,7 +33,7 @@
     { rootMargin: "0px 0px -18% 0px", threshold: 0.18 }
   );
 
-  ladders.forEach(function (el) {
+  scopes.forEach(function (el) {
     el.classList.add("is-pending");
     seen.observe(el);
   });

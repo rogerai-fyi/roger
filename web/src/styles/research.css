@@ -281,79 +281,92 @@
   .research-onward a:last-child { border-bottom: 0; }
 }
 
-/* ---------- the Wave ladder -------------------------------------------------
-   A TRUE logarithmic axis. Each rung's --from/--to are (log10(params)-4)/5.5, so
-   width and position carry meaning; the previous bars used decorative percentages.
-   Colour is rationed to data: the only saturated element is the rung that is
-   actually in progress. */
-.ladder { margin: 0 0 var(--s-6); }
-.ladder__head {
+/* ---------- the Wave scope --------------------------------------------------
+   A PPI radar plot. RADIUS is the only channel carrying data: inner and outer
+   radii are (log10(params) - 4) / 5.5 * 170, so the range rings are decade ticks.
+   Bearing is decoration and the caption says so. Colour stays rationed - the only
+   saturated band is the rung actually in progress. */
+.scope { margin: 0 0 var(--s-6); }
+.scope__head {
   display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
   padding-bottom: var(--s-3); border-bottom: 2px solid var(--ink-900);
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
 }
-.ladder__rungs { list-style: none; margin: 0; padding: 0; }
-.ladder__rungs li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  grid-template-areas: "track track" "name status" "note note";
-  gap: var(--s-2) var(--s-4);
-  padding: var(--s-4) 0;
-  border-bottom: 1px solid var(--hairline);
+.scope__body {
+  display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: var(--s-8); align-items: center; padding-top: var(--s-6);
 }
-/* the track is the axis; the bar sits on it at its real coordinates */
-.ladder__bar {
-  grid-area: track;
-  position: relative;
-  display: block; height: 10px;
-  background: linear-gradient(to right, transparent 0 var(--from),
-              var(--ink-400) var(--from) var(--to), transparent var(--to) 100%);
+.scope__ppi { width: 100%; height: auto; }
+
+.scope__grid circle, .scope__grid line {
+  fill: none; stroke: var(--hairline-2); stroke-width: 1;
 }
-.ladder__rungs li:has(.ladder__status--live) .ladder__bar {
-  background: linear-gradient(to right, transparent 0 var(--from),
-              var(--live) var(--from) var(--to), transparent var(--to) 100%);
+.scope__ticks text {
+  fill: var(--ink-400); font-family: var(--font-mono); font-size: 11px;
+  dominant-baseline: middle;
 }
-.ladder__rungs b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
-.ladder__rungs small { grid-area: note; color: var(--ink-500); font-size: var(--t-sm); }
-.ladder__status {
+.scope__origin { fill: var(--ink-400); }
+
+/* Contacts, not bands. A first pass drew each class as a ring whose stroke-width was
+   its decade span - which made the SMALLEST model the fattest ring, swallowing the
+   scope and hiding the range rings underneath. Each class is now a range gate along
+   its own bearing: a line from its inner to its outer radius with a blip at the outer
+   edge. Radius still carries all the information; bearing only separates the contacts
+   so their labels do not collide, which the caption states. */
+.scope__gate { stroke: var(--ink-400); stroke-width: 3; stroke-linecap: round; }
+.scope__blip { fill: var(--ink-500); }
+.scope__contact--live .scope__gate { stroke: var(--live); }
+.scope__contact--live .scope__blip { fill: var(--live); }
+.scope__gate--live .scope__gate { stroke: var(--live); }
+.scope__gate--live .scope__blip { fill: var(--live); }
+
+.scope__sweep line { stroke: var(--live); stroke-width: 1; opacity: .45; }
+.scope__sweep { transform-origin: 200px 200px; animation: scope-sweep 6s linear infinite; }
+@keyframes scope-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.scope__legend { list-style: none; margin: 0; padding: 0; }
+.scope__legend li {
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) max-content;
+  grid-template-areas: "key name status" ". range status" ". note note";
+  gap: 2px var(--s-3); padding: var(--s-4) 0; border-bottom: 1px solid var(--hairline);
+}
+.scope__key {
+  grid-area: key; align-self: center; width: 10px; height: 10px;
+  background: color-mix(in srgb, var(--ink-500) 34%, transparent);
+}
+.scope__key--live { background: color-mix(in srgb, var(--live) 46%, transparent); }
+.scope__legend b { grid-area: name; color: var(--ink-900); font-size: var(--t-h3); }
+.scope__legend code { grid-area: range; color: var(--ink-700); font-size: var(--t-sm); }
+.scope__legend small { grid-area: note; color: var(--ink-500); font-size: var(--t-sm); }
+.scope__status {
   grid-area: status; align-self: center;
   border: 1px solid var(--hairline-2); padding: 3px 7px;
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .05em; text-transform: uppercase; color: var(--ink-500);
 }
-.ladder__status--live { border-color: var(--live); color: var(--live); }
+.scope__status--live { border-color: var(--live); color: var(--live); }
 
-.ladder__axis {
-  position: relative; height: 1.4em; margin-top: var(--s-2);
-  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
-}
-.ladder__axis span {
-  position: absolute; left: var(--at); transform: translateX(-50%);
-  padding-top: var(--s-2); border-left: 1px solid var(--hairline-2);
-  padding-left: 4px;
-}
-.ladder__axis span:first-child { transform: none; }
-
-.ladder figcaption {
-  margin-top: var(--s-4); color: var(--ink-500);
+.scope figcaption {
+  margin-top: var(--s-5); color: var(--ink-500);
   font-size: var(--t-sm); line-height: var(--lh-body);
 }
 
-/* Reveal: each bar wipes out from its own left edge, staggered down the ladder.
-   One-shot, and skipped entirely under reduced motion - the final state is the
-   default, so nothing depends on the animation running. */
-.ladder.is-pending .ladder__bar { transform: scaleX(0); transform-origin: left center; }
-.ladder.is-revealed .ladder__bar {
-  animation: ladder-wipe 460ms cubic-bezier(.16, 1, .3, 1) both;
-  animation-delay: calc(var(--i) * 90ms);
+/* Bands settle outward as the scope paints. One-shot, and the DRAWN state is the
+   default - is-pending is added by script, so JS-off gets a complete plot. */
+.scope.is-pending .scope__contact { opacity: 0; }
+.scope.is-revealed .scope__contact {
+  animation: scope-paint 520ms cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: calc(var(--i) * 110ms);
 }
-@keyframes ladder-wipe { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-@media (prefers-reduced-motion: reduce) {
-  .ladder.is-pending .ladder__bar,
-  .ladder.is-revealed .ladder__bar { animation: none; transform: none; }
-}
+@keyframes scope-paint { from { opacity: 0; } to { opacity: 1; } }
 
-@media (max-width: 560px) {
-  .ladder__axis span:nth-child(even) { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .scope__sweep { animation: none; opacity: .35; }
+  .scope.is-pending .scope__contact,
+  .scope.is-revealed .scope__contact { animation: none; opacity: 1; }
+}
+@media (max-width: 720px) {
+  .scope__body { grid-template-columns: 1fr; gap: var(--s-6); }
+  .scope__ppi { max-width: 300px; margin-inline: auto; }
 }

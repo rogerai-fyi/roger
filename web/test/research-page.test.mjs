@@ -68,53 +68,60 @@ test("the model list gives every program a reason and honest status", () => {
   assert.doesNotMatch(page, /wave-micro-350m-instruct/i);
 });
 
-test("the model ladder is a true logarithmic scale, sorted by parameter class", () => {
+test("the model scope plots parameter class as radar range on a true log axis", () => {
   const page = surface();
   const css = read("styles/research.css");
-  const ladder = page.match(/<figure class="ladder"[\s\S]*?<\/figure>/)?.[0];
-  assert.ok(ladder, "the Wave ladder exists");
+  const scope = page.match(/<figure class="scope"[\s\S]*?<\/figure>/)?.[0];
+  assert.ok(scope, "the Wave scope exists");
 
   const order = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
   let cursor = -1;
   for (const name of order) {
-    const next = ladder.indexOf(name);
-    assert.ok(next > cursor, `${name} follows the smaller tier`);
+    const next = scope.indexOf(name);
+    assert.ok(next > cursor, `${name} follows the smaller class`);
     cursor = next;
   }
 
-  // Position must MEAN something. Each rung declares --from/--to as
-  // (log10(params) - 4) / 5.5, so the spans must increase monotonically and stay
-  // inside the axis. The previous bars used decorative percentages that implied a
-  // proportion the five-order-of-magnitude family does not have.
-  const spans = [...ladder.matchAll(/--from:([\d.]+)%;--to:([\d.]+)%/g)]
-    .map((m) => [parseFloat(m[1]), parseFloat(m[2])]);
-  assert.equal(spans.length, order.length, "every rung carries log coordinates");
-  let prevTo = -1;
-  for (const [from, to] of spans) {
-    assert.ok(from < to, `a rung spans forward (${from} -> ${to})`);
-    assert.ok(from >= prevTo, "rungs do not overlap or regress");
-    assert.ok(to <= 100, "the rung stays on the axis");
-    prevTo = to;
+  // The proof that the axis is really logarithmic: consecutive DECADE rings must be
+  // equally spaced in radius. On a linear axis they would not be, and the plot would
+  // be implying a proportion the five-order-of-magnitude family does not have.
+  const rings = [...scope.matchAll(/<circle cx="200" cy="200" r="(\d+)"\/>/g)].map((m) => +m[1]);
+  assert.ok(rings.length >= 5, `expected decade rings, found ${rings.length}`);
+  const gaps = rings.slice(1).map((r, i) => r - rings[i]);
+  const spread = Math.max(...gaps) - Math.min(...gaps);
+  assert.ok(spread <= 1, `decade rings are evenly spaced (gaps ${gaps.join(",")})`);
+
+  // Every class is a range gate: a line from its inner to its outer radius. Both
+  // endpoints must sit inside the scope, and the gate must span outward.
+  const gates = [...scope.matchAll(/<line class="scope__gate" x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g)];
+  assert.equal(gates.length, order.length, "every class has a range gate");
+  const radius = (x, y) => Math.hypot(x - 200, y - 200);
+  for (const g of gates) {
+    const inner = radius(+g[1], +g[2]);
+    const outer = radius(+g[3], +g[4]);
+    assert.ok(outer > inner, `gate spans outward (${inner.toFixed(1)} -> ${outer.toFixed(1)})`);
+    assert.ok(outer <= 200, "the gate stays inside the scope");
   }
 
-  // Decade ticks label the scale, otherwise the positions are unreadable.
-  const axis = ladder.match(/<div class="ladder__axis"[\s\S]*?<\/div>/)?.[0] || "";
-  for (const tick of ["10K", "100K", "1M", "10M", "100M", "1B"]) {
-    assert.ok(axis.includes(tick), `axis is labelled at ${tick}`);
+  for (const tick of ["100K", "1M", "10M", "100M", "1B"]) {
+    assert.ok(scope.includes(`>${tick}<`), `range ring is labelled at ${tick}`);
   }
+
+  // Bearing is decoration; saying so is the difference between a plot and a lie.
+  // Normalise whitespace first - the caption wraps across source lines.
+  const prose = scope.replace(/\s+/g, " ");
+  assert.match(prose, /[Bb]earing carries no meaning/);
+  assert.match(prose, /declared design targets, not measurements/i);
+  assert.doesNotMatch(scope, /\b\d+(\.\d+)?\s?(GB|MB|tok\/s|ms)\b/, "no invented footprint or speed");
 
   assert.match(page, /RogerAI-designed open model program/i);
-  assert.match(page, /release gate|no checkpoint/i, "the ladder states program status, not availability");
-  // Declared targets, never measurements - none of these has a released checkpoint.
-  assert.match(ladder, /declared design targets, not measurements/i);
-  assert.doesNotMatch(ladder, /\b\d+(\.\d+)?\s?(GB|MB|tok\/s|ms)\b/, "no invented footprint or speed");
-
+  assert.match(page, /release gate|no checkpoint/i, "the scope states program status, not availability");
   assert.doesNotMatch(page, /Wave Edge/i);
-  for (const selector of [".ladder", ".ladder__bar", ".model-group-head"]) {
+  for (const selector of [".scope", ".scope__gate", ".model-group-head"]) {
     assert.match(css, new RegExp(selector.replace(".", "\\.")), `${selector} is styled`);
   }
-  // The drawn state is the DEFAULT; the reveal only ever removes it.
-  assert.match(css, /prefers-reduced-motion[\s\S]*ladder__bar/i, "the wipe is reduced-motion safe");
+  // Drawn is the DEFAULT state; the sweep and reveal are both reduced-motion safe.
+  assert.match(css, /prefers-reduced-motion[\s\S]*scope__sweep/i);
 });
 
 test("model identity follows family size variant conventions", () => {
