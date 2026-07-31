@@ -295,21 +295,30 @@ if (check) {
   // and nothing else fails loudly if it disappears: verify-artifacts treats its go-import
   // result as advisory, and a rule deleted in the Cloudflare dashboard leaves no trace in
   // the repo. Check it here, where drift is the whole point of the job.
-  const vanity = await probe(`https://${APEX}/roger?go-get=1`);
-  if (vanity.err) {
-    drift.push(vanity.err);
-  } else {
+  // BOTH paths are probed. /roger/v5 is the one Go actually fetches - it filters candidate
+  // tags by the module path's major suffix - so checking only /roger would leave the real
+  // route unguarded: dropping "/roger/v5" from the rule would keep this check green while
+  // `go install` was broken. Each path must land on ITS OWN path plus a slash; asserting a
+  // substring like "/roger/" would accept /roger/v5 collapsing onto /roger/, which is
+  // precisely the regression the request-derived target expression exists to prevent.
+  for (const path of ["/roger", "/roger/v5"]) {
+    const vanity = await probe(`https://${APEX}${path}?go-get=1`);
+    if (vanity.err) {
+      drift.push(vanity.err);
+      continue;
+    }
     const loc = vanity.res.headers.get("location") || "";
-    if (vanity.res.status !== 301 || !loc.includes("/roger/")) {
+    const want = `https://${APEX}${path}/`;
+    if (vanity.res.status !== 301 || !loc.startsWith(want)) {
       drift.push(
-        `vanity-import redirect drift: expected 301 -> https://${APEX}/roger/, ` +
+        `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
           `got ${vanity.res.status} -> ${loc || "(none)"}; ` +
           "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` is broken while this is wrong",
       );
     } else if (!loc.includes("go-get=1")) {
       // Go drops the response when the redirect eats its query, so a 301 to the right
       // path is still a broken module fetch without this.
-      drift.push(`vanity-import redirect drops ?go-get=1: ${loc}`);
+      drift.push(`vanity-import redirect for ${path} drops ?go-get=1: ${loc}`);
     }
   }
 
