@@ -96,6 +96,15 @@ export function headerRule(headers, opts = {}) {
   };
 }
 
+// Certificate issuance and renewal fetch http://<host>/.well-known/acme-challenge/<token>.
+// A redirect that matches that path hands the certificate authority a 301 instead of the
+// token, so the hostname never gets a certificate. That is not theoretical: it is exactly
+// why www.rogerai.fm sat at DomainCertPendingValidation while the apex, which has no
+// redirect, validated immediately. Every redirect below must carry this exclusion, and it
+// matters at renewal just as much as at first issuance.
+const ACME_EXCLUSION =
+  'not starts_with(http.request.uri.path, "/.well-known/acme-challenge/")';
+
 export function redirectRule(opts = {}) {
   const zone = opts.zone || ZONE;
   return {
@@ -107,7 +116,7 @@ export function redirectRule(opts = {}) {
         preserve_query_string: true,
       },
     },
-    expression: `(http.host eq "www.${zone}")`,
+    expression: `(http.host eq "www.${zone}" and ${ACME_EXCLUSION})`,
     description: DESC_REDIRECT,
     enabled: true,
   };
@@ -127,7 +136,7 @@ export function legacyRedirectRule(opts = {}) {
         preserve_query_string: true,
       },
     },
-    expression: `(http.host in {"${legacy}" "www.${legacy}"})`,
+    expression: `(http.host in {"${legacy}" "www.${legacy}"} and ${ACME_EXCLUSION})`,
     description: DESC_LEGACY,
     enabled: true,
   };
@@ -152,7 +161,9 @@ export function vanityImportRule(opts = {}) {
         preserve_query_string: true,
       },
     },
-    expression: `(http.host eq "${zone}" and http.request.uri.path eq "/roger")`,
+    // Redundant against an exact-path test, and carried anyway: "every redirect below must
+    // carry this exclusion" is only a guarantee if it holds without a case-by-case argument.
+    expression: `(http.host eq "${zone}" and http.request.uri.path eq "/roger" and ${ACME_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,
   };
