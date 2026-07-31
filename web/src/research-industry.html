@@ -145,10 +145,63 @@
       </div>
         </section>
 
+    <!-- Why the tiers are what they are. This is the section an OT reviewer can check
+         independently, and it is a much stronger claim than "we designed it this way":
+         hazardous-area certification and solar power budgets decide the answer before
+         anyone picks a model. Standards and physics only - vendor names, prices and
+         product matrices are market intelligence carrying their own confidence labels
+         and do not belong on a public page. -->
+    <section class="section" id="envelope">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">§2 / THE ENVELOPE</span>
+          <h2>The tiers are not a preference. They are what certification allows.</h2>
+          <p>Three questions decide where a model can physically run, and all three are
+             answered before anyone chooses an architecture.</p>
+        </div>
+
+        <div class="device-contract">
+          <p><b>Heat.</b> Temperature class T4 caps surface temperature at 135&deg;C at
+             maximum ambient, and oil and gas sites routinely ask for T3 or T4. In a
+             sealed fanless enclosure at 50 to 60&deg;C ambient that is the constraint
+             that kills compute, long before anyone runs out of TOPS.</p>
+          <p><b>Power in the zone.</b> Intrinsic safety (Ex ia) limits usable power to
+             roughly 1.2 to 1.3 watts. That is a transmitter or a microcontroller. It is
+             not an accelerator, and <b>we have not found a hazardous-area-certified GPU
+             enclosure on the market</b> - the shapes that do work are a safe-area rack, a
+             purged cabinet, light inference on a certified low-power gateway, or sensors
+             in the zone with the compute outside on fibre.</p>
+          <p><b>Power at a remote site.</b> Remote sites size three to seven days of
+             battery autonomy. Every continuous watt costs roughly a 10 to 15 watt panel
+             and 30 to 60 watt-hours of battery, so a 15 watt device is a 200 to 300 watt
+             array and a 2 to 4 kilowatt-hour bank - a skid of its own. Duty-cycled
+             inference or microcontroller-class compute is the only thing that fits a
+             solar wellhead.</p>
+        </div>
+
+        <div class="research-prose">
+          <p><b>That is the whole argument for the tiers.</b> A microcontroller-class
+             detector is what the hazardous zone will certify; a gateway-class model lives
+             in the control room or a purged cabinet at Level 3; anything larger is a
+             safe-area machine. The split is forced by heat, watts and certification, not
+             chosen for tidiness - which is also why a single large model in the cloud was
+             never the alternative here.</p>
+          <p><b>And the compliance regime shapes the product, not just the paperwork.</b>
+             IEC 62443 treats model files as software needing integrity verification, and
+             an AI product entering an OT environment will be asked for its component
+             certification. Under NERC CIP a model update is a change-management event and
+             the model needs provenance a reviewer can follow. A system that changes
+             itself constantly is not obviously compatible with that, which is exactly why
+             every adaptation we make is designed to carry a certificate and an exact path
+             back.</p>
+        </div>
+      </div>
+    </section>
+
     <section class="section research-tone" id="boundary">
       <div class="wrap research-split">
         <div>
-          <span class="sectionno">§2 / THE BOUNDARY</span>
+          <span class="sectionno">§3 / THE BOUNDARY</span>
           <h2>What it does not do.</h2>
           <p>Worth stating plainly, because the failure mode of an advisory system is
              someone trusting it past its remit.</p>
@@ -171,7 +224,7 @@
 
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">§3 / TALK TO US</span>
+        <span class="sectionno">§4 / TALK TO US</span>
         <h2>Patterns, not customer logos.</h2>
         <p>Industrial work happens under NDA. We do not publish names, sites, or logos
            without written permission, so this page describes the deployment shapes we

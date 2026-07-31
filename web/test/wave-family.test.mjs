@@ -246,3 +246,55 @@ test("the industrial market set is consistent wherever it is named", () => {
     }
   }
 });
+
+// The tiers are dictated by certification and power physics, not by preference. That is a
+// far stronger claim than "we designed it this way" and it is the first thing an OT
+// reviewer can check independently, so it gets its own section with the standards named.
+const envelope = () => {
+  const s = read("research-industry.html").match(/<section[^>]*id="envelope"[\s\S]*?<\/section>/)?.[0];
+  assert.ok(s, "the industrial page explains the physical envelope");
+  return s;
+};
+
+test("the envelope names the certification limits, not just the conclusion", () => {
+  const copy = visible(envelope());
+  assert.match(copy, /T4|135\s?&deg;C|135°C/i, "the temperature class that caps sealed compute");
+  assert.match(copy, /intrinsic|Ex ia/i, "intrinsic safety");
+  assert.match(copy, /1\.2|1\.3/, "and the watt ceiling it imposes");
+  assert.match(copy, /purged|safe area|outside the zone|fibre|fiber/i, "the shapes that do work");
+});
+
+test("the power arithmetic is shown, because it is what decides the tier", () => {
+  const copy = visible(envelope());
+  assert.match(copy, /solar|battery|autonomy/i);
+  assert.match(copy, /duty-cycl/i, "duty-cycled or microcontroller-class is the only solar fit");
+  assert.match(copy, /panel|kWh|Wh/i, "with the arithmetic, not just the verdict");
+});
+
+test("the compliance regime is named the way a reviewer would check it", () => {
+  const copy = visible(envelope());
+  assert.match(copy, /62443/, "the OT security standard");
+  assert.match(copy, /NERC CIP|CIP-0/i, "and the grid regime");
+  assert.match(copy, /change[- ]management|change control/i,
+    "the consequence that actually shapes the product: a model update is a change event");
+});
+
+test("the negative claim is attributed to our search, not asserted as universal", () => {
+  const copy = visible(envelope());
+  // "No hazloc-certified GPU box exists" is a negative search result. Publishing it as a
+  // universal fact invites one counterexample to discredit the page.
+  assert.doesNotMatch(copy, /no [^.]{0,40}(certified|hazardous)[^.]{0,20}(box|enclosure|GPU) exists/i,
+    "not stated as a universal absence");
+  assert.match(copy, /we have not found|we could not find|none we have found/i,
+    "attributed to our own search");
+});
+
+test("the envelope concludes the tiers are forced, and cites no vendor", () => {
+  const copy = visible(envelope());
+  assert.match(copy, /not a preference|physics|forced|dictate/i);
+  // Vendor names and prices are market intelligence with their own confidence labels;
+  // this page carries standards and physics only.
+  for (const vendor of [/jetson/i, /hailo/i, /qualcomm/i, /rockwell/i, /advantech/i, /\$\d/]) {
+    assert.doesNotMatch(copy, vendor, `no vendor or price detail (${vendor})`);
+  }
+});
