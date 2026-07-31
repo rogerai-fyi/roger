@@ -34,6 +34,23 @@ test("Research is a concise first-class destination", () => {
   assert.ok(main.length < 19500, `research content is concise (${main.length} bytes)`);
 });
 
+// The mission family the founder asked for, in RogerAI's voice rather than a
+// borrowed one. Each line is a commitment somebody could hold us to, which is why
+// they are asserted: a mood survives a copy edit, a commitment should not.
+test("the lab says why it exists, in terms it can be held to", () => {
+  const why = read("research.html").match(/<section class="section" id="why"[\s\S]*?<\/section>/)?.[0] || "";
+  assert.ok(why, "the why section exists");
+  const copy = why.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  assert.match(copy, /Engineers for engineers/i);
+  assert.match(copy, /Built in America, open to everyone/i);
+  assert.match(copy, /Orange County/);
+  // The two claims that are checkable rather than aspirational.
+  assert.match(copy, /published as it happens|weights, recipes, raw evaluations/i);
+  assert.match(copy, /nothing we publish needs us to keep existing/i, "the no-lock-in promise");
+  // It must not drift into claiming a scale or a customer we do not have.
+  assert.doesNotMatch(copy, /\b\d+\+? (employees|customers|partners)\b/i);
+});
+
 test("the page leads with the work, not a biography of the company", () => {
   const page = read("research.html");
   assert.match(page, /Models built for local constraints/i);
