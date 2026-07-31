@@ -216,3 +216,33 @@ test("the zero is explained as a non-answer, not ten wrong answers", () => {
   // The scope caveat must still say what the measurement does NOT cover.
   assert.match(copy, /not whether it is right/i);
 });
+
+// The market set grew from four to six. Both pages that name it have to agree, and the
+// count has to be stated correctly - "Four industries" with six articles under it is the
+// kind of drift a reader notices before we do.
+test("the industrial market set is consistent wherever it is named", () => {
+  const MARKETS = [/oil and gas/i, /power generation/i, /manufacturing/i,
+                   /aerospace/i, /mining/i, /water/i];
+  const industry = read("research-industry.html");
+  const grid = industry.match(/<div class="deployment-grid">[\s\S]*?<\/div>/)[0];
+  const cards = [...grid.matchAll(/<article><b>([^<]+)<\/b>/g)].map((m) => m[1]);
+  assert.equal(cards.length, MARKETS.length, `one card per market, found ${cards.length}`);
+  for (const m of MARKETS) {
+    assert.ok(cards.some((c) => m.test(c)), `the grid names ${m}`);
+    assert.match(visible(read("research.html")), m, `the hub names ${m} too`);
+  }
+  // Every card must say what the work IS, not just name the sector.
+  for (const card of grid.matchAll(/<article><b>[^<]+<\/b><p>([\s\S]*?)<\/p>/g)) {
+    assert.ok(visible(card[1]).length > 40, "each market names a concrete workload");
+  }
+  // The stated count and the actual count cannot disagree.
+  const words = { 4: /\bfour\b/i, 5: /\bfive\b/i, 6: /\bsix\b/i, 7: /\bseven\b/i };
+  for (const [n, word] of Object.entries(words)) {
+    if (Number(n) === cards.length) continue;
+    for (const [page, html] of [["research-industry.html", industry], ["research.html", read("research.html")]]) {
+      const copy = visible(html.match(/<main[\s\S]*?<\/main>/)[0]);
+      assert.doesNotMatch(copy, new RegExp(`${word.source}\\s+(industries|markets)`, "i"),
+        `${page} must not say ${word} when there are ${cards.length}`);
+    }
+  }
+});
