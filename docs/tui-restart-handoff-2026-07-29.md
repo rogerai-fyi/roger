@@ -65,12 +65,18 @@ Luis rejected the later line-art experiment. The approved canonical form is
 the original pixel receiver:
 
 ```text
-   ▄██████▄
-(  █    • █▓  )
-   █  ROG █▓
-    ▀█▄▄█▀▒
-     ▀  ▀
+   ▄███████▄
+(  █   •   █▓  )
+   █  ROG  █▓
+    ▀█▄▄▄█▀▒
+     ▀   ▀
 ```
+
+The interior is SEVEN cells, and cap, eye, wordmark, base and feet all centre on one
+axis. A six-cell interior forces the wordmark off-centre against the right wall, which
+is the defect the v5.4.8 compaction introduced. Pinned by
+`internal/tui/tube_ping_doc_drift_test.go`, so this block and `tubePingRows` cannot
+disagree again.
 
 Important rendering lesson: the first implementation styled nearly every block
 glyph independently. Repeated ANSI start/reset spans made the body look

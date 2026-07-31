@@ -144,8 +144,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   padding-bottom: var(--s-5);
   border-bottom: 1px solid var(--hairline);
 }
-/* The VECTOR mascot (web/iOS/macOS). The ASCII sprite below it is the terminal
-   form and is kept only for surfaces that genuinely cannot draw curves. */
+/* The VECTOR mascot (web/iOS/macOS). */
 .tube-ping__mark {
   display: block;
   width: clamp(44px, 5vw, 62px);
