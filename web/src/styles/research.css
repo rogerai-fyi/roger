@@ -188,46 +188,83 @@
    Uses only tokens: warm monochrome ground, the one red beacon as a
    signal on the failing measurement and nowhere else.
    ===================================================================== */
-.capability-law { margin: 0 0 var(--s-8); border-block: 2px solid var(--ink-900); background: var(--paper); }
-.capability-law__quote {
-  margin: 0;
-  padding: var(--s-6) var(--s-5);
-  border-bottom: 1px solid var(--hairline);
-  color: var(--ink-900);
-  font-size: var(--t-h2);
-  line-height: var(--lh-tight);
-  letter-spacing: var(--tracking-display);
-  text-wrap: balance;
+/* §2 CAPABILITY. The finding is a RATIO, so the ratio is drawn: the kept sliver is
+   6.7% of the bar's width, which lands before any sentence does. Each result carries a
+   meter filled to its own score, so 3/3 and 0/10 are seen rather than parsed. */
+.capability { margin: 0 0 var(--s-8); border-block: 2px solid var(--ink-900); background: var(--paper); }
+.capability__cut { padding: var(--s-6) var(--s-6) var(--s-5); }
+.capability__cutline {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
-.capability-law__quote small {
-  display: block;
-  margin-top: var(--s-4);
-  color: var(--ink-400);
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
+.capability__kept-label { color: var(--live); }
+/* The whole bar is the original model; the solid sliver is what was kept. The deleted
+   93.3% stays visible as a ghost rather than being cropped away - the point is how
+   much is gone, and you cannot see that if it is not drawn. */
+.capability__bar {
+  position: relative; height: 26px;
+  border: 1px solid var(--hairline-2); background: var(--paper-2);
+  background-image: repeating-linear-gradient(
+    90deg, transparent 0 3px, var(--hairline) 3px 4px);
 }
-.capability-split { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.capability-split div { padding: var(--s-5); border-right: 1px solid var(--hairline); }
-.capability-split div:last-child { border-right: 0; }
-.capability-split dt {
-  color: var(--ink-400);
-  font-family: var(--font-mono);
-  font-size: var(--t-micro);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
+.capability__bar i {
+  position: absolute; inset: 0 auto 0 0; width: var(--kept);
+  background: var(--live);
 }
-.capability-split dd {
-  margin: var(--s-2) 0 0;
-  color: var(--ink-900);
-  font-family: var(--font-mono);
-  font-size: var(--t-h2);
+
+.capability__scores {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline);
+}
+.capability__scores li {
+  min-width: 0; padding: var(--s-5) var(--s-6);
+  border-right: 1px solid var(--hairline);
+}
+.capability__scores li:last-child { border-right: 0; }
+.capability__num {
+  display: block; color: var(--ink-900);
+  font-family: var(--font-mono); font-size: var(--t-h2); line-height: 1;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
-.capability-split dd small { display: block; margin-top: var(--s-2); color: var(--ink-500); font-family: var(--font-ui); font-size: var(--t-sm); line-height: var(--lh-body); }
-.capability-split div[data-outcome="lost"] dd { color: var(--live); }
+.capability__job {
+  display: block; margin-top: var(--s-3);
+  color: var(--ink-700); font-size: var(--t-sm); font-weight: var(--weight-semi);
+}
+.capability__meter {
+  display: block; height: 4px; margin: var(--s-3) 0 var(--s-3);
+  background: var(--hairline-2);
+}
+.capability__meter i { display: block; height: 100%; width: var(--fill); background: var(--ink-900); }
+.capability__scores small {
+  display: block; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+/* The empty meter is the point, so the boundary row is marked in red AND by a zero -
+   never by colour alone. */
+.capability__scores li[data-outcome="boundary"] .capability__num { color: var(--live); }
+.capability__scores li[data-outcome="boundary"] .capability__meter { background: var(--live-tint, var(--hairline-2)); }
+
+.capability figcaption {
+  padding: var(--s-5) var(--s-6);
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-900); font-size: var(--t-lead); line-height: var(--lh-body);
+}
+.capability figcaption small {
+  display: block; margin-top: var(--s-3);
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .05em; text-transform: uppercase;
+}
+/* The caveats are one compact block, not two paragraphs competing with the finding. */
+.capability__caveats { color: var(--ink-500); font-size: var(--t-sm); }
+.capability__caveats b { color: var(--ink-700); }
+
+@media (max-width: 720px) {
+  .capability__scores { grid-template-columns: 1fr; }
+  .capability__scores li { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .capability__scores li:last-child { border-bottom: 0; }
+}
 
 .tier-matrix { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .tier-matrix caption { color: var(--ink-500); font-size: var(--t-sm); text-align: left; padding-bottom: var(--s-4); }
