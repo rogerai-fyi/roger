@@ -140,10 +140,8 @@ async function main() {
     if (!goImport.ok) {
       console.error(`\nverify-artifacts: ${GO_GET_URL} is not serving the go-import tag (${goImport.why}).\n`);
     }
-    // Always fail. A healthy go-import tag does not redeem a run that inspected no
-    // artifacts: the site is known to advertise several, so collecting zero means
-    // this check has gone blind, and a blind check reporting success is the failure
-    // mode being guarded against.
+    // Always fail. Collecting zero means this check has gone blind, and a blind
+    // check reporting success is the failure mode being guarded against.
     return 1;
   }
 
@@ -178,7 +176,13 @@ async function main() {
         "model is available until a stranger can download it.\n"
     );
   }
-  if (failed.length || !goImport.ok) return 1;
+  // The go-import tag is ADVISORY, not blocking. The vanity route needs a Cloudflare
+  // edge rule that does not exist yet (this host does no extensionless resolution:
+  // /manual 404s while /manual.html 200s), so a blocking check would be red on every
+  // run until that lands - and a gate that is always red is a gate everyone learns to
+  // ignore. Nothing advertises `go install` today, so a missing tag breaks no promise.
+  // Restore this to blocking in the same change that restores the README claim.
+  if (failed.length) return 1;
 
   console.log(`\nverify-artifacts: all ${results.length} advertised artifacts are public.`);
   return 0;

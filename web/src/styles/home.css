@@ -170,7 +170,6 @@
   border: 0;
 }
 .hero__ping-trigger .tube-ping figcaption { display: none; }
-.hero__ping-trigger .tube-ping__sprite { font-size: .82rem; }
 .hero__ping-trigger:hover { filter: drop-shadow(0 0 6px var(--live-glow)); }
 .hero__ping-trigger:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; }
 

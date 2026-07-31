@@ -42,6 +42,7 @@ Feature: RogerAI can offer models it publishes, not only models already running
 
   # ---- the list -------------------------------------------------------------
 
+  @data
   Scenario: Detected and offerable models share one list
     Given a local server is already serving "qwen3-vl-8b"
     And the catalogue offers a model that is not on this machine
@@ -57,6 +58,7 @@ Feature: RogerAI can offer models it publishes, not only models already running
     And its licence is shown
     And its upstream lineage is shown when an upstream parent exists
 
+  @data
   Scenario: An offerable model cannot go on air until it exists locally
     Given the operator selects an offerable model
     Then RogerAI does not register it with the broker
@@ -76,6 +78,7 @@ Feature: RogerAI can offer models it publishes, not only models already running
 
   # ---- hardware fit ---------------------------------------------------------
 
+  @data
   Scenario Outline: Fit is assessed against real detected memory
     Given the machine has <available> of usable memory
     And an offerable model needs <needed> to serve

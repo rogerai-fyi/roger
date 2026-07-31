@@ -170,18 +170,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .ping-mark__wave { opacity: .35; }
 }
 
-.tube-ping__sprite {
-  margin: 0;
-  color: var(--ink-900);
-  font-family: var(--font-mono);
-  font-size: clamp(.88rem, 1.2vw, 1.02rem);
-  font-weight: var(--weight-semi);
-  line-height: 1.08;
-  white-space: pre;
-}
-.tube-ping__eye { color: var(--live); }
-.tube-ping__depth { color: var(--ink-500); }
-.tube-ping__shadow { color: var(--ink-300); }
 .tube-ping figcaption {
   display: grid;
   gap: 3px;
@@ -193,8 +181,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .tube-ping figcaption b { color: var(--ink-900); letter-spacing: .12em; }
 @media (max-width: 420px) {
   .tube-ping { grid-template-columns: 1fr; align-items: start; }
-  .tube-ping__sprite { font-size: .84rem; }
-}
+  }
 
 /* ---------- live dot -------------------------------------------- */
 .livedot { position: relative; display: inline-flex; width: var(--dot-size, 8px); height: var(--dot-size, 8px); }

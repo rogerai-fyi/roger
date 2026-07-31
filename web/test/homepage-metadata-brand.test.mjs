@@ -26,8 +26,18 @@ test("homepage search metadata names the company, models, and infrastructure", (
   assert.match(desc, /American AI research and infrastructure company/i);
   assert.match(desc, /models for constrained hardware/i);
   assert.match(desc, /OpenAI-compatible network/i);
-  // The description must not name an unreleased model as if it were a product.
-  assert.doesNotMatch(desc, /Wave (?:Micro|Nano|Core)/i);
+  // ALL THREE description tags, not just <meta name="description">. The first pass
+  // of this retraction fixed only that one and left og:/twitter: still naming Wave
+  // Micro as a product - the social cards are what actually get shared and cached.
+  const descriptions = [
+    ...[...page.matchAll(/<meta name="description" content="([^"]+)"/g)].map((m) => m[1]),
+    ...[...page.matchAll(/<meta property="og:description" content="([^"]+)"/g)].map((m) => m[1]),
+    ...[...page.matchAll(/<meta name="twitter:description" content="([^"]+)"/g)].map((m) => m[1]),
+  ];
+  assert.ok(descriptions.length >= 3, "all three description tags are present");
+  for (const d of descriptions) {
+    assert.doesNotMatch(d, /Wave (?:Micro|Nano|Core)/i, `description names no unreleased model: ${d}`);
+  }
 });
 
 test("homepage, Company, and Research use distinct intentional raster social cards", () => {
