@@ -16,7 +16,7 @@ package node
 import (
 	"testing"
 
-	"rogerai.fm/roger/internal/agent"
+	"rogerai.fm/roger/v5/internal/agent"
 )
 
 func TestVoiceSampleURLPlumbing(t *testing.T) {

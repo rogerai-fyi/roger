@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // POST /account/delete now accepts the native app's SIGNED device key (not just the web session)

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/internal/capsule"
-	"rogerai.fm/roger/internal/harness"
-	"rogerai.fm/roger/internal/node"
-	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/v5/internal/capsule"
+	"rogerai.fm/roger/v5/internal/harness"
+	"rogerai.fm/roger/v5/internal/node"
+	"rogerai.fm/roger/v5/internal/session"
 )
 
 // NewResumedWithHooksController restores durable semantic state before the Bubble Tea

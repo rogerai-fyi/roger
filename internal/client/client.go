@@ -27,9 +27,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"rogerai.fm/roger/internal/glyphs"
-	"rogerai.fm/roger/internal/pricetier"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/glyphs"
+	"rogerai.fm/roger/v5/internal/pricetier"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // AlertFunc receives a human-readable line when the proxy can't recover (no

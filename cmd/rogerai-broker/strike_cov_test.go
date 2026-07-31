@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // strikeBroker builds a broker with a node bound to an owner account and the strike

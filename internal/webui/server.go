@@ -20,8 +20,8 @@ import (
 	"strings"
 	"sync"
 
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/node"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/node"
 )
 
 //go:embed assets/*

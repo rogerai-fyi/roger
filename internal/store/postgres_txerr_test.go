@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // poisonedTx returns an OPEN transaction that Postgres has already ABORTED (a prior

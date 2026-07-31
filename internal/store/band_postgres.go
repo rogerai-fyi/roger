@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // Postgres band storage (BANDS-DESIGN). Mirrors the grant methods: JSONB for the

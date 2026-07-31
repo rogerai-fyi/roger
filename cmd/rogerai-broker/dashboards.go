@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // balance handles GET /balance: the caller's wallet credits (seeds new users).

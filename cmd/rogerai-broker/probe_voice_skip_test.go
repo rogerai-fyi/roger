@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // probe_voice_skip_test.go locks the RELEASE-BLOCKING fix (a live E2E caught it): the

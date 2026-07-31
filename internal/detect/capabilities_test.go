@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 func TestVisionFromID(t *testing.T) {

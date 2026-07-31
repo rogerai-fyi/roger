@@ -11,7 +11,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // bareVoiceServer builds a stub that 404s GET /v1/models (like kokoro-fastapi) but serves the

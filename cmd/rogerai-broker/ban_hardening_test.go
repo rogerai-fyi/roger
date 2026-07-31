@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestStrikeCorroborationBeforeBan locks the corroboration guard (audit 3.2): an

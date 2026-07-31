@@ -198,21 +198,26 @@ test("the vanity-import redirect is scoped to the apex and preserves the go-get 
   assert.match(host, new RegExp(`http\\.host eq "${CANON}"`), "must be scoped to the apex host");
   assert.doesNotMatch(host, /broker|control/, "must never match the API hosts");
 
-  // Exact path equality, not a prefix: `starts_with(..., "/roger")` would also swallow
+  // Exact path membership, not a prefix: `starts_with(..., "/roger")` would also swallow
   // /roger-ios, /rogerai, and every future page whose name begins with "roger".
-  assert.match(
-    host,
-    /http\.request\.uri\.path eq "\/roger"/,
-    'the path test must be exact equality on "/roger", never a prefix match',
-  );
+  const paths = /http\.request\.uri\.path in \{((?:\s*"[^"]+")+)\s*\}/.exec(host);
+  assert.ok(paths, "the path test must be exact set membership, never a prefix match");
   assert.doesNotMatch(host, /starts_with\(http\.request\.uri\.path, "\/roger"\)/);
+
+  const covered = [...paths[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+  // Go fetches the FULL module path, suffix included. Covering only /roger would leave
+  // `go install rogerai.fm/roger/v5/...` resolving nothing, which is the whole point.
+  assert.deepEqual(covered, ["/roger", "/roger/v5"]);
 
   const from = rule.action_parameters.from_value;
   assert.equal(from.status_code, 301, "a permanent move, so the module path is cacheable");
   // Go appends ?go-get=1 and drops the response if the redirect eats it, so this flag is
   // the difference between a working `go install` and a module nobody can fetch.
   assert.equal(from.preserve_query_string, true, "?go-get=1 must survive the hop");
-  assert.match(from.target_url.expression, /"\/roger\/"/, "must land on the trailing-slash page");
+  // The trailing slash has to be derived from the requested path, or /roger/v5 would land
+  // on /roger/ and serve a tag for the wrong module path.
+  assert.match(from.target_url.expression, /http\.request\.uri\.path/);
+  assert.match(from.target_url.expression, /"\/"/, "must land on the trailing-slash page");
 });
 
 test("the header rule still applies to the ACME path", () => {

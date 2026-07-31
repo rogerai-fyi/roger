@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestPayoutAndMarketFuncs covers the payout client calls, the market/band helpers, the

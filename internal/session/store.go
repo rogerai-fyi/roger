@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/internal/capsule"
+	"rogerai.fm/roger/v5/internal/capsule"
 )
 
 const CurrentVersion = 1

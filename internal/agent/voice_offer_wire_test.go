@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 func TestRegisterOfferSampleURLOnWire(t *testing.T) {

@@ -160,13 +160,18 @@ export function vanityImportRule(opts = {}) {
     action_parameters: {
       from_value: {
         status_code: 301,
-        target_url: { expression: `concat("https://${zone}", "/roger/")` },
+        // Trailing slash derived from the request, so /roger/v5 lands on /roger/v5/ rather
+        // than on /roger/ - which would answer with a tag for the wrong module path.
+        target_url: { expression: `concat("https://${zone}", http.request.uri.path, "/")` },
         preserve_query_string: true,
       },
     },
-    // Redundant against an exact-path test, and carried anyway: "every redirect below must
-    // carry this exclusion" is only a guarantee if it holds without a case-by-case argument.
-    expression: `(http.host eq "${zone}" and http.request.uri.path eq "/roger" and ${ACME_EXCLUSION})`,
+    // Exact set membership, never a prefix: starts_with(..., "/roger") would also swallow
+    // /roger-ios and every future page whose name begins with "roger". Both the bare path
+    // and the major-version path are listed because Go fetches the FULL module path.
+    // The ACME exclusion is redundant against an exact-path test and carried anyway: "every
+    // redirect carries this" is only a guarantee if it holds without a case-by-case argument.
+    expression: `(http.host eq "${zone}" and http.request.uri.path in {"/roger" "/roger/v5"} and ${ACME_EXCLUSION})`,
     description: DESC_VANITY,
     enabled: true,
   };

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/internal/capsule"
-	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/v5/internal/capsule"
+	"rogerai.fm/roger/v5/internal/session"
 )
 
 func resumedFixture() session.Snapshot {

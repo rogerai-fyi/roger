@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestAuthAppleWebLogin: the authorize redirect carries the right params and the nonce sent to

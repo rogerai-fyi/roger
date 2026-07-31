@@ -20,9 +20,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/operator"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/operator"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestStartQueuedPromptOriginDispatch is the finding-#1 table: only a LOCAL slash entry

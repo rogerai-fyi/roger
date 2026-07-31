@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // newTestMailer builds an ENABLED mailer whose sends are captured synchronously via a

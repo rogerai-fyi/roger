@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/v5/internal/client"
 )
 
 // TestSayResultLine: the success line reads `spoke N chars · $X` (N = rune count), the billed cost

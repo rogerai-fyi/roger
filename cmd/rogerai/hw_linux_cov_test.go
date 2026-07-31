@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"rogerai.fm/roger/internal/detect"
+	"rogerai.fm/roger/v5/internal/detect"
 )
 
 // TestDetectHWClassGPU drives the GPU-present branches of detectHWClass /

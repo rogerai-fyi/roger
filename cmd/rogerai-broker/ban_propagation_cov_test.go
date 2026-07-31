@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestBanDBWriteFailureDoesNotSelfDrop pins the audit's robustness finding: when the DURABLE

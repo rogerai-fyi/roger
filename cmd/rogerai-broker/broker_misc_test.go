@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // TestRootHandler covers GET /: the service banner at "/" and a 404 for any other path.

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"syscall"
 
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // confirmGate tracks whether the host is currently awaiting a tool confirm (and its id), set

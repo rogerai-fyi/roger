@@ -9,7 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/v5/internal/session"
 )
 
 // ResumePickerModel is the small, standalone `roger resume` selector. It intentionally does

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/node"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/node"
 )
 
 // fakeBrokerAll answers every broker endpoint the account/payout/grant proxies call

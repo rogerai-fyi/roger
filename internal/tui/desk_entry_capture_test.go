@@ -17,7 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
-	"rogerai.fm/roger/internal/operator"
+	"rogerai.fm/roger/v5/internal/operator"
 )
 
 func capOffer(model string, ctx int, free bool, caps []string, priceOut float64, signal int) offer {

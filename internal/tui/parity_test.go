@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"rogerai.fm/roger/internal/client"
+	"rogerai.fm/roger/v5/internal/client"
 )
 
 // brokerDiscoverFields is the set of REAL per-offer fields the broker emits on

@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/require"
-	"rogerai.fm/roger/internal/session"
+	"rogerai.fm/roger/v5/internal/session"
 )
 
 func pickerSessions() []session.Snapshot {

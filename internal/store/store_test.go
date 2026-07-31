@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
+	"rogerai.fm/roger/v5/internal/protocol"
 )
 
 // TestSeedFundedSpendDoesNotEarn locks the P0-1 invariant: spend paid from FREE seed

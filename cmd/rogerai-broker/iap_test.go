@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // --- test PKI + JWS helpers (REAL crypto, no mocks) ---

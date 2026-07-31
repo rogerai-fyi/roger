@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // countingStore wraps a store.Store and counts the calls to the queries the cache

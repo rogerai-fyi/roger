@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/cucumber/godog"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 type feeSplitState struct {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 func rosterHasSession(body map[string]any, sid string) bool {

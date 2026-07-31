@@ -25,13 +25,13 @@ import (
 	"strings"
 	"time"
 
-	"rogerai.fm/roger/internal/agent"
-	"rogerai.fm/roger/internal/client"
-	"rogerai.fm/roger/internal/detect"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/session"
-	"rogerai.fm/roger/internal/tui"
-	"rogerai.fm/roger/internal/update"
+	"rogerai.fm/roger/v5/internal/agent"
+	"rogerai.fm/roger/v5/internal/client"
+	"rogerai.fm/roger/v5/internal/detect"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/session"
+	"rogerai.fm/roger/v5/internal/tui"
+	"rogerai.fm/roger/v5/internal/update"
 )
 
 // Version is the client version (compared against the latest GitHub release for

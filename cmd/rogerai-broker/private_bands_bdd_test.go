@@ -23,8 +23,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 
 	"github.com/cucumber/godog"
 )

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"rogerai.fm/roger/internal/protocol"
-	"rogerai.fm/roger/internal/store"
+	"rogerai.fm/roger/v5/internal/protocol"
+	"rogerai.fm/roger/v5/internal/store"
 )
 
 // newSeriesBroker wires a broker whose operator (gid 7 -> wallet u_gh_7, node-1) has a
