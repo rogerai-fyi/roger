@@ -118,7 +118,8 @@
               <b class="capability__num">0 / 10</b>
               <span class="capability__job">Domain explanation</span>
               <span class="capability__meter"><i></i></span>
-              <small>Never reached an answer before the budget ran out.</small>
+              <small>Not ten wrong answers - <b>no answer at all</b>. It ran out of budget
+                without ever converging on one.</small>
             </li>
           </ol>
 
@@ -133,6 +134,12 @@
              survive heavy compression, so they belong in the small slots. Explanation and
              multi-step reasoning do not, so they belong in the large ones. It is why a
              350M model is enough for a work order and why Wave Core exists for the rest.</p>
+          <p><b>Failing to answer is the failure worth having.</b> The zero is not ten
+             confident errors, it is ten non-answers - and in a plant those are not the
+             same event. A model that invents a torque spec is dangerous; one that does not
+             answer is merely limited, and the limit is knowable in advance. That is why
+             Guard, the variation that declines and escalates, spans every slot rather than
+             arriving late.</p>
           <p class="capability__caveats"><b>Controlled.</b> The same prompts ran against the
              uncompressed model, which answered every one, including the pump question - so
              the failure belongs to the compression, not the prompts.
@@ -283,90 +290,99 @@
       </div>
     </section>
 
-    <!-- §6 WAVE INFINITE. Different in KIND from everything above it: the sections before
-         this one are model sizes, this is a runtime any of them could run under. That is
-         why it has no parameter class, no place on the size axis, and no row in the slot
-         or jobs tables - filing it as a fifth size would tell a reader it is "bigger than
-         Core", which is exactly the capability drift its own brief warns about by name.
-         The claim ceiling is the brief's: one causally validated primitive, zero
-         demonstrated speedup, and it must not be described as a working system.
-         Contract: features/web/wave_infinite.feature -->
+    <!-- §6 WAVE INFINITE. Canonical definition: WAVE-INFINITE-PROGRAM-2026-07-31.md,
+         which is explicit that this is a prototype MODEL PROGRAMME and that "the
+         certified runtime is one layer of it" - an earlier version of this section led
+         with "a runtime, not a size" and was wrong.
+         The hard public constraint, quoted from that doc's standing constraints: never
+         claim "self-training" in public material until CURE's gates pass. Layer 3 is
+         therefore described as preregistered and in development, never as a capability
+         the model has today. Contract: features/web/wave_infinite.feature -->
     <section class="section" id="infinite">
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;6 / WAVE INFINITE</span>
-          <h2 class="wf-inf__title">A <span class="wf-inf__shimmer">runtime</span>, not a size.</h2>
-          <p>Everything above is a model. <b>Wave Infinite</b> is a runtime - the layer a
-             model runs under, not another point on the size axis. It watches its own
-             execution, proves which parts of the model your workload can never reach, and
-             skips those parts. Every modification carries a machine-checkable certificate
-             that behaviour is unchanged on the region observed, and any input leaving that
-             region falls back to the unmodified path.</p>
+          <h2 class="wf-inf__title">Specialisation with a <span class="wf-inf__shimmer">proof</span>, not a promise.</h2>
+          <p>Everything above is a model. <b>Wave Infinite</b> is a prototype model
+             programme: a model that adapts to your work and can prove what it did not
+             change. It is built in three layers, and they are at three different states
+             of proof.</p>
         </div>
 
+        <!-- The hook is the measurement, not the architecture. This is the finding that
+             makes the safety machinery non-optional rather than decorative. -->
         <figure class="wf-inf">
           <blockquote class="wf-inf__claim">
-            Removing every expert the certificate marked unreachable changed
-            <b>0 of 391,386</b> routing decisions. Bit-identical.
-            <small>DeepSeek-V4-Flash &middot; 246 certified-dead expert slots ablated &middot; prediction stated before the run</small>
+            Removing the parts a standard frequency analysis calls unused degraded quality
+            by an amount <b>statistically invisible</b> on the very benchmark you would
+            check it with - while off-domain the same change hit about a fifth of all
+            routing decisions.
+            <span class="wf-inf__punch">You cannot monitor your way to safe specialisation.</span>
+            <small>&minus;5 points at p = 0.26 on a 120-question suite &middot; interim hardware &middot; re-verified before publication</small>
           </blockquote>
 
-          <!-- Reify -> Certify -> Specialise -> Guard, with the guard drawn as the way
-               OUT. Leaving the certified region costs speed, never correctness, and the
-               loop is the only honest way to show that. -->
           <ol class="wf-inf__loop">
-            <li data-state="built">
-              <span class="wf-inf__step">01</span><b>Reify</b>
-              <span class="wf-inf__state">Built and verified</span>
-              <small>Make the router&rsquo;s own decisions first-class data. The collector
-                reproduces the model&rsquo;s top-k on every token.</small>
+            <li data-layer="reflection" data-state="built">
+              <span class="wf-inf__step">01</span><b>Reflection</b>
+              <span class="wf-inf__state">Built and self-verifying</span>
+              <small>The model&rsquo;s own execution - which experts fire, which could
+                fire, what the router compared - captured as first-class data by an
+                instrument that checks itself against the model on every token.</small>
             </li>
-            <li data-state="built">
-              <span class="wf-inf__step">02</span><b>Certify</b>
-              <span class="wf-inf__state">Causally validated</span>
-              <small>Prove which experts cannot be selected for the traffic seen so far -
-                the question a compiler asks about a dead branch.</small>
+            <li data-layer="certified" data-state="measured">
+              <span class="wf-inf__step">02</span><b>Certified adaptation</b>
+              <span class="wf-inf__state">Primitives measured</span>
+              <small>Prove which parts a workload can never reach - the question a
+                compiler asks about dead code - then keep what your work uses in fast
+                memory. A guard watches for input leaving the certified region and falls
+                back to the full, unmodified model.</small>
             </li>
-            <li data-state="unbuilt">
-              <span class="wf-inf__step">03</span><b>Specialise</b>
-              <span class="wf-inf__state">Not built</span>
-              <small>Stop holding uncertifiable experts in expensive fast memory. The
-                saving is residency, not compute.</small>
-            </li>
-            <li data-state="unbuilt" class="wf-inf__guard">
-              <span class="wf-inf__step">04</span><b>Guard</b>
-              <span class="wf-inf__state">Measured as mandatory, unrun in serving</span>
-              <small>Watch for input leaving the certified region, and fall back to the
-                full model for that token. Speculate hard, but never be wrong - only ever
-                be slower.</small>
+            <li data-layer="growth" data-state="unrun">
+              <span class="wf-inf__step">03</span><b>Self-directed growth</b>
+              <span class="wf-inf__state">In development &middot; preregistered, unrun</span>
+              <small>The prototype would grow new capacity only where the model itself
+                measures that it helps, running both the original and the expanded path
+                and learning from the difference. The expansion starts bit-identical to
+                the original and keeps an exact fallback. The experiment is registered
+                with its gates written; it has not been run.</small>
             </li>
           </ol>
 
-          <figcaption>It is a just-in-time compiler for a neural network: watch which
-            paths actually run, specialise for them, and keep a deoptimization path for
-            when the assumption breaks. That last part is what makes aggressive
-            speculation safe.</figcaption>
+          <figcaption>Every layer answers the same question at a different timescale: what
+            does this workload actually need, and how do we change for it without breaking
+            anything else? Each change starts provably behaviour-preserving and keeps an
+            exact path back.</figcaption>
         </figure>
 
-        <div class="wf-inf__ledger">
-          <div>
-            <span class="research-kicker">PROVEN</span>
-            <p>The certificate is causally sound, and the guard is required: 44 to 96
-               percent of certified experts fire once the workload shifts.</p>
+        <div class="wf-inf__proof">
+          <div class="wf-inf__proven">
+            <span class="research-kicker">WHAT WE HAVE PROVEN</span>
+            <dl>
+              <div><dt>The certificate is sound</dt>
+                <dd>Removing every expert it marked unreachable changed
+                  <b>0 of 391,386</b> routing decisions. Bit-identical.</dd></div>
+              <div><dt>Specialisation is safe on stable work</dt>
+                <dd>The guard fires on <b>0.009%</b> of decisions within a domain -
+                  about once in eleven thousand.</dd></div>
+              <div><dt>The guard is necessary</dt>
+                <dd>The moment the workload changes domain, the same certificates would
+                  miss roughly <b>20%</b> of decisions. The fallback is what makes
+                  aggression safe.</dd></div>
+              <div><dt>Standard pruning over-removes</dt>
+                <dd>Frequency analysis nominated <b>10 to 30&times;</b> more for removal
+                  than could be proven safe, across three model architectures.</dd></div>
+            </dl>
+            <p class="wf-inf__provenance">All four are measurements rather than
+              projections, taken on interim hardware and re-verified on final hardware
+              before publication.</p>
           </div>
-          <div>
-            <span class="research-kicker">NOT PROVEN</span>
-            <p><b>Soundness is proven; speedup is unmeasured.</b> No performance benefit
-               has been demonstrated. Stages 3 and 4 are not built, and the
-               self-improvement half is entirely unmeasured and out of scope. Until a
-               realised tokens-per-second number exists, this is a research architecture.</p>
-          </div>
-          <div>
-            <span class="research-kicker">THE THREE WORDS</span>
-            <p><b>Reflecting</b> - yes, in the procedural sense: it acts on its own
-               execution state. <b>Evolving</b> - half: the deployment evolves, the model
-               does not. <b>Learning</b> - no. Nothing learns, no weights change, and the
-               weights on disk after a year are the ones you installed.</p>
+          <div class="wf-inf__unproven">
+            <span class="research-kicker">WHAT WE HAVE NOT PROVEN</span>
+            <p>We publish this line deliberately. The end-to-end speed benefit of
+               certified specialisation is <b>unmeasured</b>, and so are the growth
+               layer&rsquo;s quality gains. Both are in measurement now.</p>
+            <p>Wave Infinite is a prototype programme. When those numbers exist they will
+               be published with error bars, like everything above.</p>
           </div>
         </div>
 
@@ -375,15 +391,14 @@
           to a model that has experts and a per-expert selection bias to read. That is a
           base-model choice rather than something the family has today, and it does not
           reach <b>Roger Edge</b> at all - that is a classifier of a few hundred
-          kilobytes, not a language model. The same certify, specialise and guard shape
-          is being explored at the device-fleet boundary instead, where escalating what a
-          tiny model cannot classify plays the part the guard plays here. That is an
-          analogy, not this runtime.</p>
+          kilobytes, not a language model.</p>
 
-        <p class="wf-inf__name"><b>About the name.</b> The reflective-tower literature
-          proved a notionally infinite tower of self-observation has a finite
-          implementation, because only finitely many levels are ever touched. Infinite in
-          specification, finite in implementation - a theorem, not a capability claim.</p>
+        <p class="wf-inf__name"><b>Why &ldquo;Infinite&rdquo;.</b> The design descends from
+          a result in programming languages: a system that observes itself observing
+          itself - an infinite reflective tower - can be implemented finitely, because
+          only the levels you actually touch ever exist (Smith 1982; Wand &amp; Friedman
+          1986). Wave Infinite borrows that architecture: unbounded self-observation in
+          principle, finite and fast in practice.</p>
       </div>
     </section>
 

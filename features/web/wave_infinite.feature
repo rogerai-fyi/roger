@@ -1,155 +1,115 @@
 # WAVE INFINITE on the public site.
 #
-# Wave Infinite exists as a RogerAI Labs design brief (2026-07-30, status update
-# 2026-07-31) and a plain-language explainer (2026-07-31), which opens: "Wave Infinite
-# is a model RUNTIME that watches its own execution, proves which parts of the model
-# the current workload can never reach, skips those parts, and falls back safely the
-# instant the workload changes." It is absent from the site entirely, which is why it
-# reads as missing from the family. But the shape of what it is is easy to misread,
-# and the site must not repeat the misreading:
+# CANONICAL SOURCE: WAVE-INFINITE-PROGRAM-2026-07-31.md, which supersedes the earlier
+# framing in terms this spec has to follow exactly:
 #
-#   Wave Infinite is NOT a size class. Roger Edge, Nano, Micro and Core are model
-#   sizes. Wave Infinite is a RUNTIME - "a self-modifying model runtime in which
-#   every modification carries a machine-checkable certificate that it is
-#   behaviour-preserving on the observed operating region, and any input leaving
-#   that region deoptimizes to the unmodified path." It runs UNDER a model rather
-#   than sitting at a point on the size axis, which is why it cannot be a blip on
-#   that axis - but "part of the family" must not slide into "works with all of it".
-#   The certificate is reachability certification of MoE EXPERTS and needs a
-#   per-expert selection-bias tensor, so it is a base-model property. It does not
-#   reach Roger Edge, which is a classifier rather than a language model.
+#   "Wave Infinite is our prototype model program - a new type of model that uses
+#    self-training techniques with reflection, built from the components we have
+#    defined, measured, and preregistered. It is NOT 'just a runtime'; the certified
+#    runtime is one layer of it."
 #
-# THE CLAIM CEILING. The brief sets this itself and this spec enforces it verbatim:
+# An earlier version of this page called it "a runtime, not a size". That was wrong and
+# is retired. Three layers, each with its own status:
 #
-#   "Wave Infinite is a design with one causally validated primitive and zero
-#    demonstrated performance benefit. Soundness is proven; speedup is unmeasured.
-#    ... it stays a research architecture and must not be described as a working
-#    system. The self-improvement half remains entirely unmeasured and out of scope."
+#   1 Reflective substrate   - built and self-verifying
+#   2 Certified adaptation   - primitives measured; the tok/s payoff is NOT measured
+#   3 Self-directed growth   - preregistered (CURE), UNRUN
 #
-# The brief also names the naming risk directly: "'Infinite' is a naming risk. The
-# tower is infinite in specification and finite in implementation. That distinction
-# is a theorem and we should state it every time, not let it drift into a capability
-# claim." Every scenario below exists to keep that promise on a public page - this is
-# the same failure mode as the retracted Wave Micro release, caught before shipping.
+# THE HARD PUBLIC CONSTRAINT, from the program doc's standing constraints:
+#
+#   "Never claim 'self-training' in public material until CURE's gates pass -
+#    internally the term is accurate for the program's GOAL; externally it is an
+#    overclaim until measured."
+#
+# So the page describes layer 3 as preregistered and in development, never as a
+# capability the model has. The published website draft (v2 explainer) models the right
+# register: "Self-directed growth (in development)".
 #
 # Interfaces: web/src/research-wave-family.html, web/src/research.html,
 #   web/src/research-models.html, web/src/styles/wave-family.css.
 #
-# Out of scope: a benchmark, a tok/s figure, a release date, a download, an "available"
-# badge, and any description of the self-improvement half as a capability.
+# Out of scope: a tok/s figure, a release date, a download, an "available" badge, and any
+# statement that the model trains or improves itself today.
 
-Feature: Wave Infinite is presented as the research architecture it is
-  A reader should understand that Wave Infinite is a runtime the whole family could
-  run under, see why it is different in kind from a size class, and come away unable
-  to believe it is finished.
+Feature: Wave Infinite is presented as the prototype program it is
+  A reader should understand that Wave Infinite is a model programme with three layers
+  at three different states of proof, see the measurement that forced it to exist, and
+  come away unable to believe any of it is finished.
 
   Background:
     Given a visitor reads the Wave family field guide
 
   # ---- what it is -----------------------------------------------------------
 
-  Scenario: Wave Infinite is named as part of the family
-    Then the family page presents Wave Infinite
-    And it is reachable from the research hub
-    And it appears in the model and status catalogue
-
-  Scenario: It is distinguished from the size classes, not listed among them
-    Then Wave Infinite is not given a parameter class
+  Scenario: It is a programme, not a runtime and not a size class
+    Then the page calls Wave Infinite a prototype model programme
+    And it does not reduce it to a runtime
+    And it is not given a parameter class
     And it is not placed on the size axis of the scope
-    And the page states that it is a runtime rather than a model size
-    And the page states that it runs under a model rather than beside one
-    And the page names what a base model must provide for the certificate to apply
-    And it does not imply that every slot in the family could use it
+    And it is not listed as a row in the slot or jobs tables
 
-  Scenario: The one-sentence definition is the brief's own
-    Then the page states that every modification carries a machine-checkable certificate
-    And it states that the certificate is behaviour-preserving on the observed region
-    And it states that input leaving that region falls back to the unmodified path
+  Scenario: The measurement that forced it to exist leads
+    Then the page states that specialisation damage can hide inside benchmark noise
+    And it states that the same change is far worse once the workload shifts
+    And it concludes that you cannot monitor your way to safe specialisation
 
-  Scenario: The name is explained the moment it is used
-    Then the page states that the tower is infinite in specification
-    And states that it is finite in implementation
-    And presents that as a theorem rather than a capability
-    And the explanation sits with the name, not in a footnote a reader may not reach
+  Scenario Outline: Each layer is shown at its real state
+    Then layer "<layer>" is shown as "<state>"
+
+    Examples:
+      | layer                 | state                    |
+      | Reflection            | built and self-verifying |
+      | Certified adaptation  | primitives measured      |
+      | Self-directed growth  | in development, unrun    |
+
+  Scenario: The runtime is presented as one layer, not the whole thing
+    Then the certified runtime is described as a layer of the programme
+    And no copy claims the programme is only a runtime
 
   # ---- the claim ceiling ----------------------------------------------------
 
-  Scenario: The page states what is proven
-    Then it states that the certificate is causally validated
-    And it may state that ablating certified-dead experts changed no routing decisions
-    And any such figure is attributed to the run that produced it
+  Scenario: The page never claims self-training
+    Then no copy uses the phrase "self-training"
+    And no copy says the model trains itself, learns by itself, or improves itself today
+    And layer 3 is described as preregistered and unrun rather than as a capability
 
-  Scenario: The page states what is NOT proven, with equal prominence
-    Then it states that no performance benefit has been demonstrated
-    And it states that soundness is proven while speedup is unmeasured
-    And it states that the self-improvement half is unmeasured and out of scope
+  Scenario: What is proven is stated with its evidence
+    Then each proven claim carries the measurement that supports it
+    And the certificate result is stated as "0 of 391,386" and described as bit-identical
+    And the guard rates are given for both the in-domain and the cross-domain case
+
+  Scenario: What is NOT proven is published deliberately, at equal prominence
+    Then the page states that the end-to-end speed benefit is unmeasured
+    And it states that the growth layer's quality gains are unmeasured
+    And it calls Wave Infinite a prototype programme
     And these appear in the main flow, not only in a caption or a tooltip
 
-  Scenario: It is never described as a working system
-    Then no copy claims Wave Infinite runs, ships, serves, or is available
-    And no copy states or implies that a model improves itself today
-    And no download, checkpoint, artifact id, or release date is offered
-    And no benchmark number is attributed to it
+  Scenario: It is never described as a shipped product
+    Then no download, checkpoint, artifact id, or release date is offered
+    And no benchmark number is presented as a product capability
 
-  Scenario Outline: Build stages are shown at their real state
-    Then stage "<stage>" is shown as "<state>"
+  # ---- the name -------------------------------------------------------------
 
-    Examples:
-      | stage                   | state       |
-      | Reify                   | done        |
-      | Live meta-level         | not built   |
-      | Speculate with a guard  | unrun       |
-      | Persist the specialisation | not started |
-      | The tower               | not started |
-
-  Scenario: A reader cannot mistake the stage table for a roadmap with dates
-    Then no stage carries a delivery date
-    And no stage is described as in progress unless it is
+  Scenario: The name is explained the moment it is used
+    Then the page states that unbounded self-observation is finite in implementation
+    And it attributes that to the reflective-tower result
+    And presents it as an architecture it borrows, not a capability it claims
 
   # ---- the treatment --------------------------------------------------------
 
-  Scenario: Wave Infinite is visually special without being loud about capability
-    Then its treatment is distinct from the size-class entries
-    And the distinction reads as "different in kind", not "further along"
+  Scenario: Wave Infinite is visually distinct without implying completion
+    Then its treatment differs from the size-class entries
     And no visual cue implies availability, completion, or superiority
 
   Scenario: The shimmer stays inside the RogerAI palette
     Then the animated treatment uses the RogerAI ink and live-red palette
     And it does not introduce a multi-hue spectrum
-    And it does not compete with the one red accent the page already spends
 
   Scenario: The motion carries no information
     Given the visitor prefers reduced motion
     Then the shimmer does not animate
     And every fact remains readable in the static state
-    And the treatment still reads as distinct without motion
 
   Scenario: The treatment degrades without JavaScript
     Given scripting is disabled
     Then Wave Infinite is present and fully readable
-    And its distinction from the size classes survives
-
-  # ---- the explainer's own framing, kept intact -----------------------------
-
-  Scenario: The three words are scored honestly, because two of them are wrong
-    Given the explainer scores "reflecting", "evolving" and "self-learning"
-    Then the page states that it reflects, in the procedural sense
-    And states that the DEPLOYMENT evolves while the model does not
-    And states plainly that nothing learns and no weights change
-    And the page never uses "self-learning", "self-improving", or "trains itself"
-
-  Scenario: The four steps are shown as a loop with a way out
-    Then the page shows Reify, Certify, Specialise and Guard
-    And Reify is marked built and verified
-    And Guard is shown as the path taken when input leaves the certified region
-    And the loop makes clear that leaving the region costs speed, never correctness
-
-  Scenario: The sceptic's sentence leads
-    Then the page states that ablating every certificate-marked expert changed
-      "0 of 391,386" routing decisions
-    And describes that result as bit-identical
-    And does not surround it with a speed or quality claim it does not support
-
-  Scenario: The JIT analogy is used, since it is the one that lands
-    Then the page compares the runtime to a just-in-time compiler
-    And explains deoptimization as the fallback that makes speculation safe
