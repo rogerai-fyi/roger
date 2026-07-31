@@ -79,7 +79,9 @@ test("every application address is a mailbox that exists", () => {
   // ROUTES mirrors REAL mail routing. It is not a formatting whitelist: adding a name here
   // without provisioning the alias makes this guard certify its own assumption, and the
   // page ships a dead CTA that looks tested. Widening it is a deliberate ops step.
-  const ROUTES = ["abuse", "billing", "confidential", "labs", "legal", "privacy", "security"];
+  // careers@ added 2026-07-31, after the founder provisioned it - the ops step this
+  // list exists to force. It is why the apply links could move off labs@.
+  const ROUTES = ["abuse", "billing", "careers", "confidential", "labs", "legal", "privacy", "security"];
   for (const b of boxes) assert.ok(ROUTES.includes(b), `mailto:${b}@ is a mailbox that exists`);
 });
 
@@ -135,4 +137,18 @@ test("no distinction strip continues a sentence onto its own line", () => {
     }
   }
   assert.ok(checked >= 2, `the strip is on more than one page, swept ${checked}`);
+});
+
+// The site addresses every other function by role - abuse@, billing@, legal@, privacy@,
+// security@ - so applications route to careers@. It briefly used labs@ because careers@
+// did not exist yet; both mailboxes now route, and this pins the page to the one that
+// names what it is for.
+test("applications route to the careers mailbox, not the lab one", () => {
+  // <main> only: the shared footer legitimately carries abuse@ on every page.
+  const body = read("careers.html").match(/<main[\s\S]*?<\/main>/)[0];
+  const boxes = [...body.matchAll(/mailto:([^"?@]+@[^"?]+)/g)].map((m) => m[1]);
+  assert.ok(boxes.length >= 5, `the roles each link a mailbox, found ${boxes.length}`);
+  for (const box of boxes) {
+    assert.equal(box, "careers@rogerai.fm", "every application route names the careers mailbox");
+  }
 });
