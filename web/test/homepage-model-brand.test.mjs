@@ -71,12 +71,12 @@ test("homepage Tube Ping is the canonical founder-approved pixel silhouette", ()
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ");
-  for (const row of ["   ▄██████▄", "(  █    • █▓  )", "   █  ROG █▓", "    ▀█▄▄█▀▒", "     ▀  ▀"]) {
+  for (const row of ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"]) {
     assert.ok(plain.includes(row), `canonical row is preserved: ${row}`);
   }
 
   const go = readFileSync(path.join(ROOT, "internal/tui/tube_ping.go"), "utf8");
-  for (const row of ["   ▄██████▄", "(  █    • █▓  )", "   █  ROG █▓", "    ▀█▄▄█▀▒", "     ▀  ▀"]) {
+  for (const row of ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"]) {
     assert.ok(go.includes(JSON.stringify(row)), `web row is pinned to TUI canonical source: ${row}`);
   }
 });

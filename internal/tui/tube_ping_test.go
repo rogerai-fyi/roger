@@ -9,18 +9,18 @@ import (
 )
 
 const approvedTubePing = "" +
-	"   ▄██████▄\n" +
-	"(  █    • █▓  )\n" +
-	"   █  ROG █▓\n" +
-	"    ▀█▄▄█▀▒\n" +
-	"     ▀  ▀"
+	"   ▄███████▄\n" +
+	"(  █   •   █▓  )\n" +
+	"   █  ROG  █▓\n" +
+	"    ▀█▄▄▄█▀▒\n" +
+	"     ▀   ▀"
 
 var approvedCompactTubePing = []string{
-	"   ▄██████▄",
-	"(  █    • █▓  )",
-	"   █  ROG █▓",
-	"    ▀█▄▄█▀▒",
-	"     ▀  ▀",
+	"   ▄███████▄",
+	"(  █   •   █▓  )",
+	"   █  ROG  █▓",
+	"    ▀█▄▄▄█▀▒",
+	"     ▀   ▀",
 }
 
 func tubePingWorldPosition(buf [][]worldCell) (int, bool) {
@@ -46,6 +46,107 @@ func worldContainsClassicPing(buf [][]worldCell) bool {
 	return false
 }
 
+// The face has to sit on ONE vertical axis. The wordmark is three cells wide, so
+// it can only be padded evenly inside a body whose interior is an ODD width - at
+// seven cells ROG gets 2/2, at six it can only ever get 2/1 and the line reads
+// visibly shoved against the right wall. The v5.4.8 compaction narrowed the
+// interior to six, which is what pushed both the wordmark and the eye off centre;
+// the walk sprite in the same release kept seven and stayed balanced.
+func TestTubePingFaceIsCentredOnOneAxis(t *testing.T) {
+	rows := strings.Split(stripANSI(renderTubePing(80, 0)), "\n")
+
+	var eyeRow, wordRow string
+	for _, r := range rows {
+		if strings.Contains(r, "•") {
+			eyeRow = r
+		}
+		if strings.Contains(r, "ROG") {
+			wordRow = r
+		}
+	}
+	if eyeRow == "" || wordRow == "" {
+		t.Fatalf("Tube Ping is missing its eye or wordmark:\n%s", strings.Join(rows, "\n"))
+	}
+
+	walls := []int{}
+	for c, ch := range []rune(eyeRow) {
+		if ch == '█' {
+			walls = append(walls, c)
+		}
+	}
+	if len(walls) < 2 {
+		t.Fatalf("eye row has no body walls: %q", eyeRow)
+	}
+	left, right := walls[0], walls[len(walls)-1]
+	if interior := right - left - 1; interior%2 == 0 {
+		t.Errorf("body interior is %d cells (even) - a 3-cell wordmark can never be padded evenly:\n%s",
+			interior, strings.Join(rows, "\n"))
+	}
+
+	wr := []rune(wordRow)
+	rIdx, gIdx := -1, -1
+	for c := 0; c+2 < len(wr); c++ {
+		if wr[c] == 'R' && wr[c+1] == 'O' && wr[c+2] == 'G' {
+			rIdx, gIdx = c, c+2
+			break
+		}
+	}
+	if rIdx < 0 {
+		t.Fatalf("wordmark row has no ROG: %q", wordRow)
+	}
+	if padL, padR := rIdx-(left+1), (right-1)-gIdx; padL != padR {
+		t.Errorf("ROG padding is L=%d R=%d, want symmetric:\n%s", padL, padR, strings.Join(rows, "\n"))
+	}
+
+	// Rune index, not strings.Index - the row is full of multi-byte block glyphs,
+	// so a byte offset would be compared against rune columns and lie.
+	eye := -1
+	for c, ch := range []rune(eyeRow) {
+		if ch == '•' {
+			eye = c
+			break
+		}
+	}
+	if want := (rIdx + gIdx) / 2; eye != want {
+		t.Errorf("eye sits in column %d, want %d - directly above the O of ROG:\n%s",
+			eye, want, strings.Join(rows, "\n"))
+	}
+}
+
+// Correct glyph rows are not enough: the SPLASH has to render them on one axis.
+// The rows are deliberately different widths (the eye row carries the carrier
+// waves) and rely on their built-in leading spaces to line up when the block is
+// left-aligned. lipgloss.JoinVertical(Center, …) centres every line independently,
+// which pads narrow rows more than wide ones and shears the mascot apart - the cap
+// lands in one column, the eye row in another, the wordmark in a third.
+func TestTubePingTitleRendersTheMascotOnOneAxis(t *testing.T) {
+	for _, size := range []struct{ w, h int }{{46, 14}, {80, 24}, {120, 32}} {
+		lines := strings.Split(stripANSI(tubePingTitle(size.w, size.h, 0)), "\n")
+
+		wallCol := func(needle string) int {
+			for _, l := range lines {
+				if !strings.Contains(l, needle) {
+					continue
+				}
+				for c, ch := range []rune(l) {
+					if ch == '█' {
+						return c
+					}
+				}
+			}
+			return -1
+		}
+		eyeWall, wordWall := wallCol("•"), wallCol("ROG")
+		if eyeWall < 0 || wordWall < 0 {
+			t.Fatalf("%dx%d: mascot rows missing:\n%s", size.w, size.h, strings.Join(lines, "\n"))
+		}
+		if eyeWall != wordWall {
+			t.Errorf("%dx%d: body walls sheared - eye row wall at %d, wordmark wall at %d:\n%s",
+				size.w, size.h, eyeWall, wordWall, strings.Join(lines, "\n"))
+		}
+	}
+}
+
 func TestTubePingCanonicalSilhouette(t *testing.T) {
 	got := strings.TrimRight(stripANSI(renderTubePing(80, 0)), " \n")
 	if got != approvedTubePing {
@@ -53,7 +154,13 @@ func TestTubePingCanonicalSilhouette(t *testing.T) {
 	}
 }
 
-func TestTubePingEyeUsesOpticallyCorrectedColumn(t *testing.T) {
+// Was TestTubePingEyeUsesOpticallyCorrectedColumn, which required the eye to sit
+// ONE cell right of the ROG centre. That "optical correction" was not a design
+// choice - it was the six-cell interior of the v5.4.8 compaction showing through:
+// at that width the wordmark could not centre, so the eye was moved to match the
+// off-centre wordmark instead of the wordmark being fixed. The pre-5.4.8 mascot
+// had eye and O in the SAME column, and the restored seven-cell interior does too.
+func TestTubePingEyeSharesTheWordmarkColumn(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		pose   tubePingPose
@@ -80,8 +187,8 @@ func TestTubePingEyeUsesOpticallyCorrectedColumn(t *testing.T) {
 			}
 			eye := terminalCellBefore(t, got[1], tc.marker)
 			wordmarkCenter := terminalCellBefore(t, wordmarkRow, "O")
-			if eye != wordmarkCenter+1 {
-				t.Fatalf("%s eye column=%d, want one-cell optical correction right of ROG center=%d:\n%s",
+			if eye != wordmarkCenter {
+				t.Fatalf("%s eye column=%d, want %d - the same column as the O of ROG:\n%s",
 					tc.name, eye, wordmarkCenter, strings.Join(got, "\n"))
 			}
 			for row, line := range got {
@@ -93,13 +200,15 @@ func TestTubePingEyeUsesOpticallyCorrectedColumn(t *testing.T) {
 	}
 }
 
-func TestTubePingWalkerUsesOpticallyCorrectedEyeAndStableBounds(t *testing.T) {
+// The walker shares the canonical face rule: eye and wordmark on one column. It
+// previously carried the same off-by-one as the splash, so the two forms drifted.
+func TestTubePingWalkerSharesTheWordmarkColumnAndStableBounds(t *testing.T) {
 	baselineWidth := 0
 	for frame, rows := range tubePingWalkFrames {
 		eye := terminalCellBefore(t, rows[1], "•")
 		wordmarkCenter := terminalCellBefore(t, rows[2], "O")
-		if eye != wordmarkCenter+1 {
-			t.Fatalf("walker frame %d eye column=%d, want one-cell optical correction right of ROG center=%d:\n%s",
+		if eye != wordmarkCenter {
+			t.Fatalf("walker frame %d eye column=%d, want %d - the same column as the O of ROG:\n%s",
 				frame, eye, wordmarkCenter, strings.Join(rows, "\n"))
 		}
 		maxWidth := 0
@@ -326,7 +435,7 @@ func TestTubePingTitleUsesCompactIdentityLockup(t *testing.T) {
 	lines := strings.Split(got, "\n")
 	rogRow, lockupRow := -1, -1
 	for i, line := range lines {
-		if strings.Contains(line, "█  ROG █") {
+		if strings.Contains(line, "█  ROG  █") {
 			rogRow = i
 		}
 		if strings.Contains(line, "ROGER·AI  ·  TUBE PING") {

@@ -46,7 +46,7 @@ test("homepage puts Wave Labs proof before the install action without adding a h
 });
 
 test("homepage, company preview, and research hero use the canonical Tube Ping partial", () => {
-  const rows = ["   ▄██████▄", "(  █    • █▓  )", "   █  ROG █▓", "    ▀█▄▄█▀▒", "     ▀  ▀"];
+  const rows = ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"];
   for (const [page, minimum] of [["index.html", 2], ["research.html", 1]]) {
     const plain = visible(read(page));
     assert.ok((read(page).match(/class="tube-ping(?:\s|")/g) || []).length >= minimum, `${page} includes Tube Ping`);
