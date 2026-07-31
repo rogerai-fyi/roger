@@ -100,11 +100,23 @@ test("every social card PNG was rendered from the current SVG", () => {
   assert.ok(cards.length >= 2, `sweep found ${cards.length} og cards - it has gone blind`);
   for (const card of cards) {
     const png = card.replace(/\.svg$/, ".png");
+    let hasPng = true;
+    try {
+      readFileSync(path.join(SRC, png));
+    } catch {
+      hasPng = false; // not every card is rasterized
+    }
+    if (!hasPng) continue;
     let recorded;
     try {
       recorded = readFileSync(path.join(SRC, `${png}.source-sha256`), "utf8").trim().split(/\s+/)[0];
     } catch {
-      continue; // not every card is rasterized
+      // A rendered card with no pin is UNGUARDED. Skipping it here would reproduce
+      // the exact "goes blind and reports success" hole this file exists to close.
+      assert.fail(
+        `${png} exists but has no ${png}.source-sha256 pin, so nothing detects a stale render. ` +
+          `Create it:\n  sha256sum web/src/${card} | cut -d" " -f1 > web/src/${png}.source-sha256`
+      );
     }
     const actual = createHash("sha256").update(readFileSync(path.join(SRC, card))).digest("hex");
     assert.equal(

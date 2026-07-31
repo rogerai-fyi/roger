@@ -181,7 +181,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .tube-ping figcaption b { color: var(--ink-900); letter-spacing: .12em; }
 @media (max-width: 420px) {
   .tube-ping { grid-template-columns: 1fr; align-items: start; }
-  }
+}
 
 /* ---------- live dot -------------------------------------------- */
 .livedot { position: relative; display: inline-flex; width: var(--dot-size, 8px); height: var(--dot-size, 8px); }
