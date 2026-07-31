@@ -84,11 +84,19 @@
             <line x1="200" y1="200" x2="94" y2="94"/>
           </g>
           <g class="scope__ticks" aria-hidden="true">
-            <text x="205" y="173">100K</text>
-            <text x="205" y="145">1M</text>
-            <text x="205" y="118">10M</text>
-            <text x="205" y="91">100M</text>
-            <text x="205" y="64">1B</text>
+            <text x="195" y="173">100K</text>
+            <text x="195" y="145">1M</text>
+            <text x="195" y="118">10M</text>
+            <text x="195" y="91">100M</text>
+            <text x="195" y="64">1B</text>
+          </g>
+          <g class="scope__sweep" aria-hidden="true">
+            <defs><linearGradient id="sweepFade" x1="0" y1="1" x2="1" y2="1">
+              <stop offset="0" stop-color="var(--live)" stop-opacity=".38"/>
+              <stop offset="1" stop-color="var(--live)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path d="M200 200 L200 50 A150 150 0 0 0 99.6 88.5 Z" fill="url(#sweepFade)"/>
+            <line x1="200" y1="200" x2="200" y2="50"/>
           </g>
           <g class="scope__contacts" aria-hidden="true">
             <g class="scope__contact" style="--i:0">
@@ -107,14 +115,6 @@
               <line class="scope__gate" x1="316.7" y1="138.0" x2="327.7" y2="132.1"/>
               <circle class="scope__blip" cx="327.7" cy="132.1" r="4.5"/>
             </g>
-          </g>
-          <g class="scope__sweep" aria-hidden="true">
-            <defs><linearGradient id="sweepFade" x1="0" y1="1" x2="1" y2="1">
-              <stop offset="0" stop-color="var(--live)" stop-opacity=".38"/>
-              <stop offset="1" stop-color="var(--live)" stop-opacity="0"/>
-            </linearGradient></defs>
-            <path d="M200 200 L200 50 A150 150 0 0 0 99.6 88.5 Z" fill="url(#sweepFade)"/>
-            <line x1="200" y1="200" x2="200" y2="50"/>
           </g>
           <circle class="scope__origin" cx="200" cy="200" r="2.5" aria-hidden="true"/>
         </svg>
