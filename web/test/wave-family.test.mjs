@@ -136,3 +136,54 @@ test("the models directory offers the voices directory in its own body", () => {
       `${page} links ${target} from the page itself, not only from the chrome`);
   }
 });
+
+// §2 CAPABILITY read as a post-mortem - "we cut a model and measured what BROKE" - when
+// the finding is the opposite: delete 93.3% of a frontier model's experts and the plant's
+// actual work still lands. The section now leads with the survivor and DRAWS the ratio
+// instead of describing it, because the number is the whole argument.
+const capability = () => {
+  const page = read("research-wave-family.html");
+  const s = page.match(/<section[^>]*id="capability"[\s\S]*?<\/section>/)?.[0]
+        || page.match(/<!-- §2 CAPABILITY -->[\s\S]*?<\/section>/)?.[0];
+  assert.ok(s, "the family page has a §2 CAPABILITY section");
+  return s;
+};
+
+test("the capability section leads with what survived, not what broke", () => {
+  const copy = visible(capability());
+  assert.doesNotMatch(copy, /measured what broke/i, "the post-mortem framing is gone");
+  assert.match(copy, /6\.7|93/, "the compression ratio is the headline fact");
+  // The three outcomes and their scores all survive the rewrite.
+  for (const fact of [/3\s*\/\s*3/, /3\s*\/\s*4/, /0\s*\/\s*10/]) assert.match(copy, fact);
+  assert.match(copy, /extraction/i);
+  assert.match(copy, /explanation/i);
+});
+
+test("the compression is drawn, not just asserted", () => {
+  const fig = capability();
+  // A bar whose width IS the ratio: a reader sees 6.7% before reading a word.
+  const pct = fig.match(/--kept:\s*([\d.]+)%/);
+  assert.ok(pct, "the kept fraction is expressed as a drawn width");
+  assert.ok(Math.abs(Number(pct[1]) - 6.7) < 0.2, `the bar draws the real ratio, got ${pct[1]}%`);
+  // Each result carries a meter whose fill matches its own score.
+  const meters = [...fig.matchAll(/data-score="(\d+)\/(\d+)"[^>]*style="--fill:\s*([\d.]+)%/g)];
+  assert.equal(meters.length, 3, "each of the three results is metered");
+  for (const [, got, of_, fill] of meters) {
+    const expected = (Number(got) / Number(of_)) * 100;
+    assert.ok(Math.abs(Number(fill) - expected) < 0.6,
+      `${got}/${of_} should fill ${expected.toFixed(1)}%, drew ${fill}%`);
+  }
+});
+
+test("shrinking the prose does not drop a caveat", () => {
+  const copy = visible(capability());
+  assert.match(copy, /uncompressed/i, "the control is still stated");
+  assert.match(copy, /answered every one/i, "including that the control answered everything");
+  assert.match(copy, /two points|not a curve|where on the compression/i,
+    "the scope limit survives: this is two points, not a curve");
+  assert.match(copy, /whether an answer arrives|not whether it is right/i,
+    "and what the measurement does not cover");
+  // The named model and settings stay attached to the numbers.
+  assert.match(copy, /Kimi-K3/);
+  assert.match(copy, /temperature 0/i);
+});

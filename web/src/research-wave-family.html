@@ -80,46 +80,65 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;2 / CAPABILITY</span>
-          <h2>Compression takes explanation first.</h2>
-          <p>We cut a frontier mixture-of-experts model to 6.7 percent of its experts and
-             measured what broke. The loss was not uniform, and the pattern is what assigns
-             jobs to slots.</p>
+          <h2>Cut to 6.7 percent, it still files the work order.</h2>
+          <p>We deleted 93.3 percent of a frontier mixture-of-experts model and ran the
+             plant&rsquo;s real jobs against what was left.</p>
         </div>
 
-        <figure class="capability-law">
-          <blockquote class="capability-law__quote">
-            It reliably turns &ldquo;Pump P-204 seal leaking, needs attention before next
-            shift&rdquo; into correct JSON, and reliably cannot say what a centrifugal pump does.
-            <small>Kimi-K3 reduced to 60 of 896 experts &middot; 34.5% route coverage &middot; temperature 0</small>
-          </blockquote>
-          <dl class="capability-split">
-            <div data-outcome="kept">
-              <dt>Structured extraction</dt>
-              <dd>3 / 3<small>Work-order and tool JSON, correct fields.</small></dd>
+        <!-- The finding IS the capability, so the ratio is DRAWN before it is described:
+             a reader should see how little is left before reading a word. The three
+             meters are the same trick - each fill is its own score, so "3/3 survived"
+             and "0/10" are visible at a glance rather than parsed. -->
+        <figure class="capability">
+          <div class="capability__cut">
+            <div class="capability__cutline">
+              <span>KIMI-K3 &middot; 896 EXPERTS</span>
+              <span class="capability__kept-label">60 KEPT &middot; 6.7%</span>
             </div>
-            <div data-outcome="kept">
-              <dt>Code generation</dt>
-              <dd>3 / 4<small>Working functions, edge cases handled.</small></dd>
+            <div class="capability__bar" style="--kept: 6.7%" role="img"
+                 aria-label="60 of 896 experts kept: 6.7 percent">
+              <i></i>
             </div>
-            <div data-outcome="lost">
-              <dt>Domain explanation</dt>
-              <dd>0 / 10<small>Never reached an answer before the budget ran out.</small></dd>
-            </div>
-          </dl>
+          </div>
+
+          <ol class="capability__scores">
+            <li data-outcome="kept" data-score="3/3" style="--fill: 100%">
+              <b class="capability__num">3 / 3</b>
+              <span class="capability__job">Structured extraction</span>
+              <span class="capability__meter"><i></i></span>
+              <small>Work-order and tool JSON, correct fields.</small>
+            </li>
+            <li data-outcome="kept" data-score="3/4" style="--fill: 75%">
+              <b class="capability__num">3 / 4</b>
+              <span class="capability__job">Code generation</span>
+              <span class="capability__meter"><i></i></span>
+              <small>Working functions, edge cases handled.</small>
+            </li>
+            <li data-outcome="boundary" data-score="0/10" style="--fill: 0%">
+              <b class="capability__num">0 / 10</b>
+              <span class="capability__job">Domain explanation</span>
+              <span class="capability__meter"><i></i></span>
+              <small>Never reached an answer before the budget ran out.</small>
+            </li>
+          </ol>
+
+          <figcaption>It reliably turns &ldquo;Pump P-204 seal leaking, needs attention
+            before next shift&rdquo; into correct JSON, and reliably cannot say what a
+            centrifugal pump does.
+            <small>Kimi-K3 &middot; 60 of 896 experts &middot; 34.5% route coverage &middot; temperature 0</small></figcaption>
         </figure>
 
         <div class="research-prose">
-          <p><b>What it means for the family.</b> Extraction, classification, and tool use
-             belong in the small slots. Explanation, synthesis, and multi-step reasoning
-             belong in the large ones. A slot that ignores this ships a model that sounds
-             confident and is wrong, which in a plant is worse than one that declines.</p>
-          <p><b>Controlled.</b> The same prompts were run against the uncompressed model,
-             which answered every one, including the pump question. The prompts are
-             answerable and the harness terminates, so the failure belongs to the
-             compression.</p>
-          <p><b>Scope.</b> This measures whether an answer arrives, not whether it is
-             right, and it compares two points rather than a curve. Where on the
-             compression path explanation gives way is not yet measured.</p>
+          <p><b>That boundary is the product.</b> Extraction, classification and tool use
+             survive heavy compression, so they belong in the small slots. Explanation and
+             multi-step reasoning do not, so they belong in the large ones. It is why a
+             350M model is enough for a work order and why Wave Core exists for the rest.</p>
+          <p class="capability__caveats"><b>Controlled.</b> The same prompts ran against the
+             uncompressed model, which answered every one, including the pump question - so
+             the failure belongs to the compression, not the prompts.
+             <b>Scope.</b> This measures whether an answer arrives, not whether it is right,
+             and it compares two points rather than a curve. Where on the compression path
+             explanation gives way is not yet measured.</p>
         </div>
       </div>
     </section>
