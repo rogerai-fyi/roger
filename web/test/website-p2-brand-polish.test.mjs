@@ -89,3 +89,43 @@ test("app structured data uses the company brand and preserves the store legacy 
   assert.equal(product?.alternateName, "RogerAI.fyi");
   assert.equal(product?.url, "https://rogerai.fm/app.html");
 });
+
+// The brand family is one circle in three costumes: the favicon, the nav logo and
+// Ping's eye are all "the live-red beacon between the brackets". In the logo it is
+// centred in the bracket span; in the mascot it was not, and the eye read as sitting
+// too low on the face. Assert the RULE (centred in its own brackets) rather than one
+// magic number, so a future geometry change to either mark cannot drift them apart.
+test("the on-air beacon is centred between the brackets in every brand mark", () => {
+  const marks = [
+    ["brand logo", source("_partials/brand.html")],
+    ["Ping mascot", source("_partials/tube-ping.html")],
+  ];
+  for (const [name, svg] of marks) {
+    // The left bracket: "M<x> <top> ... V<bottom> ..." - the arm's full vertical span.
+    const arm = svg.match(/d="M\d+ (\d+)[^"]*V(\d+)[^"]*"/);
+    assert.ok(arm, `${name}: found a bracket arm path`);
+    const [top, bottom] = [Number(arm[1]), Number(arm[2])];
+    const centre = (top + bottom) / 2;
+    // Every circle in the mark that is the beacon (the eye and its glow share a centre).
+    const beacons = [...svg.matchAll(/<circle[^>]*\bcy="([\d.]+)"[^>]*>/g)].map((m) => Number(m[1]));
+    assert.ok(beacons.length, `${name}: found a beacon circle`);
+    for (const cy of beacons) {
+      assert.equal(cy, centre,
+        `${name}: beacon sits at cy=${cy} but the brackets span ${top}-${bottom}, centre ${centre}`);
+    }
+  }
+});
+
+// The beacon animates (a pulsing glow, a blinking eye). A transform-origin left behind
+// at the old centre is invisible in a static build and only shows as the glow sliding
+// off the eye while it breathes, so pin the pivot to the geometry.
+test("the beacon animations pivot on the beacon, not a stale coordinate", () => {
+  const cy = Number(source("_partials/tube-ping.html").match(/class="ping-mark__eye"[^>]*\bcy="([\d.]+)"/)[1]);
+  const css = source("styles/base.css");
+  for (const part of ["ping-mark__glow", "ping-mark__eye"]) {
+    const rule = css.match(new RegExp(`\\.${part}\\s*\\{([^}]*)\\}`))?.[1] || "";
+    const origin = rule.match(/transform-origin:\s*[\d.]+px\s+([\d.]+)px/)?.[1];
+    assert.ok(origin, `.${part} declares a transform-origin`);
+    assert.equal(Number(origin), cy, `.${part} pivots on the beacon centre (cy=${cy})`);
+  }
+});

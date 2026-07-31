@@ -153,9 +153,9 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 .ping-mark { animation: ping-bob 3.6s ease-in-out infinite; transform-origin: 32px 64px; }
 @keyframes ping-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
-.ping-mark__glow { animation: ping-pulse 2s ease-in-out infinite; transform-origin: 32px 22px; }
+.ping-mark__glow { animation: ping-pulse 2s ease-in-out infinite; transform-origin: 32px 17px; }
 @keyframes ping-pulse { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
-.ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 22px; }
+.ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 17px; }
 @keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
 .ping-mark__wave { transform-origin: 32px 22px; animation: ping-wave 2.4s ease-out infinite; }
 .ping-mark__wave--b { animation-delay: 1.2s; }
@@ -821,6 +821,14 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   box-shadow: 0 12px 32px rgb(0 0 0 / 8%);
 }
 .nav__panel[hidden] { display: none; }   /* [hidden] loses to display:grid without this */
+/* Voices lives in the Models panel, so on /voices.html nothing in the BAR would look
+   active. The parent link cannot claim aria-current="page" - it is not the page you are
+   on - so the active cue is presentational: borrow the same red rule the current link
+   draws. :has() reads into the collapsed panel, which is exactly the point. */
+.nav__group:has(.nav__panel a[aria-current="page"]) > .nav__link { color: var(--ink-900); }
+.nav__group:has(.nav__panel a[aria-current="page"]) > .nav__link::after {
+  transform: scaleX(1); height: 2px; background: var(--live);
+}
 .nav__panel a {
   display: grid; gap: 1px; padding: var(--s-3);
   border-radius: var(--r-xs); color: var(--ink-500);
