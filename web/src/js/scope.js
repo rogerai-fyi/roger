@@ -69,6 +69,21 @@
     scope.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && pinned) { pinned = null; paint(null); }
     });
+
+    // ---- the axis toggle -------------------------------------------------
+    // Both axes are already in the DOM; this only flips which one the CSS shows.
+    // Nothing is re-rendered, so the labels cannot drift out of step with the arcs,
+    // and a selected slot survives the switch - it means the same slot on both.
+    var modes = scope.querySelectorAll(".scope__mode");
+    Array.prototype.forEach.call(modes, function (btn) {
+      btn.addEventListener("click", function () {
+        var mode = btn.getAttribute("data-mode");
+        scope.setAttribute("data-mode", mode);
+        Array.prototype.forEach.call(modes, function (b) {
+          b.setAttribute("aria-pressed", String(b === btn));
+        });
+      });
+    });
   });
 
   // ---- reveal --------------------------------------------------------------

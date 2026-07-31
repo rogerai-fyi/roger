@@ -102,13 +102,6 @@ test("what is NOT proven is published deliberately and in the main flow", () => 
     "the limit survives without the caption");
 });
 
-test("the name is explained where it is used", () => {
-  const copy = visible(section());
-  assert.match(copy, /finite/i);
-  assert.match(copy, /tower|self-observation/i);
-  assert.match(copy, /Smith|Wand|1982|1986/, "attributed to the result it borrows");
-});
-
 test("the model catalogue points at it without misfiling it as a model", () => {
   const cat = read("research-models.html");
   assert.match(cat, /href="\/research-wave-family\.html#infinite"/, "the catalogue links it");

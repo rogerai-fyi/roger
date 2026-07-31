@@ -120,12 +120,6 @@
 }
 .wf-inf__ledger p { margin: var(--s-3) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .wf-inf__ledger b { color: var(--ink-900); }
-.wf-inf__name {
-  margin: var(--s-7) 0 0; padding: var(--s-4) var(--s-5);
-  border-left: 2px solid var(--live); background: var(--paper-2);
-  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
-}
-.wf-inf__name b { color: var(--ink-900); }
 
 @media (prefers-reduced-motion: reduce) {
   /* The shimmer carries no information, so stopping it loses nothing. Reset the clip

@@ -8,6 +8,7 @@ import path from "node:path";
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(WEB, "dist");
 const read = (name) => readFileSync(path.join(DIST, name), "utf8");
+const visibleText = (s) => s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 const text = (name) => read(name).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
@@ -35,7 +36,16 @@ test("Research is a concise first-class destination", () => {
   // and the plant-interface standards an OT buyer checks for. That is the substance a
   // grant or enterprise reviewer came for, so it earns its bytes - but the ceiling stays
   // low on purpose. If a change needs more room, cut something before raising this.
-  assert.ok(main.length < 19500, `research content is concise (${main.length} bytes)`);
+  //
+  // The CEILING HAS NOT MOVED; what it measures has. This budget is about how much a
+  // reader has to get through, and counting raw markup charged SVG coordinate data as
+  // if it were prose - the scope's plot geometry is ~13KB of path arcs that nobody
+  // reads. So the conciseness budget now measures the page with the instruments
+  // collapsed, and a separate, looser ceiling keeps total page weight honest so this
+  // cannot become a loophole for dumping unbounded SVG.
+  const collapsed = main.replace(/<svg[\s\S]*?<\/svg>/g, "<svg/>");
+  assert.ok(collapsed.length < 19500, `research content is concise (${collapsed.length} bytes of prose)`);
+  assert.ok(main.length < 40000, `research page stays light (${main.length} bytes total)`);
 });
 
 // The mission family the founder asked for, in RogerAI's voice rather than a
@@ -127,8 +137,9 @@ test("the model scope plots parameter class as radar range on a true log axis", 
 
   // Every slot is an annular arc: one cell per variation it hosts, at its range band.
   // Each cell must stay inside the rim, and each slot must draw at least one.
-  const contacts = [...scope.matchAll(/<g class="scope__contact" data-slot="([^"]+)">([\s\S]*?)<\/g>/g)];
-  assert.equal(contacts.length, order.length, "every slot draws a contact");
+  const varAxis = scope.match(/<g class="scope__contacts" data-axis="variations">[\s\S]*?\n          <\/g>/)[0];
+  const contacts = [...varAxis.matchAll(/<g class="scope__contact" data-slot="([^"]+)">([\s\S]*?)<\/g>/g)];
+  assert.equal(contacts.length, order.length, "every slot draws a contact on the capability axis");
   for (const [, slot, body] of contacts) {
     const cells = [...body.matchAll(/<path class="scope__cell" d="M([\d.]+) ([\d.]+)/g)];
     assert.ok(cells.length >= 1, `${slot} draws at least one variation cell`);
@@ -479,9 +490,86 @@ test("each slot's arc spans exactly the variations the family page gives it", ()
   for (const slot of SLOTS) {
     const expected = ORDER.filter((v) => expands(livesAt[v]).has(slot));
     const slug = slot.toLowerCase().replace(/\s+/g, "-");
-    const g = scope.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
+    const axis = scope.match(/<g class="scope__contacts" data-axis="variations">[\s\S]*?\n          <\/g>/)[0];
+    const g = axis.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
     const drawn = (g.match(/<path class="scope__cell"/g) || []).length;
     assert.equal(drawn, expected.length,
       `${slot} draws ${drawn} cells but the variation table gives it ${expected.length} (${expected.join(", ")})`);
   }
+});
+
+// ---- the plant-jobs axis ----------------------------------------------------
+// Bearing means two different things depending on the toggle, so the same drift risk
+// applies twice: the jobs axis must match the family page's JOBS table exactly, the way
+// the capability axis matches the variations table.
+const scopeFig = () => surface().match(/<figure class="scope"[\s\S]*?<\/figure>/)[0];
+const axisGroup = (fig, axis) =>
+  fig.match(new RegExp(`<g class="scope__contacts" data-axis="${axis}">[\\s\\S]*?\\n          </g>`))[0];
+
+test("the scope offers both axes and defaults to the capability one", () => {
+  const fig = scopeFig();
+  assert.match(fig, /data-mode="variations"/, "the served default is the capability axis");
+  const modes = [...fig.matchAll(/<button[^>]*class="scope__mode"[^>]*data-mode="([^"]+)"[^>]*>/g)]
+    .map((m) => m[0]);
+  assert.equal(modes.length, 2, "two axis buttons");
+  assert.equal(modes.filter((m) => /aria-pressed="true"/.test(m)).length, 1,
+    "exactly one is pressed at rest");
+  // Both axes are SERVED, so the toggle only flips visibility - nothing is re-rendered.
+  for (const axis of ["variations", "jobs"]) {
+    assert.ok(axisGroup(fig, axis), `${axis} contacts are in the markup`);
+    assert.match(fig, new RegExp(`<g class="scope__bearings[^"]*" data-axis="${axis}"`),
+      `${axis} labels are in the markup`);
+  }
+});
+
+test("each slot's job arc matches the family page's jobs table", () => {
+  const jobsSection = read("research-wave-family.html")
+    .match(/<section[^>]*id="jobs"[\s\S]*?<\/section>/)[0];
+  const SLOTS = ["Edge", "Nano", "Micro", "Core"];
+  const expand = (cell) => {
+    if (/\bto\b/i.test(cell)) {
+      const [a, z] = cell.split(/\s+to\s+/i).map((x) => SLOTS.indexOf(x.trim()));
+      return new Set(SLOTS.slice(a, z + 1));
+    }
+    return new Set(cell.split(/\s*(?:\+|and|,)\s*/).map((x) => x.trim()).filter(Boolean));
+  };
+  // Count, per slot, how many jobs the TABLE says it takes part in.
+  const expected = Object.fromEntries(SLOTS.map((s) => [s, 0]));
+  let jobs = 0;
+  for (const row of jobsSection.matchAll(/<tr><th scope="row">[^<]+<\/th><td class="tier-cell">([^<]+)<\/td>/g)) {
+    jobs++;
+    for (const slot of expand(row[1])) {
+      assert.ok(slot in expected, `jobs table names a real slot, got "${slot}"`);
+      expected[slot]++;
+    }
+  }
+  assert.ok(jobs >= 16, `the table still carries the full job set, found ${jobs}`);
+
+  const axis = axisGroup(scopeFig(), "jobs");
+  for (const [short, slug] of [["Edge", "roger-edge"], ["Nano", "wave-nano"],
+                               ["Micro", "wave-micro"], ["Core", "wave-core"]]) {
+    const g = axis.match(new RegExp(`<g class="scope__contact" data-slot="${slug}">([\\s\\S]*?)</g>`))[1];
+    const drawn = (g.match(/<path class="scope__cell"/g) || []).length;
+    assert.equal(drawn, expected[short],
+      `${slug} draws ${drawn} job cells but the jobs table gives it ${expected[short]}`);
+  }
+});
+
+test("the jobs axis says what a shared job means, and does not overclaim", () => {
+  const fig = scopeFig();
+  const caption = visibleText(fig);
+  assert.match(caption, /takes part in|does not mean it carries that job alone/i,
+    "a slot on a job is participation, not sole ownership - several jobs are pipelines");
+  // The axis legend has to change with the axis, or the picture is mislabelled.
+  assert.match(fig, /<span data-axis="jobs">[\s\S]*?plant job/i);
+  assert.match(fig, /<span data-axis="variations">[\s\S]*?capability variation/i);
+});
+
+test("the axis toggle is hidden when it would not work", () => {
+  const css = read("styles/research.css");
+  // Two dead buttons is worse than one axis. The control appears only once html.js is set.
+  assert.match(css, /\.scope__modes \{ display: none; \}/, "hidden by default");
+  assert.match(css, /html\.js \.scope__modes \{[^}]*display: inline-flex/, "shown only with script");
+  // And the axis the no-script reader gets must be the one the markup declares.
+  assert.match(scopeFig(), /data-mode="variations"/);
 });

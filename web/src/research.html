@@ -87,77 +87,146 @@
              both axes are declared design intent, which the caption states in two lines
              rather than the five it used to take.
              Contract: features/web/wave_scope.feature -->
-        <figure class="scope" aria-labelledby="scope-title" aria-describedby="scope-caption">
+        <figure class="scope" data-mode="variations" aria-labelledby="scope-title" aria-describedby="scope-caption">
           <div class="scope__head">
             <span id="scope-title">WAVE SIZE SPECTRUM</span>
-            <span>range = parameters &middot; bearing = variation</span>
+            <div class="scope__modes" role="group" aria-label="What the bearing axis shows">
+              <button type="button" class="scope__mode" data-mode="variations" aria-pressed="true">Capability</button>
+              <button type="button" class="scope__mode" data-mode="jobs" aria-pressed="false">Plant jobs</button>
+            </div>
           </div>
+          <p class="scope__axis">
+            <span data-axis="variations">Range is the parameter class. Bearing is the capability variation each slot carries.</span>
+            <span data-axis="jobs">Range is the parameter class. Bearing is a plant job, and a slot&rsquo;s arc covers the jobs it takes part in.</span>
+          </p>
           <div class="scope__body">
-        <svg class="scope__ppi" viewBox="0 0 440 440" role="img" aria-labelledby="scope-title" aria-describedby="scope-caption">
+        <svg class="scope__ppi" viewBox="0 0 480 480" role="img" aria-labelledby="scope-title" aria-describedby="scope-caption">
           <g class="scope__grid" aria-hidden="true">
-            <circle cx="220" cy="220" r="30.9"/>
-            <circle cx="220" cy="220" r="61.8"/>
-            <circle cx="220" cy="220" r="92.7"/>
-            <circle cx="220" cy="220" r="123.6"/>
-            <circle cx="220" cy="220" r="154.5"/>
-            <line x1="220" y1="220" x2="305.0" y2="72.8"/>
-            <line x1="220" y1="220" x2="390.0" y2="220.0"/>
-            <line x1="220" y1="220" x2="305.0" y2="367.2"/>
-            <line x1="220" y1="220" x2="135.0" y2="367.2"/>
-            <line x1="220" y1="220" x2="50.0" y2="220.0"/>
-            <line x1="220" y1="220" x2="135.0" y2="72.8"/>
+            <circle cx="240" cy="240" r="30.9"/>
+            <circle cx="240" cy="240" r="61.8"/>
+            <circle cx="240" cy="240" r="92.7"/>
+            <circle cx="240" cy="240" r="123.6"/>
+            <circle cx="240" cy="240" r="154.5"/>
+            <line x1="240" y1="240" x2="325.0" y2="92.8"/>
+            <line x1="240" y1="240" x2="410.0" y2="240.0"/>
+            <line x1="240" y1="240" x2="325.0" y2="387.2"/>
+            <line x1="240" y1="240" x2="155.0" y2="387.2"/>
+            <line x1="240" y1="240" x2="70.0" y2="240.0"/>
+            <line x1="240" y1="240" x2="155.0" y2="92.8"/>
           </g>
-          <g class="scope__bearings" aria-hidden="true">
-            <text x="220.0" y="36.0">GUARD</text>
-            <text x="381.9" y="129.5">AUDIO</text>
-            <text x="381.9" y="316.5">VISION</text>
-            <text x="220.0" y="410.0">TEXT</text>
-            <text x="58.1" y="316.5">EMBED</text>
-            <text x="58.1" y="129.5">TOOL</text>
+          <g class="scope__bearings" data-axis="variations" aria-hidden="true">
+            <text x="240.0" y="56.0">GUARD</text>
+            <text x="401.9" y="149.5">AUDIO</text>
+            <text x="401.9" y="336.5">VISION</text>
+            <text x="240.0" y="430.0">TEXT</text>
+            <text x="78.1" y="336.5">EMBED</text>
+            <text x="78.1" y="149.5">TOOL</text>
+          </g>
+          <g class="scope__bearings scope__bearings--job" data-axis="jobs" aria-hidden="true">
+            <text x="240.0" y="61.0" text-anchor="start" transform="rotate(-90.0 240.0 61.0)">Gas leak</text>
+            <text x="301.2" y="71.8" text-anchor="start" transform="rotate(-70.0 301.2 71.8)">Voice control</text>
+            <text x="355.1" y="102.9" text-anchor="start" transform="rotate(-50.0 355.1 102.9)">Repair order</text>
+            <text x="395.0" y="150.5" text-anchor="start" transform="rotate(-30.0 395.0 150.5)">Work orders</text>
+            <text x="416.3" y="208.9" text-anchor="start" transform="rotate(-10.0 416.3 208.9)">Gauge reading</text>
+            <text x="416.3" y="271.1" text-anchor="start" transform="rotate(10.0 416.3 271.1)">Step-out</text>
+            <text x="395.0" y="329.5" text-anchor="start" transform="rotate(30.0 395.0 329.5)">Transcription</text>
+            <text x="355.1" y="377.1" text-anchor="start" transform="rotate(50.0 355.1 377.1)">Cause codes</text>
+            <text x="301.2" y="408.2" text-anchor="start" transform="rotate(70.0 301.2 408.2)">BOM lookup</text>
+            <text x="240.0" y="419.0" text-anchor="end" transform="rotate(270.0 240.0 419.0)">Equip. health</text>
+            <text x="178.8" y="408.2" text-anchor="end" transform="rotate(290.0 178.8 408.2)">Sensor drift</text>
+            <text x="124.9" y="377.1" text-anchor="end" transform="rotate(310.0 124.9 377.1)">Alarm triage</text>
+            <text x="85.0" y="329.5" text-anchor="end" transform="rotate(330.0 85.0 329.5)">Procedures</text>
+            <text x="63.7" y="271.1" text-anchor="end" transform="rotate(350.0 63.7 271.1)">Root cause</text>
+            <text x="63.7" y="208.9" text-anchor="end" transform="rotate(370.0 63.7 208.9)">Shift summary</text>
+            <text x="85.0" y="150.5" text-anchor="end" transform="rotate(390.0 85.0 150.5)">Weld inspect</text>
+            <text x="124.9" y="102.9" text-anchor="end" transform="rotate(410.0 124.9 102.9)">Handover notes</text>
+            <text x="178.8" y="71.8" text-anchor="end" transform="rotate(430.0 178.8 71.8)">Emissions</text>
           </g>
           <g class="scope__sweep" aria-hidden="true">
             <defs><linearGradient id="sweepFade" x1="0" y1="1" x2="1" y2="1">
               <stop offset="0" stop-color="var(--live)" stop-opacity=".30"/>
               <stop offset="1" stop-color="var(--live)" stop-opacity="0"/>
             </linearGradient></defs>
-            <path d="M220 220 L220 50 A170 170 0 0 0 106.2 93.6 Z" fill="url(#sweepFade)"/>
-            <line x1="220" y1="220" x2="220" y2="50"/>
+            <path d="M240 240 L240 70 A170 170 0 0 0 126.2 113.6 Z" fill="url(#sweepFade)"/>
+            <line x1="240" y1="240" x2="240" y2="70"/>
           </g>
-          <g class="scope__contacts">
+          <g class="scope__contacts" data-axis="variations">
             <g class="scope__contact" data-slot="roger-edge">
-              <path class="scope__cell" d="M177.0 137.8 A92.7 92.7 0 0 1 263.0 137.8 L226.0 208.5 A13.0 13.0 0 0 0 214.0 208.5 Z"/>
-              <path class="scope__cell" d="M269.7 141.7 A92.7 92.7 0 0 1 312.6 216.1 L233.0 219.5 A13.0 13.0 0 0 0 227.0 209.0 Z"/>
+              <path class="scope__cell" d="M197.0 157.8 A92.7 92.7 0 0 1 283.0 157.8 L246.0 228.5 A13.0 13.0 0 0 0 234.0 228.5 Z"/>
+              <path class="scope__cell" d="M289.7 161.7 A92.7 92.7 0 0 1 332.6 236.1 L253.0 239.5 A13.0 13.0 0 0 0 247.0 229.0 Z"/>
             </g>
             <g class="scope__contact" data-slot="wave-nano">
-              <path class="scope__cell" d="M162.7 110.4 A123.6 123.6 0 0 1 277.3 110.4 L263.0 137.8 A92.7 92.7 0 0 0 177.0 137.8 Z"/>
-              <path class="scope__cell" d="M286.2 115.6 A123.6 123.6 0 0 1 343.5 214.8 L312.6 216.1 A92.7 92.7 0 0 0 269.7 141.7 Z"/>
-              <path class="scope__cell" d="M153.8 324.4 A123.6 123.6 0 0 1 96.5 225.2 L127.4 223.9 A92.7 92.7 0 0 0 170.3 298.3 Z"/>
-              <path class="scope__cell" d="M96.5 214.8 A123.6 123.6 0 0 1 153.8 115.6 L170.3 141.7 A92.7 92.7 0 0 0 127.4 216.1 Z"/>
+              <path class="scope__cell" d="M182.7 130.4 A123.6 123.6 0 0 1 297.3 130.4 L283.0 157.8 A92.7 92.7 0 0 0 197.0 157.8 Z"/>
+              <path class="scope__cell" d="M306.2 135.6 A123.6 123.6 0 0 1 363.5 234.8 L332.6 236.1 A92.7 92.7 0 0 0 289.7 161.7 Z"/>
+              <path class="scope__cell" d="M173.8 344.4 A123.6 123.6 0 0 1 116.5 245.2 L147.4 243.9 A92.7 92.7 0 0 0 190.3 318.3 Z"/>
+              <path class="scope__cell" d="M116.5 234.8 A123.6 123.6 0 0 1 173.8 135.6 L190.3 161.7 A92.7 92.7 0 0 0 147.4 236.1 Z"/>
             </g>
             <g class="scope__contact" data-slot="wave-micro">
-              <path class="scope__cell" d="M151.7 89.3 A147.5 147.5 0 0 1 288.3 89.3 L281.8 101.7 A133.5 133.5 0 0 0 158.2 101.7 Z"/>
-              <path class="scope__cell" d="M299.0 95.5 A147.5 147.5 0 0 1 367.3 213.8 L353.3 214.4 A133.5 133.5 0 0 0 291.5 107.3 Z"/>
-              <path class="scope__cell" d="M367.3 226.2 A147.5 147.5 0 0 1 299.0 344.5 L291.5 332.7 A133.5 133.5 0 0 0 353.3 225.6 Z"/>
-              <path class="scope__cell" d="M288.3 350.7 A147.5 147.5 0 0 1 151.7 350.7 L158.2 338.3 A133.5 133.5 0 0 0 281.8 338.3 Z"/>
-              <path class="scope__cell" d="M141.0 344.5 A147.5 147.5 0 0 1 72.7 226.2 L86.7 225.6 A133.5 133.5 0 0 0 148.5 332.7 Z"/>
-              <path class="scope__cell" d="M72.7 213.8 A147.5 147.5 0 0 1 141.0 95.5 L148.5 107.3 A133.5 133.5 0 0 0 86.7 214.4 Z"/>
+              <path class="scope__cell" d="M171.7 109.3 A147.5 147.5 0 0 1 308.3 109.3 L301.8 121.7 A133.5 133.5 0 0 0 178.2 121.7 Z"/>
+              <path class="scope__cell" d="M319.0 115.5 A147.5 147.5 0 0 1 387.3 233.8 L373.3 234.4 A133.5 133.5 0 0 0 311.5 127.3 Z"/>
+              <path class="scope__cell" d="M387.3 246.2 A147.5 147.5 0 0 1 319.0 364.5 L311.5 352.7 A133.5 133.5 0 0 0 373.3 245.6 Z"/>
+              <path class="scope__cell" d="M308.3 370.7 A147.5 147.5 0 0 1 171.7 370.7 L178.2 358.3 A133.5 133.5 0 0 0 301.8 358.3 Z"/>
+              <path class="scope__cell" d="M161.0 364.5 A147.5 147.5 0 0 1 92.7 246.2 L106.7 245.6 A133.5 133.5 0 0 0 168.5 352.7 Z"/>
+              <path class="scope__cell" d="M92.7 233.8 A147.5 147.5 0 0 1 161.0 115.5 L168.5 127.3 A133.5 133.5 0 0 0 106.7 234.4 Z"/>
             </g>
             <g class="scope__contact" data-slot="wave-core">
-              <path class="scope__cell" d="M145.2 76.8 A161.5 161.5 0 0 1 294.8 76.8 L288.4 89.2 A147.5 147.5 0 0 0 151.6 89.2 Z"/>
-              <path class="scope__cell" d="M306.6 83.6 A161.5 161.5 0 0 1 381.4 213.2 L367.4 213.8 A147.5 147.5 0 0 0 299.1 95.4 Z"/>
-              <path class="scope__cell" d="M381.4 226.8 A161.5 161.5 0 0 1 306.6 356.4 L299.1 344.6 A147.5 147.5 0 0 0 367.4 226.2 Z"/>
-              <path class="scope__cell" d="M294.8 363.2 A161.5 161.5 0 0 1 145.2 363.2 L151.6 350.8 A147.5 147.5 0 0 0 288.4 350.8 Z"/>
-              <path class="scope__cell" d="M58.6 213.2 A161.5 161.5 0 0 1 133.4 83.6 L140.9 95.4 A147.5 147.5 0 0 0 72.6 213.8 Z"/>
+              <path class="scope__cell" d="M165.2 96.8 A161.5 161.5 0 0 1 314.8 96.8 L308.4 109.2 A147.5 147.5 0 0 0 171.6 109.2 Z"/>
+              <path class="scope__cell" d="M326.6 103.6 A161.5 161.5 0 0 1 401.4 233.2 L387.4 233.8 A147.5 147.5 0 0 0 319.1 115.4 Z"/>
+              <path class="scope__cell" d="M401.4 246.8 A161.5 161.5 0 0 1 326.6 376.4 L319.1 364.6 A147.5 147.5 0 0 0 387.4 246.2 Z"/>
+              <path class="scope__cell" d="M314.8 383.2 A161.5 161.5 0 0 1 165.2 383.2 L171.6 370.8 A147.5 147.5 0 0 0 308.4 370.8 Z"/>
+              <path class="scope__cell" d="M78.6 233.2 A161.5 161.5 0 0 1 153.4 103.6 L160.9 115.4 A147.5 147.5 0 0 0 92.6 233.8 Z"/>
+            </g>
+          </g>
+          <g class="scope__contacts" data-axis="jobs">
+            <g class="scope__contact" data-slot="roger-edge">
+              <path class="scope__cell" d="M225.8 148.4 A92.7 92.7 0 0 1 254.2 148.4 L242.0 227.2 A13.0 13.0 0 0 0 238.0 227.2 Z"/>
+              <path class="scope__cell" d="M258.0 149.0 A92.7 92.7 0 0 1 284.7 158.7 L246.3 228.6 A13.0 13.0 0 0 0 242.5 227.2 Z"/>
+            </g>
+            <g class="scope__contact" data-slot="wave-nano">
+              <path class="scope__cell" d="M221.1 117.8 A123.6 123.6 0 0 1 258.9 117.8 L254.2 148.4 A92.7 92.7 0 0 0 225.8 148.4 Z"/>
+              <path class="scope__cell" d="M264.0 118.7 A123.6 123.6 0 0 1 299.6 131.7 L284.7 158.7 A92.7 92.7 0 0 0 258.0 149.0 Z"/>
+              <path class="scope__cell" d="M355.3 284.7 A123.6 123.6 0 0 1 336.4 317.5 L312.3 298.1 A92.7 92.7 0 0 0 326.5 273.5 Z"/>
+              <path class="scope__cell" d="M333.0 321.4 A123.6 123.6 0 0 1 304.0 345.8 L288.0 319.3 A92.7 92.7 0 0 0 309.8 301.1 Z"/>
+              <path class="scope__cell" d="M299.6 348.3 A123.6 123.6 0 0 1 264.0 361.3 L258.0 331.0 A92.7 92.7 0 0 0 284.7 321.3 Z"/>
+              <path class="scope__cell" d="M258.9 362.2 A123.6 123.6 0 0 1 221.1 362.2 L225.8 331.6 A92.7 92.7 0 0 0 254.2 331.6 Z"/>
+              <path class="scope__cell" d="M216.0 361.3 A123.6 123.6 0 0 1 180.4 348.3 L195.3 321.3 A92.7 92.7 0 0 0 222.0 331.0 Z"/>
+            </g>
+            <g class="scope__contact" data-slot="wave-micro">
+              <path class="scope__cell" d="M316.4 113.9 A147.5 147.5 0 0 1 350.9 142.9 L340.4 152.1 A133.5 133.5 0 0 0 309.1 125.8 Z"/>
+              <path class="scope__cell" d="M354.9 147.6 A147.5 147.5 0 0 1 377.5 186.7 L364.4 191.7 A133.5 133.5 0 0 0 344.0 156.4 Z"/>
+              <path class="scope__cell" d="M379.6 192.5 A147.5 147.5 0 0 1 387.4 236.9 L373.4 237.2 A133.5 133.5 0 0 0 366.3 197.0 Z"/>
+              <path class="scope__cell" d="M387.4 243.1 A147.5 147.5 0 0 1 379.6 287.5 L366.3 283.0 A133.5 133.5 0 0 0 373.4 242.8 Z"/>
+              <path class="scope__cell" d="M377.5 293.3 A147.5 147.5 0 0 1 354.9 332.4 L344.0 323.6 A133.5 133.5 0 0 0 364.4 288.3 Z"/>
+              <path class="scope__cell" d="M350.9 337.1 A147.5 147.5 0 0 1 316.4 366.1 L309.1 354.2 A133.5 133.5 0 0 0 340.4 327.9 Z"/>
+              <path class="scope__cell" d="M311.0 369.2 A147.5 147.5 0 0 1 268.6 384.6 L265.9 370.9 A133.5 133.5 0 0 0 304.3 356.9 Z"/>
+              <path class="scope__cell" d="M262.6 385.7 A147.5 147.5 0 0 1 217.4 385.7 L219.6 371.9 A133.5 133.5 0 0 0 260.4 371.9 Z"/>
+              <path class="scope__cell" d="M211.4 384.6 A147.5 147.5 0 0 1 169.0 369.2 L175.7 356.9 A133.5 133.5 0 0 0 214.1 370.9 Z"/>
+              <path class="scope__cell" d="M163.6 366.1 A147.5 147.5 0 0 1 129.1 337.1 L139.6 327.9 A133.5 133.5 0 0 0 170.9 354.2 Z"/>
+              <path class="scope__cell" d="M125.1 332.4 A147.5 147.5 0 0 1 102.5 293.3 L115.6 288.3 A133.5 133.5 0 0 0 136.0 323.6 Z"/>
+              <path class="scope__cell" d="M100.4 287.5 A147.5 147.5 0 0 1 92.6 243.1 L106.6 242.8 A133.5 133.5 0 0 0 113.7 283.0 Z"/>
+              <path class="scope__cell" d="M92.6 236.9 A147.5 147.5 0 0 1 100.4 192.5 L113.7 197.0 A133.5 133.5 0 0 0 106.6 237.2 Z"/>
+              <path class="scope__cell" d="M102.5 186.7 A147.5 147.5 0 0 1 125.1 147.6 L136.0 156.4 A133.5 133.5 0 0 0 115.6 191.7 Z"/>
+            </g>
+            <g class="scope__contact" data-slot="wave-core">
+              <path class="scope__cell" d="M264.7 399.6 A161.5 161.5 0 0 1 215.3 399.6 L217.4 385.8 A147.5 147.5 0 0 0 262.6 385.8 Z"/>
+              <path class="scope__cell" d="M208.6 398.5 A161.5 161.5 0 0 1 162.2 381.6 L168.9 369.3 A147.5 147.5 0 0 0 211.3 384.7 Z"/>
+              <path class="scope__cell" d="M156.3 378.2 A161.5 161.5 0 0 1 118.5 346.4 L129.0 337.2 A147.5 147.5 0 0 0 163.6 366.2 Z"/>
+              <path class="scope__cell" d="M114.1 341.2 A161.5 161.5 0 0 1 89.4 298.4 L102.4 293.4 A147.5 147.5 0 0 0 125.0 332.5 Z"/>
+              <path class="scope__cell" d="M87.1 292.1 A161.5 161.5 0 0 1 78.5 243.4 L92.5 243.1 A147.5 147.5 0 0 0 100.3 287.5 Z"/>
+              <path class="scope__cell" d="M78.5 236.6 A161.5 161.5 0 0 1 87.1 187.9 L100.3 192.5 A147.5 147.5 0 0 0 92.5 236.9 Z"/>
+              <path class="scope__cell" d="M89.4 181.6 A161.5 161.5 0 0 1 114.1 138.8 L125.0 147.5 A147.5 147.5 0 0 0 102.4 186.6 Z"/>
+              <path class="scope__cell" d="M118.5 133.6 A161.5 161.5 0 0 1 156.3 101.8 L163.6 113.8 A147.5 147.5 0 0 0 129.0 142.8 Z"/>
+              <path class="scope__cell" d="M162.2 98.4 A161.5 161.5 0 0 1 208.6 81.5 L211.3 95.3 A147.5 147.5 0 0 0 168.9 110.7 Z"/>
             </g>
           </g>
           <g class="scope__ticks" aria-hidden="true">
-            <text x="224" y="192.6">100K</text>
-            <text x="224" y="161.7">1M</text>
-            <text x="224" y="130.8">10M</text>
-            <text x="224" y="99.9">100M</text>
-            <text x="224" y="69.0">1B</text>
+            <text x="244" y="212.6">100K</text>
+            <text x="244" y="181.7">1M</text>
+            <text x="244" y="150.8">10M</text>
+            <text x="244" y="119.9">100M</text>
+            <text x="244" y="89.0">1B</text>
           </g>
-          <circle class="scope__origin" cx="220" cy="220" r="2.5" aria-hidden="true"/>
+          <circle class="scope__origin" cx="240" cy="240" r="2.5" aria-hidden="true"/>
         </svg>
         <ol class="scope__legend">
             <li class="scope__row" data-slot="roger-edge">
@@ -165,7 +234,8 @@
                 <b>Roger Edge</b>
                 <code>10K&ndash;10M</code>
                 <small>microcontrollers &middot; fixed tasks</small>
-                <span class="scope__carries">carries Guard, Audio</span>
+                <span class="scope__carries" data-axis="variations">carries Guard, Audio</span>
+                <span class="scope__carries" data-axis="jobs">takes part in 2 of 18 plant jobs</span>
                 <span class="scope__status">In design</span>
               </button>
             </li>
@@ -174,7 +244,8 @@
                 <b>Wave Nano</b>
                 <code>10M&ndash;100M</code>
                 <small>ARM and NPU &middot; specialists</small>
-                <span class="scope__carries">carries Tool, Embed, Guard, Audio</span>
+                <span class="scope__carries" data-axis="variations">carries Tool, Embed, Guard, Audio</span>
+                <span class="scope__carries" data-axis="jobs">takes part in 7 of 18 plant jobs</span>
                 <span class="scope__status">In design</span>
               </button>
             </li>
@@ -183,7 +254,8 @@
                 <b>Wave Micro</b>
                 <code>~350M</code>
                 <small>Pi, phone, edge &middot; text + tools</small>
-                <span class="scope__carries">carries all six</span>
+                <span class="scope__carries" data-axis="variations">carries all six</span>
+                <span class="scope__carries" data-axis="jobs">takes part in 14 of 18 plant jobs</span>
                 <span class="scope__status">In progress</span>
               </button>
             </li>
@@ -192,14 +264,17 @@
                 <b>Wave Core</b>
                 <code>1B-class</code>
                 <small>laptop and workstation &middot; local reasoning</small>
-                <span class="scope__carries">carries Tool, Text, Guard, Vision, Audio</span>
+                <span class="scope__carries" data-axis="variations">carries Tool, Text, Guard, Vision, Audio</span>
+                <span class="scope__carries" data-axis="jobs">takes part in 9 of 18 plant jobs</span>
                 <span class="scope__status">In design</span>
               </button>
             </li>
         </ol>
           </div>
           <figcaption id="scope-caption">Every band is a declared design target, not a
-            measurement. No slot has released a checkpoint.</figcaption>
+            measurement. No slot has released a checkpoint. Plant jobs come from the field
+            guide&rsquo;s jobs table; a slot taking part in a job does not mean it carries
+            that job alone.</figcaption>
         </figure>
 
 
