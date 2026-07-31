@@ -234,6 +234,33 @@ function stripReadOnly(r) {
   return { action, action_parameters, expression, description, enabled, ...(ref ? { ref } : {}) };
 }
 
+// vanityRedirectDrift judges one probed vanity path. Extracted from the --check block so it
+// is reachable by tests: the assertion it makes is production behaviour, and burying it in
+// the CLI meant a behaviour change could ship with no coverage at all.
+//
+// Returns a drift description, or null when the redirect is correct. Both the ORIGIN and the
+// EXACT pathname are checked. Either half alone has a hole: a prefix/startsWith test lets
+// /roger accept /roger/v5/ (the collapse the two-path rule exists to prevent), while a
+// pathname-only test lets a 301 to the legacy apex or to www read as "in sync".
+export function vanityRedirectDrift(status, location, path, apex = APEX) {
+  const want = `https://${apex}${path}/`;
+  let landed = null;
+  try { landed = new URL(location); } catch { landed = null; }
+  if (status !== 301 || landed?.origin !== `https://${apex}` || landed.pathname !== `${path}/`) {
+    return (
+      `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
+      `got ${status} -> ${location || "(none)"}; ` +
+      "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` is broken while this is wrong"
+    );
+  }
+  // Go drops the response when the redirect eats its query, so a 301 to the right path is
+  // still a broken module fetch without this.
+  if (!location.includes("go-get=1")) {
+    return `vanity-import redirect for ${path} drops ?go-get=1: ${location}`;
+  }
+  return null;
+}
+
 // ---- main ---------------------------------------------------------------------------------
 // Importable: the CLI only runs when this file is executed directly, so the tests can drive
 // the rule builders above without triggering network writes or process.exit.
@@ -309,27 +336,8 @@ if (check) {
       continue;
     }
     const loc = vanity.res.headers.get("location") || "";
-    const want = `https://${APEX}${path}/`;
-    // Assert BOTH origin and exact pathname. startsWith alone was one-sided (probing
-    // /roger accepted /roger/v5/, the collapse this loop rules out); pathname alone drops
-    // the host, so a 301 to the legacy apex or to www would read as "in sync".
-    let landed = null;
-    try { landed = new URL(loc); } catch { landed = null; }
-    if (
-      vanity.res.status !== 301 ||
-      landed?.origin !== `https://${APEX}` ||
-      landed.pathname !== `${path}/`
-    ) {
-      drift.push(
-        `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
-          `got ${vanity.res.status} -> ${loc || "(none)"}; ` +
-          "`go install rogerai.fm/roger/v5/cmd/rogerai@latest` is broken while this is wrong",
-      );
-    } else if (!loc.includes("go-get=1")) {
-      // Go drops the response when the redirect eats its query, so a 301 to the right
-      // path is still a broken module fetch without this.
-      drift.push(`vanity-import redirect for ${path} drops ?go-get=1: ${loc}`);
-    }
+    const problem = vanityRedirectDrift(vanity.res.status, loc, path, APEX);
+    if (problem) drift.push(problem);
   }
 
   if (drift.length) {

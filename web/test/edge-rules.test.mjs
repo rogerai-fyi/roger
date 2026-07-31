@@ -15,6 +15,7 @@ import {
   redirectRule,
   legacyRedirectRule,
   vanityImportRule,
+  vanityRedirectDrift,
   canonicalSiteReady,
   parseHeaders,
 } from "../scripts/cf-edge.mjs";
@@ -225,4 +226,42 @@ test("the header rule still applies to the ACME path", () => {
   // harmless, so the header rule must NOT carry the exclusion - narrowing it would silently
   // drop the security headers on a real path.
   assert.equal(parts(headerRule(parseHeaders(), { zone: CANON }).expression).guarded, false);
+});
+
+// The --check block is what CI runs against the live edge, so its judgement is production
+// behaviour. It used to live inline in the CLI where no test could reach it, and a
+// behaviour change shipped there with zero coverage. These pin the four ways it can be wrong.
+test("the vanity drift check accepts only the exact host and path, with the go-get query", () => {
+  const ok = vanityRedirectDrift(301, "https://rogerai.fm/roger/v5/?go-get=1", "/roger/v5", "rogerai.fm");
+  assert.equal(ok, null, "the correct redirect is not drift");
+
+  // Wrong host: a pathname-only assertion would call these "in sync".
+  for (const wrong of [
+    "https://rogerai.fyi/roger/v5/?go-get=1",
+    "https://www.rogerai.fm/roger/v5/?go-get=1",
+  ]) {
+    assert.match(
+      vanityRedirectDrift(301, wrong, "/roger/v5", "rogerai.fm") || "",
+      /drift/,
+      `${wrong} must be reported: it is a different origin`,
+    );
+  }
+
+  // Collapsed path: /roger landing on /roger/v5/ serves a tag for the wrong module path.
+  assert.match(
+    vanityRedirectDrift(301, "https://rogerai.fm/roger/v5/?go-get=1", "/roger", "rogerai.fm") || "",
+    /drift/,
+    "a prefix test would wrongly accept this",
+  );
+
+  // Query dropped: Go abandons the fetch, so a 301 to the right path is still broken.
+  assert.match(
+    vanityRedirectDrift(301, "https://rogerai.fm/roger/v5/", "/roger/v5", "rogerai.fm") || "",
+    /go-get=1/,
+    "losing ?go-get=1 must be reported",
+  );
+
+  // Not a redirect at all, and a malformed Location, must both be caught rather than throw.
+  assert.match(vanityRedirectDrift(200, "", "/roger/v5", "rogerai.fm") || "", /drift/);
+  assert.match(vanityRedirectDrift(301, "not a url", "/roger/v5", "rogerai.fm") || "", /drift/);
 });
