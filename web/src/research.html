@@ -55,56 +55,81 @@
              source before weights, code, license, and reproducibility record are released.</p>
         </div>
 
-        <!-- The ladder is a TRUE log scale: every rung's left and right edge is
-             (log10(params) - 4) / 5.5, so a span's position and width mean something.
-             The previous version used decorative --reach percentages (18/42/68/100),
-             which implied a proportion that was not real - the family covers five
-             orders of magnitude and a linear bar cannot show that honestly.
-             Ranges are DECLARED DESIGN TARGETS, not measurements; none of these has a
-             released checkpoint, so no memory or speed figure appears here. -->
-        <figure class="ladder" aria-labelledby="size-spectrum-title size-spectrum-caption">
-          <div class="ladder__head">
-            <span id="size-spectrum-title">WAVE SIZE SPECTRUM</span>
-            <span>parameter class, logarithmic <span aria-hidden="true">&rarr;</span></span>
+        <!-- A PPI radar scope, because radius already means RANGE and our axis is a
+             range. Each rung is a ring band whose inner and outer radii are
+             (log10(params) - 4) / 5.5 * 170, so the range rings ARE the decade ticks.
+             Bearing carries no data and the caption says so - only the radius is
+             information. Ranges are declared design targets, not measurements; no rung
+             has a released checkpoint, so no footprint or speed appears here. -->
+        <figure class="scope" aria-labelledby="scope-title scope-caption">
+          <div class="scope__head">
+            <span id="scope-title">WAVE SIZE SPECTRUM</span>
+            <span>parameter class as radar range <span aria-hidden="true">&rarr;</span></span>
           </div>
-
-          <ol class="ladder__rungs">
-            <li style="--from:0%;--to:54.5%;--i:0">
-              <span class="ladder__bar" aria-hidden="true"></span>
-              <b>Roger Edge</b>
-              <small>10K&ndash;10M &middot; microcontrollers &middot; fixed tasks</small>
-              <span class="ladder__status">In design</span>
-            </li>
-            <li style="--from:54.5%;--to:72.7%;--i:1">
-              <span class="ladder__bar" aria-hidden="true"></span>
-              <b>Wave Nano</b>
-              <small>10M&ndash;100M &middot; ARM and NPU &middot; specialists</small>
-              <span class="ladder__status">In design</span>
-            </li>
-            <li style="--from:78.2%;--to:85.4%;--i:2">
-              <span class="ladder__bar" aria-hidden="true"></span>
-              <b>Wave Micro</b>
-              <small>~350M &middot; Pi, phone, edge &middot; text + tools</small>
-              <span class="ladder__status ladder__status--live">In progress</span>
-            </li>
-            <li style="--from:88.1%;--to:96.4%;--i:3">
-              <span class="ladder__bar" aria-hidden="true"></span>
-              <b>Wave Core</b>
-              <small>1B-class &middot; laptop and workstation &middot; local reasoning</small>
-              <span class="ladder__status">In design</span>
-            </li>
-          </ol>
-
-          <div class="ladder__axis" aria-hidden="true">
-            <span style="--at:0%">10K</span><span style="--at:18.2%">100K</span>
-            <span style="--at:36.4%">1M</span><span style="--at:54.5%">10M</span>
-            <span style="--at:72.7%">100M</span><span style="--at:90.9%">1B</span>
+          <div class="scope__body">
+        <svg class="scope__ppi" viewBox="0 0 400 400" role="img" aria-labelledby="scope-title scope-caption">
+          <g class="scope__grid" aria-hidden="true">
+            <circle cx="200" cy="200" r="27"/>
+            <circle cx="200" cy="200" r="55"/>
+            <circle cx="200" cy="200" r="82"/>
+            <circle cx="200" cy="200" r="109"/>
+            <circle cx="200" cy="200" r="136"/>
+            <line x1="200" y1="200" x2="200" y2="50"/>
+            <line x1="200" y1="200" x2="306" y2="94"/>
+            <line x1="200" y1="200" x2="350" y2="200"/>
+            <line x1="200" y1="200" x2="306" y2="306"/>
+            <line x1="200" y1="200" x2="200" y2="350"/>
+            <line x1="200" y1="200" x2="94" y2="306"/>
+            <line x1="200" y1="200" x2="50" y2="200"/>
+            <line x1="200" y1="200" x2="94" y2="94"/>
+          </g>
+          <g class="scope__ticks" aria-hidden="true">
+            <text x="205" y="173">100K</text>
+            <text x="205" y="145">1M</text>
+            <text x="205" y="118">10M</text>
+            <text x="205" y="91">100M</text>
+            <text x="205" y="64">1B</text>
+          </g>
+          <g class="scope__contacts" aria-hidden="true">
+            <g class="scope__contact" style="--i:0">
+              <line class="scope__gate" x1="200.0" y1="200.0" x2="127.8" y2="161.6"/>
+              <circle class="scope__blip" cx="127.8" cy="161.6" r="4.5"/>
+            </g>
+            <g class="scope__contact" style="--i:1">
+              <line class="scope__gate" x1="170.7" y1="123.6" x2="160.9" y2="98.2"/>
+              <circle class="scope__blip" cx="160.9" cy="98.2" r="4.5"/>
+            </g>
+            <g class="scope__contact scope__gate--live" style="--i:2">
+              <line class="scope__gate" x1="242.0" y1="90.5" x2="245.9" y2="80.4"/>
+              <circle class="scope__blip" cx="245.9" cy="80.4" r="4.5"/>
+            </g>
+            <g class="scope__contact" style="--i:3">
+              <line class="scope__gate" x1="316.7" y1="138.0" x2="327.7" y2="132.1"/>
+              <circle class="scope__blip" cx="327.7" cy="132.1" r="4.5"/>
+            </g>
+          </g>
+          <g class="scope__sweep" aria-hidden="true">
+            <defs><linearGradient id="sweepFade" x1="0" y1="1" x2="1" y2="1">
+              <stop offset="0" stop-color="var(--live)" stop-opacity=".38"/>
+              <stop offset="1" stop-color="var(--live)" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path d="M200 200 L200 50 A150 150 0 0 0 99.6 88.5 Z" fill="url(#sweepFade)"/>
+            <line x1="200" y1="200" x2="200" y2="50"/>
+          </g>
+          <circle class="scope__origin" cx="200" cy="200" r="2.5" aria-hidden="true"/>
+        </svg>
+        <ol class="scope__legend">
+          <li><span class="scope__key" aria-hidden="true"></span><b>Roger Edge</b><code>10K&ndash;10M</code><small>microcontrollers &middot; fixed tasks</small><span class="scope__status">In design</span></li>
+          <li><span class="scope__key" aria-hidden="true"></span><b>Wave Nano</b><code>10M&ndash;100M</code><small>ARM and NPU &middot; specialists</small><span class="scope__status">In design</span></li>
+          <li><span class="scope__key scope__key--live" aria-hidden="true"></span><b>Wave Micro</b><code>~350M</code><small>Pi, phone, edge &middot; text + tools</small><span class="scope__status scope__status--live">In progress</span></li>
+          <li><span class="scope__key" aria-hidden="true"></span><b>Wave Core</b><code>1B-class</code><small>laptop and workstation &middot; local reasoning</small><span class="scope__status">In design</span></li>
+        </ol>
           </div>
-
-          <figcaption id="size-spectrum-caption">Parameter classes on a logarithmic axis.
-            Ranges are declared design targets, not measurements. Every RogerAI-designed
-            class remains a research or design program until its own release gate passes.
-            None has released a checkpoint.</figcaption>
+          <figcaption id="scope-caption">Parameter class plotted as radar range on a
+            logarithmic scale: each ring is a decade, and each contact is a range gate
+            spanning one model class. Bearing carries no meaning. Ranges are declared design targets, not
+            measurements. Every RogerAI-designed class remains a research or design
+            program until its own release gate passes. None has released a checkpoint.</figcaption>
         </figure>
 
 
@@ -256,7 +281,7 @@
   </main>
 
   <!-- include: footer.html anchors=/ -->
-  <script src="js/ladder.js" defer></script>
+  <script src="js/scope.js" defer></script>
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/promo.js" defer></script>
