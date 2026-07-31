@@ -1,10 +1,36 @@
-<!-- Canonical web rendering of internal/tui/tube_ping.go::tubePingRows.
-     Preserve the glyph rows exactly. The eye is the only saturated cell. -->
-<figure class="tube-ping" role="img" aria-label="Tube Ping, RogerAI Labs mascot">
-<pre class="tube-ping__sprite" aria-hidden="true">   ▄███████▄
-(  █   <span class="tube-ping__eye">•</span>   █<span class="tube-ping__depth">▓</span>  )
-   █  ROG  █<span class="tube-ping__depth">▓</span>
-    ▀█▄▄▄█▀<span class="tube-ping__shadow">▒</span>
-     ▀   ▀</pre>
-  <figcaption><b>TUBE PING</b><span>RogerAI Labs · right-sized intelligence</span></figcaption>
+<!-- The WEB mascot: high-fidelity vector Ping.
+     The website, the iOS app and macOS all render the VECTOR mascot. The ASCII
+     Tube Ping in internal/tui/tube_ping.go is the TERMINAL form of the same
+     character and must not leak onto a surface that can draw curves - a browser
+     showing monospace block glyphs is the terminal costume worn in the wrong
+     place. Keep each in its own medium.
+     Geometry is mascot.svg, inlined so it inherits currentColor for light/dark
+     and so no extra request is needed. Its ids are CLASSES here because index.html
+     includes this partial twice and duplicate ids are invalid; the animations live
+     in base.css (.tube-ping__mark) rather than a repeated inline <style>. -->
+<figure class="tube-ping" role="img" aria-label="Ping, the RogerAI on-air mascot">
+  <svg class="tube-ping__mark" viewBox="0 0 64 72" fill="currentColor" aria-hidden="true" focusable="false">
+    <g class="ping-mark">
+      <!-- signal arcs radiating from the antennae -->
+      <g fill="none" stroke="#E0231C" stroke-linecap="round" stroke-width="2">
+        <path class="ping-mark__wave ping-mark__wave--a" d="M16 22 A18 18 0 0 1 48 22" opacity="0"/>
+        <path class="ping-mark__wave ping-mark__wave--b" d="M11 24 A24 24 0 0 1 53 24" opacity="0"/>
+      </g>
+      <g class="ping-mark__body">
+        <!-- bracket arms/antennae, mirroring logo.svg -->
+        <path d="M10 8 h9 v4.5 H14.5 v9 H19 V26 H10 Z"/>
+        <path d="M54 8 h-9 v4.5 H49.5 v9 H45 V26 h9 Z"/>
+        <!-- body block with shoulders -->
+        <path d="M22 30 h20 v18 a4 4 0 0 1 -4 4 h-12 a4 4 0 0 1 -4 -4 Z"/>
+        <!-- feet -->
+        <rect x="25" y="64" width="5" height="5" rx="1"/>
+        <rect x="34" y="64" width="5" height="5" rx="1"/>
+      </g>
+      <!-- the on-air eye IS the brand beacon: the same live-red circle that sits
+           between the brackets of the logo, favicon and nav mark. -->
+      <circle class="ping-mark__glow" cx="32" cy="22" r="9" fill="#E0231C" opacity="0.3"/>
+      <circle class="ping-mark__eye" cx="32" cy="22" r="5" fill="#E0231C"/>
+    </g>
+  </svg>
+  <figcaption><b>PING</b><span>RogerAI Labs · right-sized intelligence</span></figcaption>
 </figure>

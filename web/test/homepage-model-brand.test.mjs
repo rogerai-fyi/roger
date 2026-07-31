@@ -62,22 +62,21 @@ test("the Company preview carries factual origin and component-specific openness
   assert.match(section, /PolyForm Perimeter/i);
 });
 
-test("homepage Tube Ping is the canonical founder-approved pixel silhouette", () => {
+test("the website renders the HIGH-FIDELITY vector mascot, never the terminal art", () => {
   const home = read("index.html");
   const mascot = home.match(/<figure class="tube-ping"[\s\S]*?<\/figure>/)?.[0] || "";
-  assert.match(mascot, /aria-label="Tube Ping, RogerAI Labs mascot"/);
-  assert.equal((mascot.match(/class="tube-ping__eye"/g) || []).length, 1, "one saturated eye");
-  const plain = mascot
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ");
-  for (const row of ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"]) {
-    assert.ok(plain.includes(row), `canonical row is preserved: ${row}`);
-  }
+  assert.match(mascot, /aria-label="Ping, the RogerAI on-air mascot"/);
+  assert.match(mascot, /<svg class="tube-ping__mark"/, "the web mascot is a vector, not a <pre>");
+  assert.match(mascot, /viewBox="0 0 64 72"/, "canonical mascot.svg geometry");
+  assert.equal((mascot.match(/class="ping-mark__eye"/g) || []).length, 1, "one live-red beacon eye");
+  assert.doesNotMatch(mascot, /<pre/, "no monospace sprite on a surface that can draw curves");
 
-  const go = readFileSync(path.join(ROOT, "internal/tui/tube_ping.go"), "utf8");
-  for (const row of ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"]) {
-    assert.ok(go.includes(JSON.stringify(row)), `web row is pinned to TUI canonical source: ${row}`);
+  // The ASCII Tube Ping is the TERMINAL costume. v5.4.8 put it on the marketing
+  // site, which is what made the browser render block glyphs; guard the boundary
+  // rather than the glyphs, so fixing the TUI art can never leak here again.
+  const plain = home.replace(/<[^>]+>/g, "");
+  for (const glyph of ["▄███████▄", "█  ROG  █", "▀█▄▄▄█▀"]) {
+    assert.ok(!plain.includes(glyph), `terminal glyph stays out of the web page: ${glyph}`);
   }
 });
 
