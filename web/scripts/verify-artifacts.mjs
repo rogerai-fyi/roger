@@ -180,13 +180,21 @@ async function main() {
         "model is available until a stranger can download it.\n"
     );
   }
-  // The go-import tag is ADVISORY, not blocking. The Cloudflare hop now exists and is
-  // applied (/roger 301s to /roger/ with ?go-get=1 intact), but /roger/ itself only
-  // answers once this site is deployed, so a blocking check would still be red on every
-  // run made before a deploy - and a gate that is always red is a gate everyone learns
-  // to ignore. Nothing advertises `go install` today, so a missing tag breaks no promise.
-  // Restore this to blocking in the same change that restores the README claim, once
-  // https://rogerai.fm/roger/ answers 200. cf-edge.mjs --check guards the hop meanwhile.
+  // The go-import tag is ADVISORY, not blocking, and that is now the WEAKEST link rather
+  // than a safe default - so this comment records exactly what has to be true to flip it.
+  //
+  // Two of the original reasons have expired. The Cloudflare hop is NOT fully applied: the
+  // live zone still carries the single-path rule, so /roger/v5 - the path Go actually
+  // fetches, since it filters tags by the module path's major suffix - does not redirect
+  // yet (see cf-edge.mjs). And the manual now DOES advertise
+  // `go install rogerai.fm/roger/v5/cmd/rogerai@latest`, so a missing tag breaks a public
+  // promise where it previously broke none.
+  //
+  // Flip this to blocking once BOTH hold: the site has deployed /roger/v5/, and
+  // `cf-edge.mjs --apply` has published the two-path rule. Until then a blocking check
+  // would be red for reasons nobody can fix from this repo, and a gate that is always red
+  // is a gate everyone learns to ignore. `cf-edge.mjs --check` covers the hop meanwhile,
+  // and it is blocking.
   if (failed.length) return 1;
 
   console.log(`\nverify-artifacts: all ${results.length} advertised artifacts are public.`);

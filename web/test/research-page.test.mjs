@@ -1,7 +1,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -312,8 +312,23 @@ test("services are optional and preserve local model independence", () => {
 });
 
 test("new institutional pages contain no em dash character", () => {
-  for (const name of ["research.html", "company.html", "index.html"]) {
+  for (const name of ["research.html", "company.html", "index.html", "careers.html"]) {
     assert.doesNotMatch(read(name), /—/, `${name} contains an em dash`);
+  }
+});
+
+// The style rule is about the writing, not the file extension, and specs are writing we
+// ship. This guard only scanned web/src, so features/ drifted: careers.feature opened with
+// an em dash and nothing objected.
+test("the specs under features/web contain no em dash character either", () => {
+  const dir = path.join(WEB, "..", "features", "web");
+  const specs = readdirSync(dir).filter((f) => f.endsWith(".feature"));
+  assert.ok(specs.length > 0, "there are feature files to check");
+  for (const name of specs) {
+    assert.doesNotMatch(
+      readFileSync(path.join(dir, name), "utf8"), /—/,
+      `features/web/${name} contains an em dash`,
+    );
   }
 });
 
