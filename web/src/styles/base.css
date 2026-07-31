@@ -261,7 +261,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 }
 .promo__copy { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .promo__msg b { color: var(--ink-900); font-weight: var(--weight-semi); }
-.promo__sep { color: var(--ink-400); margin: 0 2px; }
 .promo__dot {
   width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
   background: var(--live); box-shadow: 0 0 0 3px var(--live-wash);
@@ -300,10 +299,6 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   .promo__msg { font-size: var(--t-xs); }
   .promo__cta { padding: 5px 10px; }
 }
-@media (max-width: 400px) {
-  .promo__sep { display: none; }
-}
-
 /* ============================ NAV ============================== */
 .nav {
   position: sticky; top: 0; z-index: var(--z-nav);
