@@ -785,3 +785,45 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   background: var(--ink-900); color: var(--paper); white-space: nowrap;
   box-shadow: var(--e-2);
 }
+
+/* ---------- nav disclosure panels ------------------------------------------ */
+.nav__group { position: relative; display: inline-flex; align-items: center; gap: 2px; }
+.nav__more {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border-radius: var(--r-xs);
+  color: var(--ink-400); cursor: pointer;
+}
+.nav__more:hover, .nav__more:focus-visible { color: var(--ink-900); background: var(--hover-bg); }
+.nav__more svg { transition: transform var(--d-2, .18s) var(--ease-standard, ease); }
+.nav__group.is-open .nav__more { color: var(--live); }
+.nav__group.is-open .nav__more svg { transform: rotate(180deg); }
+
+.nav__panel {
+  position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  z-index: var(--z-nav);
+  display: grid; gap: 2px; width: max-content; max-width: min(360px, calc(100vw - 2rem));
+  padding: var(--s-3);
+  background: var(--paper); border: 1px solid var(--hairline);
+  border-top: 2px solid var(--ink-900);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 8%);
+}
+.nav__panel[hidden] { display: none; }   /* [hidden] loses to display:grid without this */
+.nav__panel a {
+  display: grid; gap: 1px; padding: var(--s-3);
+  border-radius: var(--r-xs); color: var(--ink-500);
+}
+.nav__panel a:hover, .nav__panel a:focus-visible { background: var(--hover-bg); }
+.nav__panel b { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
+.nav__panel span { font-size: var(--t-xs); line-height: var(--lh-body); }
+@media (prefers-reduced-motion: reduce) { .nav__more svg { transition: none; } }
+
+/* Inside the mobile burger the bar is a column, so a floating panel would sit over
+   the links beneath it. Let it flow inline instead and indent to show the nesting. */
+@media (max-width: 760px) {
+  .nav__group { display: block; }
+  .nav__panel {
+    position: static; transform: none; width: auto; max-width: none;
+    margin: var(--s-2) 0 var(--s-3) var(--s-4); box-shadow: none;
+    border-top-width: 1px;
+  }
+}

@@ -252,3 +252,69 @@
     });
   }
 })();
+
+/* ---------- nav disclosure panels ------------------------------------------
+   Research and Company each have children that were previously reachable only by
+   landing on the hub and scrolling. The caret beside each opens a panel listing
+   them, so the whole site is visible from one place.
+
+   Follows the WAI-ARIA APG disclosure-navigation pattern, and deliberately does NOT
+   use role="menu"/menuitem: that role promises a keyboard contract (arrow keys,
+   typeahead, focus wrapping) that site navigation does not implement, and claiming
+   it makes screen readers announce a widget that then behaves like plain links.
+   These ARE plain links, so they stay in the normal tab order and in the reader's
+   link list.
+
+   The top-level item next to each caret is still a real link. With JavaScript off
+   this file never runs, the panels stay hidden, and that link still reaches a hub
+   listing the same destinations - the panel accelerates discovery, it is never the
+   only route to anything. The footer carries the full map for the same reason. */
+(function () {
+  var groups = [].slice.call(document.querySelectorAll(".nav__group"));
+  if (!groups.length) return;
+
+  var panels = groups.map(function (g) {
+    return { btn: g.querySelector(".nav__more"), panel: g.querySelector(".nav__panel"), group: g };
+  }).filter(function (p) { return p.btn && p.panel; });
+  if (!panels.length) return;
+
+  function setOpen(entry, open) {
+    entry.btn.setAttribute("aria-expanded", open ? "true" : "false");
+    entry.panel.hidden = !open;
+    entry.group.classList.toggle("is-open", open);
+  }
+  function closeAll(except) {
+    panels.forEach(function (p) { if (p !== except) setOpen(p, false); });
+  }
+
+  panels.forEach(function (entry) {
+    entry.btn.addEventListener("click", function () {
+      var open = entry.btn.getAttribute("aria-expanded") === "true";
+      closeAll(entry);            // one panel at a time - two open panels overlap
+      setOpen(entry, !open);
+    });
+  });
+
+  // Escape closes and returns focus to the button that opened it, per the APG.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    panels.forEach(function (p) {
+      if (p.btn.getAttribute("aria-expanded") === "true") { setOpen(p, false); p.btn.focus(); }
+    });
+  });
+
+  // A click anywhere else dismisses. Pointerdown rather than click so it fires before
+  // a link inside another panel steals the event.
+  document.addEventListener("pointerdown", function (e) {
+    var inside = panels.some(function (p) { return p.group.contains(e.target); });
+    if (!inside) closeAll(null);
+  });
+
+  // Tabbing out of a group closes it: focus leaving the panel is the user moving on,
+  // and a panel left open behind the focus ring covers the page.
+  panels.forEach(function (entry) {
+    entry.group.addEventListener("focusout", function (e) {
+      if (!entry.group.contains(e.relatedTarget)) setOpen(entry, false);
+    });
+  });
+})();

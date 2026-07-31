@@ -26,16 +26,46 @@
            OUT of the top bar; they still live in the footer Product group and are
            reachable by scroll on the homepage, so nothing is lost. App -> the
            App Store launch page (the app shipped 2026-07-09). -->
+      <!-- Top level stays a real LINK; the caret beside it is a separate disclosure
+           button. With JavaScript off the link still reaches the hub, which lists the
+           same destinations - the panel is an accelerator, never the only route.
+           Plain <a> inside, deliberately NOT role="menu"/menuitem: the APG is explicit
+           that site navigation should not claim a role whose keyboard contract (arrow
+           keys, typeahead) it does not implement. -->
       <div class="nav__sections">
         <a class="nav__link" href="/models.html" {{modelscurrent}}>Models</a>
-        <a class="nav__link" href="/research.html" {{researchcurrent}}>Research</a>
+
+        <span class="nav__group">
+          <a class="nav__link" href="/research.html" {{researchcurrent}}>Research</a>
+          <button class="nav__more" type="button" id="navResearchBtn"
+                  aria-expanded="false" aria-controls="navResearchPanel"
+                  aria-label="More under Research">
+            <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true" focusable="false"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <div class="nav__panel" id="navResearchPanel" hidden>
+            <a href="/research.html"><b>Labs</b><span>Programs, proof, and how the work gets published.</span></a>
+            <a href="/research-models.html"><b>Models and status</b><span>Every model, its program status, lineage and evidence.</span></a>
+            <a href="/research-wave-family.html"><b>The Wave family</b><span>One ladder, from microcontroller to workstation.</span></a>
+            <a href="/research-industry.html"><b>Industrial deployment</b><span>Where the box sits in a plant network, and what it never touches.</span></a>
+            <a href="/broadcasts.html"><b>Open Air Waves</b><span>Build stories and measurements, negative results included.</span></a>
+          </div>
+        </span>
+
         <a class="nav__link" href="/voices.html" {{voicescurrent}}>Voices</a>
         <a class="nav__link" href="/app.html" {{appcurrent}}>App</a>
-        <!-- Company is LAST in the group (the usual place for the institutional
-             link) but it is in the BAR, not footer-only: a grant, enterprise, or
-             partnership reviewer looks for "is there a company here" in the top
-             nav and will not scroll a product landing page to find it. -->
-        <a class="nav__link" href="/company.html" {{companycurrent}}>Company</a>
+
+        <span class="nav__group">
+          <a class="nav__link" href="/company.html" {{companycurrent}}>Company</a>
+          <button class="nav__more" type="button" id="navCompanyBtn"
+                  aria-expanded="false" aria-controls="navCompanyPanel"
+                  aria-label="More under Company">
+            <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true" focusable="false"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <div class="nav__panel" id="navCompanyPanel" hidden>
+            <a href="/company.html"><b>About RogerAI</b><span>What the company is, where it is, and how it operates.</span></a>
+            <a href="/careers.html"><b>Careers</b><span>Open roles in research, engineering and industrial deployment.</span></a>
+          </div>
+        </span>
       </div>
 
       <span class="nav__divider" aria-hidden="true"></span>

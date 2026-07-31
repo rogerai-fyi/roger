@@ -26,9 +26,11 @@ const visible = (html) => html.replace(/<!--[\s\S]*?-->/g, "");
 test("Company is a first-class destination in the marketing nav", () => {
   const home = visible(readDist("index.html"));
   const bar = home.match(/<header class="nav[\s\S]*?<\/header>/)[0];
-  const sections = bar.match(/<div class="nav__sections">[\s\S]*?<\/div>/)[0];
-  const hrefs = [...sections.matchAll(/<a\b[^>]*href="([^"]*)"/g)].map((m) => m[1]);
-  assert.ok(hrefs.includes("/company.html"), "top bar links to the company page");
+  // Ask the BAR, not a non-greedy slice of it: the sections group now nests a
+  // disclosure panel, and matching to the first </div> stops inside that panel -
+  // silently excluding every item after it, Company included.
+  const barLinks = [...bar.matchAll(/<a\b[^>]*class="nav__link[^"]*"[^>]*href="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(barLinks.includes("/company.html"), "top bar links to the company page");
 
   // and the homepage Company section hands off to the full page
   const section = home.match(/<section\b[^>]*id="company"[\s\S]*?<\/section>/)[0];
