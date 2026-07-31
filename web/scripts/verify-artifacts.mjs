@@ -127,8 +127,20 @@ async function main() {
 
   const advertised = collect();
   if (advertised.size === 0) {
-    console.log("verify-artifacts: no RogerAI-owned artifact links found in dist/");
-    return 0;
+    // Finding nothing to check is NOT a pass. If a refactor, a selector change or an
+    // empty dist tree stops this script seeing artifact links, the honest report is
+    // "I checked nothing", and any independent failure - the go-import tag - still
+    // decides the exit code. A gate that goes green because it parsed nothing is
+    // worse than no gate: it converts silence into false assurance, which is the
+    // exact class of failure this script was written to catch.
+    console.error(
+      "verify-artifacts: no RogerAI-owned artifact links found in dist/ - " +
+        "either the site advertises none, or this check stopped seeing them."
+    );
+    if (!goImport.ok) {
+      console.error(`\nverify-artifacts: ${GO_GET_URL} is not serving the go-import tag (${goImport.why}).\n`);
+    }
+    return goImport.ok ? 0 : 1;
   }
 
   const urls = [...advertised.keys()].sort();

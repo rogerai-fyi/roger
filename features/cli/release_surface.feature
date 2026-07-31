@@ -29,8 +29,8 @@ Feature: The Roger CLI presents one clean release surface
     And the top-level error renderer has only one error to print
 
   Scenario: Manual release metadata stays synchronized
-    Given the CLI version is "5.4.8"
-    Then both manual version attributes equal "v5.4.8"
-    And the newest changelog entry is "v5.4.8"
+    Given the CLI version is "5.4.9"
+    Then both manual version attributes equal "v5.4.9"
+    And the newest changelog entry is "v5.4.9"
     And the command table includes "roger resume"
     And the manual documents smart drag-copy and the native-selection toggle
