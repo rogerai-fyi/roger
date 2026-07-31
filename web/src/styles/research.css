@@ -82,7 +82,6 @@
 .research-card h3 { margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-h3); }
 .research-card p { color: var(--ink-500); line-height: var(--lh-body); }
 .status { display: inline-flex; border: 1px solid var(--hairline-2); padding: 3px 7px; color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro); letter-spacing: .05em; text-transform: uppercase; }
-.status--available { color: var(--live); border-color: var(--live); background: var(--live-tint); }
 .research-parent { font-size: var(--t-sm); }
 .research-card dl { margin: auto 0 0; padding-top: var(--s-5); border-top: 1px solid var(--hairline); }
 .research-card dl div { display: grid; grid-template-columns: 80px 1fr; gap: var(--s-3); padding-block: var(--s-3); border-bottom: 1px solid var(--hairline); }
