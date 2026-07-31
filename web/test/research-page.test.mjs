@@ -68,29 +68,53 @@ test("the model list gives every program a reason and honest status", () => {
   assert.doesNotMatch(page, /wave-micro-350m-instruct/i);
 });
 
-test("the model ladder is visually sorted by increasing parameter class", () => {
+test("the model ladder is a true logarithmic scale, sorted by parameter class", () => {
   const page = surface();
   const css = read("styles/research.css");
-  const spectrum = page.match(/<figure class="size-spectrum"[\s\S]*?<\/figure>/)?.[0];
-  assert.ok(spectrum, "size spectrum exists");
+  const ladder = page.match(/<figure class="ladder"[\s\S]*?<\/figure>/)?.[0];
+  assert.ok(ladder, "the Wave ladder exists");
+
   const order = ["Roger Edge", "Wave Nano", "Wave Micro", "Wave Core"];
   let cursor = -1;
   for (const name of order) {
-    const next = spectrum.indexOf(name);
+    const next = ladder.indexOf(name);
     assert.ok(next > cursor, `${name} follows the smaller tier`);
     cursor = next;
   }
-  for (const size of ["KB–10M", "&lt;100M", "~350M", "1B-class"]) {
-    assert.match(spectrum, new RegExp(size));
+
+  // Position must MEAN something. Each rung declares --from/--to as
+  // (log10(params) - 4) / 5.5, so the spans must increase monotonically and stay
+  // inside the axis. The previous bars used decorative percentages that implied a
+  // proportion the five-order-of-magnitude family does not have.
+  const spans = [...ladder.matchAll(/--from:([\d.]+)%;--to:([\d.]+)%/g)]
+    .map((m) => [parseFloat(m[1]), parseFloat(m[2])]);
+  assert.equal(spans.length, order.length, "every rung carries log coordinates");
+  let prevTo = -1;
+  for (const [from, to] of spans) {
+    assert.ok(from < to, `a rung spans forward (${from} -> ${to})`);
+    assert.ok(from >= prevTo, "rungs do not overlap or regress");
+    assert.ok(to <= 100, "the rung stays on the axis");
+    prevTo = to;
   }
+
+  // Decade ticks label the scale, otherwise the positions are unreadable.
+  const axis = ladder.match(/<div class="ladder__axis"[\s\S]*?<\/div>/)?.[0] || "";
+  for (const tick of ["10K", "100K", "1M", "10M", "100M", "1B"]) {
+    assert.ok(axis.includes(tick), `axis is labelled at ${tick}`);
+  }
+
   assert.match(page, /RogerAI-designed open model program/i);
   assert.match(page, /release gate|no checkpoint/i, "the ladder states program status, not availability");
-  assert.match(surfaceText(), /Roger Edge.*(?:task|microcontroller)/i);
+  // Declared targets, never measurements - none of these has a released checkpoint.
+  assert.match(ladder, /declared design targets, not measurements/i);
+  assert.doesNotMatch(ladder, /\b\d+(\.\d+)?\s?(GB|MB|tok\/s|ms)\b/, "no invented footprint or speed");
+
   assert.doesNotMatch(page, /Wave Edge/i);
-  for (const selector of [".size-spectrum", ".size-spectrum__bar", ".model-group-head"]) {
+  for (const selector of [".ladder", ".ladder__bar", ".model-group-head"]) {
     assert.match(css, new RegExp(selector.replace(".", "\\.")), `${selector} is styled`);
   }
-  assert.match(css, /@media \(max-width: 560px\)[\s\S]*size-spectrum/i);
+  // The drawn state is the DEFAULT; the reveal only ever removes it.
+  assert.match(css, /prefers-reduced-motion[\s\S]*ladder__bar/i, "the wipe is reduced-motion safe");
 });
 
 test("model identity follows family size variant conventions", () => {

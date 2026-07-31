@@ -55,36 +55,56 @@
              source before weights, code, license, and reproducibility record are released.</p>
         </div>
 
-        <figure class="size-spectrum" aria-labelledby="size-spectrum-title size-spectrum-caption">
-          <div class="size-spectrum__head">
+        <!-- The ladder is a TRUE log scale: every rung's left and right edge is
+             (log10(params) - 4) / 5.5, so a span's position and width mean something.
+             The previous version used decorative --reach percentages (18/42/68/100),
+             which implied a proportion that was not real - the family covers five
+             orders of magnitude and a linear bar cannot show that honestly.
+             Ranges are DECLARED DESIGN TARGETS, not measurements; none of these has a
+             released checkpoint, so no memory or speed figure appears here. -->
+        <figure class="ladder" aria-labelledby="size-spectrum-title size-spectrum-caption">
+          <div class="ladder__head">
             <span id="size-spectrum-title">WAVE SIZE SPECTRUM</span>
-            <span>smaller footprint <span aria-hidden="true">→</span> broader capability</span>
+            <span>parameter class, logarithmic <span aria-hidden="true">&rarr;</span></span>
           </div>
-          <ol>
-            <li style="--reach:18%">
-              <span class="size-spectrum__bar"></span>
+
+          <ol class="ladder__rungs">
+            <li style="--from:0%;--to:54.5%;--i:0">
+              <span class="ladder__bar" aria-hidden="true"></span>
               <b>Roger Edge</b>
-              <small>KB–10M · fixed tasks</small>
+              <small>10K&ndash;10M &middot; microcontrollers &middot; fixed tasks</small>
+              <span class="ladder__status">In design</span>
             </li>
-            <li style="--reach:42%">
-              <span class="size-spectrum__bar"></span>
+            <li style="--from:54.5%;--to:72.7%;--i:1">
+              <span class="ladder__bar" aria-hidden="true"></span>
               <b>Wave Nano</b>
-              <small>&lt;100M · specialists</small>
+              <small>10M&ndash;100M &middot; ARM and NPU &middot; specialists</small>
+              <span class="ladder__status">In design</span>
             </li>
-            <li style="--reach:68%">
-              <span class="size-spectrum__bar"></span>
+            <li style="--from:78.2%;--to:85.4%;--i:2">
+              <span class="ladder__bar" aria-hidden="true"></span>
               <b>Wave Micro</b>
-              <small>~350M · text + tools</small>
+              <small>~350M &middot; Pi, phone, edge &middot; text + tools</small>
+              <span class="ladder__status ladder__status--live">In progress</span>
             </li>
-            <li style="--reach:100%">
-              <span class="size-spectrum__bar"></span>
+            <li style="--from:88.1%;--to:96.4%;--i:3">
+              <span class="ladder__bar" aria-hidden="true"></span>
               <b>Wave Core</b>
-              <small>1B-class · local reasoning</small>
+              <small>1B-class &middot; laptop and workstation &middot; local reasoning</small>
+              <span class="ladder__status">In design</span>
             </li>
           </ol>
-          <figcaption id="size-spectrum-caption">Parameter classes in increasing order.
-            Every RogerAI-designed class remains a research or design program until its own
-            release gate passes. None has released a checkpoint.</figcaption>
+
+          <div class="ladder__axis" aria-hidden="true">
+            <span style="--at:0%">10K</span><span style="--at:18.2%">100K</span>
+            <span style="--at:36.4%">1M</span><span style="--at:54.5%">10M</span>
+            <span style="--at:72.7%">100M</span><span style="--at:90.9%">1B</span>
+          </div>
+
+          <figcaption id="size-spectrum-caption">Parameter classes on a logarithmic axis.
+            Ranges are declared design targets, not measurements. Every RogerAI-designed
+            class remains a research or design program until its own release gate passes.
+            None has released a checkpoint.</figcaption>
         </figure>
 
 
@@ -236,6 +256,7 @@
   </main>
 
   <!-- include: footer.html anchors=/ -->
+  <script src="js/ladder.js" defer></script>
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
   <script src="js/promo.js" defer></script>
