@@ -92,7 +92,9 @@
             <span id="scope-title">WAVE SIZE SPECTRUM</span>
             <div class="scope__modes" role="group" aria-label="What the bearing axis shows">
               <button type="button" class="scope__mode" data-mode="variations" aria-pressed="true">Capability</button>
-              <button type="button" class="scope__mode" data-mode="jobs" aria-pressed="false">Plant jobs</button>
+              <!-- The button names the MODE ("Industrial"); the axis line and the legend name the
+                   unit it is drawn in ("plant job"), which is also what data-mode="jobs" refers to. -->
+              <button type="button" class="scope__mode" data-mode="jobs" aria-pressed="false">Industrial</button>
             </div>
           </div>
           <p class="scope__axis">
@@ -334,6 +336,17 @@
             <b>Industrial deployment</b>
             <span>The six markets, where the box sits in the plant network, and the
               standards an OT reviewer checks for before anything else.</span>
+          </a>
+          <a href="/research-industry.html#envelope">
+            <b>The physical envelope</b>
+            <span>Why the tiers are what certification allows rather than what we
+              preferred: surface temperature, the watt ceiling inside a hazardous zone,
+              and the solar budget at a remote site.</span>
+          </a>
+          <a href="/research-wave-family.html#jobs">
+            <b>Which slot for which job</b>
+            <span>Eighteen plant jobs, the smallest slot that can carry each one, and
+              why the work stays on site rather than leaving it.</span>
           </a>
         </div>
       </div>
