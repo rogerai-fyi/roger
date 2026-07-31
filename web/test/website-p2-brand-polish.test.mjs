@@ -45,13 +45,16 @@ test("homepage puts Wave Labs proof before the install action without adding a h
     "short desktop viewports compact hero spacing around the first action");
 });
 
-test("homepage, company preview, and research hero use the canonical Tube Ping partial", () => {
-  const rows = ["   ▄███████▄", "(  █   •   █▓  )", "   █  ROG  █▓", "    ▀█▄▄▄█▀▒", "     ▀   ▀"];
+test("homepage, company preview, and research hero share the one vector mascot partial", () => {
   for (const [page, minimum] of [["index.html", 2], ["research.html", 1]]) {
-    const plain = visible(read(page));
-    assert.ok((read(page).match(/class="tube-ping(?:\s|")/g) || []).length >= minimum, `${page} includes Tube Ping`);
-    for (const row of rows) assert.ok(read(page).replace(/<[^>]+>/g, "").includes(row), `${page} preserves ${row}`);
-    assert.match(plain, /Tube Ping/i);
+    const html = read(page);
+    assert.ok((html.match(/class="tube-ping(?:\s|")/g) || []).length >= minimum, `${page} includes the mascot`);
+    assert.equal(
+      (html.match(/<svg class="tube-ping__mark"/g) || []).length,
+      (html.match(/class="tube-ping"/g) || []).length,
+      `${page} renders every mascot as a vector`
+    );
+    assert.match(visible(html), /Ping/i);
   }
 });
 

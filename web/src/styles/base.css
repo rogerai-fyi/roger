@@ -144,6 +144,32 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
   padding-bottom: var(--s-5);
   border-bottom: 1px solid var(--hairline);
 }
+/* The VECTOR mascot (web/iOS/macOS). The ASCII sprite below it is the terminal
+   form and is kept only for surfaces that genuinely cannot draw curves. */
+.tube-ping__mark {
+  display: block;
+  width: clamp(44px, 5vw, 62px);
+  height: auto;
+  color: var(--ink-900);
+}
+.ping-mark { animation: ping-bob 3.6s ease-in-out infinite; transform-origin: 32px 64px; }
+@keyframes ping-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+.ping-mark__glow { animation: ping-pulse 2s ease-in-out infinite; transform-origin: 32px 22px; }
+@keyframes ping-pulse { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
+.ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 22px; }
+@keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
+.ping-mark__wave { transform-origin: 32px 22px; animation: ping-wave 2.4s ease-out infinite; }
+.ping-mark__wave--b { animation-delay: 1.2s; }
+@keyframes ping-wave {
+  0% { opacity: 0; transform: scale(.65); }
+  30% { opacity: .7; }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ping-mark, .ping-mark__glow, .ping-mark__eye, .ping-mark__wave { animation: none; }
+  .ping-mark__wave { opacity: .35; }
+}
+
 .tube-ping__sprite {
   margin: 0;
   color: var(--ink-900);
