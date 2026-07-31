@@ -13,7 +13,7 @@
   var scopes = document.querySelectorAll(".scope");
   if (!scopes.length) return;
 
-  // Reduced motion: leave the ladder drawn and never touch it again.
+  // Reduced motion: leave the family drawn and never touch it again.
   var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)");
   if (still && still.matches) return;
 

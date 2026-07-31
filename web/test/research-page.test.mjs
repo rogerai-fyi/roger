@@ -186,7 +186,7 @@ test("only released artifacts present download controls", () => {
   const page = read("research-models.html");
   assert.match(page, /href="https:\/\/huggingface\.co\/rogerai-fyi\/DeepSeek-V4-Flash-MTP-GGUF"/);
   // Exactly one download control: the DeepSeek research build, which is public.
-  // Wave rungs have nothing to download, so they present none.
+  // Wave slots have nothing to download, so they present none.
   assert.equal((page.match(/class="model-download"/g) || []).length, 1);
   assert.doesNotMatch(page, /coming soon/i);
   assert.doesNotMatch(page, /aria-disabled="true"/);
