@@ -187,3 +187,18 @@ test("shrinking the prose does not drop a caveat", () => {
   assert.match(copy, /Kimi-K3/);
   assert.match(copy, /temperature 0/i);
 });
+
+// The promo strip advertised "next 1000 new accounts". The cap is real, but a visible
+// counter reads as pressure, dates the offer, and would have to be kept true as the seed
+// is used up. The offer stays; the countdown does not.
+test("the promo strip offers the credit without advertising a remaining count", () => {
+  const strip = read("index.html").match(/<aside class="promo"[\s\S]*?<\/aside>/)?.[0];
+  assert.ok(strip, "the promo strip renders");
+  const copy = visible(strip);
+  assert.match(copy, /\$1/, "the offer itself survives");
+  assert.match(copy, /free credit/i);
+  assert.doesNotMatch(copy, /\b1000\b|new accounts/i, "no remaining-count claim");
+  // The separator span existed only to divide the two clauses; it must not be orphaned.
+  const css = readFileSync(path.join(WEB, "src", "styles", "base.css"), "utf8");
+  assert.doesNotMatch(css, /\.promo__sep/, "the separator's CSS went with the clause it divided");
+});
