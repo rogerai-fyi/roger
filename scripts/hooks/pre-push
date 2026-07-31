@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# CANONICAL SOURCE for the repo-local pre-push gate. Install with `make hooks`, which
+# copies this to .git/hooks/pre-push.
+#
+# It lives here because .git/hooks is not version controlled: before this file existed
+# the gate ran on exactly one machine, and a fresh clone - or anybody else - pushed
+# with no gate at all while the repo looked like it had one.
+#
+# Note the invocation chain: core.hooksPath points at a global claude-audit hook, which
+# execs "$GIT_DIR/hooks/pre-push" first and exits on its status. So this runs BEFORE the
+# audit, and a failure here means the audit never spends time on a push that is already
+# broken.
+#
+# Repo-local pre-push: the coverage GATE runs here, BEFORE the global claude-audit
+# hook (which chains to this repo-local hook first and exits on its non-zero status).
+# Spec-first TDD: a push that regresses coverage or leaves a package untested is blocked.
+# Bypass (rare, e.g. docs-only / emergency): COVER_GATE_SKIP=1 git push
+#
+# The push range is classified on TWO INDEPENDENT axes:
+#
+#   any .go  -> `make cover-gate` (full Postgres coverage run)
+#               else `make cover-gate-fast` (build + vet + web build + version sync)
+#   any web/ -> `make web-gate` ON TOP (npm suite + built-link crawl)
+#
+# The web axis is new, and it fixes an inversion. cover-gate-fast never ran npm test
+# and never crawled the built links, so a WEB-ONLY push - the one most likely to break
+# the website - got the LEAST web verification, while the web suite only ran when some
+# unrelated .go file happened to ride along in the same push. The axes are independent
+# because a change can be either, both, or neither.
+#
+# Every unknown fails CLOSED: an unknown base, a git error, or reading no refs at all
+# turns BOTH axes on and runs everything. A gate that guesses "probably fine" is not a
+# gate - that is how a release claim pointing at a 401 shipped past 155 green tests.
+set -euo pipefail
+[ "${COVER_GATE_SKIP:-0}" = "1" ] && { echo "[pre-push] gates SKIPPED (COVER_GATE_SKIP=1)" >&2; exit 0; }
+
+any_go=0
+any_web=0
+unknown=0
+saw_ref=0
+saw_delete=0
+
+# stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _lref lsha _rref rsha; do
+	[ -z "${lsha:-}" ] && continue
+	# All-zero local sha = a branch DELETE. It adds no code, so there is nothing to
+	# gate; tracked separately so a delete-only push exits instead of falling through
+	# to saw_ref=0, which would fail closed and run the full Postgres gate to remove a
+	# branch.
+	case "$lsha" in *[!0]*) : ;; *) saw_delete=1; continue ;; esac
+	saw_ref=1
+	case "$rsha" in
+		*[!0]*) range="$rsha..$lsha" ;;                          # normal update: remote..local
+		*) base="$(git merge-base origin/main "$lsha" 2>/dev/null || true)"   # new ref: diff vs origin/main
+		   if [ -n "$base" ]; then range="$base..$lsha"; else unknown=1; break; fi ;;
+	esac
+	if ! changed="$(git diff --name-only "$range" 2>/dev/null)"; then unknown=1; break; fi
+	# ACCUMULATE across refs - one push can carry several, and any ref needing a gate
+	# means the whole push needs it. No early break: breaking on the first .go would
+	# discard the web signal from the refs not yet examined.
+	if printf '%s\n' "$changed" | grep -q '\.go$'; then any_go=1; fi
+	if printf '%s\n' "$changed" | grep -q '^web/'; then any_web=1; fi
+done
+
+# Deletes only: nothing is being added, so nothing needs proving.
+if [ "$saw_ref" = "0" ] && [ "$saw_delete" = "1" ]; then
+	echo "[pre-push] branch delete only -> no gates" >&2
+	exit 0
+fi
+[ "$saw_ref" = "0" ] && unknown=1                               # read nothing -> run everything
+if [ "$unknown" = "1" ]; then any_go=1; any_web=1; fi
+
+if [ "$any_go" = "1" ]; then
+	echo "[pre-push] .go in range -> FULL coverage gate (bypass: COVER_GATE_SKIP=1 git push)" >&2
+	make cover-gate
+else
+	echo "[pre-push] no .go in range -> fast gate" >&2
+	make cover-gate-fast
+fi
+
+# Independent of the Go axis: if web/ moved, the web suite and the link crawl run.
+if [ "$any_web" = "1" ]; then
+	echo "[pre-push] web/ in range -> web gate (npm suite + built-link crawl)" >&2
+	make web-gate
+fi
