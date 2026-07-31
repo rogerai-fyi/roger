@@ -79,7 +79,7 @@
 
 .wf-inf__loop {
   list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .wf-inf__loop li {
   min-width: 0; padding: var(--s-5);
@@ -97,12 +97,16 @@
   color: var(--ink-500); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .06em; text-transform: uppercase;
 }
-/* Built is marked by the word AND the outline, never by colour alone. */
-.wf-inf__loop li[data-state="built"] .wf-inf__state { border-color: var(--ink-900); color: var(--ink-900); }
-.wf-inf__loop li[data-state="unbuilt"] b { color: var(--ink-500); }
-/* The guard is the way OUT of the loop, so it is the one step drawn in red. */
-.wf-inf__guard { border-left: 2px solid var(--live); }
-.wf-inf__guard b { color: var(--live) !important; }
+/* State is carried by the word AND the outline, never by colour alone. The unrun layer
+   is dashed rather than coloured: red would read as emphasis, and the one thing this
+   layer must not look like is the finished part. */
+.wf-inf__loop li[data-state="built"] .wf-inf__state,
+.wf-inf__loop li[data-state="measured"] .wf-inf__state {
+  border-color: var(--ink-900); color: var(--ink-900);
+}
+.wf-inf__loop li[data-state="unrun"] { background: var(--paper-2); }
+.wf-inf__loop li[data-state="unrun"] b { color: var(--ink-500); }
+.wf-inf__loop li[data-state="unrun"] .wf-inf__state { border-style: dashed; }
 .wf-inf__loop small { display: block; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .wf-inf figcaption {
   padding: var(--s-5) var(--s-6); border-top: 1px solid var(--hairline);
@@ -132,10 +136,9 @@
   }
 }
 @media (max-width: 860px) {
-  .wf-inf__loop { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .wf-inf__loop li:nth-child(2) { border-right: 0; }
-  .wf-inf__loop li:nth-child(-n+2) { border-bottom: 1px solid var(--hairline); }
-  .wf-inf__ledger { grid-template-columns: 1fr; }
+  .wf-inf__loop { grid-template-columns: 1fr; }
+  .wf-inf__loop li { border-right: 0; border-bottom: 1px solid var(--hairline); }
+  .wf-inf__loop li:last-child { border-bottom: 0; }
 }
 @media (max-width: 560px) {
   .wf-inf__loop { grid-template-columns: 1fr; }
@@ -150,3 +153,34 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 .wf-inf__requires b { color: var(--ink-900); }
+
+/* The measured hook, then the two-column ledger. Proven and not-proven are given the
+   same weight on purpose: publishing the second list is the point, not a disclaimer. */
+.wf-inf__punch {
+  display: block; margin-top: var(--s-4);
+  color: var(--live); font-size: var(--t-h3); line-height: var(--lh-tight);
+}
+.wf-inf__proof {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--s-8); padding-top: var(--s-6);
+}
+.wf-inf__proven dl { margin: var(--s-4) 0 0; }
+.wf-inf__proven dl div {
+  display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: var(--s-4); padding-block: var(--s-4);
+  border-top: 1px solid var(--hairline);
+}
+.wf-inf__proven dt { color: var(--ink-900); font-size: var(--t-sm); font-weight: var(--weight-semi); }
+.wf-inf__proven dd { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wf-inf__proven dd b { color: var(--live); font-family: var(--font-mono); }
+.wf-inf__unproven p { margin: var(--s-4) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+.wf-inf__unproven b { color: var(--ink-900); }
+@media (max-width: 860px) {
+  .wf-inf__proof { grid-template-columns: 1fr; gap: var(--s-6); }
+  .wf-inf__proven dl div { grid-template-columns: 1fr; gap: var(--s-2); }
+}
+.wf-inf__provenance {
+  margin: var(--s-4) 0 0; color: var(--ink-400);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .04em; line-height: var(--lh-body);
+}

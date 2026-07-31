@@ -202,3 +202,17 @@ test("the promo strip offers the credit without advertising a remaining count", 
   const css = readFileSync(path.join(WEB, "src", "styles", "base.css"), "utf8");
   assert.doesNotMatch(css, /\.promo__sep/, "the separator's CSS went with the clause it divided");
 });
+
+// A reader asked whether 0/10 was good or bad, which is the page's fault: the cell said
+// "never reached an answer" without saying that means NO answer rather than ten wrong
+// ones. In a plant those are different events, and the difference is the whole safety
+// argument for shipping a small model at all.
+test("the zero is explained as a non-answer, not ten wrong answers", () => {
+  const copy = visible(capability());
+  assert.match(copy, /no answer at all|not ten wrong/i,
+    "the cell distinguishes not-answering from answering wrongly");
+  assert.match(copy, /invents|confident|dangerous/i, "and says why that distinction matters");
+  assert.match(copy, /Guard/, "which is what Guard exists for");
+  // The scope caveat must still say what the measurement does NOT cover.
+  assert.match(copy, /not whether it is right/i);
+});
