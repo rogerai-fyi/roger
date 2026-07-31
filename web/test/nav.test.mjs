@@ -344,3 +344,19 @@ test("a group whose panel holds the current page shows as active in the bar", ()
   assert.match(css, /\.nav__group:has\([^)]*aria-current="page"[^)]*\)/,
     "the active cue for a group with a current child is carried in CSS, not the a11y tree");
 });
+
+// Broadcasts is both the lab notebook and the company's public writing, so it earns a
+// place in both panels rather than being filed under one and hidden from the other.
+// Panels are an accelerator, not a taxonomy - the same destination may appear twice.
+test("Broadcasts is reachable from Company as well as Research", () => {
+  const bar = topbar(readDist("index.html"));
+  const panel = (id) => bar.match(new RegExp(`<div class="nav__panel" id="${id}"[\\s\\S]*?</div>\\s*</span>`))?.[0] || "";
+  for (const id of ["navResearchPanel", "navCompanyPanel"]) {
+    assert.match(panel(id), /href="\/broadcasts\.html"/, `${id} offers the broadcasts`);
+  }
+  // Each panel entry still needs its own label and one-line description.
+  const company = panel("navCompanyPanel");
+  const entry = company.match(/<a href="\/broadcasts\.html"[^>]*>([\s\S]*?)<\/a>/)?.[1] || "";
+  assert.match(entry, /<b>[^<]+<\/b>/, "the entry is named");
+  assert.match(entry, /<span>[^<]+<\/span>/, "and says what it is");
+});
