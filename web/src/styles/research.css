@@ -304,7 +304,7 @@
 }
 .scope__ticks text {
   fill: var(--ink-400); font-family: var(--font-mono); font-size: 11px;
-  dominant-baseline: middle;
+  dominant-baseline: middle; text-anchor: end;
 }
 .scope__origin { fill: var(--ink-400); }
 
@@ -314,8 +314,8 @@
    its own bearing: a line from its inner to its outer radius with a blip at the outer
    edge. Radius still carries all the information; bearing only separates the contacts
    so their labels do not collide, which the caption states. */
-.scope__gate { stroke: var(--ink-400); stroke-width: 3; stroke-linecap: round; }
-.scope__blip { fill: var(--ink-500); }
+.scope__gate { stroke: var(--ink-700); stroke-width: 3.5; stroke-linecap: round; }
+.scope__blip { fill: var(--ink-900); }
 .scope__contact--live .scope__gate { stroke: var(--live); }
 .scope__contact--live .scope__blip { fill: var(--live); }
 .scope__gate--live .scope__gate { stroke: var(--live); }
