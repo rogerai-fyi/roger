@@ -210,6 +210,16 @@
               <tr><th scope="row">Procedure and drawing questions</th><td class="tier-cell">Micro + Core</td><td>Question and local corpus to grounded answer</td><td>Documents never leave the plant</td></tr>
               <tr><th scope="row">Incident, permit, and handover notes</th><td class="tier-cell">Core</td><td>Notes to structured report and summary</td><td>Privacy, audit trail, disconnected network</td></tr>
               <tr><th scope="row">Inspection and root cause</th><td class="tier-cell">Micro to Core</td><td>Image and line data to defect call with reason</td><td>Line-rate latency</td></tr>
+              <tr><th scope="row">Gloves-on voice control</th><td class="tier-cell">Edge to Nano</td><td>Spoken command in plant noise to a confirmed action request</td><td>Hands and eyes are busy, and the area may be hazardous</td></tr>
+              <tr><th scope="row">Radio and intercom transcription</th><td class="tier-cell">Nano to Micro</td><td>Channel audio to a searchable shift log</td><td>Continuous audio, no bandwidth to ship it</td></tr>
+              <tr><th scope="row">Gauge and panel reading</th><td class="tier-cell">Micro</td><td>Photograph of a dial or screen to a numeric reading</td><td>Legacy assets with no digital output</td></tr>
+              <tr><th scope="row">Cause codes from technician notes</th><td class="tier-cell">Nano to Micro</td><td>Free-text repair note to a standard failure code</td><td>Notes stay on site; codes feed the local historian</td></tr>
+              <tr><th scope="row">Spare-part and BOM lookup</th><td class="tier-cell">Nano + Micro</td><td>Part described in words to a catalogue number</td><td>The catalogue is local and the site is disconnected</td></tr>
+              <tr><th scope="row">Procedure step-out detection</th><td class="tier-cell">Micro</td><td>Executed steps against the written procedure to a deviation flag</td><td>Controlled procedures never leave the plant</td></tr>
+              <tr><th scope="row">Sensor drift and calibration triage</th><td class="tier-cell">Nano to Core</td><td>Instrument trend to suspected drift and its likely cause</td><td>Continuous data, thin link, fast turnaround</td></tr>
+              <tr><th scope="row">Shift handover summary</th><td class="tier-cell">Micro to Core</td><td>A shift of logs and alarms to what the next crew must know</td><td>Personnel and incident detail stays on site</td></tr>
+              <tr><th scope="row">Emissions and regulatory reporting</th><td class="tier-cell">Core</td><td>Field findings to a submission-ready record</td><td>Audit trail, and the site is disconnected</td></tr>
+              <tr><th scope="row">Weld and assembly inspection</th><td class="tier-cell">Micro to Core</td><td>Line image to accept or reject, with the defect named</td><td>Line-rate latency; images never leave the cell</td></tr>
             </tbody>
           </table>
         </div>

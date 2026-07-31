@@ -256,9 +256,12 @@ test("company handoff resolves to concise industry deployment patterns", () => {
     /manufacturing/i,
     /aerospace/i,
   ]) assert.match(page, market);
-  assert.match(page, /deployment patterns, not customer case studies/i);
-  assert.match(page, /advisory/i);
-  assert.match(page, /closed-loop control/i);
+  // The wording moved (the old headline named no constraint), but the two claims it
+  // carried must survive any rewrite: these are patterns rather than customers, and the
+  // model advises without entering the control loop. wave-family.test.mjs pins the rest.
+  assert.match(page, /patterns we design for|not deployments we are claiming|not customer/i);
+  assert.match(page, /advis/i);
+  assert.match(page, /control loop|closed-loop control/i);
 });
 
 // An industrial buyer and a grant reviewer both check the same thing first: does
