@@ -671,7 +671,6 @@
   border-color: var(--live);
   background: var(--live);
 }
-.status--available { color: var(--live); }
 
 .home-spectrum {
   display: grid;
@@ -698,11 +697,6 @@
   font-size: var(--t-micro);
 }
 .home-spectrum b { color: var(--ink-900); font-size: var(--t-sm); }
-.home-spectrum .is-available {
-  background: var(--live-tint);
-  box-shadow: inset 0 2px 0 var(--live);
-}
-.home-spectrum .is-available > span { color: var(--live); }
 .home-spectrum__more {
   align-items: center;
   border-right: 0 !important;
