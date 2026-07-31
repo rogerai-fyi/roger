@@ -1,4 +1,4 @@
-# ROGERAI CAREERS — hiring surface for a lab that has to be believed first.
+# ROGERAI CAREERS - hiring surface for a lab that has to be believed first.
 #
 # RogerAI has no careers page. "Join us" appears nowhere, so an engineer who
 # reads the Research page and wants in has no next step, and a grant or

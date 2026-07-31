@@ -93,7 +93,7 @@ test("the company page routes real enquiries and names the legal entity source",
   // ship a press@ / hello@ address before the alias exists - a dead contact on the
   // credibility page is worse than one fewer contact.
   const boxes = [...page.matchAll(/mailto:([a-z]+)@rogerai\.fm/g)].map((m) => m[1]);
-  const ROUTES = ["abuse", "billing", "careers", "confidential", "labs", "legal", "privacy", "security"];
+  const ROUTES = ["abuse", "billing", "confidential", "labs", "legal", "privacy", "security"];
   for (const b of boxes) assert.ok(ROUTES.includes(b), `mailto:${b}@ is a mailbox that exists`);
   assert.match(page, /href="\/tos\.html"/, "terms name the governing entity");
 });
