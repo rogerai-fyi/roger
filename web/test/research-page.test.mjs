@@ -259,7 +259,9 @@ test("company handoff resolves to concise industry deployment patterns", () => {
   // The wording moved (the old headline named no constraint), but the two claims it
   // carried must survive any rewrite: these are patterns rather than customers, and the
   // model advises without entering the control loop. wave-family.test.mjs pins the rest.
-  assert.match(page, /patterns we design for|not deployments we are claiming|not customer/i);
+  assert.match(page, /NDA|not named here|not customer/i);
+  assert.doesNotMatch(page, /customers (it|we) do(es)? not have|no customers/i,
+    "confidential is not the same as nonexistent");
   assert.match(page, /advis/i);
   assert.match(page, /control loop|closed-loop control/i);
 });

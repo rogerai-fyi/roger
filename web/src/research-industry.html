@@ -40,8 +40,9 @@
           <p>Segmented networks, hazardous areas and links too thin to stream sensor data
              are what stop a cloud model from being an option here. That is the whole
              reason a local model fits: the constraint that blocks everyone else is the
-             one we build for. These are patterns we design for, not deployments we are
-             claiming. In every one the model advises a person and stays outside the
+             one we build for. These are the deployment shapes we build for; the
+             engagements behind them are under NDA and are not named here. In every one
+             the model advises a person and stays outside the
              control loop: it never actuates equipment, and it is never part of a
              protection or safety path.</p>
         </div>
@@ -76,11 +77,26 @@
               <text class="purdue__sub" x="432" y="127">local model &#183; advisory</text>
             </g>
 
+            <!-- Roger Edge is NOT the L3 box moved downward. It is a different kind of
+                 thing: a 100 KB - 2 MB classifier on its own battery-powered sensor node,
+                 not a language model at all. It sits beside the instrumentation because
+                 that is where its sensor is. It sits at L0 the way the Wave box sits at
+                 L3, but it is NOT in the control path: it carries its own sensor and is
+                 wired to nothing in the PLC. It emits events and escalates upward
+                 whatever it cannot classify, which is the dashed line. -->
+            <g class="purdue__edge">
+              <rect x="330" y="236" width="205" height="34" rx="2"/>
+              <text x="432" y="252">ROGER EDGE</text>
+              <text class="purdue__sub" x="432" y="265">detects &#183; its own sensor node</text>
+            </g>
+
             <g class="purdue__flow" aria-hidden="true">
               <path class="purdue__read" d="M432 152 V138"/>
               <path class="purdue__out" d="M535 114 H568 V63 H550"/>
+              <path class="purdue__esc" d="M310 253 H300 V114 H326"/>
               <text class="purdue__tag" x="600" y="60">outbound only</text>
               <text class="purdue__tag" x="470" y="150">reads</text>
+              <text class="purdue__tag purdue__tag--esc" x="296" y="186">escalates</text>
             </g>
 
             <g class="purdue__sis">
@@ -90,11 +106,17 @@
               <text class="purdue__sub purdue__never" x="633" y="256">never touched</text>
             </g>
           </svg>
-          <figcaption id="purdue-caption">RogerAI runs at Level 3, beside the historian and
-            MES, reading plant data and answering questions about it. It initiates outbound
-            through the DMZ and exposes no inbound listener below it. It writes nothing to
-            supervisory or basic control, and the safety-instrumented system is outside its
-            reach entirely - protection and interlocks stay deterministic.</figcaption>
+          <figcaption id="purdue-caption">Two boxes, at two levels, doing two different
+            jobs. The Wave model runs at Level 3, beside the historian and MES, reading
+            plant data and answering questions about it. It initiates outbound through the
+            DMZ and exposes no inbound listener below it. It writes nothing to supervisory
+            or basic control, and the safety-instrumented system is outside its reach
+            entirely - protection and interlocks stay deterministic.
+            Roger Edge sits down at the process, because that is where its sensor is. It is
+            not a language model: it is a classifier of a few hundred kilobytes on its own
+            battery-powered node, wired to nothing in the control system. It detects, emits
+            an event with a confidence, and escalates upward whatever it cannot classify.
+            Roger Edge detects; Wave reasons.</figcaption>
         </figure>
 
         <!-- The plant-interface contract. An OT buyer and a grant reviewer check the same
@@ -147,9 +169,11 @@
       <div class="wrap">
         <span class="sectionno">§3 / TALK TO US</span>
         <h2>Patterns, not customer logos.</h2>
-        <p>RogerAI does not name customers it does not have. These are the deployment
-           shapes we build and consult on; when one produces publishable evidence it will
-           appear in the notebook with numbers attached.</p>
+        <p>Industrial work happens under NDA. We do not publish names, sites, or logos
+           without written permission, so this page describes the deployment shapes we
+           build and consult on rather than the engagements themselves. When a piece of
+           work can be published, it appears in the notebook with numbers attached and
+           the permission to show them.</p>
         <div class="research-actions">
           <a class="research-button research-button--primary" href="mailto:labs@rogerai.fm?subject=Industrial%20pilot">Scope a pilot</a>
           <a class="research-button" href="/research.html">Back to Labs</a>

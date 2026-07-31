@@ -157,7 +157,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @keyframes ping-pulse { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
 .ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 17px; }
 @keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
-.ping-mark__wave { transform-origin: 32px 22px; animation: ping-wave 2.4s ease-out infinite; }
+.ping-mark__wave { transform-origin: 32px 17px; animation: ping-wave 2.4s ease-out infinite; }
 .ping-mark__wave--b { animation-delay: 1.2s; }
 @keyframes ping-wave {
   0% { opacity: 0; transform: scale(.65); }
@@ -850,3 +850,10 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
     border-top-width: 1px;
   }
 }
+
+/* The two live directories - models and voices - list the same network in two media,
+   so each points at the other from its own intro. Without this the only route between
+   them was the collapsed nav panel and the footer. */
+.dir-sibling { margin-top: var(--s-3); font-family: var(--font-mono); font-size: var(--t-xs); }
+.dir-sibling a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); padding-bottom: 1px; }
+.dir-sibling a:hover, .dir-sibling a:focus-visible { color: var(--ink-900); border-bottom-color: var(--live); }
