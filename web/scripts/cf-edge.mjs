@@ -245,7 +245,9 @@ function stripReadOnly(r) {
 export function vanityRedirectDrift(status, location, path, apex = APEX) {
   const want = `https://${apex}${path}/`;
   let landed = null;
-  try { landed = new URL(location); } catch { landed = null; }
+  // A relative Location is RFC-legal, so resolve against the apex rather than
+  // throwing and reporting a compliant redirect as drift.
+  try { landed = new URL(location, `https://${apex}`); } catch { landed = null; }
   if (status !== 301 || landed?.origin !== `https://${apex}` || landed.pathname !== `${path}/`) {
     return (
       `vanity-import redirect drift for ${path}: expected 301 -> ${want}, ` +
