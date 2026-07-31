@@ -13,18 +13,20 @@ The five-row hero is used for the short `z` title card and future launch/export
 art:
 
 ```text
-   ▄██████▄
-(  █    • █▓  )
-   █  ROG █▓
-    ▀█▄▄█▀▒
-     ▀  ▀
+   ▄███████▄
+(  █   •   █▓  )
+   █  ROG  █▓
+    ▀█▄▄▄█▀▒
+     ▀   ▀
 ```
 
 The same compact silhouette is used in the title card and AGENT corner so Tube
 Ping never changes character between surfaces. The rounded face uses the
-founder-approved pixel silhouette. The eye carries a
-one-cell optical correction to the right so it aligns visually with the ROG
-wordmark in real terminal fonts. `▓` is the middle
+founder-approved pixel silhouette. The interior is SEVEN cells and everything -
+cap, eye, wordmark, base, feet - centres on one axis. An earlier revision
+narrowed it to six and pushed the eye one cell right as an "optical correction";
+that forced the wordmark against the right wall, and it was withdrawn. Do not
+reintroduce a per-glyph offset. `▓` is the middle
 depth edge and `▒` is its lower shadow. Render each body plane as one contiguous
 ANSI span: styling every block cell independently introduces visible seams in
 some terminals and makes the same silhouette look fragmented.
