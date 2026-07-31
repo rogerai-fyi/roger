@@ -131,8 +131,8 @@ async function main() {
   if (advertised.size === 0) {
     // Finding nothing to check is NOT a pass. If a refactor, a selector change or an
     // empty dist tree stops this script seeing artifact links, the honest report is
-    // "I checked nothing", and any independent failure - the go-import tag - still
-    // decides the exit code. A gate that goes green because it parsed nothing is
+    // "I checked nothing", and the run fails regardless of how the go-import probe
+    // went. A gate that goes green because it parsed nothing is
     // worse than no gate: it converts silence into false assurance, which is the
     // exact class of failure this script was written to catch.
     console.error(
