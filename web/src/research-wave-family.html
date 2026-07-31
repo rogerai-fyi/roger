@@ -283,6 +283,101 @@
       </div>
     </section>
 
+    <!-- §6 WAVE INFINITE. Different in KIND from everything above it: the sections before
+         this one are model sizes, this is a runtime any of them could run under. That is
+         why it has no parameter class, no place on the size axis, and no row in the slot
+         or jobs tables - filing it as a fifth size would tell a reader it is "bigger than
+         Core", which is exactly the capability drift its own brief warns about by name.
+         The claim ceiling is the brief's: one causally validated primitive, zero
+         demonstrated speedup, and it must not be described as a working system.
+         Contract: features/web/wave_infinite.feature -->
+    <section class="section" id="infinite">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;6 / WAVE INFINITE</span>
+          <h2 class="wf-inf__title">A <span class="wf-inf__shimmer">runtime</span>, not a size.</h2>
+          <p>Everything above is a model. <b>Wave Infinite</b> is the layer any of them
+             could run under - a runtime that applies across the family rather than
+             sitting at a point in it. It watches its own execution, proves which parts of
+             the model your workload can never reach, and skips those parts. Every
+             modification carries a machine-checkable certificate that behaviour is
+             unchanged on the region observed, and any input leaving that region falls
+             back to the unmodified path.</p>
+        </div>
+
+        <figure class="wf-inf">
+          <blockquote class="wf-inf__claim">
+            Removing every expert the certificate marked unreachable changed
+            <b>0 of 391,386</b> routing decisions. Bit-identical.
+            <small>DeepSeek-V4-Flash &middot; 246 certified-dead expert slots ablated &middot; prediction stated before the run</small>
+          </blockquote>
+
+          <!-- Reify -> Certify -> Specialise -> Guard, with the guard drawn as the way
+               OUT. Leaving the certified region costs speed, never correctness, and the
+               loop is the only honest way to show that. -->
+          <ol class="wf-inf__loop">
+            <li data-state="built">
+              <span class="wf-inf__step">01</span><b>Reify</b>
+              <span class="wf-inf__state">Built and verified</span>
+              <small>Make the router&rsquo;s own decisions first-class data. The collector
+                reproduces the model&rsquo;s top-k on every token.</small>
+            </li>
+            <li data-state="built">
+              <span class="wf-inf__step">02</span><b>Certify</b>
+              <span class="wf-inf__state">Causally validated</span>
+              <small>Prove which experts cannot be selected for the traffic seen so far -
+                the question a compiler asks about a dead branch.</small>
+            </li>
+            <li data-state="unbuilt">
+              <span class="wf-inf__step">03</span><b>Specialise</b>
+              <span class="wf-inf__state">Not built</span>
+              <small>Stop holding uncertifiable experts in expensive fast memory. The
+                saving is residency, not compute.</small>
+            </li>
+            <li data-state="unbuilt" class="wf-inf__guard">
+              <span class="wf-inf__step">04</span><b>Guard</b>
+              <span class="wf-inf__state">Measured as mandatory, unrun in serving</span>
+              <small>Watch for input leaving the certified region, and fall back to the
+                full model for that token. Speculate hard, but never be wrong - only ever
+                be slower.</small>
+            </li>
+          </ol>
+
+          <figcaption>It is a just-in-time compiler for a neural network: watch which
+            paths actually run, specialise for them, and keep a deoptimization path for
+            when the assumption breaks. That last part is what makes aggressive
+            speculation safe.</figcaption>
+        </figure>
+
+        <div class="wf-inf__ledger">
+          <div>
+            <span class="research-kicker">PROVEN</span>
+            <p>The certificate is causally sound, and the guard is required: 44 to 96
+               percent of certified experts fire once the workload shifts.</p>
+          </div>
+          <div>
+            <span class="research-kicker">NOT PROVEN</span>
+            <p><b>Soundness is proven; speedup is unmeasured.</b> No performance benefit
+               has been demonstrated. Stages 3 and 4 are not built, and the
+               self-improvement half is entirely unmeasured and out of scope. Until a
+               realised tokens-per-second number exists, this is a research architecture.</p>
+          </div>
+          <div>
+            <span class="research-kicker">THE THREE WORDS</span>
+            <p><b>Reflecting</b> - yes, in the procedural sense: it acts on its own
+               execution state. <b>Evolving</b> - half: the deployment evolves, the model
+               does not. <b>Learning</b> - no. Nothing learns, no weights change, and the
+               weights on disk after a year are the ones you installed.</p>
+          </div>
+        </div>
+
+        <p class="wf-inf__name"><b>About the name.</b> The reflective-tower literature
+          proved a notionally infinite tower of self-observation has a finite
+          implementation, because only finitely many levels are ever touched. Infinite in
+          specification, finite in implementation - a theorem, not a capability claim.</p>
+      </div>
+    </section>
+
   </main>
 
   <!-- include: footer.html anchors=/ -->
