@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<!-- Industrial deployment, split out of the research hub when it outgrew the hub's
+     conciseness budget. This is the page an OT buyer or a grant reviewer is actually
+     sent, so it carries the placement diagram and the standards vocabulary in full.
+     Registered in build.mjs CSS_BUNDLES. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="Industrial deployment - RogerAI" desc="Local inference for oil and gas, power generation, manufacturing and aerospace: where the box sits in the plant network, the standards it speaks, and what it never touches." theme=external og=post ogtype=website ogtitle="RogerAI - local inference where the network stops" ogdesc="Where a local model sits in a plant network, the standards it speaks, and the protection paths it never touches." ogurl="https://rogerai.fm/research-industry.html" ogimage="https://rogerai.fm/og-research.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; Industrial</span>
+    <span class="rail__rev">Rev. 2026.07 &middot; LABS</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">INDUSTRIAL DEPLOYMENT</span>
+        </span>
+        <h1>Local inference where the network stops.</h1>
+        <p class="research-hero__lead">
+          Control networks are segmented below a DMZ and do not route to the internet.
+          That is not an obstacle to work around - it is the reason a local model is worth
+          having, and it decides everything about where one is allowed to run.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="industry">
+<div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">§1 / MARKETS</span>
+          <h2>Four places the constraint is the point.</h2>
+          <p>Deployment patterns, not customer case studies. Models remain advisory and
+             stay out of real-time closed-loop control.</p>
+        </div>
+        <div class="deployment-grid">
+          <article><b>Oil and gas</b><p>Rotating-equipment anomaly explanation and operator copilots
+             grounded in the OEM manuals and P&amp;IDs already on site.</p></article>
+          <article><b>Power generation</b><p>Historian questions in plain language, alarm-flood triage,
+             and work-order drafting for turbines and substation assets.</p></article>
+          <article><b>Manufacturing</b><p>Prompt-defined inspection over the existing classifier, and
+             shift notes, maintenance logs, and fault codes read together.</p></article>
+          <article><b>Aerospace and defense</b><p>Document intelligence and assistant workloads on
+             disconnected networks, where deployment is the security model.</p></article>
+        </div>
+
+        <!-- Where the box sits - the first question asked in OT, and one prose cannot
+             answer because the answer is a position in a hierarchy. Safety is drawn
+             untouched rather than described that way. -->
+        <figure class="purdue" aria-labelledby="purdue-caption">
+          <svg class="purdue__svg" viewBox="0 0 720 300" role="img" aria-labelledby="purdue-caption">
+            <g class="purdue__levels">
+              <g><rect x="20" y="8" width="530" height="34"/><text x="34" y="30"><tspan class="purdue__lv">L5&#8211;L4</tspan> enterprise &#183; business IT</text></g>
+              <g class="purdue__dmz"><rect x="20" y="50" width="530" height="26"/><text x="34" y="68"><tspan class="purdue__lv">L3.5</tspan> DMZ</text></g>
+              <g><rect x="20" y="84" width="530" height="60"/><text x="34" y="106"><tspan class="purdue__lv">L3</tspan> site operations &#183; historian, MES</text></g>
+              <g><rect x="20" y="152" width="530" height="34"/><text x="34" y="174"><tspan class="purdue__lv">L2</tspan> supervisory &#183; SCADA, HMI</text></g>
+              <g><rect x="20" y="194" width="530" height="34"/><text x="34" y="216"><tspan class="purdue__lv">L1</tspan> basic control &#183; PLC, RTU</text></g>
+              <g><rect x="20" y="236" width="530" height="34"/><text x="34" y="258"><tspan class="purdue__lv">L0</tspan> process &#183; sensors, actuators</text></g>
+            </g>
+
+            <g class="purdue__us">
+              <rect x="330" y="94" width="205" height="40" rx="2"/>
+              <text x="432" y="112">ROGERAI</text>
+              <text class="purdue__sub" x="432" y="127">local model &#183; advisory</text>
+            </g>
+
+            <g class="purdue__flow" aria-hidden="true">
+              <path class="purdue__read" d="M432 152 V138"/>
+              <path class="purdue__out" d="M535 114 H568 V63 H550"/>
+              <text class="purdue__tag" x="600" y="60">outbound only</text>
+              <text class="purdue__tag" x="470" y="150">reads</text>
+            </g>
+
+            <g class="purdue__sis">
+              <rect x="566" y="194" width="134" height="76"/>
+              <text x="633" y="220">SAFETY</text>
+              <text class="purdue__sub" x="633" y="236">SIS &#183; interlocks</text>
+              <text class="purdue__sub purdue__never" x="633" y="256">never touched</text>
+            </g>
+          </svg>
+          <figcaption id="purdue-caption">RogerAI runs at Level 3, beside the historian and
+            MES, reading plant data and answering questions about it. It initiates outbound
+            through the DMZ and exposes no inbound listener below it. It writes nothing to
+            supervisory or basic control, and the safety-instrumented system is outside its
+            reach entirely - protection and interlocks stay deterministic.</figcaption>
+        </figure>
+
+        <!-- The plant-interface contract. An OT buyer and a grant reviewer check the same
+             thing first: does this vendor speak the plant's language, and does it know
+             where its box is allowed to sit. -->
+        <div class="device-contract">
+          <p><b>Signals.</b> OPC UA and Modbus for tags; MQTT Sparkplug B over a unified
+             namespace for transport.</p>
+          <p><b>Models.</b> ISA-95 for the asset hierarchy and NAMUR NE 107 for device-health
+             status, so a verdict lands in the vocabulary operators already use.</p>
+          <p><b>Placement.</b> IEC 62443 zones and the Purdue levels, drawn above. The
+             model reasons beside classical analytics, never in place of it.</p>
+        </div>
+        <div class="device-contract" id="devices">
+          <p><b>Device evidence contract.</b> A device claim names the exact board,
+             runtime, format, quantization, context, peak memory, and measured speed.</p>
+          <p><b>Raspberry Pi and NPU.</b> Pi results name model and RAM. NPU results report
+             full delegation, partial delegation, and CPU fallback, not merely a successful load.</p>
+          <p><b>ESP32.</b> Roger Edge covers wake, VAD, sensing, and fixed commands.
+             ESP32 does not run Wave Micro; ESP32-P4 claims name the companion radio.</p>
+        </div>
+      </div>
+        </section>
+
+    <section class="section research-tone" id="boundary">
+      <div class="wrap research-split">
+        <div>
+          <span class="sectionno">§2 / THE BOUNDARY</span>
+          <h2>What it does not do.</h2>
+          <p>Worth stating plainly, because the failure mode of an advisory system is
+             someone trusting it past its remit.</p>
+        </div>
+        <div class="research-prose">
+          <p><b>No closed-loop control.</b> The model reads and explains. Protection,
+             interlocks and safety-instrumented systems remain deterministic and are not
+             in its reach.</p>
+          <p><b>No replacement for classical analytics.</b> Residual-based anomaly
+             detection on high-rate vibration and thermodynamic data is a signal-processing
+             problem, and it stays one. A language model sits on top as a reasoning layer,
+             explaining an alarm rather than raising it.</p>
+          <p><b>No claim without a measurement.</b> A device claim names the exact board,
+             runtime, format, quantization, context, peak memory, and measured speed - or
+             it is not made. <a href="/research.html">The evidence rules</a> apply here
+             exactly as they do to a model card.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-closing">
+      <div class="wrap">
+        <span class="sectionno">§3 / TALK TO US</span>
+        <h2>Patterns, not customer logos.</h2>
+        <p>RogerAI does not name customers it does not have. These are the deployment
+           shapes we build and consult on; when one produces publishable evidence it will
+           appear in the notebook with numbers attached.</p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="mailto:labs@rogerai.fm?subject=Industrial%20pilot">Scope a pilot</a>
+          <a class="research-button" href="/research.html">Back to Labs</a>
+          <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+</body>
+</html>

@@ -370,3 +370,49 @@
   .scope__body { grid-template-columns: 1fr; gap: var(--s-6); }
   .scope__ppi { max-width: 300px; margin-inline: auto; }
 }
+
+/* ---------- where the box sits ----------------------------------------------
+   An OT security team asks "what level does it run at" before anything else, and
+   prose cannot answer it - the answer IS a position in a hierarchy. Levels stack
+   the conventional way, process at the bottom, enterprise at the top. */
+.purdue { margin: var(--s-6) 0 0; }
+.purdue__svg { display: block; width: 100%; height: auto; }
+
+.purdue__levels rect { fill: var(--paper-2); stroke: var(--hairline-2); stroke-width: 1; }
+.purdue__levels text {
+  fill: var(--ink-500); font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+}
+.purdue__lv { fill: var(--ink-900); font-weight: var(--weight-semi); }
+/* The DMZ is a boundary, not a place things live in. */
+.purdue__dmz rect { fill: none; stroke-dasharray: 4 3; }
+
+.purdue__us rect { fill: var(--paper); stroke: var(--live); stroke-width: 1.5; }
+.purdue__us text {
+  fill: var(--ink-900); font-family: var(--font-mono); font-size: 12px;
+  font-weight: var(--weight-semi); letter-spacing: .1em; text-anchor: middle;
+}
+.purdue__us .purdue__sub {
+  fill: var(--ink-500); font-size: 10px; font-weight: 400; letter-spacing: .04em;
+}
+
+.purdue__flow path { fill: none; stroke: var(--ink-400); stroke-width: 1.5; }
+/* Outbound is the claim worth drawing, so it is the only saturated line here. */
+.purdue__out { stroke: var(--live) !important; }
+.purdue__tag {
+  fill: var(--ink-400); font-family: var(--font-mono); font-size: 9px;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+
+/* Safety sits outside the reach of everything above it, and is drawn that way. */
+.purdue__sis rect { fill: none; stroke: var(--ink-900); stroke-width: 1.5; }
+.purdue__sis text {
+  fill: var(--ink-900); font-family: var(--font-mono); font-size: 11px;
+  font-weight: var(--weight-semi); letter-spacing: .08em; text-anchor: middle;
+}
+.purdue__sis .purdue__sub { fill: var(--ink-500); font-size: 9px; font-weight: 400; }
+.purdue__never { fill: var(--live) !important; }
+
+.purdue figcaption {
+  margin-top: var(--s-4); color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body);
+}

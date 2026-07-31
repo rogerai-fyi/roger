@@ -200,42 +200,18 @@
     <section class="section" id="industry">
       <div class="wrap">
         <div class="section__head section__head--left">
-          <span class="sectionno">§3 / DEPLOYMENT</span>
+          <span class="sectionno">&sect;3 / DEPLOYMENT</span>
           <h2>Local inference where the network stops.</h2>
-          <p>Deployment patterns, not customer case studies. Models remain advisory and
-             stay out of real-time closed-loop control.</p>
+          <p>Oil and gas, power generation, manufacturing, and aerospace: plants and field
+             sites run segmented or air-gapped networks, and that constraint is the whole
+             opportunity. Models stay advisory and out of real-time closed-loop control.</p>
         </div>
-        <div class="deployment-grid">
-          <article><b>Oil and gas</b><p>Rotating-equipment anomaly explanation and operator copilots
-             grounded in the OEM manuals and P&amp;IDs already on site.</p></article>
-          <article><b>Power generation</b><p>Historian questions in plain language, alarm-flood triage,
-             and work-order drafting for turbines and substation assets.</p></article>
-          <article><b>Manufacturing</b><p>Prompt-defined inspection over the existing classifier, and
-             shift notes, maintenance logs, and fault codes read together.</p></article>
-          <article><b>Aerospace and defense</b><p>Document intelligence and assistant workloads on
-             disconnected networks, where deployment is the security model.</p></article>
-        </div>
-
-        <!-- The plant-interface contract. An OT buyer and a grant reviewer check the same
-             thing first: does this vendor speak the plant's language, and does it know
-             where its box is allowed to sit. -->
-        <div class="device-contract">
-          <p><b>Signals.</b> OPC UA and Modbus for tags; MQTT Sparkplug B over a unified
-             namespace for transport. The deployment initiates outbound and exposes no
-             inbound listener.</p>
-          <p><b>Models.</b> ISA-95 for the asset hierarchy and NAMUR NE 107 for device-health
-             status, so a verdict lands in the vocabulary operators already use.</p>
-          <p><b>Placement.</b> IEC 62443 zones and the Purdue levels decide where the box sits.
-             Protection, interlocks, and safety-instrumented systems stay deterministic; the
-             model reasons beside classical analytics, never in place of it.</p>
-        </div>
-        <div class="device-contract" id="devices">
-          <p><b>Device evidence contract.</b> A device claim names the exact board,
-             runtime, format, quantization, context, peak memory, and measured speed.</p>
-          <p><b>Raspberry Pi and NPU.</b> Pi results name model and RAM. NPU results report
-             full delegation, partial delegation, and CPU fallback, not merely a successful load.</p>
-          <p><b>ESP32.</b> Roger Edge covers wake, VAD, sensing, and fixed commands.
-             ESP32 does not run Wave Micro; ESP32-P4 claims name the companion radio.</p>
+        <div class="research-onward">
+          <a href="/research-industry.html">
+            <b>Industrial deployment</b>
+            <span>The four markets, where the box sits in the plant network, and the
+              standards an OT reviewer checks for before anything else.</span>
+          </a>
         </div>
       </div>
     </section>

@@ -15,8 +15,12 @@ before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 // research.html is now a hub; the model catalogue lives on research-models.html.
 // `surface` is for assertions that are true of the research area as a whole and
 // should not care which of the two pages carries the markup.
-const surface = () => read("research.html") + read("research-models.html");
-const surfaceText = () => text("research.html") + " " + text("research-models.html");
+// The research AREA, not one page. The hub stays inside its conciseness budget by
+// pushing detail to siblings, so an assertion about "the research surface" must span
+// them - otherwise splitting a page silently drops the guarantee with it.
+const PAGES = ["research.html", "research-models.html", "research-industry.html"];
+const surface = () => PAGES.map(read).join("\n");
+const surfaceText = () => PAGES.map(text).join(" ");
 
 
 test("Research is a concise first-class destination", () => {
@@ -52,7 +56,10 @@ test("the lab says why it exists, in terms it can be held to", () => {
 });
 
 test("the page leads with the work, not a biography of the company", () => {
-  const page = read("research.html");
+  // Strip comments first: this asserts what a VISITOR reads. A build note explaining
+  // that "an OT security team asks this" is not the page describing its own staff, and
+  // a source comment should never be able to fail a content assertion.
+  const page = read("research.html").replace(/<!--[\s\S]*?-->/g, "");
   assert.match(page, /Models built for local constraints/i);
   assert.match(page, /smaller|less memory|local hardware/i);
   assert.doesNotMatch(page, /team|founders?|venture|employees|our origins/i);
@@ -240,7 +247,7 @@ test("research and the live network directory remain distinct", () => {
 });
 
 test("company handoff resolves to concise industry deployment patterns", () => {
-  const page = read("research.html");
+  const page = surface();
   assert.match(page, /<section[^>]+id="industry"/);
   // The founder-named focus markets, in the founder's own terms.
   for (const market of [
@@ -259,7 +266,7 @@ test("company handoff resolves to concise industry deployment patterns", () => {
 // allowed to sit? Naming the standards is the cheapest, highest-signal proof that
 // the work is grounded in operational technology rather than in a demo.
 test("the industrial interface is described in the plant's own standards", () => {
-  const copy = text("research.html");
+  const copy = surfaceText();
   for (const standard of [
     /OPC UA/,             // tags
     /Modbus/,             // brownfield fieldbus
@@ -275,10 +282,45 @@ test("the industrial interface is described in the plant's own standards", () =>
 });
 
 test("the industrial pitch states what the model must never touch", () => {
-  const copy = text("research.html");
+  const copy = surfaceText();
   assert.match(copy, /protection|interlock|safety-instrumented/i);
   assert.match(copy, /deterministic/i);
   assert.match(copy, /beside|alongside/i, "positioned next to classical analytics, not replacing it");
+});
+
+// Splitting a page is how a guarantee quietly disappears: the assertions stay pointed
+// at the hub while the content moves to a sibling nobody added to the surface. These
+// pin the industrial page itself.
+test("the industrial page carries the placement diagram and its boundaries", () => {
+  const page = read("research-industry.html");
+  const copy = page.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  // Where the box sits - the first question an OT reviewer asks.
+  assert.match(page, /<figure class="purdue"/, "the placement diagram is here, not on the hub");
+  for (const lv of ["L3.5", "L3", "L2", "L1", "L0"]) {
+    assert.ok(copy.includes(lv), `Purdue level ${lv} is drawn`);
+  }
+  assert.match(copy, /outbound only/i);
+  assert.match(copy, /never touched/i, "the safety path is drawn as untouched");
+
+  // The boundary section exists to stop an advisory system being trusted past its remit.
+  assert.match(copy, /closed-loop/i);
+  assert.match(copy, /interlocks/i);
+  assert.match(copy, /deterministic/i);
+
+  // Headings must not restate the hero - the split lifted a section that already had one.
+  const h1 = page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1]?.trim();
+  const h2s = [...page.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => m[1].trim());
+  assert.ok(h1, "the page has a headline");
+  assert.ok(!h2s.includes(h1), `no section repeats the hero headline (${h1})`);
+
+  // Section numbers must be contiguous from 1 - lifting a section carried its old number.
+  const nums = [...page.matchAll(/sectionno">§(\d+)/g)].map((m) => +m[1]);
+  assert.deepEqual(nums, nums.map((_, i) => i + 1), `sections number from 1 (got ${nums.join(",")})`);
+});
+
+test("the hub points at the industrial page rather than dropping it", () => {
+  assert.match(read("research.html"), /href="\/research-industry\.html"/);
 });
 
 test("device and roadmap claims remain gated", () => {
