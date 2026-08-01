@@ -389,6 +389,11 @@ test("services are optional and preserve local model independence", () => {
   assert.match(page, /never requires buying services/i);
   assert.match(page, /services never require the network/i);
   assert.match(page, /mailto:labs@rogerai\.fm/);
+  // The contact affordance must LOOK actionable: a .research-button, not a link
+  // buried at the end of a prose sentence (a reader missed it as a link).
+  const services = page.match(/id="services"[\s\S]*?<\/section>/)[0];
+  assert.match(services, /<a class="research-button[^"]*" href="mailto:labs@rogerai\.fm">/,
+    "the services contact is a visible button");
 });
 
 test("new institutional pages contain no em dash character", () => {
