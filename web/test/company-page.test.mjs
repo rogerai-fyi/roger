@@ -125,8 +125,8 @@ test("the company page presents an honest model-size family", () => {
     /Wave Micro/i,
     /frontier-scale optimization/i,
   ]) assert.match(page, slot);
-  assert.match(page, /sub-100M/i);
-  assert.match(page, /350M-class/i);
+  assert.match(page, /trained ~350M/i);
+  assert.match(page, /1(?:&ndash;|\u2013|-)8B class/i);
   assert.match(page, /tens or hundreds of billions/i);
   assert.match(page, /right-sized|smallest model/i);
   // The family describes PROGRAMS; none of its slots may advertise an artifact id.

@@ -95,7 +95,7 @@ test("the model list gives every program a reason and honest status", () => {
   ]) assert.match(page, reason);
   assert.match(page, /Research build/i);
   assert.match(page, /In design/i);
-  assert.match(page, /In progress/i);
+  assert.match(page, /Trained/i);
   // The fabricated artifact id is gone. Naming-CONVENTION placeholders on design
   // rows (wave-core-1b-instruct, wave-nano-<size>-<task>) are fine - they document
   // the id scheme, they are not download claims.
@@ -162,11 +162,11 @@ test("the model scope plots parameter class as radar range on a true log axis", 
   assert.doesNotMatch(prose, /[Bb]earing carries no meaning/,
     "bearing carries data now, so the old disclaimer would be false");
   assert.match(prose, /declared design target/i);
-  assert.match(prose, /no slot has released a checkpoint/i);
+  assert.match(prose, /no public checkpoint is released/i);
   assert.doesNotMatch(scope, /\b\d+(\.\d+)?\s?(GB|MB|tok\/s|ms)\b/, "no invented footprint or speed");
 
   assert.match(page, /RogerAI-designed open model program/i);
-  assert.match(page, /release gate|no checkpoint/i, "the scope states program status, not availability");
+  assert.match(page, /release gate|no (?:public )?checkpoint/i, "the scope states program status, not availability");
   assert.doesNotMatch(page, /Wave Edge/i);
   for (const selector of [".scope", ".scope__cell", ".model-group-head"]) {
     assert.match(css, new RegExp(selector.replace(".", "\\.")), `${selector} is styled`);
@@ -179,8 +179,8 @@ test("model identity follows family size variant conventions", () => {
   const page = read("research-models.html");
   for (const id of [
     "roger-edge-&lt;task&gt;-&lt;size&gt;",
-    "wave-nano-&lt;size&gt;-&lt;task&gt;",
-    "wave-core-1b-instruct",
+    "wave-nano-350m-&lt;task&gt;",
+    "wave-core-&lt;size&gt;-instruct",
   ]) assert.match(page, new RegExp(id));
   // The "Naming contract" paragraph came off the page on founder direction
   // (2026-07-31, noise reduction); the ids above still pin the convention.
@@ -220,7 +220,7 @@ test("only released artifacts present download controls", () => {
   assert.doesNotMatch(page, /aria-disabled="true"/);
   for (const stage of [
     /16K saliency calibration/,
-    /Sequenced after Wave Micro/,
+    /Trained, improving/,
     /Architecture and data design/,
     /Hardware and dataset design/,
   ]) assert.match(page, stage);
@@ -244,7 +244,7 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   // programme detail (bake-off state, decision rule, licence intent) is not what a reader
   // scanning a model list came for. What must survive is the status a reader could be
   // misled about, and it does: the chip, the id, and no artifact link or evidence fields.
-  assert.match(cardText, /IN PROGRESS/i);
+  assert.match(cardText, /TRAINED/i);
   // Founder ruling 2026-07-31: phase labels, not explanations ("In evaluation",
   // was "Training not yet approved"; "bake-off" is barred by the stage sweep).
   assert.match(cardText, /in evaluation/i);

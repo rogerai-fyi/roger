@@ -34,7 +34,7 @@ test("homepage puts Wave Labs proof before the install action without adding a h
   const install = hero.indexOf('class="install"');
   assert.ok(proof > 0 && proof < install, "the Labs plate precedes install in the first hero flow");
   // The plate states program status, not a licence or a version it cannot back.
-  assert.match(hero, /IN PROGRESS/);
+  assert.match(hero, /TRAINED/);
   assert.doesNotMatch(hero, /APACHE-2\.0|v1\.0|AVAILABLE/);
   for (const marker of ["hero__eyebrow", "hero__title", "hero__sub", "hero__proof", 'class="install"']) {
     const tag = hero.match(new RegExp(`<[^>]*class="[^"]*${marker.replace('class="', "")}[^"]*"[^>]*>`))?.[0] || "";
@@ -67,7 +67,7 @@ test("mobile research exposes a compact program-status ticker", () => {
   const page = read("research.html");
   assert.match(page, /class="release-ticker"/);
   const ticker = visible(page.match(/<p class="release-ticker"[\s\S]*?<\/p>/)?.[0] || "");
-  for (const fact of ["IN PROGRESS", "Wave Micro", "350M class", "no checkpoint yet"]) {
+  for (const fact of ["TRAINED", "Wave Micro", "1&ndash;8B class", "no public checkpoint yet"]) {
     assert.match(ticker, new RegExp(fact, "i"));
   }
   assert.doesNotMatch(ticker, /AVAILABLE|v1\.0|Apache-2\.0/i);

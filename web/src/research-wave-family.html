@@ -65,8 +65,8 @@
           <span class="sectionno">&sect;1 / SCALE</span>
           <h2>The gaps are real.</h2>
           <p>Slots sit at their true artifact size on a logarithmic axis, so the spacing
-             carries information instead of decorating the page. Wave Micro is roughly a
-             hundred times a Roger Edge model.</p>
+             carries information instead of decorating the page. Wave Micro is hundreds of
+             times a Roger Edge model.</p>
         </div>
 
         <figure class="wf-rail" aria-labelledby="wf-rail-title wf-rail-cap">
@@ -84,16 +84,17 @@
               <span class="wf-tick" style="--at:100%"><i></i><b>100 GB</b></span>
 
               <span class="wf-node" style="--at:6%"><i></i><b>Edge</b></span>
-              <span class="wf-node" style="--at:34%"><i></i><b>Nano</b></span>
-              <span class="wf-node is-live" style="--at:48%"><i></i><b>Micro</b></span>
-              <span class="wf-node" style="--at:68%"><i></i><b>Core</b></span>
+              <span class="wf-node is-live" style="--at:47%"><i></i><b>Nano</b></span>
+              <span class="wf-node is-live" style="--at:64%"><i></i><b>Micro</b></span>
+              <span class="wf-node" style="--at:78%"><i></i><b>Core</b></span>
               <span class="wf-node" style="--at:88%"><i></i><b>Station</b></span>
+              <span class="wf-node" style="--at:94%"><i></i><b>Satellite</b></span>
               <span class="wf-node wf-node--infinite" style="--at:105%"><i></i><b>Infinite</b></span>
             </div>
           </div>
-          <figcaption id="wf-rail-cap">Filled marker: artifact released. Hollow: in design.
-            Wave Station: proposed. Infinite: not a size - the growth loop a base model
-            enters (&sect;6).</figcaption>
+          <figcaption id="wf-rail-cap">Filled marker: trained (no public checkpoint
+            released yet). Hollow: planned or in design. Infinite: not a size - the growth
+            loop a base model enters (&sect;6).</figcaption>
         </figure>
       </div>
     </section>
@@ -156,7 +157,8 @@
           <p><b>That boundary is the product.</b> Extraction, classification and tool use
              survive heavy compression, so they belong in the small slots. Explanation and
              multi-step reasoning do not, so they belong in the large ones. It is why a
-             350M model is enough for a work order and why Wave Core exists for the rest.</p>
+             single-digit-billion model is enough for a work order and why Wave Core
+             exists for the rest.</p>
         </div>
       </div>
     </section>
@@ -185,34 +187,42 @@
                 <td>ESP32, Cortex-M</td><td class="tier-cell">In design</td>
               </tr>
               <tr>
-                <th scope="row">Wave Nano</th><td class="tier-cell">&lt;100M</td>
+                <th scope="row">Wave Nano</th><td class="tier-cell">~350M</td>
                 <td>Intent routing, field extraction, anomaly triage</td>
-                <td>ARM and NPU systems</td><td class="tier-cell">In design</td>
+                <td>Phone, Pi, gateway</td><td class="tier-cell">Trained</td>
               </tr>
               <tr>
-                <th scope="row">Wave Micro</th><td class="tier-cell">~350M</td>
+                <th scope="row">Wave Micro</th><td class="tier-cell">1&ndash;8B</td>
                 <td>Bounded local text and tool use, structured output</td>
-                <td>Pi, phone, edge computer</td><td class="tier-cell">In progress</td>
+                <td>Laptop, edge computer</td><td class="tier-cell">Trained</td>
               </tr>
               <tr>
-                <th scope="row">Wave Core</th><td class="tier-cell">1B-class</td>
+                <th scope="row">Wave Core</th><td class="tier-cell">8&ndash;30B</td>
                 <td>Local reasoning, longer synthesis, multi-step tool use</td>
-                <td>Laptop and workstation</td><td class="tier-cell">In design</td>
+                <td>Single GPU, control room</td><td class="tier-cell">Planned</td>
               </tr>
               <tr>
-                <th scope="row">Wave Station</th><td class="tier-cell">Proposed</td>
+                <th scope="row">Wave Station</th><td class="tier-cell">~30&ndash;70B</td>
                 <td>On-premises heavyweight: synthesis, planning, and teaching smaller slots</td>
-                <td>Workstation, on-prem rack</td><td class="tier-cell">For review</td>
+                <td>Rack, plant server</td><td class="tier-cell">Planned</td>
+              </tr>
+              <tr>
+                <th scope="row">Wave Satellite</th><td class="tier-cell">~70B+</td>
+                <td>The largest fixed model: plant-wide reach and knowledge breadth</td>
+                <td>Plant server room</td><td class="tier-cell">Planned</td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <div class="device-contract">
-          <p><b>Task models first.</b> Roger Edge, Wave Nano, and Wave Micro extract,
-             classify, route, and call tools; explanation starts at Wave Core.</p>
-          <p><b>Why the family stops.</b> Above the Station class you are buying knowledge
-             breadth, which is rarely the binding constraint for a disconnected site.</p>
+          <p><b>Task models first.</b> Roger Edge and Wave Nano extract, classify, route,
+             and call tools in fixed contracts; reasoning and explanation grow from
+             Wave Micro upward.</p>
+          <p><b>Why the family stops.</b> Wave Satellite is the largest fixed model; above
+             it you are buying frontier knowledge breadth, which is rarely the binding
+             constraint for a disconnected site. Core, Station, and Satellite are
+             planned bands, not final specifications.</p>
         </div>
       </div>
     </section>
