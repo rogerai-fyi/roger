@@ -232,9 +232,11 @@ body.auth {
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
-/* the inline nav lines (account/billing/usage...) read as a quiet directory */
-.fine a { color: var(--ink-500); }
-.fine a:hover { color: var(--live); }
+/* the inline nav lines (account/billing/usage...) read as a quiet directory.
+   The .card .fine form matches the (0,2,1) specificity of .card a:not(.gh) above,
+   so the quiet treatment survives inside cards. */
+.fine a, .card .fine a { color: var(--ink-500); border-bottom: 0; }
+.fine a:hover, .card .fine a:hover { color: var(--live); }
 
 /* ---- Provider sign-in. A light face with an INK label, on founder direction and
    matching the conventional "Continue with ..." control; the hairline keeps it reading
