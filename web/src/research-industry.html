@@ -26,8 +26,7 @@
         <h1>Local inference where the network stops.</h1>
         <p class="research-hero__lead">
           Control networks are segmented below a DMZ and do not route to the internet.
-          That is not an obstacle to work around - it is the reason a local model is worth
-          having, and it decides everything about where one is allowed to run.
+          A local model fits that design, and the placement follows from it.
         </p>
       </div>
     </section>
@@ -115,7 +114,9 @@
             plant data and answering questions about it. It initiates outbound through the
             DMZ and exposes no inbound listener below it. It writes nothing to supervisory
             or basic control, and the safety-instrumented system is outside its reach
-            entirely - protection and interlocks stay deterministic.
+            entirely - no closed-loop control, protection and interlocks stay
+            deterministic, and it works alongside classical analytics rather than
+            replacing them.
             Roger Edge sits down at the process, because that is where its sensor is. It is
             not a language model: it is a classifier of a few hundred kilobytes on its own
             battery-powered node, wired to nothing in the control system. It detects, emits
@@ -156,8 +157,8 @@
         <div class="section__head section__head--left">
           <span class="sectionno">§2 / THE ENVELOPE</span>
           <h2>The tiers are not a preference. They are what certification allows.</h2>
-          <p>Three questions decide where a model can physically run, and all three are
-             answered before anyone chooses an architecture.</p>
+          <p>Before anyone talks architecture, three practical questions settle where a
+             model can physically run.</p>
         </div>
 
         <div class="device-contract">
@@ -179,60 +180,19 @@
              solar wellhead.</p>
         </div>
 
-        <div class="research-prose">
-          <p><b>That is the whole argument for the tiers.</b> A microcontroller-class
-             detector is what the hazardous zone will certify; a gateway-class model lives
-             in the control room or a purged cabinet at Level 3; anything larger is a
-             safe-area machine. The split is forced by heat, watts and certification, not
-             chosen for tidiness - which is also why a single large model in the cloud was
-             never the alternative here.</p>
-          <p><b>And the compliance regime shapes the product, not just the paperwork.</b>
-             IEC 62443 treats model files as software needing integrity verification, and
-             an AI product entering an OT environment will be asked for its component
-             certification. Under NERC CIP a model update is a change-management event and
-             the model needs provenance a reviewer can follow. A system that changes
-             itself constantly is not obviously compatible with that, which is exactly why
-             every adaptation we make is designed to carry a certificate and an exact path
-             back.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="section research-tone" id="boundary">
-      <div class="wrap research-split">
-        <div>
-          <span class="sectionno">§3 / THE BOUNDARY</span>
-          <h2>What it does not do.</h2>
-          <p>Worth stating plainly, because the failure mode of an advisory system is
-             someone trusting it past its remit.</p>
-        </div>
-        <div class="research-prose">
-          <p><b>No closed-loop control.</b> The model reads and explains. Protection,
-             interlocks and safety-instrumented systems remain deterministic and are not
-             in its reach.</p>
-          <p><b>No replacement for classical analytics.</b> Residual-based anomaly
-             detection on high-rate vibration and thermodynamic data is a signal-processing
-             problem, and it stays one. A language model sits on top as a reasoning layer,
-             explaining an alarm rather than raising it.</p>
-          <p><b>No claim without a measurement.</b> A device claim names the exact board,
-             runtime, format, quantization, context, peak memory, and measured speed - or
-             it is not made. <a href="/research.html">The evidence rules</a> apply here
-             exactly as they do to a model card.</p>
-        </div>
       </div>
     </section>
 
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">§4 / TALK TO US</span>
+        <span class="sectionno">§3 / TALK TO US</span>
         <h2>Patterns, not customer logos.</h2>
-        <p>Industrial work happens under NDA. We do not publish names, sites, or logos
-           without written permission, so this page describes the deployment shapes we
-           build and consult on rather than the engagements themselves. When a piece of
-           work can be published, it appears in the notebook with numbers attached and
-           the permission to show them.</p>
+        <p>Industrial work happens under NDA, so this page shows the deployment shapes we
+           build rather than the engagements behind them. When a piece of work can be
+           published, it lands in the notebook with its numbers. If one of these shapes
+           looks like your plant, write to us.</p>
         <div class="research-actions">
-          <a class="research-button research-button--primary" href="mailto:labs@rogerai.fm?subject=Industrial%20pilot">Scope a pilot</a>
+          <a class="research-button research-button--primary" href="mailto:labs@rogerai.fm?subject=Industrial%20pilot">Contact RogerAI Labs</a>
           <a class="research-button" href="/research.html">Back to Labs</a>
           <a class="research-button" href="/broadcasts.html">Open Air Waves</a>
         </div>

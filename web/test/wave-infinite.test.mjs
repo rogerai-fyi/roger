@@ -93,7 +93,7 @@ test("what is proven is claimed without publishing interim figures", () => {
   assert.match(copy, /almost never fires|rarely fires/i, "the in-domain guard behaviour");
   assert.match(copy, /large share|large fraction/i, "and the cross-domain one");
   assert.match(copy, /order of magnitude/i, "and the over-removal result");
-  assert.match(copy, /re-verified/i, "with why the figures are not here yet");
+  assert.match(copy, /re-verif/i, "with why the figures are not here yet");
 });
 
 // Sweep the whole built site: these must not survive anywhere, including a social card,
@@ -152,6 +152,47 @@ test("the shimmer stays inside the RogerAI palette and carries no information", 
     .find((b) => b.includes("wf-inf"));
   assert.ok(reduced, "the shimmer has a reduced-motion escape");
   assert.match(reduced, /animation: none/);
+});
+
+// ---- the showcase (founder redirection 2026-07-31; WAVE-INFINITE-WEB-BRIEF) ----
+// Infinite becomes the family's finale: last marker on the rail as a MODE, a distinct
+// animated loop figure, and training-is-using copy in the brief's approved register.
+// The claim ceiling above is unchanged; the badge is what makes the showcase safe.
+
+test("the prototype badge is always visible in the section", () => {
+  const copy = visible(section());
+  assert.match(copy, /prototype/i);
+  assert.match(copy, /measured foundations, growth loop in development/i,
+    "the badge ships with the section, per the web brief hard rule");
+});
+
+test("the rail ends with Infinite as a mode, not a size", () => {
+  const page = read("research-wave-family.html");
+  const rail = page.match(/<figure class="wf-rail"[\s\S]*?<\/figure>/)[0];
+  const nodes = [...rail.matchAll(/class="wf-node[^"]*"[^>]*>[\s\S]*?<b>([^<]+)<\/b>/g)].map((m) => m[1]);
+  assert.equal(nodes[nodes.length - 1], "Infinite", "Infinite is the last marker");
+  assert.match(rail, /wf-node--infinite/, "with its own treatment, not a sixth size dot");
+  assert.match(visible(rail), /not a size/i, "the caption says it is not a size");
+});
+
+test("the loop figure is described and safe", () => {
+  const sec = section();
+  assert.match(sec, /<figure class="wf-orbit"[^>]*>/, "the loop figure exists");
+  assert.match(sec, /wf-orbit[^>]*role="img"[^>]*aria-label="[^"]{40,}/,
+    "and is described for screen readers");
+  const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
+  const reduced = (css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g) || [])
+    .find((b) => b.includes("wf-orbit"));
+  assert.ok(reduced, "the orbit freezes under reduced motion");
+});
+
+test("training it is described in the approved register", () => {
+  const copy = visible(section());
+  assert.match(copy, /grows new weights/i);
+  assert.match(copy, /real parameters, trained on your work/i);
+  assert.match(copy, /exact rollback/i, "deployment is the certified path with rollback resident");
+  assert.match(copy, /reverts to the original path by itself/i,
+    "self-healing is only the guard fallback");
 });
 
 test("it survives with no JavaScript", () => {
