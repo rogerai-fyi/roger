@@ -187,6 +187,36 @@ func TestPlayboxRelayAnonBrowserPerIPLimit(t *testing.T) {
 	require.NotEmpty(t, w.Header().Get("Retry-After"))
 }
 
+func TestPlayboxRelaySpoofedOriginLegacyIDStaysAnon(t *testing.T) {
+	// Push-audit regression (2026-08-01): Origin is spoofable outside a browser, so
+	// a legacy X-Roger-User / Bearer id on the cookieless browser path must NOT mint
+	// its own rate bucket - it is the anonymous identity, bounded per IP.
+	db := store.NewMem()
+	b := pbBroker(t, db)
+	b.anonRL = &rateLimiter{buckets: map[string]*tokenBucket{}, rpm: 1, burst: 1}
+	pbStation(b, db, "free-stn", "owner-a", "wave-nano-chat", 0)
+
+	r := pbReq("wave-nano-chat", pbOrigin, "")
+	r.Header.Set("X-Roger-User", "rotating-id-1")
+	w := httptest.NewRecorder()
+	b.relay(w, r)
+	require.Equal(t, http.StatusOK, w.Code, readBody(w))
+
+	r = pbReq("wave-nano-chat", pbOrigin, "")
+	r.Header.Set("X-Roger-User", "rotating-id-2")
+	w = httptest.NewRecorder()
+	b.relay(w, r)
+	require.Equal(t, http.StatusTooManyRequests, w.Code,
+		"a rotated legacy id behind a spoofed Origin must stay inside the ONE per-IP anon bucket")
+
+	r = pbReq("wave-nano-chat", pbOrigin, "")
+	r.Header.Set("Authorization", "Bearer rotating-id-3")
+	w = httptest.NewRecorder()
+	b.relay(w, r)
+	require.Equal(t, http.StatusTooManyRequests, w.Code,
+		"a rotated Bearer legacy id must not mint a fresh bucket either")
+}
+
 func TestPlayboxRelayAnonBrowserPaidModelSignIn(t *testing.T) {
 	db := store.NewMem()
 	b := pbBroker(t, db)

@@ -493,12 +493,13 @@
 
             <div class="man-note">
               <span class="man-note__tag">note</span>
-              In-browser chat with a <b>specific</b> station is not live yet: the broker relay
-              <code>/v1/chat/completions</code> needs a signed request or a <code>rog-grant_</code>
-              key and sends no CORS headers, so a page can't call it. The Playbox answers live
-              through <code>/concierge</code> (Ping) and, for a chosen model, hands you the exact
-              <code>roger chat --model &lt;name&gt;</code> command instead of faking a reply. To chat
-              with any station directly, tune in from the CLI (§3) or point a bot at the API (§B).
+              In-browser chat with a <b>specific</b> station is live: the broker relay
+              <code>/v1/chat/completions</code> accepts credentialed calls from the site's own
+              origin (the session cookie counts only behind that Origin check), so tuning a
+              station in the Playbox routes your message through the Tower to that model and
+              streams the reply back - same wallet, receipts, and limits as the CLI. Free
+              stations work signed out; paid stations ask you to sign in. The CLI (§3) and the
+              API (§B) remain the paths for scripts and bots, which sign their requests.
             </div>
           </section>
 

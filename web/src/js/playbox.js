@@ -4,14 +4,14 @@
    Three surfaces on one deck, wired to what a browser can HONESTLY reach:
 
      LIVE, REAL endpoints (no fakery):
-       GET  /discover           - per-station offers (CORS, no creds)
-       GET  /me, GET /balance   - session identity + wallet (CORS, creds)
-       POST /concierge          - the Ping assistant (CORS, creds omit)
-
-     NOT browser-callable (documented on the page, never faked):
-       POST /v1/chat/completions - no CORS + needs an Ed25519 signature or a
-       rog-grant_ key. Model-selectable chat therefore routes to a copyable
-       CLI command, not a fabricated station reply.
+       GET  /discover            - per-station offers (CORS, no creds)
+       GET  /me, GET /balance    - session identity + wallet (CORS, creds)
+       POST /concierge           - the Ping assistant (CORS, creds omit)
+       POST /v1/chat/completions - per-station chat through the Tower
+         (credentialed CORS from this origin only; the session cookie is the
+         identity, same wallet + receipts + limits as the CLI - see
+         features/relay/browser_session.feature). The copyable CLI command
+         stays offered as the terminal path to the same station.
 
    Everything the page marks "live" maps to a real endpoint above. Everything
    else - the embed + guard demos - is drawn from local data and labelled
