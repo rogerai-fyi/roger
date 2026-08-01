@@ -96,3 +96,10 @@
 @media (max-width: 640px) {
   .tape__hash { margin-left: 0; }
 }
+/* The relay caveat is not a footnote - it is the one thing a trust page is most tempted
+   to leave out, so it keeps the plate treatment rather than shrinking into small print. */
+.tower__edge {
+  margin: var(--s-5) 0 0; padding: var(--s-4) var(--s-5);
+  border-left: 2px solid var(--ink-900); background: var(--paper-2);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
