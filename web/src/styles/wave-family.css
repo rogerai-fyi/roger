@@ -1,8 +1,7 @@
 /* Wave family field guide. Only the family rail is page-specific; the
    capability figure and the matrix tables come from research.css so the two
    pages cannot drift apart. */
-.wf-back { display: inline-block; margin-bottom: var(--s-5); color: var(--ink-500); font-size: var(--t-xs); letter-spacing: .06em; text-transform: uppercase; }
-.wf-back:hover, .wf-back:focus-visible { color: var(--live); }
+/* .wf-back moved to research.css - see the note there. */
 
 .wf-rail { margin: 0; border-block: 2px solid var(--ink-900); background: var(--paper); }
 .wf-rail__head {
@@ -164,4 +163,31 @@
   margin: var(--s-4) 0 0; color: var(--ink-400);
   font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: .04em; line-height: var(--lh-body);
+}
+
+/* ---------- the broadcast-wave mark ------------------------------------------
+   The ((.)) motif at scale: two mirrored arc pairs radiating from one live beacon. It is
+   the mark the social card carries, brought onto the page the family is named after.
+   Square caps and the 8-unit stroke come from the card, so the two read as one mark. */
+.wave-mark { margin: 0; display: grid; justify-items: center; gap: var(--s-4); }
+.wave-mark__svg { width: 100%; max-width: 260px; height: auto; overflow: visible; }
+.wave-mark__arc {
+  fill: none; stroke: var(--ink-400); stroke-width: 8; stroke-linecap: square;
+}
+.wave-mark__arc--far { stroke: var(--ink-300); }
+.wave-mark__dot { fill: var(--live); }
+.wave-mark figcaption {
+  color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+/* The pulse rides outward, near pair then far pair, like a transmission leaving. Opacity
+   only - the arcs never disappear, so the mark is whole in every frame. */
+.wave-mark__arc { animation: wave-mark-pulse 3.2s ease-in-out infinite; }
+.wave-mark__arc--far { animation-delay: .4s; }
+@keyframes wave-mark-pulse {
+  0%, 100% { opacity: .55; }
+  45%      { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-mark__arc { animation: none; opacity: 1; }
 }

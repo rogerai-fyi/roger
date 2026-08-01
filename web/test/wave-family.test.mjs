@@ -324,3 +324,61 @@ test("no card lead-in leaves its sentence starting with punctuation", () => {
   }
   assert.ok(checked >= 3, `the card is used on more than one page, swept ${checked}`);
 });
+
+// The broadcast-wave mark from the social card - arcs radiating both sides of the live-red
+// dot - is the ((.)) on-air motif at scale. It belongs on the family page more than
+// anywhere: the family is named for the wave. Distinct from the vector Ping mascot, which
+// stays on the homepage and the research hub, so the two do not compete.
+test("the Wave family page carries the broadcast-wave mark", () => {
+  const page = read("research-wave-family.html");
+  const mark = page.match(/<figure class="wave-mark"[\s\S]*?<\/figure>/)?.[0];
+  assert.ok(mark, "the family page draws the wave mark");
+  assert.match(mark, /role="img"|aria-label/, "it is named for a screen reader");
+
+  // Symmetry is the whole shape: equal arcs each side of one centred dot.
+  const dot = mark.match(/<circle[^>]*\bcx="([\d.]+)"[^>]*\bcy="([\d.]+)"/);
+  assert.ok(dot, "there is a single beacon dot");
+  const vb = mark.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
+  assert.equal(Number(dot[1]), Number(vb[1]) / 2, "the dot is centred horizontally");
+  assert.equal(Number(dot[2]), Number(vb[2]) / 2, "and vertically");
+
+  const arcs = [...mark.matchAll(/<path class="wave-mark__arc"[^>]*d="M([\d.]+)/g)].map((m) => Number(m[1]));
+  assert.equal(arcs.length % 2, 0, `arcs come in mirrored pairs, found ${arcs.length}`);
+  const cx = Number(dot[1]);
+  const left = arcs.filter((x) => x < cx).map((x) => cx - x).sort((a, b) => a - b);
+  const right = arcs.filter((x) => x > cx).map((x) => x - cx).sort((a, b) => a - b);
+  assert.deepEqual(left, right, "every arc has a mirror at the same distance from the dot");
+});
+
+test("the wave mark carries no information and stops for reduced motion", () => {
+  const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
+  const block = css.slice(css.indexOf(".wave-mark"));
+  assert.ok(block.length, "the mark is styled");
+  const reduced = (css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g) || [])
+    .find((b) => b.includes("wave-mark"));
+  assert.ok(reduced, "the mark has a reduced-motion escape");
+  assert.match(reduced, /animation: none/);
+  // Every arc must be visible at rest, or the animation is carrying the shape.
+  assert.doesNotMatch(block, /\.wave-mark__arc\s*\{[^}]*opacity:\s*0\s*[;}]/,
+    "arcs are drawn at rest; the pulse is decoration on top of a complete mark");
+});
+
+// Same trap as the action buttons and the signal path: a shared component defined in a
+// page-specific sheet. .wf-back lived in wave-family.css, which research-industry.html
+// does not load, so its back link shipped unstyled. Assert the definition is somewhere
+// every page using it actually loads.
+test("the back-to-Labs link is styled on every page that has one", () => {
+  const srcDir = path.join(WEB, "src");
+  const pages = readdirSync(srcDir)
+    .filter((f) => f.endsWith(".html") && readFileSync(path.join(srcDir, f), "utf8").includes("wf-back"));
+  assert.ok(pages.length >= 2, `the link is shared, found it on ${pages.length} pages`);
+  const research = readFileSync(path.join(srcDir, "styles", "research.css"), "utf8");
+  assert.match(research, /\.wf-back \{/, "defined in the sheet every research page loads");
+  for (const p of pages) {
+    const line = readFileSync(path.join(WEB, "build.mjs"), "utf8")
+      .split("\n").find((l) => l.includes(`"${p}":`)) || "";
+    assert.match(line, /research\.css/, `${p} loads the sheet that defines it (bundle: ${line.trim()})`);
+  }
+  // It is navigation above the callsign, not part of it.
+  assert.match(research, /\.wf-back \{[^}]*display: block/, "it sits on its own line");
+});
