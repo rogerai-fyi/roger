@@ -149,3 +149,20 @@ test("every social card PNG was rendered from the current SVG", () => {
     );
   }
 });
+
+// Internal programme state does not belong on a public page: a visitor does not need to
+// know which stage the architecture work is at, and publishing it creates a claim that has
+// to be kept true as the work moves. Swept, not spot-checked - it had reached four pages.
+test("no built page publishes an internal programme stage", () => {
+  let checked = 0;
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const copy = readFileSync(path.join(DIST, page), "utf8")
+      .replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    checked++;
+    // careers.html describes the WORK of a research role, which is a different claim from
+    // where our own programme stands, so the job description keeps its vocabulary.
+    if (page === "careers.html") continue;
+    assert.doesNotMatch(copy, /bake-off/i, `${page} states an internal programme stage`);
+  }
+  assert.ok(checked > 10, `swept the built site, saw ${checked} pages`);
+});

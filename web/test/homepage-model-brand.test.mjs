@@ -42,8 +42,10 @@ test("the homepage Labs card presents Wave Micro as a program, not a download", 
   assert.doesNotMatch(section, /huggingface\.co\/rogerai-fyi\/wave-/, "no artifact link");
   // What it MUST say instead: the honest status, and the independence promise.
   assert.match(sectionText, /IN PROGRESS/i);
-  assert.match(sectionText, /bake-off/i);
   assert.match(sectionText, /no checkpoint has been released/i);
+  // Internal programme state is deliberately NOT published. It is not something a visitor
+  // needs, and it creates a claim that has to be kept current as the work moves.
+  assert.doesNotMatch(sectionText, /bake-off/i, "no internal programme stage on a public page");
   assert.match(section, /href="\/research\.html"/);
   assert.match(sectionText, /local use will not require RogerAI or its broker/i);
   assert.match(sectionText, /separate network terms/i);
