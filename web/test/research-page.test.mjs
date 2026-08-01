@@ -239,15 +239,21 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   assert.doesNotMatch(card, /class="model-download"/);
   assert.doesNotMatch(card, /huggingface\.co\/rogerai-fyi\/wave-/);
 
-  // The real, checkable status - and an explicit refusal to print placeholder
-  // evidence. The previous version of this card listed five evidence fields that
-  // all deferred to a model card that did not exist, which looked like rigour.
+  // The catalogue entry was trimmed to its ROLE so it matches every other row - the
+  // programme detail (bake-off state, decision rule, licence intent) is not what a reader
+  // scanning a model list came for. What must survive is the status a reader could be
+  // misled about, and it does: the chip, the id, and no artifact link or evidence fields.
   assert.match(cardText, /IN PROGRESS/i);
-  assert.match(cardText, /bake-off/i);
   assert.match(cardText, /not yet approved/i);
   assert.match(cardText, /no checkpoint released/i);
-  assert.match(cardText, /No evidence contract yet/i);
-  assert.match(text("research-models.html"), /separate network terms/i);
+  // No placeholder evidence: the earlier version listed five fields that all deferred to
+  // a model card that did not exist, which looked like rigour and was not.
+  for (const field of [/peak memory/i, /measured speed/i, /tested hardware/i]) {
+    assert.doesNotMatch(cardText, field, "no evidence field without a checkpoint to measure");
+  }
+  // The licence boundary is stated once for every Wave artifact rather than per entry.
+  assert.match(text("research-models.html"), /separate network services under separate terms/i);
+  assert.match(text("research-models.html"), /never require RogerAI or its broker/i);
 });
 
 test("developers have a compact path from artifact to local inference", () => {
