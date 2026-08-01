@@ -159,7 +159,15 @@
 .device-contract { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: var(--s-6); background: var(--paper-2); }
 .device-contract p { margin: 0; padding: var(--s-5); border-right: 1px solid var(--hairline); color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .device-contract p:last-child { border-right: 0; }
+/* The lead-in is a run-in heading, so it gets its own line: in a card the bold phrase and
+   the sentence after it are two different things, and running them together made the
+   sentence look like it continued the heading. Every card here is written as
+   "<b>Lead-in.</b> Capitalised sentence", which is what makes the break safe - a
+   continuation starting with punctuation would read broken, and a test forbids one. */
 .device-contract b { color: var(--ink-900); }
+/* Only the FIRST bold is the run-in heading; a later one is emphasis inside the sentence
+   and must stay inline, or the card breaks mid-thought. */
+.device-contract p > b:first-child { display: block; margin-bottom: var(--s-2); }
 
 @media (max-width: 820px) {
   .research-hero__layout { grid-template-columns: 1fr; gap: var(--s-7); }
@@ -371,8 +379,14 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
   margin: var(--s-3) 0 0; color: var(--ink-500);
   font-size: var(--t-sm); line-height: var(--lh-body);
 }
-/* 18 plant jobs need radial labels; six variations do not. */
-.scope__bearings--job text { font-size: 8.5px; letter-spacing: .04em; font-weight: var(--weight-medium); }
+/* 18 plant jobs need radial labels, and radial labels need room the two-column layout
+   does not have: at 360px wide an 8.5px label rendered at about six actual pixels. The
+   jobs axis therefore takes the full width and drops the legend beneath it, which buys
+   enough scale for the labels to be read rather than squinted at. */
+.scope__bearings--job text { font-size: 12px; letter-spacing: .03em; font-weight: var(--weight-medium); }
+.scope[data-mode="jobs"] .scope__body { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+.scope[data-mode="jobs"] .scope__ppi { max-width: 640px; }
+.scope[data-mode="jobs"] .scope__legend { width: 100%; }
 
 .scope__grid circle, .scope__grid line {
   fill: none; stroke: var(--hairline-2); stroke-width: 1;
@@ -381,7 +395,7 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
    the arcs, with a paper halo (paint-order puts the stroke behind the fill). Under the
    filled cells they were illegible. */
 .scope__ticks text {
-  fill: var(--ink-500); font-family: var(--font-mono); font-size: 9px;
+  fill: var(--ink-500); font-family: var(--font-mono); font-size: 11px;
   letter-spacing: .06em; font-weight: var(--weight-semi);
   stroke: var(--paper); stroke-width: 3px; paint-order: stroke fill;
 }
@@ -413,7 +427,9 @@ html.js .scope__modes { display: inline-flex; border: 1px solid var(--hairline-2
 .scope.is-linked .scope__row.is-on { opacity: 1; }
 
 .scope__sweep line { stroke: var(--live); stroke-width: 1; opacity: .45; }
-.scope__sweep { transform-origin: 220px 220px; animation: scope-sweep 6s linear infinite; }
+/* The pivot MUST equal the scope centre. It was left at 220,220 when the viewBox grew to
+   480 for the jobs axis, so the beam swept around a point 20px off-centre. */
+.scope__sweep { transform-origin: 240px 240px; animation: scope-sweep 6s linear infinite; }
 @keyframes scope-sweep { to { transform: rotate(360deg); } }
 /* The sweep is decoration over data, so it gets out of the way while a slot is read. */
 .scope.is-linked .scope__sweep { opacity: 0; }
