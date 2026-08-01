@@ -16,7 +16,7 @@
 // Run: node --test test/nav.test.mjs   (picked up by `npm test`).
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -373,11 +373,17 @@ test("each group's page offers every destination in that group's panel", () => {
   assert.ok(groups.length >= 3, `found ${groups.length} disclosure groups`);
   for (const [, parent, name, panel] of groups) {
     const dests = [...panel.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
-    const body = readDist(parent.replace(/^\//, "")).match(/<main[\s\S]*?<\/main>/)[0];
+    const html = readDist(parent.replace(/^\//, ""));
+    // Not merely "somewhere on the page": the destinations have to be BUTTONS near the
+    // top, the way the research hero already offered its actions. Buried in prose or in an
+    // onward row a screen down, a reader does not find them - which is exactly what
+    // happened, and is why this asserts the hero action cluster specifically.
+    const hero = html.match(/<div class="research-actions"[^>]*>[\s\S]*?<\/div>/)?.[0];
+    assert.ok(hero, `${parent} carries a hero action row`);
     for (const dest of dests) {
       if (dest === parent) continue; // the parent is where we already are
-      assert.ok(body.includes(`href="${dest}"`) || body.includes(`href="${dest}#`),
-        `${parent} must link ${dest} in its own body, not only in the ${name.trim()} panel`);
+      assert.ok(hero.includes(`href="${dest}"`),
+        `${parent} must offer ${dest} as a button in its hero, not only in the ${name.trim()} panel`);
     }
   }
 });
@@ -393,5 +399,21 @@ test("the live-network pages cross-link to each other", () => {
       assert.ok(body.includes(`href="${sibling}"`),
         `${page} offers ${sibling} from its own body`);
     }
+  }
+});
+
+// The action row is on eight pages now, so it has to be styled on all eight. It lived in
+// research.css, which models.html does not load - the row rendered as four unstyled links
+// there, which no markup assertion would have caught.
+test("the section action buttons are styled on every page that uses them", () => {
+  const src = (p) => readFileSync(path.join(SRC, p), "utf8");
+  const pages = readdirSync(SRC).filter((f) => f.endsWith(".html") && src(f).includes("research-actions"));
+  assert.ok(pages.length >= 5, `the row is shared, found it on ${pages.length} pages`);
+  // Whatever sheet defines it must be one every one of those pages actually loads.
+  const base = src("styles/base.css");
+  assert.match(base, /\.research-button \{/, "the component is in the always-loaded sheet");
+  for (const p of pages) {
+    const built = readDist(p);
+    assert.match(built, /styles\/base\.css|<style/, `${p} loads the shared chrome`);
   }
 });

@@ -19,11 +19,7 @@
   letter-spacing: .05em;
 }
 .release-ticker b { color: var(--live); }
-.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
-.research-button { display: inline-flex; padding: 10px 16px; border: 1px solid var(--hairline-2); color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: .08em; }
-.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
-.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
-.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
+/* .research-actions / .research-button moved to base.css - see the note there. */
 
 .research-distinction { background: var(--paper-2); border-bottom: 1px solid var(--hairline); }
 .research-distinction__grid { display: grid; grid-template-columns: 1fr 1fr 1.3fr; gap: var(--s-6); padding-block: var(--s-6); color: var(--ink-500); font-size: var(--t-sm); }

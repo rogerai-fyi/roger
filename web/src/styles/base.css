@@ -856,3 +856,18 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .dir-sibling > span:first-child { color: var(--ink-400); }
 .dir-sibling a { color: var(--ink-500); border-bottom: 1px solid var(--hairline-2); padding-bottom: 1px; }
 .dir-sibling a:hover, .dir-sibling a:focus-visible { color: var(--ink-900); border-bottom-color: var(--live); }
+
+/* ---------- section action buttons -------------------------------------------
+   The hero action row is how every top-level page offers the rest of its own section,
+   so it is now on eight pages and belongs in the shared sheet. It lived in research.css,
+   which models.html does not load - putting the row on that page rendered four unstyled
+   links. Kept under its original names so no page markup had to change. */
+.research-actions { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-8); }
+.research-button {
+  display: inline-flex; padding: 10px 16px; border: 1px solid var(--hairline-2);
+  color: var(--ink-700); font-family: var(--font-mono); font-size: var(--t-xs);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
+.research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
+.research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
