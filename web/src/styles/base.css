@@ -871,3 +871,58 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 .research-button:hover, .research-button:focus-visible { border-color: var(--live); color: var(--live); }
 .research-button--primary { border-color: var(--ink-900); background: var(--ink-900); color: var(--paper); }
 .research-button--primary:hover, .research-button--primary:focus-visible { background: var(--live); color: var(--paper); }
+
+/* ---------- Let's talk: the contact dialog -----------------------------------
+   Site-wide (base.css) so no page can bundle it unstyled. Paper card on an ink
+   scrim, mono kickers, the one red on the send button hover - the same quiet
+   grammar as the billing modal. Contract: features/web/lets_talk.feature */
+.lt-scrim {
+  position: fixed; inset: 0; z-index: 70;
+  background: color-mix(in srgb, var(--ink-900) 55%, transparent);
+}
+.lt-modal { position: fixed; inset: 0; z-index: 71; display: grid; place-items: center; padding: var(--s-4); }
+/* display:grid would override the hidden attribute and leave an invisible dialog
+   blanketing the page, eating every click. Explicitly re-assert hidden. */
+.lt-modal[hidden], .lt-scrim[hidden] { display: none; }
+.lt-modal__dialog {
+  background: var(--paper); border: 2px solid var(--ink-900);
+  width: min(760px, 100%); max-height: 92vh; overflow: auto;
+  padding: var(--s-5) var(--s-6) var(--s-5);
+}
+.lt-modal__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-4); }
+.lt-modal__title { margin: 0; font-size: var(--t-h3, 1.4rem); }
+.lt-modal__close {
+  border: 0; background: none; color: var(--ink-500); font-size: 1.5rem;
+  line-height: 1; cursor: pointer; padding: 2px 6px;
+}
+.lt-modal__close:hover, .lt-modal__close:focus-visible { color: var(--live); }
+.lt-modal__lead { margin: var(--s-2) 0 var(--s-4); color: var(--ink-500); font-size: var(--t-sm); }
+.lt-modal__form { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s-5); }
+.lt-modal__col { display: grid; gap: var(--s-3); align-content: start; }
+.lt-modal__kicker {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-400);
+  letter-spacing: var(--tracking-label);
+}
+.lt-field { display: grid; gap: 4px; font-size: var(--t-sm); color: var(--ink-700); }
+.lt-field i { color: var(--ink-400); font-style: normal; }
+.lt-field input, .lt-field select, .lt-field textarea {
+  font: inherit; color: var(--ink-900); background: var(--paper);
+  border: 1px solid var(--hairline-2); border-radius: var(--r-sm); padding: 8px 10px;
+}
+.lt-field input:focus-visible, .lt-field select:focus-visible, .lt-field textarea:focus-visible {
+  outline: 2px solid var(--live); outline-offset: 1px;
+}
+.lt-field--grow textarea { resize: vertical; min-height: 12em; }
+.lt-modal__foot {
+  grid-column: 1 / -1; display: flex; align-items: center;
+  justify-content: space-between; gap: var(--s-4);
+}
+.lt-modal__alt { color: var(--ink-500); font-size: var(--t-sm); }
+.lt-modal__send {
+  font: inherit; cursor: pointer; padding: 10px 22px;
+  background: var(--ink-900); color: var(--paper); border: 1px solid var(--ink-900);
+  border-radius: var(--r-sm);
+}
+.lt-modal__send:hover, .lt-modal__send:focus-visible { background: var(--live); border-color: var(--live); }
+.lt-open { overflow: hidden; }
+@media (max-width: 700px) { .lt-modal__form { grid-template-columns: 1fr; } }
