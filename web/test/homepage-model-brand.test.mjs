@@ -63,7 +63,15 @@ test("the website renders the HIGH-FIDELITY vector mascot, never the terminal ar
   const mascot = home.match(/<figure class="tube-ping"[\s\S]*?<\/figure>/)?.[0] || "";
   assert.match(mascot, /aria-label="Ping, the RogerAI on-air mascot"/);
   assert.match(mascot, /<svg class="tube-ping__mark"/, "the web mascot is a vector, not a <pre>");
-  assert.match(mascot, /viewBox="0 0 64 72"/, "canonical mascot.svg geometry");
+  // The viewBox gained headroom above y=0 so the signal arcs are not clipped by the edge
+  // an outermost SVG enforces. Width and the drawn body are unchanged; assert the shape
+  // rather than one literal, so raising the signal again does not read as a broken mascot.
+  const vb = mascot.match(/viewBox="([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)"/);
+  assert.ok(vb, "the mascot declares a viewBox");
+  assert.equal(Number(vb[1]), 0, "canonical mascot.svg geometry: x origin");
+  assert.equal(Number(vb[3]), 64, "canonical mascot.svg geometry: width");
+  assert.ok(Number(vb[2]) <= 0, "any extra band is headroom above the mascot, never a crop");
+  assert.equal(Number(vb[4]) - Math.abs(Number(vb[2])), 72, "the drawn body keeps its height");
   assert.equal((mascot.match(/class="ping-mark__eye"/g) || []).length, 1, "one live-red beacon eye");
   assert.doesNotMatch(mascot, /<pre/, "no monospace sprite on a surface that can draw curves");
 
