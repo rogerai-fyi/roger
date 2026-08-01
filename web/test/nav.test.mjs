@@ -417,3 +417,24 @@ test("the section action buttons are styled on every page that uses them", () =>
     assert.match(built, /styles\/base\.css|<style/, `${p} loads the shared chrome`);
   }
 });
+
+// The site uses two nouns for two different things and they are not interchangeable:
+// a MODEL is what you tune to, a GPU is the machine someone owns and shares to serve it.
+// The manual's glossary is the canonical definition, and "GPU model" reads as the
+// hardware's model number, which is a third meaning entirely - it does not belong in
+// structured data a search result renders.
+test("model and GPU keep their separate meanings", () => {
+  const gloss = readDist("manual.html").match(/<dl class="man-gloss">[\s\S]*?<\/dl>/)[0];
+  const entry = (term) => gloss.match(new RegExp(`<dt>${term}</dt><dd>([\\s\\S]*?)</dd>`))?.[1] || "";
+  assert.match(entry("band"), /a model/i, "a band IS a model");
+  assert.match(entry("station"), /GPU/i, "a station is the machine serving one");
+  // The ambiguous compound must not appear where it means "a model on a GPU".
+  for (const p of ["index.html", "models.html", "voices.html", "tower.html"]) {
+    const html = readDist(p);
+    const ld = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g) || [];
+    for (const block of ld) {
+      assert.doesNotMatch(block, /local GPU model/i,
+        `${p}: "GPU model" reads as the hardware's model number in structured data`);
+    }
+  }
+});
