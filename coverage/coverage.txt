@@ -1043,7 +1043,7 @@ rogerai.fm/roger/v5/internal/client/login.go:194:		LogoutReturn			60.0%
 rogerai.fm/roger/v5/internal/client/login.go:206:		Logout				85.7%
 rogerai.fm/roger/v5/internal/client/login.go:221:		Whoami				100.0%
 rogerai.fm/roger/v5/internal/client/login.go:244:		startDeviceFlow			92.9%
-rogerai.fm/roger/v5/internal/client/login.go:266:		pollDeviceToken			85.7%
+rogerai.fm/roger/v5/internal/client/login.go:266:		pollDeviceToken			90.5%
 rogerai.fm/roger/v5/internal/client/login.go:308:		postSigned			100.0%
 rogerai.fm/roger/v5/internal/client/login.go:316:		maxInt				100.0%
 rogerai.fm/roger/v5/internal/client/payout.go:49:		payoutErr			100.0%
@@ -2186,7 +2186,7 @@ rogerai.fm/roger/v5/internal/tui/tui.go:8369:			sharePriceCell			100.0%
 rogerai.fm/roger/v5/internal/tui/tui.go:8394:			shareRowDetail			97.0%
 rogerai.fm/roger/v5/internal/tui/tui.go:8466:			marquee				91.7%
 rogerai.fm/roger/v5/internal/tui/tui.go:8490:			shareEditorView			89.3%
-rogerai.fm/roger/v5/internal/tui/tui.go:8617:			editorLivePreview		92.0%
+rogerai.fm/roger/v5/internal/tui/tui.go:8617:			editorLivePreview		96.0%
 rogerai.fm/roger/v5/internal/tui/tui.go:8666:			maskKey				100.0%
 rogerai.fm/roger/v5/internal/tui/tui.go:8683:			shareSetupView			85.4%
 rogerai.fm/roger/v5/internal/tui/tui.go:8751:			modalFooter			100.0%
@@ -2340,7 +2340,7 @@ rogerai.fm/roger/v5/internal/webui/actions.go:46:		handleOnAir			92.9%
 rogerai.fm/roger/v5/internal/webui/actions.go:75:		handlePrivate			100.0%
 rogerai.fm/roger/v5/internal/webui/actions.go:103:		handlePrice			100.0%
 rogerai.fm/roger/v5/internal/webui/actions.go:119:		handleRename			100.0%
-rogerai.fm/roger/v5/internal/webui/actions.go:133:		handleDetect			90.0%
+rogerai.fm/roger/v5/internal/webui/actions.go:133:		handleDetect			80.0%
 rogerai.fm/roger/v5/internal/webui/api.go:16:			handleState			100.0%
 rogerai.fm/roger/v5/internal/webui/api.go:24:			handleEvents			86.2%
 rogerai.fm/roger/v5/internal/webui/api.go:70:			writeJSON			100.0%
