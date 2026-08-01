@@ -122,16 +122,38 @@ test("the on-air beacon is centred between the brackets in every brand mark", ()
 test("the beacon animations pivot on the beacon, not a stale coordinate", () => {
   const cy = Number(source("_partials/tube-ping.html").match(/class="ping-mark__eye"[^>]*\bcy="([\d.]+)"/)[1]);
   const css = source("styles/base.css");
-  // The signal arcs radiate FROM the beacon, so they move with it. They were left behind
-  // when the eye came up, and the waves visibly launched from below the dot.
   const svg = source("_partials/tube-ping.html");
-  const arcs = [...svg.matchAll(/class="ping-mark__wave[^"]*"\s+d="M[\d.]+ ([\d.]+)/g)].map((m) => Number(m[1]));
-  assert.ok(arcs.length >= 2, "the mascot draws its signal arcs");
-  assert.equal(Math.min(...arcs), cy, "the innermost arc springs from the beacon centre");
-  for (const part of ["ping-mark__glow", "ping-mark__eye", "ping-mark__wave"]) {
+  for (const part of ["ping-mark__glow", "ping-mark__eye"]) {
     const rule = css.match(new RegExp(`\\.${part}\\s*\\{([^}]*)\\}`))?.[1] || "";
     const origin = rule.match(/transform-origin:\s*[\d.]+px\s+([\d.]+)px/)?.[1];
     assert.ok(origin, `.${part} declares a transform-origin`);
     assert.equal(Number(origin), cy, `.${part} pivots on the beacon centre (cy=${cy})`);
   }
+});
+
+// The arcs radiate from the ANTENNAE, above the head - not from the eye. Tying them to the
+// beacon put their apex at y=7 against a bracket top of y=8, so they were drawn ON the
+// head. Assert the geometry that makes them read as a signal leaving the mascot: every arc
+// must clear the brackets, and they must pivot on the antenna line rather than the beacon.
+test("the signal arcs clear the head they are supposed to be leaving", () => {
+  const svg = source("_partials/tube-ping.html");
+  const bracketTop = Number(svg.match(/d="M\d+ (\d+)/)[1]);
+  const arcs = [...svg.matchAll(/class="ping-mark__wave[^"]*"\s+d="M([\d.]+) ([\d.]+) A([\d.]+)[^"]*?([\d.]+) [\d.]+"/g)];
+  assert.ok(arcs.length >= 2, `the mascot draws its signal arcs, found ${arcs.length}`);
+  for (const [, x0, y0, r, x1] of arcs) {
+    const half = (Number(x1) - Number(x0)) / 2;
+    const apex = Number(y0) - (Number(r) - Math.sqrt(Number(r) ** 2 - half ** 2));
+    assert.ok(apex < bracketTop - 3,
+      `an arc peaks at y=${apex.toFixed(1)} but the brackets start at y=${bracketTop} - it is drawn on the head`);
+    // Read the viewBox rather than assuming it starts at 0 - an outermost SVG clips to
+    // it, and the stroke extends half its width past the path.
+    const top = Number(svg.match(/viewBox="[\d.-]+ ([\d.-]+)/)[1]);
+    assert.ok(apex - 1 > top,
+      `the arc's stroke stays inside the viewBox (apex y=${apex.toFixed(1)}, top ${top})`);
+  }
+  const origin = source("styles/base.css")
+    .match(/\.ping-mark__wave \{[^}]*transform-origin:\s*[\d.]+px\s+([\d.]+)px/);
+  assert.ok(origin, ".ping-mark__wave declares a transform-origin");
+  assert.ok(Number(origin[1]) <= bracketTop + 2,
+    "the arcs pivot on the antenna line, not on the beacon further down");
 });

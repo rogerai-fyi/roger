@@ -157,7 +157,7 @@ html.js [data-reveal].is-revealed { opacity: 1; transform: none; }
 @keyframes ping-pulse { 0%, 100% { opacity: .25; transform: scale(1); } 50% { opacity: .6; transform: scale(1.18); } }
 .ping-mark__eye { animation: ping-blink 5s steps(1, end) infinite; transform-origin: 32px 17px; }
 @keyframes ping-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.12); } 98% { transform: scaleY(1); } }
-.ping-mark__wave { transform-origin: 32px 17px; animation: ping-wave 2.4s ease-out infinite; }
+.ping-mark__wave { transform-origin: 32px 9px; animation: ping-wave 2.4s ease-out infinite; }
 .ping-mark__wave--b { animation-delay: 1.2s; }
 @keyframes ping-wave {
   0% { opacity: 0; transform: scale(.65); }
