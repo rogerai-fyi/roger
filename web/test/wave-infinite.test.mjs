@@ -1,7 +1,8 @@
 // Executable lock for features/web/wave_infinite.feature.
 //
-// Wave Infinite is a model RUNTIME, not a fifth size class, and it is a design with one
-// causally validated primitive and zero demonstrated speedup. Its own brief sets the
+// Wave Infinite is a prototype model PROGRAMME - not a fifth size class, and explicitly
+// "not 'just a runtime'; the certified runtime is one layer of it". It has one causally
+// validated primitive and no demonstrated speedup. Its own brief sets the
 // ceiling ("must not be described as a working system") and names the naming risk
 // ("infinite in specification, finite in implementation ... a theorem, not a capability
 // claim"). This is the same failure mode as the retracted Wave Micro release, so most of
@@ -157,4 +158,20 @@ test("it survives with no JavaScript", () => {
   const sec = section();
   assert.doesNotMatch(sec, /<script/i, "no inline script");
   assert.match(visible(sec), /Wave Infinite/, "the copy is in the served markup");
+});
+
+// The onward card on the research hub still read "the runtime a model runs under" after
+// the section itself was corrected, so the site contradicted itself across two pages. The
+// runtime-reduction check was scoped to the family-page section; it is site-wide now.
+test("no page anywhere reduces Wave Infinite to a runtime", () => {
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const copy = visible(readFileSync(path.join(DIST, page), "utf8"));
+    if (!/Wave Infinite/.test(copy)) continue;
+    for (const reduction of [/Wave Infinite[^.]{0,30}\bis (just )?a runtime\b/i,
+                             /Wave Infinite,? the runtime\b/i,
+                             /Wave Infinite - the runtime\b/i]) {
+      assert.doesNotMatch(copy, reduction,
+        `${page} reduces Wave Infinite to a runtime; the runtime is one layer of it`);
+    }
+  }
 });

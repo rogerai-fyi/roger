@@ -113,14 +113,6 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 
-/* Proven and not-proven get the same width on purpose: the ceiling is not a footnote. */
-.wf-inf__ledger {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6);
-  padding-top: var(--s-6);
-}
-.wf-inf__ledger p { margin: var(--s-3) 0 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
-.wf-inf__ledger b { color: var(--ink-900); }
-
 @media (prefers-reduced-motion: reduce) {
   /* The shimmer carries no information, so stopping it loses nothing. Reset the clip
      so the word does not sit frozen mid-gradient. */
@@ -130,11 +122,6 @@
   }
 }
 @media (max-width: 860px) {
-  .wf-inf__loop { grid-template-columns: 1fr; }
-  .wf-inf__loop li { border-right: 0; border-bottom: 1px solid var(--hairline); }
-  .wf-inf__loop li:last-child { border-bottom: 0; }
-}
-@media (max-width: 560px) {
   .wf-inf__loop { grid-template-columns: 1fr; }
   .wf-inf__loop li { border-right: 0; border-bottom: 1px solid var(--hairline); }
   .wf-inf__loop li:last-child { border-bottom: 0; }
