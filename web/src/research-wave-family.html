@@ -36,20 +36,22 @@
           </p>
         </div>
 
-        <!-- The ((.)) on-air motif at scale - the same broadcast-wave mark the social card
-             carries, which is where it was first noticed. It belongs on this page more than
-             anywhere else: the family is named for the wave. Deliberately NOT the vector
-             Ping mascot, which stays on the homepage and the research hub so the two do not
-             compete. Every arc is drawn at rest; the pulse is decoration on a complete
-             mark, not the thing that makes it legible. -->
+        <!-- The wave mark, lifted verbatim from the homepage social card: two S-curves
+             on one centreline, the red tighter than the grey, with the live beacon exactly
+             where they cross. It belongs on this page more than anywhere - the family is
+             named for the wave, and the crossing node is the point the whole page is about.
+             Geometry is the card's, unchanged, so the two read as one mark. Deliberately
+             not the vector Ping mascot, which stays on the homepage and the research hub. -->
         <figure class="wave-mark" role="img"
-                aria-label="The RogerAI on-air mark: signal arcs radiating from a live beacon">
-          <svg class="wave-mark__svg" viewBox="0 0 260 140" aria-hidden="true" focusable="false">
-            <path class="wave-mark__arc" d="M84 44 C54 58 54 82 84 96"/>
-            <path class="wave-mark__arc" d="M176 44 C206 58 206 82 176 96"/>
-            <path class="wave-mark__arc wave-mark__arc--far" d="M58 30 C14 52 14 88 58 110"/>
-            <path class="wave-mark__arc wave-mark__arc--far" d="M202 30 C246 52 246 88 202 110"/>
-            <circle class="wave-mark__dot" cx="130" cy="70" r="10"/>
+                aria-label="The RogerAI wave mark: two waves crossing at a live beacon">
+          <svg class="wave-mark__svg" viewBox="-6 20 360 116" aria-hidden="true" focusable="false">
+            <g fill="none" stroke-linecap="round">
+              <path class="wave-mark__wave wave-mark__wave--wide"
+                    d="M0 78C58 18 116 18 174 78S290 138 348 78"/>
+              <path class="wave-mark__wave wave-mark__wave--live"
+                    d="M0 78C58 42 116 42 174 78S290 114 348 78"/>
+            </g>
+            <circle class="wave-mark__node" cx="174" cy="78" r="14"/>
           </svg>
           <figcaption>Right-sized intelligence, on air.</figcaption>
         </figure>

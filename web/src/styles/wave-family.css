@@ -165,31 +165,30 @@
   letter-spacing: .04em; line-height: var(--lh-body);
 }
 
-/* ---------- the broadcast-wave mark ------------------------------------------
-   The ((.)) motif at scale: two mirrored arc pairs radiating from one live beacon. It is
-   the mark the social card carries, brought onto the page the family is named after.
-   Square caps and the 8-unit stroke come from the card, so the two read as one mark. */
+/* ---------- the wave mark ----------------------------------------------------
+   The homepage social card's mark, on the page the family is named after. Two S-curves
+   sharing one centreline: the wide one behind, the live one tighter in front, and the
+   beacon exactly where they cross. Stroke widths and geometry are the card's, so the two
+   are the same mark rather than a lookalike. */
 .wave-mark { margin: 0; display: grid; justify-items: center; gap: var(--s-4); }
-.wave-mark__svg { width: 100%; max-width: 260px; height: auto; overflow: visible; }
-.wave-mark__arc {
-  fill: none; stroke: var(--ink-400); stroke-width: 8; stroke-linecap: square;
+.wave-mark__svg { width: 100%; max-width: 320px; height: auto; overflow: visible; }
+.wave-mark__wave { fill: none; stroke-linecap: round; }
+.wave-mark__wave--wide { stroke: var(--hairline-2); stroke-width: 9; }
+.wave-mark__wave--live { stroke: var(--live); stroke-width: 6; }
+/* The node is the beacon, so it breathes like every other one on the site. Scale only,
+   from its own centre - the curves never move, because the mark is the mark. */
+.wave-mark__node {
+  fill: var(--live); transform-origin: 174px 78px;
+  animation: wave-mark-beat 3.4s var(--ease-in-out, ease-in-out) infinite;
 }
-.wave-mark__arc--far { stroke: var(--ink-300); }
-.wave-mark__dot { fill: var(--live); }
+@keyframes wave-mark-beat {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.12); }
+}
 .wave-mark figcaption {
   color: var(--ink-400); font-family: var(--font-mono); font-size: var(--t-micro);
   letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
-/* The pulse rides outward, near pair then far pair, like a transmission leaving. Opacity
-   only - the arcs never disappear, so the mark is whole in every frame. */
-.wave-mark__arc { animation: wave-mark-pulse 3.2s ease-in-out infinite; }
-/* backwards fill, or the far pair holds opacity 1 for the delay and then snaps to the
-   keyframe start - a visible flick on every page load. */
-.wave-mark__arc--far { animation-delay: .4s; animation-fill-mode: backwards; }
-@keyframes wave-mark-pulse {
-  0%, 100% { opacity: .55; }
-  45%      { opacity: 1; }
-}
 @media (prefers-reduced-motion: reduce) {
-  .wave-mark__arc { animation: none; opacity: 1; }
+  .wave-mark__node { animation: none; }
 }
