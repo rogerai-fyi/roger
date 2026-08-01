@@ -175,15 +175,11 @@ test("the compression is drawn, not just asserted", () => {
   }
 });
 
-test("shrinking the prose does not drop a caveat", () => {
+// Founder ruling 2026-07-31: the Controlled/Scope caveats paragraph and the
+// "failure worth having" paragraph came off the page. What must survive is the
+// attribution: the named model and settings stay attached to the numbers.
+test("the capability numbers keep their model and settings attribution", () => {
   const copy = visible(capability());
-  assert.match(copy, /uncompressed/i, "the control is still stated");
-  assert.match(copy, /answered every one/i, "including that the control answered everything");
-  assert.match(copy, /two points|not a curve|where on the compression/i,
-    "the scope limit survives: this is two points, not a curve");
-  assert.match(copy, /whether an answer arrives|not whether it is right/i,
-    "and what the measurement does not cover");
-  // The named model and settings stay attached to the numbers.
   assert.match(copy, /Kimi-K3/);
   assert.match(copy, /temperature 0/i);
 });
@@ -211,10 +207,6 @@ test("the zero is explained as a non-answer, not ten wrong answers", () => {
   const copy = visible(capability());
   assert.match(copy, /no answer at all|not ten wrong/i,
     "the cell distinguishes not-answering from answering wrongly");
-  assert.match(copy, /invents|confident|dangerous/i, "and says why that distinction matters");
-  assert.match(copy, /Guard/, "which is what Guard exists for");
-  // The scope caveat must still say what the measurement does NOT cover.
-  assert.match(copy, /not whether it is right/i);
 });
 
 // The market set grew from four to six. Both pages that name it have to agree, and the
