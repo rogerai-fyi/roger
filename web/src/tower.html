@@ -173,22 +173,35 @@
       </div>
     </section>
 
+    <!-- The close. "Verify it yourself" would be the obvious ending for a trust page and
+         it is not available to us: node public keys are held broker-side and are not
+         published, so a reader cannot check the station signature independently. What IS
+         true is that the evidence leaves with the work - the co-signed receipt rides back
+         on the response header - so that is what this section claims, and no more. The
+         relay caveat stays, because the page must not imply a privacy property it lacks. -->
     <section class="section research-closing">
       <div class="wrap">
-        <span class="sectionno">&sect;3 / WHAT IT IS NOT</span>
-        <h2>The honest edges.</h2>
-        <p>The tower relays your request to the station that serves it, so it handles the
-           request and the response in transit. What we retain, and for how long, is in the
-           privacy policy - not implied away here. It is a routing, metering and settlement
-           service, and everything above describes what it does with a request, not a claim
-           about who else could see one.</p>
+        <span class="sectionno">&sect;3 / WHAT YOU GET BACK</span>
+        <h2>The receipt leaves with the work.</h2>
+        <p>Every response carries its co-signed receipt on the
+           <code class="inline">X-RogerAI-Receipt</code> header, so the evidence arrives in
+           your hands rather than living only in our database. It carries the model, the
+           token counts both sides settled on, the price that was actually used, and both
+           signatures. The same records show up on your usage page, and the station&rsquo;s
+           signature is verified before anything settles - that check runs on every
+           request, not at audit time.</p>
+        <p class="tower__edge">One honest edge: the tower relays your request to the
+           station that serves it, so it handles the request and the response in transit.
+           What is retained, and for how long, is in the privacy policy rather than implied
+           away here.</p>
         <div class="research-actions">
-          <a class="research-button research-button--primary" href="/models.html">Models on air</a>
+          <a class="research-button research-button--primary" href="/usage.html">Your usage and receipts</a>
+          <a class="research-button" href="/manual.html#s10">Lineage in the manual</a>
           <a class="research-button" href="/privacy.html">Privacy policy</a>
-          <a class="research-button" href="/manual.html">The manual</a>
         </div>
       </div>
     </section>
+
   </main>
 
   <!-- include: footer.html anchors=/ -->

@@ -99,6 +99,24 @@ test("the page invents no operational numbers", () => {
     "no certification or audit we have not had");
 });
 
+// "Verify it yourself" is the obvious close for a trust page and we cannot make it:
+// station public keys are held broker-side and are not published, so a reader has no way
+// to check the station signature independently. The page may say the receipt comes back;
+// it may not say the reader can verify it.
+test("the close claims the receipt is returned, not that it can be independently verified", () => {
+  const c = copy();
+  assert.match(c, /X-RogerAI-Receipt/, "the header the receipt rides back on");
+  assert.match(c, /usage/i, "and where the same records show up again");
+  for (const overclaim of [/verify (it|the signature) yourself/i, /published (public )?keys?/i,
+                           /check the signature (yourself|independently)/i,
+                           /publicly verifiable/i, /anyone can verify/i]) {
+    assert.doesNotMatch(c, overclaim, `must not claim ${overclaim} - we do not publish node keys`);
+  }
+  // The relay caveat must survive the rewrite; it is the thing most tempting to drop.
+  assert.match(c, /relays your request|handles the request and the response/i);
+  assert.match(c, /privacy policy/i);
+});
+
 test("the figures survive no motion, no script, and a narrow screen", () => {
   const html = page();
   const css = read("styles/tower.css");
