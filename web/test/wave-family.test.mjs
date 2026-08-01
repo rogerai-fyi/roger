@@ -342,7 +342,10 @@ test("the Wave family page carries the broadcast-wave mark", () => {
   assert.equal(Number(dot[1]), Number(vb[1]) / 2, "the dot is centred horizontally");
   assert.equal(Number(dot[2]), Number(vb[2]) / 2, "and vertically");
 
-  const arcs = [...mark.matchAll(/<path class="wave-mark__arc"[^>]*d="M([\d.]+)/g)].map((m) => Number(m[1]));
+  // Match the far pair too: they carry a second class, so an exact class="..." match
+  // silently tested only half the mark and passed either way.
+  const arcs = [...mark.matchAll(/<path class="wave-mark__arc[^"]*"[^>]*d="M([\d.]+)/g)].map((m) => Number(m[1]));
+  assert.equal(arcs.length, 4, `all four arcs are checked, found ${arcs.length}`);
   assert.equal(arcs.length % 2, 0, `arcs come in mirrored pairs, found ${arcs.length}`);
   const cx = Number(dot[1]);
   const left = arcs.filter((x) => x < cx).map((x) => cx - x).sort((a, b) => a - b);
