@@ -102,7 +102,7 @@
             <li><a href="#s2"><span class="man-toc__no">§2</span>First contact</a></li>
             <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
             <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
-            <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playground</a></li>
+            <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playbox</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
             <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
@@ -468,11 +468,11 @@
             </div>
 
 
-          <!-- ============== §P PLAYGROUND ============== -->
+          <!-- ============== §P PLAYBOX ============== -->
           <section class="man-sec" id="sPlay">
-            <span class="man-sec__no">§P · Playground (the console)</span>
+            <span class="man-sec__no">§P · Playbox (the console)</span>
             <h2>Try the models in the browser</h2>
-            <p class="man-lead">The <a href="/playground.html">Playground</a> is the console
+            <p class="man-lead">The <a href="/playbox.html">Playbox</a> is the console
               form of everything in this manual: a page where you can chat with the stations on
               air, see what the models do, and run the Roger Edge device on real plant events -
               without installing anything. It is honest about its edges: the browser can only
@@ -495,7 +495,7 @@
               <span class="man-note__tag">note</span>
               In-browser chat with a <b>specific</b> station is not live yet: the broker relay
               <code>/v1/chat/completions</code> needs a signed request or a <code>rog-grant_</code>
-              key and sends no CORS headers, so a page can't call it. The Playground answers live
+              key and sends no CORS headers, so a page can't call it. The Playbox answers live
               through <code>/concierge</code> (Ping) and, for a chosen model, hands you the exact
               <code>roger chat --model &lt;name&gt;</code> command instead of faking a reply. To chat
               with any station directly, tune in from the CLI (§3) or point a bot at the API (§B).

@@ -1,18 +1,18 @@
 <!DOCTYPE html>
-<!-- The Playground ("the console"). A tabbed instrument deck where a visitor
+<!-- The Playbox ("the console"). A tabbed instrument deck where a visitor
      interacts with RogerAI models three ways: Chat (tune into broker-hosted
      stations; live answers come from the browser-safe /concierge Ping demo),
      Capability surfaces (text/audio/vision/tool/embed/guard), and the Roger
      Edge simulator (drop plant events on the device, read the certified
      structured decision beside a captured preview sample).
-     HONESTY CONTRACT (see playground.js header): every "live" claim maps to a
+     HONESTY CONTRACT (see playbox.js header): every "live" claim maps to a
      real browser-safe endpoint (/discover, /market, /concierge, credentialed
      /me + /balance). Everything else is labelled example / illustrative, and
      no model response is ever faked as live. Registered in build.mjs
-     CSS_BUNDLES as [...marketing, "playground.css"]. -->
+     CSS_BUNDLES as [...marketing, "playbox.css"]. -->
 <html lang="en">
 <head>
-  <!-- include: head.html title="Playground - talk to RogerAI models" desc="Open the console: chat with broker-hosted stations, explore what the models can do (text, audio, vision, tools, embed, guard), and drop plant events on a Roger Edge device to read its structured decision. Live where the browser can reach it, honestly labelled everywhere else." theme=external og=post ogtype=website ogtitle="RogerAI Playground - open the console" ogdesc="Chat with live stations, explore the capability surfaces, and run the Roger Edge device on real industrial events. Live data only; examples labelled." ogurl="https://rogerai.fm/playground.html" ogimage="https://rogerai.fm/og-home.png" -->
+  <!-- include: head.html title="Playbox - talk to RogerAI models" desc="Open the console: chat with broker-hosted stations, explore what the models can do (text, audio, vision, tools, embed, guard), and drop plant events on a Roger Edge device to read its structured decision. Live where the browser can reach it, honestly labelled everywhere else." theme=external og=post ogtype=website ogtitle="RogerAI Playbox - open the console" ogdesc="Chat with live stations, explore the capability surfaces, and run the Roger Edge device on real industrial events. Live data only; examples labelled." ogurl="https://rogerai.fm/playbox.html" ogimage="https://rogerai.fm/og-home.png" -->
 </head>
 <body data-onair="idle">
 
@@ -23,7 +23,7 @@
   </div>
 
   <!-- ============================ NAV ============================ -->
-  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 playgroundcurrent='aria-current="page"' -->
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 playboxcurrent='aria-current="page"' -->
 
   <main id="top">
 
@@ -32,7 +32,7 @@
       <div class="wrap pg-hero__inner">
         <span class="hero__eyebrow" data-reveal>
           <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
-          <span class="hero__callsign">THE PLAYGROUND</span>
+          <span class="hero__callsign">THE PLAYBOX</span>
           <span class="hero__sep" aria-hidden="true">&middot;</span>
           open the console
         </span>
@@ -55,7 +55,7 @@
         <div class="pg-deck">
 
           <!-- band selector -->
-          <div class="pg-tabs" role="tablist" aria-label="Playground surfaces">
+          <div class="pg-tabs" role="tablist" aria-label="Playbox surfaces">
             <button class="pg-tab" id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" type="button">
               <span class="pg-tab__no">01</span> Chat
             </button>
@@ -76,10 +76,10 @@
               </span>
               <h2 class="pg-panel__title">Tune into a station.</h2>
               <p class="pg-panel__lede">
-                Pick a model from the live directory on the left. Answers here come from
-                <b>Ping</b>, the broker&rsquo;s concierge assistant &mdash; the one chat endpoint a
-                browser can call directly. To talk to the exact station you picked, copy the
-                command; the CLI carries the signed request a browser can&rsquo;t.
+                Pick a model from the live directory on the left and key up - your message
+                routes through the Tower to that station, and the reply streams back live.
+                With nothing tuned, you&rsquo;re talking to <b>Ping</b>, the concierge.
+                Prefer the terminal? The copyable command reaches the same station.
               </p>
             </div>
 
@@ -127,6 +127,14 @@
 
                 <ul class="pg-log" id="pgChatLog" aria-live="polite" aria-label="Conversation"></ul>
 
+                <!-- paid station, signed out: the composer yields to the sign-in
+                     invitation BEFORE anything is sent (features/web/playbox.feature) -->
+                <div class="pg-invite" id="pgSignInInvite" hidden>
+                  <p>This station is paid. Sign in to key up - your balance settles the
+                    conversation, receipt by receipt.</p>
+                  <a class="pg-btn" href="https://broker.rogerai.fm/auth/github/login">Sign in with GitHub</a>
+                </div>
+
                 <!-- the real path to the SELECTED station (honest, copyable) -->
                 <div class="pg-cli" id="pgCliBox" hidden>
                   <div class="pg-cli__bar">
@@ -146,18 +154,16 @@
             </div>
 
             <div class="pg-note" style="margin-top:var(--s-8)">
-              <span class="pg-note__k">Honest limit</span>
+              <span class="pg-note__k">How it routes</span>
               <div>
-                <p>In-browser chat with a <b>specific</b> station isn&rsquo;t live yet. The
-                  broker relay <code>POST /v1/chat/completions</code> sends no CORS headers and
-                  requires an Ed25519-signed request or a <code>rog-grant_</code> key, so a plain
-                  browser can&rsquo;t call it. The one browser-safe live chat endpoint is
-                  <code>/concierge</code> (Ping), which is a fixed assistant, not model-selectable.</p>
-                <p>So the directory and its signal are <b>real and live</b>; Ping&rsquo;s replies
-                  are <b>real and live</b>; and model-selectable in-browser chat routes to the
-                  <b>CLI command above</b> rather than faking a station&rsquo;s answer. A broker
-                  CORS + browser-auth path is a flagged follow-up &mdash; until then the honest
-                  route to a chosen model is the terminal.</p>
+                <p>Tuning a station here is the real thing: your message goes through the
+                  Tower&rsquo;s relay (<code>POST /v1/chat/completions</code>, credentialed to
+                  this site only) to whoever is sharing that model, and the reply streams back
+                  co-signed and metered - the same path the CLI uses, on the same wallet.
+                  Free stations work signed out; paid stations ask you to sign in first.</p>
+                <p>With no station tuned, you&rsquo;re talking to <b>Ping</b>, the concierge.
+                  When the band is quiet or a station drops, the page says so - nothing here
+                  is ever simulated.</p>
               </div>
             </div>
           </div>
@@ -178,7 +184,7 @@
               </p>
             </div>
             <div class="pg-caps" id="pgCaps">
-              <!-- capability cards injected by playground.js; static fallbacks below -->
+              <!-- capability cards injected by playbox.js; static fallbacks below -->
               <p class="pg-capcard__note">Loading the capability surfaces&hellip;</p>
             </div>
           </div>
@@ -289,7 +295,7 @@
 
   <script src="js/site.js" defer></script>
   <script src="js/session.js" defer></script>
-  <script src="js/playground.js" defer></script>
+  <script src="js/playbox.js" defer></script>
   <script src="js/promo.js" defer></script>
 </body>
 </html>

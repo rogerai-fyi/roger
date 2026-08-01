@@ -1,5 +1,5 @@
 /* =====================================================================
-   RogerAI - Playground ("the console")
+   RogerAI - Playbox ("the console")
 
    Three surfaces on one deck, wired to what a browser can HONESTLY reach:
 
@@ -182,11 +182,10 @@
     if (onlyVoice && !b.caps.chat) return false;
     return true;
   }
-  function bandSelectable(b) {
-    if (!bandChatable(b)) return false;
-    if (STATE.loggedIn) return true;
-    return b.free || b.tier === 0;
-  }
+  function bandFree(b) { return b.free || b.tier === 0; }
+  // Every chatable band is selectable: a signed-out visitor picking a PAID station
+  // gets the sign-in invitation in place of the composer (never a dead row).
+  function bandSelectable(b) { return bandChatable(b); }
 
   /* ---------- CHAT: model directory render ---------------------------- */
   var chatStatus = $("pgChatStatus"), modelList = $("pgModelList");
@@ -260,30 +259,45 @@
         btn.appendChild(caps);
       }
 
-      if (!selectable) {
+      if (!STATE.loggedIn && !bandFree(b)) {
         var lock = el("div", "pg-mrow__meta");
-        lock.appendChild(el("span", null, "sign in to select"));
+        lock.appendChild(el("span", null, "sign in to chat"));
         btn.appendChild(lock);
-      } else {
-        btn.addEventListener("click", function () { selectModel(b); });
       }
+      if (selectable) btn.addEventListener("click", function () { selectModel(b); });
       li.appendChild(btn);
       modelList.appendChild(li);
     });
   }
 
   function selectModel(b) {
-    STATE.selected = b.model;
+    // tuning the same station again returns the deck to Ping
+    STATE.selected = (STATE.selected === b.model) ? null : b.model;
+    var sel = STATE.selected;
     Array.prototype.forEach.call(modelList.querySelectorAll(".pg-mrow"), function (btn) {
       var name = btn.querySelector(".pg-mrow__name");
-      btn.setAttribute("aria-pressed", name && name.textContent === b.model ? "true" : "false");
+      btn.setAttribute("aria-pressed", name && name.textContent === sel ? "true" : "false");
     });
-    // show the honest CLI path to THIS station
+    // the talk head names who is on the other end
+    var title = $("pgTalkTitle"), sub = $("pgTalkSub");
+    if (title && sub) {
+      if (sel) { title.textContent = sel; sub.textContent = "live via the Tower"; }
+      else { title.textContent = "Ping · concierge"; sub.textContent = "the browser-safe demo assistant"; }
+    }
+    // paid + signed out: the composer yields to the sign-in invitation before
+    // anything can be sent
+    var invite = $("pgSignInInvite"), form = $("pgChatForm");
+    var needsLogin = sel && !STATE.loggedIn && !bandFree(b);
+    if (invite) invite.hidden = !needsLogin;
+    if (form) form.hidden = !!needsLogin;
+    // the terminal path to the same station stays one copy away
     var box = $("pgCliBox"), cmd = $("pgCliCmd"), label = $("pgCliLabel");
     if (box && cmd) {
-      box.hidden = false;
-      label.textContent = "Chat with " + b.model + " directly";
-      cmd.textContent = 'roger chat --model "' + b.model + '"';
+      box.hidden = !sel;
+      if (sel) {
+        label.textContent = "Or chat with " + sel + " from your terminal";
+        cmd.textContent = 'roger chat --model "' + sel + '"';
+      }
     }
   }
 
@@ -356,16 +370,21 @@
   });
 
   /* =====================================================================
-     CHAT: live via /concierge (Ping). Never fakes a station reply.
+     CHAT: two live paths, never a faked reply.
+       - a tuned station: POST /v1/chat/completions (credentialed, streamed) -
+         the SAME relay the CLI uses (features/relay/browser_session.feature)
+       - nothing tuned:  POST /concierge (Ping)
      ===================================================================== */
   (function chat() {
     var form = $("pgChatForm"), input = $("pgChatInput"), send = $("pgChatSend"), log = $("pgChatLog");
     if (!form || !log) return;
-    var history = [], sending = false;
+    // one transcript history per target, so retuning does not leak context
+    var histories = {}, sending = false;
+    function historyFor(key) { return histories[key] || (histories[key] = []); }
 
-    function line(who, text, wait) {
+    function line(who, label, text, wait) {
       var li = el("li", "pg-line pg-line--" + who + (wait ? " is-wait" : ""));
-      li.appendChild(el("span", "pg-line__who mono", who === "you" ? "YOU" : "PING"));
+      li.appendChild(el("span", "pg-line__who mono", label));
       var msg = el("span", "pg-line__msg", text);
       li.appendChild(msg);
       log.appendChild(li);
@@ -373,7 +392,7 @@
       return msg;
     }
 
-    line("ping", "You're tuned in. I'm Ping - ask me about going on air, sharing a GPU, or picking a station. Live answers here come from me; to talk to a specific station, copy the command above.");
+    line("ping", "PING", "You're tuned in. I'm Ping - ask me about going on air, sharing a GPU, or picking a station. Tune a station on the left to talk to that model live, through the Tower.");
 
     var WAIT = [
       "Searching for an available free station…",
@@ -382,41 +401,124 @@
       "Patching you through to the DJ…"
     ];
 
+    // stationLabel compresses a model id into the short-mono transcript label
+    function stationLabel(model) {
+      var s = String(model).split("/").pop().toUpperCase();
+      return s.length > 14 ? s.slice(0, 13) + "…" : s;
+    }
+
+    function relayErrorText(status, data) {
+      var msg = data && data.error && data.error.message;
+      if (status === 401) return msg || "sign in to chat on this station";
+      if (status === 429) return "the band is busy - slow down a moment and try again";
+      if (status === 503) return msg || "that station just went off air - pick another";
+      return msg || "the relay dropped this one (" + status + ") - try again";
+    }
+
+    // stationSend streams one turn through the Tower's relay. The reply is written
+    // as it arrives; on any error the transcript shows the error itself.
+    function stationSend(model, hist, msgNode) {
+      return fetch(BROKER + "/v1/chat/completions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "include", cache: "no-store",
+        body: JSON.stringify({ model: model, stream: true, max_tokens: 1024, messages: hist.slice(-8) })
+      }).then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return null; }).then(function (data) {
+            throw relayErrorText(r.status, data);
+          });
+        }
+        if (!r.body || !r.body.getReader) {
+          // no stream reader in this browser: read the SSE text whole, then extract
+          return r.text().then(function (t) { return { whole: t }; });
+        }
+        return { reader: r.body.getReader() };
+      }).then(function (src) {
+        msgNode.parentNode.classList.remove("is-wait");
+        msgNode.textContent = "";
+        var dec = new TextDecoder(), buf = "", out = "";
+        function take(chunk) {
+          buf += chunk;
+          var lines = buf.split("\n");
+          buf = lines.pop();
+          lines.forEach(function (ln) {
+            ln = ln.replace(/\r$/, "");
+            if (ln.indexOf("data: ") !== 0) return;
+            var payload = ln.slice(6);
+            if (payload === "[DONE]") return;
+            try {
+              var d = JSON.parse(payload);
+              var delta = d.choices && d.choices[0] && (d.choices[0].delta || d.choices[0].message);
+              var piece = delta && delta.content;
+              if (piece) { out += piece; msgNode.textContent = out; log.scrollTop = log.scrollHeight; }
+            } catch (e) { /* keep-alive or partial frame */ }
+          });
+        }
+        if (src.whole) { take(src.whole + "\n"); return out || finishEmpty(); }
+        return (function pump() {
+          return src.reader.read().then(function (step) {
+            if (step.done) { take("\n"); return out || finishEmpty(); }
+            take(dec.decode(step.value, { stream: true }));
+            return pump();
+          });
+        })();
+        function finishEmpty() { throw "the station answered with silence - try again"; }
+      }).then(function () {
+        var reply = msgNode.textContent;
+        if (reply) hist.push({ role: "assistant", content: reply });
+        return reply;
+      });
+    }
+
+    function pingSend(hist, msgNode) {
+      return fetch(BROKER + "/concierge", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        credentials: "omit", cache: "no-store",
+        body: JSON.stringify({ messages: hist.slice(-8) })
+      })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (data) {
+          var reply = (data && data.reply) ? String(data.reply) : "";
+          if (!reply) throw 0;
+          msgNode.parentNode.classList.remove("is-wait");
+          msgNode.textContent = reply;
+          hist.push({ role: "assistant", content: reply });
+        })
+        .catch(function () {
+          msgNode.parentNode.classList.remove("is-wait");
+          msgNode.textContent = "I'm off air right now - tune in straight from your terminal: curl -fsSL https://rogerai.fm/install.sh | sh";
+        });
+    }
+
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       if (sending) return;
       var text = (input.value || "").trim();
       if (!text) return;
       input.value = "";
-      line("you", text);
-      history.push({ role: "user", content: text });
+      var model = STATE.selected;
+      var key = model || "ping";
+      var hist = historyFor(key);
+      line("you", "YOU", text);
+      hist.push({ role: "user", content: text });
       sending = true; send.disabled = true;
 
-      var wi = 0, thinking = line("ping", WAIT[0], true);
-      var timer = REDUCED ? 0 : setInterval(function () { wi = (wi + 1) % WAIT.length; thinking.textContent = WAIT[wi]; }, 4000);
+      var label = model ? stationLabel(model) : "PING";
+      var wi = 0, thinking = line("ping", label, WAIT[0], true);
+      var timer = REDUCED ? 0 : setInterval(function () { if (thinking.parentNode.classList.contains("is-wait")) { wi = (wi + 1) % WAIT.length; thinking.textContent = WAIT[wi]; } }, 4000);
 
-      fetch(BROKER + "/concierge", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        credentials: "omit", cache: "no-store",
-        body: JSON.stringify({ messages: history.slice(-8) })
-      })
-        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-        .then(function (data) {
-          var reply = (data && data.reply) ? String(data.reply) : "";
-          if (!reply) throw 0;
-          thinking.parentNode.classList.remove("is-wait");
-          thinking.textContent = reply;
-          history.push({ role: "assistant", content: reply });
-        })
-        .catch(function () {
-          thinking.parentNode.classList.remove("is-wait");
-          thinking.textContent = "I'm off air right now - tune in straight from your terminal: curl -fsSL https://rogerai.fm/install.sh | sh";
-        })
-        .then(function () {
-          if (timer) clearInterval(timer);
-          sending = false; send.disabled = false;
-          log.scrollTop = log.scrollHeight;
-        });
+      var turn = model
+        ? stationSend(model, hist, thinking).catch(function (err) {
+            thinking.parentNode.classList.remove("is-wait");
+            thinking.textContent = typeof err === "string" ? err : "the relay dropped this one - try again";
+          })
+        : pingSend(hist, thinking);
+
+      turn.then(function () {
+        if (timer) clearInterval(timer);
+        sending = false; send.disabled = false;
+        log.scrollTop = log.scrollHeight;
+      });
     });
   })();
 

@@ -1,5 +1,5 @@
 /* =====================================================================
-   RogerAI - Playground ("the console")
+   RogerAI - Playbox ("the console")
    A tabbed instrument deck over the shared Live-Operating-Manual system:
    inherits tokens.css (warm monochrome + the ONE red beacon). The only
    new colour is a TIGHTLY-SCOPED semantic trio (ok / warn / critical),
@@ -198,6 +198,14 @@
   color: var(--live); align-self: start; padding-top: 2px; white-space: nowrap;
 }
 .pg-note p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+
+/* paid + signed out: the composer yields to this invitation (playbox.feature) */
+.pg-invite {
+  border: 1px dashed var(--live); border-radius: var(--r-md);
+  padding: var(--s-4) var(--s-5); margin-top: var(--s-3);
+  display: grid; gap: var(--s-3); justify-items: start;
+}
+.pg-invite p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
 .pg-note p + p { margin-top: var(--s-2); }
 .pg-note code { font-family: var(--font-mono); color: var(--ink-900); font-size: 0.92em; }
 .pg-note a { color: var(--ink-900); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--hairline-2); }
