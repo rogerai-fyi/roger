@@ -41,7 +41,7 @@ test("the homepage Labs card presents Wave Micro as a program, not a download", 
   assert.doesNotMatch(section, /Download or Run Wave/, "no download CTA without a download");
   assert.doesNotMatch(section, /huggingface\.co\/rogerai-fyi\/wave-/, "no artifact link");
   // What it MUST say instead: the honest status, and the independence promise.
-  assert.match(sectionText, /IN PROGRESS/i);
+  assert.match(sectionText, /TRAINED/i);
   assert.match(sectionText, /no checkpoint has been released/i);
   // Internal programme state is deliberately NOT published. It is not something a visitor
   // needs, and it creates a claim that has to be kept current as the work moves.
