@@ -505,19 +505,32 @@ func corsCreds(w http.ResponseWriter, r *http.Request) {
 	if requestOrigin == "" {
 		return
 	}
-	allowed := envOr("ROGERAI_WEB_ORIGINS", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
-	for _, candidate := range strings.Split(allowed, ",") {
-		if strings.TrimSpace(candidate) != requestOrigin {
-			continue
-		}
+	if originAllowed(r) {
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", requestOrigin)
 		h.Set("Access-Control-Allow-Credentials", "true")
 		h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		h.Set("Access-Control-Allow-Headers", "Content-Type, X-Roger-Pubkey, X-Roger-TS, X-Roger-Sig, X-Roger-User, X-Roger-Admin, X-Roger-Attach")
 		h.Set("Access-Control-Max-Age", "600")
-		return
 	}
+}
+
+// originAllowed reports whether the request's Origin header exactly matches one of
+// the configured first-party web origins. It is the load-bearing check for every
+// credentialed browser surface: a session cookie authenticates ONLY behind it
+// (CSRF defense), and it gates which relay callers may enter the browser path.
+func originAllowed(r *http.Request) bool {
+	requestOrigin := r.Header.Get("Origin")
+	if requestOrigin == "" {
+		return false
+	}
+	allowed := envOr("ROGERAI_WEB_ORIGINS", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
+	for _, candidate := range strings.Split(allowed, ",") {
+		if strings.TrimSpace(candidate) == requestOrigin {
+			return true
+		}
+	}
+	return false
 }
 
 // corsCredsPreflight answers a credentialed OPTIONS preflight (204 + the explicit
