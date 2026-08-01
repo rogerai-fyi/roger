@@ -182,7 +182,8 @@ test("model identity follows family size variant conventions", () => {
     "wave-nano-&lt;size&gt;-&lt;task&gt;",
     "wave-core-1b-instruct",
   ]) assert.match(page, new RegExp(id));
-  assert.match(page, /Family · parameter class · variant/i);
+  // The "Naming contract" paragraph came off the page on founder direction
+  // (2026-07-31, noise reduction); the ids above still pin the convention.
 });
 
 test("upstream optimization keeps visible lineage and license", () => {
@@ -244,7 +245,9 @@ test("Wave Micro publishes its program status instead of a release contract", ()
   // scanning a model list came for. What must survive is the status a reader could be
   // misled about, and it does: the chip, the id, and no artifact link or evidence fields.
   assert.match(cardText, /IN PROGRESS/i);
-  assert.match(cardText, /not yet approved/i);
+  // Founder ruling 2026-07-31: phase labels, not explanations ("In evaluation",
+  // was "Training not yet approved"; "bake-off" is barred by the stage sweep).
+  assert.match(cardText, /in evaluation/i);
   assert.match(cardText, /no checkpoint released/i);
   // No placeholder evidence: the earlier version listed five fields that all deferred to
   // a model card that did not exist, which looked like rigour and was not.
