@@ -39,7 +39,7 @@
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
           Three ways to work with RogerAI models, on one deck. <b>Chat</b> tunes into the
-          stations on air. <b>Capabilities</b> shows what the models do &mdash; text, audio,
+          stations on air. <b>Capabilities</b> shows what the models do - text, audio,
           vision, tools, retrieval, and the safety guard. <b>Roger Edge</b> drops real plant
           events onto a device and reads back its structured decision. Everything that says
           <b>live</b> is a real endpoint this page can reach; everything else is labelled an
@@ -51,11 +51,18 @@
     <!-- ============================ THE CONSOLE ============================ -->
     <section class="pg-console">
       <div class="wrap">
-        <span class="fig">FIG. 1 &mdash; THE CONSOLE &middot; THREE SURFACES</span>
-        <div class="pg-deck">
+        <span class="fig">FIG. 1 - THE CONSOLE &middot; THREE SURFACES</span>
+        <div class="pg-deck pg-bench">
+          <!-- the engraved maker's plate: the deck is one piece of equipment -->
+          <div class="pg-bench__plate" aria-hidden="true">
+            <span class="pg-bench__name">PLAYBOX</span>
+            <span class="pg-bench__type">RCI-5 &middot; TOWER-COUPLED CONSOLE</span>
+            <span class="pg-bench__serial">SER. NO. 2026-08</span>
+          </div>
 
           <!-- band selector -->
           <div class="pg-tabs" role="tablist" aria-label="Playbox surfaces">
+            <span class="pg-tabs__mode" aria-hidden="true">MODE</span>
             <button class="pg-tab" id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" type="button">
               <span class="pg-tab__no">01</span> Chat
             </button>
@@ -122,6 +129,23 @@
                     <b id="pgTalkTitle">Ping &middot; concierge</b>
                     <small id="pgTalkSub">the browser-safe demo assistant</small>
                   </span>
+                  <!-- the S-meter: a real needle over real data (bench spec). The
+                       needle angle and the S-readout are set from the SAME signal
+                       number the directory rows draw - never invented. -->
+                  <span class="pg-smeter" id="pgSMeter" role="img" aria-label="Signal strength">
+                    <svg viewBox="0 0 100 58" aria-hidden="true">
+                      <path class="pg-smeter__arc" d="M 12 50 A 43 43 0 0 1 88 50" />
+                      <g class="pg-smeter__ticks">
+                        <line x1="12" y1="50" x2="17" y2="47" /><line x1="20" y1="34" x2="24" y2="38" />
+                        <line x1="34" y1="21" x2="37" y2="26" /><line x1="50" y1="17" x2="50" y2="23" />
+                        <line x1="66" y1="21" x2="63" y2="26" /><line x1="80" y1="34" x2="76" y2="38" />
+                        <line x1="88" y1="50" x2="83" y2="47" />
+                      </g>
+                      <line class="pg-smeter__needle" id="pgSMeterNeedle" x1="50" y1="50" x2="50" y2="20" />
+                      <circle class="pg-smeter__pivot" cx="50" cy="50" r="3" />
+                    </svg>
+                    <b class="pg-smeter__read mono" id="pgSMeterRead">S0</b>
+                  </span>
                   <span class="pg-tier pg-tier--live">Live</span>
                 </div>
 
@@ -148,7 +172,8 @@
                   <input class="pg-input" id="pgChatInput" type="text" name="msg"
                          placeholder="Ask Ping about going on air, sharing a GPU, or picking a station&hellip;"
                          maxlength="800" aria-label="Message" />
-                  <button class="pg-btn pg-send" id="pgChatSend" type="submit">Send</button>
+                  <button class="pg-btn pg-send pg-send--key" id="pgChatSend" type="submit">
+                    <span class="pg-send__cap" aria-hidden="true">KEY</span> Send</button>
                 </form>
               </div>
             </div>
@@ -180,7 +205,7 @@
                 Six surfaces. Where the broker exposes a capability the browser can read, the
                 card shows the <b>live roster</b> of stations carrying it. Where there&rsquo;s no
                 browser-safe endpoint yet, the card explains how it works and shows a clearly
-                marked <b>example</b> &mdash; never a faked live call.
+                marked <b>example</b> - never a faked live call.
               </p>
             </div>
             <div class="pg-caps" id="pgCaps">
@@ -198,11 +223,11 @@
               </span>
               <h2 class="pg-panel__title">Roger Edge: input in, structured decision out.</h2>
               <p class="pg-panel__lede">
-                Roger Edge and Wave Nano aren&rsquo;t chat models &mdash; they turn a messy device
+                Roger Edge and Wave Nano aren&rsquo;t chat models - they turn a messy device
                 input into a structured decision: a JSON extraction, a tool call, or an
                 <b>ESCALATE</b>. Drag an event card onto the device (or press it). The screen shows
-                the <b>certified contract</b> for that input &mdash; the target keyed to a published
-                standard &mdash; and, beside it, what a captured preview checkpoint actually returned.
+                the <b>certified contract</b> for that input - the target keyed to a published
+                standard - and, beside it, what a captured preview checkpoint actually returned.
                 The gap is the work.
               </p>
             </div>
@@ -238,7 +263,7 @@
 
                     <div class="pg-block" id="pgCertBlock" hidden>
                       <div class="pg-block__k">
-                        <h4>Certified contract &mdash; the target</h4>
+                        <h4>Certified contract - the target</h4>
                         <span class="pg-block__std" id="pgStd"></span>
                       </div>
                       <pre class="pg-code pg-json" id="pgCert"></pre>
@@ -271,7 +296,7 @@
                   Wave evaluation golden set, each case keyed to a published standard (ISA-18.2,
                   ISO&nbsp;14224, EPA&nbsp;NSPS&nbsp;OOOOb, and more) and audited for a defensible
                   ground truth. The certified contract is the <b>target</b> Wave Nano is trained
-                  against &mdash; not a live call.</p>
+                  against - not a live call.</p>
                 <p>The captured samples are <b>real captured outputs on the same inputs</b>, shown
                   labelled so nothing reads as a faked success. Wave Nano is an in-development slot;
                   see the <a href="/research-wave-family.html">Wave family field guide</a> for where

@@ -211,7 +211,25 @@
     return wrap;
   }
 
+  /* ---------- the S-meter: a real needle over real data ---------------- */
+  // The needle shows the TUNED band's signal; with nothing tuned it rests at the
+  // band's strongest signal. Same numbers as the directory rows - never invented.
+  function meterSignal() {
+    var sel = STATE.selected && STATE.bands.filter(function (b) { return b.model === STATE.selected; })[0];
+    if (sel) return sel.signal;
+    return STATE.bands.reduce(function (m, b) { return Math.max(m, b.signal); }, 0);
+  }
+  function updateSMeter() {
+    var needle = $("pgSMeterNeedle"), readEl = $("pgSMeterRead");
+    if (!needle) return;
+    var sig = Math.max(0, Math.min(100, meterSignal()));
+    // sweep -50deg..+50deg around the pivot; S-units read S0..S9 like the real meter
+    needle.style.transform = "rotate(" + Math.round(sig - 50) + "deg)";
+    if (readEl) readEl.textContent = "S" + Math.min(9, Math.round(sig / 11.2));
+  }
+
   function renderDirectory() {
+    updateSMeter();
     if (!modelList) return;
     var rows = STATE.bands.filter(bandChatable);
     if (STATE.filterFree) rows = rows.filter(function (b) { return b.free || b.tier === 0; });
@@ -290,6 +308,7 @@
     var needsLogin = sel && !STATE.loggedIn && !bandFree(b);
     if (invite) invite.hidden = !needsLogin;
     if (form) form.hidden = !!needsLogin;
+    updateSMeter();
     // the terminal path to the same station stays one copy away
     var box = $("pgCliBox"), cmd = $("pgCliCmd"), label = $("pgCliLabel");
     if (box && cmd) {
@@ -387,6 +406,10 @@
       li.appendChild(el("span", "pg-line__who mono", label));
       var msg = el("span", "pg-line__msg", text);
       li.appendChild(msg);
+      // the logbook convention: every entry carries its time, in UTC
+      var d = new Date();
+      function p2(n) { return (n < 10 ? "0" : "") + n; }
+      li.appendChild(el("time", "pg-line__ts mono", p2(d.getUTCHours()) + ":" + p2(d.getUTCMinutes()) + "Z"));
       log.appendChild(li);
       log.scrollTop = log.scrollHeight;
       return msg;
