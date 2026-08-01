@@ -216,27 +216,29 @@ body.auth {
 }
 .cmd code { background: none; border: 0; padding: 0; font-size: 1em; }
 
-/* ---- links: ink, the red glint only on hover. ---- */
- .card a {
-  color: var(--live);
-  border-bottom: 1px solid var(--live);
+/* ---- links: ink, the red glint only on hover. The rule used to set red at REST,
+   contradicting this comment, and because .card a outranks .gh it also painted both
+   sign-in buttons red with a red underline. :not(.gh) keeps the link treatment off the
+   controls instead of relying on specificity to sort it out. ---- */
+.card a:not(.gh) {
+  color: var(--ink-900);
+  border-bottom: 1px solid var(--hairline-2);
   transition: color var(--d-1) var(--ease-standard),
                border-color var(--d-1) var(--ease-standard);
 }
-.card a:hover { color: var(--live); border-bottom-color: var(--live); }
-.card a:focus-visible {
+.card a:not(.gh):hover { color: var(--live); border-bottom-color: var(--live); }
+.card a:not(.gh):focus-visible {
   outline: 2px solid var(--live);
   outline-offset: 2px;
   border-radius: var(--r-xs);
 }
-
-:root[data-theme="dark"] .card a { color: var(--live); border-bottom-color: var(--live); }
 /* the inline nav lines (account/billing/usage...) read as a quiet directory */
 .fine a { color: var(--ink-500); }
 .fine a:hover { color: var(--live); }
 
-/* ---- GitHub sign-in: the one prominent action. Ink fill (the only solid
-   control on the page), red focus ring. Not a brand-color button. ---- */
+/* ---- Provider sign-in. A light face with an INK label, on founder direction and
+   matching the conventional "Continue with ..." control; the hairline keeps it reading
+   as a button rather than a plate. Not a brand-color button, and never a red label. ---- */
 .gh {
   display: flex;
   align-items: center;
@@ -244,8 +246,8 @@ body.auth {
   gap: var(--s-3);
   width: 100%;
   padding: 13px 16px;
-  background: var(--ink-900);
-  color: var(--paper);
+  background: var(--paper);
+  color: var(--ink-900);
   border: 1px solid var(--ink-900);
   border-radius: var(--r-sm);
   text-decoration: none;
@@ -255,7 +257,7 @@ body.auth {
   letter-spacing: 0.01em;
   transition: opacity var(--d-1) var(--ease-standard);
 }
-.gh:hover { opacity: 0.88; }
+.gh:hover { background: var(--paper-2); }
 .gh:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }
 .gh + .gh { margin-top: var(--s-3); } /* stacked providers (GitHub + Apple) get a gap */
 
