@@ -102,11 +102,15 @@ test("what is NOT proven is published deliberately and in the main flow", () => 
     "the limit survives without the caption");
 });
 
-test("the model catalogue points at it without misfiling it as a model", () => {
+// The catalogue pointer was removed on founder direction. What survives is the half that
+// still matters: it must never appear as a ROW in the model list, because that is the
+// misfiling the whole section exists to prevent. It stays reachable from the research hub
+// and the family page.
+test("Wave Infinite is never listed as a model in the catalogue", () => {
   const cat = read("research-models.html");
-  assert.match(cat, /href="\/research-wave-family\.html#infinite"/, "the catalogue links it");
   const entries = [...cat.matchAll(/<h3[^>]*>([^<]+)<\/h3>/g)].map((m) => m[1]);
   assert.ok(!entries.some((e) => /Wave Infinite/i.test(e)), "it is not a row in the model list");
+  assert.match(read("research.html"), /Wave Infinite/, "the hub still routes a reader to it");
 });
 
 test("no page anywhere reduces it to a runtime or claims self-training", () => {
