@@ -257,7 +257,7 @@ body.auth {
   font-weight: var(--weight-medium);
   font-size: var(--t-sm);
   letter-spacing: 0.01em;
-  transition: opacity var(--d-1) var(--ease-standard);
+  transition: background-color var(--d-1) var(--ease-standard);
 }
 .gh:hover { background: var(--paper-2); }
 .gh:focus-visible { outline: 2px solid var(--live); outline-offset: 2px; }

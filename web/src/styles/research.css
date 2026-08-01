@@ -278,8 +278,6 @@
   letter-spacing: .05em; text-transform: uppercase;
 }
 /* The caveats are one compact block, not two paragraphs competing with the finding. */
-.capability__caveats { color: var(--ink-500); font-size: var(--t-sm); }
-.capability__caveats b { color: var(--ink-700); }
 
 @media (max-width: 720px) {
   .capability__scores { grid-template-columns: 1fr; }
