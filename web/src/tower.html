@@ -71,8 +71,9 @@
               </g>
               <g class="signal__node signal__node--mid">
                 <rect x="285" y="88" width="155" height="60" rx="2"/>
-                <text class="signal__name" x="362" y="112">BROKER</text>
-                <text class="signal__sub" x="362" y="132">routes &#183; meters &#183; signs</text>
+                <text class="signal__name" x="362" y="107">TOWER</text>
+                <text class="signal__sub" x="362" y="123">the broker</text>
+                <text class="signal__sub" x="362" y="137">routes &#183; meters &#183; signs</text>
               </g>
               <g class="signal__node">
                 <rect x="545" y="88" width="150" height="60" rx="2"/>
@@ -91,7 +92,9 @@
           <figcaption id="signal-caption">A request leaves your machine for the broker, which
             picks a station with capacity and forwards it. Tokens come back the same way with a
             signed receipt, so what you were charged and what the operator earned are the same
-            record. The station dials out and never opens a port for you to reach.</figcaption>
+            record. The station dials out and never opens a port for you to reach. The tower relays both
+            directions, so it handles the request and the response in transit; what is
+            retained is in the <a href="/privacy.html">privacy policy</a>.</figcaption>
         </figure>
       </div>
     </section>
@@ -250,10 +253,6 @@
            signatures. The same records show up on your usage page, and the station&rsquo;s
            signature is verified before anything settles - that check runs on every
            request, not at audit time.</p>
-        <p class="tower__edge">One honest edge: the tower relays your request to the
-           station that serves it, so it handles the request and the response in transit.
-           What is retained, and for how long, is in the privacy policy rather than implied
-           away here.</p>
         <div class="research-actions">
           <a class="research-button research-button--primary" href="/usage.html">Your usage and receipts</a>
           <a class="research-button" href="/manual.html#s10">Lineage in the manual</a>
