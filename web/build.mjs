@@ -44,6 +44,7 @@ const CSS_BUNDLES = {
   "index.html":     [...CSS_MARKETING, "home.css"],
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
+  "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
   "research.html":  [...CSS_MARKETING, "research.css"],
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
   "careers.html":   [...CSS_MARKETING, "research.css", "careers.css"], // hiring surface; reuses the notebook shell

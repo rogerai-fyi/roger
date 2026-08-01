@@ -1,0 +1,98 @@
+/* The Tower. Two instruments: a patch panel that shows how a station is chosen and how a
+   call moves when one drops, and a receipt tape that shows what makes the bill checkable.
+   Both are drawn in full in the markup - the animation hands the call over, it does not
+   supply any fact that is missing without it. */
+.tower__patch, .tower__tape {
+  margin: 0 0 var(--s-7);
+  border-block: 2px solid var(--ink-900);
+  background: var(--paper);
+}
+.tower__head {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-3);
+  padding: var(--s-3) var(--s-5); border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--ink-400);
+}
+.tower__svg { display: block; width: 100%; max-width: 100%; height: auto; padding: var(--s-5); }
+
+.tower__frame rect { fill: none; stroke: var(--hairline-2); stroke-width: 1; }
+.tower__label {
+  fill: var(--ink-900); font-family: var(--font-mono); font-size: 11px;
+  font-weight: var(--weight-semi); letter-spacing: .12em; text-anchor: middle;
+}
+.tower__label--v { writing-mode: vertical-rl; letter-spacing: .3em; }
+.tower__sub {
+  fill: var(--ink-400); font-family: var(--font-mono); font-size: 8.5px;
+  letter-spacing: .05em; text-anchor: middle;
+}
+.tower__feed { fill: none; stroke: var(--ink-400); stroke-width: 1.5; }
+
+.tower__station rect:first-of-type { fill: none; stroke: var(--hairline-2); stroke-width: 1; }
+.tower__st {
+  fill: var(--ink-900); font-family: var(--font-mono); font-size: 10.5px;
+  font-weight: var(--weight-semi); letter-spacing: .1em;
+}
+.tower__meta { fill: var(--ink-400); font-family: var(--font-mono); font-size: 8.5px; letter-spacing: .05em; }
+/* Load is drawn, because "divided by how loaded it already is" is the part of the score
+   a reader will not take on trust. */
+.tower__gauge { fill: var(--hairline-2); }
+.tower__fill { fill: var(--ink-700); }
+/* Probationary is marked by the word AND a dashed frame, never by colour alone. */
+.tower__station[data-tier="b"] rect:first-of-type { stroke-dasharray: 4 3; }
+.tower__station[data-tier="b"] .tower__st,
+.tower__station[data-tier="b"] .tower__meta { fill: var(--ink-400); }
+.tower__station[data-tier="b"] .tower__fill { fill: var(--ink-300); }
+
+.tower__cord { fill: none; stroke: var(--live); stroke-width: 2; }
+.tower__jack { fill: var(--live); }
+/* The handover: B carries the call, drops, A picks it up. Both cords exist either way, so
+   the static frame shows both routes rather than hiding one. */
+.tower__cord--a { opacity: 0; }
+.tower__cord--b { opacity: 1; }
+.tower__patch .tower__cord--b { animation: tower-hand-b 7s ease-in-out infinite; }
+.tower__patch .tower__cord--a { animation: tower-hand-a 7s ease-in-out infinite; }
+@keyframes tower-hand-b { 0%, 42% { opacity: 1; } 50%, 100% { opacity: .12; } }
+@keyframes tower-hand-a { 0%, 42% { opacity: .12; } 50%, 100% { opacity: 1; } }
+.tower__note {
+  fill: var(--ink-400); font-family: var(--font-mono); font-size: 8.5px;
+  letter-spacing: .05em; text-anchor: end;
+}
+
+/* The tape reads as a printed roll: one line per settled request. */
+.tape { list-style: none; margin: 0; padding: var(--s-4) var(--s-5); }
+/* Flex, not grid: the id and the token count belong together on the left and the chain
+   plus the two signatures on the right, and a grid gave the short token cell all the slack
+   so the row read as two disconnected halves. margin-left:auto does the split, and the row
+   wraps on its own at a narrow width. */
+.tape li {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: var(--s-2) var(--s-5);
+  padding-block: var(--s-3);
+  border-bottom: 1px dashed var(--hairline);
+  font-family: var(--font-mono); font-size: var(--t-xs);
+}
+.tape__hash { margin-left: auto; }
+.tape li:last-child { border-bottom: 0; }
+.tape__id { color: var(--ink-400); }
+.tape__tok { color: var(--ink-900); }
+.tape__hash { color: var(--ink-400); }
+.tape__sig { color: var(--ink-700); }
+/* The counter-signature is the differentiator, so it is the one red mark on the tape. */
+.tape__sig--broker { color: var(--live); }
+/* A void request still gets a line - the chain having no gaps is the point. */
+.tape li[data-void] .tape__tok { color: var(--ink-400); }
+
+.tower__patch figcaption, .tower__tape figcaption {
+  padding: var(--s-4) var(--s-5); border-top: 1px solid var(--hairline);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing is carried by the handover, so stopping it loses nothing. Both cords settle
+     visible, which reads as "either route is available" - the honest still frame. */
+  .tower__patch .tower__cord--a,
+  .tower__patch .tower__cord--b { animation: none; opacity: 1; }
+}
+@media (max-width: 640px) {
+  .tape__hash { margin-left: 0; }
+}
