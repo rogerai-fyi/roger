@@ -102,6 +102,7 @@
             <li><a href="#s2"><span class="man-toc__no">§2</span>First contact</a></li>
             <li><a href="#sAG"><span class="man-toc__no">§A</span>The [0] agent</a></li>
             <li><a href="#s3"><span class="man-toc__no">§3</span>Tune in</a></li>
+            <li><a href="#sPlay"><span class="man-toc__no">§P</span>Playground</a></li>
             <li><a href="#s4"><span class="man-toc__no">§4</span>Go on air</a></li>
             <li><a href="#sV"><span class="man-toc__no">§V</span>Voices</a></li>
             <li><a href="#s5"><span class="man-toc__no">§5</span>Private channels</a></li>
@@ -465,6 +466,41 @@
               public market across many models from one endpoint, use a funded wallet via the
               local proxy (path a). See §5 for minting a grant and §6 for the wallet.
             </div>
+
+
+          <!-- ============== §P PLAYGROUND ============== -->
+          <section class="man-sec" id="sPlay">
+            <span class="man-sec__no">§P · Playground (the console)</span>
+            <h2>Try the models in the browser</h2>
+            <p class="man-lead">The <a href="/playground.html">Playground</a> is the console
+              form of everything in this manual: a page where you can chat with the stations on
+              air, see what the models do, and run the Roger Edge device on real plant events -
+              without installing anything. It is honest about its edges: the browser can only
+              reach some of the network directly, and the page says so where it matters.</p>
+
+            <h3>Three surfaces</h3>
+            <div class="man-table-wrap">
+              <table class="man-table">
+                <caption>The console, tab by tab</caption>
+                <thead><tr><th>Surface</th><th>What it does</th></tr></thead>
+                <tbody>
+                  <tr><td><b>Chat</b></td><td>The live band from the <b>broker</b>, as a picker: every <b>band</b> (model) and the <b>stations</b> carrying it, with free-vs-paid, signal and tok/s. Answers come live from <b>Ping</b>, the browser-safe concierge assistant.</td></tr>
+                  <tr><td><b>Capabilities</b></td><td>Six surfaces - text, audio (speak / listen), vision, tools, embed, guard. Where the broker exposes a capability, the card shows the live roster; embed and guard are shown as labelled illustrations.</td></tr>
+                  <tr><td><b>Roger Edge</b></td><td>Drop a plant event on a simulated device and read its structured decision - a JSON extraction, a tool call, or an <code>ESCALATE</code> - against the certified contract for that input.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="man-note">
+              <span class="man-note__tag">note</span>
+              In-browser chat with a <b>specific</b> station is not live yet: the broker relay
+              <code>/v1/chat/completions</code> needs a signed request or a <code>rog-grant_</code>
+              key and sends no CORS headers, so a page can't call it. The Playground answers live
+              through <code>/concierge</code> (Ping) and, for a chosen model, hands you the exact
+              <code>roger chat --model &lt;name&gt;</code> command instead of faking a reply. To chat
+              with any station directly, tune in from the CLI (§3) or point a bot at the API (§B).
+            </div>
+          </section>
 
 
           <!-- ============== §4 GO ON AIR ============== -->
