@@ -1,4 +1,6 @@
-// FIG.3, the signal path on the homepage.
+// The signal path. It was FIG.3 on the homepage and now opens /tower.html - the page
+// that exists to explain routing, metering and receipts, where the figure only has to
+// carry the tower rather than the whole company.
 //
 // The figure makes three factual claims about how RogerAI works - the endpoint is
 // local, the broker meters and signs, and the station dials out rather than opening
@@ -18,13 +20,15 @@ const visible = (s) => s.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " "
 
 before(() => execFileSync("node", ["build.mjs"], { cwd: WEB }));
 
-const figure = () => read("index.html").match(/<figure class="signal"[\s\S]*?<\/figure>/)?.[0] || "";
+const figure = () => read("tower.html").match(/<figure class="signal"[\s\S]*?<\/figure>/)?.[0] || "";
 
 test("the signal path shows the three hops a request actually takes", () => {
   const fig = figure();
-  assert.ok(fig, "FIG.3 exists on the homepage");
+  assert.ok(fig, "the signal path is on the tower page");
   const copy = visible(fig);
   for (const node of [/YOUR APP/, /BROKER/, /STATION/]) assert.match(copy, node);
+  // It must not be left behind on the homepage as well: one figure, one home.
+  assert.doesNotMatch(read("index.html"), /<figure class="signal"/, "the homepage no longer carries it");
   // Word-boundary: "signal__nodes" is the container, not a hop.
   assert.equal((fig.match(/class="signal__node["\s]/g) || []).length, 3, "exactly three hops");
 });
@@ -42,7 +46,7 @@ test("the figure states the claims it exists to make", () => {
 // a packet given "M175 118 H285 M440 118 H545" rendered somewhere else entirely. One
 // packet per leg, one subpath each.
 test("every packet rides a single-subpath offset-path", () => {
-  const css = src("styles/home.css");
+  const css = src("styles/tower.css");
   const paths = [...css.matchAll(/offset-path:\s*path\("([^"]+)"\)/g)].map((m) => m[1]);
   assert.ok(paths.length >= 3, `expected a path per leg, found ${paths.length}`);
   for (const d of paths) {
@@ -54,7 +58,7 @@ test("every packet rides a single-subpath offset-path", () => {
 // The diagram must survive frozen. If it only reads while animating, the animation is
 // carrying meaning that belongs in the markup.
 test("the figure is legible with motion disabled", () => {
-  const css = src("styles/home.css");
+  const css = src("styles/tower.css");
   const reduced = css.slice(css.indexOf(".signal"));
   assert.match(reduced, /prefers-reduced-motion[\s\S]*signal__pkt[\s\S]*animation:\s*none/i);
   // Nothing that carries meaning may live only in an animation.
