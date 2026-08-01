@@ -5,7 +5,6 @@
 
      LIVE, REAL endpoints (no fakery):
        GET  /discover           - per-station offers (CORS, no creds)
-       GET  /market             - per-model aggregate (CORS, no creds)
        GET  /me, GET /balance   - session identity + wallet (CORS, creds)
        POST /concierge          - the Ping assistant (CORS, creds omit)
 
@@ -330,10 +329,7 @@
   /* ---------- one broker load ---------------------------------------- */
   var loaded = false;
   function loadBroker() {
-    var mP = fetchJSON("/market", false).catch(function () { return null; });
-    var dP = fetchJSON("/discover", false).catch(function () { return null; });
-    return Promise.all([mP, dP]).then(function (res) {
-      var dData = res[1];
+    return fetchJSON("/discover", false).then(function (dData) {
       var offers = (dData && Array.isArray(dData.offers)) ? dData.offers : [];
       STATE.offers = offers;
       STATE.bands = bandsFromOffers(offers);
@@ -341,7 +337,7 @@
       var live = STATE.bands.length;
       if (live > 0) {
         setStatus(chatStatus, live + " model" + (live === 1 ? "" : "s") + " on air · live from the broker", "live");
-      } else if (offers) {
+      } else {
         setStatus(chatStatus, "the band is quiet - no models on air right now", "quiet");
       }
       renderDirectory();
@@ -931,9 +927,9 @@
       if (w === lastW) return;
       lastW = w;
       sizeCanvas();
-      draw(performance.now());
+      startDraw();
     }
-    sizeCanvas(); draw(performance.now());
+    sizeCanvas(); startDraw();
     if ("ResizeObserver" in window) { new ResizeObserver(resize).observe(canvas); }
     var rz; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(resize, 150); });
 
