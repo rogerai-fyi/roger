@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <!-- The Playbox ("the console"). A tabbed instrument deck where a visitor
-     interacts with RogerAI models three ways: Chat (tune into broker-hosted
-     stations; live answers come from the browser-safe /concierge Ping demo),
-     Capability surfaces (text/audio/vision/tool/embed/guard), and the Roger
-     Edge simulator (drop plant events on the device, read the certified
-     structured decision beside a captured preview sample).
+     interacts with RogerAI models three ways: Chat (tune a station and talk to
+     it LIVE through the Tower relay; Ping is the untuned default), Capability
+     surfaces (text/audio/vision/tool/embed/guard), and the Roger Edge
+     simulator (drop plant events on the device, read the certified contract
+     beside a recorded real checkpoint answer).
      HONESTY CONTRACT (see playbox.js header): every "live" claim maps to a
      real browser-safe endpoint (/discover, /market, /concierge, credentialed
      /me + /balance). Everything else is labelled example / illustrative, and
@@ -113,8 +113,8 @@
                     <span class="pg-acct__v" id="pgBal">&mdash;</span>
                   </div>
                   <p class="pg-capcard__note" id="pgAcctNote">
-                    Signed out, only free stations are selectable. Sign in to reach paid
-                    stations and read your balance.
+                    Signed out, free stations chat right away. A paid station asks you to
+                    sign in before the first send.
                   </p>
                   <a class="pg-btn pg-btn--ghost" id="pgLogin" href="https://broker.rogerai.fm/auth/github/login">
                     Sign in with GitHub
@@ -227,7 +227,7 @@
                 input into a structured decision: a JSON extraction, a tool call, or an
                 <b>ESCALATE</b>. Drag an event card onto the device (or press it). The screen shows
                 the <b>certified contract</b> for that input - the target keyed to a published
-                standard - and, beside it, what a captured preview checkpoint actually returned.
+                standard - and, beside it, what a recorded real checkpoint answered on the same input.
                 The gap is the work.
               </p>
             </div>
@@ -261,6 +261,17 @@
                   <div class="pg-out__body">
                     <p class="pg-out__empty" id="pgOutEmpty">No event on the device yet. Feed it a card to read the decision.</p>
 
+                    <div class="pg-block" id="pgPromptBlock" hidden>
+                      <div class="pg-block__k">
+                        <h4>Device prompt - ships with the device</h4>
+                      </div>
+                      <pre class="pg-code" id="pgDevPrompt"></pre>
+                      <p class="pg-block__cap">The framing is part of the system: unframed, a
+                        contract model flounders; framed, it performs. This is an excerpt of the
+                        real production framing for this task class - the model and its device
+                        prompt ship as one unit.</p>
+                    </div>
+
                     <div class="pg-block" id="pgCertBlock" hidden>
                       <div class="pg-block__k">
                         <h4>Certified contract - the target</h4>
@@ -273,11 +284,11 @@
                     <div class="pg-block" id="pgCapBlock" hidden>
                       <button class="pg-reveal" id="pgCapToggle" type="button" aria-expanded="false" aria-controls="pgCapturedWrap">
                         <span class="pg-reveal__car" aria-hidden="true">&rsaquo;</span>
-                        Show what a captured preview checkpoint returned
+                        Show what a recorded checkpoint returned - same input
                       </button>
                       <div class="pg-captured" id="pgCapturedWrap" hidden>
                         <div class="pg-block__k" style="margin-bottom:6px">
-                          <span class="pg-block__cap" id="pgCapLabel">Captured Wave Nano preview &middot; same input</span>
+                          <span class="pg-block__cap" id="pgCapLabel">Recorded Wave Nano checkpoint &middot; same input</span>
                           <span class="pg-verdict pg-verdict--bad" id="pgCapVerdict">off-contract</span>
                         </div>
                         <pre class="pg-code" id="pgCaptured"></pre>
@@ -297,10 +308,12 @@
                   ISO&nbsp;14224, EPA&nbsp;NSPS&nbsp;OOOOb, and more) and audited for a defensible
                   ground truth. The certified contract is the <b>target</b> Wave Nano is trained
                   against - not a live call.</p>
-                <p>The captured samples are <b>real captured outputs on the same inputs</b>, shown
-                  labelled so nothing reads as a faked success. Wave Nano is an in-development slot;
-                  see the <a href="/research-wave-family.html">Wave family field guide</a> for where
-                  it sits and how the safety guard covers the gap.</p>
+                <p>The recorded samples are <b>real captured outputs on the same inputs</b>, shown
+                  labelled so nothing reads as a faked success. <b>Wave Nano</b> (350M) is the
+                  trained gateway-class brain of the edge line; <b>Roger Edge</b> itself is the
+                  MCU-class classifier line, in design, with no trained artifact yet. See the
+                  <a href="/research-wave-family.html">Wave family field guide</a> for where each
+                  sits and how the safety guard covers the gap.</p>
               </div>
             </div>
           </div>
