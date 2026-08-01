@@ -602,3 +602,25 @@ test("each onward row offers a full set of destinations that resolve", () => {
     }
   }
 });
+
+// The sweep pivot must equal the scope centre. It was left at 220,220 when the viewBox
+// grew to 480 for the jobs axis, and the beam swept around a point 20px off-centre. This
+// is the same class of bug as the mascot's stale transform-origin: invisible in a static
+// build, obvious the moment it moves. Read the centre from the geometry, never a literal.
+test("the radar sweep pivots on the scope centre", () => {
+  const scope = scopeFig();
+  const ring = scope.match(/<circle cx="([\d.]+)" cy="([\d.]+)" r="[\d.]+"\/>/);
+  assert.ok(ring, "the grid rings give the centre");
+  const [cx, cy] = [Number(ring[1]), Number(ring[2])];
+  const origin = read("styles/research.css")
+    .match(/\.scope__sweep \{[^}]*transform-origin:\s*([\d.]+)px\s+([\d.]+)px/);
+  assert.ok(origin, ".scope__sweep declares a transform-origin");
+  assert.equal(Number(origin[1]), cx, "pivot x is the scope centre");
+  assert.equal(Number(origin[2]), cy, "pivot y is the scope centre");
+  // The beam itself has to start there too, or it sweeps a wedge detached from the origin.
+  const beam = scope.match(/<line x1="([\d.]+)" y1="([\d.]+)" x2="[\d.]+" y2="[\d.]+"\/>\s*<\/g>/);
+  if (beam) {
+    assert.equal(Number(beam[1]), cx, "the beam starts at the centre");
+    assert.equal(Number(beam[2]), cy, "the beam starts at the centre");
+  }
+});

@@ -8,7 +8,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -297,4 +297,30 @@ test("the envelope concludes the tiers are forced, and cites no vendor", () => {
   for (const vendor of [/jetson/i, /hailo/i, /qualcomm/i, /rockwell/i, /advantech/i, /\$\d/]) {
     assert.doesNotMatch(copy, vendor, `no vendor or price detail (${vendor})`);
   }
+});
+
+// .device-contract lead-ins are block-level, so whatever follows starts a new line. That
+// is only safe while every card is written as "<b>Lead-in.</b> Capitalised sentence" - the
+// careers strip already shipped a line beginning with a comma once, and this is the same
+// trap in a different component. Swept across every page that uses the card.
+test("no card lead-in leaves its sentence starting with punctuation", () => {
+  let checked = 0;
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const html = read(page);
+    for (const block of html.matchAll(/<div class="device-contract">[\s\S]*?<\/div>/g)) {
+      checked++;
+      // Only the first <b> of a card is the block lead-in; a later one is inline emphasis
+      // mid-sentence, whose continuation legitimately starts lowercase.
+      for (const card of block[0].matchAll(/<p>\s*<b>[^<]*<\/b>([^<]*)/g)) {
+        const after = card[1];
+        assert.doesNotMatch(after, /^\s*[,;:]/,
+          `${page}: a card sentence begins "${after.trim().slice(0, 44)}"`);
+        if (after.trim()) {
+          assert.match(after.trim(), /^[A-Z(&"']/,
+            `${page}: a card sentence should start a new sentence, got "${after.trim().slice(0, 44)}"`);
+        }
+      }
+    }
+  }
+  assert.ok(checked >= 3, `the card is used on more than one page, swept ${checked}`);
 });
