@@ -354,7 +354,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:321:		probeEvidenceRecentLocked	
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
+rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
@@ -398,7 +398,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:405:		rcSubtree			78.6%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:436:		rcJoin				55.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:466:		rcAuthHost			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:477:		rcAuthViewer			72.7%
-rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:496:		rcPoll				72.2%
+rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:496:		rcPoll				66.7%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:568:		rcEvents			64.7%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:595:		rcSend				79.3%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:639:		rcStream			71.9%
@@ -605,7 +605,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:225:		recordToolProbe			100.0
 rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:283:		syncToolsVerified		87.5%
 rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:300:		toolsVerifiedForLocked		100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:311:		authoritativeFor		100.0%
-rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:327:		probeToolCall			92.1%
+rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:327:		probeToolCall			89.5%
 rogerai.fm/roger/v5/cmd/rogerai-broker/toolcall.go:387:		applyToolVerdict		100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/tunnel.go:42:		maxNodesPerOwnerLimit		100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/tunnel.go:56:		ownerOnAirCount			91.7%
@@ -1043,7 +1043,7 @@ rogerai.fm/roger/v5/internal/client/login.go:194:		LogoutReturn			60.0%
 rogerai.fm/roger/v5/internal/client/login.go:206:		Logout				85.7%
 rogerai.fm/roger/v5/internal/client/login.go:221:		Whoami				100.0%
 rogerai.fm/roger/v5/internal/client/login.go:244:		startDeviceFlow			92.9%
-rogerai.fm/roger/v5/internal/client/login.go:266:		pollDeviceToken			85.7%
+rogerai.fm/roger/v5/internal/client/login.go:266:		pollDeviceToken			90.5%
 rogerai.fm/roger/v5/internal/client/login.go:308:		postSigned			100.0%
 rogerai.fm/roger/v5/internal/client/login.go:316:		maxInt				100.0%
 rogerai.fm/roger/v5/internal/client/payout.go:49:		payoutErr			100.0%
@@ -1076,7 +1076,7 @@ rogerai.fm/roger/v5/internal/client/rc.go:445:			Done				100.0%
 rogerai.fm/roger/v5/internal/client/rc.go:448:			Run				100.0%
 rogerai.fm/roger/v5/internal/client/rc.go:455:			Stop				100.0%
 rogerai.fm/roger/v5/internal/client/rc.go:466:			Disable				100.0%
-rogerai.fm/roger/v5/internal/client/rc.go:474:			pollLoop			82.8%
+rogerai.fm/roger/v5/internal/client/rc.go:474:			pollLoop			79.3%
 rogerai.fm/roger/v5/internal/client/rc.go:526:			eventPump			100.0%
 rogerai.fm/roger/v5/internal/client/rc.go:548:			postEvents			100.0%
 rogerai.fm/roger/v5/internal/client/say.go:41:			Speak				95.2%
