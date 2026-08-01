@@ -63,6 +63,9 @@ test("the company page separates the product line from the research line", () =>
   }
   // the independence promise: models are usable without the network
   assert.match(page, /never requires|does not require|without the network/i);
+  // the positioning line (founder, 2026-07-31): the network is the frontier,
+  // decentralized - a claim about where the models run, not about being a frontier lab.
+  assert.match(page, /the frontier, decentralized/i);
 });
 
 test("the company page names the focus markets and the OT constraint", () => {
