@@ -355,7 +355,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:321:		probeEvidenceRecentLocked	
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
+rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
