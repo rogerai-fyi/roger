@@ -88,10 +88,12 @@
               <span class="wf-node is-live" style="--at:48%"><i></i><b>Micro</b></span>
               <span class="wf-node" style="--at:68%"><i></i><b>Core</b></span>
               <span class="wf-node" style="--at:88%"><i></i><b>Station</b></span>
+              <span class="wf-node wf-node--infinite" style="--at:105%"><i></i><b>Infinite</b></span>
             </div>
           </div>
           <figcaption id="wf-rail-cap">Filled marker: artifact released. Hollow: in design.
-            Wave Station: proposed.</figcaption>
+            Wave Station: proposed. Infinite: not a size - the growth loop a base model
+            enters (&sect;6).</figcaption>
         </figure>
       </div>
     </section>
@@ -311,23 +313,56 @@
       <div class="wrap">
         <div class="section__head section__head--left">
           <span class="sectionno">&sect;6 / WAVE INFINITE</span>
-          <h2 class="wf-inf__title">Specialisation with a <span class="wf-inf__shimmer">proof</span>, not a promise.</h2>
-          <p>Everything above is a model. <b>Wave Infinite</b> is a prototype model
-             programme: a model that adapts to your work and can prove what it did not
-             change. It is built in three layers, and they are at three different states
-             of proof.</p>
+          <h2 class="wf-inf__title">The model that <span class="wf-inf__shimmer">grows</span>.</h2>
+          <span class="wf-inf__badge">Prototype &middot; measured foundations, growth loop in development</span>
+          <p>Every slot above is a fixed size. <b>Wave Infinite</b> is a prototype model
+             programme: start from a <b>Nano</b>, <b>Micro</b>, or <b>Station</b> base,
+             and the model grows new weights - real parameters, trained on your work, not
+             prompts, not retrieval - inside a proof that the base behaviour is
+             preserved.</p>
         </div>
+
+        <!-- The loop, drawn. Visuals are not claims (web brief), so the figure gets the
+             showcase treatment; the badge above and the states below carry the truth. -->
+        <figure class="wf-orbit" role="img"
+          aria-label="The Wave Infinite loop: a Nano, Micro, or Station base model enters a continuous cycle of observe, measure, grow, and certify. New capacity sprouts where measured utility says it helps, and every change keeps an exact path back to the original model.">
+          <svg class="wf-orbit__svg" viewBox="0 0 900 340" aria-hidden="true" focusable="false">
+            <text class="wf-orbit__feedlabel" x="46" y="84">NANO</text>
+            <text class="wf-orbit__feedlabel" x="46" y="174">MICRO</text>
+            <text class="wf-orbit__feedlabel" x="46" y="264">STATION</text>
+            <circle class="wf-orbit__node" cx="130" cy="80" r="4"/>
+            <circle class="wf-orbit__node" cx="130" cy="170" r="4"/>
+            <circle class="wf-orbit__node" cx="130" cy="260" r="4"/>
+            <path class="wf-orbit__feed" d="M130 80 C 210 80, 240 140, 296 162"/>
+            <path class="wf-orbit__feed" d="M130 170 C 200 170, 240 170, 296 170"/>
+            <path class="wf-orbit__feed" d="M130 260 C 210 260, 240 200, 296 178"/>
+            <path class="wf-orbit__path" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <path class="wf-orbit__comet" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <path class="wf-orbit__comet wf-orbit__comet--echo" pathLength="100"
+              d="M300 170 C 300 78, 432 78, 500 170 C 568 262, 700 262, 700 170 C 700 78, 568 78, 500 170 C 432 262, 300 262, 300 170 Z"/>
+            <circle class="wf-orbit__core" cx="500" cy="170" r="7"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--1" cx="760" cy="140" r="5"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--2" cx="782" cy="176" r="4"/>
+            <circle class="wf-orbit__sprout wf-orbit__sprout--3" cx="758" cy="208" r="3"/>
+            <text class="wf-orbit__label" x="344" y="64">01 OBSERVE</text>
+            <text class="wf-orbit__label" x="606" y="64">02 MEASURE</text>
+            <text class="wf-orbit__label" x="622" y="292">03 GROW</text>
+            <text class="wf-orbit__label" x="330" y="292">04 CERTIFY</text>
+          </svg>
+          <figcaption>One loop: observe &middot; measure &middot; grow &middot; certify.
+            Any base enters it; an exact path back always remains.</figcaption>
+        </figure>
 
         <!-- The hook is the measurement, not the architecture. This is the finding that
              makes the safety machinery non-optional rather than decorative. -->
         <figure class="wf-inf">
           <blockquote class="wf-inf__claim">
-            Removing the parts a standard frequency analysis calls unused degraded quality
-            by an amount <b>statistically invisible</b> on the very benchmark you would
-            check it with - while off-domain the same change hit a large fraction of all
-            routing decisions.
+            Why every change carries a certificate: specialisation damage can be
+            <b>statistically invisible</b> on the very benchmark you would check it with,
+            and far worse once the workload shifts.
             <span class="wf-inf__punch">You cannot monitor your way to safe specialisation.</span>
-            <small>Measured on interim hardware. The figures are published once they are re-verified on final hardware.</small>
           </blockquote>
 
           <ol class="wf-inf__loop">
@@ -356,11 +391,22 @@
             </li>
           </ol>
 
-          <figcaption>Every layer answers the same question at a different timescale: what
-            does this workload actually need, and how do we change for it without breaking
-            anything else? Each change starts provably behaviour-preserving and keeps an
-            exact path back.</figcaption>
+          <figcaption>Three layers, three states of proof. Each change starts provably
+            behaviour-preserving and keeps an exact path back.</figcaption>
         </figure>
+
+        <div class="wf-inf__use">
+          <span class="research-kicker">TRAINING IT IS USING IT</span>
+          <ol>
+            <li><b>Start.</b> Pick a base: Nano, Micro, or Station. Infinite is the loop,
+              not a fourth size.</li>
+            <li><b>Work.</b> The model observes its own execution and grows new weights
+              only where measured utility says they help.</li>
+            <li><b>Certify.</b> Changes go live through the same certified path, with an
+              exact rollback always resident. If the work shifts beyond what is certified,
+              it reverts to the original path by itself.</li>
+          </ol>
+        </div>
 
         <div class="wf-inf__proof">
           <div class="wf-inf__proven">

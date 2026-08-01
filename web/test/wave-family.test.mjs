@@ -263,13 +263,9 @@ test("the power arithmetic is shown, because it is what decides the tier", () =>
   assert.match(copy, /panel|kWh|Wh/i, "with the arithmetic, not just the verdict");
 });
 
-test("the compliance regime is named the way a reviewer would check it", () => {
-  const copy = visible(envelope());
-  assert.match(copy, /62443/, "the OT security standard");
-  assert.match(copy, /NERC CIP|CIP-0/i, "and the grid regime");
-  assert.match(copy, /change[- ]management|change control/i,
-    "the consequence that actually shapes the product: a model update is a change event");
-});
+// Founder ruling 2026-07-31: the tiers-argument and compliance-regime paragraphs came
+// off the envelope (noise reduction). IEC 62443 stays named in the Placement figure,
+// which the surface-standards test still asserts.
 
 test("the negative claim is attributed to our search, not asserted as universal", () => {
   const copy = visible(envelope());

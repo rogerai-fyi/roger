@@ -117,3 +117,26 @@ Feature: Wave Infinite is presented as the prototype program it is
   Scenario: The treatment degrades without JavaScript
     Given scripting is disabled
     Then Wave Infinite is present and fully readable
+
+  # ---- the showcase (founder redirection, 2026-07-31) -------------------------
+  # Wave Infinite is SHOWCASED as the family's finale: the last marker on the size
+  # rail (as a MODE, never a size) and a distinct animated loop figure, per
+  # WAVE-INFINITE-WEB-BRIEF-2026-08-01.md. The claim ceiling above is UNCHANGED;
+  # the prototype badge is what makes the showcase safe, so it is non-negotiable.
+
+  Scenario: The prototype badge is always visible
+    Then the section carries a badge reading prototype, measured foundations, growth loop in development
+
+  Scenario: The rail ends with Infinite as a mode, not a size
+    Then the size rail's last marker is Infinite
+    And the rail caption says Infinite is the growth loop, not a size
+
+  Scenario: The loop figure animates without becoming a claim
+    Then the loop figure is described for screen readers
+    And it freezes legibly under reduced motion
+    And nothing in the section depends on JavaScript
+
+  Scenario: Training it is described in the approved register
+    Then the page says the model grows new weights, real parameters trained on your work
+    And deployment is the certified path with an exact rollback always resident
+    And self-healing is only the guard reverting to the original path by itself

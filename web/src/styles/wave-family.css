@@ -112,6 +112,92 @@
   color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
 }
 
+/* The badge is what makes the showcase safe (web brief hard rule): a dashed live-red
+   pill that reads as a lab tag, never as an availability chip. */
+.wf-inf__badge {
+  display: inline-block; margin: var(--s-2) 0 var(--s-3); padding: 4px 12px;
+  border: 1px dashed var(--live); color: var(--live);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+}
+
+/* ---------- the loop, drawn (§6 showcase) ------------------------------------
+   The one inverted slab on the page: ink ground, paper hairlines, live-red carriers.
+   Different in KIND from every other figure - which is the point - while staying inside
+   the ink+live palette the spec pins. Visuals are not claims; the badge and the state
+   pills carry the truth. */
+.wf-orbit {
+  margin: 0 0 var(--s-7); padding: var(--s-5) var(--s-5) var(--s-4);
+  background: var(--ink-900); display: grid; gap: var(--s-3);
+}
+.wf-orbit__svg { width: 100%; height: auto; display: block; }
+.wf-orbit__path { fill: none; stroke: var(--paper); stroke-opacity: .22; stroke-width: 2; }
+.wf-orbit__feed { fill: none; stroke: var(--paper); stroke-opacity: .16; stroke-width: 1.5; }
+.wf-orbit__node { fill: var(--paper); fill-opacity: .7; }
+/* Two carriers chase the lemniscate: pathLength=100 makes the dash arithmetic exact,
+   and one direction only - the same rule as the shimmer. */
+.wf-orbit__comet {
+  fill: none; stroke: var(--live); stroke-width: 4; stroke-linecap: round;
+  stroke-dasharray: 14 86; animation: wf-orbit-run 7s linear infinite;
+}
+.wf-orbit__comet--echo {
+  stroke-width: 2; stroke-opacity: .55; stroke-dasharray: 7 93; animation-delay: -3.5s;
+}
+@keyframes wf-orbit-run { to { stroke-dashoffset: -100; } }
+/* The crossing is the beacon; it breathes on the mark's own tempo. */
+.wf-orbit__core {
+  fill: var(--live); transform-box: fill-box; transform-origin: center;
+  animation: wave-mark-beat 3.4s var(--ease-in-out, ease-in-out) infinite;
+}
+/* New capacity sprouting past GROW: appears, holds, yields - never a steady state,
+   because the loop is the claim, not the growth. */
+.wf-orbit__sprout {
+  fill: var(--live); transform-box: fill-box; transform-origin: center;
+  opacity: 0; animation: wf-orbit-sprout 7s ease-in-out infinite;
+}
+.wf-orbit__sprout--2 { animation-delay: -2.3s; }
+.wf-orbit__sprout--3 { animation-delay: -4.6s; }
+@keyframes wf-orbit-sprout {
+  0%, 52%   { opacity: 0; transform: scale(0); }
+  62%, 88%  { opacity: 1; transform: scale(1); }
+  100%      { opacity: 0; transform: scale(.5); }
+}
+.wf-orbit__label {
+  fill: var(--paper); font-family: var(--font-mono); font-size: 13px;
+  letter-spacing: .16em;
+}
+.wf-orbit__feedlabel {
+  fill: var(--paper); fill-opacity: .6; font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .14em;
+}
+.wf-orbit figcaption {
+  color: var(--paper); opacity: .65; font-family: var(--font-mono);
+  font-size: var(--t-micro); letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* Training-is-using: three flat steps, the same top-rule grid the family tables use. */
+.wf-inf__use { margin: 0 0 var(--s-7); }
+.wf-inf__use ol {
+  margin: var(--s-3) 0 0; padding: 0; list-style: none;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-5);
+}
+.wf-inf__use li {
+  border-top: 2px solid var(--ink-900); padding-top: var(--s-3);
+  color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body);
+}
+.wf-inf__use li b { color: var(--ink-900); }
+@media (max-width: 860px) { .wf-inf__use ol { grid-template-columns: 1fr; } }
+
+/* The rail's last marker: the mode, not a sixth size. A double ring that breathes.
+   It sits past the axis end (105%), so the track keeps extra right margin for it. */
+.wf-rail__track { margin-inline: 44px 110px; }
+.wf-node--infinite i { border-style: double; border-width: 3px; border-color: var(--live); }
+.wf-node--infinite b { color: var(--live); }
+.wf-node--infinite i {
+  animation: wave-mark-beat 3.4s var(--ease-in-out, ease-in-out) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* The shimmer carries no information, so stopping it loses nothing. Reset the clip
      so the word does not sit frozen mid-gradient. */
@@ -119,6 +205,11 @@
     animation: none; background: none; -webkit-background-clip: border-box;
     background-clip: border-box; color: var(--live);
   }
+  /* The orbit freezes legible: full loop stroke, sprouts resting visible, no motion. */
+  .wf-orbit__comet { animation: none; stroke-dasharray: none; stroke-opacity: .8; }
+  .wf-orbit__comet--echo { display: none; }
+  .wf-orbit__core, .wf-orbit__sprout, .wf-node--infinite i { animation: none; }
+  .wf-orbit__sprout { opacity: 1; transform: none; }
 }
 @media (max-width: 860px) {
   .wf-inf__loop { grid-template-columns: 1fr; }
