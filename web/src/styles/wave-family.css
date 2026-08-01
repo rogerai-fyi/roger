@@ -183,7 +183,9 @@
 /* The pulse rides outward, near pair then far pair, like a transmission leaving. Opacity
    only - the arcs never disappear, so the mark is whole in every frame. */
 .wave-mark__arc { animation: wave-mark-pulse 3.2s ease-in-out infinite; }
-.wave-mark__arc--far { animation-delay: .4s; }
+/* backwards fill, or the far pair holds opacity 1 for the delay and then snaps to the
+   keyframe start - a visible flick on every page load. */
+.wave-mark__arc--far { animation-delay: .4s; animation-fill-mode: backwards; }
 @keyframes wave-mark-pulse {
   0%, 100% { opacity: .55; }
   45%      { opacity: 1; }
