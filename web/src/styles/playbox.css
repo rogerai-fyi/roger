@@ -206,6 +206,8 @@
   display: grid; gap: var(--s-3); justify-items: start;
 }
 .pg-invite p { margin: 0; color: var(--ink-500); font-size: var(--t-sm); line-height: var(--lh-body); }
+/* the explicit display would otherwise defeat the hidden attribute (caught by render) */
+.pg-invite[hidden] { display: none; }
 .pg-note p + p { margin-top: var(--s-2); }
 .pg-note code { font-family: var(--font-mono); color: var(--ink-900); font-size: 0.92em; }
 .pg-note a { color: var(--ink-900); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--hairline-2); }
@@ -493,4 +495,82 @@
 @media (prefers-reduced-motion: reduce) {
   .pg-evt, .pg-tab, .pg-reveal__car, .pg-mrow { transition: none; }
   .pg-evt:hover { transform: none; }
+  /* the bench freezes legible: the needle SITS at its true value, no lamp blinks */
+  .pg-smeter__needle { transition: none; }
+  .pg-send--key .pg-send__cap { animation: none; }
 }
+
+/* =====================================================================
+   THE BENCH (features/web/playbox_bench.feature) - the deck as one piece
+   of equipment: maker's plate, MODE selector, S-meter, logbook, key.
+   Ink + live only; every marking is load-bearing.
+   ===================================================================== */
+
+/* corner screws: four engraved slots on the faceplate */
+.pg-bench { position: relative; }
+.pg-bench::before, .pg-bench::after {
+  content: ""; position: absolute; width: 7px; height: 7px; border-radius: 50%;
+  border: 1px solid var(--hairline-2);
+  background:
+    linear-gradient(45deg, transparent 44%, var(--ink-400) 44%, var(--ink-400) 56%, transparent 56%),
+    var(--paper-2);
+  z-index: 1; pointer-events: none;
+}
+.pg-bench::before { top: 7px; left: 7px; }
+.pg-bench::after  { top: 7px; right: 7px; }
+
+/* the maker's plate */
+.pg-bench__plate {
+  display: flex; align-items: baseline; gap: var(--s-4);
+  padding: 8px var(--s-6) 7px; border-bottom: 1px solid var(--hairline-2);
+  background: var(--paper-2);
+  font-family: var(--font-mono); letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.pg-bench__name { color: var(--ink-900); font-size: var(--t-xs); font-weight: var(--weight-semi); letter-spacing: 0.28em; }
+.pg-bench__type { color: var(--ink-400); font-size: var(--t-micro); }
+.pg-bench__serial { margin-left: auto; color: var(--ink-400); font-size: var(--t-micro); }
+@media (max-width: 640px) { .pg-bench__serial { display: none; } }
+
+/* MODE: the tablist reads as a selector row with its engraved function label */
+.pg-tabs__mode {
+  display: inline-flex; align-items: center; padding: 0 var(--s-4);
+  border-right: 1px solid var(--hairline);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.22em;
+  color: var(--ink-400); text-transform: uppercase;
+}
+@media (max-width: 640px) { .pg-tabs__mode { display: none; } }
+
+/* the S-meter: paper dial, ink ticks, live needle. Data-driven (playbox.js). */
+.pg-smeter { display: inline-flex; align-items: flex-end; gap: 6px; margin-left: auto; }
+.pg-smeter svg { width: 64px; height: 38px; display: block; }
+.pg-smeter__arc { fill: none; stroke: var(--hairline-2); stroke-width: 2; }
+.pg-smeter__ticks line { stroke: var(--ink-400); stroke-width: 1.5; }
+.pg-smeter__needle {
+  stroke: var(--live); stroke-width: 2; stroke-linecap: round;
+  transform-box: view-box; transform-origin: 50px 50px;
+  transform: rotate(-50deg);
+  transition: transform var(--d-3, 300ms) var(--ease-standard, ease);
+}
+.pg-smeter__pivot { fill: var(--ink-900); }
+.pg-smeter__read { color: var(--ink-500); font-size: 10px; letter-spacing: var(--tracking-label); padding-bottom: 2px; }
+@media (max-width: 640px) { .pg-smeter { display: none; } }
+
+/* the logbook: ruled paper, entries sit ON the rules, time column at the right */
+.pg-log {
+  background: repeating-linear-gradient(
+    to bottom, transparent 0, transparent 27px, var(--hairline) 27px, var(--hairline) 28px);
+  padding-inline: var(--s-2);
+}
+.pg-line { grid-template-columns: 52px 1fr auto; }
+.pg-line__ts { color: var(--ink-400); font-size: 10px; padding-top: 3px; letter-spacing: var(--tracking-label); }
+@media (max-width: 860px) { .pg-line { grid-template-columns: 44px 1fr auto; } }
+
+/* the key: a bar you press. The cap is the engraved KEY marking. */
+.pg-send--key { display: inline-flex; align-items: center; gap: 8px; }
+.pg-send__cap {
+  display: inline-block; padding: 1px 6px;
+  border: 1px solid currentColor; border-radius: 3px;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em;
+}
+.pg-send--key:active { transform: translateY(1px); }

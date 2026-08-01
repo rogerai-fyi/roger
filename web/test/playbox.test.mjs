@@ -104,6 +104,44 @@ test("playbox: the edge canvas never calls draw() outside the rAF loop", () => {
   assert.ok(js.includes("function startDraw()"), "startDraw() (the cancel-then-schedule entry) is gone");
 });
 
+// ---------- the bench (features/web/playbox_bench.feature) --------------------
+
+const css = read("styles/playbox.css");
+
+test("bench: the deck is one faceplate with plate and MODE selector", () => {
+  assert.ok(html.includes('class="pg-deck pg-bench"'), "the deck must carry the bench faceplate class");
+  assert.ok(html.includes("pg-bench__plate"), "the maker's plate must exist");
+  assert.ok(html.includes('class="pg-tabs__mode"'), "the tablist needs its MODE label");
+  assert.ok(html.includes('role="tablist"'), "tab semantics must be unchanged");
+});
+
+test("bench: the S-meter needle is driven by the directory's own signal numbers", () => {
+  assert.ok(html.includes('id="pgSMeterNeedle"'), "the needle element must exist");
+  assert.ok(js.includes("function meterSignal()"), "the meter reads from STATE.bands");
+  assert.ok(js.includes("b.signal"), "the meter uses the same signal field the rows draw");
+  assert.ok(js.includes("updateSMeter()"), "renderDirectory/selectModel must refresh the meter");
+  assert.ok(!js.includes("Math.random"), "the meter must never invent a value");
+});
+
+test("bench: the transcript is a ruled logbook with UTC times", () => {
+  assert.ok(css.includes("repeating-linear-gradient"), "the logbook rules must be drawn");
+  assert.ok(js.includes("pg-line__ts"), "each entry must carry its timestamp");
+  assert.ok(js.includes("getUTCHours"), "logbook time is UTC, the operator's convention");
+});
+
+test("bench: the send control is the key, and still a real submit button", () => {
+  assert.ok(html.includes("pg-send--key"), "the key styling must be applied");
+  assert.ok(html.includes(">KEY</span>"), "the KEY cap marking must exist");
+  assert.ok(/pg-send--key[^>]*type="submit"|type="submit"[^>]*>\s*<span class="pg-send__cap"/.test(html.replace(/\n\s*/g, " ")),
+    "the key must remain a type=submit button");
+});
+
+test("bench: reduced motion freezes the needle at its true value", () => {
+  const rm = css.slice(css.indexOf("prefers-reduced-motion"));
+  assert.ok(rm.includes(".pg-smeter__needle { transition: none; }"),
+    "the reduced-motion block must stop the needle animation");
+});
+
 test("playbox: the unreferenced nano-samples file does not ship", () => {
   assert.ok(!existsSync(path.join(SRC, "data/playground-nano-samples.jsonl")),
     "playground-nano-samples.jsonl is back but nothing loads it");
