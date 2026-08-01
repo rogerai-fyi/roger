@@ -4,17 +4,23 @@
      character and must not leak onto a surface that can draw curves - a browser
      showing monospace block glyphs is the terminal costume worn in the wrong
      place. Keep each in its own medium.
+     The viewBox starts at y=-5, not 0: the signal arcs peak above the antennae and an
+     outermost SVG clips to its viewBox, so at 0 the top of the outer arc's stroke was
+     being shaved off. The extra band is headroom for the signal, nothing is drawn in it.
      Geometry is mascot.svg, inlined so it inherits currentColor for light/dark
      and so no extra request is needed. Its ids are CLASSES here because index.html
      includes this partial twice and duplicate ids are invalid; the animations live
      in base.css (.tube-ping__mark) rather than a repeated inline <style>. -->
 <figure class="tube-ping" role="img" aria-label="Ping, the RogerAI on-air mascot">
-  <svg class="tube-ping__mark" viewBox="0 0 64 72" fill="currentColor" aria-hidden="true" focusable="false">
+  <svg class="tube-ping__mark" viewBox="0 -5 64 77" fill="currentColor" aria-hidden="true" focusable="false">
     <g class="ping-mark">
-      <!-- signal arcs radiating from the antennae -->
+      <!-- Signal arcs radiating from the ANTENNAE, not from the eye. They were briefly
+           tied to the beacon, which put their apex at y=7 against a bracket top of y=8 -
+           drawn on the head rather than above it. They now clear the brackets and pivot on
+           the antenna line so they scale away from the source. -->
       <g fill="none" stroke="#E0231C" stroke-linecap="round" stroke-width="2">
-        <path class="ping-mark__wave ping-mark__wave--a" d="M16 17 A18 18 0 0 1 48 17" opacity="0"/>
-        <path class="ping-mark__wave ping-mark__wave--b" d="M11 19 A24 24 0 0 1 53 19" opacity="0"/>
+        <path class="ping-mark__wave ping-mark__wave--a" d="M16 12 A18 18 0 0 1 48 12" opacity="0"/>
+        <path class="ping-mark__wave ping-mark__wave--b" d="M11 14 A24 24 0 0 1 53 14" opacity="0"/>
       </g>
       <g class="ping-mark__body">
         <!-- bracket arms/antennae, mirroring logo.svg -->
