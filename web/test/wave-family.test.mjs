@@ -325,45 +325,54 @@ test("no card lead-in leaves its sentence starting with punctuation", () => {
   assert.ok(checked >= 3, `the card is used on more than one page, swept ${checked}`);
 });
 
-// The broadcast-wave mark from the social card - arcs radiating both sides of the live-red
-// dot - is the ((.)) on-air motif at scale. It belongs on the family page more than
-// anywhere: the family is named for the wave. Distinct from the vector Ping mascot, which
-// stays on the homepage and the research hub, so the two do not compete.
-test("the Wave family page carries the broadcast-wave mark", () => {
+// The wave mark, taken from the homepage social card and put on the page the family is
+// named after. What makes it this mark and not a lookalike: two S-curves on one
+// centreline, and the beacon exactly where they cross. Those are the things asserted -
+// a redrawn approximation would drift, and the point is that the card and the page carry
+// the same object.
+test("the Wave family page carries the wave mark", () => {
   const page = read("research-wave-family.html");
   const mark = page.match(/<figure class="wave-mark"[\s\S]*?<\/figure>/)?.[0];
   assert.ok(mark, "the family page draws the wave mark");
-  assert.match(mark, /role="img"|aria-label/, "it is named for a screen reader");
+  assert.match(mark, /role="img"/, "it is named for a screen reader");
+  assert.match(mark, /aria-label="[^"]+"/);
 
-  // Symmetry is the whole shape: equal arcs each side of one centred dot.
-  const dot = mark.match(/<circle[^>]*\bcx="([\d.]+)"[^>]*\bcy="([\d.]+)"/);
-  assert.ok(dot, "there is a single beacon dot");
-  const vb = mark.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
-  assert.equal(Number(dot[1]), Number(vb[1]) / 2, "the dot is centred horizontally");
-  assert.equal(Number(dot[2]), Number(vb[2]) / 2, "and vertically");
+  const waves = [...mark.matchAll(/<path class="wave-mark__wave[^"]*"[^>]*d="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(waves.length, 2, `two waves, one behind the other, found ${waves.length}`);
 
-  // Match the far pair too: they carry a second class, so an exact class="..." match
-  // silently tested only half the mark and passed either way.
-  const arcs = [...mark.matchAll(/<path class="wave-mark__arc[^"]*"[^>]*d="M([\d.]+)/g)].map((m) => Number(m[1]));
-  assert.equal(arcs.length, 4, `all four arcs are checked, found ${arcs.length}`);
-  assert.equal(arcs.length % 2, 0, `arcs come in mirrored pairs, found ${arcs.length}`);
-  const cx = Number(dot[1]);
-  const left = arcs.filter((x) => x < cx).map((x) => cx - x).sort((a, b) => a - b);
-  const right = arcs.filter((x) => x > cx).map((x) => x - cx).sort((a, b) => a - b);
-  assert.deepEqual(left, right, "every arc has a mirror at the same distance from the dot");
+  // Both run on the same centreline and share the same midpoint - that shared point is
+  // where they cross, and it is the only place the beacon may sit.
+  const shape = waves.map((d) => d.match(/^M0 (\d+)C[\d ]+ (\d+) (\d+)S[\d ]+ (\d+) (\d+)$/));
+  assert.ok(shape.every(Boolean), "both waves are S-curves in the card's form");
+  const [a, b] = shape;
+  assert.equal(a[1], b[1], "both start on the same centreline");
+  assert.equal(a[5], b[5], "and end on it");
+  assert.equal(a[2] + "," + a[3], b[2] + "," + b[3], "and cross at the same point");
+
+  const node = mark.match(/<circle class="wave-mark__node"[^>]*cx="([\d.]+)"[^>]*cy="([\d.]+)"/);
+  assert.ok(node, "there is a beacon node");
+  assert.equal(node[1], a[2], "the beacon sits where the waves cross, horizontally");
+  assert.equal(node[2], a[3], "and vertically");
+  // And the pulse pivots on the beacon, or it drifts off the crossing as it breathes.
+  const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
+  const origin = css.match(/\.wave-mark__node \{[^}]*transform-origin:\s*([\d.]+)px\s+([\d.]+)px/);
+  assert.ok(origin, "the beacon declares a transform-origin");
+  assert.deepEqual([origin[1], origin[2]], [a[2], a[3]], "it pivots on the crossing point");
 });
 
-test("the wave mark carries no information and stops for reduced motion", () => {
+test("the wave mark is whole without motion", () => {
   const css = readFileSync(path.join(WEB, "src", "styles", "wave-family.css"), "utf8");
   const block = css.slice(css.indexOf(".wave-mark"));
   assert.ok(block.length, "the mark is styled");
+  // Only the beacon animates, and only its scale: the curves are the mark and must not
+  // move. Nothing may be hidden at rest.
+  assert.doesNotMatch(block, /\.wave-mark__wave[^{]*\{[^}]*animation:/, "the curves do not animate");
+  assert.doesNotMatch(block, /\.wave-mark__(wave|node)[^{]*\{[^}]*opacity:\s*0\s*[;}]/,
+    "nothing is hidden at rest");
   const reduced = (css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/g) || [])
     .find((b) => b.includes("wave-mark"));
   assert.ok(reduced, "the mark has a reduced-motion escape");
   assert.match(reduced, /animation: none/);
-  // Every arc must be visible at rest, or the animation is carrying the shape.
-  assert.doesNotMatch(block, /\.wave-mark__arc\s*\{[^}]*opacity:\s*0\s*[;}]/,
-    "arcs are drawn at rest; the pulse is decoration on top of a complete mark");
 });
 
 // Same trap as the action buttons and the signal path: a shared component defined in a
