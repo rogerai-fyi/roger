@@ -26,7 +26,10 @@ test("the signal path shows the three hops a request actually takes", () => {
   const fig = figure();
   assert.ok(fig, "the signal path is on the tower page");
   const copy = visible(fig);
-  for (const node of [/YOUR APP/, /BROKER/, /STATION/]) assert.match(copy, node);
+  // The middle node is labelled TOWER now, with "the broker" beneath it - the figure
+  // reconciles the two names in place rather than making a reader carry the mapping.
+  for (const node of [/YOUR APP/, /TOWER/, /STATION/]) assert.match(copy, node);
+  assert.match(copy, /the broker/, "the older name rides along as subtext");
   // It must not be left behind on the homepage as well: one figure, one home.
   assert.doesNotMatch(read("index.html"), /<figure class="signal"/, "the homepage no longer carries it");
   // Word-boundary: "signal__nodes" is the container, not a hop.

@@ -112,9 +112,13 @@ test("the close claims the receipt is returned, not that it can be independently
                            /publicly verifiable/i, /anyone can verify/i]) {
     assert.doesNotMatch(c, overclaim, `must not claim ${overclaim} - we do not publish node keys`);
   }
-  // The relay caveat must survive the rewrite; it is the thing most tempting to drop.
-  assert.match(c, /relays your request|handles the request and the response/i);
-  assert.match(c, /privacy policy/i);
+  // The relay FACT must stay somewhere on the page. The founder removed the caveat
+  // plate in the closing section; the fact moved into the signal-path caption, which is
+  // where it belongs - the figure already draws the request passing through the tower, so
+  // it reads as a description of the path rather than a disclaimer.
+  assert.match(c, /relays both directions|handles the request and the response/i,
+    "the page still says the tower handles the content in transit");
+  assert.match(c, /privacy policy/i, "and still points at where retention is described");
 });
 
 test("the figures survive no motion, no script, and a narrow screen", () => {
