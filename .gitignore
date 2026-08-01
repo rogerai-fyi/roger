@@ -26,3 +26,6 @@ coverage.html
 # Apple Sign in with Apple private keys — never commit
 *.p8
 AuthKey_*.p8
+
+# Local restart handoffs (working notes, not public repo content)
+HANDOFF-*.md
