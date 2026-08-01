@@ -816,7 +816,9 @@
     var t0 = 0, raf = null;
 
     function ledColor(card) {
-      return card && card.output_kind === "abstain_escalate" ? SC.warn : SC.ok;
+      // ESCALATE is the right call, so it lights the same GOOD lamp as any other
+      // on-contract decision (models-agent ruling: never render it as a warning).
+      return SC.ok;
     }
 
     function roundRect(x, y, w, h, r) {
@@ -941,14 +943,36 @@
     function startDraw() { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }
 
     /* ---- readout population ---- */
+    // The device prompt is PART of the device (models-agent ruling, measured twice:
+    // unframed a contract model floors, framed it performs). Excerpts of the REAL
+    // production framing map, per task class - never paraphrase.
+    var DEVICE_PROMPTS = {
+      alarm_triage: "You are an offline alarm-management analyzer on an industrial edge device, applying ANSI/ISA-18.2-2016 / IEC 62682 and EEMUA Publication 191 alarm-performance metrics. For the single record in the user message, return ONE JSON …",
+      structured_extraction: "You are an offline industrial record and instrument-tag structured-extraction parser on an edge device, applying ANSI/ISA-5.1 tag identification, CFIHOS reference data (units of measure) and NAMUR NE 107 status. For the single …",
+      tool_selection_args: "You are an offline maintenance / alarm assistant on an industrial edge device. Available offline tools (read-only history and drafting only -- no live values, no control actions, no alarm state changes, no approvals): - …",
+      maintenance_failuremode: "You are an offline ISO 14224:2016 maintenance-record normalizer and failure-mode coder on an industrial edge device (equipment taxonomy and Annex B failure-mode codes). For the single record in the user message, return ONE JSON …",
+      ldar_trigger: "You are an offline methane LDAR and super-emitter regulatory router on an industrial edge device covering US EPA 40 CFR Part 60 subparts OOOOb/OOOOc (including the super-emitter program), US state programs (e.g. Colorado CDPHE …",
+      abstention_safety: "You are an OFFLINE, READ-ONLY industrial safety and compliance advisory assistant on an edge device. You have NO authority to actuate, start, stop, open, close, trip, reset, force, inhibit, bypass, shelve, or suppress any …"
+    };
+
     function fillReadout(card) {
       var isEsc = card.output_kind === "abstain_escalate";
       $("pgOutEmpty").hidden = true;
       $("pgOutBar").hidden = false;
       $("pgRoute").textContent = card.route;
       var v = $("pgVerdict");
-      v.className = "pg-verdict pg-verdict--" + (isEsc ? "warn" : "ok");
-      v.textContent = isEsc ? "escalate" : "valid";
+      // ESCALATE is the models' strongest skill - it renders as the RIGHT call,
+      // never as a warning state.
+      v.className = "pg-verdict pg-verdict--ok";
+      v.textContent = isEsc ? "escalate · right call" : "valid";
+
+      // the device prompt: the framing that ships with the device
+      var pb = $("pgPromptBlock"), pp = $("pgDevPrompt");
+      if (pb && pp) {
+        var dp = DEVICE_PROMPTS[card.task_class];
+        pb.hidden = !dp;
+        if (dp) pp.textContent = dp;
+      }
 
       // certified block
       $("pgCertBlock").hidden = false;

@@ -142,6 +142,42 @@ test("bench: reduced motion freezes the needle at its true value", () => {
     "the reduced-motion block must stop the needle animation");
 });
 
+// ---------- edge honesty (features/web/playbox_edge_honesty.feature) ----------
+
+test("edge: every simulated device carries its real fixed device prompt", () => {
+  assert.ok(html.includes('id="pgPromptBlock"'), "the device-prompt block must exist in the readout");
+  assert.ok(js.includes("DEVICE_PROMPTS"), "the prompts ship in the page code");
+  assert.ok(js.includes("offline alarm-management analyzer"),
+    "the excerpt must be the real production framing, not paraphrase");
+  assert.ok(js.includes("NO authority to actuate"),
+    "the safety device's framing must carry the no-actuation clause");
+  assert.ok(html.includes("ship as one unit"), "the model+prompt unit principle must be stated");
+});
+
+test("edge: ESCALATE renders as a first-class good outcome", () => {
+  assert.ok(js.includes('v.className = "pg-verdict pg-verdict--ok"'),
+    "the target verdict must use the positive style for every certified contract");
+  assert.ok(js.includes("escalate · right call"), "ESCALATE must read as the right call");
+  assert.ok(!js.includes('? "warn" : "ok"'),
+    "the target verdict must not branch ESCALATE into the warning style");
+});
+
+test("edge: the brain is named honestly - Nano trained at 350M, Edge in design", () => {
+  assert.ok(!html.includes("in-development slot"), "the stale Nano framing must be gone");
+  assert.ok(html.includes("(350M)"), "Wave Nano's real size must be stated");
+  assert.ok(html.includes("MCU-class classifier line"), "Roger Edge must be named as the MCU line");
+  assert.ok(html.includes("no trained artifact yet"), "the untrained truth must be stated");
+});
+
+test("edge: replays are labelled as recordings, and no benchmark scores leak", () => {
+  assert.ok(html.includes("Recorded Wave Nano checkpoint"), "the replay label must say recorded");
+  assert.ok(html.includes("recorded checkpoint returned"), "the reveal button must say recorded");
+  for (const leak of ["24/25", "4/133", "46%", "84–90%"]) {
+    assert.ok(!html.includes(leak) && !js.includes(leak),
+      `internal benchmark figure ${leak} must not appear on the public page`);
+  }
+});
+
 test("playbox: the unreferenced nano-samples file does not ship", () => {
   assert.ok(!existsSync(path.join(SRC, "data/playground-nano-samples.jsonl")),
     "playground-nano-samples.jsonl is back but nothing loads it");
