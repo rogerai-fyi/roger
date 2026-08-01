@@ -360,3 +360,38 @@ test("Broadcasts is reachable from Company as well as Research", () => {
   assert.match(entry, /<b>[^<]+<\/b>/, "the entry is named");
   assert.match(entry, /<span>[^<]+<\/span>/, "and says what it is");
 });
+
+// A disclosure panel is an accelerator, never the only route. That means the page a group
+// points at must independently offer everything in that group's panel - otherwise a
+// reader who lands on /models.html from a search result can only reach Voices and the
+// Tower by discovering a collapsed menu. Derived from the built nav, so adding a panel
+// entry without a route on the page fails here rather than shipping.
+test("each group's page offers every destination in that group's panel", () => {
+  const bar = topbar(readDist("index.html"));
+  const groups = [...bar.matchAll(
+    /<a class="nav__link" href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<div class="nav__panel"[^>]*>([\s\S]*?)<\/div>/g)];
+  assert.ok(groups.length >= 3, `found ${groups.length} disclosure groups`);
+  for (const [, parent, name, panel] of groups) {
+    const dests = [...panel.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    const body = readDist(parent.replace(/^\//, "")).match(/<main[\s\S]*?<\/main>/)[0];
+    for (const dest of dests) {
+      if (dest === parent) continue; // the parent is where we already are
+      assert.ok(body.includes(`href="${dest}"`) || body.includes(`href="${dest}#`),
+        `${parent} must link ${dest} in its own body, not only in the ${name.trim()} panel`);
+    }
+  }
+});
+
+// The three live-network pages are siblings, so each offers the other two. Landing on any
+// one of them should not be a dead end for the other two.
+test("the live-network pages cross-link to each other", () => {
+  const FAMILY = ["/models.html", "/voices.html", "/tower.html"];
+  for (const page of FAMILY) {
+    const body = readDist(page.replace(/^\//, "")).match(/<main[\s\S]*?<\/main>/)[0];
+    for (const sibling of FAMILY) {
+      if (sibling === page) continue;
+      assert.ok(body.includes(`href="${sibling}"`),
+        `${page} offers ${sibling} from its own body`);
+    }
+  }
+});

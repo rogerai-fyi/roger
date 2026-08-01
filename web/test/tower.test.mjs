@@ -112,3 +112,16 @@ test("the figures survive no motion, no script, and a narrow screen", () => {
   assert.match(reduced, /animation: none/, "motion is escapable");
   assert.match(css, /max-width: 100%|width: 100%/, "the figures scale");
 });
+
+// The tower page says "the API, the manual and the source call it the broker". That is a
+// claim ABOUT the manual, so the manual has to make the same reconciliation - otherwise a
+// reader who follows it finds no mention of the Tower at all and the two names stay split.
+test("the manual and the tower page reconcile the same two names", () => {
+  const manual = read("manual.html");
+  const gloss = manual.match(/<dl class="man-gloss">[\s\S]*?<\/dl>/)[0];
+  assert.match(gloss, /tower/i, "the glossary names the Tower");
+  assert.match(gloss, /broker/i, "beside the broker");
+  assert.match(gloss, /href="\/tower\.html"/, "and links the page");
+  // And the claim on the tower page stays true in both directions.
+  assert.match(visible(page()), /manual/i, "the tower page points back at the manual's term");
+});
