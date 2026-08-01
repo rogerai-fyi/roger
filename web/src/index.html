@@ -44,8 +44,9 @@
       <!-- NEW hero order: headline -> subhead -> Ping (always-on concierge) ->
            FIG.1 the install command (command-as-hero) -> FIG.2 the small,
            left-aligned band teaser (representative models, gently animated, links
-           to the live dial on /models.html) -> FIG.3 the signal path -> FIG.4 the
-           demo replay -> FIG.5 the operator panel. Keep this contiguous: the
+           to the live dial on /models.html) -> FIG.3 the demo replay -> FIG.4 the
+           operator panel. The signal path moved to /tower.html, which is now the
+           page that explains routing, metering and receipts. Keep this contiguous: the
            numbers are the only cross-reference a reader has. -->
 
       <!-- Ping, the operator persona: standing by / on air, driven by live state.
@@ -240,57 +241,8 @@
           the OpenAI API format.</p>
       </div>
 
-      <!-- FIG.3 the signal path. CSS offset-path carries the packets, so there is no
-           SMIL to pause and reduced-motion is one media query rather than a script.
-           The labels are load-bearing claims, not decoration: the station opens no
-           inbound port, and the return leg carries a signed receipt. -->
-      <span class="fig" aria-hidden="true">FIG. 3 - THE SIGNAL PATH</span>
-      <figure class="signal" aria-labelledby="signal-caption">
-        <svg class="signal__svg" viewBox="0 0 720 235" role="img" aria-labelledby="signal-caption">
-          <g class="signal__wire" aria-hidden="true">
-            <path d="M175 118 H285"/>
-            <path d="M440 118 H545"/>
-            <path d="M620 148 V196 H100 V148"/>
-          </g>
 
-          <g class="signal__packets" aria-hidden="true">
-            <circle class="signal__pkt signal__pkt--leg1" r="4.5"/>
-            <circle class="signal__pkt signal__pkt--leg2" r="4.5"/>
-            <circle class="signal__pkt signal__pkt--tok" r="4.5"/>
-          </g>
-
-          <g class="signal__nodes">
-            <g class="signal__node">
-              <rect x="25" y="88" width="150" height="60" rx="2"/>
-              <text class="signal__name" x="100" y="112">YOUR APP</text>
-              <text class="signal__sub" x="100" y="132">127.0.0.1 &#183; OpenAI-compatible</text>
-            </g>
-            <g class="signal__node signal__node--mid">
-              <rect x="285" y="88" width="155" height="60" rx="2"/>
-              <text class="signal__name" x="362" y="112">BROKER</text>
-              <text class="signal__sub" x="362" y="132">routes &#183; meters &#183; signs</text>
-            </g>
-            <g class="signal__node">
-              <rect x="545" y="88" width="150" height="60" rx="2"/>
-              <text class="signal__name" x="620" y="112">STATION</text>
-              <text class="signal__sub" x="620" y="132">someone&#39;s own GPU</text>
-            </g>
-          </g>
-
-          <g class="signal__labels" aria-hidden="true">
-            <text x="230" y="106">request</text>
-            <text x="492" y="106">routed</text>
-            <text x="360" y="214">tokens + signed receipt</text>
-            <text class="signal__note" x="620" y="76">dials out &#183; no inbound port</text>
-          </g>
-        </svg>
-        <figcaption id="signal-caption">A request leaves your machine for the broker, which
-          picks a station with capacity and forwards it. Tokens come back the same way with a
-          signed receipt, so what you were charged and what the operator earned are the same
-          record. The station dials out and never opens a port for you to reach.</figcaption>
-      </figure>
-
-      <span class="fig" aria-hidden="true">FIG. 4 - THE CONSOLE · DEMO REPLAY</span>
+      <span class="fig" aria-hidden="true">FIG. 3 - THE CONSOLE · DEMO REPLAY</span>
       <div class="term" id="term" data-reveal data-reveal-delay="100" role="img"
            aria-label="An interactive replay of the roger CLI radio. Switch between eight demos that follow the roger arc: booting the dial and reading the band; tuning in to get a local OpenAI-compatible endpoint your own tools point at, with automatic failover and a live wallet debit; the built-in agent running a multi-step, multi-tool job on its own; sharing your GPU on air with a price, schedule, attestation and live requests; and cashing out earnings as a payout. Three animated tapes round it out: using, a short story of borrowing a friend's model, using Hermes from anywhere, and serving your local LLM to your own bots; hosting, how to run your own model locally, expose it OpenAI-compatibly even as a voice, and put it on the air to be discovered, metered and earning; and ping, the live Ping World screensaver.">
         <div class="term__bar">
@@ -591,7 +543,7 @@
              data-rate="0.30" data-volume-min="10000000" data-volume-max="30000000"
              data-uptime="0.50" data-share="0.70"
              data-reveal data-reveal-delay="100" aria-label="Illustrative operator earnings panel">
-        <span class="fig" aria-hidden="true">FIG. 5 - OPERATOR PANEL</span>
+        <span class="fig" aria-hidden="true">FIG. 4 - OPERATOR PANEL</span>
         <div class="earn__head">
           <span class="earn__tag">@you <span class="cs">&#9670;</span></span>
           <span class="earn__mode">ILLUSTRATIVE</span>
