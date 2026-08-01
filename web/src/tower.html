@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<!-- THE TOWER: the broker, given a page. It was named on twenty pages and had one
+     nowhere, and FIG.3 on the homepage draws it as one hop of three - enough to explain
+     the shape, nothing about why it can be trusted with money.
+     "Tower" is the public name; "broker" stays the term in the code, API and manual, and
+     the page reconciles the two once.
+     Every claim traces to a committed spec - features/trust/lineage_receipts.feature and
+     features/routing/scoring.feature. Nothing here may get ahead of either.
+     Registered in build.mjs CSS_BUNDLES. Contract: features/web/tower.feature. -->
+<html lang="en">
+<head>
+  <!-- include: head.html title="The Tower - RogerAI" desc="How RogerAI picks a station for your request, meters it, and co-signs a receipt neither side can forge. Capacity-aware routing, power-of-two-choices, and settlement bound to a verified receipt." theme=external og=post ogtype=website ogtitle="The Tower - how RogerAI routes, meters and signs" ogdesc="Capacity-aware routing with a health gate, and a receipt signed by the station and counter-signed by the broker, so a station cannot profit from misreporting price or tokens." ogurl="https://rogerai.fm/tower.html" ogimage="https://rogerai.fm/og-post.png" -->
+</head>
+<body data-onair="idle">
+  <div class="rail" aria-hidden="true">
+    <span class="rail__head">RogerAI &middot; The Tower</span>
+    <span class="rail__rev">Rev. 2026.07 &middot; ON AIR</span>
+  </div>
+
+  <!-- include: nav.html variant=marketing home=/ anchors=/ scrolled=1 towercurrent='aria-current="page"' -->
+
+  <main id="top">
+    <section class="research-hero">
+      <div class="wrap">
+        <span class="hero__eyebrow">
+          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+          <span class="hero__callsign">THE TOWER</span>
+        </span>
+        <h1>Every station dials the tower. The tower never dials a station.</h1>
+        <p class="research-hero__lead">
+          One endpoint in front of machines nobody controls centrally. The tower decides
+          which station takes your request, counts what it actually used, and co-signs a
+          receipt that neither side can forge alone. In the API, the manual and the source
+          it is called the <b>broker</b> - same thing, older name.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="patch">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;1 / THE PATCH</span>
+          <h2>Choosing a station is a score, not a queue.</h2>
+          <p>Every station on air is scored for your request, and the score is divided by
+             how much work that station is already carrying.</p>
+        </div>
+
+        <!-- The patch panel. Two cords are drawn; the animation hands the call from one
+             station to another when the first drops. Both cords and every capacity bar are
+             in the markup, so the still frame carries the same information as the motion. -->
+        <figure class="tower__patch" aria-labelledby="patch-title" aria-describedby="patch-cap">
+          <div class="tower__head"><span id="patch-title">ROUTING</span><span>score &divide; load, then power-of-two-choices</span></div>
+          <svg class="tower__svg" viewBox="0 0 640 250" role="img" aria-labelledby="patch-title" aria-describedby="patch-cap">
+            <g class="tower__frame" aria-hidden="true">
+              <rect x="14" y="96" width="96" height="46" rx="2"/>
+              <text class="tower__label" x="62" y="118">YOUR APP</text>
+              <text class="tower__sub" x="62" y="132">one endpoint</text>
+              <rect x="176" y="30" width="72" height="180" rx="2"/>
+              <text class="tower__label tower__label--v" x="212" y="120">TOWER</text>
+            </g>
+            <g class="tower__lines" aria-hidden="true">
+              <path class="tower__feed" d="M110 119 H176"/>
+            </g>
+
+            <g class="tower__stations" aria-hidden="true">
+              <g class="tower__station" data-tier="a">
+                <rect x="392" y="34" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="55">STATION A</text>
+                <text class="tower__meta" x="406" y="70">healthy &middot; 3 of 8 in flight</text>
+                <rect class="tower__gauge" x="536" y="46" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="46" width="28" height="8"/>
+              </g>
+              <g class="tower__station" data-tier="a">
+                <rect x="392" y="98" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="119">STATION B</text>
+                <text class="tower__meta" x="406" y="134">healthy &middot; 7 of 8 in flight</text>
+                <rect class="tower__gauge" x="536" y="110" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="110" width="66" height="8"/>
+              </g>
+              <g class="tower__station" data-tier="b">
+                <rect x="392" y="162" width="234" height="46" rx="2"/>
+                <text class="tower__st" x="406" y="183">STATION C</text>
+                <text class="tower__meta" x="406" y="198">probationary &middot; held back</text>
+                <rect class="tower__gauge" x="536" y="174" width="76" height="8"/>
+                <rect class="tower__fill" x="536" y="174" width="14" height="8"/>
+              </g>
+            </g>
+
+            <g class="tower__cords" aria-hidden="true">
+              <path class="tower__cord tower__cord--b" d="M248 120 C320 120 330 121 392 121"/>
+              <path class="tower__cord tower__cord--a" d="M248 120 C320 120 330 57 392 57"/>
+              <circle class="tower__jack" cx="248" cy="120" r="3.5"/>
+            </g>
+            <text class="tower__note" x="626" y="232">B drops &rarr; the call moves &middot; you are not charged for the failed attempt</text>
+          </svg>
+          <figcaption id="patch-cap">Each station on air is scored on price, reliability and
+            speed-fit for this request, then divided by how much it is already carrying -
+            counted across both broker instances, not per instance, so a busy station does
+            not look idle to one of them. Healthy stations are selected ahead of
+            probationary ones, and a probationary station is used only when no healthy one
+            is available. The final choice is power-of-two-choices: two candidates are drawn
+            and the better one wins, so work spreads instead of piling onto whichever
+            station happens to score highest. If the chosen station drops mid-request the
+            call moves to another and the failed attempt costs you nothing.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section research-tone" id="tape">
+      <div class="wrap">
+        <div class="section__head section__head--left">
+          <span class="sectionno">&sect;2 / THE TAPE</span>
+          <h2>A station cannot profit from misreporting the bill.</h2>
+          <p>Every served request produces a receipt signed by the station that served it
+             and counter-signed by the broker, chained to that station&rsquo;s previous one.</p>
+        </div>
+
+        <figure class="tower__tape" aria-labelledby="tape-title" aria-describedby="tape-cap">
+          <div class="tower__head"><span id="tape-title">RECEIPT TAPE</span><span>node signature &middot; broker counter-signature &middot; per-station chain</span></div>
+          <ol class="tape">
+            <li>
+              <span class="tape__id">#1042</span>
+              <span class="tape__tok">1,284 tok</span>
+              <span class="tape__hash">prev 9f2c&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+            <li>
+              <span class="tape__id">#1043</span>
+              <span class="tape__tok">892 tok</span>
+              <span class="tape__hash">prev 41ab&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+            <li data-void="1">
+              <span class="tape__id">#1044</span>
+              <span class="tape__tok">$0 &middot; no usable output</span>
+              <span class="tape__hash">prev c7e0&hellip;</span>
+              <span class="tape__sig">station &check;</span>
+              <span class="tape__sig tape__sig--broker">broker &check;</span>
+            </li>
+          </ol>
+          <figcaption id="tape-cap">The receipt returns to you with the response. Because
+            the station signs it and the broker counter-signs the same canonical bytes, and
+            because each one carries the hash of that station&rsquo;s previous receipt,
+            neither side can rewrite history alone. A request that produced nothing usable
+            still gets a zero-value receipt, so the chain has no gaps to hide in.</figcaption>
+        </figure>
+
+        <div class="device-contract">
+          <p><b>The price is not the station&rsquo;s to claim.</b> A station&rsquo;s claimed
+             price is discarded at settlement and the broker&rsquo;s own resolved price is
+             used, so quoting one number and billing another is not a thing that can
+             happen.</p>
+          <p><b>The token count is checked, not trusted.</b> The broker recounts the tokens
+             itself and bills the lower of the claim and its own recount, on the prompt and
+             the completion separately.</p>
+          <p><b>The ceiling is set before the work starts.</b> Cost is capped at the hold
+             authorised up front, so a request cannot bill past what you agreed to when it
+             began.</p>
+        </div>
+
+        <div class="research-prose">
+          <p><b>What happens when it goes wrong is the guarantee.</b> A receipt signed with
+             the wrong key does not verify, so it settles nothing and the hold is refunded
+             in full. A request that returns no usable output costs zero, and the hold comes
+             back. If settlement itself fails, the hold is refunded - the failure path leans
+             toward the caller, not the house.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section research-closing">
+      <div class="wrap">
+        <span class="sectionno">&sect;3 / WHAT IT IS NOT</span>
+        <h2>The honest edges.</h2>
+        <p>The tower relays your request to the station that serves it, so it handles the
+           request and the response in transit. What we retain, and for how long, is in the
+           privacy policy - not implied away here. It is a routing, metering and settlement
+           service, and everything above describes what it does with a request, not a claim
+           about who else could see one.</p>
+        <div class="research-actions">
+          <a class="research-button research-button--primary" href="/models.html">Models on air</a>
+          <a class="research-button" href="/privacy.html">Privacy policy</a>
+          <a class="research-button" href="/manual.html">The manual</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- include: footer.html anchors=/ -->
+  <script src="js/site.js" defer></script>
+  <script src="js/session.js" defer></script>
+</body>
+</html>
