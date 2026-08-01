@@ -144,6 +144,7 @@
             <dl class="man-gloss">
               <div><dt>band</dt><dd>A model. Every model id (for example <code>qwen3-coder-30b</code>) is a band you can tune to. More stations on a band = stronger signal.</dd></div>
               <div><dt>station</dt><dd>A provider node - one home GPU serving a band. Owners set their own price; the broker ranks them.</dd></div>
+              <div><dt>broker &middot; the tower</dt><dd>The service every station dials into: it ranks and picks a station for your request, meters what it used, and counter-signs the receipt. <b>The site calls it the Tower</b>; the API, this manual and the source call it the <b>broker</b>. Same service, older name. <a href="/tower.html">How it routes and signs &rarr;</a></dd></div>
               <div><dt>channel</dt><dd>Your live connection to a station: a local endpoint + key the radio opens for you, plus the in-app chat session.</dd></div>
               <div><dt>on air</dt><dd>Serving. A station that is on air is advertised in the band and can take traffic.</dd></div>
               <div><dt>tune in</dt><dd>Consuming. You pick a band, set margins, and the radio locks the strongest station.</dd></div>
