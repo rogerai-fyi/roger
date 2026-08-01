@@ -1,4 +1,16 @@
 /* RogerAI Labs: a static, evidence-first research notebook. */
+
+/* The "back to Labs" link on every page split out of the hub. It lived in wave-family.css,
+   which research-industry.html does not load, so that page's back link shipped with no
+   styling at all - unstyled blue-ish text where a mono uppercase label belongs.
+   display:block because it is navigation ABOVE the callsign, not part of it: as an inline
+   box it ran into the eyebrow and read as one line, "RogerAI Labs ((.)) Wave family". */
+.wf-back {
+  display: block; width: fit-content; margin-bottom: var(--s-5);
+  color: var(--ink-500); font-size: var(--t-xs);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.wf-back:hover, .wf-back:focus-visible { color: var(--live); }
 .research-hero { padding-block: clamp(64px, 9vw, 112px); border-bottom: 1px solid var(--hairline); }
 .research-hero h1 { max-width: 880px; margin: var(--s-5) 0 0; color: var(--ink-900); font-size: var(--t-display); line-height: var(--lh-tight); letter-spacing: var(--tracking-display); }
 .research-hero__lead { max-width: 720px; margin: var(--s-6) 0 0; color: var(--ink-500); font-size: var(--t-lead); line-height: var(--lh-body); }

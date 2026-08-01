@@ -21,18 +21,38 @@
   <main id="top">
 
     <section class="research-hero">
-      <div class="wrap">
-        <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
-        <span class="hero__eyebrow">
-          <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
-          <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
-        </span>
-        <h1>One family, seven orders of magnitude.</h1>
-        <p class="research-hero__lead">
-          From a model that fits on a microcontroller to one that fills a workstation.
-          Each slot has a different job, and a measurement decides which job it is allowed
-          to take.
-        </p>
+      <div class="wrap research-hero__layout">
+        <div>
+          <a class="wf-back mono" href="/research.html">&larr; RogerAI Labs</a>
+          <span class="hero__eyebrow">
+            <span class="onair" aria-hidden="true">((<span class="onair__dot">&bull;</span>))</span>
+            <span class="hero__callsign">WAVE FAMILY &middot; FIELD GUIDE</span>
+          </span>
+          <h1>One family, seven orders of magnitude.</h1>
+          <p class="research-hero__lead">
+            From a model that fits on a microcontroller to one that fills a workstation.
+            Each slot has a different job, and a measurement decides which job it is allowed
+            to take.
+          </p>
+        </div>
+
+        <!-- The ((.)) on-air motif at scale - the same broadcast-wave mark the social card
+             carries, which is where it was first noticed. It belongs on this page more than
+             anywhere else: the family is named for the wave. Deliberately NOT the vector
+             Ping mascot, which stays on the homepage and the research hub so the two do not
+             compete. Every arc is drawn at rest; the pulse is decoration on a complete
+             mark, not the thing that makes it legible. -->
+        <figure class="wave-mark" role="img"
+                aria-label="The RogerAI on-air mark: signal arcs radiating from a live beacon">
+          <svg class="wave-mark__svg" viewBox="0 0 260 140" aria-hidden="true" focusable="false">
+            <path class="wave-mark__arc" d="M84 44 C54 58 54 82 84 96"/>
+            <path class="wave-mark__arc" d="M176 44 C206 58 206 82 176 96"/>
+            <path class="wave-mark__arc wave-mark__arc--far" d="M58 30 C14 52 14 88 58 110"/>
+            <path class="wave-mark__arc wave-mark__arc--far" d="M202 30 C246 52 246 88 202 110"/>
+            <circle class="wave-mark__dot" cx="130" cy="70" r="10"/>
+          </svg>
+          <figcaption>Right-sized intelligence, on air.</figcaption>
+        </figure>
       </div>
     </section>
 
