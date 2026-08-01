@@ -1,0 +1,47 @@
+<!-- LET'S TALK: the contact dialog. Static and honest: no backend, no collection -
+     Send composes a prefilled email in the visitor's own mail client. Opened by any
+     [data-lets-talk] trigger (each trigger is a real mailto link, so the page works
+     with scripting off). Contract: features/web/lets_talk.feature -->
+<div class="lt-scrim" id="letsTalkScrim" hidden></div>
+<div class="lt-modal" id="letsTalk" role="dialog" aria-modal="true"
+     aria-labelledby="letsTalkTitle" hidden>
+  <div class="lt-modal__dialog">
+    <div class="lt-modal__head">
+      <h2 class="lt-modal__title" id="letsTalkTitle">Let&rsquo;s talk.</h2>
+      <button class="lt-modal__close" id="letsTalkClose" type="button" aria-label="Close">&times;</button>
+    </div>
+    <p class="lt-modal__lead">A few lines is plenty. It lands in a real mailbox and a
+      person answers.</p>
+    <form class="lt-modal__form">
+      <div class="lt-modal__col">
+        <span class="lt-modal__kicker">YOUR DETAILS</span>
+        <label class="lt-field"><span>Name</span>
+          <input id="ltName" type="text" autocomplete="name"></label>
+        <label class="lt-field"><span>Email</span>
+          <input id="ltEmail" type="email" autocomplete="email"></label>
+        <label class="lt-field"><span>Company <i>optional</i></span>
+          <input id="ltCompany" type="text" autocomplete="organization"></label>
+        <label class="lt-field"><span>Role <i>optional</i></span>
+          <input id="ltRole" type="text" autocomplete="organization-title"></label>
+      </div>
+      <div class="lt-modal__col">
+        <span class="lt-modal__kicker">YOUR NOTE</span>
+        <label class="lt-field"><span>Topic</span>
+          <select id="ltTopic">
+            <option value="industrial">Industrial pilot</option>
+            <option value="custom">Custom or optimized model</option>
+            <option value="station">Run a station</option>
+            <option value="press">Partnership or press</option>
+            <option value="other">Something else</option>
+          </select></label>
+        <label class="lt-field lt-field--grow"><span>Note</span>
+          <textarea id="ltNote" rows="9"></textarea></label>
+      </div>
+      <div class="lt-modal__foot">
+        <span class="lt-modal__alt">or write directly:
+          <a href="mailto:labs@rogerai.fm">labs@rogerai.fm</a></span>
+        <button class="lt-modal__send" id="letsTalkSend" type="button">Send &rarr;</button>
+      </div>
+    </form>
+  </div>
+</div>
