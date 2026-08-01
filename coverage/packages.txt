@@ -20,4 +20,4 @@
   98.1%  rogerai.fm/roger/v5/internal/tokenizer
   91.3%  rogerai.fm/roger/v5/internal/tui
   98.9%  rogerai.fm/roger/v5/internal/update
-  95.2%  rogerai.fm/roger/v5/internal/webui
+  95.6%  rogerai.fm/roger/v5/internal/webui
