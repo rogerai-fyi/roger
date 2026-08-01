@@ -1392,9 +1392,16 @@ func (b *broker) agentResult(w http.ResponseWriter, r *http.Request) {
 // matches a node (price + constraint headers), relays via the job tunnel, verifies
 // and co-signs the lineage receipt, meters throughput, and settles the wallet.
 func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
+	// Playbox: the relay is browser-callable from the allowlisted first-party
+	// origins (credentialed CORS - exact origin, never "*"). Headers go on every
+	// response, including SSE streams and errors, so the browser can read them.
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	corsCreds(w, r)
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 
 	// Grant path FIRST: a `Bearer rog-grant_...` is its own authentication (the
@@ -1423,12 +1430,26 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 		// "u_gh_<githubID>" wallet the web session uses; an unbound keypair keeps its
 		// anonymous pubkey-derived id (no balance - see the paid-request gate below).
 		wallet = b.walletOf(r, user)
-		// Spending REQUIRES a verified (signed) identity: an unsigned legacy request can
-		// never spend a wallet. This enforces the core P0 invariant directly on the spend
-		// path (not just via the reserved-id guard in identityOf).
+		// Spending REQUIRES a verified identity. Two verified forms exist: a signed
+		// request (the CLI/proxy path), or - Playbox - a valid web session cookie
+		// presented from an allowlisted Origin. The Origin check is the CSRF defense:
+		// a cookie behind any other (or no) Origin never authenticates. A cookieless
+		// browser from an allowlisted Origin proceeds as the anonymous identity - the
+		// paid-model gate below still requires a logged-in wallet, so that path can
+		// never spend, and the per-IP anon limiter bounds it.
 		if !authed {
-			jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
-			return
+			if !originAllowed(r) {
+				jsonErr(w, http.StatusUnauthorized, "spending requires a signed request (update to a recent `rogerai` build)")
+				return
+			}
+			if c, cerr := r.Cookie(sessionCookie); cerr == nil && c.Value != "" {
+				_, sessionWallet, sok := b.webSession(r)
+				if !sok {
+					jsonErr(w, http.StatusUnauthorized, "session expired or invalid - sign in again")
+					return
+				}
+				user, wallet, authed = sessionWallet, sessionWallet, true
+			}
 		}
 	}
 	// Per-caller rate limit: smooth bursts + cap sustained rate so one caller can't
@@ -1456,7 +1477,15 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if ok, retry := b.rl.allow(user); !ok {
+		// One identity, one bucket: a logged-in caller is keyed on its ACCOUNT wallet,
+		// so the browser session and every CLI keypair bound to the same account drain
+		// a single per-identity bucket rather than one each. An unbound caller keeps
+		// its own key (pubkey-derived id, legacy id, or "anon").
+		rlKey := user
+		if authed && walletLoggedIn(wallet) {
+			rlKey = wallet
+		}
+		if ok, retry := b.rl.allow(rlKey); !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(retry))
 			jsonErr(w, http.StatusTooManyRequests, "rate limit exceeded - slow down")
 			return
