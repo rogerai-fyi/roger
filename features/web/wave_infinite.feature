@@ -41,6 +41,10 @@ Feature: Wave Infinite is presented as the prototype program it is
 
   # ---- what it is -----------------------------------------------------------
 
+  Scenario: It is never filed among the models
+    Then it is not a row in the model and status catalogue
+    And it stays reachable from the research hub and the family page
+
   Scenario: It is a programme, not a runtime and not a size class
     Then the page calls Wave Infinite a prototype model programme
     And it does not reduce it to a runtime
