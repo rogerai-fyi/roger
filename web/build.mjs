@@ -44,7 +44,8 @@ const CSS_BUNDLES = {
   "index.html":     [...CSS_MARKETING, "home.css"],
   "manual.html":    [...CSS_MARKETING, "manual.css"],
   "models.html":    [...CSS_MARKETING, "models.css"],
-  "playground.html": [...CSS_MARKETING, "playground.css"], // the console: chat + capability surfaces + Roger Edge simulator
+  "playbox.html": [...CSS_MARKETING, "playbox.css"], // the console: chat + capability surfaces + Roger Edge simulator
+  "playground.html": CSS_MARKETING, // legacy address: a redirect stub to the Playbox
   "tower.html":     [...CSS_MARKETING, "research.css", "tower.css"], // the broker, publicly
   "research.html":  [...CSS_MARKETING, "research.css"],
   "research-industry.html": [...CSS_MARKETING, "research.css"], // plant placement + standards, split out of the hub
