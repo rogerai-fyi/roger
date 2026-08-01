@@ -130,7 +130,10 @@ test("the company page presents an honest model-size family", () => {
   assert.match(page, /tens or hundreds of billions/i);
   assert.match(page, /right-sized|smallest model/i);
   // The family describes PROGRAMS; none of its slots may advertise an artifact id.
-  assert.match(page, /bake-off|not yet approved|release gate/i, "Wave Micro's real status is stated");
+  // Founder ruling 2026-07-31: the release-gate explanation came off this page (noise
+  // reduction); program status lives on the models page. What must survive here is
+  // that no slot advertises an artifact.
+  assert.doesNotMatch(page, /huggingface\.co\/rogerai-fyi\/wave-/i, "no artifact advertised");
 });
 
 test("American-made and openness claims are component-specific", () => {
@@ -140,6 +143,9 @@ test("American-made and openness claims are component-specific", () => {
   assert.match(page, /upstream models? (?:and|,).*global|global research community/i);
   assert.match(page, /open-source model and runtime work/i);
   assert.match(page, /PolyForm Perimeter/i);
+  // The carve-out is named with its actual scope (LICENSING.md): the protocol and
+  // receipt SDK are Apache 2.0; the platform itself is not called open source.
+  assert.match(page, /protocol and\s+usage-receipt SDK are Apache 2\.0/i);
   // Licence is described as forward-looking until an artifact exists to carry one.
   assert.match(page, /Artifact licence/i);
   assert.doesNotMatch(page, /Artifact license: Apache-2\.0/i, "no definite licence for an unreleased artifact");
