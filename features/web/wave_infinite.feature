@@ -77,14 +77,11 @@ Feature: Wave Infinite is presented as the prototype program it is
     And no copy says the model trains itself, learns by itself, or improves itself today
     And layer 3 is described as preregistered and unrun rather than as a capability
 
-  # Amended 2026-07-31 on founder direction, and the reason is a standing constraint
-  # rather than a change of mind: WAVE-INFINITE-PROGRAM puts benchmarks on the interim
-  # 3-GPU hardware internal-only until the RTX PRO 6000, and the explainer's own note says
-  # the numbers are re-verified on final hardware before publication. The CLAIMS are
-  # unchanged and none is softened; only the figures are held, and the page says so, so
-  # the absence reads as discipline rather than vagueness. Restore the figures - "0 of
-  # 391,386", the 0.009% in-domain guard rate, the cross-domain rate - when they clear
-  # re-verification.
+  # Amended 2026-07-31 on founder direction. The CLAIMS are unchanged and none is
+  # softened; the supporting figures are held until they clear re-verification, and the
+  # page says so, which is why the absence reads as discipline rather than vagueness.
+  # The hold's basis and the restore condition live in the internal docs repo - this is a
+  # public file, and printing the held figures here would defeat the hold.
   Scenario: What is proven is claimed, with the figures held until re-verified
     Then each proven claim is stated in full
     And the certificate result is described as bit-identical

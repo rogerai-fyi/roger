@@ -12,7 +12,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -165,4 +165,31 @@ test("no built page publishes an internal programme stage", () => {
     assert.doesNotMatch(copy, /bake-off/i, `${page} states an internal programme stage`);
   }
   assert.ok(checked > 10, `swept the built site, saw ${checked} pages`);
+});
+
+// A page pointing at a social card that does not exist is invisible until someone shares
+// the link and gets a broken preview. tower.html shipped with og-post.png, which is not in
+// the repo and 404s in production - no test looked, so the audit had to catch it.
+test("every og:image resolves to a card that exists", () => {
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const html = readFileSync(path.join(DIST, page), "utf8");
+    for (const m of html.matchAll(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/g)) {
+      const file = m[1].replace(/^https?:\/\/[^/]+\//, "");
+      assert.ok(existsSync(path.join(DIST, file)),
+        `${page} points og:image at ${file}, which is not in the built site`);
+    }
+  }
+});
+
+// The specs are in the public repo. The figures held back from the site must not be
+// republished in the file that describes why they are held, and neither may the hardware
+// plan behind the hold - CLAUDE.md routes operational inventory to the internal docs repo.
+test("public specs do not carry held figures or internal hardware detail", () => {
+  const dir = path.join(WEB, "..", "features", "web");
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".feature"))) {
+    const text = readFileSync(path.join(dir, f), "utf8");
+    for (const leak of [/391,?386/, /0\.009\s?%/, /RTX PRO/i, /3-GPU/i, /interim (3-GPU )?hardware/i]) {
+      assert.doesNotMatch(text, leak, `features/web/${f} leaks ${leak} into the public repo`);
+    }
+  }
 });
