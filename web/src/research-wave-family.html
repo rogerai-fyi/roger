@@ -315,10 +315,10 @@
           <blockquote class="wf-inf__claim">
             Removing the parts a standard frequency analysis calls unused degraded quality
             by an amount <b>statistically invisible</b> on the very benchmark you would
-            check it with - while off-domain the same change hit about a fifth of all
+            check it with - while off-domain the same change hit a large fraction of all
             routing decisions.
             <span class="wf-inf__punch">You cannot monitor your way to safe specialisation.</span>
-            <small>&minus;5 points at p = 0.26 on a 120-question suite &middot; interim hardware &middot; re-verified before publication</small>
+            <small>Measured on interim hardware. The figures are published once they are re-verified on final hardware.</small>
           </blockquote>
 
           <ol class="wf-inf__loop">
@@ -359,22 +359,22 @@
             <span class="research-kicker">WHAT WE HAVE PROVEN</span>
             <dl>
               <div><dt>The certificate is sound</dt>
-                <dd>Removing every expert it marked unreachable changed
-                  <b>0 of 391,386</b> routing decisions. Bit-identical.</dd></div>
+                <dd>Removing every expert it marked unreachable left the model&rsquo;s
+                  routing <b>bit-identical</b> - not close, unchanged.</dd></div>
               <div><dt>Specialisation is safe on stable work</dt>
-                <dd>The guard fires on <b>0.009%</b> of decisions within a domain -
-                  about once in eleven thousand.</dd></div>
+                <dd>Within a single domain the guard <b>almost never fires</b>, so the
+                  specialisation holds for a stable workload.</dd></div>
               <div><dt>The guard is necessary</dt>
                 <dd>The moment the workload changes domain, the same certificates would
-                  miss roughly <b>20%</b> of decisions. The fallback is what makes
+                  miss a <b>large share</b> of decisions. The fallback is what makes
                   aggression safe.</dd></div>
               <div><dt>Standard pruning over-removes</dt>
-                <dd>Frequency analysis nominated <b>10 to 30&times;</b> more for removal
-                  than could be proven safe, across three model architectures.</dd></div>
+                <dd>Frequency analysis nominated <b>an order of magnitude more</b> for
+                  removal than could be proven safe, across three model architectures.</dd></div>
             </dl>
             <p class="wf-inf__provenance">All four are measurements rather than
-              projections, taken on interim hardware and re-verified on final hardware
-              before publication.</p>
+              projections. The figures behind them were taken on interim hardware and are
+              published once they have been re-verified on the final hardware.</p>
           </div>
           <div class="wf-inf__unproven">
             <span class="research-kicker">WHAT WE HAVE NOT PROVEN</span>
