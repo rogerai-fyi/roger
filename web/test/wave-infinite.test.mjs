@@ -9,7 +9,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -83,12 +83,28 @@ test("the page never claims self-training", () => {
   }
 });
 
-test("what is proven carries its evidence", () => {
+// The measurements are REAL and the claims stand; the figures are held back because the
+// programme doc puts interim-hardware benchmarks internal-only until the final hardware.
+// So the page must still make each claim, and must not print a number for any of them.
+test("what is proven is claimed without publishing interim figures", () => {
   const copy = visible(section());
-  assert.match(copy, /0 of 391,386/, "the certificate result");
-  assert.match(copy, /bit-identical/i);
-  assert.match(copy, /0\.009\s?%/, "the in-domain guard rate");
-  assert.match(copy, /20\s?%|a fifth/i, "and the cross-domain one");
+  assert.match(copy, /bit-identical/i, "the certificate result, stated without a count");
+  assert.match(copy, /almost never fires|rarely fires/i, "the in-domain guard behaviour");
+  assert.match(copy, /large share|large fraction/i, "and the cross-domain one");
+  assert.match(copy, /order of magnitude/i, "and the over-removal result");
+  assert.match(copy, /re-verified/i, "with why the figures are not here yet");
+});
+
+// Sweep the whole built site: these must not survive anywhere, including a social card,
+// a meta description or a page I did not think to check.
+test("no interim-hardware figure is published anywhere", () => {
+  for (const page of readdirSync(DIST).filter((f) => f.endsWith(".html"))) {
+    const html = readFileSync(path.join(DIST, page), "utf8");
+    for (const figure of [/391,?386/, /0\.009\s?%/, /p\s?=\s?0\.26/, /10 to 30\s?(&times;|x)/i]) {
+      assert.doesNotMatch(html, figure,
+        `${page} publishes an interim-hardware figure (${figure})`);
+    }
+  }
 });
 
 test("what is NOT proven is published deliberately and in the main flow", () => {
