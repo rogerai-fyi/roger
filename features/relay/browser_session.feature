@@ -68,6 +68,16 @@ Feature: Browser-session relay access for the Playbox
 
   # ---------- the anonymous visitor -------------------------------------------
 
+  Scenario: a spoofed Origin cannot rotate legacy ids to dodge the per-IP limiter
+    # Found by the 2026-08-01 push audit: outside a browser the Origin header is
+    # trivially spoofable, and a legacy X-Roger-User / Bearer id would otherwise
+    # mint a fresh per-id rate bucket on every rotation. On the browser path any
+    # identity that is not a valid session cookie IS the anonymous identity.
+    Given a request with Origin "https://rogerai.fm", no cookie, and a legacy "X-Roger-User: rotating-id" header
+    When it POSTs chat completions for "wave-nano-chat" repeatedly with a fresh id each time
+    Then every request draws from the ONE per-IP anonymous bucket
+    And rotating the legacy id never yields a fresh rate bucket
+
   Scenario: a signed-out browser may chat on a free model under the per-IP discipline
     Given a browser holds no session
     When it POSTs a chat completion for "wave-nano-chat" with Origin "https://rogerai.fm"

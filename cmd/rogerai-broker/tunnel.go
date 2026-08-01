@@ -1449,6 +1449,12 @@ func (b *broker) relay(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				user, wallet, authed = sessionWallet, sessionWallet, true
+			} else {
+				// No cookie: the caller IS the anonymous identity, full stop. Origin
+				// is spoofable outside a browser, so a legacy X-Roger-User / Bearer id
+				// here must never mint its own rate bucket (it would rotate past the
+				// per-IP limiter) - audit finding, 2026-08-01.
+				user, wallet = "anon", "anon"
 			}
 		}
 	}
