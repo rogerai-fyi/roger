@@ -165,10 +165,10 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/dashboards.go:160:	linkedProviders			100.
 rogerai.fm/roger/v5/cmd/rogerai-broker/dashboards.go:185:	earnings			89.7%
 rogerai.fm/roger/v5/cmd/rogerai-broker/dashboards.go:243:	recentLimit			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:48:		loadMailer			100.0%
-rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:60:		enabled				100.0%
-rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:66:		sendEmail			100.0%
-rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:83:		deliver				81.5%
-rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:132:		capNoticeOnce			88.9%
+rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:65:		enabled				100.0%
+rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:71:		sendEmail			100.0%
+rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:88:		deliver				81.5%
+rogerai.fm/roger/v5/cmd/rogerai-broker/email.go:137:		capNoticeOnce			88.9%
 rogerai.fm/roger/v5/cmd/rogerai-broker/emailtemplates.go:67:	renderHTML			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/emailtemplates.go:137:	renderText			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/emailtemplates.go:159:	button				66.7%
@@ -355,7 +355,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:321:		probeEvidenceRecentLocked	
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:337:		proberLoop			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:358:		jitterWindow			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:374:		probeOnce			97.6%
-rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			89.1%
+rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:548:		probeNode			87.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:662:		failed				100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:680:		evalCanary			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/probe.go:727:		canaryWrongFamily		100.0%
@@ -399,7 +399,7 @@ rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:405:		rcSubtree			78.6%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:436:		rcJoin				55.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:466:		rcAuthHost			100.0%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:477:		rcAuthViewer			72.7%
-rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:496:		rcPoll				66.7%
+rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:496:		rcPoll				72.2%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:568:		rcEvents			64.7%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:595:		rcSend				79.3%
 rogerai.fm/roger/v5/cmd/rogerai-broker/rc.go:639:		rcStream			71.9%
@@ -2341,7 +2341,7 @@ rogerai.fm/roger/v5/internal/webui/actions.go:46:		handleOnAir			92.9%
 rogerai.fm/roger/v5/internal/webui/actions.go:75:		handlePrivate			100.0%
 rogerai.fm/roger/v5/internal/webui/actions.go:103:		handlePrice			100.0%
 rogerai.fm/roger/v5/internal/webui/actions.go:119:		handleRename			100.0%
-rogerai.fm/roger/v5/internal/webui/actions.go:133:		handleDetect			80.0%
+rogerai.fm/roger/v5/internal/webui/actions.go:133:		handleDetect			90.0%
 rogerai.fm/roger/v5/internal/webui/api.go:16:			handleState			100.0%
 rogerai.fm/roger/v5/internal/webui/api.go:24:			handleEvents			86.2%
 rogerai.fm/roger/v5/internal/webui/api.go:70:			writeJSON			100.0%
