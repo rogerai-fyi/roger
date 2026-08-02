@@ -174,14 +174,20 @@
     var shelf = $("dkShelf"), note = $("dkShelfNote");
     if (!shelf) return;
     shelf.textContent = "";
+    // Two ROWS, not one strip: however many models the network is carrying, the
+    // Wave family keeps its own row and never gets pushed off the end.
+    ORDER = [];
     shelfEntries().forEach(function (grp) {
-      var head = document.createElement("li");
-      head.className = "dk__shelfgroup";
+      var row = document.createElement("li");
+      row.className = "dk__shelfrow";
+      var head = el("span", "dk__shelfgroup", grp.group);
       head.setAttribute("aria-hidden", "true");
-      head.textContent = grp.group;
-      shelf.appendChild(head);
+      row.appendChild(head);
+      var strip = el("span", "dk__shelfstrip");
+      row.appendChild(strip);
+      shelf.appendChild(row);
       grp.entries.forEach(function (t) {
-        var li = document.createElement("li");
+        if (!t.spine) ORDER.push(t);
         var btn = el("button", "dk__spine" + (STATE.tape && STATE.tape.model === t.model ? " is-loaded" : "")
           + (t.spine ? " dk__spine--shelfonly" : ""));
         btn.type = "button";
@@ -198,8 +204,7 @@
         } else {
           btn.addEventListener("click", function () { loadTape(t); });
         }
-        li.appendChild(btn);
-        shelf.appendChild(li);
+        strip.appendChild(btn);
       });
     });
     if (note) note.textContent = STATE.bands.length
@@ -236,13 +241,15 @@
      ===================================================================== */
   var KIND_LABELS = { text: "TEXT", voice: "VOICE", image: "IMAGE", tool: "TOOL", embed: "EMBED", guard: "GUARD" };
 
-  function loadTape(t) {
+  // dir: "left" | "right" when the tape was thrown across, else a drop-in load
+  function loadTape(t, dir) {
     stopPlayback();
     STATE.tape = t;
     if (!t.demo) lastLiveTape = t;
     var cas = $("dkCassette");
     if (cas) {
       cas.setAttribute("aria-label", t.label + (t.demo ? ", recorded contract tape" : ", live model tape"));
+      cas.setAttribute("data-swap", dir || "");
       cas.setAttribute("data-state", "loading");
       if (!REDUCED) {
         cas.addEventListener("animationend", function done() {
@@ -316,6 +323,61 @@
   /* =====================================================================
      THE INPUT CONSOLE - rotary selector + preset cards
      ===================================================================== */
+  /* =====================================================================
+     THE BAY IS DRAGGABLE - throw the tape sideways to change cassettes.
+     ORDER is the loadable sequence (shelf order, placeholders skipped).
+     ===================================================================== */
+  var ORDER = [];
+  function neighbourTape(dir) {
+    if (!ORDER.length) return null;
+    var i = -1;
+    for (var k = 0; k < ORDER.length; k++) if (STATE.tape && ORDER[k].model === STATE.tape.model) i = k;
+    var n = (i < 0 ? 0 : i + dir);
+    if (n < 0 || n >= ORDER.length) return null;
+    return ORDER[n];
+  }
+  (function dragBay() {
+    var bay = $("dkBay"), cas = $("dkCassette");
+    if (!bay || !cas) return;
+    var x0 = 0, dx = 0, dragging = false, pid = null;
+    function down(e) {
+      if (STATE.playing) return;
+      dragging = true; x0 = e.clientX; dx = 0; pid = e.pointerId;
+      cas.classList.add("is-dragging");
+      try { bay.setPointerCapture(pid); } catch (err) {}
+    }
+    function move(e) {
+      if (!dragging) return;
+      dx = e.clientX - x0;
+      // rubber-band at the ends of the shelf so the throw feels physical
+      var limit = neighbourTape(dx < 0 ? 1 : -1) ? 1 : 0.28;
+      cas.style.transform = "translateX(" + (dx * limit) + "px) rotate(" + (dx * limit * 0.012) + "deg)";
+      cas.style.opacity = String(Math.max(0.35, 1 - Math.abs(dx * limit) / 420));
+    }
+    function up() {
+      if (!dragging) return;
+      dragging = false;
+      cas.classList.remove("is-dragging");
+      cas.style.transform = ""; cas.style.opacity = "";
+      try { bay.releasePointerCapture(pid); } catch (err) {}
+      if (Math.abs(dx) < 60) return;              // a nudge is not a throw
+      var next = neighbourTape(dx < 0 ? 1 : -1);
+      if (next) loadTape(next, dx < 0 ? "left" : "right");
+    }
+    bay.addEventListener("pointerdown", down);
+    bay.addEventListener("pointermove", move);
+    bay.addEventListener("pointerup", up);
+    bay.addEventListener("pointercancel", up);
+    // the keyboard equivalent, so the throw is never the only way across
+    bay.setAttribute("tabindex", "0");
+    bay.setAttribute("aria-label", "Cassette bay - arrow keys change tape");
+    bay.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      var next = neighbourTape(e.key === "ArrowRight" ? 1 : -1);
+      if (next) { e.preventDefault(); loadTape(next, e.key === "ArrowRight" ? "left" : "right"); }
+    });
+  })();
+
   var lastLiveTape = null;
   function applyKindUI() {
     var kind = STATE.kind;
@@ -391,6 +453,57 @@
       out: '{"asset_id":"M-310","hotspot_c":78,"baseline_c":52,"delta_c":26,"finding":"bearing overtemperature","severity":"degraded"}',
       printnote: "Thermal scene to a condition finding. Recorded demonstration." }
   ];
+  /* ---------- the scene art: you SEE what the model is shown ------------
+     Drawn test frames (not photographs) matching the plant cases in the
+     golden set. They render into the viewer at size and, when a vision
+     station is on air, they are what actually travels to the model. */
+  function sceneSVG(kind) {
+    var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    s.setAttribute("viewBox", "0 0 320 200");
+    s.setAttribute("class", "dk__scenesvg dk__scenesvg--" + kind);
+    var g = {
+      gauge:
+        '<rect class="sc-bg" x="0" y="0" width="320" height="200"/>' +
+        '<circle class="sc-face" cx="160" cy="100" r="72"/>' +
+        '<circle class="sc-bezel" cx="160" cy="100" r="78"/>' +
+        '<g class="sc-tick">' +
+        '<line x1="160" y1="34" x2="160" y2="46"/><line x1="216" y1="52" x2="208" y2="61"/>' +
+        '<line x1="226" y1="100" x2="214" y2="100"/><line x1="216" y1="148" x2="208" y2="139"/>' +
+        '<line x1="160" y1="166" x2="160" y2="154"/><line x1="104" y1="148" x2="112" y2="139"/>' +
+        '<line x1="94" y1="100" x2="106" y2="100"/><line x1="104" y1="52" x2="112" y2="61"/></g>' +
+        '<text class="sc-num" x="160" y="72">barg</text>' +
+        '<text class="sc-tag" x="160" y="140">PI-1044</text>' +
+        // 0 sits lower-left, 25 lower-right, so 12.5 barg IS straight up: the drawn
+        // frame must agree with the reading the recorded output claims.
+        '<line class="sc-needle" x1="160" y1="100" x2="160" y2="42"/>' +
+        '<circle class="sc-hub" cx="160" cy="100" r="7"/>' +
+        '<text class="sc-scale" x="96" y="176">0</text><text class="sc-scale" x="220" y="176">25</text>',
+      plate:
+        '<rect class="sc-bg" x="0" y="0" width="320" height="200"/>' +
+        '<rect class="sc-plate" x="42" y="30" width="236" height="140" rx="5"/>' +
+        '<circle class="sc-bolt" cx="56" cy="44" r="4"/><circle class="sc-bolt" cx="264" cy="44" r="4"/>' +
+        '<circle class="sc-bolt" cx="56" cy="156" r="4"/><circle class="sc-bolt" cx="264" cy="156" r="4"/>' +
+        '<text class="sc-brand" x="160" y="62">CENTRIFUGAL PUMP</text>' +
+        '<line class="sc-rule" x1="60" y1="72" x2="260" y2="72"/>' +
+        '<text class="sc-row" x="62" y="92">MODEL   3196 MTX</text>' +
+        '<text class="sc-row" x="62" y="110">SER NO  8842-C</text>' +
+        '<text class="sc-row" x="62" y="128">FLOW    120 m3/h</text>' +
+        '<text class="sc-row" x="62" y="146">HEAD    45 m</text>',
+      thermal:
+        '<rect class="sc-bg sc-bg--dark" x="0" y="0" width="320" height="200"/>' +
+        '<defs><radialGradient id="scHot"><stop offset="0" class="sc-hot0"/>' +
+        '<stop offset="0.45" class="sc-hot1"/><stop offset="1" class="sc-hot2"/></radialGradient></defs>' +
+        '<rect class="sc-body" x="56" y="70" width="150" height="72" rx="8"/>' +
+        '<rect class="sc-shaft" x="206" y="96" width="62" height="20" rx="6"/>' +
+        '<circle cx="206" cy="106" r="52" fill="url(#scHot)"/>' +
+        '<text class="sc-temp" x="206" y="60">78.4 &#176;C</text>' +
+        '<text class="sc-lbl" x="20" y="184">M-310 DRIVE END &middot; IR</text>' +
+        '<g class="sc-scaleb"><rect x="286" y="40" width="12" height="120"/></g>'
+    }[kind] || "";
+    s.innerHTML = g;
+    return s;
+  }
+
   var TOOL_IDS = ["tsa-01", "ldar_trigger-001"];
   var EMBED_CARDS = [
     { device: "pump", title: "Pump P-101A", note: "riding in the pump's gateway", edge: "mf-01" },
@@ -417,17 +530,39 @@
     return b;
   }
 
+  /* ---------- the image viewer: the frame the model is shown ----------- */
+  function showScene(node, caption) {
+    var stage = $("dkImageStage"), cap = $("dkImageCap");
+    if (!stage) return;
+    stage.textContent = "";
+    if (node) stage.appendChild(node);
+    if (cap) cap.textContent = caption;
+  }
+
   function renderCards() {
     var v = $("dkVoiceCards");
     if (v) VOICE_CARDS.forEach(function (c) {
       var b = cardButton("dk__card--voice", c.icon, c.words, "SPOKEN");
       b._card = { kind: "voice", words: c.words };
+      // hear it: a real station's voice, synthesized over the network
+      var hear = el("span", "dk__hear");
+      hear.setAttribute("role", "button");
+      hear.setAttribute("tabindex", "0");
+      hear.title = "Hear this in a station's voice";
+      hear.textContent = "♪";
+      function speakIt(e) { e.stopPropagation(); speak(c.words, hear); }
+      hear.addEventListener("click", speakIt);
+      hear.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") speakIt(e); });
+      b.appendChild(hear);
       v.appendChild(b);
     });
     var im = $("dkImageCards");
     if (im) IMAGE_CARDS.forEach(function (c) {
       var b = cardButton("dk__card--scene dk__scene--" + c.scene, c.title, c.note, c.cat);
       b._card = { kind: "image", img: c };
+      b.addEventListener("click", function () {
+        showScene(sceneSVG(c.scene), c.title + " - " + c.note + ". Drawn test frame.");
+      });
       im.appendChild(b);
     });
     var t = $("dkToolCards");
@@ -569,6 +704,182 @@
       });
   }
 
+  /* =====================================================================
+     REAL AUDIO - a station on the network speaks and listens
+     TTS: POST /v1/audio/speech   STT: POST /v1/audio/transcriptions
+     Both are the SAME metered relay the CLI uses (browser-session path,
+     features/relay/browser_session.feature). No browser synthesizer is
+     ever substituted: if no voice station is on air, the deck says so.
+     ===================================================================== */
+  function voiceStation() {
+    var v = STATE.bands.filter(function (b) {
+      return (b.caps.tts || b.caps.speak) && bandFree(b);
+    })[0];
+    return v ? v.model : null;
+  }
+  function sttStation() {
+    var v = STATE.bands.filter(function (b) {
+      return (b.caps.stt || b.caps.listen) && bandFree(b);
+    })[0];
+    return v ? v.model : null;
+  }
+
+  var audioEl = null;
+  function speak(text, btn) {
+    var voice = voiceStation();
+    if (!voice) { logLine("deck", "DECK", "No voice station is on air right now - nothing to speak with."); return; }
+    if (btn) btn.classList.add("is-busy");
+    fetch(BROKER + "/v1/audio/speech", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      credentials: "include", cache: "no-store",
+      body: JSON.stringify({ model: voice, input: text })
+    }).then(function (r) {
+      if (!r.ok) throw r.status;
+      return r.blob();
+    }).then(function (blob) {
+      if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+      audioEl = new Audio(URL.createObjectURL(blob));
+      audioEl.play();
+      logLine("deck", "DECK", "Spoken by " + stationLabel(voice) + " - a real voice station on the network.");
+    }).catch(function (st) {
+      logLine("deck", "DECK", st === 403 || st === 401
+        ? "That voice needs a signed-in account - sign in to hear it."
+        : "The voice station could not be reached just now.");
+    }).then(function () { if (btn) btn.classList.remove("is-busy"); });
+  }
+
+  /* ---------- your own voice: recorded here, transcribed on the network -- */
+  var recorder = null, chunks = [];
+  function micState(text) { var n = $("dkMicState"); if (n) n.textContent = text; }
+  function toggleMic() {
+    var btn = $("dkMicBtn");
+    if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { micState("this browser cannot record"); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      chunks = [];
+      recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = function () {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        if (btn) btn.classList.remove("is-recording");
+        transcribe(new Blob(chunks, { type: "audio/webm" }));
+      };
+      recorder.start();
+      if (btn) btn.classList.add("is-recording");
+      micState("recording - press again to stop");
+    }).catch(function () { micState("microphone permission denied"); });
+  }
+  function transcribe(blob) {
+    var model = sttStation();
+    if (!model) { micState("no transcription station on air"); return; }
+    micState("transcribing on the network…");
+    // The relay routes on ?model= and meters the RAW body bytes - it never parses
+    // the audio, so the blob is posted as-is, not as multipart (audio.go:186).
+    fetch(BROKER + "/v1/audio/transcriptions?model=" + encodeURIComponent(model), {
+      method: "POST", credentials: "include", cache: "no-store", body: blob
+    }).then(function (r) { if (!r.ok) throw r.status; return r.json(); })
+      .then(function (d) {
+        var text = (d && (d.text || d.transcript)) || "";
+        if (!text) throw 0;
+        micState("heard: “" + text + "”");
+        STATE.card = { kind: "voice", words: text, own: true };
+        refreshTransport();
+      })
+      .catch(function (st) {
+        micState(st === 403 || st === 401 ? "sign in to use transcription" : "could not transcribe that");
+      });
+  }
+  var micBtn = $("dkMicBtn");
+  if (micBtn) micBtn.addEventListener("click", toggleMic);
+
+  /* ---------- your own image (or one frame of your video) --------------- */
+  function ownImageFromFile(file) {
+    var state = $("dkImageState");
+    if (!file) return;
+    var isVideo = /^video\//.test(file.type);
+    if (isVideo) {
+      var vid = document.createElement("video");
+      vid.preload = "metadata"; vid.muted = true; vid.playsInline = true;
+      vid.src = URL.createObjectURL(file);
+      vid.addEventListener("loadeddata", function () {
+        try { vid.currentTime = Math.min(0.1, vid.duration || 0.1); } catch (e) {}
+      });
+      vid.addEventListener("seeked", function () {
+        var c = document.createElement("canvas");
+        c.width = vid.videoWidth; c.height = vid.videoHeight;
+        c.getContext("2d").drawImage(vid, 0, 0);
+        useOwnImage(c.toDataURL("image/jpeg", 0.86), file.name + " (first frame)");
+      });
+      if (state) state.textContent = "reading one frame…";
+      return;
+    }
+    var rd = new FileReader();
+    rd.onload = function () { downscale(String(rd.result), function (url) { useOwnImage(url, file.name); }); };
+    rd.readAsDataURL(file);
+  }
+  // The relay reads at most 4 MiB of request body, so a phone photo must be
+  // re-encoded before it travels or it is truncated into an invalid turn.
+  function downscale(dataURL, done) {
+    var img = new Image();
+    img.onload = function () {
+      var max = 1280;
+      var scale = Math.min(1, max / Math.max(img.width, img.height));
+      var c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      done(c.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = function () { done(dataURL); };
+    img.src = dataURL;
+  }
+  function useOwnImage(dataURL, name) {
+    var state = $("dkImageState");
+    var img = document.createElement("img");
+    img.src = dataURL; img.alt = "Your image, as the model will see it";
+    img.className = "dk__ownimg";
+    // prefer a FREE vision station, as the voice/STT pickers do, so a signed-out
+    // visitor is never routed at a paid station and left with an opaque failure
+    var visionBands = STATE.bands.filter(function (b) { return b.caps.vision || b.caps.image; });
+    var vision = visionBands.filter(bandFree)[0] || (STATE.loggedIn ? visionBands[0] : null);
+    var needsSignIn = !vision && visionBands.length > 0;
+    showScene(img, vision
+      ? name + " - goes to " + stationLabel(vision.model) + ", a vision station on air."
+      : needsSignIn
+        ? name + " - the vision station on air is paid; sign in to send your frame to it."
+        : name + " - no vision station is on air right now, so this frame has nowhere live to go.");
+    if (state) state.textContent = name;
+    STATE.card = { kind: "image", own: true, dataURL: dataURL, name: name,
+                   vision: vision || null, needsSignIn: needsSignIn };
+    refreshTransport();
+  }
+  var imgFile = $("dkImageFile");
+  if (imgFile) imgFile.addEventListener("change", function () { ownImageFromFile(imgFile.files[0]); });
+
+  // A visitor's own image goes to a real vision station as a real chat turn.
+  function playOwnImage(card) {
+    if (!card.vision) {
+      logLine("deck", "DECK", card.needsSignIn
+        ? "The vision station on air is paid - sign in and press play again to send your frame to it."
+        : "No vision station is on air, so this image has nowhere live to go. Pick a drawn scene to see a recorded reading.");
+      return;
+    }
+    setOutMode("live");
+    logLine("you", "IMG", card.name);
+    var thinking = logLine("ping", stationLabel(card.vision.model), "Sending the frame through the Tower…", true);
+    STATE.playing = true; setReels(true); refreshTransport();
+    var hist = [{ role: "user", content: [
+      { type: "text", text: "What do you see? Answer with the reading and the tag if there is one." },
+      { type: "image_url", image_url: { url: card.dataURL } }
+    ] }];
+    stationSend(card.vision.model, hist, thinking).catch(function (err) {
+      thinking.parentNode.classList.remove("is-wait");
+      thinking.textContent = typeof err === "string" ? err : "that station could not read the frame";
+    }).then(function () {
+      STATE.playing = false; abortCtl = null; setReels(false); refreshTransport();
+    });
+  }
+
   function playLive(text, spoken) {
     var serial = ++playbackSerial;
     var t = STATE.tape;
@@ -655,6 +966,9 @@
     } else if (STATE.kind === "voice" && kinds.voice) {
       if (!STATE.card || STATE.card.kind !== "voice") return;
       playLive(STATE.card.words, true);
+    } else if (STATE.kind === "image" && STATE.card && STATE.card.own) {
+      // a visitor's own frame is a REAL turn to a vision station, not a replay
+      playOwnImage(STATE.card);
     } else if (STATE.card && STATE.card.kind === STATE.kind) {
       playRecorded(STATE.card);
     }

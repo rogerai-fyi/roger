@@ -38,10 +38,11 @@
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
-          Load a model like a cassette. Choose what goes in - text, voice, image, tool,
-          embedded signal, or guarded request - then press play and watch what comes out.
-          <b>Live</b> tapes answer through the Tower. <b>Recorded</b> tapes replay certified
-          contracts. The deck always tells you which is which.
+          Every tape here is a <b>real RogerAI model</b> - real weights on real GPUs that
+          operators are sharing on the network right now. Load one like a cassette, choose
+          what goes in - text, your voice, an image, a tool request, an embedded signal, or
+          a guarded command - and press play. What comes back is the model&rsquo;s own answer,
+          over the network, on the same metered path the CLI uses.
         </p>
       </div>
     </section>
@@ -96,16 +97,35 @@
               <div class="dk__surface" data-kind="voice" hidden>
                 <span class="dk__surfhead">Speak into the tape</span>
                 <div class="dk__cards" id="dkVoiceCards"></div>
-                <p class="dk__surfnote">Each card is a spoken utterance; its transcript is
-                  what the model hears. The reply is live.</p>
+                <!-- your own voice: recorded here, transcribed by a real STT station -->
+                <div class="dk__own">
+                  <button class="dk__ownbtn" id="dkMicBtn" type="button">
+                    <span class="dk__micdot" aria-hidden="true"></span> Record your own
+                  </button>
+                  <span class="dk__ownstate" id="dkMicState">mic off</span>
+                </div>
+                <p class="dk__surfnote">Press a card to hear it in a station&rsquo;s own voice,
+                  then play it into the tape. Your own recording is transcribed by a real
+                  station on the network before the model hears it.</p>
               </div>
 
-              <!-- IMAGE: preselected scenes by category -->
+              <!-- IMAGE: preselected scenes, shown at size, plus your own -->
               <div class="dk__surface" data-kind="image" hidden>
                 <span class="dk__surfhead">Show the tape a scene</span>
+                <!-- the viewer: you see exactly what the model is shown -->
+                <figure class="dk__viewer" id="dkImageViewer">
+                  <div class="dk__viewport" id="dkImageStage"></div>
+                  <figcaption id="dkImageCap">Pick a scene - this is the frame the model is shown.</figcaption>
+                </figure>
                 <div class="dk__cards dk__cards--scene" id="dkImageCards"></div>
-                <p class="dk__surfnote">Preselected plant scenes. The reading shown on
-                  play is a recorded demonstration, labelled.</p>
+                <div class="dk__own">
+                  <label class="dk__ownbtn" for="dkImageFile">Use your own image</label>
+                  <input class="dk__file" id="dkImageFile" type="file" accept="image/*,video/*" />
+                  <span class="dk__ownstate" id="dkImageState">no file</span>
+                </div>
+                <p class="dk__surfnote">Scenes are drawn test frames from the plant cases in
+                  our golden set. Your own image (or one frame of your video) goes to a
+                  vision station on air when one is carrying the band.</p>
               </div>
 
               <!-- TOOL: a request that must become a tool call -->
@@ -121,7 +141,10 @@
                 <span class="dk__surfhead">Ride along in a device</span>
                 <div class="dk__cards dk__cards--device" id="dkEmbedCards"></div>
                 <p class="dk__surfnote">The model embedded at the asset: its input is the
-                  device's own signal. Certified contract, replayed.</p>
+                  device&rsquo;s own signal, and every device carries its fixed prompt - model
+                  and framing ship as one unit. The brain in these devices is <b>Wave Nano</b>
+                  (350M), the trained gateway-class model; <b>Roger Edge</b> is the MCU-class
+                  classifier line, in design, with no trained artifact yet.</p>
               </div>
 
               <!-- GUARD: requests the model must refuse upward -->
@@ -245,19 +268,13 @@
           </div>
         </div>
 
-        <div class="pg-note" style="margin-top:var(--s-6)">
-          <span class="pg-note__k">How it routes</span>
-          <div>
-            <p><b>LIVE</b> routes through the Tower&rsquo;s credentialed relay
-              (<code>POST /v1/chat/completions</code>) to a real shared model; replies stream
-              back on the same metered path as the CLI. Free tapes play signed out. Paid tapes
-              ask you to sign in.</p>
-            <p><b>RECORDED</b> replays a certified contract or captured output and is never
-              presented as live. Each device carries its fixed prompt; model and framing ship as one unit.
-              <b>Wave Nano</b> (350M) is the trained gateway brain; <b>Roger Edge</b>
-              is the MCU-class classifier line, in design, with no trained artifact yet.</p>
-          </div>
-        </div>
+        <p class="dk__realnote">
+          <b>Every model on this deck is real</b> - real RogerAI weights running on real GPUs
+          that operators are sharing right now, reached over the network on the same metered
+          path the CLI uses. A tape marked <b>LIVE</b> answers you as you play it; one marked
+          <b>RECORDED</b> replays what that same model really answered on that same input.
+          Nothing is invented.
+        </p>
       </div>
     </section>
 

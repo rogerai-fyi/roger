@@ -267,6 +267,23 @@
 .dk__cassette svg { width: 100%; height: auto; display: block; filter: drop-shadow(0 10px 22px rgba(0,0,0,0.18)); }
 .dk__cassette[data-state="empty"] { opacity: 0.35; }
 .dk__cassette[data-state="loading"] { animation: dk-load 700ms var(--ease-out-quint, cubic-bezier(.2,.9,.3,1)) both; }
+/* thrown across: the new tape flies in from the side you threw toward */
+.dk__cassette[data-swap="left"][data-state="loading"]  { animation-name: dk-swap-left; }
+.dk__cassette[data-swap="right"][data-state="loading"] { animation-name: dk-swap-right; }
+@keyframes dk-swap-left {
+  0%   { transform: translateX(78%) rotate(7deg) scale(0.9); opacity: 0; }
+  55%  { transform: translateX(-3%) rotate(-1deg) scale(1.01); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes dk-swap-right {
+  0%   { transform: translateX(-78%) rotate(-7deg) scale(0.9); opacity: 0; }
+  55%  { transform: translateX(3%) rotate(1deg) scale(1.01); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+/* while a finger/pointer is on it, the tape follows the hand with no easing */
+.dk__cassette.is-dragging { transition: none; cursor: grabbing; }
+.dk__bay { cursor: grab; touch-action: pan-y; }
+.dk__bay:focus-visible { outline: 2px solid var(--live); outline-offset: 4px; border-radius: var(--r-md); }
 @keyframes dk-load {
   0%   { transform: translateY(-90px) rotateX(38deg) scale(0.92); opacity: 0.4; }
   60%  { transform: translateY(6px) rotateX(4deg); opacity: 1; }
@@ -330,9 +347,9 @@
 .dk__shelfwrap { border-top: 1px solid var(--hairline); padding-top: var(--s-3); min-width: 0; }
 .dk__shelf {
   list-style: none; margin: 0; padding: 4px 2px 8px;
-  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: thin;
+  display: grid; gap: 6px;
 }
-.dk__shelf li { flex: 0 0 auto; }
+.dk__shelf .dk__spine { flex: 0 0 auto; }
 .dk__spine {
   appearance: none; cursor: pointer; text-align: left;
   display: grid; gap: 2px; min-width: 148px;
@@ -352,14 +369,17 @@
   color: var(--live); margin-top: 2px;
 }
 .dk__spinechip--rec { color: var(--ink-400); }
-/* shelf groups: the live network vs the Wave family */
+/* two ROWS: the live network keeps its own row, the Wave family keeps its own,
+   so a busy band can never push the family off the end of a single strip */
+.dk__shelfrow { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 8px; }
+.dk__shelfrow + .dk__shelfrow { border-top: 1px dashed var(--hairline); padding-top: 8px; margin-top: 4px; }
 .dk__shelfgroup {
-  align-self: center; writing-mode: vertical-rl; transform: rotate(180deg);
-  font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.24em;
-  color: var(--ink-400); text-transform: uppercase; padding: 4px 0;
-  border-left: 1px solid var(--hairline); margin-left: 4px;
+  font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.2em;
+  color: var(--ink-400); text-transform: uppercase; text-align: right;
+  border-right: 1px solid var(--hairline); padding-right: 8px; align-self: stretch;
+  display: flex; align-items: center; justify-content: flex-end;
 }
-.dk__shelfgroup:first-child { border-left: 0; margin-left: 0; }
+.dk__shelfstrip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px; scrollbar-width: thin; }
 /* honest placeholders: trained-off-air / planned family spines cannot load */
 .dk__spine--shelfonly { opacity: 0.55; cursor: help; border-top-style: dashed; border-top-width: 3px; }
 .dk__spine--shelfonly:hover { transform: none; border-color: var(--hairline-2); }
@@ -476,6 +496,97 @@
   font-size: var(--t-sm); font-weight: var(--weight-semi); padding: 9px 16px;
 }
 .pg-btn:hover { opacity: 0.9; }
+
+/* =====================================================================
+   MEDIA SURFACES - see the image, hear the audio, bring your own
+   ===================================================================== */
+
+/* the viewer: the frame the model is actually shown */
+.dk__viewer { margin: 0 0 var(--s-3); display: grid; gap: 6px; }
+.dk__viewport {
+  border: 1px solid var(--hairline-2); border-radius: var(--r-md);
+  background: var(--paper-2); aspect-ratio: 16 / 10; overflow: hidden;
+  display: grid; place-items: center;
+}
+.dk__viewport:empty::after {
+  content: "NO FRAME"; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; color: var(--ink-400);
+}
+.dk__viewer figcaption {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--ink-400); line-height: 1.5;
+}
+.dk__scenesvg, .dk__ownimg { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* drawn scene palette: paper instrument faces, one red needle */
+.sc-bg { fill: var(--paper); }
+.sc-bg--dark { fill: #10151f; }
+.sc-face { fill: var(--white, #fff); stroke: var(--hairline-2); stroke-width: 1.5; }
+.sc-bezel { fill: none; stroke: var(--ink-400); stroke-width: 3; }
+.sc-tick line { stroke: var(--ink-500); stroke-width: 2; }
+.sc-needle { stroke: var(--live); stroke-width: 3; stroke-linecap: round; }
+.sc-hub { fill: var(--ink-900); }
+.sc-num, .sc-tag, .sc-scale, .sc-brand, .sc-row, .sc-temp, .sc-lbl {
+  font-family: var(--font-mono); fill: var(--ink-700, #444);
+}
+.sc-num { font-size: 11px; text-anchor: middle; letter-spacing: 0.14em; }
+.sc-tag { font-size: 10px; text-anchor: middle; fill: var(--ink-500); letter-spacing: 0.14em; }
+.sc-scale { font-size: 9px; fill: var(--ink-400); }
+.sc-plate { fill: var(--paper-2); stroke: var(--ink-400); stroke-width: 2; }
+.sc-bolt { fill: var(--ink-400); }
+.sc-brand { font-size: 12px; text-anchor: middle; letter-spacing: 0.2em; fill: var(--ink-900); }
+.sc-rule { stroke: var(--hairline-2); stroke-width: 1.5; }
+.sc-row { font-size: 11px; letter-spacing: 0.1em; }
+.sc-body { fill: #1d2735; stroke: #33415a; stroke-width: 2; }
+.sc-shaft { fill: #24304a; }
+.sc-hot0 { stop-color: #ffd9a0; }
+.sc-hot1 { stop-color: var(--live); stop-opacity: 0.75; }
+.sc-hot2 { stop-color: var(--live); stop-opacity: 0; }
+.sc-temp { font-size: 13px; text-anchor: middle; fill: #ffd9a0; letter-spacing: 0.1em; }
+.sc-lbl { font-size: 9px; fill: #7c8aa0; letter-spacing: 0.18em; }
+.sc-scaleb rect { fill: url(#scHot); opacity: 0.8; }
+
+/* bring your own: file + microphone */
+.dk__own {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-top: 2px;
+}
+.dk__ownbtn {
+  appearance: none; cursor: pointer;
+  border: 1px dashed var(--ink-400); border-radius: var(--r-md);
+  background: transparent; color: var(--ink-700, #444);
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
+  text-transform: uppercase; padding: 7px 11px;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.dk__ownbtn:hover { border-color: var(--live); color: var(--live); }
+.dk__file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.dk__ownstate {
+  font-family: var(--font-mono); font-size: 9px; color: var(--ink-400);
+  letter-spacing: 0.08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.dk__micdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-400); display: block; }
+.dk__ownbtn.is-recording { border-color: var(--live); color: var(--live); border-style: solid; }
+.dk__ownbtn.is-recording .dk__micdot { background: var(--live); animation: dk-rec 1.1s ease-in-out infinite; }
+@keyframes dk-rec { 50% { opacity: 0.25; } }
+
+/* hear it: the speaker pip on a voice card */
+.dk__hear {
+  position: absolute; right: 10px; bottom: 8px; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--hairline-2); background: var(--paper);
+  color: var(--live); font-size: 11px; line-height: 20px; text-align: center;
+}
+.dk__hear:hover { border-color: var(--live); }
+.dk__hear.is-busy { animation: dk-rec 0.8s ease-in-out infinite; }
+.dk__hear:focus-visible { outline: 2px solid var(--live); outline-offset: 1px; }
+
+/* the one honest line under the deck */
+.dk__realnote {
+  margin: var(--s-5) 0 0; color: var(--ink-500);
+  font-size: var(--t-sm); line-height: var(--lh-body); max-width: 92ch;
+}
+.dk__realnote b { color: var(--ink-900); }
 
 /* the routing note */
 .pg-note {
