@@ -90,6 +90,55 @@ Feature: Browser-session relay access for the Playbox
     Then the response is 401 and the error tells the caller to sign in
     And no wallet is touched and no station receives the request
 
+  # ---------- the audio relay: the Playbox speaks and listens -------------------
+  # /v1/audio/speech (TTS) and /v1/audio/transcriptions (STT) share ONE spine
+  # (audioRelayCore) with the chat relay, so they inherit the same door: an
+  # allowlisted Origin, the session cookie as identity, cookieless = anonymous.
+  # This is what lets a Playbox voice card be SPOKEN by a real station on the
+  # network instead of a browser's built-in synthesizer.
+
+  Scenario Outline: the audio relay opens to the browser on the same terms as chat
+    When a browser sends OPTIONS <path> with Origin "https://rogerai.fm"
+    Then the response allows origin "https://rogerai.fm" exactly (never "*")
+    And the response allows credentials
+
+    Examples:
+      | path                       |
+      | /v1/audio/speech           |
+      | /v1/audio/transcriptions   |
+
+  Scenario: a logged-in browser synthesizes speech on a free voice station
+    Given a station is on air sharing a free TTS voice
+    And a browser holds a valid web session
+    When it POSTs /v1/audio/speech with Origin "https://rogerai.fm"
+    Then the audio is relayed from that station and returned to the page
+    And the credentialed CORS headers are present on the audio response
+
+  Scenario: a signed-out browser may use a free voice under the per-IP discipline
+    Given a station is on air sharing a free TTS voice
+    And a browser holds no session
+    When it POSTs /v1/audio/speech with Origin "https://rogerai.fm"
+    Then the request is relayed as the anonymous identity
+    And the per-IP anonymous rate limit applies
+
+  Scenario: a paid voice signed out is told to sign in, and no wallet is touched
+    Given a station is on air sharing a PAID TTS voice
+    And a browser holds no session
+    When it POSTs /v1/audio/speech with Origin "https://rogerai.fm"
+    Then the response refuses with the audio relay's own paid gate (403) and says sign in
+    And no wallet is touched and no station is paid
+
+  Scenario: an audio session cookie without an allowlisted Origin never authenticates
+    Given a browser holds a valid web session
+    When it POSTs /v1/audio/speech with Origin "https://evil.example"
+    Then the session cookie is ignored and the request is treated as unsigned
+    And the response is 401
+
+  Scenario: a spoofed Origin cannot rotate legacy ids on the audio path either
+    Given a request with Origin "https://rogerai.fm", no cookie, and a legacy "X-Roger-User" header
+    When it POSTs /v1/audio/speech repeatedly with a fresh id each time
+    Then every request draws from the ONE per-IP anonymous bucket
+
   # ---------- unchanged invariants (regression pins) ---------------------------
 
   Scenario: moderation runs on browser-session requests exactly as on signed requests

@@ -197,9 +197,17 @@ func (b *broker) transcribeRelay(w http.ResponseWriter, r *http.Request) {
 // verification, and the X-RogerAI-* meter headers. Because the unit count is exact + known up
 // front, the hold equals the final charge (no recount). See VOICE-AUDIO-DESIGN.md.
 func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec audioSpec) {
+	// Playbox: the audio relay is browser-callable from the allowlisted first-party
+	// origins, on exactly the terms the chat relay uses (credentialed CORS - explicit
+	// origin, never "*"). This is what lets the page be SPOKEN by a real station's
+	// voice, and lets a visitor's own recording reach a real STT station.
+	if corsCredsPreflight(w, r) {
+		return
+	}
 	if !allow(w, r, http.MethodPost) {
 		return
 	}
+	corsCreds(w, r)
 	// In-flight bound: a non-blocking slot acquire caps concurrent 32 MiB audio relays
 	// so they can't stack N-deep and exhaust the small instance's memory. A full pool
 	// sheds load with 503 + Retry-After (the client retries) rather than OOMing. Released
@@ -232,9 +240,27 @@ func (b *broker) audioRelayCore(w http.ResponseWriter, r *http.Request, spec aud
 			return
 		}
 		user, wallet = u, b.walletOf(r, u)
+		// Two verified forms: a signed request, or - Playbox - a valid web session
+		// cookie presented from an allowlisted Origin (the Origin check is the CSRF
+		// defense). A cookieless browser IS the anonymous identity: Origin is
+		// spoofable outside a browser, so a legacy id here must never mint its own
+		// rate bucket. Free voices play anonymously; the paid gate below still
+		// requires a logged-in wallet, so this path can never spend.
 		if !authed {
-			jsonErr(w, http.StatusUnauthorized, "spending requires a signed request")
-			return
+			if !originAllowed(r) {
+				jsonErr(w, http.StatusUnauthorized, "spending requires a signed request")
+				return
+			}
+			if c, cerr := r.Cookie(sessionCookie); cerr == nil && c.Value != "" {
+				_, sessionWallet, sok := b.webSession(r)
+				if !sok {
+					jsonErr(w, http.StatusUnauthorized, "session expired or invalid - sign in again")
+					return
+				}
+				user, wallet = sessionWallet, sessionWallet
+			} else {
+				user, wallet = "anon", "anon"
+			}
 		}
 	}
 
