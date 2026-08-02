@@ -47,8 +47,13 @@ type mailer struct {
 // mailer is disabled (enabled()==false) and every send is a logged-once no-op.
 func loadMailer() *mailer {
 	return &mailer{
-		apiKey:   os.Getenv("RESEND_API_KEY"),
-		from:     envStr("RESEND_FROM", "RogerAI <noreply@rogerai.fm>"),
+		apiKey: os.Getenv("RESEND_API_KEY"),
+		// Mail stays on rogerai.fyi deliberately, and it is the domain Resend has
+		// VERIFIED (resend._domainkey is published there; rogerai.fm has only the
+		// bounce subdomain, so Resend would reject a .fm sender). Do not "modernise"
+		// this to .fm without publishing that DKIM record and verifying the domain
+		// first - see the tests in email_test.go.
+		from:     envStr("RESEND_FROM", "RogerAI <noreply@rogerai.fyi>"),
 		endpoint: resendEndpoint,
 		timeout:  15 * time.Second,
 		sentCaps: map[string]bool{},

@@ -4,7 +4,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -65,4 +65,34 @@ test("new public remote links use rogerai.fm and the mobile association remains 
   assert.ok(parsed.applinks.details.some((d) =>
     (d.paths || []).some((p) => p.startsWith("/r.html")) ||
     (d.components || []).some((c) => String(c["/"] || "").startsWith("/r.html"))));
+});
+
+// Found in the 2026-08-01 migration re-audit: the site shipped NO robots.txt of its
+// own, so crawlers only ever saw Cloudflare's managed block - which declares no
+// sitemap. The sitemap existed and was healthy; nothing pointed at it.
+test("robots.txt declares the canonical sitemap and does not lock the site out", () => {
+  const robots = readFileSync(path.join(SRC, "robots.txt"), "utf8");
+  const sitemapLine = robots.match(/^Sitemap:\s*(\S+)$/mi);
+  assert.ok(sitemapLine, "robots.txt must declare a Sitemap");
+  assert.equal(sitemapLine[1], "https://rogerai.fm/sitemap.xml",
+    "the sitemap must be declared on the CANONICAL host, so the .fyi copy points at .fm too");
+
+  // A blanket disallow would silently deindex the whole site. Parse the agent groups
+  // rather than pattern-matching adjacency: "User-agent: *", a blank line, then
+  // "Disallow: /" is still a site-wide block, and a regex keyed on the next line misses it.
+  let agent = null;
+  for (const raw of robots.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const ua = line.match(/^User-agent:\s*(\S+)$/i);
+    if (ua) { agent = ua[1]; continue; }
+    const dis = line.match(/^Disallow:\s*(\S*)$/i);
+    if (dis && dis[1] === "/") {
+      assert.notEqual(agent, "*",
+        "the wildcard agent is disallowed from / - that deindexes the whole site");
+    }
+  }
+
+  // and it must actually ship
+  assert.ok(existsSync(path.join(DIST, "robots.txt")), "robots.txt must be copied into the build");
 });

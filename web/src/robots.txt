@@ -1,0 +1,16 @@
+# RogerAI - https://rogerai.fm
+#
+# This file exists mainly to declare the sitemap. Without it the site had NO
+# robots.txt of its own, so crawlers only ever saw Cloudflare's managed block and
+# were never pointed at the sitemap.
+#
+# AI-crawler policy is NOT set here: it is managed at the Cloudflare edge, which
+# appends its own block below this one. Change it in the Cloudflare dashboard, not
+# in this file, or the two will disagree.
+
+User-agent: *
+Allow: /
+
+# The canonical host is rogerai.fm. rogerai.fyi serves the same site during the
+# domain overlap and canonicalises to .fm, so both point at the one sitemap.
+Sitemap: https://rogerai.fm/sitemap.xml

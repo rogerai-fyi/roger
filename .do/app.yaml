@@ -114,7 +114,7 @@ services:
       - key: RESEND_API_KEY
         scope: RUN_TIME
         type: SECRET
-      - key: RESEND_FROM # RogerAI <noreply@rogerai.fm>
+      - key: RESEND_FROM # RogerAI <noreply@rogerai.fyi> - the Resend-verified mail domain
         scope: RUN_TIME
       - key: ROGERAI_LOGIN_URL # https://rogerai.fm/login.html
         scope: RUN_TIME
