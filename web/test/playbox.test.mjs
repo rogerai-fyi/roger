@@ -61,9 +61,12 @@ test("deck: the rotary selector offers the six input kinds, one active at a time
     assert.ok(html.includes(`data-kind="${kind}"`), `the ${kind} position must exist`);
   }
   assert.equal((html.match(/class="dk__pos"/g) || []).length, 6, "exactly six positions");
-  assert.equal((html.match(/class="dk__pos"[^>]*aria-selected="true"/g) || []).length, 1,
+  assert.ok(html.includes('role="radiogroup"'), "the rotary selector uses one-choice semantics");
+  assert.equal((html.match(/class="dk__pos"[^>]*aria-checked="true"/g) || []).length, 1,
     "exactly one position starts active");
   assert.ok(js.includes("function selectKind"), "the selector drives one surface at a time");
+  assert.ok(js.includes('e.key !== "ArrowRight"') && js.includes('btn.setAttribute("tabindex"'),
+    "the rotary positions use roving focus and arrow-key control");
 });
 
 test("deck: the cassette bay has reels, a label, capability lamps, and transport", () => {
@@ -74,6 +77,16 @@ test("deck: the cassette bay has reels, a label, capability lamps, and transport
   assert.ok(css.includes("dk-spin"), "the reels spin while playing");
   assert.ok(css.includes("dk-load"), "loading a tape animates into the bay");
   assert.ok(js.includes('cas.setAttribute("data-state", "loading")'), "loadTape runs the load animation");
+});
+
+test("deck: the shelf presents the network and the Wave family as honest groups", () => {
+  assert.ok(js.includes('{ group: "ON AIR", entries: onAir }'), "the live network is its own group");
+  assert.ok(js.includes('"WAVE FAMILY"'), "the Wave family is its own group");
+  assert.ok(js.includes("FAMILY_SPINES"), "the family placeholders exist");
+  assert.ok(js.includes("TRAINED · OFF AIR"), "Micro is trained but off air, said plainly");
+  assert.ok(js.includes('chip: "PLANNED"'), "Core is a planned band, said plainly");
+  assert.ok(js.includes('aria-disabled'), "placeholders cannot load and say why");
+  assert.ok(!js.includes('"AVAILABLE"'), "no placeholder ever claims availability");
 });
 
 test("deck: the shelf marks live stations LIVE and the demo tape RECORDED", () => {
@@ -104,6 +117,17 @@ test("deck: station chat goes through the Tower relay, credentialed and streamed
 
 test("deck: stop is real - the in-flight stream is aborted", () => {
   assert.ok(js.includes("abortCtl.abort()"), "STOP must abort the live stream");
+  assert.ok(js.includes('signal: abortCtl ? abortCtl.signal : undefined'),
+    "both live paths must carry the abort signal");
+  assert.ok(js.includes("clearTimeout(typeTimer)"), "STOP must halt the recorded printer too");
+  assert.ok(js.includes("playbackSerial"), "a stale aborted turn must not reset a newer transport");
+});
+
+test("deck: play only arms when the active input is ready", () => {
+  assert.ok(js.includes('$("dkTextInput")') && js.includes("STATE.card.kind === STATE.kind"),
+    "text needs content and preset modes need a selected card");
+  assert.ok(js.includes('$("dkPlay").disabled = !ready || STATE.playing'),
+    "transport readiness, not merely a loaded tape, controls PLAY");
 });
 
 test("deck: a paid tape signed out yields the sign-in invitation and play disables", () => {
@@ -140,8 +164,8 @@ test("deck: every recorded device carries its real fixed device prompt", () => {
     "the excerpt must be the real production framing, not paraphrase");
   assert.ok(js.includes("NO authority to actuate"),
     "the safety device's framing must carry the no-actuation clause");
-  assert.ok(js.includes("Device prompt (ships with the device)"),
-    "the printer shows the device prompt with the output");
+  assert.ok(js.includes("Device prompt excerpt (ships with the device)"),
+    "the printer accurately labels the real prompt excerpt shown with the output");
   assert.ok(html.includes("ship as one unit"), "the model+prompt unit principle is stated");
 });
 
@@ -185,6 +209,8 @@ test("deck: the S-meter needle is driven by the directory's own signal numbers",
   assert.ok(js.includes("function meterSignal()"), "the meter reads from STATE.bands");
   assert.ok(js.includes("b.signal"), "the meter uses the same signal field the shelf draws");
   assert.ok(!js.includes("Math.random"), "the meter must never invent a value");
+  assert.ok(js.includes('readEl.textContent = measured ? "S"') && js.includes(': "N/A"'),
+    "tapes without a measured station signal must say N/A instead of borrowing one");
 });
 
 test("deck: the transcript is a ruled logbook with UTC times", () => {
