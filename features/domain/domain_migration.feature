@@ -137,3 +137,40 @@ Feature: RogerAI adopts rogerai.fm without breaking rogerai.fyi compatibility
     And existing installed clients continue operating
     And transactional mail may revert to the verified rogerai.fyi sender
     And the rogerai.fyi registration and DNS zone are retained
+
+  # Both found in the 2026-08-02 re-audit, and both were latent traps rather than
+  # visible breakage: production was correct only because an environment variable
+  # happened to override a default that pointed somewhere unusable.
+  Scenario: Transactional mail sends only from a Resend-verified domain
+    Given Resend delivers only from a domain whose DKIM record it has verified
+    And rogerai.fyi publishes that record while rogerai.fm publishes only its bounce subdomain
+    Then the broker's DEFAULT sender is the verified rogerai.fyi identity
+    And losing the deployed override cannot silently stop every alert, receipt, and payout mail
+    And moving the sender to rogerai.fm requires publishing its DKIM record and verifying first
+
+  Scenario: The site declares its own sitemap to crawlers
+    Given the site is served behind a managed edge robots.txt that declares no sitemap
+    Then the site ships a robots.txt of its own naming the canonical sitemap
+    And the wildcard agent is never disallowed from the whole site
+    And the AI-crawler policy stays at the edge rather than being duplicated in the file
+
+  # Found in the 2026-08-02 re-audit. The iOS app shipped to the App Store on
+  # 2026-07-09 references rogerai.fyi 43 times and rogerai.fm zero times: it calls
+  # broker.rogerai.fyi and claims only `applinks:rogerai.fyi`. Retiring .fyi would
+  # therefore break every installed copy, and no server-side change can rescue it -
+  # only an App Store release can.
+  Scenario: The shipped mobile client pins rogerai.fyi until it is re-released
+    Given a version of the mobile app is installed from the App Store
+    Then broker.rogerai.fyi keeps serving it
+    And rogerai.fyi is never retired while that build is in the field
+
+  # The pairing link the CLI prints is on the canonical host, which the shipped app
+  # does not claim, so iOS opens it in the browser instead of the app. The web flow
+  # at /r.html completes the pairing on its own, so this degrades the experience
+  # rather than breaking it - but it stays degraded until the app claims .fm.
+  Scenario: A device-pairing link still completes without the app
+    Given the CLI prints a rogerai.fm pairing link
+    And the installed app does not claim that host for universal links
+    When the visitor opens the link on the phone
+    Then the browser completes the pairing without the app
+    And the app claims rogerai.fm in a later release to restore the native hand-off

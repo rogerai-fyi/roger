@@ -343,3 +343,30 @@ func drain(ch chan map[string]any, wait time.Duration) int {
 		}
 	}
 }
+
+// Found in the 2026-08-01 migration re-audit. Outbound transactional mail (alerts,
+// receipts, payout notices) goes through Resend, and Resend will only send from a
+// domain it has VERIFIED via a published `resend._domainkey` TXT record.
+//
+// rogerai.fyi has that record. rogerai.fm does NOT - it has only the bounce
+// subdomain and its SPF. So a From address on .fm is not merely off-policy
+// ([[domain-usage-policy]] keeps mail on .fyi deliberately), it is a domain Resend
+// would REJECT. Production works today only because RESEND_FROM is overridden in the
+// deployed environment; the built-in default pointed at the unverified domain, so
+// losing that one env var would have silently killed every outbound mail.
+func TestMailerDefaultSenderUsesTheVerifiedMailDomain(t *testing.T) {
+	t.Setenv("RESEND_FROM", "")
+	m := loadMailer()
+	if !strings.Contains(m.from, "@rogerai.fyi") {
+		t.Fatalf("default From = %q, want the Resend-verified mail domain (@rogerai.fyi). "+
+			"If mail has genuinely moved to .fm, publish resend._domainkey.rogerai.fm FIRST, "+
+			"verify the domain in Resend, and only then change this default.", m.from)
+	}
+}
+
+func TestMailerSenderStillHonoursTheEnvironment(t *testing.T) {
+	t.Setenv("RESEND_FROM", "RogerAI <ops@example.test>")
+	if got := loadMailer().from; got != "RogerAI <ops@example.test>" {
+		t.Fatalf("From = %q, want the environment value to win", got)
+	}
+}
