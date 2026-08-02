@@ -524,7 +524,12 @@ func originAllowed(r *http.Request) bool {
 	if requestOrigin == "" {
 		return false
 	}
-	allowed := envOr("ROGERAI_WEB_ORIGINS", envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm"))
+	// Both migration origins are the DEFAULT, not just the deployed configuration:
+	// rogerai.fyi still serves the site during the .fyi -> .fm overlap, so if
+	// ROGERAI_WEB_ORIGINS were ever dropped a .fyi visitor would silently lose every
+	// credentialed surface. See features/domain/domain_migration.feature.
+	allowed := envOr("ROGERAI_WEB_ORIGINS",
+		envOr("ROGERAI_WEB_ORIGIN", "https://rogerai.fm,https://rogerai.fyi"))
 	for _, candidate := range strings.Split(allowed, ",") {
 		if strings.TrimSpace(candidate) == requestOrigin {
 			return true
