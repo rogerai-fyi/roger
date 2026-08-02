@@ -1,3 +1,8 @@
+# SUPERSEDED IN PART by playbox_deck.feature (founder redirection, 2026-08-01):
+# the MODE-tab scenarios no longer apply - the deck is ONE view. What survives of
+# this spec (and is re-locked by the deck tests): the maker's plate, the data-driven
+# S-meter, the ruled UTC logbook, and reduced-motion legibility.
+#
 # The Playbox faceplate: the page stops looking like a web app with tabs and starts
 # looking like the operator's bench - dense, technical, every control load-bearing,
 # in the site's ink+live palette. Visuals are never claims: the meter and lamps are
