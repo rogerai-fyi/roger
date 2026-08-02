@@ -38,12 +38,10 @@
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
-          The model is the tape. Pick a cassette from the shelf, load it into the deck,
-          choose an input on the left - type it, speak it, show it a scene, hand it a tool
-          request, ride along in a device, or test the guard - and press play. Everything
-          marked <b>live</b> is a real station answering through the Tower; everything
-          marked <b>recorded</b> is a certified contract replay, labelled. No answer is
-          ever faked.
+          Load a model like a cassette. Choose what goes in - text, voice, image, tool,
+          embedded signal, or guarded request - then press play and watch what comes out.
+          <b>Live</b> tapes answer through the Tower. <b>Recorded</b> tapes replay certified
+          contracts. The deck always tells you which is which.
         </p>
       </div>
     </section>
@@ -75,13 +73,14 @@
               <h2 class="dk__colhead">INPUT</h2>
 
               <!-- rotary selector: exactly one input kind is active -->
-              <div class="dk__selector" role="tablist" aria-label="Input kind">
-                <button class="dk__pos" role="tab" data-kind="text"  aria-selected="true"  type="button"><i></i>TEXT</button>
-                <button class="dk__pos" role="tab" data-kind="voice" aria-selected="false" type="button"><i></i>VOICE</button>
-                <button class="dk__pos" role="tab" data-kind="image" aria-selected="false" type="button"><i></i>IMAGE</button>
-                <button class="dk__pos" role="tab" data-kind="tool"  aria-selected="false" type="button"><i></i>TOOL</button>
-                <button class="dk__pos" role="tab" data-kind="embed" aria-selected="false" type="button"><i></i>EMBED</button>
-                <button class="dk__pos" role="tab" data-kind="guard" aria-selected="false" type="button"><i></i>GUARD</button>
+              <div class="dk__selector" role="radiogroup" aria-label="Input kind" data-active="text">
+                <span class="dk__dial" aria-hidden="true"><i></i><b>INPUT</b></span>
+                <button class="dk__pos" role="radio" data-kind="text"  aria-checked="true"  type="button"><i></i><span>TEXT</span></button>
+                <button class="dk__pos" role="radio" data-kind="voice" aria-checked="false" tabindex="-1" type="button"><i></i><span>VOICE</span></button>
+                <button class="dk__pos" role="radio" data-kind="image" aria-checked="false" tabindex="-1" type="button"><i></i><span>IMAGE</span></button>
+                <button class="dk__pos" role="radio" data-kind="tool"  aria-checked="false" tabindex="-1" type="button"><i></i><span>TOOL</span></button>
+                <button class="dk__pos" role="radio" data-kind="embed" aria-checked="false" tabindex="-1" type="button"><i></i><span>EMBED</span></button>
+                <button class="dk__pos" role="radio" data-kind="guard" aria-checked="false" tabindex="-1" type="button"><i></i><span>GUARD</span></button>
               </div>
 
               <!-- TEXT: the big live composer -->
@@ -137,11 +136,22 @@
             <!-- ================= CENTER: THE CASSETTE BAY ================= -->
             <div class="dk__col dk__baycol">
               <div class="dk__bay" id="dkBay">
+                <div class="dk__baylegend" aria-hidden="true">
+                  <span>MODEL BAY</span><em id="dkBayState">READY</em>
+                </div>
                 <div class="dk__bayslot" aria-hidden="true"></div>
-                <div class="dk__cassette" id="dkCassette" data-state="empty">
+                <div class="dk__cassette" id="dkCassette" data-state="empty" role="status" aria-label="No tape loaded">
                   <svg viewBox="0 0 320 200" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="dkTapeShell" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" class="dk-c__shelltop"/>
+                        <stop offset="1" class="dk-c__shellbottom"/>
+                      </linearGradient>
+                    </defs>
                     <rect class="dk-c__body" x="4" y="4" width="312" height="192" rx="14"/>
+                    <path class="dk-c__bevel" d="M19 10h282a9 9 0 0 1 9 9v159a9 9 0 0 1-9 9H19a9 9 0 0 1-9-9V19a9 9 0 0 1 9-9Z"/>
                     <rect class="dk-c__label" x="24" y="18" width="272" height="58" rx="6"/>
+                    <path class="dk-c__stripe" d="M24 65h272"/>
                     <text class="dk-c__name" id="dkTapeName" x="160" y="42" text-anchor="middle">NO TAPE</text>
                     <text class="dk-c__sub"  id="dkTapeSub"  x="160" y="62" text-anchor="middle">pick a cassette from the shelf</text>
                     <rect class="dk-c__window" x="60" y="92" width="200" height="64" rx="30"/>
@@ -154,6 +164,11 @@
                       <path class="dk-c__spokes" d="M214 104 v40 M194 124 h40 M200 110l28 28 M200 138l28-28"/>
                     </g>
                     <path class="dk-c__tape" d="M130 124 h60"/>
+                    <path class="dk-c__lower" d="M86 174h148l-12 18H98Z"/>
+                    <circle class="dk-c__guide" cx="118" cy="181" r="4"/>
+                    <circle class="dk-c__guide" cx="202" cy="181" r="4"/>
+                    <path class="dk-c__notches" d="M143 177v9m34-9v9"/>
+                    <text class="dk-c__side" x="36" y="126" text-anchor="middle">A</text>
                     <circle class="dk-c__screw" cx="18" cy="18" r="4"/>
                     <circle class="dk-c__screw" cx="302" cy="18" r="4"/>
                     <circle class="dk-c__screw" cx="18" cy="182" r="4"/>
@@ -173,7 +188,7 @@
               </div>
 
               <div class="dk__shelfwrap">
-                <h2 class="dk__colhead">THE SHELF <small id="dkShelfNote">reading the band&hellip;</small></h2>
+                <h2 class="dk__colhead">MODEL LIBRARY <small id="dkShelfNote">reading the band&hellip;</small></h2>
                 <ul class="dk__shelf" id="dkShelf" aria-label="Cassette shelf"></ul>
               </div>
 
@@ -233,18 +248,14 @@
         <div class="pg-note" style="margin-top:var(--s-6)">
           <span class="pg-note__k">How it routes</span>
           <div>
-            <p>A tape marked <b>LIVE</b> is a real station on air: pressing play routes your
-              input through the Tower&rsquo;s relay (<code>POST /v1/chat/completions</code>,
-              credentialed to this site only) to whoever is sharing that model, and the reply
-              streams back co-signed and metered - the same path the CLI uses, on the same
-              wallet. Free tapes play signed out; paid tapes ask you to sign in first.</p>
-            <p>A tape or input marked <b>RECORDED</b> replays a certified contract or a real
-              captured output - clearly labelled, never presented as live. When the band is
-              quiet or a station drops, the deck says so; nothing here is ever simulated as
-              live. Every simulated device carries its fixed device prompt - the model and
-              its framing ship as one unit. <b>Wave Nano</b> (350M) is the trained
-              gateway-class brain of the edge line; <b>Roger Edge</b> itself is the
-              MCU-class classifier line, in design, with no trained artifact yet.</p>
+            <p><b>LIVE</b> routes through the Tower&rsquo;s credentialed relay
+              (<code>POST /v1/chat/completions</code>) to a real shared model; replies stream
+              back on the same metered path as the CLI. Free tapes play signed out. Paid tapes
+              ask you to sign in.</p>
+            <p><b>RECORDED</b> replays a certified contract or captured output and is never
+              presented as live. Each device carries its fixed prompt; model and framing ship as one unit.
+              <b>Wave Nano</b> (350M) is the trained gateway brain; <b>Roger Edge</b>
+              is the MCU-class classifier line, in design, with no trained artifact yet.</p>
           </div>
         </div>
       </div>

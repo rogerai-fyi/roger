@@ -44,6 +44,13 @@
     playing: false
   };
   var abortCtl = null;   // the in-flight live stream, so STOP is real
+  var typeTimer = null;  // the in-flight recorded printer, so STOP is real here too
+  var playbackSerial = 0; // stale aborted turns cannot reset a newer transport
+
+  function setBayState(text) {
+    var n = $("dkBayState");
+    if (n) n.textContent = text;
+  }
 
   function fetchJSON(path, creds) {
     var ctrl = ("AbortController" in window) ? new AbortController() : null;
@@ -95,14 +102,17 @@
   /* ---------- the S-meter: a real needle over real data ---------------- */
   function meterSignal() {
     if (STATE.tape && STATE.tape.band) return STATE.tape.band.signal;
+    if (STATE.tape) return 0;
     return STATE.bands.reduce(function (m, b) { return Math.max(m, b.signal); }, 0);
   }
   function updateSMeter() {
-    var needle = $("pgSMeterNeedle"), readEl = $("pgSMeterRead");
+    var meter = $("pgSMeter"), needle = $("pgSMeterNeedle"), readEl = $("pgSMeterRead");
     if (!needle) return;
     var sig = Math.max(0, Math.min(100, meterSignal()));
+    var measured = !!(STATE.tape && STATE.tape.band);
     needle.style.transform = "rotate(" + Math.round(sig - 50) + "deg)";
-    if (readEl) readEl.textContent = "S" + Math.min(9, Math.round(sig / 11.2));
+    if (readEl) readEl.textContent = measured ? "S" + Math.min(9, Math.round(sig / 11.2)) : "N/A";
+    if (meter) meter.setAttribute("aria-label", measured ? "Signal strength " + Math.round(sig) + " percent" : "Signal not measured for this tape");
   }
 
   function setStatus(text, state) {
@@ -136,34 +146,61 @@
     return k;
   }
 
+  // The Wave family on the shelf, honestly: Nano's recorded contracts are playable;
+  // Micro is trained but not yet on air; Core is a planned band. Nothing is faked -
+  // the unplayable spines say exactly why they cannot play yet.
+  var FAMILY_SPINES = [
+    { spine: true, model: "wave-micro", label: "WAVE MICRO", sub: "1–8B · text + tools",
+      chip: "TRAINED · OFF AIR", why: "Trained, not yet on air - no public checkpoint is released." },
+    { spine: true, model: "wave-core", label: "WAVE CORE", sub: "8–30B · planned band",
+      chip: "PLANNED", why: "A planned band, not a final specification - nothing to play yet." }
+  ];
+
   function shelfEntries() {
-    var out = [PING_TAPE];
+    // group 1: the live network; group 2: the Wave family
+    var onAir = [PING_TAPE];
     STATE.bands.filter(function (b) { return b.chatable; }).forEach(function (b) {
-      out.push({ band: b, model: b.model, label: b.model.split("/").pop().toUpperCase(),
+      onAir.push({ band: b, model: b.model, label: b.model.split("/").pop().toUpperCase(),
                  sub: (b.stations[0] ? b.stations[0].callsign + " · " : "") +
                       (bandFree(b) ? "free" : "tier " + b.tier) });
     });
-    out.push(DEMO_TAPE);
-    return out;
+    return [
+      { group: "ON AIR", entries: onAir },
+      { group: "WAVE FAMILY", entries: [DEMO_TAPE].concat(FAMILY_SPINES) }
+    ];
   }
 
   function renderShelf() {
     var shelf = $("dkShelf"), note = $("dkShelfNote");
     if (!shelf) return;
     shelf.textContent = "";
-    var entries = shelfEntries();
-    entries.forEach(function (t) {
-      var li = document.createElement("li");
-      var btn = el("button", "dk__spine" + (STATE.tape && STATE.tape.model === t.model ? " is-loaded" : ""));
-      btn.type = "button";
-      btn.setAttribute("aria-pressed", STATE.tape && STATE.tape.model === t.model ? "true" : "false");
-      btn.appendChild(el("b", null, t.label));
-      btn.appendChild(el("small", null, t.sub));
-      btn.appendChild(el("span", "dk__spinechip" + (t.demo ? " dk__spinechip--rec" : ""),
-        t.demo ? "RECORDED" : "LIVE"));
-      btn.addEventListener("click", function () { loadTape(t); });
-      li.appendChild(btn);
-      shelf.appendChild(li);
+    shelfEntries().forEach(function (grp) {
+      var head = document.createElement("li");
+      head.className = "dk__shelfgroup";
+      head.setAttribute("aria-hidden", "true");
+      head.textContent = grp.group;
+      shelf.appendChild(head);
+      grp.entries.forEach(function (t) {
+        var li = document.createElement("li");
+        var btn = el("button", "dk__spine" + (STATE.tape && STATE.tape.model === t.model ? " is-loaded" : "")
+          + (t.spine ? " dk__spine--shelfonly" : ""));
+        btn.type = "button";
+        btn.setAttribute("aria-pressed", STATE.tape && STATE.tape.model === t.model ? "true" : "false");
+        btn.appendChild(el("b", null, t.label));
+        btn.appendChild(el("small", null, t.sub));
+        btn.appendChild(el("span", "dk__spinechip" + (t.demo || t.spine ? " dk__spinechip--rec" : ""),
+          t.chip || (t.demo ? "RECORDED" : "LIVE")));
+        if (t.spine) {
+          // an honest placeholder: it cannot load, and pressing it says why
+          btn.setAttribute("aria-disabled", "true");
+          btn.title = t.why;
+          btn.addEventListener("click", function () { setBayState("SHELF ONLY"); logLine("deck", "DECK", t.label + ": " + t.why); });
+        } else {
+          btn.addEventListener("click", function () { loadTape(t); });
+        }
+        li.appendChild(btn);
+        shelf.appendChild(li);
+      });
     });
     if (note) note.textContent = STATE.bands.length
       ? STATE.bands.length + " model" + (STATE.bands.length === 1 ? "" : "s") + " on air"
@@ -205,6 +242,7 @@
     if (!t.demo) lastLiveTape = t;
     var cas = $("dkCassette");
     if (cas) {
+      cas.setAttribute("aria-label", t.label + (t.demo ? ", recorded contract tape" : ", live model tape"));
       cas.setAttribute("data-state", "loading");
       if (!REDUCED) {
         cas.addEventListener("animationend", function done() {
@@ -213,6 +251,7 @@
         });
       } else { cas.setAttribute("data-state", "loaded"); }
     }
+    setBayState("LOADED");
     $("dkTapeName").textContent = t.label;
     $("dkTapeSub").textContent = t.demo ? "certified contracts · recorded" : "on air via the Tower";
     var caps = $("dkTapeCaps");
@@ -244,7 +283,8 @@
     stopPlayback();
     STATE.tape = null;
     var cas = $("dkCassette");
-    if (cas) cas.setAttribute("data-state", "empty");
+    if (cas) { cas.setAttribute("data-state", "empty"); cas.setAttribute("aria-label", "No tape loaded"); }
+    setBayState("EMPTY");
     $("dkTapeName").textContent = "NO TAPE";
     $("dkTapeSub").textContent = "pick a cassette from the shelf";
     var caps = $("dkTapeCaps"); if (caps) caps.textContent = "";
@@ -261,9 +301,14 @@
   function refreshTransport() {
     var t = STATE.tape;
     var needsLogin = !!(t && t.band && !bandFree(t.band) && !STATE.loggedIn);
+    var ready = false;
+    if (t && !needsLogin) {
+      if (STATE.kind === "text") ready = !!((($("dkTextInput") || {}).value || "").trim());
+      else ready = !!(STATE.card && STATE.card.kind === STATE.kind);
+    }
     var invite = $("pgSignInInvite");
     if (invite) invite.hidden = !needsLogin;
-    $("dkPlay").disabled = !t || STATE.playing || needsLogin;
+    $("dkPlay").disabled = !ready || STATE.playing;
     $("dkStop").disabled = !STATE.playing;
     $("dkEject").disabled = !t;
   }
@@ -274,8 +319,12 @@
   var lastLiveTape = null;
   function applyKindUI() {
     var kind = STATE.kind;
+    var selector = document.querySelector(".dk__selector");
+    if (selector) selector.setAttribute("data-active", kind);
     document.querySelectorAll(".dk__pos").forEach(function (btn) {
-      btn.setAttribute("aria-selected", btn.getAttribute("data-kind") === kind ? "true" : "false");
+      var active = btn.getAttribute("data-kind") === kind;
+      btn.setAttribute("aria-checked", active ? "true" : "false");
+      btn.setAttribute("tabindex", active ? "0" : "-1");
     });
     document.querySelectorAll(".dk__surface").forEach(function (sf) {
       sf.hidden = sf.getAttribute("data-kind") !== kind;
@@ -297,6 +346,15 @@
   }
   document.querySelectorAll(".dk__pos").forEach(function (btn) {
     btn.addEventListener("click", function () { selectKind(btn.getAttribute("data-kind")); });
+    btn.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowDown" && e.key !== "ArrowLeft" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      var positions = Array.prototype.slice.call(document.querySelectorAll(".dk__pos"));
+      var step = (e.key === "ArrowRight" || e.key === "ArrowDown") ? 1 : -1;
+      var next = positions[(positions.indexOf(btn) + step + positions.length) % positions.length];
+      next.focus();
+      selectKind(next.getAttribute("data-kind"));
+    });
   });
 
   // The device prompt is PART of the device (models-agent ruling, measured twice:
@@ -353,6 +411,7 @@
       wrap.querySelectorAll(".dk__card").forEach(function (c) { c.setAttribute("aria-pressed", "false"); });
       b.setAttribute("aria-pressed", "true");
       STATE.card = b._card;
+      setBayState("INPUT ARMED");
       refreshTransport();
     });
     return b;
@@ -489,9 +548,11 @@
   }
 
   function pingSend(hist, msgNode) {
+    abortCtl = ("AbortController" in window) ? new AbortController() : null;
     return fetch(BROKER + "/concierge", {
       method: "POST", headers: { "Content-Type": "application/json" },
       credentials: "omit", cache: "no-store",
+      signal: abortCtl ? abortCtl.signal : undefined,
       body: JSON.stringify({ messages: hist.slice(-8) })
     }).then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
       .then(function (data) {
@@ -501,13 +562,15 @@
         msgNode.textContent = reply;
         hist.push({ role: "assistant", content: reply });
       })
-      .catch(function () {
+      .catch(function (err) {
         msgNode.parentNode.classList.remove("is-wait");
+        if (err && err.name === "AbortError") { msgNode.textContent = "stopped."; return; }
         msgNode.textContent = "I'm off air right now - tune in straight from your terminal: curl -fsSL https://rogerai.fm/install.sh | sh";
       });
   }
 
   function playLive(text, spoken) {
+    var serial = ++playbackSerial;
     var t = STATE.tape;
     var key = t.ping ? "ping" : t.model;
     var hist = historyFor(key);
@@ -516,7 +579,7 @@
     hist.push({ role: "user", content: text });
     var label = t.ping ? "PING" : stationLabel(t.model);
     var thinking = logLine("ping", label, "Patching through the Tower…", true);
-    STATE.playing = true; setReels(true); refreshTransport();
+    STATE.playing = true; setBayState("PLAYING"); setReels(true); refreshTransport();
     var turn = t.ping ? pingSend(hist, thinking)
       : stationSend(t.model, hist, thinking).catch(function (err) {
           thinking.parentNode.classList.remove("is-wait");
@@ -524,6 +587,8 @@
           thinking.textContent = typeof err === "string" ? err : "the relay dropped this one - try again";
         });
     return turn.then(function () {
+      if (serial !== playbackSerial) return;
+      if (STATE.playing) setBayState("READY");
       STATE.playing = false; abortCtl = null; setReels(false); refreshTransport();
       if (log) log.scrollTop = log.scrollHeight;
     });
@@ -535,10 +600,11 @@
     if (REDUCED) { node.textContent = text; done(); return; }
     var i = 0;
     (function tick() {
+      if (!STATE.playing) return;
       i = Math.min(text.length, i + 3);
       node.textContent = text.slice(0, i);
-      if (i < text.length && STATE.playing) setTimeout(tick, 16);
-      else { node.textContent = text; done(); }
+      if (i < text.length) typeTimer = setTimeout(tick, 16);
+      else { typeTimer = null; node.textContent = text; done(); }
     })();
   }
 
@@ -559,17 +625,17 @@
       // never as a warning state.
       verdictText = isEsc ? "escalate · right call" : "valid";
       var dp = DEVICE_PROMPTS[c.task_class];
-      noteText = (dp ? "Device prompt (ships with the device): " + dp + "  " : "") +
+      noteText = (dp ? "Device prompt excerpt (ships with the device): " + dp + "  " : "") +
         "Standard: " + (c.standard || "");
     }
     verdict.hidden = false;
     verdict.className = "pg-verdict pg-verdict--ok";
     verdict.textContent = verdictText;
     note.textContent = "";
-    STATE.playing = true; setReels(true); refreshTransport();
+    STATE.playing = true; setBayState("PLAYING"); setReels(true); refreshTransport();
     typeOut(out, text, function () {
       note.textContent = noteText;
-      STATE.playing = false; setReels(false); refreshTransport();
+      STATE.playing = false; setBayState("READY"); setReels(false); refreshTransport();
     });
   }
 
@@ -595,7 +661,9 @@
   }
   function stopPlayback() {
     if (abortCtl) { try { abortCtl.abort(); } catch (e) {} }
-    STATE.playing = false; setReels(false); refreshTransport();
+    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
+    playbackSerial++;
+    STATE.playing = false; setBayState(STATE.tape ? "STOPPED" : "EMPTY"); setReels(false); refreshTransport();
   }
 
   var playBtn = $("dkPlay"), stopBtn = $("dkStop"), ejectBtn = $("dkEject");
@@ -605,6 +673,10 @@
   var textForm = $("dkTextForm");
   if (textForm) textForm.addEventListener("submit", function (e) { e.preventDefault(); play(); });
   var textInput = $("dkTextInput");
+  if (textInput) textInput.addEventListener("input", function () {
+    setBayState((textInput.value || "").trim() ? "INPUT ARMED" : "READY");
+    refreshTransport();
+  });
   if (textInput) textInput.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); play(); }
   });
