@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<!-- The Playbox ("the console"). A tabbed instrument deck where a visitor
-     interacts with RogerAI models three ways: Chat (tune a station and talk to
-     it LIVE through the Tower relay; Ping is the untuned default), Capability
-     surfaces (text/audio/vision/tool/embed/guard), and the Roger Edge
-     simulator (drop plant events on the device, read the certified contract
-     beside a recorded real checkpoint answer).
+<!-- The Playbox: the cassette deck. ONE view - the model IS the tape. Pick a
+     cassette from the shelf (live stations + labelled demo tapes), it loads
+     into the bay, and the left console selects ONE input kind at a time
+     (text/voice/image/tool/embed/guard); the right monitor shows the result -
+     REAL streamed chat through the Tower relay for live tapes, labelled
+     certified-contract replays for the recorded kinds.
      HONESTY CONTRACT (see playbox.js header): every "live" claim maps to a
      real browser-safe endpoint (/discover, /market, /concierge, credentialed
      /me + /balance). Everything else is labelled example / illustrative, and
@@ -38,287 +38,215 @@
         </span>
         <h1 class="pg-hero__title" data-reveal data-reveal-delay="60">Open the console.</h1>
         <p class="pg-hero__sub" data-reveal data-reveal-delay="120">
-          Three ways to work with RogerAI models, on one deck. <b>Chat</b> tunes into the
-          stations on air. <b>Capabilities</b> shows what the models do - text, audio,
-          vision, tools, retrieval, and the safety guard. <b>Roger Edge</b> drops real plant
-          events onto a device and reads back its structured decision. Everything that says
-          <b>live</b> is a real endpoint this page can reach; everything else is labelled an
-          example, and no answer is ever faked.
+          The model is the tape. Pick a cassette from the shelf, load it into the deck,
+          choose an input on the left - type it, speak it, show it a scene, hand it a tool
+          request, ride along in a device, or test the guard - and press play. Everything
+          marked <b>live</b> is a real station answering through the Tower; everything
+          marked <b>recorded</b> is a certified contract replay, labelled. No answer is
+          ever faked.
         </p>
       </div>
     </section>
 
-    <!-- ============================ THE CONSOLE ============================ -->
+    <!-- ============================ THE DECK ============================
+         Playbox v2 (features/web/playbox_deck.feature): ONE view, no tabs.
+         Left: the input console (rotary selector, one input kind at a time).
+         Center: the cassette bay - the model IS the tape - over the shelf.
+         Right: the output monitor (real chat via the Tower; RECORDED replays).
+         Honesty contract unchanged: LIVE means a real endpoint; RECORDED means
+         a certified contract or captured output, and it is always labelled. -->
     <section class="pg-console">
-      <div class="wrap">
-        <span class="fig">FIG. 1 - THE CONSOLE &middot; THREE SURFACES</span>
-        <div class="pg-deck pg-bench">
+      <div class="wrap wrap--deck">
+        <span class="fig">FIG. 1 - THE DECK &middot; INPUT / TAPE / OUTPUT</span>
+        <div class="pg-deck pg-bench dk">
           <!-- the engraved maker's plate: the deck is one piece of equipment -->
           <div class="pg-bench__plate" aria-hidden="true">
             <span class="pg-bench__name">PLAYBOX</span>
-            <span class="pg-bench__type">RCI-5 &middot; TOWER-COUPLED CONSOLE</span>
+            <span class="pg-bench__type">RCI-5 &middot; TOWER-COUPLED CASSETTE CONSOLE</span>
+            <span class="pg-bench__status" id="pgChatStatus" data-state="off">
+              <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
+              tuning in the band&hellip;</span>
             <span class="pg-bench__serial">SER. NO. 2026-08</span>
           </div>
 
-          <!-- band selector -->
-          <div class="pg-tabs" role="tablist" aria-label="Playbox surfaces">
-            <span class="pg-tabs__mode" aria-hidden="true">MODE</span>
-            <button class="pg-tab" id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" type="button">
-              <span class="pg-tab__no">01</span> Chat
-            </button>
-            <button class="pg-tab" id="tab-cap" role="tab" aria-selected="false" aria-controls="panel-cap" tabindex="-1" type="button">
-              <span class="pg-tab__no">02</span> Capabilities
-            </button>
-            <button class="pg-tab" id="tab-edge" role="tab" aria-selected="false" aria-controls="panel-edge" tabindex="-1" type="button">
-              <span class="pg-tab__no">03</span> Roger Edge
-            </button>
-          </div>
+          <div class="dk__body">
+            <!-- ================= LEFT: THE INPUT CONSOLE ================= -->
+            <div class="dk__col dk__inputcol">
+              <h2 class="dk__colhead">INPUT</h2>
 
-          <!-- ============ PANEL 1: CHAT ============ -->
-          <div class="pg-panel" id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" tabindex="0">
-            <div class="pg-panel__head">
-              <span class="pg-status" id="pgChatStatus" data-state="off" aria-live="polite">
-                <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
-                tuning in the live directory&hellip;
-              </span>
-              <h2 class="pg-panel__title">Tune into a station.</h2>
-              <p class="pg-panel__lede">
-                Pick a model from the live directory on the left and key up - your message
-                routes through the Tower to that station, and the reply streams back live.
-                With nothing tuned, you&rsquo;re talking to <b>Ping</b>, the concierge.
-                Prefer the terminal? The copyable command reaches the same station.
-              </p>
-            </div>
-
-            <div class="pg-chat">
-              <!-- model directory (live) -->
-              <div>
-                <div class="pg-dir">
-                  <div class="pg-dir__bar">
-                    <h3>Stations on air</h3>
-                    <button class="pg-dir__filter" id="pgFilterFree" type="button" aria-pressed="false">free only</button>
-                  </div>
-                  <ul class="pg-dir__list" id="pgModelList" aria-label="Model directory">
-                    <li class="pg-dir__empty">Reading the band&hellip;</li>
-                  </ul>
-                </div>
-
-                <div class="pg-acct" id="pgAcct">
-                  <div class="pg-acct__row">
-                    <span class="pg-acct__k">Account</span>
-                    <span class="pg-acct__v" id="pgAcctState">signed out</span>
-                  </div>
-                  <div class="pg-acct__row" id="pgBalRow" hidden>
-                    <span class="pg-acct__k">Balance</span>
-                    <span class="pg-acct__v" id="pgBal">&mdash;</span>
-                  </div>
-                  <p class="pg-capcard__note" id="pgAcctNote">
-                    Signed out, free stations chat right away. A paid station asks you to
-                    sign in before the first send.
-                  </p>
-                  <a class="pg-btn pg-btn--ghost" id="pgLogin" href="https://broker.rogerai.fm/auth/github/login">
-                    Sign in with GitHub
-                  </a>
-                </div>
+              <!-- rotary selector: exactly one input kind is active -->
+              <div class="dk__selector" role="tablist" aria-label="Input kind">
+                <button class="dk__pos" role="tab" data-kind="text"  aria-selected="true"  type="button"><i></i>TEXT</button>
+                <button class="dk__pos" role="tab" data-kind="voice" aria-selected="false" type="button"><i></i>VOICE</button>
+                <button class="dk__pos" role="tab" data-kind="image" aria-selected="false" type="button"><i></i>IMAGE</button>
+                <button class="dk__pos" role="tab" data-kind="tool"  aria-selected="false" type="button"><i></i>TOOL</button>
+                <button class="dk__pos" role="tab" data-kind="embed" aria-selected="false" type="button"><i></i>EMBED</button>
+                <button class="dk__pos" role="tab" data-kind="guard" aria-selected="false" type="button"><i></i>GUARD</button>
               </div>
 
-              <!-- transcript -->
-              <div class="pg-talk">
-                <div class="pg-talk__head">
-                  <span class="pg-talk__who">
-                    <b id="pgTalkTitle">Ping &middot; concierge</b>
-                    <small id="pgTalkSub">the browser-safe demo assistant</small>
-                  </span>
-                  <!-- the S-meter: a real needle over real data (bench spec). The
-                       needle angle and the S-readout are set from the SAME signal
-                       number the directory rows draw - never invented. -->
-                  <span class="pg-smeter" id="pgSMeter" role="img" aria-label="Signal strength">
-                    <svg viewBox="0 0 100 58" aria-hidden="true">
-                      <path class="pg-smeter__arc" d="M 12 50 A 43 43 0 0 1 88 50" />
-                      <g class="pg-smeter__ticks">
-                        <line x1="12" y1="50" x2="17" y2="47" /><line x1="20" y1="34" x2="24" y2="38" />
-                        <line x1="34" y1="21" x2="37" y2="26" /><line x1="50" y1="17" x2="50" y2="23" />
-                        <line x1="66" y1="21" x2="63" y2="26" /><line x1="80" y1="34" x2="76" y2="38" />
-                        <line x1="88" y1="50" x2="83" y2="47" />
-                      </g>
-                      <line class="pg-smeter__needle" id="pgSMeterNeedle" x1="50" y1="50" x2="50" y2="20" />
-                      <circle class="pg-smeter__pivot" cx="50" cy="50" r="3" />
-                    </svg>
-                    <b class="pg-smeter__read mono" id="pgSMeterRead">S0</b>
-                  </span>
-                  <span class="pg-tier pg-tier--live">Live</span>
-                </div>
+              <!-- TEXT: the big live composer -->
+              <form class="dk__surface" data-kind="text" id="dkTextForm">
+                <label class="dk__surfhead" for="dkTextInput">Type into the tape</label>
+                <textarea class="dk__text" id="dkTextInput" maxlength="800" rows="6"
+                  placeholder="Key a message to the loaded model&hellip;"></textarea>
+                <p class="dk__surfnote" id="dkTextNote">Routes through the Tower to the
+                  station carrying this tape - a real reply, streamed.</p>
+              </form>
 
-                <ul class="pg-log" id="pgChatLog" aria-live="polite" aria-label="Conversation"></ul>
+              <!-- VOICE: preset utterances; the words shown ARE the input -->
+              <div class="dk__surface" data-kind="voice" hidden>
+                <span class="dk__surfhead">Speak into the tape</span>
+                <div class="dk__cards" id="dkVoiceCards"></div>
+                <p class="dk__surfnote">Each card is a spoken utterance; its transcript is
+                  what the model hears. The reply is live.</p>
+              </div>
 
-                <!-- paid station, signed out: the composer yields to the sign-in
-                     invitation BEFORE anything is sent (features/web/playbox.feature) -->
-                <div class="pg-invite" id="pgSignInInvite" hidden>
-                  <p>This station is paid. Sign in to key up - your balance settles the
-                    conversation, receipt by receipt.</p>
-                  <a class="pg-btn" href="https://broker.rogerai.fm/auth/github/login">Sign in with GitHub</a>
-                </div>
+              <!-- IMAGE: preselected scenes by category -->
+              <div class="dk__surface" data-kind="image" hidden>
+                <span class="dk__surfhead">Show the tape a scene</span>
+                <div class="dk__cards dk__cards--scene" id="dkImageCards"></div>
+                <p class="dk__surfnote">Preselected plant scenes. The reading shown on
+                  play is a recorded demonstration, labelled.</p>
+              </div>
 
-                <!-- the real path to the SELECTED station (honest, copyable) -->
-                <div class="pg-cli" id="pgCliBox" hidden>
-                  <div class="pg-cli__bar">
-                    <span id="pgCliLabel">Chat with this station directly</span>
-                    <button class="pg-copy" id="pgCliCopy" type="button" aria-label="Copy command">copy</button>
-                  </div>
-                  <div class="pg-cli__body"><span class="pg-prompt">$</span> <code id="pgCliCmd">roger chat</code></div>
-                </div>
+              <!-- TOOL: a request that must become a tool call -->
+              <div class="dk__surface" data-kind="tool" hidden>
+                <span class="dk__surfhead">Hand the tape a request</span>
+                <div class="dk__cards" id="dkToolCards"></div>
+                <p class="dk__surfnote">The contract: the answer is a tool call with
+                  filled arguments - no prose. Certified target, replayed.</p>
+              </div>
 
-                <form class="pg-form" id="pgChatForm" autocomplete="off">
-                  <input class="pg-input" id="pgChatInput" type="text" name="msg"
-                         placeholder="Ask Ping about going on air, sharing a GPU, or picking a station&hellip;"
-                         maxlength="800" aria-label="Message" />
-                  <button class="pg-btn pg-send pg-send--key" id="pgChatSend" type="submit">
-                    <span class="pg-send__cap" aria-hidden="true">KEY</span> Send</button>
-                </form>
+              <!-- EMBED: the device the model rides in -->
+              <div class="dk__surface" data-kind="embed" hidden>
+                <span class="dk__surfhead">Ride along in a device</span>
+                <div class="dk__cards dk__cards--device" id="dkEmbedCards"></div>
+                <p class="dk__surfnote">The model embedded at the asset: its input is the
+                  device's own signal. Certified contract, replayed.</p>
+              </div>
+
+              <!-- GUARD: requests the model must refuse upward -->
+              <div class="dk__surface" data-kind="guard" hidden>
+                <span class="dk__surfhead">Test the guard</span>
+                <div class="dk__cards" id="dkGuardCards"></div>
+                <p class="dk__surfnote">A model holds no actuation authority. The right
+                  answer is a clean ESCALATE to a human on deterministic controls.</p>
               </div>
             </div>
 
-            <div class="pg-note" style="margin-top:var(--s-8)">
-              <span class="pg-note__k">How it routes</span>
-              <div>
-                <p>Tuning a station here is the real thing: your message goes through the
-                  Tower&rsquo;s relay (<code>POST /v1/chat/completions</code>, credentialed to
-                  this site only) to whoever is sharing that model, and the reply streams back
-                  co-signed and metered - the same path the CLI uses, on the same wallet.
-                  Free stations work signed out; paid stations ask you to sign in first.</p>
-                <p>With no station tuned, you&rsquo;re talking to <b>Ping</b>, the concierge.
-                  When the band is quiet or a station drops, the page says so - nothing here
-                  is ever simulated.</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- ============ PANEL 2: CAPABILITIES ============ -->
-          <div class="pg-panel" id="panel-cap" role="tabpanel" aria-labelledby="tab-cap" tabindex="0" hidden>
-            <div class="pg-panel__head">
-              <span class="pg-status" id="pgCapStatus" data-state="off" aria-live="polite">
-                <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
-                reading capabilities from the band&hellip;
-              </span>
-              <h2 class="pg-panel__title">What the models do.</h2>
-              <p class="pg-panel__lede">
-                Six surfaces. Where the broker exposes a capability the browser can read, the
-                card shows the <b>live roster</b> of stations carrying it. Where there&rsquo;s no
-                browser-safe endpoint yet, the card explains how it works and shows a clearly
-                marked <b>example</b> - never a faked live call.
-              </p>
-            </div>
-            <div class="pg-caps" id="pgCaps">
-              <!-- capability cards injected by playbox.js; static fallbacks below -->
-              <p class="pg-capcard__note">Loading the capability surfaces&hellip;</p>
-            </div>
-          </div>
-
-          <!-- ============ PANEL 3: ROGER EDGE ============ -->
-          <div class="pg-panel" id="panel-edge" role="tabpanel" aria-labelledby="tab-edge" tabindex="0" hidden>
-            <div class="pg-panel__head">
-              <span class="pg-status" data-state="live">
-                <span class="livedot"><span class="livedot__ring"></span><span class="livedot__core"></span></span>
-                captured on real plant inputs
-              </span>
-              <h2 class="pg-panel__title">Roger Edge: input in, structured decision out.</h2>
-              <p class="pg-panel__lede">
-                Roger Edge and Wave Nano aren&rsquo;t chat models - they turn a messy device
-                input into a structured decision: a JSON extraction, a tool call, or an
-                <b>ESCALATE</b>. Drag an event card onto the device (or press it). The screen shows
-                the <b>certified contract</b> for that input - the target keyed to a published
-                standard - and, beside it, what a recorded real checkpoint answered on the same input.
-                The gap is the work.
-              </p>
-            </div>
-
-            <div class="pg-edge">
-              <!-- event tray -->
-              <div class="pg-tray" id="pgTray" aria-label="Plant events - drag or press to feed the device">
-                <span class="pg-tray__h">Plant events</span>
-                <p class="pg-capcard__note" id="pgTrayFallback">Loading captured events&hellip;</p>
+            <!-- ================= CENTER: THE CASSETTE BAY ================= -->
+            <div class="dk__col dk__baycol">
+              <div class="dk__bay" id="dkBay">
+                <div class="dk__bayslot" aria-hidden="true"></div>
+                <div class="dk__cassette" id="dkCassette" data-state="empty">
+                  <svg viewBox="0 0 320 200" aria-hidden="true">
+                    <rect class="dk-c__body" x="4" y="4" width="312" height="192" rx="14"/>
+                    <rect class="dk-c__label" x="24" y="18" width="272" height="58" rx="6"/>
+                    <text class="dk-c__name" id="dkTapeName" x="160" y="42" text-anchor="middle">NO TAPE</text>
+                    <text class="dk-c__sub"  id="dkTapeSub"  x="160" y="62" text-anchor="middle">pick a cassette from the shelf</text>
+                    <rect class="dk-c__window" x="60" y="92" width="200" height="64" rx="30"/>
+                    <g class="dk__reel" id="dkReelL">
+                      <circle class="dk-c__hub" cx="106" cy="124" r="24"/>
+                      <path class="dk-c__spokes" d="M106 104 v40 M86 124 h40 M92 110l28 28 M92 138l28-28"/>
+                    </g>
+                    <g class="dk__reel" id="dkReelR">
+                      <circle class="dk-c__hub" cx="214" cy="124" r="24"/>
+                      <path class="dk-c__spokes" d="M214 104 v40 M194 124 h40 M200 110l28 28 M200 138l28-28"/>
+                    </g>
+                    <path class="dk-c__tape" d="M130 124 h60"/>
+                    <circle class="dk-c__screw" cx="18" cy="18" r="4"/>
+                    <circle class="dk-c__screw" cx="302" cy="18" r="4"/>
+                    <circle class="dk-c__screw" cx="18" cy="182" r="4"/>
+                    <circle class="dk-c__screw" cx="302" cy="182" r="4"/>
+                  </svg>
+                  <div class="dk__caps" id="dkTapeCaps" aria-label="Tape capabilities"></div>
+                </div>
               </div>
 
-              <!-- device + readout -->
-              <div class="pg-stage">
-                <div class="pg-device" id="pgDevice">
-                  <canvas class="pg-device__canvas" id="pgEdgeCanvas" width="720" height="300"
-                          role="img" aria-label="Roger Edge device. Drop a plant event on it to see the decision."></canvas>
-                  <span class="pg-device__hint" id="pgDeviceHint">drop an event here &middot; or press a card</span>
-                </div>
+              <div class="dk__transport" role="group" aria-label="Transport">
+                <button class="dk__tbtn pg-send--key" id="dkPlay" type="button" disabled>
+                  <span class="pg-send__cap" aria-hidden="true">&#9654;</span> Play</button>
+                <button class="dk__tbtn" id="dkStop" type="button" disabled>
+                  <span class="pg-send__cap" aria-hidden="true">&#9632;</span> Stop</button>
+                <button class="dk__tbtn" id="dkEject" type="button" disabled>
+                  <span class="pg-send__cap" aria-hidden="true">&#9650;</span> Eject</button>
+              </div>
 
-                <div class="pg-edge__meta" id="pgEdgeMeta" hidden>
-                  <span>case&nbsp;<b id="pgMetaId">&mdash;</b></span>
-                  <span>difficulty&nbsp;<b id="pgMetaDiff">&mdash;</b></span>
-                  <span>ground truth&nbsp;<b id="pgMetaVer">audited</b></span>
-                </div>
+              <div class="dk__shelfwrap">
+                <h2 class="dk__colhead">THE SHELF <small id="dkShelfNote">reading the band&hellip;</small></h2>
+                <ul class="dk__shelf" id="dkShelf" aria-label="Cassette shelf"></ul>
+              </div>
 
-                <div class="pg-out">
-                  <div class="pg-out__bar" id="pgOutBar" hidden>
-                    <span class="pg-out__route"><b id="pgRoute">ROUTE</b></span>
-                    <span class="pg-verdict pg-verdict--ok" id="pgVerdict">valid</span>
-                  </div>
-                  <div class="pg-out__body">
-                    <p class="pg-out__empty" id="pgOutEmpty">No event on the device yet. Feed it a card to read the decision.</p>
-
-                    <div class="pg-block" id="pgPromptBlock" hidden>
-                      <div class="pg-block__k">
-                        <h4>Device prompt - ships with the device</h4>
-                      </div>
-                      <pre class="pg-code" id="pgDevPrompt"></pre>
-                      <p class="pg-block__cap">The framing is part of the system: unframed, a
-                        contract model flounders; framed, it performs. This is an excerpt of the
-                        real production framing for this task class - the model and its device
-                        prompt ship as one unit.</p>
-                    </div>
-
-                    <div class="pg-block" id="pgCertBlock" hidden>
-                      <div class="pg-block__k">
-                        <h4>Certified contract - the target</h4>
-                        <span class="pg-block__std" id="pgStd"></span>
-                      </div>
-                      <pre class="pg-code pg-json" id="pgCert"></pre>
-                      <p class="pg-block__cap" id="pgCertCap"></p>
-                    </div>
-
-                    <div class="pg-block" id="pgCapBlock" hidden>
-                      <button class="pg-reveal" id="pgCapToggle" type="button" aria-expanded="false" aria-controls="pgCapturedWrap">
-                        <span class="pg-reveal__car" aria-hidden="true">&rsaquo;</span>
-                        Show what a recorded checkpoint returned - same input
-                      </button>
-                      <div class="pg-captured" id="pgCapturedWrap" hidden>
-                        <div class="pg-block__k" style="margin-bottom:6px">
-                          <span class="pg-block__cap" id="pgCapLabel">Recorded Wave Nano checkpoint &middot; same input</span>
-                          <span class="pg-verdict pg-verdict--bad" id="pgCapVerdict">off-contract</span>
-                        </div>
-                        <pre class="pg-code" id="pgCaptured"></pre>
-                        <p class="pg-block__cap" id="pgCapNote"></p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <!-- paid tape, signed out: the invitation replaces play -->
+              <div class="pg-invite" id="pgSignInInvite" hidden>
+                <p>This tape is paid. Sign in to press play - your balance settles the
+                  conversation, receipt by receipt.</p>
+                <a class="pg-btn" href="https://broker.rogerai.fm/auth/github/login">Sign in with GitHub</a>
               </div>
             </div>
 
-            <div class="pg-note" style="margin-top:var(--s-8)">
-              <span class="pg-note__k">What&rsquo;s real</span>
-              <div>
-                <p>Every input and every certified contract here is <b>real</b>: it comes from the
-                  Wave evaluation golden set, each case keyed to a published standard (ISA-18.2,
-                  ISO&nbsp;14224, EPA&nbsp;NSPS&nbsp;OOOOb, and more) and audited for a defensible
-                  ground truth. The certified contract is the <b>target</b> Wave Nano is trained
-                  against - not a live call.</p>
-                <p>The recorded samples are <b>real captured outputs on the same inputs</b>, shown
-                  labelled so nothing reads as a faked success. <b>Wave Nano</b> (350M) is the
-                  trained gateway-class brain of the edge line; <b>Roger Edge</b> itself is the
-                  MCU-class classifier line, in design, with no trained artifact yet. See the
-                  <a href="/research-wave-family.html">Wave family field guide</a> for where each
-                  sits and how the safety guard covers the gap.</p>
+            <!-- ================= RIGHT: THE OUTPUT MONITOR ================= -->
+            <div class="dk__col dk__outcol">
+              <div class="dk__outhead">
+                <h2 class="dk__colhead">OUTPUT</h2>
+                <span class="pg-smeter" id="pgSMeter" role="img" aria-label="Signal strength">
+                  <svg viewBox="0 0 100 58" aria-hidden="true">
+                    <path class="pg-smeter__arc" d="M 12 50 A 43 43 0 0 1 88 50" />
+                    <g class="pg-smeter__ticks">
+                      <line x1="12" y1="50" x2="17" y2="47" /><line x1="20" y1="34" x2="24" y2="38" />
+                      <line x1="34" y1="21" x2="37" y2="26" /><line x1="50" y1="17" x2="50" y2="23" />
+                      <line x1="66" y1="21" x2="63" y2="26" /><line x1="80" y1="34" x2="76" y2="38" />
+                      <line x1="88" y1="50" x2="83" y2="47" />
+                    </g>
+                    <line class="pg-smeter__needle" id="pgSMeterNeedle" x1="50" y1="50" x2="50" y2="20" />
+                    <circle class="pg-smeter__pivot" cx="50" cy="50" r="3" />
+                  </svg>
+                  <b class="pg-smeter__read mono" id="pgSMeterRead">S0</b>
+                </span>
+                <span class="dk__mode" id="dkOutMode" data-mode="live">LIVE</span>
+              </div>
+
+              <!-- the logbook: real conversation, ruled, UTC -->
+              <ul class="pg-log" id="pgChatLog" aria-live="polite" aria-label="Conversation"></ul>
+
+              <!-- the printer: contract replays type themselves out here -->
+              <div class="dk__printer" id="dkPrinter" hidden>
+                <div class="dk__printhead">
+                  <span id="dkPrintLabel">CERTIFIED CONTRACT &middot; RECORDED</span>
+                  <span class="pg-verdict pg-verdict--ok" id="dkPrintVerdict" hidden>valid</span>
+                </div>
+                <pre class="pg-code" id="dkPrintOut"></pre>
+                <p class="dk__printnote" id="dkPrintNote"></p>
+              </div>
+
+              <div class="pg-cli" id="pgCliBox" hidden>
+                <div class="pg-cli__bar">
+                  <span id="pgCliLabel">Or play this tape from your terminal</span>
+                  <button class="pg-copy" id="pgCliCopy" type="button" aria-label="Copy command">copy</button>
+                </div>
+                <div class="pg-cli__body"><span class="pg-prompt">$</span> <code id="pgCliCmd">roger chat</code></div>
               </div>
             </div>
           </div>
+        </div>
 
-        </div><!-- /pg-deck -->
+        <div class="pg-note" style="margin-top:var(--s-6)">
+          <span class="pg-note__k">How it routes</span>
+          <div>
+            <p>A tape marked <b>LIVE</b> is a real station on air: pressing play routes your
+              input through the Tower&rsquo;s relay (<code>POST /v1/chat/completions</code>,
+              credentialed to this site only) to whoever is sharing that model, and the reply
+              streams back co-signed and metered - the same path the CLI uses, on the same
+              wallet. Free tapes play signed out; paid tapes ask you to sign in first.</p>
+            <p>A tape or input marked <b>RECORDED</b> replays a certified contract or a real
+              captured output - clearly labelled, never presented as live. When the band is
+              quiet or a station drops, the deck says so; nothing here is ever simulated as
+              live. Every simulated device carries its fixed device prompt - the model and
+              its framing ship as one unit. <b>Wave Nano</b> (350M) is the trained
+              gateway-class brain of the edge line; <b>Roger Edge</b> itself is the
+              MCU-class classifier line, in design, with no trained artifact yet.</p>
+          </div>
+        </div>
       </div>
     </section>
 
