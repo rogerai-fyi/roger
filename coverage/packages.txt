@@ -1,12 +1,12 @@
   90.0%  rogerai.fm/roger/v5/cmd/rogerai
-  91.0%  rogerai.fm/roger/v5/cmd/rogerai-broker
+  90.9%  rogerai.fm/roger/v5/cmd/rogerai-broker
   94.7%  rogerai.fm/roger/v5/cmd/tokenizer-sidecar
   93.2%  rogerai.fm/roger/v5/internal/agent
   90.3%  rogerai.fm/roger/v5/internal/audio
   96.7%  rogerai.fm/roger/v5/internal/brief
   96.9%  rogerai.fm/roger/v5/internal/capsule
  100.0%  rogerai.fm/roger/v5/internal/catalog
-  95.0%  rogerai.fm/roger/v5/internal/client
+  95.1%  rogerai.fm/roger/v5/internal/client
   92.2%  rogerai.fm/roger/v5/internal/detect
  100.0%  rogerai.fm/roger/v5/internal/glyphs
   97.4%  rogerai.fm/roger/v5/internal/harness
@@ -20,4 +20,4 @@
   98.1%  rogerai.fm/roger/v5/internal/tokenizer
   91.3%  rogerai.fm/roger/v5/internal/tui
   98.9%  rogerai.fm/roger/v5/internal/update
-  95.6%  rogerai.fm/roger/v5/internal/webui
+  95.2%  rogerai.fm/roger/v5/internal/webui
