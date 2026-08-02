@@ -209,12 +209,47 @@ test("the zero is explained as a non-answer, not ten wrong answers", () => {
     "the cell distinguishes not-answering from answering wrongly");
 });
 
-// The market set grew from four to six. Both pages that name it have to agree, and the
-// count has to be stated correctly - "Four industries" with six articles under it is the
-// kind of drift a reader notices before we do.
+// The market set grew four -> six -> eight (healthcare and defense sustainment, founder-
+// approved 2026-08-01). Both pages that name it have to agree, and the count has to be
+// stated correctly - "Four industries" with eight articles under it is the kind of drift a
+// reader notices before we do.
+// Founder-approved 2026-08-01 (features/web/healthcare_defense_markets.feature). These
+// two boundaries are the whole basis on which we may claim healthcare and defense at all:
+// healthcare is the EQUIPMENT AND FACILITIES layer (clinical work is FDA-regulated Software
+// as a Medical Device), and defense is SUSTAINMENT (no effects). If a future edit softens
+// or drops them, that is a regulated-claims problem, not a copy problem.
+test("the healthcare and defense boundaries are stated where the markets are claimed", () => {
+  const industry = visible(read("research-industry.html"));
+  assert.match(industry, /equipment and facilities, not patients/i,
+    "the healthcare boundary must be stated on the page that claims healthcare");
+  for (const forbidden of [/do not diagnose/i, /do not treat/i, /do not read scans/i]) {
+    assert.match(industry, forbidden, `the boundary must say it ${forbidden}`);
+  }
+  assert.match(industry, /never a decision about a live alarm/i,
+    "alarm work must be scoped to offline journal review, not bedside decisions");
+  assert.match(industry, /sustainment, not effects/i, "the defense boundary must be stated");
+  assert.match(industry, /no targeting/i, "defense must disclaim targeting explicitly");
+  // and the company page cannot claim healthcare without the same scope
+  assert.match(visible(read("company.html")), /equipment and facilities layer/i,
+    "the company page's industry line must carry the healthcare scope too");
+});
+
+test("no job in the table describes clinical work", () => {
+  const table = jobsTable();
+  for (const row of rows(table)) {
+    const text = visible(row);
+    for (const clinical of [/\bdiagnos/i, /\btreatment\b/i, /\bdosing\b/i,
+                            /\bpatient (triage|acuity)\b/i, /read(ing)? a scan/i,
+                            /\bwaveform\b/i, /\becg\b/i]) {
+      assert.doesNotMatch(text, clinical,
+        `a job row strays into clinical territory (${clinical}): ${text.slice(0, 70)}`);
+    }
+  }
+});
+
 test("the industrial market set is consistent wherever it is named", () => {
   const MARKETS = [/oil and gas/i, /power generation/i, /manufacturing/i,
-                   /aerospace/i, /mining/i, /water/i];
+                   /aerospace/i, /mining/i, /water/i, /healthcare/i, /defense/i];
   const industry = read("research-industry.html");
   const grid = industry.match(/<div class="deployment-grid">[\s\S]*?<\/div>/)[0];
   const cards = [...grid.matchAll(/<article><b>([^<]+)<\/b>/g)].map((m) => m[1]);
@@ -228,7 +263,8 @@ test("the industrial market set is consistent wherever it is named", () => {
     assert.ok(visible(card[1]).length > 40, "each market names a concrete workload");
   }
   // The stated count and the actual count cannot disagree.
-  const words = { 4: /\bfour\b/i, 5: /\bfive\b/i, 6: /\bsix\b/i, 7: /\bseven\b/i };
+  const words = { 4: /\bfour\b/i, 5: /\bfive\b/i, 6: /\bsix\b/i, 7: /\bseven\b/i,
+                  8: /\beight\b/i, 9: /\bnine\b/i };
   for (const [n, word] of Object.entries(words)) {
     if (Number(n) === cards.length) continue;
     for (const [page, html] of [["research-industry.html", industry], ["research.html", read("research.html")]]) {
