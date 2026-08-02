@@ -1024,7 +1024,7 @@ func worldBufferData(w, h, frame, seed int, d *worldData) [][]worldCell {
 		blit(buf, 0, horizon, []string{string(rim)}, 0)
 		if horizon+1 < h {
 			ramp := []rune("░▒▓▒░  ·  ") // banded surface = the band's "skin"
-			brand := []rune(" R O G E R · A I .fyi ")
+			brand := []rune(" R O G E R · A I .fm ")
 			s := make([]rune, 0, w+len(ramp))
 			for len(s) < w {
 				s = append(s, ramp...)
