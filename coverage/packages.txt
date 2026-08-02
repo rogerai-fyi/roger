@@ -1,5 +1,5 @@
   90.0%  rogerai.fm/roger/v5/cmd/rogerai
-  90.9%  rogerai.fm/roger/v5/cmd/rogerai-broker
+  91.0%  rogerai.fm/roger/v5/cmd/rogerai-broker
   94.7%  rogerai.fm/roger/v5/cmd/tokenizer-sidecar
   93.2%  rogerai.fm/roger/v5/internal/agent
   90.3%  rogerai.fm/roger/v5/internal/audio
