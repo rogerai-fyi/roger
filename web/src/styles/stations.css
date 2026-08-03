@@ -1,0 +1,55 @@
+/* Stations page — the operator's roll-up of every station on their account.
+   Reuses the account chrome (.panel, .stats, .fine, .cmd); this file only adds the
+   per-station row and the small status vocabulary. */
+
+.st-row {
+  border-top: 1px solid var(--rule, #2a2a2a);
+  padding: 0.9rem 0;
+}
+.st-row:first-child { border-top: 0; }
+
+.st-row h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.st-row ul {
+  margin: 0.35rem 0 0.35rem 1.1rem;
+  padding: 0;
+}
+
+.st-row p { margin: 0.2rem 0; }
+
+.st-row pre.cmd {
+  margin: 0.4rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Status vocabulary. ON AIR is the one place the beacon red is earned; every other
+   badge stays mono so a single glance finds the live station. */
+.badge {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  opacity: 0.75;
+}
+.badge.on {
+  color: var(--beacon, #e5484d);
+  opacity: 1;
+}
+.badge.off { opacity: 0.5; }
+
+/* Chain state. A break is an AUDIT signal in the detect-and-record stage, so it is
+   deliberately NOT styled as an error - warn reads as "look at this", not "you are
+   in trouble". */
+.st-row .ok    { opacity: 0.75; }
+.st-row .warn  { color: var(--warn, #d9a441); }
+.st-row .muted { opacity: 0.5; }
