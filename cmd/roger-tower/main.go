@@ -31,6 +31,7 @@ usage:
   roger-tower config validate --config FILE
   roger-tower config print --config FILE [--redact]
   roger-tower doctor --config FILE
+  roger-tower ready  --config FILE     (durable startup preflight)
   roger-tower invite --dir DIR --client KEYHASH [--ttl 15m] [--attempts 5]
   roger-tower admit  --dir DIR --client KEYHASH --id ID --code CODE
   roger-tower attach --dir DIR --station ID --key KEYHASH --models a,b
@@ -74,6 +75,8 @@ func run(args []string, out io.Writer) error {
 		return cmdConfig(args[1:], out)
 	case "doctor":
 		return cmdDoctor(args[1:], out)
+	case "ready":
+		return cmdReady(args[1:], out)
 	case "invite":
 		return cmdInvite(args[1:], out)
 	case "admit":
@@ -180,6 +183,28 @@ func cmdDoctor(args []string, out io.Writer) error {
 	fmt.Fprint(out, rep.String())
 	if !rep.OK {
 		return fmt.Errorf("doctor found %d problem(s)", len(rep.Problems))
+	}
+	return nil
+}
+
+// cmdReady is the durable-startup preflight. It exits non-zero when the Tower must not
+// serve, so it drops straight into a systemd ExecStartPre or a container readiness probe:
+// a Tower that cannot keep its state should refuse rather than serve and lose it.
+func cmdReady(args []string, out io.Writer) error {
+	fs := flag.NewFlagSet("ready", flag.ContinueOnError)
+	fs.SetOutput(out)
+	path := fs.String("config", "", "path to the Tower configuration file")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, err := loadConfig(*path)
+	if err != nil {
+		return err
+	}
+	rep := tower.Ready(c)
+	fmt.Fprint(out, rep.String())
+	if !rep.OK {
+		return fmt.Errorf("not ready: %d dependency problem(s)", len(rep.Problems))
 	}
 	return nil
 }

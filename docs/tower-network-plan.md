@@ -2032,6 +2032,40 @@ rather than reading as covered.
 
 Validation: 28 packages green, `go vet` and `gofmt` clean, `make cover-gate` PASS at 91.6%.
 
+### 2026-08-03 — durable startup: refuse rather than lose state quietly
+
+The last Phase 1 gap. A Tower that cannot keep its state must refuse to serve, not serve
+and discover the loss later.
+
+`storage.profile` is now an explicit contract with two values. **development** is the
+default and says so on every readiness report - identity, admission state and attached
+Stations may be lost on restart. **durable** promises they survive, so `roger-tower ready`
+verifies every dependency that promise rests on and exits non-zero when one is missing.
+
+The spec named six dependency classes rather than saying "check the dependencies", and the
+reason is that each has a different repair. So every problem carries a `Repair` alongside
+its `Detail`, and a test asserts the two are never the same string - a repair that restates
+the fault is not a repair. A missing offline root says to restore the identity volume from
+backup and explains that a standalone network cannot be re-rooted without invalidating
+every admitted client; a network with no operator says to run invite and admit; a missing
+database secret says to mount it or drop the setting.
+
+`ExecStartPre` in the systemd unit runs the preflight, so the unit refuses to start rather
+than crash-looping into an empty state.
+
+**What the durable profile does not yet mean**, stated in the README rather than left to be
+discovered: Tower state still lives in the data directory, not in PostgreSQL. The profile
+verifies the dependencies; moving the state itself is separate work. Claiming durability we
+have not built would be exactly the silent loss this preflight exists to prevent.
+
+One test was corrected rather than the code: it demanded that an empty `profile:` be
+rejected, but YAML cannot distinguish that from the key being absent, and absence
+legitimately means development - so the assertion would have rejected the common case.
+
+Validation: `internal/tower` and `cmd/roger-tower` green, `make cover-gate` PASS at 91.6%.
+Verified against the real binary: a complete durable Tower reports READY, and one whose
+offline root has been removed exits non-zero with the repair named.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in
