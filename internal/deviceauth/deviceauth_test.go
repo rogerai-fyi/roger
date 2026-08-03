@@ -336,3 +336,60 @@ func TestRandomHelpersProduceDistinctValues(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, c, userCodeLen)
 }
+
+// --- the key the approval path binds --------------------------------------
+
+// BoundKey is how approval learns WHICH key to bind. It must report the key recorded at
+// issue, and nothing for a code that was never issued.
+func TestBoundKeyReportsTheKeyRecordedAtIssue(t *testing.T) {
+	f := newTestFlow(t)
+	p, err := f.Start(keyA)
+	require.NoError(t, err)
+
+	got, ok := f.BoundKey(p.UserCode)
+	require.True(t, ok)
+	require.Equal(t, keyA, got)
+
+	_, ok = f.BoundKey("NOSUCHCODE")
+	require.False(t, ok, "an unissued code binds nothing")
+}
+
+// The reaper is what keeps a signed caller from growing broker memory without bound.
+func TestExpiredAndConsumedLoginsAreReaped(t *testing.T) {
+	f := newTestFlow(t)
+
+	expired, err := f.Start(keyA)
+	require.NoError(t, err)
+	consumed, err := f.Start(keyA)
+	require.NoError(t, err)
+	require.NoError(t, f.Approve(consumed.UserCode, "alice"))
+	f.advance(6 * time.Second)
+	_, err = f.Poll(consumed.DeviceCode, keyA) // consumes it
+	require.NoError(t, err)
+
+	f.advance(11 * time.Minute) // past the TTL
+	// Any Start sweeps; the next one must drop both.
+	_, err = f.Start(keyA)
+	require.NoError(t, err)
+
+	_, ok := f.BoundKey(expired.UserCode)
+	require.False(t, ok, "an expired login must be reaped")
+	_, ok = f.BoundKey(consumed.UserCode)
+	require.False(t, ok, "a consumed login must be reaped")
+}
+
+// A live login must survive the sweep - reaping the wrong thing would cancel a person's
+// sign-in mid-flow.
+func TestReapingKeepsLiveLogins(t *testing.T) {
+	f := newTestFlow(t)
+	live, err := f.Start(keyA)
+	require.NoError(t, err)
+
+	f.advance(time.Minute)
+	_, err = f.Start(keyB)
+	require.NoError(t, err)
+
+	got, ok := f.BoundKey(live.UserCode)
+	require.True(t, ok, "a login inside its window must survive the sweep")
+	require.Equal(t, keyA, got)
+}

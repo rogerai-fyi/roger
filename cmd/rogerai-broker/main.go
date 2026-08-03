@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/singleflight"
+	"rogerai.fm/roger/v5/internal/deviceauth"
 	"rogerai.fm/roger/v5/internal/protocol"
 	"rogerai.fm/roger/v5/internal/store"
 )
@@ -49,6 +50,11 @@ const version = "0.1.0"
 var openapiSpec string
 
 type broker struct {
+	// devices is the broker-mediated device-login state machine (see deviceauth.go).
+	// One per process: pending logins are short-lived and in-memory by design, so a
+	// restart simply asks the operator to start a new login.
+	devices *deviceauth.Flow
+
 	mu           sync.Mutex
 	nodes        map[string]protocol.NodeRegistration
 	tunnels      map[string]*nodeTunnel
@@ -505,7 +511,8 @@ const shutdownGrace = 30 * time.Second
 // b.shared (nil in tests) - nor does it serve, so a test can construct + drive it.
 func buildBroker(db store.Store, priv ed25519.PrivateKey, fee, seed float64, lock time.Duration) *broker {
 	b := &broker{
-		nodes: map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
+		devices: newDeviceFlow(),
+		nodes:   map[string]protocol.NodeRegistration{}, tunnels: map[string]*nodeTunnel{},
 		lastSeen: map[string]time.Time{}, confidential: map[string]bool{},
 		private: map[string]bool{}, bandOf: map[string]string{}, tps: map[string]float64{},
 		attestedAt: map[string]time.Time{}, localRegAt: map[string]time.Time{}, localPollAt: map[string]time.Time{}, attest: loadAttestRegistry(),
@@ -666,6 +673,11 @@ func (b *broker) routes() *http.ServeMux {
 	mux.HandleFunc("/auth/apple/web/callback", b.authAppleWebCallback) // web: form_post id_token -> Apple-wallet session
 	mux.HandleFunc("/auth/github/login", b.authGitHubLogin)            // web: 302 to GitHub authorize
 	mux.HandleFunc("/auth/github/callback", b.authGitHubCallback)      // web: code exchange + session cookie
+	mux.HandleFunc("/auth/device/start", b.deviceStart)                // CLI: begin a broker-mediated login (signed)
+	mux.HandleFunc("/auth/device/token", b.deviceToken)                // CLI: poll it (signed)
+	mux.HandleFunc("/auth/device/pending", b.devicePending)            // web: what the approval screen shows
+	mux.HandleFunc("/auth/device/approve", b.deviceApprove)            // web: authorize, binding the CLI key to this account
+	mux.HandleFunc("/auth/device/deny", b.deviceDeny)                  // web: refuse it permanently
 	mux.HandleFunc("/auth/logout", b.authLogout)                       // web: clear the session cookie
 	mux.HandleFunc("/account", b.account)                              // web: account hub (GET profile+balances, PATCH email)
 	mux.HandleFunc("/account/limit", b.accountLimit)                   // GET/PATCH the per-account monthly spend cap (budget limit)

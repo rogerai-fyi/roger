@@ -1954,6 +1954,48 @@ PASS at 91.8% (roger-tower 91.3%, deviceauth 92.3%, protocol 96.6%, store 90.6%,
 towerjoin 96.6%). Web build green; the two failing web tests are another session's
 `company.html` copy, confirmed unrelated by stashing them.
 
+### 2026-08-03 — the auth flow, wired end to end
+
+Understanding the existing flow first turned up the real shape of the problem. There were
+three login paths, and they did not have the same providers: the web had GitHub and Apple,
+iOS had native Apple, and the CLI had GitHub only - reaching github.com directly with a
+client id compiled into the binary.
+
+Now wired, and tested against a live broker over real HTTP:
+
+- **Five broker routes.** `/auth/device/start` and `/auth/device/token` are signed by the
+  CLI; `/auth/device/pending`, `/approve` and `/deny` carry a browser session. The split IS
+  the design: the device code never crosses to the browser, and the session never crosses
+  to the CLI.
+- **The `/device` page**, carrying the approved copy. It leads with what is happening, gives
+  one rule a person can follow, names the three ways a code reaches you from someone else,
+  and labels the deny button "Not me". No alarm styling: someone frightened by a routine
+  sign-in learns to click through warnings.
+- **Both binaries** now sign in through the broker. `roger login` keeps a fallback to the old
+  provider-direct flow so a new CLI still works against a broker deployed before this, and
+  falls back only on a transport failure - a denial or an expiry is the person's decision,
+  not a reason to try another route. `roger-tower login` works at all for the first time,
+  because the brokered flow needs no client id this binary never carried.
+
+**What made Apple-on-CLI possible.** The Apple web flow deliberately binds no owner row -
+"the browser has no device pubkey to bind". But a device approval DOES have one: the CLI's.
+The blocker was that the session carries only a hash of the Apple sub, which is
+irreversible, so approval had nothing to create the owner row from. The session now carries
+the sub as an optional fifth field, and `verifySessionFull` accepts both the four- and
+five-field payloads so sessions minted before this keep working. An older Apple session is
+told to sign out and back in rather than failing opaquely.
+
+Two tests were corrected rather than the code, and one of them mattered: the foreign-key
+rejection test pointed the client package at a new config dir to get a "second device", but
+the identity is cached process-wide, so it was signing with the SAME key and passing while
+proving nothing. It now signs with an explicit second key over real HTTP. The other assumed
+`DeviceLoginPoll` persisted the account; the save lives in `DeviceLoginComplete`, which was
+extracted so the wait-and-store half is testable without the interactive printing.
+
+Validation: 28 packages green, `go vet` and `gofmt` clean, `make cover-gate` PASS at 91.6%
+with `internal/deviceauth` 94.5% and `internal/client` 92.6%. The gate caught deviceauth
+falling to 87.3% when `BoundKey` and the reaper arrived uncovered.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in

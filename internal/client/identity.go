@@ -62,6 +62,16 @@ func UserPubHex() string {
 // is sent as the request body (nil for GET).
 func SignRequest(req *http.Request, body []byte) { signRequest(req, body) }
 
+// SignRequestWith signs as a SPECIFIC key rather than this machine's identity. It exists
+// for tests that must act as a second, genuinely different device: the process-wide key
+// cache means pointing the package at another config dir does NOT yield another key.
+func SignRequestWith(req *http.Request, body []byte, priv ed25519.PrivateKey) {
+	pubHex, ts, sigHex := protocol.SignRequest(priv, req.Method, req.URL.Path, body)
+	req.Header.Set(protocol.HeaderPubkey, pubHex)
+	req.Header.Set(protocol.HeaderTS, itoa(ts))
+	req.Header.Set(protocol.HeaderSig, sigHex)
+}
+
 // signRequest attaches the X-Roger-Pubkey / X-Roger-TS / X-Roger-Sig headers to
 // req, signing over the canonical (method, path, ts, body) string with the local
 // user key. body must be exactly what is sent as the request body (nil for GET).

@@ -1,0 +1,41 @@
+/* Device approval page. Deliberately plain: this is a routine sign-in step, and dressing
+   it as a security incident teaches people to click through warnings. */
+
+.dv-label {
+  display: block;
+  margin: 0.8rem 0 0.35rem;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.dv-input {
+  width: 100%;
+  max-width: 22ch;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 1.35rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--rule, #2a2a2a);
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+}
+
+.dv-facts dd {
+  font-family: var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+}
+
+/* One sentence of caution, sitting where it is read before the buttons. No alarm
+   colour: it informs, it does not frighten. */
+.dv-caution {
+  border-left: 2px solid var(--rule, #2a2a2a);
+  padding-left: 0.8rem;
+  opacity: 0.9;
+}
+
+.dv-deny {
+  background: transparent;
+  border: 1px solid var(--rule, #2a2a2a);
+}
