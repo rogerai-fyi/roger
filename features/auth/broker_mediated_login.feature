@@ -29,6 +29,16 @@
 # approving it - binding the attacker's key to the victim's account. The mitigations below
 # are not optional polish; they are the reason the flow is safe.
 
+# EXECUTABLE COVERAGE, stated so nobody mistakes this file for fully asserted:
+# cmd/rogerai-broker/device_login_bdd_test.go runs it against the real routes, the real
+# state machine and the real client package. Four scenarios are fully driven today - the
+# start payload, provider-agnostic approval, denial, and what the approval screen may
+# read; the rest are undefined steps and remain documentation. They fall into two groups:
+# claims about page WORDING and styling, which need a browser to assert honestly, and
+# CLI-side behaviour better covered where it lives (internal/deviceauth for the state
+# machine, internal/client for storage). The undefined steps are not silently skipped -
+# godog reports them on every run, so the gap stays visible.
+
 Feature: A CLI signs in through RogerAI with any supported provider
   The device code is bound to the requesting key at issue, approval is an explicit act by
   an authenticated human who can see what they are authorizing, and nothing about which

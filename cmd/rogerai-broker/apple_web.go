@@ -50,6 +50,7 @@ func (b *broker) authAppleWebLogin(w http.ResponseWriter, r *http.Request) {
 	rawNonce := randState() + randState() // 32 random bytes (hex), kept server-side via cookie
 	setCrossSiteCookie(w, appleStateCookie, state)
 	setCrossSiteCookie(w, appleNonceCookie, rawNonce)
+	setNextCookie(w, r)
 	q := url.Values{
 		"client_id":     {appleServicesID()},
 		"redirect_uri":  {appleWebRedirectURI()},
@@ -107,7 +108,7 @@ func (b *broker) authAppleWebCallback(w http.ResponseWriter, r *http.Request) {
 	b.setWebSessionFull(w, login, 0, wallet, claims.Sub, exp)
 	clearCookie(w, appleStateCookie)
 	clearCookie(w, appleNonceCookie)
-	http.Redirect(w, r, dashboardURL(), http.StatusFound)
+	http.Redirect(w, r, takeNextCookie(w, r), http.StatusFound)
 }
 
 // appleWebLogin derives the session display login for an Apple WEB session (A2 source

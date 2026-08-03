@@ -83,6 +83,12 @@
 
   function showSignedOut() {
     hide("dvAsk"); hide("dvConfirm");
+    // Carry the code back with us: someone sent to sign in should return to the approval
+    // they were in the middle of, not be dropped on the dashboard having lost it.
+    var typed = normalize(el("dvCode") && el("dvCode").value) || current;
+    var back = "/device.html" + (typed ? "?code=" + encodeURIComponent(typed) : "");
+    var link = el("dvSignInLink");
+    if (link) link.href = "/login.html?next=" + encodeURIComponent(back);
     show("dvSignedOut");
   }
 

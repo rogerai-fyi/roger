@@ -1996,6 +1996,42 @@ Validation: 28 packages green, `go vet` and `gofmt` clean, `make cover-gate` PAS
 with `internal/deviceauth` 94.5% and `internal/client` 92.6%. The gate caught deviceauth
 falling to 87.3% when `BoundKey` and the reaper arrived uncovered.
 
+### 2026-08-03 — finishing the auth flow
+
+Three gaps closed, and one of them was a plain UX break.
+
+**A signed-out approver lost their code.** Someone landing on /device.html without a
+session was sent to sign in and then dropped on the dashboard, having lost the code they
+were about to approve. The web login routes now carry a `next`, and the callback returns
+them there.
+
+That parameter is the classic open-redirect hole - `?next=https://evil.example` and a link
+that genuinely came from us bounces the victim off-site, which is exactly the shape a
+phishing flow wants. So `safeNext` is a strict allowlist rather than a blocklist of known
+tricks: a same-site absolute path only, rejecting protocol-relative `//host` and `/\host`,
+control characters and CRLF injection, anything carrying a scheme or host, and the same
+checks again on the decoded path. The destination rides in its own short-lived cookie
+rather than the OAuth state, so it never leaves our origin and a provider cannot echo back
+an altered one - and it is RE-validated on the way out, because a cookie is client-supplied
+and trusting it merely because we set it once is how these holes get reopened. Anything
+unsafe falls back to the dashboard rather than erroring: a person who was phished should
+still land somewhere sane.
+
+**The TUI had a second, different login.** It still ran the provider-direct flow, so the
+same product offered two sign-ins - which is how someone ends up with two accounts. The
+begin/poll pair now uses the brokered flow, and the handle records which flow started so
+the two can never be crossed.
+
+**The spec was prose-only.** It now runs against the real routes, the real state machine
+and the real client package. Four scenarios are fully driven - the start payload,
+provider-agnostic approval, denial, and what the approval screen may read. Thirty-two
+remain undefined and the feature file says so plainly: they are claims about page wording
+and styling, which need a browser to assert honestly, and CLI-side behaviour better covered
+where it lives. godog reports the undefined steps on every run, so the gap stays visible
+rather than reading as covered.
+
+Validation: 28 packages green, `go vet` and `gofmt` clean, `make cover-gate` PASS at 91.6%.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in
