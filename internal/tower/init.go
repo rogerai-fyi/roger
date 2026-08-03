@@ -42,6 +42,18 @@ type State struct {
 	LocalNetworkID string `json:"local_network_id,omitempty"`
 
 	dir string
+	// st overrides the default file store. Set by WithStore for a durable deployment;
+	// nil means the data directory.
+	st Store
+}
+
+// WithStore returns a copy of this State that persists through the given store. It is how
+// a durable Tower gets database-backed admission state without internal/tower ever
+// linking a driver - the thing its no-egress gate exists to prevent.
+func (s *State) WithStore(st Store) *State {
+	c := *s
+	c.st = st
+	return &c
 }
 
 // Dir is the data directory this state was loaded from. The joined-mode account flow

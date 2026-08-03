@@ -2066,6 +2066,44 @@ Validation: `internal/tower` and `cmd/roger-tower` green, `make cover-gate` PASS
 Verified against the real binary: a complete durable Tower reports READY, and one whose
 offline root has been removed exits non-zero with the repair named.
 
+### 2026-08-03 — persistence, and why the driver lives outside the core
+
+Durable storage now durably stores. `internal/tower` defines a `Store` seam;
+`internal/towerstore` implements it on PostgreSQL.
+
+**The driver is in a separate package deliberately.** `internal/tower` is covered by a gate
+test that fails if any file in it gains the ability to reach the network, and a database
+driver dials. Keeping the driver outside is what lets the standalone core stay provably
+egress-free while still having a database - the same boundary the joined account flow
+needed, and the gate forcing a better architecture than would have been chosen unprompted.
+
+**The concurrency contract carries as much weight as the durability one.** A file-backed
+Tower is serialised by the identity-directory lock, but a database-backed one can have
+several processes, so writes are compare-and-swap on a persisted revision: a write from a
+stale read is REFUSED. Two operators being admitted and one silently vanishing is the
+failure that prevents. Verified against a live PostgreSQL - round trip, stale-write
+refusal, and the whole admission flow surviving a restart with a consumed code still
+consumed.
+
+**The allowlist applies to the database too.** A Tower pointed at a hosted database is not
+the standalone thing it claims to be, so a public host, a public IP, or instance-metadata
+is refused. One exception, made explicitly rather than by loosening the guard: `localhost`
+is accepted as the CONSTANT it is - substituted for the loopback literal, never resolved -
+because every PostgreSQL DSN a person writes says localhost and refusing it would break the
+documented path for everyone. Substituting a literal performs no lookup, so the no-DNS
+property is untouched, and every other hostname is still refused rather than looked up
+(`LOCALHOST` and `localhost.evil.example` included).
+
+The state is one row holding a JSON snapshot plus a revision. That is deliberate for v1:
+the admission state is small, is always read and written whole, and its correctness rests
+on the compare-and-swap rather than on relational structure. Normalising it buys nothing
+until something needs to query inside it.
+
+Validation: 29 packages green, `make cover-gate` PASS at 91.6% with `internal/tower` 90.9%
+and `internal/towerstore` 90.5%. The gate failed this work first at 89.6% and 77.8%, which
+is what forced the store seam and the driver failure paths to be covered rather than
+assumed.
+
 ### Next action queue
 
 1. Founder approves or revises the recommended per-settlement program-cap interpretation in

@@ -22,6 +22,7 @@ import (
 	"rogerai.fm/roger/v5/internal/client"
 	"rogerai.fm/roger/v5/internal/tower"
 	"rogerai.fm/roger/v5/internal/towerjoin"
+	"rogerai.fm/roger/v5/internal/towerstore"
 )
 
 const usage = `roger-tower - the self-hosted RogerAI relay
@@ -458,6 +459,25 @@ func envOr(k, def string) string {
 // across processes: without it two concurrent `admit` runs both read "no operator yet",
 // both write a credential, and both are admitted. The in-process mutex cannot see the
 // other process.
+// storeFor returns the persistence a config asks for. The database store lives in its
+// own package so this binary's standalone core never links a driver - see the no-egress
+// gate in internal/tower.
+func storeFor(c *tower.Config, st *tower.State) (*tower.State, func() error, error) {
+	noop := func() error { return nil }
+	if c == nil || c.Storage == nil || c.Storage.URLFile == "" {
+		return st, noop, nil
+	}
+	raw, err := os.ReadFile(c.Storage.URLFile)
+	if err != nil {
+		return nil, noop, fmt.Errorf("cannot read the database URL file %s: %w", c.Storage.URLFile, err)
+	}
+	pg, err := towerstore.Open(strings.TrimSpace(string(raw)), nil)
+	if err != nil {
+		return nil, noop, err
+	}
+	return st.WithStore(pg), pg.Close, nil
+}
+
 func openDir(dir string) (*tower.State, func() error, error) {
 	if dir == "" {
 		return nil, nil, fmt.Errorf("--dir is required")
